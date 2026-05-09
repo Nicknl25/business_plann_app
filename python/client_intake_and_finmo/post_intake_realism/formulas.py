@@ -484,11 +484,21 @@ def _formula_current_ratio(
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
 ) -> Optional[float]:
+  # Working-capital ratio: (current_assets - cash) / current_liabilities.
+  # Cash is excluded so that smart_funding_policy's equity injection (a
+  # legitimate doctrine pass that inflates cash to cover the loss window)
+  # does not inflate this ratio out of band. AR + inventory + prepaid is
+  # what we actually want to compare against current liabilities here;
+  # cash position has its own dedicated checks (cash_legitimate_q1_q10,
+  # cash_health_operational_not_debt_funded, balance_sheet_growth_plausible).
   if quarter_index is None:
     return None
   current_assets = _finmo_quarter_field(finmo_json, quarter_index, "current_assets")
   current_liabilities = _finmo_quarter_field(finmo_json, quarter_index, "current_liabilities")
-  return _ratio(current_assets, current_liabilities)
+  if current_assets is None or current_liabilities is None:
+    return None
+  cash = _finmo_quarter_field(finmo_json, quarter_index, "cash") or 0.0
+  return _ratio(float(current_assets) - float(cash), current_liabilities)
 
 
 def _formula_quick_ratio(

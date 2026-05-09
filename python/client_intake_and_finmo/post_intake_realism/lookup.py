@@ -105,6 +105,22 @@ def _ensure_realism_check_lookup_table(conn) -> None:
         )
       except Exception:
         pass
+      # Drop distributions_percent_of_net_income and
+      # owners_capital_percent_of_assets — both are outputs of cash-strategy
+      # authority (smart_funding_policy + cash_strategy), not operating-side
+      # checks. Gating against them double-counts the cash pass and trips
+      # adaptation on metrics the cash strategy already owns. Idempotent.
+      for orphaned_metric_key in (
+        "distributions_percent_of_net_income",
+        "owners_capital_percent_of_assets",
+      ):
+        try:
+          cur.execute(
+            f"DELETE FROM {REALISM_CHECK_TABLE_NAME} WHERE metric_key = %s",
+            (orphaned_metric_key,),
+          )
+        except Exception:
+          pass
       cur.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {REALISM_CHECK_TABLE_NAME} (
@@ -755,25 +771,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     deadline_quarter=20,
     notes="Per-year (Y1..Y5) end-of-year total assets / sum-of-year revenue. Cross-check on BS-vs-P&L scale (master-diagnostic Part 9.2). Phase 9 audit Bucket B promoted from year_one_aggregate; pre-fix the formula returned None for year_one_aggregate (it required a quarter_index) so the metric was silently skipped every run.",
   ),
-  _row(
-    metric_key="owners_capital_percent_of_assets",
-    finmo_line_label="Owner's Capital",
-    derivation_formula_key="owners_capital_div_total_assets_per_year",
-    quarter_aggregation="per_year_aggregate",
-    tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
-    tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
-    tolerance_bps_low_confidence=_RATIO_TOL_LOW,
-    tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
-    governs_model_input_lever_id="balance_sheet::Owner's Capital",
-    issue_family="leverage_excess",
-    remediation_family="leverage_excess",
-    primary_levers=["balance_sheet::Owner's Capital", "schedules::Debt Issuance (New Borrowing)"],
-    secondary_levers=["balance_sheet::Other Equity"],
-    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
-    deadline_quarter=20,
-    notes="Per-year (Y1..Y5) end-of-year equity / total assets. Capital-structure cross-check. Phase 9 audit Bucket B promoted from year_one_aggregate; pre-fix the formula was silently skipped (see total_assets_to_revenue note).",
-  ),
+  # owners_capital_percent_of_assets removed — cash-strategy output
+  # (smart_funding_policy controls equity injection sizing); operating-side
+  # gate must not double-count.
   _row(
     metric_key="current_ratio",
     finmo_line_label="Current Ratio",
@@ -793,7 +793,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Current assets / current liabilities. Universal liquidity sanity — stays warn-only because NAICS variation is weak.",
+    notes="(Current assets - cash) / current liabilities. Cash excluded so smart_funding_policy's legitimate equity-injection cash does not inflate the ratio out of band; this gate measures working-capital structure (AR + inventory + prepaid vs current liabilities). Cash position is checked separately by cash_legitimate_q1_q10 / cash_health_operational_not_debt_funded / balance_sheet_growth_plausible.",
   ),
   _row(
     metric_key="quick_ratio",
@@ -896,26 +896,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     deadline_quarter=20,
     notes="Per-year (Y1..Y5) capex / revenue. Cross-check on PPE buildup. Phase 9 audit Bucket B promoted from year_one_aggregate so Y2..Y5 capex bursts are visible.",
   ),
-  _row(
-    metric_key="distributions_percent_of_net_income",
-    finmo_line_label="Distributions",
-    derivation_formula_key="distributions_div_net_income_per_year",
-    quarter_aggregation="per_year_aggregate",
-    applicability_rule_key="skip_when_distributions_zero",
-    tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
-    tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
-    tolerance_bps_low_confidence=_RATIO_TOL_LOW,
-    tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
-    governs_model_input_lever_id="balance_sheet::Distributions",
-    issue_family="funding_adaptation",
-    remediation_family="funding_adaptation",
-    primary_levers=["balance_sheet::Distributions"],
-    secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
-    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
-    deadline_quarter=20,
-    notes="Per-year (Y1..Y5) distributions / net income. Skip per-year when distributions is zero for that year (legitimate for early-stage / pre-profit). Phase 9 audit Bucket B promoted from year_one_aggregate; the per-year skip replaces the prior horizon-wide silent skip.",
-  ),
+  # distributions_percent_of_net_income removed — cash-strategy output
+  # (smart_funding_policy + cash_strategy own distribution sizing); the
+  # operating-side gate must not adapt against it.
 
   # ============================================================
   # Phase 9 Phase D — Universal viability timeline checks.
