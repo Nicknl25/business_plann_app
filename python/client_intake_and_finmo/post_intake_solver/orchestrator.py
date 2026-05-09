@@ -719,19 +719,28 @@ def _remediate_realism_hard_fails(
                   erow["values"] = new_vals
                   restoration_landed_diag["payroll_quarters_overwritten"] = len(payroll_by_q)
                   break
-      # Re-stamp + rebuild FINMO + final realism check.
+      # P1 (Bug #3 fix) — Multi-writer coherence via Option C:
+      # restoration is the LAST writer for revenue drivers. Do NOT
+      # re-run apply_path_stamp_pass after restoration applies its
+      # adjusted_ops, otherwise path stamp re-shapes the row using
+      # stage_q1_anchor_fraction × adjusted_mature, overwriting
+      # restoration's quarter-by-quarter writes (which were already
+      # stage-aware via the path engine inside restoration's lever
+      # ladder).
+      #
+      # ExpressLogix won't regress: its restoration applies $0 of
+      # operating-driver changes (operating model already healthy
+      # post-cascade), so this code path is a no-op for it.
       try:
         with post_intake_sequence_step_scope(
           step_key="post_intake_target_seeking_restoration_landed",
           executor_function="phase_9_restoration_always_lands",
         ):
-          apply_path_stamp_pass(
-            model_input_json=model_input_json,
-            stage_ramp_contract=stage_ramp_contract,
-            adaptive_policy=adaptive_policy_dict,
-            industry_profile=industry_profile_dict,
-            horizon=horizon,
-          )
+          # NOTE: apply_path_stamp_pass intentionally NOT called here.
+          # Restoration's adjusted_ops writes are the final word for
+          # revenue drivers; path-shaping for those rows happens at
+          # earlier post-cascade Gap A stage and is preserved by
+          # restoration's per-driver writes.
           rebuilt_post_restoration = build_python_finmo_json(
             model_input_json=copy.deepcopy(model_input_json),
           )
