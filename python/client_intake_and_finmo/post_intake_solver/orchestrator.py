@@ -454,6 +454,26 @@ def run_target_seeking_orchestrated_system_run(
 
   horizon = int(QUARTER_COUNT)
 
+  # ---------- Phase 9 Phase B Step 0: adaptive policy contract -----------
+  # Single source of truth for stage profile, planning mode, loss-tolerance
+  # window, viability deadlines, allowed adaptation families, and per-driver
+  # client-input authority. Computed deterministically from intake + FINMO
+  # snapshot + (later) industry profile. Every downstream consumer reads
+  # from this contract instead of inferring stage / mode locally.
+  from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+    compute_adaptive_policy,
+  )
+  adaptive_policy = compute_adaptive_policy(
+    business_facts=business_facts or {},
+    ops_json=ops_json or {},
+    financials_json=financials_json or {},
+    financials_year1_json=financials_year1_json or {},
+    finmo_snapshot=applied_finmo_json or {},
+    industry_profile=None,  # Phase E populates this once industry_profile.py lands.
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+  )
+
   # Phase 3.5: build the business_profile that the cohort-matched band
   # resolver consumes. NAICS comes from ops; target_annual_revenue is
   # capacity-driven mature-state revenue (capacity * price * periods *
@@ -957,6 +977,10 @@ def run_target_seeking_orchestrated_system_run(
   next_result["plan_confidence"] = plan_confidence
   if cascade_diagnostics is not None:
     next_result["adaptation_cascade_diagnostics"] = cascade_diagnostics
+  # Phase 9 Phase B: stamp the adaptive policy contract on the result so
+  # downstream consumers (acceptance gate, workbook export, run report)
+  # see the same policy the cascade saw. Single source of truth.
+  next_result["adaptive_policy"] = adaptive_policy.to_dict()
 
   # Phase 7.2: build the debt schedule snapshot from the final state and
   # persist to draft.debt_schedule. The convergence runner did this in
