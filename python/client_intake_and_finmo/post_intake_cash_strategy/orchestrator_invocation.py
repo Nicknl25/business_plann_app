@@ -404,9 +404,14 @@ def run_mode_based_cash_strategy(
   # interest rate from inputs, compute trough by walking finmo rows.
   _INTEREST_DRAG_BUFFER_FACTOR = 1.15  # 15% over-fund to absorb interest drag
 
+  # Phase 9 corrective — find the WORST projected cash quarter across
+  # the entire horizon (not just where pre-action cash bottoms). Every
+  # quarter's required buffer must be funded; the worst quarter's
+  # implied cumulative shortfall sets the total OC/equity injection.
   trough_q: int = 1
   trough_cash: float = float("inf")
   trough_required_buffer: float = 0.0
+  worst_cumulative_shortfall: float = 0.0
   for q_pre in range(1, max(1, int(horizon)) + 1):
     row_pre = rows_by_q.get(q_pre) or {}
     cash_pre = _safe_float(row_pre.get("cash"))
@@ -417,16 +422,30 @@ def run_mode_based_cash_strategy(
       trough_cash = cash_pre
       trough_q = q_pre
       trough_required_buffer = buf_pre
+    # Cumulative shortfall at this quarter: how much injection would be
+    # needed BY this quarter to keep ending_cash >= buffer.
+    shortfall_at_q = max(0.0, buf_pre - cash_pre)
+    if shortfall_at_q > worst_cumulative_shortfall:
+      worst_cumulative_shortfall = shortfall_at_q
 
-  # Total deficit to fund (with interest drag buffer) — distributed
-  # across Q1..trough_q. Per-quarter slice = total_deficit / num_deficit_qs.
+  # Total deficit to fund — sized at the worst-cumulative-shortfall
+  # quarter (not just trough). Distributed across the full horizon as
+  # cumulative writes (Q1..Q20), each quarter's cumulative balance
+  # ramps to cover that quarter's projected shortfall.
   total_deficit_to_fund = 0.0
   per_quarter_funding_slice = 0.0
-  if trough_cash < trough_required_buffer:
-    total_deficit_to_fund = max(
-      0.0, (trough_required_buffer - trough_cash) * _INTEREST_DRAG_BUFFER_FACTOR
+  if worst_cumulative_shortfall > 0.0:
+    total_deficit_to_fund = worst_cumulative_shortfall * _INTEREST_DRAG_BUFFER_FACTOR
+    # Distribute across the full deficit window (every quarter where
+    # cash projected below buffer). Non-deficit quarters contribute 0.
+    deficit_quarter_count = sum(
+      1 for q_pre in range(1, max(1, int(horizon)) + 1)
+      if (
+        _safe_float((rows_by_q.get(q_pre) or {}).get("cash"))
+        < buffer_months * max(_quarter_operating_expense_base(rows_by_q.get(q_pre) or {}) / 3.0, 1.0)
+      )
     )
-    deficit_quarters = max(1, int(trough_q))
+    deficit_quarters = max(1, int(deficit_quarter_count))
     per_quarter_funding_slice = total_deficit_to_fund / float(deficit_quarters)
 
   cumulative_funding_applied: float = 0.0
@@ -446,10 +465,14 @@ def run_mode_based_cash_strategy(
     # cannot see since we rebuild only once at the end).
     effective_cash = cash + cumulative_funding_applied
 
-    # Phase 9 Gap D: in deficit quarters (Q1..trough_q), ensure each
-    # gets its cumulative-trough slice. Beyond trough_q, only fund if
-    # effective_cash dips below buffer (post-trough recovery).
-    if q <= trough_q and per_quarter_funding_slice > 0.0:
+    # Phase 9 corrective — every quarter where pre-action cash dips
+    # below buffer gets the per-quarter slice (sized to cover the
+    # worst projected cumulative shortfall across the full horizon).
+    # Quarters that don't dip get a normal max-of-buffer-or-slice gap.
+    cash_pre_q = _safe_float((rows_by_q.get(q) or {}).get("cash"))
+    monthly_pre_q = max(_quarter_operating_expense_base(rows_by_q.get(q) or {}) / 3.0, 1.0)
+    buffer_pre_q = buffer_months * monthly_pre_q
+    if cash_pre_q < buffer_pre_q and per_quarter_funding_slice > 0.0:
       funding_gap = max(per_quarter_funding_slice, required_buffer - effective_cash)
     else:
       funding_gap = max(0.0, required_buffer - effective_cash)
