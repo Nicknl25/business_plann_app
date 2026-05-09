@@ -3184,14 +3184,51 @@ def _build_model_input_overlay(
   )
   intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
   tax_rate_forecast: Optional[float] = intake_tax_rate
-  if not tax_rate_forecast:
+  if not tax_rate_forecast or tax_rate_forecast <= 0.0:
     envelope_value = _envelope_default("expenses::Taxes")
-    if envelope_value is not None:
+    if envelope_value is not None and float(envelope_value) > 0.0:
       tax_rate_forecast = float(envelope_value)
       baseline_substitution_provenance["effective_tax_rate"] = {
         "calibration_source": "driver_movement_envelope",
         "default_value": tax_rate_forecast,
       }
+  if not tax_rate_forecast or tax_rate_forecast <= 0.0:
+    # Phase 9 doctrine fallback: per-quarter taxes = max(0, EBITDA -
+    # Interest - Depreciation) × effective_tax_rate from industry_profile.
+    # The driver-movement envelope sources from the same NAICS cascade
+    # but collapses to 0 when applicability resolves False or when the
+    # cascade returns no_coverage. Without a non-zero rate, FINMO's
+    # Taxes row stays 0 across all quarters even when pre_tax_income is
+    # positive, distorting Net Income / Retained Earnings / Cash.
+    try:
+      from client_intake_and_finmo.post_intake_adaptive_planning.industry_profile import (  # type: ignore
+        get_industry_profile,
+      )
+      _profile = get_industry_profile(
+        naics_6=naics_6,
+        stage_profile=_stage or "operational",
+        target_annual_revenue=float(revenue_total_year1) if revenue_total_year1 else None,
+        business_profile=_business_profile,
+      )
+      _band = (_profile.bands or {}).get("effective_tax_rate") if _profile else None
+      _benchmark = getattr(_band, "benchmark_target", None) if _band is not None else None
+      if _benchmark is not None and float(_benchmark) > 0.0:
+        tax_rate_forecast = float(_benchmark)
+        baseline_substitution_provenance["effective_tax_rate"] = {
+          "calibration_source": "industry_profile_band",
+          "default_value": tax_rate_forecast,
+        }
+    except Exception:
+      pass
+  if not tax_rate_forecast or tax_rate_forecast <= 0.0:
+    # Final doctrinal floor: US federal corporate rate (TCJA 2017, 21%).
+    # Used when both the envelope and the industry-profile band have no
+    # coverage for this NAICS.
+    tax_rate_forecast = 0.21
+    baseline_substitution_provenance["effective_tax_rate"] = {
+      "calibration_source": "federal_corporate_rate_doctrinal_floor",
+      "default_value": tax_rate_forecast,
+    }
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -3212,7 +3249,16 @@ def _build_model_input_overlay(
     elif label == "Interest Rate":
       intake_stub_value = round(intake_interest_rate_stub, 6)
     elif label == "Taxes":
-      intake_stub_value = round(_safe_ratio((financials_json or {}).get("taxes_percent")) or base_stub_value or 0.0, 6)
+      # Stub period uses the same doctrinal effective_tax_rate as live
+      # quarters; tax_rate_forecast already cascades intake → envelope →
+      # industry_profile → federal corporate floor.
+      intake_stub_value = round(
+        _safe_ratio((financials_json or {}).get("taxes_percent"))
+        or float(tax_rate_forecast or 0.0)
+        or base_stub_value
+        or 0.0,
+        6,
+      )
     values: List[float] = []
     for slot in slots:
       revenue = _safe_float(slot.get("revenue")) or 0.0
