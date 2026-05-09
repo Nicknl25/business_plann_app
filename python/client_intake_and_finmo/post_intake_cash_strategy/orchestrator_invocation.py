@@ -38,10 +38,22 @@ _MODE_DISTRIBUTION_FRACTION = {
   "shareholder_return": 0.70,
 }
 
-_MODE_FUNDING_LEVER_PRIORITY = {
-  "preserve_cash": ("owners_capital", "debt_issuance"),
-  "balanced": ("debt_issuance", "owners_capital"),
-  "shareholder_return": ("debt_issuance", "owners_capital"),
+# Phase 9 corrective: mode preference is now the ORDER of exploration
+# WITHIN allowed sources, not a gate on what's allowed. The gate is
+# _cash_strategy_funding_source_policy() (post_intake_cash/runner.py:1162),
+# which excludes debt_issuance when chronic gaps + material drag exist
+# and excludes other_equity when the situation doesn't justify outside
+# investor capital. All three modes now include other_equity in their
+# preference list so the smart policy can route to it when appropriate.
+_MODE_FUNDING_LEVER_PREFERENCE_ORDER = {
+  # preserve_cash: own equity first (lowest leverage drag), then outside
+  # equity if chronic, then debt only as last bridge.
+  "preserve_cash": ("owners_capital", "other_equity", "debt_issuance"),
+  # balanced: debt for short bridges, then owner equity, then outside.
+  "balanced": ("debt_issuance", "owners_capital", "other_equity"),
+  # shareholder_return: same lever order as balanced; mode affects
+  # distribution fraction not funding source.
+  "shareholder_return": ("debt_issuance", "owners_capital", "other_equity"),
 }
 
 
@@ -71,9 +83,12 @@ class CashStrategyResult:
   total_debt_issued: float = 0.0
   total_distributions: float = 0.0
   total_owners_capital_added: float = 0.0
+  total_other_equity_added: float = 0.0
   status: str = "completed"
   reason: Optional[str] = None
   applied_updates_count: int = 0
+  funding_source_policy: Dict[str, Any] = field(default_factory=dict)
+  effective_funding_priority: List[str] = field(default_factory=list)
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -86,9 +101,12 @@ class CashStrategyResult:
       "total_debt_issued": self.total_debt_issued,
       "total_distributions": self.total_distributions,
       "total_owners_capital_added": self.total_owners_capital_added,
+      "total_other_equity_added": self.total_other_equity_added,
       "status": self.status,
       "reason": self.reason,
       "applied_updates_count": self.applied_updates_count,
+      "funding_source_policy": dict(self.funding_source_policy),
+      "effective_funding_priority": list(self.effective_funding_priority),
     }
 
 
@@ -117,7 +135,7 @@ def _normalize_cash_strategy_mode(adaptive_policy: Optional[Dict[str, Any]]) -> 
     return "preserve_cash"
   if norm in ("aggressive",):
     return "shareholder_return"
-  if norm in _MODE_FUNDING_LEVER_PRIORITY:
+  if norm in _MODE_FUNDING_LEVER_PREFERENCE_ORDER:
     return norm
   return "balanced"
 
@@ -235,16 +253,142 @@ def run_mode_based_cash_strategy(
 
   debt_issuance_lever = _resolve_lever_id("debt_issuance")
   owners_capital_lever = _resolve_lever_id("owners_capital")
+  other_equity_lever = _resolve_lever_id("other_equity")
   distributions_lever = _resolve_lever_id("distributions")
+
+  # Map driver-key -> resolved lever_id so we can look up by either.
+  _DRIVER_TO_LEVER: Dict[str, str] = {
+    "debt_issuance": debt_issuance_lever,
+    "owners_capital": owners_capital_lever,
+    "other_equity": other_equity_lever,
+  }
+  _LEVER_TO_DRIVER: Dict[str, str] = {
+    v: k for k, v in _DRIVER_TO_LEVER.items() if v
+  }
 
   per_quarter_decisions: List[CashQuarterDecision] = []
   exact_updates: List[Dict[str, Any]] = []
   total_debt_issued = 0.0
   total_distributions = 0.0
   total_owners_capital_added = 0.0
+  total_other_equity_added = 0.0
 
-  funding_priority = _MODE_FUNDING_LEVER_PRIORITY.get(cash_strategy_mode, ("debt_issuance", "owners_capital"))
+  preference_order = _MODE_FUNDING_LEVER_PREFERENCE_ORDER.get(
+    cash_strategy_mode, ("debt_issuance", "owners_capital", "other_equity")
+  )
   distribution_fraction = _MODE_DISTRIBUTION_FRACTION.get(cash_strategy_mode, 0.30)
+
+  # Phase 9 corrective — inline doctrine of the smart funding source
+  # policy (post_intake_cash/runner.py:1162). The function there relies
+  # on runtime-bound _safe_float that's only injected via the legacy
+  # convergence-runner bind path, so we re-compute the same decisions
+  # here using local _safe_float. Same logic, same thresholds, same
+  # output schema — death-spiral prevention via:
+  #   chronic_gap (>= 5 deficit quarters) AND debt_drag_material
+  #   (max_interest_rate >= 3%)  -> EXCLUDE debt_issuance
+  #   NOT (chronic_gap OR leverage_material max_debt_ratio >= 55%)
+  #   -> EXCLUDE other_equity (reserved for outside-investor justified)
+  funding_policy: Dict[str, Any] = {}
+  funding_policy_allowed_levers: List[str] = []
+  funding_policy_excluded_levers: List[str] = []
+
+  residual_gap_quarters: List[int] = []
+  debt_ratios_seen: List[float] = []
+  for q_pol in range(1, max(1, int(horizon)) + 1):
+    row_pol = rows_by_q.get(q_pol) or {}
+    cash_pol = _safe_float(row_pol.get("cash"))
+    qopex_pol = _quarter_operating_expense_base(row_pol)
+    monthly_pol = max(qopex_pol / 3.0, 1.0)
+    buf_pol = buffer_months * monthly_pol
+    if cash_pol < buf_pol:
+      residual_gap_quarters.append(q_pol)
+    total_debt_pol = (
+      _safe_float(row_pol.get("total_debt"))
+      or _safe_float(row_pol.get("long_term_debt"))
+      or 0.0
+    )
+    total_assets_pol = (
+      _safe_float(row_pol.get("total_assets"))
+      or _safe_float(row_pol.get("assets"))
+      or 0.0
+    )
+    if total_assets_pol > 0:
+      debt_ratios_seen.append(float(total_debt_pol) / float(total_assets_pol))
+
+  gap_count = len(set(residual_gap_quarters))
+  chronic_gap = bool(gap_count >= 5)
+  max_interest_rate = float(interest_rate or _DEFAULT_INTEREST_RATE)
+  debt_drag_material = bool(max_interest_rate >= 0.03)
+  max_debt_ratio = max(debt_ratios_seen) if debt_ratios_seen else 0.0
+  leverage_material = bool(max_debt_ratio >= 0.55)
+  external_equity_justified = bool(chronic_gap or leverage_material)
+
+  funding_policy_allowed_levers = [
+    debt_issuance_lever, owners_capital_lever, other_equity_lever
+  ]
+  funding_policy_allowed_levers = [x for x in funding_policy_allowed_levers if x]
+  if chronic_gap and debt_drag_material and debt_issuance_lever in funding_policy_allowed_levers:
+    funding_policy_allowed_levers = [
+      x for x in funding_policy_allowed_levers if x != debt_issuance_lever
+    ]
+    funding_policy_excluded_levers.append(debt_issuance_lever)
+  if not external_equity_justified and other_equity_lever in funding_policy_allowed_levers:
+    funding_policy_allowed_levers = [
+      x for x in funding_policy_allowed_levers if x != other_equity_lever
+    ]
+    funding_policy_excluded_levers.append(other_equity_lever)
+
+  policy_reasons: List[str] = []
+  if debt_issuance_lever and debt_issuance_lever in funding_policy_excluded_levers:
+    policy_reasons.append(
+      "Chronic liquidity gaps with material debt interest must not be solved with new debt because FINMO interest drag can reopen later cash-buffer violations."
+    )
+  else:
+    policy_reasons.append(
+      "Debt issuance remains available because the liquidity gap is not chronic or interest drag is not material."
+    )
+  if other_equity_lever and other_equity_lever in funding_policy_excluded_levers:
+    policy_reasons.append(
+      "Other Equity is reserved for outside-investor funding and is only available for chronic liquidity gaps or materially leveraged capital structures."
+    )
+  elif other_equity_lever and other_equity_lever in funding_policy_allowed_levers:
+    policy_reasons.append(
+      "Other Equity is available because the gap is chronic or leverage is material enough to justify outside-investor funding."
+    )
+
+  funding_policy = {
+    "contract_version": "cash_strategy_funding_source_policy_v1",
+    "allowed_funding_source_lever_ids": list(funding_policy_allowed_levers),
+    "excluded_funding_source_lever_ids": list(funding_policy_excluded_levers),
+    "chronic_liquidity_gap": chronic_gap,
+    "residual_gap_quarter_count": gap_count,
+    "max_interest_rate": round(float(max_interest_rate), 6),
+    "max_debt_ratio": round(float(max_debt_ratio), 2),
+    "debt_interest_drag_material": debt_drag_material,
+    "external_equity_justified": external_equity_justified,
+    "external_equity_semantics": (
+      "Other Equity means outside investor capital such as angel, VC, silent partners, crowdfunding, "
+      "or another investor ownership stake. It is not routine working-capital funding."
+    ),
+    "owner_capital_semantics": "Owner's Capital means owner/founder/member/insider capital contributions.",
+    "policy_reason": " ".join(policy_reasons),
+  }
+
+  # Build the effective funding-source order: walk preference_order
+  # (mode-driven), keep only drivers whose lever_id is in
+  # funding_policy_allowed_levers (smart-policy gate). This is the
+  # actual "mode chooses order within allowed sources" wiring the
+  # corrective directive specified.
+  effective_funding_priority: List[str] = []
+  for driver_key in preference_order:
+    lever_id = _DRIVER_TO_LEVER.get(driver_key, "")
+    if lever_id and lever_id in funding_policy_allowed_levers:
+      effective_funding_priority.append(driver_key)
+  if not effective_funding_priority:
+    # Smart policy excluded everything — fall back to owners_capital
+    # (the safest residual lever; never excluded by the smart policy).
+    if owners_capital_lever:
+      effective_funding_priority = ["owners_capital"]
 
   # Phase 9 Gap D — Cumulative cash trough funding.
   #
@@ -314,35 +458,35 @@ def run_mode_based_cash_strategy(
     decisions: Dict[str, float] = {}
     notes: List[str] = []
 
-    # 1) Close funding gap with mode-specific lever priority.
-    if funding_gap > 0.0:
+    # 1) Close funding gap walking effective_funding_priority (mode
+    # preference filtered through smart-policy allowed sources).
+    # Universal: same logic for any business; smart policy gates
+    # debt_issuance when chronic + drag, gates other_equity when not
+    # justified, owners_capital is always available.
+    if funding_gap > 0.0 and effective_funding_priority:
       remaining = float(funding_gap)
-      for driver in funding_priority:
+      for driver in effective_funding_priority:
         if remaining <= 1.0:
           break
-        if driver == "debt_issuance" and debt_issuance_lever:
-          decisions["debt_issuance"] = round(remaining, 2)
-          total_debt_issued += remaining
-          cumulative_funding_applied += remaining
-          exact_updates.append({
-            "lever_id": debt_issuance_lever,
-            "quarter_index": q,
-            "exact_value": round(remaining, 2),
-          })
-          notes.append(f"funded_gap_via_debt:{round(remaining, 0)}")
-          remaining = 0.0
-        elif driver == "owners_capital" and owners_capital_lever and cash_strategy_mode == "preserve_cash":
-          # preserve_cash prefers owners_capital first to avoid leverage.
-          decisions["owners_capital"] = round(remaining, 2)
-          total_owners_capital_added += remaining
-          cumulative_funding_applied += remaining
-          exact_updates.append({
-            "lever_id": owners_capital_lever,
-            "quarter_index": q,
-            "exact_value": round(remaining, 2),
-          })
-          notes.append(f"funded_gap_via_owners_capital:{round(remaining, 0)}")
-          remaining = 0.0
+        lever_id = _DRIVER_TO_LEVER.get(driver, "")
+        if not lever_id:
+          continue
+        amount = round(float(remaining), 2)
+        decisions[driver] = amount
+        cumulative_funding_applied += float(remaining)
+        if driver == "debt_issuance":
+          total_debt_issued += float(remaining)
+        elif driver == "owners_capital":
+          total_owners_capital_added += float(remaining)
+        elif driver == "other_equity":
+          total_other_equity_added += float(remaining)
+        exact_updates.append({
+          "lever_id": lever_id,
+          "quarter_index": q,
+          "exact_value": amount,
+        })
+        notes.append(f"funded_gap_via_{driver}:{round(remaining, 0)}")
+        remaining = 0.0
 
     # 2) Distribute surplus per mode (NEVER raises debt to fund payouts).
     if surplus > 0.0 and ebitda > 0.0 and distribution_fraction > 0.0 and distributions_lever:
@@ -403,9 +547,12 @@ def run_mode_based_cash_strategy(
         total_debt_issued=total_debt_issued,
         total_distributions=total_distributions,
         total_owners_capital_added=total_owners_capital_added,
+        total_other_equity_added=total_other_equity_added,
         status="failed",
         reason=f"{type(exc).__name__}: {str(exc)[:300]}",
         applied_updates_count=0,
+        funding_source_policy=dict(funding_policy),
+        effective_funding_priority=list(effective_funding_priority),
       )
 
   result = CashStrategyResult(
@@ -418,8 +565,11 @@ def run_mode_based_cash_strategy(
     total_debt_issued=round(total_debt_issued, 2),
     total_distributions=round(total_distributions, 2),
     total_owners_capital_added=round(total_owners_capital_added, 2),
+    total_other_equity_added=round(total_other_equity_added, 2),
     status="completed",
     applied_updates_count=len(exact_updates),
+    funding_source_policy=dict(funding_policy),
+    effective_funding_priority=list(effective_funding_priority),
   )
   # Phase 9 Gap D — surface the trough diagnostic so the acceptance gate
   # and run report see how the funding was sized.
