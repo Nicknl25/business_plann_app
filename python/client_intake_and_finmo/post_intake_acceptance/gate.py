@@ -398,6 +398,200 @@ def _check_cash_legitimate(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, 
   }
 
 
+# ----------------------------------------------------------------------------
+# Phase 9 Phase G — six new acceptance criteria measuring business viability,
+# not just pipeline integrity. Phase 8 verified that the orchestrator wrote
+# fields correctly; Phase G verifies that the assembled plan is sellable.
+# ----------------------------------------------------------------------------
+
+_NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11 = 0.02  # 2pp minimum recovery
+_INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT = 0.05  # 5% of revenue (NAICS-tunable later)
+_BALANCE_SHEET_GROWTH_RATIO_THRESHOLD = 5.0  # cash/AR/inv may grow up to 5x opex
+
+
+def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G1 — Q11 NI margin >= 0 AND Q11 > Q5 by the doctrine floor."""
+  rows = _quarter_rows_by_index(finmo_json or {})
+  q5 = rows.get(5) or {}
+  q11 = rows.get(11) or {}
+  q5_ni = _safe_float(q5.get("net_income"))
+  q5_rev = _safe_float(q5.get("revenue"))
+  q11_ni = _safe_float(q11.get("net_income"))
+  q11_rev = _safe_float(q11.get("revenue"))
+  if q5_rev is None or q11_rev is None or q5_rev <= 0 or q11_rev <= 0:
+    return False, {
+      "reason": "missing_q5_or_q11_revenue",
+      "q5_revenue": q5_rev,
+      "q11_revenue": q11_rev,
+    }
+  q5_margin = (q5_ni or 0.0) / float(q5_rev)
+  q11_margin = (q11_ni or 0.0) / float(q11_rev)
+  delta = q11_margin - q5_margin
+  passed = (q11_margin >= 0.0) and (delta >= _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11)
+  return passed, {
+    "q5_ni_margin": round(q5_margin, 4),
+    "q11_ni_margin": round(q11_margin, 4),
+    "q5_to_q11_delta": round(delta, 4),
+    "min_required_delta": _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11,
+    "min_required_q11_margin": 0.0,
+  }
+
+
+def _check_cash_health_operational_not_debt_funded(
+  finmo_json: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G2 — interest expense / revenue at Q11 must be under industry-typical
+  threshold (default 5%). Catches plans that fund growth purely with debt at
+  ratios that would consume operating profit."""
+  rows = _quarter_rows_by_index(finmo_json or {})
+  q11 = rows.get(11) or {}
+  interest = _safe_float(q11.get("debt_interest_expense"))
+  if interest is None:
+    interest = _safe_float(q11.get("interest_expense")) or 0.0
+  revenue = _safe_float(q11.get("revenue"))
+  if revenue is None or revenue <= 0:
+    return False, {"reason": "missing_q11_revenue", "interest_q11": interest}
+  ratio = float(interest or 0.0) / float(revenue)
+  passed = ratio <= _INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT
+  return passed, {
+    "q11_interest": round(float(interest or 0.0), 2),
+    "q11_revenue": round(float(revenue), 2),
+    "interest_revenue_ratio": round(ratio, 4),
+    "threshold": _INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT,
+  }
+
+
+def _check_cascade_exercised_or_documented(
+  planning_run: Dict[str, Any],
+  planning_run_json: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G3 — tier > 0 lands fine on their own (cascade exercised); tier-0
+  lands require non-vacuous justification that real bands were consulted, not
+  papered with NAICS defaults."""
+  cascade_tier = planning_run.get("cascade_landed_tier")
+  try:
+    tier_int = int(cascade_tier) if cascade_tier is not None else None
+  except Exception:
+    tier_int = None
+  cascade_diag = planning_run_json.get("adaptation_cascade") or planning_run_json.get(
+    "target_seeking_diagnostics", {}
+  ).get("adaptation_cascade") or {}
+  if tier_int is not None and tier_int > 0:
+    return True, {
+      "cascade_landed_tier": tier_int,
+      "tier_exercised": True,
+    }
+  # Tier 0 land — require evidence Phase 3 calibration was real.
+  attempts = (cascade_diag or {}).get("tier_attempts") or []
+  realism_memo = planning_run_json.get("realism_memo_json") or {}
+  band_sources = []
+  for entry in (realism_memo.get("results") or []):
+    if isinstance(entry, dict):
+      bs = entry.get("band_source")
+      if bs:
+        band_sources.append(str(bs))
+  has_calibrated = any("phase_3_calibrated" in bs for bs in band_sources)
+  passed = bool(has_calibrated) and bool(planning_run.get("plan_confidence"))
+  return passed, {
+    "cascade_landed_tier": tier_int,
+    "phase_3_calibrated_bands_present": has_calibrated,
+    "band_source_distinct_count": len(set(band_sources)),
+    "tier_attempts_recorded": len(attempts),
+  }
+
+
+def _check_phase_3_calibrated_bands_consulted(
+  realism_memo: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G4 — at least one metric must have band_source containing
+  'phase_3_calibrated' so we know cohort/GPT calibration actually flowed
+  through the realism gate."""
+  results = (realism_memo or {}).get("results") or []
+  calibrated_metrics: List[str] = []
+  naics_baseline_metrics: List[str] = []
+  for r in results:
+    if not isinstance(r, dict):
+      continue
+    bs = str(r.get("band_source") or "").lower()
+    metric = str(r.get("metric_key") or "")
+    if "phase_3_calibrated" in bs or "cohort" in bs:
+      calibrated_metrics.append(metric)
+    elif "naics" in bs:
+      naics_baseline_metrics.append(metric)
+  passed = len(calibrated_metrics) > 0
+  return passed, {
+    "calibrated_band_metric_count": len(calibrated_metrics),
+    "naics_baseline_only_metric_count": len(naics_baseline_metrics),
+    "examples_calibrated": calibrated_metrics[:5],
+  }
+
+
+def _check_balance_sheet_growth_plausible(
+  finmo_json: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G5 — cash / AR / inventory at Q20 must not be more than 5x
+  the Q20 quarterly operating expense. Catches plans where cash accumulates
+  absurdly because surplus distribution / capex absorption isn't working."""
+  rows = _quarter_rows_by_index(finmo_json or {})
+  q20 = rows.get(20) or {}
+  if not q20:
+    return False, {"reason": "missing_q20_row"}
+  cash = _safe_float(q20.get("cash")) or 0.0
+  ar = _safe_float(q20.get("accounts_receivable")) or 0.0
+  inv = _safe_float(q20.get("inventory")) or 0.0
+  payroll = _safe_float(q20.get("payroll")) or 0.0
+  rent = _safe_float(q20.get("lease_rent")) or 0.0
+  cogs = _safe_float(q20.get("cost_of_goods_sold")) or 0.0
+  ga = _safe_float(q20.get("general_and_administrative")) or 0.0
+  quarter_opex = max(payroll + rent + cogs + ga, 1.0)
+  cash_ratio = cash / quarter_opex
+  ar_ratio = ar / quarter_opex
+  inv_ratio = inv / quarter_opex
+  passed = (
+    cash_ratio <= _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD
+    and ar_ratio <= _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD
+    and inv_ratio <= _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD
+  )
+  return passed, {
+    "q20_cash_to_quarter_opex": round(cash_ratio, 2),
+    "q20_ar_to_quarter_opex": round(ar_ratio, 2),
+    "q20_inventory_to_quarter_opex": round(inv_ratio, 2),
+    "threshold": _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD,
+  }
+
+
+def _check_viability_timeline_landed(
+  realism_memo: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G6 — all 6 universal viability timeline checks must pass.
+  This is the doctrine's universal viability rule encoded as gate criteria."""
+  expected_metrics = {
+    "ebitda_positive_by_q11",
+    "ebitda_recovery_trend_q5_q11",
+    "loss_window_funded_through_q5",
+    "no_post_recovery_relapse_q11_q20",
+    "gross_margin_supports_ebitda_recovery",
+    "fixed_cost_burden_reduced_or_scaled_by_q11",
+  }
+  results = (realism_memo or {}).get("results") or []
+  found: Dict[str, str] = {}
+  for r in results:
+    if not isinstance(r, dict):
+      continue
+    metric = str(r.get("metric_key") or "")
+    if metric in expected_metrics:
+      found[metric] = str(r.get("status") or "")
+  missing = sorted(expected_metrics - set(found.keys()))
+  failed = [m for m, s in found.items() if s and "fail" in s.lower()]
+  passed = (len(missing) == 0) and (len(failed) == 0)
+  return passed, {
+    "viability_timeline_metrics_found": sorted(found.keys()),
+    "viability_timeline_metrics_missing": missing,
+    "viability_timeline_metrics_failed": failed,
+    "expected_metric_count": len(expected_metrics),
+  }
+
+
 def _check_current_assets_positive(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
   rows = _quarter_rows_by_index(finmo_json)
   offending: List[Dict[str, Any]] = []
@@ -504,6 +698,25 @@ def verify_run_acceptance(
   passed, detail = _check_current_assets_positive(finmo_json)
   _record("current_assets_positive_q1_q10", passed, detail)
 
+  # Phase 9 Phase G — six new viability criteria.
+  passed, detail = _check_net_income_trajectory_viable(finmo_json)
+  _record("net_income_trajectory_viable", passed, detail)
+
+  passed, detail = _check_cash_health_operational_not_debt_funded(finmo_json)
+  _record("cash_health_operational_not_debt_funded", passed, detail)
+
+  passed, detail = _check_cascade_exercised_or_documented(planning_run, planning_run_json)
+  _record("cascade_exercised_or_documented", passed, detail)
+
+  passed, detail = _check_phase_3_calibrated_bands_consulted(realism_memo)
+  _record("phase_3_calibrated_bands_consulted", passed, detail)
+
+  passed, detail = _check_balance_sheet_growth_plausible(finmo_json)
+  _record("balance_sheet_growth_plausible", passed, detail)
+
+  passed, detail = _check_viability_timeline_landed(realism_memo)
+  _record("viability_timeline_landed", passed, detail)
+
   failed_checks = [c["name"] for c in checks if not c["passed"]]
   verdict: Dict[str, Any] = {
     "passed": len(failed_checks) == 0,
@@ -523,7 +736,7 @@ def verify_run_acceptance(
     "draft_id": d_id,
     "planning_run_id": resolved_run_id or None,
     "checked_at": _now_iso(),
-    "gate_version": "phase_8_v1",
+    "gate_version": "phase_9_g_v1",
   }
 
   if resolved_run_id:
