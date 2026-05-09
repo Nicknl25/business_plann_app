@@ -104,6 +104,122 @@ def _build_minimal_convergence_context(
   return context
 
 
+def _validate_composite_revenue_against_contract(
+  *,
+  model_input_json: Dict[str, Any],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Phase 9 Phase C4 — observation-only composite revenue trajectory check.
+
+  Reads model_input revenue rows (per-product Capacity / Unit Price /
+  Utilization), multiplies them per quarter into a composite revenue
+  trajectory, and compares each quarter's QoQ growth to the contract's
+  revenue_qoq_target / revenue_qoq_max envelope. Records per-quarter
+  in/out-of-band status so the Phase D adaptation cascade has a trace
+  to route revenue_achievability remediations from. Does NOT mutate
+  model_input. Auto-repair is Phase D's responsibility.
+  """
+  if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
+    return {"status": "skipped", "reason": "missing_stage_ramp_contract"}
+  rows = stage_ramp_contract.get("quarter_ramp_grid")
+  if not isinstance(rows, list) or not rows:
+    return {"status": "skipped", "reason": "missing_quarter_ramp_grid"}
+
+  contract_by_q: Dict[int, Dict[str, Any]] = {}
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    qi = _safe_float(row.get("quarter_index"))
+    if qi is None:
+      continue
+    contract_by_q[int(round(qi))] = row
+
+  sections = (model_input_json or {}).get("sections")
+  if not isinstance(sections, dict):
+    return {"status": "skipped", "reason": "missing_model_input_sections"}
+  rev_rows = sections.get("revenue")
+  if not isinstance(rev_rows, list) or not rev_rows:
+    return {"status": "skipped", "reason": "missing_revenue_rows"}
+
+  slots: Dict[str, Dict[str, List[float]]] = {}
+  for row in rev_rows:
+    if not isinstance(row, dict):
+      continue
+    driver = str(row.get("driver") or "").strip().lower()
+    if driver not in {"capacity", "unit price", "utilization"}:
+      continue
+    slot_key = str(row.get("revenue_slot_key") or row.get("lever_id") or "").strip()
+    if not slot_key:
+      continue
+    if "::" in slot_key and driver in slot_key.lower():
+      slot_key = slot_key.rsplit("::", 1)[0]
+    values = [float(v) if isinstance(v, (int, float)) else 0.0 for v in (row.get("values") or [])]
+    slots.setdefault(slot_key, {})[driver] = values
+  if not slots:
+    return {"status": "skipped", "reason": "no_revenue_formula_bundle"}
+
+  horizon = max(len(v) for slot in slots.values() for v in slot.values())
+  composite: List[float] = []
+  for q in range(horizon):
+    total = 0.0
+    for slot in slots.values():
+      cap = (slot.get("capacity") or [0.0] * horizon)[q] if q < len(slot.get("capacity") or []) else 0.0
+      price = (slot.get("unit price") or [0.0] * horizon)[q] if q < len(slot.get("unit price") or []) else 0.0
+      util = (slot.get("utilization") or [0.0] * horizon)[q] if q < len(slot.get("utilization") or []) else 0.0
+      total += max(0.0, float(cap)) * max(0.0, float(price)) * max(0.0, float(util))
+    composite.append(total)
+
+  per_quarter_status: List[Dict[str, Any]] = []
+  in_band_count = 0
+  out_of_band_count = 0
+  for q in range(2, len(composite) + 1):
+    prior = composite[q - 2]
+    current = composite[q - 1]
+    if prior <= 0.0:
+      per_quarter_status.append({
+        "quarter": q,
+        "status": "skipped",
+        "reason": "prior_revenue_zero",
+      })
+      continue
+    realized_qoq = current / prior if prior > 0.0 else 0.0
+    contract_row = contract_by_q.get(q) or {}
+    target = _safe_float(contract_row.get("revenue_qoq_target") or contract_row.get("rev_target"))
+    cap = _safe_float(contract_row.get("revenue_qoq_max") or contract_row.get("rev_max"))
+    spike = _safe_float(contract_row.get("revenue_qoq_spike") or contract_row.get("rev_spike"))
+    bounds_target = target if target and target > 0 else None
+    bounds_max = cap if cap and cap > 0 else (spike if spike and spike > 0 else bounds_target)
+    if bounds_target is None:
+      per_quarter_status.append({
+        "quarter": q,
+        "status": "no_contract_bound",
+        "realized_qoq": round(realized_qoq, 4),
+      })
+      continue
+    in_band = (
+      realized_qoq >= bounds_target - 1e-3
+      and (bounds_max is None or realized_qoq <= bounds_max + 1e-3)
+    )
+    if in_band:
+      in_band_count += 1
+    else:
+      out_of_band_count += 1
+    per_quarter_status.append({
+      "quarter": q,
+      "status": "in_band" if in_band else "out_of_band",
+      "realized_qoq": round(realized_qoq, 4),
+      "contract_target": round(bounds_target, 4),
+      "contract_max": round(bounds_max, 4) if bounds_max else None,
+    })
+
+  return {
+    "status": "completed",
+    "in_band_quarters": in_band_count,
+    "out_of_band_quarters": out_of_band_count,
+    "per_quarter": per_quarter_status,
+  }
+
+
 def _build_finmo_callable(
   *,
   business_facts: Dict[str, Any],
@@ -1323,6 +1439,29 @@ def _run_post_cascade_completion(
     "status": "deleted_phase_9_c3",
     "reason": "path_aware_writer_replaces_post_cascade_ramp",
   }
+
+  # 1.6. Phase 9 Phase C4: composite revenue trajectory check against
+  # stage_ramp_contract.quarter_ramp_grid. Per-driver path shaping
+  # (Capacity × Unit Price × Utilization) does not guarantee that the
+  # composite revenue stays inside the contract's revenue_qoq_target /
+  # revenue_qoq_max envelope — three glidepaths multiplied together can
+  # diverge. This check records, per-quarter, whether the realized
+  # composite is inside the contract bounds. Phase D's adaptation
+  # cascade reads this trace and routes any out-of-band quarters to the
+  # revenue_achievability family. C4 is observation-only; it does not
+  # auto-repair. Repair is Phase D's job.
+  try:
+    completion_trace["composite_revenue_check"] = (
+      _validate_composite_revenue_against_contract(
+        model_input_json=final_model_input_json or {},
+        stage_ramp_contract=stage_ramp_contract,
+      )
+    )
+  except Exception as exc:
+    completion_trace["composite_revenue_check"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
 
   # 2. Cash pass — Phase 8 minimal cash strategy. Walk FINMO quarter
   # rows, compute ending_cash per quarter, raise debt issuance for any
