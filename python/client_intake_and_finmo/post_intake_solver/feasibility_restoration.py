@@ -353,6 +353,15 @@ def _apply_capacity_expansion(
   operator sees what scale the business needs to reach for the plan to
   be viable. Per Phase 7.2 directive: customer always gets a plan; this
   is the final fallback that guarantees that.
+
+  Phase 9.5 Fix D — removed the prior `if required_capacity <=
+  current_capacity: return 0.0` early-exit. That guard was structurally
+  wrong for the "always lands" guarantee: the only signal the lever
+  needs is `current_gap_annual > 0` (still residual to close). When
+  upstream lever math (price / utilization) was computed against a
+  zero baseline and produced a degenerate "you don't need it" result,
+  the capacity lever was the last line of defense and bowing out
+  silently let the plan ship infeasible.
   """
   if current_gap_annual <= 0:
     return 0.0
@@ -370,10 +379,22 @@ def _apply_capacity_expansion(
     return 0.0
 
   required_revenue_annual = current_capacity_revenue_annual + current_gap_annual * 1.05
-  required_capacity = required_revenue_annual / (
+  required_capacity_raw = required_revenue_annual / (
     float(unit_price) * float(periods) * float(utilization)
   )
+  # Always expand by enough to close the residual gap, even if the
+  # arithmetic produces a value at or below current capacity (would
+  # only happen with a degenerate baseline). The customer-final
+  # guarantee is "always lands" — bowing out here breaks it.
+  required_capacity = max(
+    required_capacity_raw,
+    float(current_capacity) + current_gap_annual / (
+      float(unit_price) * float(periods) * float(utilization)
+    ),
+  )
   if required_capacity <= current_capacity:
+    # Even after the floor, the math says no expansion is meaningful.
+    # This should be unreachable when current_gap_annual > 0.
     return 0.0
 
   adjusted_ops["units_per_period_capacity"] = round(required_capacity, 2)

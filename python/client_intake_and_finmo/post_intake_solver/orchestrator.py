@@ -461,6 +461,15 @@ def _remediate_realism_hard_fails(
   current_payload: Dict[str, Any] = realism_gate_payload
   rebuilt_finmo: Optional[Dict[str, Any]] = None
 
+  # Phase 9.5 Fix B — no-progress stall detection. The cascade used to
+  # burn its full 5-iteration budget logging "iteration_completed" with
+  # a flat hard_fail count, indistinguishable in diagnostics from real
+  # work. Track the prior iteration's count and break when two
+  # consecutive iterations show no improvement so restoration sees the
+  # actual signal sooner.
+  prev_hard_fail_count: Optional[int] = None
+  consecutive_no_progress = 0
+
   for iteration_n in range(1, max_iterations + 1):
     violations = list((current_payload or {}).get("hard_fail_violations") or [])
     if not violations:
@@ -496,11 +505,30 @@ def _remediate_realism_hard_fails(
     ordered_routes = order_routes_by_deadline(routes)
 
     # Adjust each route's primary_levers' mature anchors.
+    # Phase 9.5 — dedup by lever_id so that 20 quarter-routes for the
+    # same metric (e.g. ebitda_margin Q1..Q20) all sharing
+    # primary_levers don't multiply the lift 20x in one iteration. The
+    # intent of the cascade is one factor application per lever per
+    # iteration — historical runs only worked by accident because
+    # industry_target re-anchored cost levers anyway. With Fix A
+    # unblocking revenue levers (no industry_target), a lift of
+    # 1.15^21 per iteration would explode the model.
+    levers_touched_this_iteration: set = set()
     levers_adjusted: List[Dict[str, Any]] = []
     sections = (model_input_json or {}).get("sections") or {}
     if not isinstance(sections, dict):
       sections = {}
     rows_by_lever_id: Dict[str, Dict[str, Any]] = {}
+    # Phase 9.5 Fix A — model_input revenue rows use namespaced
+    # lever_ids (`revenue::<LOB>::<unit_name>::<driver>`), but the
+    # realism lookup carries generic shortcuts like `revenue::Unit
+    # Price` / `revenue::Capacity` / `revenue::Utilization`. Without
+    # a fallback resolver every revenue lookup misses and the cascade
+    # silently can't move price / utilization / capacity. Restoration's
+    # apply block already does driver-based matching ([orchestrator.py:874-886]);
+    # the cascade needs the same. Build a parallel index keyed by the
+    # generic shortcut, populated from any row whose `driver` matches.
+    rows_by_revenue_driver: Dict[str, List[Dict[str, Any]]] = {}
     for _section_name, _rows in sections.items():
       if not isinstance(_rows, list):
         continue
@@ -510,6 +538,10 @@ def _remediate_realism_hard_fails(
         _lev = str(_row.get("lever_id") or "").strip()
         if _lev:
           rows_by_lever_id[_lev] = _row
+        if str(_section_name).strip().lower() == "revenue":
+          _driver_norm = str(_row.get("driver") or "").strip().lower()
+          if _driver_norm:
+            rows_by_revenue_driver.setdefault(_driver_norm, []).append(_row)
 
     for route in ordered_routes:
       detected = route.detected_value
@@ -570,53 +602,73 @@ def _remediate_realism_hard_fails(
         # Skip these — let the cash strategy own them.
         if lever_id_clean in _CASH_PASS_OWNED_LEVER_IDS:
           continue
-        row = rows_by_lever_id.get(lever_id_clean)
-        if not row:
+        # Resolve the row(s) this lever_id targets. Realism lookup
+        # primary_levers use generic shortcuts (`revenue::Unit Price`)
+        # but model_input revenue rows are namespaced
+        # (`revenue::<LOB>::<unit_name>::Unit Price`). When the exact
+        # match misses on a revenue lever, fall through to a driver
+        # scan; one realism shortcut may map to multiple model_input
+        # rows when the business has multiple LOBs.
+        target_rows: List[Dict[str, Any]] = []
+        exact_row = rows_by_lever_id.get(lever_id_clean)
+        if exact_row:
+          target_rows = [exact_row]
+        elif lever_id_clean.startswith("revenue::"):
+          driver_token = lever_id_clean.split("::", 1)[1].strip().lower()
+          target_rows = list(rows_by_revenue_driver.get(driver_token) or [])
+        if not target_rows:
           continue
-        values_list = row.get("values") or []
-        if not values_list:
-          continue
-        # Use last quarter as mature anchor.
-        current_mature: Optional[float] = None
-        for candidate in (values_list[-1], values_list[0]):
-          v_f = _safe_float(candidate)
-          if v_f is not None and abs(v_f) > 1e-9:
-            current_mature = v_f
-            break
-        if current_mature is None:
-          continue
-        applied_direction = _resolve_lever_direction(
-          metric_direction=direction,
-          metric_kind=metric_kind,
-          lever_id=lever_id_clean,
-        )
-        if applied_direction is None:
-          # Direction undefined for this (metric_kind, lever_id) pair —
-          # skip rather than guess. Caught in iteration diagnostic.
-          continue
-        factor = (
-          _GAP_B_INCREASE_FACTOR
-          if applied_direction == "increase"
-          else _GAP_B_DECREASE_FACTOR
-        )
-        new_mature = float(current_mature) * float(factor)
-        # Stamp the new mature value across all quarters; the path stamp
-        # below re-shapes the trajectory from stage Q1 anchor (when
-        # there is no industry_target for the lever — when industry
-        # _target IS available the path stamp pulls toward it instead).
-        new_values = [float(new_mature) for _ in range(len(values_list))]
-        row["values"] = new_values
-        levers_adjusted.append({
-          "lever_id": lever_id,
-          "metric_triggering": route.issue_code,
-          "family": family,
-          "metric_kind": metric_kind,
-          "metric_direction": direction,
-          "applied_direction": applied_direction,
-          "factor": factor,
-          "from": round(float(current_mature), 4),
-          "to": round(float(new_mature), 4),
-        })
+        for row in target_rows:
+          row_lever_id = str(row.get("lever_id") or lever_id_clean).strip()
+          if row_lever_id in levers_touched_this_iteration:
+            # One factor application per lever per iteration.
+            continue
+          values_list = row.get("values") or []
+          if not values_list:
+            continue
+          # Use last quarter as mature anchor.
+          current_mature: Optional[float] = None
+          for candidate in (values_list[-1], values_list[0]):
+            v_f = _safe_float(candidate)
+            if v_f is not None and abs(v_f) > 1e-9:
+              current_mature = v_f
+              break
+          if current_mature is None:
+            continue
+          applied_direction = _resolve_lever_direction(
+            metric_direction=direction,
+            metric_kind=metric_kind,
+            lever_id=lever_id_clean,
+          )
+          if applied_direction is None:
+            # Direction undefined for this (metric_kind, lever_id) pair —
+            # skip rather than guess. Caught in iteration diagnostic.
+            continue
+          factor = (
+            _GAP_B_INCREASE_FACTOR
+            if applied_direction == "increase"
+            else _GAP_B_DECREASE_FACTOR
+          )
+          new_mature = float(current_mature) * float(factor)
+          # Stamp the new mature value across all quarters; the path stamp
+          # below re-shapes the trajectory from stage Q1 anchor (when
+          # there is no industry_target for the lever — when industry
+          # _target IS available the path stamp pulls toward it instead).
+          new_values = [float(new_mature) for _ in range(len(values_list))]
+          row["values"] = new_values
+          levers_touched_this_iteration.add(row_lever_id)
+          levers_adjusted.append({
+            "lever_id": row_lever_id,
+            "lever_id_alias": lever_id,
+            "metric_triggering": route.issue_code,
+            "family": family,
+            "metric_kind": metric_kind,
+            "metric_direction": direction,
+            "applied_direction": applied_direction,
+            "factor": factor,
+            "from": round(float(current_mature), 4),
+            "to": round(float(new_mature), 4),
+          })
 
     if not levers_adjusted:
       iterations.append({
@@ -710,17 +762,37 @@ def _remediate_realism_hard_fails(
       break
 
     new_hard_fail_count = int((next_realism or {}).get("hard_fail_count") or 0)
+    progress_made = (
+      prev_hard_fail_count is not None and new_hard_fail_count < prev_hard_fail_count
+    )
+    if (
+      prev_hard_fail_count is not None
+      and new_hard_fail_count >= prev_hard_fail_count
+    ):
+      consecutive_no_progress += 1
+    else:
+      consecutive_no_progress = 0
+    iter_status = "iteration_completed"
+    if consecutive_no_progress >= 2:
+      iter_status = "stalled_no_progress"
     iterations.append({
       "iteration": iteration_n,
       "violations": len(violations),
       "levers_adjusted": len(levers_adjusted),
-      "status": "iteration_completed",
+      "status": iter_status,
       "hard_fails_after": new_hard_fail_count,
+      "hard_fails_before": prev_hard_fail_count,
+      "progress_made": progress_made,
       "stamp_rows": stamp_again.get("rows_stamped_count", 0),
     })
+    prev_hard_fail_count = new_hard_fail_count
     current_payload = next_realism
 
     if new_hard_fail_count == 0:
+      break
+    if consecutive_no_progress >= 2:
+      # Two iterations with no improvement — fall through to restoration
+      # rather than burn the rest of the budget on no-op iterations.
       break
 
   # Phase 9 corrective directive — restoration always lands.
@@ -811,15 +883,46 @@ def _remediate_realism_hard_fails(
       # over-states the annual gap, but restoration's capacity expansion
       # responds proportionally).
       synthetic_gap = float(router_dollar_gap) if router_dollar_gap > 0 else 1.0
+      # Phase 9.5 Fix C — pass real baselines to restoration. The synth
+      # used to hard-code upper_bound_annual_revenue=0 and
+      # lower_bound_annual_fixed_cost=0, which broke restoration's
+      # price/capacity math (`required_price = (0 + gap×1.05) /
+      # (capacity × periods × util)` produces a price below current,
+      # the lever returns 0, and the unbounded capacity expansion
+      # silently no-ops the same way). Read the actual current model
+      # state — annual revenue from Q1..Q4 and annual fixed cost from
+      # the same window — so restoration computes against reality.
+      def _annual_from_q1_q4(field_name: str) -> float:
+        total = 0.0
+        for fr_in in (finmo_json or {}).get("quarter_rows") or []:
+          if not isinstance(fr_in, dict):
+            continue
+          q_idx = int(_safe_float(fr_in.get("quarter_index")) or 0)
+          if 1 <= q_idx <= 4:
+            v = _safe_float(fr_in.get(field_name))
+            if v is not None:
+              total += float(v)
+        return total
+      baseline_annual_revenue = _annual_from_q1_q4("revenue")
+      # Fixed cost annual = payroll + lease_rent + general_and_administrative
+      # summed across Q1..Q4. This matches restoration's lever 1 mental
+      # model (cap payroll at capacity-implied target).
+      baseline_annual_fixed_cost = (
+        _annual_from_q1_q4("payroll")
+        + _annual_from_q1_q4("lease_rent")
+        + _annual_from_q1_q4("general_and_administrative")
+      )
       import json as _json_for_restoration
       synth = StructuralFeasibilityResult(
         feasible=False,
         feasibility_gap=synthetic_gap,
-        upper_bound_annual_revenue=0.0,
-        lower_bound_annual_fixed_cost=0.0,
+        upper_bound_annual_revenue=float(baseline_annual_revenue),
+        lower_bound_annual_fixed_cost=float(baseline_annual_fixed_cost),
         diagnostic_message=_json_for_restoration.dumps({
           "source": "phase_9_corrective_realism_remediation_residual",
           "residual_hard_fails": final_residual_count,
+          "baseline_annual_revenue": baseline_annual_revenue,
+          "baseline_annual_fixed_cost": baseline_annual_fixed_cost,
         }),
       )
       restoration = restore_feasibility(
