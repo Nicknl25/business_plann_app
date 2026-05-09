@@ -421,6 +421,7 @@ def validate_industry_realism_bands(
   rows = rows_override if rows_override is not None else post_intake_finalize_realism_check_rows()
   results: List[RealismCheckResult] = []
   warnings_list: List[Dict[str, Any]] = []
+  hard_fail_violations: List[Dict[str, Any]] = []
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
   active_mode = str(planning_mode or "").strip().lower() or None
@@ -869,6 +870,14 @@ def validate_industry_realism_bands(
       )
       results.append(result)
 
+      # Phase 9 Phase D — collect all hard_fail violations rather than
+      # raising on the first hit. The doctrine says hard_fail =
+      # adaptation required (the cascade routes via issue_router), not
+      # stop the run. Aborting at the first hit prevents the validator
+      # from evaluating downstream rows including the universal
+      # viability timeline checks. The orchestrator reads
+      # hard_fail_violations from the returned payload and routes via
+      # issue_router; nothing here needs to raise.
       if status == "out_of_band_hard_fail":
         message = (
           "post_intake_finalize_realism_band_violation: "
@@ -878,7 +887,17 @@ def validate_industry_realism_bands(
           message += f" governs_lever={governs_lever}"
         if q is not None:
           message += f" quarter={q}"
-        raise RealismBandViolation(message, results=results)
+        hard_fail_violations.append({
+          "metric_key": metric_key,
+          "quarter_index": q,
+          "reason": reason,
+          "message": message,
+          "governs_lever_id": governs_lever,
+          "actual_value": result.actual_value,
+          "effective_min": result.effective_min,
+          "effective_max": result.effective_max,
+          "band_source": result.band_source,
+        })
 
       if status == "out_of_band_warn":
         warnings_list.append(result.to_dict())
@@ -889,6 +908,8 @@ def validate_industry_realism_bands(
     "warning_count": len(warnings_list),
     "checked_metric_count": len({r.metric_key for r in results}),
     "result_count": len(results),
+    "hard_fail_violations": list(hard_fail_violations),
+    "hard_fail_count": len(hard_fail_violations),
   }
 
 
