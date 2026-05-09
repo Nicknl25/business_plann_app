@@ -283,6 +283,157 @@ def _decimal_to_float(value: Any) -> Optional[float]:
     return None
 
 
+# ----------------------------------------------------------------------------
+# Alternating cohort walk (EDGAR L6 -> Alpha L6 -> EDGAR L5 -> Alpha L5 -> ...)
+# ----------------------------------------------------------------------------
+#
+# When a metric has a corresponding column in the cohort tables
+# (industry_metrics_alpha / industry_metrics_edgar), this walk runs BEFORE
+# the post_intake_industry_baseline_lookup cascade. The first level/source
+# pair that yields >= 2 distinct firms wins; otherwise we fall through to
+# the cascade. Threshold and pair-order match the directive.
+
+_COHORT_ALT_TABLES: Tuple[Tuple[str, str], ...] = (
+  ("edgar", "industry_metrics_edgar"),
+  ("alpha", "industry_metrics_alpha"),
+)
+_COHORT_ALT_FIRM_MIN = 2
+
+
+def _cohort_alt_metric_column(metric_key: str) -> Optional[str]:
+  """Return the cohort-table column for this metric_key, or None if the
+  metric isn't covered by the cohort tables. Mirrors the map used by
+  cohort_band_resolver.METRIC_KEY_TO_COLUMN."""
+  m = (metric_key or "").strip()
+  return {
+    "cogs_to_revenue_ratio": "cogs_percent",
+    "cogs_percent_of_revenue": "cogs_percent",
+    "gross_margin_percent": "gross_margin_q",
+    "marketing_percent_of_revenue": "sga_percent",   # SGA proxy
+    "advertising_percent_of_revenue": "sga_percent",
+    "r_and_d_percent_of_revenue": "rnd_percent",
+    "sga_percent_of_revenue": "sga_percent",
+    "ebitda_margin": "ebitda_margin_q",
+    "operating_margin_percent": "operating_margin_q",
+    "net_income_margin": "net_margin_q",
+    "ar_days_dso": "dso",
+    "ap_days_dpo": "dpo",
+    "inventory_days": "inventory_days",
+    "current_ratio": "current_ratio",
+    "quick_ratio": "quick_ratio",
+    "debt_to_equity": "debt_to_equity",
+    "debt_to_assets": "debt_to_assets",
+    "interest_coverage": "interest_coverage",
+    "capex_percent_of_revenue": "capex_percent_revenue",
+    "depreciation_percent_of_revenue": "depreciation_percent_revenue",
+  }.get(m)
+
+
+def _cohort_alt_query_band(
+  *, conn, table_name: str, naics_prefix: str, naics_level: int,
+  metric_column: str,
+) -> Tuple[Optional[Tuple[float, float, float]], int, int]:
+  """Run a single cohort query against (table, NAICS prefix). Returns
+  (band_or_None, distinct_firm_count, row_count). band is None when
+  fewer than 2 distinct firms have a non-null value for this metric."""
+  if table_name not in {t for _src, t in _COHORT_ALT_TABLES}:
+    raise ValueError(f"unknown cohort table: {table_name}")
+  if naics_level == 6:
+    like_clause = "naics_code = %s"
+    pattern: Any = naics_prefix
+  else:
+    like_clause = "naics_code LIKE %s"
+    pattern = naics_prefix + "%"
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"SELECT symbol, `{metric_column}` FROM `{table_name}` "
+      f"WHERE {like_clause} AND naics_code IS NOT NULL AND `{metric_column}` IS NOT NULL",
+      (pattern,),
+    )
+    rows = cur.fetchall() or []
+  finally:
+    cur.close()
+  values: List[float] = []
+  firms: set = set()
+  for sym, val in rows:
+    if val is None:
+      continue
+    try:
+      v = float(val)
+    except Exception:
+      continue
+    if v != v:  # NaN
+      continue
+    values.append(v)
+    if sym:
+      firms.add(sym)
+  firm_count = len(firms)
+  row_count = len(values)
+  if firm_count < _COHORT_ALT_FIRM_MIN or row_count == 0:
+    return None, firm_count, row_count
+  values.sort()
+  def pct(p: float) -> float:
+    if len(values) == 1:
+      return values[0]
+    rank = (len(values) - 1) * (p / 100.0)
+    lo = int(rank)
+    hi = min(lo + 1, len(values) - 1)
+    w = rank - lo
+    return values[lo] * (1.0 - w) + values[hi] * w
+  return (pct(25.0), pct(50.0), pct(75.0)), firm_count, row_count
+
+
+def _cohort_alt_walk(
+  *, conn, metric_key: str, naics_6_clean: str,
+) -> Optional[Dict[str, Any]]:
+  """Alternating EDGAR/Alpha walk. Returns a payload dict matching the
+  shape of `_payload_from_row` if any (level, source) pair yields >= 2
+  firms, else None."""
+  metric_column = _cohort_alt_metric_column(metric_key)
+  if not metric_column:
+    return None
+  if not naics_6_clean or len(naics_6_clean) < 2:
+    return None
+  attempts: List[str] = []
+  for level in (6, 5, 4, 3, 2):
+    if level > len(naics_6_clean):
+      continue
+    prefix = naics_6_clean[:level]
+    for source_tag, table_name in _COHORT_ALT_TABLES:
+      band, firm_count, row_count = _cohort_alt_query_band(
+        conn=conn, table_name=table_name,
+        naics_prefix=prefix, naics_level=level,
+        metric_column=metric_column,
+      )
+      attempts.append(f"naics_{level}:{prefix}:{source_tag}:firms={firm_count}")
+      if band is None:
+        continue
+      p25, p50, p75 = band
+      return {
+        "metric_key": metric_key,
+        "benchmark_min": float(p25) if p25 is not None else None,
+        "benchmark_target": float(p50) if p50 is not None else None,
+        "benchmark_max": float(p75) if p75 is not None else None,
+        "naics_code_used": prefix,
+        "naics_level_used": level,
+        "data_source": f"cohort_alternating_{source_tag}",
+        "source_year": None,
+        "sample_size": row_count,
+        "confidence_tier": (
+          "high" if row_count >= 50 else
+          "medium" if row_count >= 20 else
+          "low"
+        ),
+        "raw_confidence_tier": None,
+        "trust_flag": _TRUST_BY_LEVEL.get(level, TRUST_NAICS_2_FALLBACK),
+        "fallback_chain_attempted": attempts,
+        "cohort_table": source_tag,
+        "firm_count": firm_count,
+      }
+  return None
+
+
 def post_intake_industry_baseline_for_naics(
   *,
   metric_key: str,
@@ -290,13 +441,21 @@ def post_intake_industry_baseline_for_naics(
 ) -> Dict[str, Any]:
   """Resolve a NAICS baseline benchmark for one metric_key.
 
-  Walks the documented cascade and returns the first hit. Stamps
-  `trust_flag`, `naics_level_used`, downgraded `confidence_tier`, and the full
-  `fallback_chain_attempted` so callers can carry provenance into model_input.
+  Resolution order:
+    1. Alternating cohort walk over industry_metrics_edgar /
+       industry_metrics_alpha — EDGAR-first at each NAICS level, then
+       Alpha. First level/source pair with >= 2 distinct firms wins.
+       (Only tried for metrics with a cohort-table column.)
+    2. Existing post_intake_industry_baseline_lookup cascade for metrics
+       not covered by cohort tables, OR when the alternating walk turns
+       up nothing across all levels.
 
-  Raises `PostIntakeIndustryBaselineNoCoverage` only when the cascade
-  exhausts every level AND the metric registry says
-  `fail_if_no_coverage = 1`.
+  Stamps `trust_flag`, `naics_level_used`, downgraded `confidence_tier`,
+  and the full `fallback_chain_attempted` so callers can carry
+  provenance into model_input.
+
+  Raises `PostIntakeIndustryBaselineNoCoverage` only when both
+  resolutions fail AND the metric registry says `fail_if_no_coverage = 1`.
   """
   metric_key_clean = str(metric_key or "").strip()
   if not metric_key_clean:
@@ -315,6 +474,14 @@ def post_intake_industry_baseline_for_naics(
   _ensure_env_loaded()
   conn = get_mysql_connection()
   try:
+    # Step 1: alternating cohort walk over the split tables.
+    if digits and _cohort_alt_metric_column(metric_key_clean):
+      cohort_payload = _cohort_alt_walk(
+        conn=conn, metric_key=metric_key_clean, naics_6_clean=digits,
+      )
+      if cohort_payload is not None:
+        return cohort_payload
+      fallback_chain.append("cohort_alternating:no_match")
     # L6: primary-source-only, high/medium confidence.
     if digits and len(digits) >= 6 and primary_source:
       l6_code = _truncate_to_level(digits, 6)

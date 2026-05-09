@@ -1,26 +1,22 @@
 """Aggregate sec_edgar_facts (per-concept-per-period normalized) into
-per-firm-per-quarter rows in industry_metrics_raw, mirroring the schema
-written by alpha_data_growth_rates.py.
+per-firm-per-quarter rows in `industry_metrics_edgar`, mirroring the
+schema written by alpha_data_growth_rates.py to industry_metrics_alpha.
 
 Design parallels alpha_data_growth_rates.py exactly: same target columns,
 same ratio definitions, same insert path. Differences:
 
-  * Source: pivots sec_edgar_facts.concept_name into wide form by
+  * Pivots sec_edgar_facts.concept_name into wide form by
     (cik, fp_end_at), picking the latest accession_number per concept
     when a period has multiple amendments.
   * Concept-to-field map handles EDGAR's redundancy (Revenues vs
     RevenueFromContractWithCustomerExcludingAssessedTax; CostOfRevenue
     vs CostOfGoodsAndServicesSold; Depreciation vs DepreciationAndAmortization)
     by picking the first non-null in a documented priority order.
-  * Symbol column: ticker if EDGAR has one for the CIK, else `EDGAR_<cik>`
-    so the row is still uniquely keyed.
-  * Source tagging: writes 'edgar' to the new `source` column on
-    industry_metrics_raw (added by this script via ALTER TABLE IF NOT
-    EXISTS the same way alpha_data_growth_rates.py adds new columns).
-  * Dedupe: only inserts (cik, fiscalDateEnding) rows whose
-    (resolved_symbol, fiscalDateEnding) is NOT already present in
-    industry_metrics_raw. Alpha rows therefore "win" any overlap; EDGAR
-    extends the cohort with firms Alpha doesn't track.
+  * Symbol column: ticker if EDGAR has one for the CIK, else `EDGAR_<cik>`.
+  * No cross-source dedupe: Alpha and EDGAR live in separate tables, so
+    a firm can appear in both. The runtime alternating-fallback resolver
+    is what prefers EDGAR over Alpha at each NAICS level. INSERT IGNORE
+    on (symbol, fiscalDateEnding) handles intra-EDGAR re-runs.
   * Sanity guard: every computed ratio is bounds-checked. Out-of-range
     values are nulled (the row still inserts with valid columns), and
     rows whose total_revenue is non-positive or null are dropped entirely.
@@ -110,23 +106,47 @@ ALL_CONCEPTS: Tuple[str, ...] = tuple(set(
 # --- Schema setup ----------------------------------------------------------
 
 
-def ensure_source_column(cursor) -> None:
-  """Add `source` to industry_metrics_raw if not already present.
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS industry_metrics_edgar (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  symbol VARCHAR(20),
+  naics_code VARCHAR(10),
+  market_cap BIGINT,
+  cap_category VARCHAR(10),
+  fiscalDateEnding DATE,
+  total_revenue DECIMAL(22,4),
+  revenue_growth_q DECIMAL(18,6),
+  gross_margin_q DECIMAL(18,6),
+  operating_margin_q DECIMAL(18,6),
+  ebit_margin_q DECIMAL(18,6),
+  ebitda_margin_q DECIMAL(18,6),
+  net_margin_q DECIMAL(18,6),
+  sga_percent DECIMAL(18,6),
+  rnd_percent DECIMAL(18,6),
+  cogs_percent DECIMAL(18,6),
+  dso DECIMAL(18,6),
+  dpo DECIMAL(18,6),
+  inventory_days DECIMAL(18,6),
+  ccc DECIMAL(18,6),
+  current_ratio DECIMAL(18,6),
+  quick_ratio DECIMAL(18,6),
+  debt_to_equity DECIMAL(18,6),
+  debt_to_assets DECIMAL(18,6),
+  debt_to_ebitda DECIMAL(18,6),
+  interest_coverage DECIMAL(18,6),
+  capex_percent_revenue DECIMAL(18,6),
+  depreciation_percent_revenue DECIMAL(18,6),
+  roa DECIMAL(18,6),
+  roe DECIMAL(18,6),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY u_symbol_period (symbol, fiscalDateEnding),
+  INDEX idx_naics (naics_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+"""
 
-  Default 'alpha' so existing rows (loaded by alpha_data_growth_rates.py
-  before this column existed) tag correctly. New EDGAR rows write 'edgar'.
-  """
-  cursor.execute("""
-    SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'industry_metrics_raw'
-  """)
-  cols = {row[0] for row in cursor.fetchall()}
-  if "source" not in cols:
-    cursor.execute(
-      "ALTER TABLE industry_metrics_raw "
-      "ADD COLUMN source VARCHAR(10) NOT NULL DEFAULT 'alpha' "
-      "AFTER cap_category"
-    )
+
+def ensure_table(cursor) -> None:
+  cursor.execute(CREATE_TABLE_SQL)
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -218,13 +238,6 @@ def clip_or_null(name: str, val: Optional[float]) -> Optional[float]:
 
 
 # --- Main aggregation ------------------------------------------------------
-
-
-def fetch_existing_alpha_keys(cursor) -> set:
-  """Return the set of (symbol, fiscalDateEnding) tuples already present in
-  industry_metrics_raw. Used to enforce Alpha-preferred dedupe."""
-  cursor.execute("SELECT symbol, fiscalDateEnding FROM industry_metrics_raw")
-  return {(row[0], row[1]) for row in cursor.fetchall()}
 
 
 def fetch_edgar_facts_grouped(cursor) -> Dict[Tuple[str, date], Dict[str, Any]]:
@@ -392,7 +405,7 @@ def compute_row_for_period(
   cap_cat = cap_category_from_revenue(trailing_4q_revenue)
 
   return [
-    symbol, naics, None, cap_cat, "edgar", fp_end,
+    symbol, naics, None, cap_cat, fp_end,
     rev, metrics["revenue_growth_q"],
     metrics["gross_margin_q"], metrics["operating_margin_q"], metrics["ebit_margin_q"],
     metrics["ebitda_margin_q"], metrics["net_margin_q"],
@@ -407,8 +420,8 @@ def compute_row_for_period(
 
 
 INSERT_SQL = """
-  INSERT IGNORE INTO industry_metrics_raw (
-    symbol, naics_code, market_cap, cap_category, source, fiscalDateEnding,
+  INSERT IGNORE INTO industry_metrics_edgar (
+    symbol, naics_code, market_cap, cap_category, fiscalDateEnding,
     total_revenue, revenue_growth_q,
     gross_margin_q, operating_margin_q, ebit_margin_q,
     ebitda_margin_q, net_margin_q,
@@ -421,7 +434,7 @@ INSERT_SQL = """
     roa, roe
   )
   VALUES (
-    %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s, %s,
     %s, %s,
     %s, %s, %s,
     %s, %s,
@@ -440,13 +453,9 @@ def main() -> int:
   conn = get_conn()
   cur = conn.cursor()
   try:
-    print("Ensuring source column exists ...")
-    ensure_source_column(cur)
+    print("Ensuring industry_metrics_edgar table exists ...")
+    ensure_table(cur)
     conn.commit()
-
-    print("Loading existing (symbol, fiscalDateEnding) keys ...")
-    existing_keys = fetch_existing_alpha_keys(cur)
-    print(f"  existing rows: {len(existing_keys)}")
 
     print("Pivoting sec_edgar_facts into per-(cik, fp_end_at) buckets ...")
     pivoted = fetch_edgar_facts_grouped(cur)
@@ -461,7 +470,6 @@ def main() -> int:
 
     rows_to_insert: List[List[Any]] = []
     rows_dropped_no_revenue = 0
-    rows_skipped_dedupe = 0
     firms_inserted: set = set()
     for cik, periods in by_cik.items():
       # Compute trailing 4-period revenue per period for cap_category proxy.
@@ -492,18 +500,13 @@ def main() -> int:
           rows_dropped_no_revenue += 1
           continue
         symbol = row[0]
-        fdate = row[5]
-        if (symbol, fdate) in existing_keys:
-          rows_skipped_dedupe += 1
-          continue
         rows_to_insert.append(row)
         firms_inserted.add(symbol)
 
     print(f"\nAggregation summary:")
     print(f"  rows to insert:               {len(rows_to_insert)}")
     print(f"  rows dropped (no revenue):    {rows_dropped_no_revenue}")
-    print(f"  rows skipped (alpha exists):  {rows_skipped_dedupe}")
-    print(f"  distinct firms (new):         {len(firms_inserted)}")
+    print(f"  distinct firms:               {len(firms_inserted)}")
 
     if rows_to_insert:
       print("\nInserting in chunks of 500 ...")

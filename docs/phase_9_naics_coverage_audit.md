@@ -471,7 +471,145 @@ by firm count:
   median for Alpha drops to ~3 quarters/firm for EDGAR-only rows. Deeper
   history would require expanding the Frames pull horizon.
 
-## 7. Summary — what the data says about the freight-brokerage hypothesis
+## 7. Split cohort tables + alternating EDGAR/Alpha fallback (executed 2026-05-09)
+
+### 7.1 New tables
+
+`industry_metrics_raw` is left in place and is no longer written to.
+Two new tables hold the split cohorts:
+
+| table | rows | distinct firms | distinct NAICS-6 |
+|---|---:|---:|---:|
+| `industry_metrics_alpha` | 137,579 | 3,667 | 388 |
+| `industry_metrics_edgar` | 20,907 | 4,355 | 448 |
+| `industry_metrics_raw` (legacy, ignored) | 146,896 | 5,270 | 473 |
+
+`industry_metrics_edgar` grew from 9,317 → 20,907 rows after dropping the
+Alpha-preferred dedupe — EDGAR now contains its full set of firm-quarters,
+including those for firms also in Alpha (e.g. CHRW EXPD HUBG quarters
+where EDGAR's fp_end_at differs from Alpha's fiscalDateEnding by a few days).
+The alternating-fallback resolver is what enforces source preference at
+query time, so cross-source duplication is expected.
+
+### 7.2 Aggregator changes
+
+- [alpha_data_growth_rates.py](python/data_pull/alpha_data_growth_rates.py)
+  now writes to `industry_metrics_alpha` (was `industry_metrics_raw`).
+- [edgar_data_growth_rates.py](python/data_pull/edgar_data_growth_rates.py)
+  now writes to `industry_metrics_edgar`. Alpha-vs-EDGAR dedupe removed;
+  no `source` column needed in either table.
+
+### 7.3 Resolver changes — alternating EDGAR / Alpha fallback
+
+Both consumers walk this order, accepting the first level/source pair
+whose distinct-firm count ≥ 2:
+
+```
+EDGAR L6 → Alpha L6 → EDGAR L5 → Alpha L5 →
+EDGAR L4 → Alpha L4 → EDGAR L3 → Alpha L3 →
+EDGAR L2 → Alpha L2 → (existing cascade for non-cohort metrics)
+```
+
+Threshold is **distinct firms ≥ 2** (per directive). Row count and
+sample_size remain in provenance but no longer gate acceptance.
+
+**Solver path** —
+[cohort_band_resolver.resolve_cohort_band](python/client_intake_and_finmo/post_intake_solver/cohort_band_resolver.py)
+queries both tables. At each (NAICS-level, source) pair it still applies
+the existing cohort widening (revenue window, date window) but accepts
+the first combo with ≥ 2 firms. CohortBandResult now carries
+`cohort_table` ('edgar' / 'alpha'), `firm_count`, `naics_level_used`,
+and `naics_prefix_used`.
+
+**Realism gate path** —
+[post_intake_industry_baseline_for_naics](python/client_intake_and_finmo/post_intake_industry_baseline/lookup.py)
+runs a simpler alternating walk (no revenue/cap filtering, no date
+window) ONLY for metrics with a cohort-table column. If that walk
+produces nothing, OR for metrics outside the cohort tables (payroll,
+total_assets_to_revenue, owners_capital, distributions, lease/rent),
+the existing `post_intake_industry_baseline_lookup` cascade runs. The
+returned payload now includes `cohort_table` and `firm_count` when the
+band came from a cohort table.
+
+### 7.4 ExpressLogix 488510 — resolution map post-refactor
+
+Realism-gate lookup for each Phase 9 hard-fail metric on `naics_6 = 488510`:
+
+| metric | source | level | prefix | firms | p25 | p50 (target) | p75 |
+|---|---|---:|---|---:|---:|---:|---:|
+| cogs_percent_of_revenue | edgar | 6 | 488510 | 4 | 0.504 | **0.590** | 0.844 |
+| gross_margin_percent | edgar | 6 | 488510 | 4 | 0.211 | **0.420** | 0.621 |
+| ebitda_margin | edgar | 6 | 488510 | 7 | 0.015 | **0.046** | 0.067 |
+| net_income_margin | edgar | 6 | 488510 | 9 | -0.127 | **0.029** | 0.070 |
+| sga_percent_of_revenue | edgar | 6 | 488510 | 5 | 0.067 | **0.121** | 0.475 |
+| capex_percent_of_revenue | edgar | 6 | 488510 | 3 | 0.001 | **0.004** | 0.010 |
+| current_ratio | edgar | 6 | 488510 | 9 | 0.803 | **1.127** | 1.490 |
+| debt_to_assets | edgar | 6 | 488510 | 6 | 0.712 | **0.883** | 1.006 |
+| debt_to_equity | edgar | 6 | 488510 | 6 | -3.425 | **2.042** | 6.162 |
+| ap_days_dpo | edgar | 6 | 488510 | 2 | 8.36 | **9.44** | 11.52 |
+| ar_days_dso | edgar | 6 | 488510 | 5 | 35.94 | **48.19** | 67.08 |
+| inventory_days | alpha | 6 | 488510 | 3 | 0.000 | **0.079** | 1.432 |
+| marketing_percent_of_revenue | edgar (sga proxy) | 6 | 488510 | 5 | 0.067 | **0.121** | 0.475 |
+| payroll_percent_of_revenue | derived_CBP_SOI_rollup (cascade L3) | 3 | 488 | — | — | **0.563** | — |
+| total_assets_to_revenue | IRS_SOI (cascade L3) | 3 | 488 | — | — | **0.816** | — |
+| owners_capital_percent_of_assets | IRS_SOI (cascade L3) | 3 | 488 | — | — | **0.355** | — |
+| distributions_percent_of_net_income | alpha_data (cascade L5) | 5 | 48851 | — | 0.279 | **0.420** | 0.561 |
+
+13 of 17 hard-fail metrics now resolve at **NAICS-6 in `industry_metrics_edgar`**
+(vs. zero in `industry_metrics_edgar` pre-refactor — the table didn't
+exist). `inventory_days` correctly drops to Alpha L6 because EDGAR-only
+freight brokers don't report inventory (asset-light brokerage). The
+remaining 4 metrics fall through to the existing cascade because they
+have no cohort-table column (payroll/total-assets/owners-capital/distributions
+come from Census, IRS_SOI, or expert_default).
+
+### 7.5 Comparison vs. previous resolution
+
+For 488510, before vs after this refactor:
+
+| metric | pre source | pre level | pre p50 | post source | post level | post p50 |
+|---|---|---|---|---|---|---|
+| cogs_percent_of_revenue | industry_metrics_raw | 6 | 0.891 | edgar | 6 | 0.590 |
+| gross_margin_percent | industry_metrics_raw | 6 | 0.109 | edgar | 6 | 0.420 |
+| ebitda_margin | industry_metrics_raw | 6 | 0.094 | edgar | 6 | 0.046 |
+
+The bands are materially different because the EDGAR-first walk picks up
+additional 488510-classified firms (MGSD, NUTR, UNXP, plus three
+EDGAR_<cik>-keyed firms) whose cost structures differ from the
+asset-light public brokers (CHRW/EXPD/HUBG). This is the expected
+consequence of the directive's "≥ 2 firms qualifies" rule combined with
+the broader EDGAR universe — the cohort is no longer dominated by three
+large public firms. Whether the new bands are "more correct" for a
+typical 488510 plan depends on whether the EDGAR firms are truly
+freight-brokerage-style operators (likely some are, some aren't due to
+SIC 4731 covering both arrangement and direct freight services). The
+realism gate's tolerance bands (`±7pp / ±12pp / ±20pp` per confidence
+tier) absorb most of this variance without flipping a hard_fail.
+
+### 7.6 Solver-path (cohort_band_resolver) result for 488510
+
+For a $5M-target operational freight broker (cap_categories = small,mid):
+
+| metric | source | level | prefix | firms | p50 |
+|---|---|---:|---|---:|---:|
+| cogs_percent_of_revenue | edgar | 6 | 488510 | 4 | 0.581 |
+| gross_margin_percent | edgar | 6 | 488510 | 4 | 0.431 |
+| ebitda_margin | edgar | 6 | 488510 | 6 | 0.017 |
+| sga_percent_of_revenue | edgar | 6 | 488510 | 5 | 0.257 |
+| capex_percent_of_revenue | edgar | 3 | 488 | 3 | 0.037 |
+| current_ratio | edgar | 6 | 488510 | 7 | 0.918 |
+| debt_to_equity | edgar | 6 | 488510 | 5 | 5.969 |
+| ap_days_dpo | edgar | 6 | 488510 | 2 | 8.75 |
+| inventory_days | edgar | 3 | 488 | 3 | 9.97 |
+
+The solver path, with revenue/cap filtering applied, drops more firms
+out of the cohort (e.g. CHRW at multi-billion-dollar revenue scale is
+filtered out for a $5M target). For most metrics EDGAR L6 still has
+≥ 2 small/mid firms; for capex and inventory_days EDGAR L6 falls
+short and the walk descends to EDGAR L3 (still EDGAR-first; L4/L5 EDGAR
+also failed before reaching L3).
+
+## 8. Summary — what the data says about the freight-brokerage hypothesis
 
 - The hypothesis was that 488510 is silently aggregating up to all-of-NAICS-488 trucking. **For the realism gate, this is not happening.** 488510 has 3 firms × ~15 quarters = 129 rows in Alpha. The `post_intake_industry_baseline_lookup` aggregates to 45 sample-size rows at L6 with confidence=high; the realism cascade picks NAICS-6 directly for cogs / gross_margin / ebitda / net_income / sga / capex / current_ratio / debt_to_equity / debt_to_assets / ap_days_dpo / inventory_days.
 - The metrics where 488510 DOES fall through:

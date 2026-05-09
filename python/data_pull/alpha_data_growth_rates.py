@@ -44,7 +44,7 @@ def get_conn():
 def create_tables(cursor):
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS industry_metrics_raw (
+    CREATE TABLE IF NOT EXISTS industry_metrics_alpha (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         symbol VARCHAR(20),
         naics_code VARCHAR(10),
@@ -122,13 +122,13 @@ def create_tables(cursor):
     # Add missing columns if tables pre-existed without new fields
     cursor.execute("""
         SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'industry_metrics_raw';
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'industry_metrics_alpha';
     """)
     cols_raw = {row[0] for row in cursor.fetchall()}
     if "total_revenue" not in cols_raw:
-        cursor.execute("ALTER TABLE industry_metrics_raw ADD COLUMN total_revenue DECIMAL(22,4)")
+        cursor.execute("ALTER TABLE industry_metrics_alpha ADD COLUMN total_revenue DECIMAL(22,4)")
     if "revenue_growth_q" not in cols_raw:
-        cursor.execute("ALTER TABLE industry_metrics_raw ADD COLUMN revenue_growth_q DECIMAL(18,6)")
+        cursor.execute("ALTER TABLE industry_metrics_alpha ADD COLUMN revenue_growth_q DECIMAL(18,6)")
 
     cursor.execute("""
         SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -165,7 +165,7 @@ def get_new_quarters(cursor):
         FROM alpha_data
         WHERE fiscalDateEnding BETWEEN '{START_DATE}' AND '{END_DATE}'
         AND fiscalDateEnding NOT IN (
-            SELECT fiscalDateEnding FROM industry_metrics_raw
+            SELECT fiscalDateEnding FROM industry_metrics_alpha
         )
         ORDER BY fiscalDateEnding;
     """)
@@ -231,7 +231,7 @@ def compute_ratios_for_quarter(cursor, period):
     # fetch all prior rows for revenue + date lookup
     cursor.execute("""
         SELECT symbol, total_revenue, fiscalDateEnding
-        FROM industry_metrics_raw
+        FROM industry_metrics_alpha
         ORDER BY fiscalDateEnding DESC
     """)
     prev_rows = cursor.fetchall()
@@ -371,7 +371,7 @@ def insert_raw(cursor, rows):
         return
 
     sql = """
-        INSERT IGNORE INTO industry_metrics_raw (
+        INSERT IGNORE INTO industry_metrics_alpha (
             symbol, naics_code, market_cap, cap_category, fiscalDateEnding,
             total_revenue, revenue_growth_q,
             gross_margin_q, operating_margin_q, ebit_margin_q,
@@ -421,7 +421,7 @@ def compute_and_insert_industry_medians(cursor, period):
             depreciation_percent_revenue,
             roa,
             roe
-        FROM industry_metrics_raw
+        FROM industry_metrics_alpha
         WHERE fiscalDateEnding = '{period}';
     """)
 

@@ -110,7 +110,17 @@ _KNOWN_METRIC_COLUMNS = frozenset({
 })
 
 
-_INDUSTRY_METRICS_RAW_TABLE = "industry_metrics_raw"
+# Two cohort source tables, queried in alternating order at each NAICS
+# level: EDGAR first (broader SIC-classified universe; ~3K extra firms
+# beyond the Alpha SEC-listed set), then Alpha (richer per-firm history).
+# The runtime resolver tries (level=6, edgar) -> (level=6, alpha) ->
+# (level=5, edgar) -> (level=5, alpha) -> ... -> (level=2, alpha) and
+# accepts the FIRST level/source pair whose distinct-firm count >= 2.
+_COHORT_TABLES: Tuple[Tuple[str, str], ...] = (
+  ("edgar", "industry_metrics_edgar"),
+  ("alpha", "industry_metrics_alpha"),
+)
+_COHORT_FIRM_MIN = 2  # ≥ 2 distinct firms qualifies a bucket as a real industry
 
 # Cohort widening ladder. Each tier widens one filter dimension.
 _REVENUE_WINDOW_LADDER: Tuple[Tuple[float, float], ...] = (
@@ -120,7 +130,8 @@ _REVENUE_WINDOW_LADDER: Tuple[Tuple[float, float], ...] = (
 _DATE_WINDOW_YEARS_LADDER: Tuple[int, ...] = (5, 8, 10)
 _NAICS_LEVEL_LADDER: Tuple[int, ...] = (6, 5, 4, 3, 2)
 
-# Confidence-tier thresholds.
+# Confidence-tier thresholds (kept for provenance/reporting; do NOT gate
+# acceptance — the firm-count threshold above is what gates).
 _TIER_HIGH_MIN_N = 50
 _TIER_MEDIUM_MIN_N = 20
 _TIER_LOW_MIN_N = 8
@@ -138,10 +149,14 @@ class CohortBandResult:
   benchmark_min: Optional[float]    # 25th percentile
   benchmark_target: Optional[float]  # median (50th)
   benchmark_max: Optional[float]    # 75th percentile
-  cohort_size: int
-  confidence_tier: str  # high / medium / low / fallback
+  cohort_size: int                  # row count used for percentile compute
+  firm_count: int                   # distinct firms (the gating metric)
+  confidence_tier: str              # high / medium / low / fallback (informational)
+  cohort_table: str                 # 'edgar' or 'alpha' — which table answered
+  naics_level_used: int             # 6/5/4/3/2 — where in the alternating walk we stopped
+  naics_prefix_used: str
   cohort_query: Dict[str, Any] = field(default_factory=dict)
-  data_source: str = "industry_metrics_raw_cohort"
+  data_source: str = "cohort_alternating"  # was: industry_metrics_raw_cohort
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -151,7 +166,11 @@ class CohortBandResult:
       "benchmark_target": self.benchmark_target,
       "benchmark_max": self.benchmark_max,
       "cohort_size": int(self.cohort_size),
+      "firm_count": int(self.firm_count),
       "confidence_tier": self.confidence_tier,
+      "cohort_table": self.cohort_table,
+      "naics_level_used": int(self.naics_level_used),
+      "naics_prefix_used": self.naics_prefix_used,
       "cohort_query": copy.deepcopy(self.cohort_query),
       "data_source": self.data_source,
     }
@@ -325,6 +344,7 @@ _DB_UNREACHABLE_FLAG = {"value": False}
 
 def _cohort_cache_key(
   *,
+  table_name: str,
   naics_prefix: str,
   naics_level: int,
   revenue_window: Optional[Tuple[float, float]],
@@ -333,6 +353,7 @@ def _cohort_cache_key(
 ) -> Tuple[Any, ...]:
   rev = revenue_window if revenue_window is not None else (None, None)
   return (
+    table_name,
     naics_prefix,
     int(naics_level),
     rev[0],
@@ -344,21 +365,24 @@ def _cohort_cache_key(
 
 def _query_cohort_rows(
   *,
+  table_name: str,
   naics_prefix: str,
   naics_level: int,
   revenue_window: Optional[Tuple[float, float]],
   cap_categories: Tuple[str, ...],
   fiscal_year_min: int,
 ) -> List[Dict[str, Any]]:
-  """Run the cohort SELECT against industry_metrics_raw. Caches by
-  filter shape for the process lifetime. Returns [] on any DB error so
-  the resolver can transparently fall back to the cascade.
+  """Run the cohort SELECT against the specified industry_metrics_* table.
+  Caches by (table, filter shape) for the process lifetime. Returns [] on
+  any DB error so the resolver can transparently fall back.
 
-  No metric_column filter — the SELECT returns all metric columns once
-  per cohort, and percentiles are computed in Python. This keeps the
-  cohort cache compact (one query per cohort, not one per metric).
+  Only `industry_metrics_alpha` and `industry_metrics_edgar` are valid;
+  other names are rejected to prevent SQL injection via the table param.
   """
+  if table_name not in {t for _src, t in _COHORT_TABLES}:
+    raise ValueError(f"unknown cohort table: {table_name}")
   cache_key = _cohort_cache_key(
+    table_name=table_name,
     naics_prefix=naics_prefix,
     naics_level=naics_level,
     revenue_window=revenue_window,
@@ -383,8 +407,10 @@ def _query_cohort_rows(
     return []
 
   metric_columns = sorted(_KNOWN_METRIC_COLUMNS)
+  # `symbol` is selected so we can count distinct firms (the gating
+  # threshold is now firm count, not row count).
   select_columns = (
-    ["naics_code", "cap_category", "fiscalDateEnding", "total_revenue"]
+    ["symbol", "naics_code", "cap_category", "fiscalDateEnding", "total_revenue"]
     + metric_columns
   )
   select_sql = ", ".join(f"`{col}`" for col in select_columns)
@@ -407,7 +433,7 @@ def _query_cohort_rows(
     filters.append(f"`cap_category` IN ({placeholders})")
     params.extend(cap_categories)
   sql = (
-    f"SELECT {select_sql} FROM `{_INDUSTRY_METRICS_RAW_TABLE}` "
+    f"SELECT {select_sql} FROM `{table_name}` "
     f"WHERE {' AND '.join(filters)}"
   )
 
@@ -462,27 +488,45 @@ def clear_cohort_cache() -> None:
 
 def _try_cohort_at_filter(
   *,
+  table_name: str,
   naics_prefix: str,
   naics_level: int,
   revenue_window: Optional[Tuple[float, float]],
   cap_categories: Tuple[str, ...],
   fiscal_year_min: int,
   metric_column: str,
-) -> Tuple[Optional[Tuple[float, float, float]], int]:
+) -> Tuple[Optional[Tuple[float, float, float]], int, int]:
+  """Query one (table, NAICS prefix, revenue window, date window) combo.
+
+  Returns (band_or_None, n_rows_used, distinct_firm_count). The firm
+  count is what gates acceptance (≥ 2 firms = qualifies); the row count
+  is informational and used for confidence-tier tagging.
+  """
   rows = _query_cohort_rows(
+    table_name=table_name,
     naics_prefix=naics_prefix,
     naics_level=naics_level,
     revenue_window=revenue_window,
     cap_categories=cap_categories,
     fiscal_year_min=fiscal_year_min,
   )
+  # Count distinct firms with a non-null value for THIS metric column.
+  firm_set: set = set()
+  for r in rows:
+    if not isinstance(r, dict):
+      continue
+    if r.get(metric_column) is None:
+      continue
+    sym = r.get("symbol")
+    if sym:
+      firm_set.add(sym)
+  firm_count = len(firm_set)
   p25, p50, p75, n_used = compute_band_from_rows(
-    rows=rows,
-    metric_column=metric_column,
+    rows=rows, metric_column=metric_column,
   )
-  if n_used < _TIER_LOW_MIN_N or p50 is None:
-    return None, n_used
-  return (p25, p50, p75), n_used
+  if firm_count < _COHORT_FIRM_MIN or p50 is None:
+    return None, n_used, firm_count
+  return (p25, p50, p75), n_used, firm_count
 
 
 def _current_year() -> int:
@@ -496,7 +540,20 @@ def resolve_cohort_band(
   business_profile: Dict[str, Any],
   metric_column_override: Optional[str] = None,
 ) -> Optional[CohortBandResult]:
-  """Resolve a cohort-matched percentile band for a single metric.
+  """Resolve a cohort-matched percentile band for a single metric using
+  the alternating EDGAR/Alpha walk.
+
+  Walk order:
+    (level=6, edgar) -> (level=6, alpha) ->
+    (level=5, edgar) -> (level=5, alpha) ->
+    (level=4, edgar) -> (level=4, alpha) ->
+    (level=3, edgar) -> (level=3, alpha) ->
+    (level=2, edgar) -> (level=2, alpha)
+
+  At each (level, source) pair we still apply the existing cohort
+  widening (revenue window, date window) but accept the FIRST combo that
+  yields >= 2 distinct firms. EDGAR-first reflects the directive that an
+  EDGAR NAICS-5 cohort is more relevant than an Alpha NAICS-2 cohort.
 
   Args:
     metric_key: a key from METRIC_KEY_TO_COLUMN, OR a lever_id from
@@ -505,13 +562,11 @@ def resolve_cohort_band(
       stage (optional), business_model (optional, used only for cache
       partitioning and provenance).
     metric_column_override: bypass the maps and target a specific
-      industry_metrics_raw column. For the rare case the assembler
-      already knows the column.
+      industry_metrics_* column.
 
   Returns:
-    CohortBandResult on success; None when the cohort is too small at
-    every widening tier (caller should fall through to the cascade
-    resolver).
+    CohortBandResult on success (table, level, firm_count tagged on
+    provenance); None when no level/source pair yields >= 2 firms.
   """
   metric_column = (
     _clean_text(metric_column_override)
@@ -532,78 +587,82 @@ def resolve_cohort_band(
   )
 
   current_year = _current_year()
-  best: Optional[Tuple[Tuple[float, float, float], int, Dict[str, Any]]] = None
   attempts: List[Dict[str, Any]] = []
-  # Cascade NAICS level first, then widen revenue and date windows.
+  # Revenue/date widening — same as before; tried within each
+  # (level, source) before moving on.
   revenue_ladder: List[Optional[Tuple[float, float]]] = []
   if target_revenue and target_revenue > 0:
     for lo, hi in _REVENUE_WINDOW_LADDER:
       revenue_ladder.append((float(target_revenue) * lo, float(target_revenue) * hi))
-  revenue_ladder.append(None)  # final widening: no revenue filter
+  revenue_ladder.append(None)
   date_ladder = list(_DATE_WINDOW_YEARS_LADDER)
 
+  # Outer alternating walk: at each NAICS level, try EDGAR then Alpha.
   for naics_level in _NAICS_LEVEL_LADDER:
     if naics_level > len(naics_6):
       continue
     naics_prefix = naics_6[:naics_level]
-    for revenue_window in revenue_ladder:
-      for window_years in date_ladder:
-        fiscal_year_min = max(1990, current_year - int(window_years))
-        attempt_descr = {
-          "naics_level": naics_level,
-          "naics_prefix": naics_prefix,
-          "revenue_window": revenue_window,
-          "cap_categories": list(cap_categories),
-          "fiscal_year_min": fiscal_year_min,
-        }
-        result, n_used = _try_cohort_at_filter(
-          naics_prefix=naics_prefix,
-          naics_level=naics_level,
-          revenue_window=revenue_window,
-          cap_categories=cap_categories,
-          fiscal_year_min=fiscal_year_min,
+    for source_tag, table_name in _COHORT_TABLES:
+      best_at_this_pair: Optional[Tuple[Tuple[float, float, float], int, int, Dict[str, Any]]] = None
+      for revenue_window in revenue_ladder:
+        for window_years in date_ladder:
+          fiscal_year_min = max(1990, current_year - int(window_years))
+          attempt_descr = {
+            "naics_level": naics_level,
+            "naics_prefix": naics_prefix,
+            "source": source_tag,
+            "table": table_name,
+            "revenue_window": revenue_window,
+            "cap_categories": list(cap_categories),
+            "fiscal_year_min": fiscal_year_min,
+          }
+          band, n_rows, n_firms = _try_cohort_at_filter(
+            table_name=table_name,
+            naics_prefix=naics_prefix,
+            naics_level=naics_level,
+            revenue_window=revenue_window,
+            cap_categories=cap_categories,
+            fiscal_year_min=fiscal_year_min,
+            metric_column=metric_column,
+          )
+          attempts.append({**attempt_descr, "n_rows": n_rows, "n_firms": n_firms})
+          if band is not None:
+            if best_at_this_pair is None or n_firms > best_at_this_pair[2]:
+              best_at_this_pair = (band, n_rows, n_firms, attempt_descr)
+      if best_at_this_pair is not None:
+        # Found a (level, source) that satisfies >= 2 firms — pick it
+        # and stop. This is the "first level/source wins" semantic.
+        (p25, p50, p75), n_rows, n_firms, picked = best_at_this_pair
+        confidence = _confidence_tier_for_cohort_size(n_rows)
+        return CohortBandResult(
+          metric_key=_clean_text(metric_key),
           metric_column=metric_column,
+          benchmark_min=round(float(p25), 6) if p25 is not None else None,
+          benchmark_target=round(float(p50), 6) if p50 is not None else None,
+          benchmark_max=round(float(p75), 6) if p75 is not None else None,
+          cohort_size=n_rows,
+          firm_count=n_firms,
+          confidence_tier=confidence,
+          cohort_table=picked["source"],
+          naics_level_used=picked["naics_level"],
+          naics_prefix_used=picked["naics_prefix"],
+          cohort_query={
+            "naics_6": naics_6,
+            "naics_level_used": picked["naics_level"],
+            "naics_prefix": picked["naics_prefix"],
+            "cohort_table": picked["source"],
+            "revenue_window": picked["revenue_window"],
+            "cap_categories": picked["cap_categories"],
+            "fiscal_year_min": picked["fiscal_year_min"],
+            "revenue_bucket": _revenue_bucket_label(target_revenue),
+            "stage": _clean_text(stage) or None,
+            "business_model": _clean_text(business_profile.get("business_model")) or None,
+            "attempts": attempts,
+          },
+          data_source=f"cohort_alternating_{picked['source']}",
         )
-        attempts.append({**attempt_descr, "n_used": n_used})
-        if result is not None:
-          if best is None or n_used > best[1]:
-            best = (result, n_used, attempt_descr)
-          if n_used >= _TIER_HIGH_MIN_N:
-            break
-      if best is not None and best[1] >= _TIER_HIGH_MIN_N:
-        break
-    if best is not None and best[1] >= _TIER_HIGH_MIN_N:
-      break
-
-  if best is None:
-    return None
-
-  (p25, p50, p75), n_used, picked_filter = best
-  confidence = _confidence_tier_for_cohort_size(n_used)
-  if confidence == "fallback":
-    return None
-  return CohortBandResult(
-    metric_key=_clean_text(metric_key),
-    metric_column=metric_column,
-    benchmark_min=round(float(p25), 6) if p25 is not None else None,
-    benchmark_target=round(float(p50), 6) if p50 is not None else None,
-    benchmark_max=round(float(p75), 6) if p75 is not None else None,
-    cohort_size=n_used,
-    confidence_tier=confidence,
-    cohort_query={
-      "naics_6": naics_6,
-      "naics_level_used": picked_filter["naics_level"],
-      "naics_prefix": picked_filter["naics_prefix"],
-      "revenue_window": picked_filter["revenue_window"],
-      "cap_categories": picked_filter["cap_categories"],
-      "fiscal_year_min": picked_filter["fiscal_year_min"],
-      "revenue_bucket": _revenue_bucket_label(target_revenue),
-      "stage": _clean_text(stage) or None,
-      "business_model": _clean_text(business_profile.get("business_model")) or None,
-      "attempts": attempts,
-    },
-    data_source="industry_metrics_raw_cohort",
-  )
+  # No (level, source) pair yielded >= 2 firms.
+  return None
 
 
 def cohort_calibration_source_for_confidence(confidence_tier: str) -> str:
