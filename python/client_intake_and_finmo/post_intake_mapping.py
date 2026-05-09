@@ -3103,33 +3103,56 @@ def stage_planning_ramp_policy(
       "Capacity expansion must be supported by operating earnings and stage reality.",
     ]
 
-  # Apply planning-mode validator values from the SQL table. Each value is
-  # only set when populated (None columns leave the rule absent so callers
-  # see "not present" with the same semantics as pre-v4).
+  # Phase 9 Phase E — apply planning-mode floors uniformly per stage.
+  #
+  # Replaces the pre-Phase-9 stage-based waiver pattern (which skipped
+  # floor application for startup/early/distress) with stage-shifted
+  # column reads. Floor *values* now vary per stage in the SQL table;
+  # floor *application* is universal. This satisfies doctrine Q1: "no
+  # stage gets waived. Floors shift per stage in DATA, not per-stage
+  # in CODE BRANCHES."
+  #
+  # Universal viability rule: q11_q20 floor >= 0.0 for every (mode, stage).
   if planning_mode_policy:
     pm = planning_mode_policy
-    if pm.get("operational_requires_nonnegative_from_q1") and family not in {"startup", "early"} and not explicit_distress_context:
+
+    def _stage_floor(window: str) -> Optional[float]:
+      stage_specific = pm.get(f"profitability_floor_{window}_{family}")
+      if stage_specific is not None:
+        return float(stage_specific)
+      generic = pm.get(f"profitability_floor_{window}")
+      return float(generic) if generic is not None else None
+
+    floor_q1_q4 = _stage_floor("q1_q4")
+    floor_q5_q10 = _stage_floor("q5_q10")
+    floor_q11_q20 = _stage_floor("q11_q20")
+
+    if floor_q1_q4 is not None:
+      policy["validator_rules"]["q1_to_q20_min_net_income_margin_floor"] = float(floor_q1_q4)
+    if floor_q5_q10 is not None:
+      policy["validator_rules"]["q5_to_q20_min_net_income_margin_floor"] = float(floor_q5_q10)
+    # Universal viability: q11_q20 floor binds at 0.0 for every (mode, stage).
+    # The SQL row may set a higher floor (e.g., 0.07 for operational+rebalance);
+    # never lower than the universal floor.
+    if floor_q11_q20 is not None:
+      policy["validator_rules"]["q11_to_q20_min_net_income_margin_floor"] = max(
+        0.0, float(floor_q11_q20)
+      )
+    else:
+      policy["validator_rules"]["q11_to_q20_min_net_income_margin_floor"] = 0.0
+
+    if pm.get("operational_requires_nonnegative_from_q1"):
       policy["validator_rules"]["operational_requires_nonnegative_from_q1"] = True
-    if pm.get("operational_requires_positive_from_q5") and family not in {"startup", "early"} and not explicit_distress_context:
+    if pm.get("operational_requires_positive_from_q5"):
       policy["validator_rules"]["operational_requires_positive_from_q5"] = True
-    if pm.get("profitability_floor_q1_q4") is not None and family not in {"startup", "early"} and not explicit_distress_context:
-      policy["validator_rules"]["q1_to_q20_min_net_income_margin_floor"] = float(pm["profitability_floor_q1_q4"])
-    if pm.get("profitability_floor_q5_q10") is not None and family not in {"startup", "early"} and not explicit_distress_context:
-      policy["validator_rules"]["q5_to_q20_min_net_income_margin_floor"] = float(pm["profitability_floor_q5_q10"])
     if pm.get("loss_allowed_latest_quarter") is not None and "loss_allowed_latest_quarter" not in policy["validator_rules"]:
       policy["validator_rules"]["loss_allowed_latest_quarter"] = int(pm["loss_allowed_latest_quarter"])
-  elif family not in {"startup", "early"} and not explicit_distress_context:
-    # Fallback: planning_mode_policy missing AND the operational baseline
-    # branch was selected. Preserve the pre-v4 inline values exactly so
-    # legacy callers see no behavior change.
-    policy["validator_rules"].update(
-      {
-        "operational_requires_nonnegative_from_q1": True,
-        "operational_requires_positive_from_q5": True,
-        "q1_to_q20_min_net_income_margin_floor": 0.0,
-        "q5_to_q20_min_net_income_margin_floor": 0.02,
-      }
-    )
+  else:
+    # Phase 9 Phase E fallback — if planning_mode_policy is missing
+    # entirely (SQL table not yet populated), use the universal viability
+    # rule defaults so q11_q20 still binds. This is NOT a waiver — every
+    # stage gets the same fallback floor.
+    policy["validator_rules"]["q11_to_q20_min_net_income_margin_floor"] = 0.0
   return policy
 
 
@@ -4948,46 +4971,134 @@ def _ensure_headcount_policy_lookup_table(conn) -> None:
 
 
 _DEFAULT_PLANNING_MODE_POLICY_ROWS: List[Dict[str, Any]] = [
+  # ===========================================================================
+  # Phase 9 Phase E — stage-shifted profitability floors per Q1 decision.
+  #
+  # Universal viability rule: Q11 floor >= 0.0 for EVERY (mode, stage).
+  # Stage shifts WHEN inside Q1-Q11 the floor binds, not WHETHER it binds.
+  # The legacy {"profitability_floor_q1_q4", "_q5_q10", "_q11_q20"} columns
+  # remain populated for backwards-compatible callers but stage-specific
+  # variants are the doctrine-aligned source of truth.
+  # ===========================================================================
   {
     "planning_mode": "rebalance",
     "profitability_floor_q1_q4": 0.0,
     "profitability_floor_q5_q10": 0.02,
     "profitability_floor_q11_q20": 0.0,
+    "profitability_floor_q1_q4_startup": -0.20,
+    "profitability_floor_q1_q4_early": -0.10,
+    "profitability_floor_q1_q4_operational": 0.02,
+    "profitability_floor_q1_q4_mature": 0.05,
+    "profitability_floor_q5_q10_startup": -0.05,
+    "profitability_floor_q5_q10_early": 0.00,
+    "profitability_floor_q5_q10_operational": 0.05,
+    "profitability_floor_q5_q10_mature": 0.07,
+    "profitability_floor_q11_q20_startup": 0.02,
+    "profitability_floor_q11_q20_early": 0.03,
+    "profitability_floor_q11_q20_operational": 0.07,
+    "profitability_floor_q11_q20_mature": 0.10,
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": [],
     "cycle_budget_multiplier": 1.0,
     "operational_requires_nonnegative_from_q1": True,
     "operational_requires_positive_from_q5": True,
-    "notes": "Operational baseline for misaligned-but-salvageable cases. Matches the pre-v4 `else` branch in stage_planning_ramp_policy.",
+    "notes": "Phase 9 Phase E rebalance — stage-shifted floors per universal viability rule. Q11 >= 0 floor preserved for every stage.",
   },
   {
     "planning_mode": "turnaround",
     "profitability_floor_q1_q4": None,
     "profitability_floor_q5_q10": None,
     "profitability_floor_q11_q20": 0.0,
-    # NULL preserves pre-v4 behavior. The master-diagnostic spec proposed
-    # 8 for turnaround mode, but pre-v4 only set this for the `early`
-    # stage_family (regardless of mode). Operators can flip this to 8 in
-    # the row to give turnaround mode the same loss-allowed window without
-    # a code change.
+    "profitability_floor_q1_q4_startup": -0.40,
+    "profitability_floor_q1_q4_early": -0.30,
+    "profitability_floor_q1_q4_operational": -0.10,
+    "profitability_floor_q1_q4_mature": -0.05,
+    "profitability_floor_q5_q10_startup": -0.15,
+    "profitability_floor_q5_q10_early": -0.10,
+    "profitability_floor_q5_q10_operational": -0.05,
+    "profitability_floor_q5_q10_mature": 0.00,
+    "profitability_floor_q11_q20_startup": 0.00,
+    "profitability_floor_q11_q20_early": 0.00,
+    "profitability_floor_q11_q20_operational": 0.00,
+    "profitability_floor_q11_q20_mature": 0.02,
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": ["mature_loss_state", "early_revenue_under_run_rate"],
     "cycle_budget_multiplier": 1.0,
     "operational_requires_nonnegative_from_q1": False,
     "operational_requires_positive_from_q5": False,
-    "notes": "Distress / turnaround mode. Matches the pre-v4 `elif explicit_distress_context` branch in stage_planning_ramp_policy.",
+    "notes": "Phase 9 Phase E turnaround — distress posture with the loosest stage-shifted floors. Q11 universal viability still binds (>= 0).",
   },
   {
     "planning_mode": "normalize",
     "profitability_floor_q1_q4": 0.0,
     "profitability_floor_q5_q10": 0.02,
     "profitability_floor_q11_q20": 0.0,
+    "profitability_floor_q1_q4_startup": -0.30,
+    "profitability_floor_q1_q4_early": -0.20,
+    "profitability_floor_q1_q4_operational": 0.00,
+    "profitability_floor_q1_q4_mature": 0.05,
+    "profitability_floor_q5_q10_startup": -0.10,
+    "profitability_floor_q5_q10_early": -0.05,
+    "profitability_floor_q5_q10_operational": 0.02,
+    "profitability_floor_q5_q10_mature": 0.05,
+    "profitability_floor_q11_q20_startup": 0.02,
+    "profitability_floor_q11_q20_early": 0.02,
+    "profitability_floor_q11_q20_operational": 0.05,
+    "profitability_floor_q11_q20_mature": 0.08,
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": [],
     "cycle_budget_multiplier": 1.0,
     "operational_requires_nonnegative_from_q1": True,
     "operational_requires_positive_from_q5": True,
-    "notes": "Reality-normalization mode for over-optimistic / overstated cases. Same numeric floors as rebalance.",
+    "notes": "Phase 9 Phase E normalize — stage-shifted floors matching Q1 decision. Startup q1_q4=-0.30, mature q1_q4=0.05; everyone q11_q20 >= 0.",
+  },
+  {
+    "planning_mode": "growth_investment",
+    "profitability_floor_q1_q4": None,
+    "profitability_floor_q5_q10": None,
+    "profitability_floor_q11_q20": 0.0,
+    "profitability_floor_q1_q4_startup": -0.40,
+    "profitability_floor_q1_q4_early": -0.30,
+    "profitability_floor_q1_q4_operational": -0.10,
+    "profitability_floor_q1_q4_mature": -0.05,
+    "profitability_floor_q5_q10_startup": -0.15,
+    "profitability_floor_q5_q10_early": -0.10,
+    "profitability_floor_q5_q10_operational": -0.05,
+    "profitability_floor_q5_q10_mature": 0.02,
+    "profitability_floor_q11_q20_startup": 0.00,
+    "profitability_floor_q11_q20_early": 0.00,
+    "profitability_floor_q11_q20_operational": 0.05,
+    "profitability_floor_q11_q20_mature": 0.07,
+    "loss_allowed_latest_quarter": None,
+    "tolerated_issue_codes": ["mature_loss_state"],
+    "cycle_budget_multiplier": 1.2,
+    "operational_requires_nonnegative_from_q1": False,
+    "operational_requires_positive_from_q5": False,
+    "notes": "Phase 9 Phase E growth_investment — investing for growth, lenient profitability floors Q1-Q10, but Q11 universal viability still binds.",
+  },
+  {
+    "planning_mode": "preservation",
+    "profitability_floor_q1_q4": 0.0,
+    "profitability_floor_q5_q10": 0.05,
+    "profitability_floor_q11_q20": 0.05,
+    "profitability_floor_q1_q4_startup": -0.10,
+    "profitability_floor_q1_q4_early": 0.00,
+    "profitability_floor_q1_q4_operational": 0.05,
+    "profitability_floor_q1_q4_mature": 0.05,
+    "profitability_floor_q5_q10_startup": 0.00,
+    "profitability_floor_q5_q10_early": 0.02,
+    "profitability_floor_q5_q10_operational": 0.05,
+    "profitability_floor_q5_q10_mature": 0.08,
+    "profitability_floor_q11_q20_startup": 0.05,
+    "profitability_floor_q11_q20_early": 0.07,
+    "profitability_floor_q11_q20_operational": 0.10,
+    "profitability_floor_q11_q20_mature": 0.12,
+    "loss_allowed_latest_quarter": None,
+    "tolerated_issue_codes": [],
+    "cycle_budget_multiplier": 0.9,
+    "operational_requires_nonnegative_from_q1": True,
+    "operational_requires_positive_from_q5": True,
+    "notes": "Phase 9 Phase E preservation — defensive posture with the tightest floors per stage. Q11+ pushes toward steady-state industry floor.",
   },
 ]
 
@@ -5009,6 +5120,18 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
           profitability_floor_q1_q4 DECIMAL(10,6) NULL,
           profitability_floor_q5_q10 DECIMAL(10,6) NULL,
           profitability_floor_q11_q20 DECIMAL(10,6) NULL,
+          profitability_floor_q1_q4_startup DECIMAL(10,6) NULL,
+          profitability_floor_q1_q4_early DECIMAL(10,6) NULL,
+          profitability_floor_q1_q4_operational DECIMAL(10,6) NULL,
+          profitability_floor_q1_q4_mature DECIMAL(10,6) NULL,
+          profitability_floor_q5_q10_startup DECIMAL(10,6) NULL,
+          profitability_floor_q5_q10_early DECIMAL(10,6) NULL,
+          profitability_floor_q5_q10_operational DECIMAL(10,6) NULL,
+          profitability_floor_q5_q10_mature DECIMAL(10,6) NULL,
+          profitability_floor_q11_q20_startup DECIMAL(10,6) NULL,
+          profitability_floor_q11_q20_early DECIMAL(10,6) NULL,
+          profitability_floor_q11_q20_operational DECIMAL(10,6) NULL,
+          profitability_floor_q11_q20_mature DECIMAL(10,6) NULL,
           loss_allowed_latest_quarter INT NULL,
           tolerated_issue_codes_json LONGTEXT NULL,
           cycle_budget_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
@@ -5023,6 +5146,30 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
+      # Phase 9 Phase E — idempotent ALTER TABLE for already-deployed
+      # databases. Each ADD COLUMN runs in its own try/except so a
+      # "Duplicate column name" error doesn't abort siblings.
+      _phase9_e_floor_columns = (
+        "profitability_floor_q1_q4_startup",
+        "profitability_floor_q1_q4_early",
+        "profitability_floor_q1_q4_operational",
+        "profitability_floor_q1_q4_mature",
+        "profitability_floor_q5_q10_startup",
+        "profitability_floor_q5_q10_early",
+        "profitability_floor_q5_q10_operational",
+        "profitability_floor_q5_q10_mature",
+        "profitability_floor_q11_q20_startup",
+        "profitability_floor_q11_q20_early",
+        "profitability_floor_q11_q20_operational",
+        "profitability_floor_q11_q20_mature",
+      )
+      for col in _phase9_e_floor_columns:
+        try:
+          cur.execute(
+            f"ALTER TABLE {_PLANNING_MODE_POLICY_TABLE_NAME} ADD COLUMN {col} DECIMAL(10,6) NULL"
+          )
+        except Exception:
+          pass
       # Phase 6 Step 1: drop the orphaned operational_distress_allows_early_losses
       # column from existing deployments. The column is set but never read by
       # any consumer; carrying it forward is dead schema.
@@ -5051,6 +5198,18 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             profitability_floor_q1_q4,
             profitability_floor_q5_q10,
             profitability_floor_q11_q20,
+            profitability_floor_q1_q4_startup,
+            profitability_floor_q1_q4_early,
+            profitability_floor_q1_q4_operational,
+            profitability_floor_q1_q4_mature,
+            profitability_floor_q5_q10_startup,
+            profitability_floor_q5_q10_early,
+            profitability_floor_q5_q10_operational,
+            profitability_floor_q5_q10_mature,
+            profitability_floor_q11_q20_startup,
+            profitability_floor_q11_q20_early,
+            profitability_floor_q11_q20_operational,
+            profitability_floor_q11_q20_mature,
             loss_allowed_latest_quarter,
             tolerated_issue_codes_json,
             cycle_budget_multiplier,
@@ -5058,11 +5217,23 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             operational_requires_positive_from_q5,
             policy_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             profitability_floor_q1_q4 = VALUES(profitability_floor_q1_q4),
             profitability_floor_q5_q10 = VALUES(profitability_floor_q5_q10),
             profitability_floor_q11_q20 = VALUES(profitability_floor_q11_q20),
+            profitability_floor_q1_q4_startup = VALUES(profitability_floor_q1_q4_startup),
+            profitability_floor_q1_q4_early = VALUES(profitability_floor_q1_q4_early),
+            profitability_floor_q1_q4_operational = VALUES(profitability_floor_q1_q4_operational),
+            profitability_floor_q1_q4_mature = VALUES(profitability_floor_q1_q4_mature),
+            profitability_floor_q5_q10_startup = VALUES(profitability_floor_q5_q10_startup),
+            profitability_floor_q5_q10_early = VALUES(profitability_floor_q5_q10_early),
+            profitability_floor_q5_q10_operational = VALUES(profitability_floor_q5_q10_operational),
+            profitability_floor_q5_q10_mature = VALUES(profitability_floor_q5_q10_mature),
+            profitability_floor_q11_q20_startup = VALUES(profitability_floor_q11_q20_startup),
+            profitability_floor_q11_q20_early = VALUES(profitability_floor_q11_q20_early),
+            profitability_floor_q11_q20_operational = VALUES(profitability_floor_q11_q20_operational),
+            profitability_floor_q11_q20_mature = VALUES(profitability_floor_q11_q20_mature),
             loss_allowed_latest_quarter = VALUES(loss_allowed_latest_quarter),
             tolerated_issue_codes_json = VALUES(tolerated_issue_codes_json),
             cycle_budget_multiplier = VALUES(cycle_budget_multiplier),
@@ -5075,6 +5246,18 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             row.get("profitability_floor_q1_q4"),
             row.get("profitability_floor_q5_q10"),
             row.get("profitability_floor_q11_q20"),
+            row.get("profitability_floor_q1_q4_startup"),
+            row.get("profitability_floor_q1_q4_early"),
+            row.get("profitability_floor_q1_q4_operational"),
+            row.get("profitability_floor_q1_q4_mature"),
+            row.get("profitability_floor_q5_q10_startup"),
+            row.get("profitability_floor_q5_q10_early"),
+            row.get("profitability_floor_q5_q10_operational"),
+            row.get("profitability_floor_q5_q10_mature"),
+            row.get("profitability_floor_q11_q20_startup"),
+            row.get("profitability_floor_q11_q20_early"),
+            row.get("profitability_floor_q11_q20_operational"),
+            row.get("profitability_floor_q11_q20_mature"),
             row.get("loss_allowed_latest_quarter"),
             _json_dumps_value(row.get("tolerated_issue_codes") or []),
             float(row.get("cycle_budget_multiplier") or 1.0),
@@ -5108,6 +5291,18 @@ def load_post_intake_planning_mode_policy_rows() -> List[Dict[str, Any]]:
           profitability_floor_q1_q4,
           profitability_floor_q5_q10,
           profitability_floor_q11_q20,
+          profitability_floor_q1_q4_startup,
+          profitability_floor_q1_q4_early,
+          profitability_floor_q1_q4_operational,
+          profitability_floor_q1_q4_mature,
+          profitability_floor_q5_q10_startup,
+          profitability_floor_q5_q10_early,
+          profitability_floor_q5_q10_operational,
+          profitability_floor_q5_q10_mature,
+          profitability_floor_q11_q20_startup,
+          profitability_floor_q11_q20_early,
+          profitability_floor_q11_q20_operational,
+          profitability_floor_q11_q20_mature,
           loss_allowed_latest_quarter,
           tolerated_issue_codes_json,
           cycle_budget_multiplier,
@@ -5130,18 +5325,27 @@ def load_post_intake_planning_mode_policy_rows() -> List[Dict[str, Any]]:
     mode = _clean_text(raw.get("planning_mode")).lower()
     if not mode:
       continue
+    def _opt_float(key: str) -> Optional[float]:
+      v = raw.get(key)
+      return float(v) if v is not None else None
     rows.append(
       {
         "planning_mode": mode,
-        "profitability_floor_q1_q4": (
-          float(raw["profitability_floor_q1_q4"]) if raw.get("profitability_floor_q1_q4") is not None else None
-        ),
-        "profitability_floor_q5_q10": (
-          float(raw["profitability_floor_q5_q10"]) if raw.get("profitability_floor_q5_q10") is not None else None
-        ),
-        "profitability_floor_q11_q20": (
-          float(raw["profitability_floor_q11_q20"]) if raw.get("profitability_floor_q11_q20") is not None else None
-        ),
+        "profitability_floor_q1_q4": _opt_float("profitability_floor_q1_q4"),
+        "profitability_floor_q5_q10": _opt_float("profitability_floor_q5_q10"),
+        "profitability_floor_q11_q20": _opt_float("profitability_floor_q11_q20"),
+        "profitability_floor_q1_q4_startup": _opt_float("profitability_floor_q1_q4_startup"),
+        "profitability_floor_q1_q4_early": _opt_float("profitability_floor_q1_q4_early"),
+        "profitability_floor_q1_q4_operational": _opt_float("profitability_floor_q1_q4_operational"),
+        "profitability_floor_q1_q4_mature": _opt_float("profitability_floor_q1_q4_mature"),
+        "profitability_floor_q5_q10_startup": _opt_float("profitability_floor_q5_q10_startup"),
+        "profitability_floor_q5_q10_early": _opt_float("profitability_floor_q5_q10_early"),
+        "profitability_floor_q5_q10_operational": _opt_float("profitability_floor_q5_q10_operational"),
+        "profitability_floor_q5_q10_mature": _opt_float("profitability_floor_q5_q10_mature"),
+        "profitability_floor_q11_q20_startup": _opt_float("profitability_floor_q11_q20_startup"),
+        "profitability_floor_q11_q20_early": _opt_float("profitability_floor_q11_q20_early"),
+        "profitability_floor_q11_q20_operational": _opt_float("profitability_floor_q11_q20_operational"),
+        "profitability_floor_q11_q20_mature": _opt_float("profitability_floor_q11_q20_mature"),
         "loss_allowed_latest_quarter": (
           int(raw["loss_allowed_latest_quarter"]) if raw.get("loss_allowed_latest_quarter") is not None else None
         ),

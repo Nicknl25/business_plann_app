@@ -58,6 +58,11 @@ from client_intake_and_finmo.post_intake_adaptive_planning.issue_router import (
   route_schedule_sanity_warning,
   route_solver_residual,
 )
+from client_intake_and_finmo.post_intake_adaptive_planning.industry_profile import (
+  IndustryDimensionBand,
+  IndustryProfile,
+  get_industry_profile,
+)
 
 __all__ = [
   "ADAPTATION_FAMILIES",
@@ -67,6 +72,8 @@ __all__ = [
   "ALL_SEVERITIES",
   "ALL_SHAPES",
   "AdaptivePolicyContract",
+  "IndustryDimensionBand",
+  "IndustryProfile",
   "IssueRoute",
   "PathComputation",
   "SEVERITY_ACCEPT_WITH_EXCEPTION",
@@ -88,6 +95,7 @@ __all__ = [
   "compute_adaptive_policy",
   "compute_per_quarter_values",
   "flat_path",
+  "get_industry_profile",
   "glidepath",
   "industry_convergence_decay",
   "linear_to_mature",
