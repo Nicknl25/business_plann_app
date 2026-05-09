@@ -492,22 +492,23 @@ def run_mode_based_cash_strategy(
           })
         elif driver == "owners_capital":
           total_owners_capital_added += float(remaining)
-          # STOCK semantics: write cumulative balance for THIS quarter
-          # AND every later quarter (carry-forward via overwrite).
-          for q_carry in range(q, max(1, int(horizon)) + 1):
-            exact_updates.append({
-              "lever_id": lever_id,
-              "quarter_index": q_carry,
-              "exact_value": round(float(total_owners_capital_added), 2),
-            })
+          # STOCK semantics: write THIS quarter's cumulative balance only.
+          # apply_exact_lever_updates_to_model_input overwrites per-quarter
+          # values; later cumulative writes propagate via the existing
+          # row's values, but we must explicitly set every quarter we
+          # touch otherwise it's clobbered.
+          exact_updates.append({
+            "lever_id": lever_id,
+            "quarter_index": q,
+            "exact_value": round(float(total_owners_capital_added), 2),
+          })
         elif driver == "other_equity":
           total_other_equity_added += float(remaining)
-          for q_carry in range(q, max(1, int(horizon)) + 1):
-            exact_updates.append({
-              "lever_id": lever_id,
-              "quarter_index": q_carry,
-              "exact_value": round(float(total_other_equity_added), 2),
-            })
+          exact_updates.append({
+            "lever_id": lever_id,
+            "quarter_index": q,
+            "exact_value": round(float(total_other_equity_added), 2),
+          })
         notes.append(f"funded_gap_via_{driver}:{round(remaining, 0)}")
         remaining = 0.0
 
@@ -537,6 +538,38 @@ def run_mode_based_cash_strategy(
       decisions=decisions,
       notes=notes,
     ))
+
+  # Phase 9 corrective — STOCK-lever carry-forward.
+  # owners_capital and other_equity are stock balances. Quarters where
+  # we wrote a NEW cumulative get that value. Quarters AFTER the last
+  # write must inherit the final cumulative (otherwise they retain the
+  # original Q1-baseline value and the stock balance "drops" mid-horizon).
+  # Build a per-lever map of quarter->cumulative. Fill any unwritten
+  # quarter Q with the most recent prior write's value (carry forward).
+  if total_owners_capital_added > 0 or total_other_equity_added > 0:
+    by_lever_quarter: Dict[str, Dict[int, float]] = {}
+    for upd in exact_updates:
+      lid = str(upd.get("lever_id") or "")
+      if lid not in (owners_capital_lever, other_equity_lever) or not lid:
+        continue
+      qi = int(upd.get("quarter_index") or 0)
+      val = float(upd.get("exact_value") or 0.0)
+      by_lever_quarter.setdefault(lid, {})[qi] = val
+    for lid, q_map in by_lever_quarter.items():
+      if not q_map:
+        continue
+      last_val = 0.0
+      for q_idx in range(1, max(1, int(horizon)) + 1):
+        if q_idx in q_map:
+          last_val = q_map[q_idx]
+        else:
+          # Carry-forward the last cumulative balance into this quarter.
+          if last_val > 0:
+            exact_updates.append({
+              "lever_id": lid,
+              "quarter_index": q_idx,
+              "exact_value": round(float(last_val), 2),
+            })
 
   # Apply the per-quarter updates to model_input.
   if exact_updates:
