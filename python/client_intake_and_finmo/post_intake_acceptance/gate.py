@@ -464,6 +464,7 @@ def _check_cash_health_operational_not_debt_funded(
 def _check_cascade_exercised_or_documented(
   planning_run: Dict[str, Any],
   planning_run_json: Dict[str, Any],
+  realism_memo: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
   """Phase 9 G3 — tier > 0 lands fine on their own (cascade exercised); tier-0
   lands require non-vacuous justification that real bands were consulted, not
@@ -482,8 +483,14 @@ def _check_cascade_exercised_or_documented(
       "tier_exercised": True,
     }
   # Tier 0 land — require evidence Phase 3 calibration was real.
+  # Phase 9 Step 2 fix: read realism_memo from the separate column (passed
+  # in by the caller). Pre-fix code looked for realism_memo_json INSIDE
+  # planning_run_json which never matches because they're parallel
+  # columns in intake_consult_drafts. The bug made every tier-0 land
+  # fail this check despite phase_3_calibrated bands being present.
   attempts = (cascade_diag or {}).get("tier_attempts") or []
-  realism_memo = planning_run_json.get("realism_memo_json") or {}
+  if not isinstance(realism_memo, dict) or not realism_memo:
+    realism_memo = planning_run_json.get("realism_memo_json") or {}
   band_sources = []
   for entry in (realism_memo.get("results") or []):
     if isinstance(entry, dict):
@@ -705,7 +712,7 @@ def verify_run_acceptance(
   passed, detail = _check_cash_health_operational_not_debt_funded(finmo_json)
   _record("cash_health_operational_not_debt_funded", passed, detail)
 
-  passed, detail = _check_cascade_exercised_or_documented(planning_run, planning_run_json)
+  passed, detail = _check_cascade_exercised_or_documented(planning_run, planning_run_json, realism_memo)
   _record("cascade_exercised_or_documented", passed, detail)
 
   passed, detail = _check_phase_3_calibrated_bands_consulted(realism_memo)

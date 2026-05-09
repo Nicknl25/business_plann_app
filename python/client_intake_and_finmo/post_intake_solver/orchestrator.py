@@ -246,6 +246,7 @@ def _remediate_realism_hard_fails(
   conn: Any = None,
   max_iterations: int = _GAP_B_MAX_ITERATIONS,
   solver_input_targets_payload: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Phase 9 Gap B — when the realism gate produces hard_fail_violations,
   route each through the issue_router and adjust its primary_levers'
@@ -649,7 +650,7 @@ def _remediate_realism_hard_fails(
         ops_json=ops_json or {},
         financials_json=financials_json or {},
         financials_year1_json={},
-        payroll_headcount={},
+        payroll_headcount=payroll_headcount or {},
         business_naics_6=business_naics_6,
         industry_profile=industry_profile_dict,
       )
@@ -2337,6 +2338,7 @@ def _run_post_cascade_completion(
       horizon=int(horizon or 20),
       conn=conn,
       max_iterations=_GAP_B_MAX_ITERATIONS,
+      payroll_headcount=payroll_headcount,
     )
     if realism_remediation_diag.get("final_realism_payload"):
       realism_gate_payload = realism_remediation_diag["final_realism_payload"]
