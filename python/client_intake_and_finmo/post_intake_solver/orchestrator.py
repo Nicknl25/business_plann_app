@@ -65,6 +65,45 @@ def _clean_text(value: Any) -> str:
   return str(value or "").strip()
 
 
+def _build_minimal_convergence_context(
+  *,
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  adaptive_policy_dict: Optional[Dict[str, Any]],
+  planning_context_summary_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Phase 9 Phase C1 — populate the unified_convergence_context payload.
+
+  Phase 8 persisted ``unified_convergence_context={}``, which orphaned the
+  stage_ramp_contract in the planning_run_json blob. Workbook export reads
+  via ``payload.unified_convergence_context.business_world_contract.stage_ramp_contract``
+  (see client_statements_output_excel/data.py:146-160). With that path
+  empty, the Revenue Drivers sheet's Stage Ramp Contract rows showed zeros
+  across Q1-Q20 even though the contract itself had been generated correctly.
+
+  This builder writes the minimum surface the workbook reader needs.
+  Intentionally NOT a full convergence-runner payload — convergence runner
+  is dead code awaiting Phase I deletion. Phase D may extend this with
+  cascade widening artifacts; Phase F adds cash plan summary.
+  """
+  context: Dict[str, Any] = {}
+  bwc: Dict[str, Any] = {}
+  if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
+    bwc["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
+  if bwc:
+    context["business_world_contract"] = bwc
+  # Mirror at planning_context_summary path for the alternate fallback the
+  # workbook reader walks at data.py:151.
+  if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
+    pcs: Dict[str, Any] = {}
+    if isinstance(planning_context_summary_json, dict):
+      pcs.update(copy.deepcopy(planning_context_summary_json))
+    pcs["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
+    context["planning_context_summary"] = pcs
+  if isinstance(adaptive_policy_dict, dict) and adaptive_policy_dict:
+    context["adaptive_policy"] = copy.deepcopy(adaptive_policy_dict)
+  return context
+
+
 def _build_finmo_callable(
   *,
   business_facts: Dict[str, Any],
@@ -1075,6 +1114,7 @@ def run_target_seeking_orchestrated_system_run(
     targets_payload_post=targets_payload_post,
     influence_payload=influence_payload,
     horizon=horizon,
+    adaptive_policy_dict=adaptive_policy.to_dict(),
   )
 
   return next_result
@@ -1113,6 +1153,7 @@ def _run_post_cascade_completion(
   targets_payload_post: Optional[Dict[str, Any]] = None,
   influence_payload: Optional[Dict[str, Any]] = None,
   horizon: int = 20,
+  adaptive_policy_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Phase 8 — orchestrator-driven post-cascade tail.
 
@@ -1609,7 +1650,15 @@ def _run_post_cascade_completion(
       grid_application_summary=copy.deepcopy(grid_application_summary or {}),
       realism_memo_before_resolution={},
       realism_memo_json=copy.deepcopy(realism_memo_json),
-      unified_convergence_context={},
+      # Phase 9 Phase C1: populate unified_convergence_context so the
+      # workbook reader (data.py:146-160 fallback chain) finds the
+      # stage_ramp_contract instead of returning zeros. Phase 8 wrote
+      # `{}` here, orphaning the contract.
+      unified_convergence_context=_build_minimal_convergence_context(
+        stage_ramp_contract=stage_ramp_contract,
+        adaptive_policy_dict=adaptive_policy_dict,
+        planning_context_summary_json=planning_context_summary_json,
+      ),
       unified_convergence_decision={},
       unified_convergence_plan={},
       unified_convergence_result={},
@@ -1673,6 +1722,13 @@ def _run_post_cascade_completion(
       tsd_dict = tsd if isinstance(tsd, dict) else {}
       tsd_dict["post_cascade_completion"] = copy.deepcopy(completion_trace)
       existing["target_seeking_diagnostics"] = tsd_dict
+      # Phase 9 Phase C1: write stage_ramp_contract and adaptive_policy at
+      # the top level of planning_run_json so the workbook reader's first
+      # fallback path (data.py:149) finds the contract directly.
+      if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
+        existing["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
+      if isinstance(adaptive_policy_dict, dict) and adaptive_policy_dict:
+        existing["adaptive_policy"] = copy.deepcopy(adaptive_policy_dict)
       cur = conn.cursor()
       try:
         cur.execute(
