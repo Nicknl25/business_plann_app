@@ -600,9 +600,9 @@ def _remediate_realism_hard_fails(
         "applied_adjustments": getattr(restoration, "applied_adjustments", []),
         "diagnostic_narrative": getattr(restoration, "diagnostic_narrative", ""),
       }
-      # Apply restoration's adjusted ops back into model_input revenue rows.
       adjusted_ops = getattr(restoration, "adjusted_ops_json", None) or {}
-      if isinstance(adjusted_ops, dict):
+      restoration_applied_directly = False
+      if isinstance(adjusted_ops, dict) and len(getattr(restoration, "applied_adjustments", []) or []) > 0:
         rev_rows = (model_input_json or {}).get("sections", {}).get("revenue") or []
         if isinstance(rev_rows, list):
           for row in rev_rows:
@@ -618,6 +618,85 @@ def _remediate_realism_hard_fails(
               new_val = _safe_float(adjusted_ops.get("operating_utilization_target"))
             if new_val is not None and new_val > 0:
               row["values"] = [float(new_val) for _ in range(len(row.get("values") or [horizon]))]
+              restoration_applied_directly = True
+      # Phase 9 corrective fallback — if restore_feasibility produced no
+      # adjustments (e.g., its structural gap computation didn't match
+      # realism semantics), apply an emergency direct adjustment to
+      # revenue drivers + cost levers from the routes' primary_levers.
+      # Universal — same logic for any business; the lever choices come
+      # from the issue_router's family mapping.
+      if not restoration_applied_directly:
+        emergency_adjustments = []
+        sections_now = (model_input_json or {}).get("sections") or {}
+        rows_by_lever_now: Dict[str, Dict[str, Any]] = {}
+        for sec_rows in sections_now.values() if isinstance(sections_now, dict) else []:
+          if not isinstance(sec_rows, list):
+            continue
+          for sr in sec_rows:
+            if isinstance(sr, dict):
+              k = str(sr.get("lever_id") or "").strip()
+              if k:
+                rows_by_lever_now[k] = sr
+        # Emergency factor: 2.0× for revenue/scale, 0.6× for cost ratios.
+        # Bigger than per-iter factors because this is the always-lands
+        # final pass.
+        emergency_revenue_factor = 2.0
+        emergency_cost_factor = 0.6
+        # Walk the LAST iteration's routes (they describe the residual
+        # violations after the loop).
+        last_routes = []
+        try:
+          last_violations = list((current_payload or {}).get("hard_fail_violations") or [])
+          for v_lr in last_violations:
+            mk_lr = str(v_lr.get("metric_key") or "")
+            row_lr = realism_rows_by_metric.get(mk_lr, {})
+            r_lr = route_realism_violation(
+              metric_key=mk_lr,
+              realism_row=row_lr,
+              detected_value=_safe_float(v_lr.get("actual_value")),
+              expected_floor=_safe_float(v_lr.get("effective_min")),
+              expected_ceiling=_safe_float(v_lr.get("effective_max")),
+              adaptive_policy=adaptive_policy_dict,
+              source_quarter=v_lr.get("quarter_index"),
+            )
+            last_routes.append(r_lr)
+        except Exception:
+          last_routes = []
+        for route_lr in last_routes:
+          family_lr = str(route_lr.adaptation_family or "")
+          if family_lr in {
+            "ramp_adaptation",
+            "operating_scale_adaptation",
+            "revenue_achievability",
+            "turnaround_recovery_q5_q11",
+          }:
+            factor_lr = emergency_revenue_factor
+          else:
+            factor_lr = emergency_cost_factor
+          for lev_lr in (list(route_lr.primary_levers) or []):
+            row_e = rows_by_lever_now.get(str(lev_lr or "").strip())
+            if not row_e or not row_e.get("values"):
+              continue
+            current_e = None
+            for cand in (row_e["values"][-1], row_e["values"][0]):
+              v_ce = _safe_float(cand)
+              if v_ce is not None and abs(v_ce) > 1e-9:
+                current_e = v_ce
+                break
+            if current_e is None:
+              continue
+            new_e = float(current_e) * float(factor_lr)
+            row_e["values"] = [float(new_e) for _ in range(len(row_e["values"]))]
+            emergency_adjustments.append({
+              "lever_id": lev_lr,
+              "family": family_lr,
+              "factor": factor_lr,
+              "from": round(float(current_e), 4),
+              "to": round(float(new_e), 4),
+            })
+        restoration_landed_diag["emergency_adjustments"] = emergency_adjustments
+        restoration_landed_diag["emergency_factor_revenue"] = emergency_revenue_factor
+        restoration_landed_diag["emergency_factor_cost"] = emergency_cost_factor
       # Re-stamp + rebuild FINMO + final realism check.
       try:
         with post_intake_sequence_step_scope(
