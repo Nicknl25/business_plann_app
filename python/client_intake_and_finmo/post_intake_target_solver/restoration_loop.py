@@ -226,6 +226,43 @@ def _planning_mode_floor_per_q(
   return floor_per_q
 
 
+# Phase 9 P3 case (b) iter 4 — planning-mode tolerance map. When the
+# active planning_mode lists the metric's below-band issue code in its
+# tolerated_issue_codes, the realism gate downgrades per-quarter
+# below-band hits to warn (band_source includes
+# "_tolerated_per_planning_mode"). The ramp builder honours the same
+# tolerance: Q1 anchor falls back to the OPERATOR-stated intake value
+# (no floor clamp) so the solver gets room to ramp drivers Q1->Q11
+# rather than pinning all drivers at bound trying to lift Q1 to floor.
+# The Q11 binding (>= 0) still applies — universal viability rule
+# does not bend.
+_METRIC_TOLERATED_ISSUE_CODE: Dict[str, str] = {
+  "ebitda_margin": "mature_loss_state",
+  "gross_margin_percent": "early_revenue_under_run_rate",
+}
+
+
+def _planning_mode_tolerates_q1_loss(
+  *, target_metric: str, planning_mode: Optional[str]
+) -> bool:
+  issue_code = _METRIC_TOLERATED_ISSUE_CODE.get(target_metric)
+  if not issue_code or not planning_mode:
+    return False
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_planning_mode_policy_for,
+    )
+    policy = post_intake_planning_mode_policy_for(planning_mode)
+  except Exception:
+    return False
+  if not isinstance(policy, dict):
+    return False
+  tolerated = policy.get("tolerated_issue_codes") or []
+  if not isinstance(tolerated, (list, tuple)):
+    return False
+  return any(str(code or "").strip().lower() == issue_code for code in tolerated)
+
+
 def _build_target_ramp(
   *,
   target_metric: str,
@@ -234,6 +271,7 @@ def _build_target_ramp(
   band_min: float,
   horizon: int,
   planning_mode_floor_per_q: Optional[List[float]] = None,
+  planning_mode: Optional[str] = None,
 ) -> List[float]:
   """Build the 20-quarter target ramp. Q1 starts at max(current intake
   state, band_min) so the ramp respects the realism gate's per-quarter
@@ -256,6 +294,9 @@ def _build_target_ramp(
   q20_target = float(band_target)
   pm_floor = planning_mode_floor_per_q if isinstance(planning_mode_floor_per_q, list) else [0.0] * horizon
   is_profit_metric = target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP
+  q1_loss_tolerated = _planning_mode_tolerates_q1_loss(
+    target_metric=target_metric, planning_mode=planning_mode,
+  )
 
   if not is_profit_metric:
     # Working-capital / non-profitability targets: linear ramp Q1 -> Q20.
@@ -283,7 +324,18 @@ def _build_target_ramp(
     base = max(band_floor, pm_q)
     return base + safety if base > 0.0 else safety
 
-  q1_anchor = max(q1_current, _floor_for_quarter(0))
+  if q1_loss_tolerated and q1_current < _floor_for_quarter(0):
+    # Planning mode tolerates Q1 loss for this metric — anchor at the
+    # operator's intake state. Without this, the solver pins all
+    # drivers at bound trying to lift Q1 from intake (e.g. -0.40)
+    # straight to floor (e.g. +0.005), exhausting Q1's authority and
+    # producing flat ramp shapes for Q1..Q11. With anchor at intake,
+    # the solver spreads the lift across Q1..Q11 (smaller deltas at
+    # Q1 -> larger at Q11), which produces a natural revenue ramp
+    # via varying per-quarter solver writes.
+    q1_anchor = q1_current
+  else:
+    q1_anchor = max(q1_current, _floor_for_quarter(0))
   # Q11 binding: max( cohort q20_target, Q5_floor + recovery_delta + safety )
   q5_floor = _floor_for_quarter(4)  # Q5 = index 4
   q11_binding = max(q20_target, q5_floor + recovery_delta + recovery_delta_safety)
@@ -299,8 +351,13 @@ def _build_target_ramp(
       frac = (q - 10) / max(1, horizon - 1 - 10)
       ramp[q] = (1.0 - frac) * q11_binding + frac * q20_target
 
-  # Final per-quarter floor enforcement.
+  # Final per-quarter floor enforcement. When the planning mode
+  # tolerates Q1-Q4 losses for this metric, skip the floor for
+  # Q1..Q4; the loss window is doctrine-permitted. Q5+ floors and
+  # the Q11 binding still apply.
   for q in range(horizon):
+    if q < 4 and q1_loss_tolerated:
+      continue
     floor_q = _floor_for_quarter(q)
     if ramp[q] < floor_q:
       ramp[q] = floor_q
@@ -703,6 +760,7 @@ def run_restoration_loop(
         band_min=band_min,
         horizon=horizon,
         planning_mode_floor_per_q=pm_floor_per_q,
+        planning_mode=planning_mode,
       )
 
       try:
