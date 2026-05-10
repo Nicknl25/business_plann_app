@@ -221,10 +221,17 @@ def call_gpt_with_schema_or_fallback(
       "model_used": "",
     }
   model = _resolve_model()
+  # NOTE: the OpenAI Responses API does not accept the `seed` parameter
+  # (only Chat Completions does). Phase 9 P3.5 surfaced this as the
+  # cause of every consultant falling back to "python_proposer_only_
+  # critic_http_error" with status=400 unknown parameter 'seed'. The
+  # _PHASE_3_CONSULTANT_SEED constant is preserved at module scope for
+  # any future Chat-Completions-API caller; the Responses payload
+  # simply omits it. temperature=0 still suppresses most of the
+  # variance.
   payload = {
     "model": model,
     "temperature": 0.0,
-    "seed": _PHASE_3_CONSULTANT_SEED,
     "input": [
       {
         "role": "system",
