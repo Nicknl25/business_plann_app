@@ -638,6 +638,26 @@ def run_restoration_loop(
   outer_passes_used = 0
   final_viability: Dict[str, bool] = {}
 
+  # Phase 9 P3 case (b) iter 3 — snapshot the intake model_input ONCE
+  # at restoration loop entry, then resolve driver bounds against this
+  # snapshot for every outer pass. Without this, bounds for revenue-side
+  # levers (Unit Price, Capacity, Utilization) re-resolve against the
+  # post-solver value each pass — bound = current_value × multiplier
+  # — which silently WIDENS the bound upward every pass (price 2.00 ->
+  # 2.40 -> 2.88 -> 3.46 -> ...). The solver effectively ignores its
+  # own conservative fallback bounds. Snapshotting fixes the bound to
+  # operator-stated intake values.
+  intake_snapshot = copy.deepcopy(model_input or {})
+
+  # Compute driver_bounds for each target ONCE up front against the
+  # intake snapshot. Reused across all outer passes.
+  bounds_by_target: Dict[str, Dict[str, DriverBound]] = {}
+  for target_metric in TARGETS_IN_PRIORITY_ORDER:
+    bounds_by_target[target_metric] = _driver_bounds_for_target(
+      target_metric=target_metric, business_naics_6=business_naics_6,
+      model_input=intake_snapshot, build_finmo=build_finmo, horizon=horizon,
+    )
+
   for outer_pass in range(1, max_outer_passes + 1):
     outer_passes_used = outer_pass
     pass_diag: Dict[str, Any] = {
@@ -651,11 +671,11 @@ def run_restoration_loop(
       band_min, band_target, band_max = _resolve_band_for_target(
         target_metric=target_metric, business_naics_6=business_naics_6,
       )
-      # Bounds for the target's drivers.
-      driver_bounds = _driver_bounds_for_target(
-        target_metric=target_metric, business_naics_6=business_naics_6,
-        model_input=model_input, build_finmo=build_finmo, horizon=horizon,
-      )
+      # Bounds for the target's drivers — snapshotted at restoration
+      # loop entry; reused across all outer passes to avoid bound
+      # creep on revenue-side levers (multiplier × current_value would
+      # otherwise widen each pass).
+      driver_bounds = bounds_by_target.get(target_metric, {})
       if not driver_bounds:
         pass_diag["targets_attempted"].append({
           "target": target_metric, "skipped_reason": "no_driver_bounds_resolved",
@@ -768,11 +788,7 @@ def run_restoration_loop(
     # cumulative state).
     all_drivers: set = set()
     for target_metric in TARGETS_IN_PRIORITY_ORDER:
-      bounds = _driver_bounds_for_target(
-        target_metric=target_metric, business_naics_6=business_naics_6,
-        model_input=model_input, build_finmo=build_finmo, horizon=horizon,
-      )
-      all_drivers.update(bounds.keys())
+      all_drivers.update(bounds_by_target.get(target_metric, {}).keys())
     if all_drivers and all(lid in drivers_at_bounds_summary for lid in all_drivers):
       from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
         evaluate_realism_formula,
