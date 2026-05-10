@@ -344,3 +344,242 @@ def call_gpt_with_schema_or_fallback(
     "detail": "",
     "model_used": model,
   }
+
+
+# ----------------------------------------------------------------------------
+# Phase 9 P3.5 — Responses API tool-calling variant.
+#
+# call_gpt_responses_api_turn issues one Responses-API turn against an
+# already-built input array. The caller (the GPT exhaustion handler's
+# tool-calling session) owns the conversation: it appends function_call
+# items returned by the model, runs the tool locally, appends
+# function_call_output items, and re-invokes this function for the next
+# turn. Each invocation counts as ONE GPT call against the per-run
+# budget enforced by _budget_exhausted / _record_gpt_call.
+#
+# When tools=None is passed, this acts as a final-commit forcer: the
+# model has no tool to call so its only option is to emit a strict
+# json_schema-conformant assistant message.
+# ----------------------------------------------------------------------------
+
+
+def call_gpt_responses_api_turn(
+  *,
+  consultant_name: str,
+  input_items: List[Dict[str, Any]],
+  tools: Optional[List[Dict[str, Any]]],
+  response_schema: Optional[Dict[str, Any]],
+  schema_name: Optional[str],
+  timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+  """Issue one OpenAI Responses API turn.
+
+  Parameters
+  ----------
+  consultant_name
+    Logged for budget tracking; conventionally the session label (e.g.,
+    "post_intake_gpt_exhaustion_handler_tool_call_turn_3").
+  input_items
+    Full conversation history to send. Items may be:
+      - {"role": "system"|"user"|"assistant", "content": [{"type": "input_text", "text": ...}]}
+      - assistant_message items returned previously
+      - function_call items returned previously
+      - {"type": "function_call_output", "call_id": ..., "output": ...}
+    The caller is responsible for assembling this list.
+  tools
+    Optional list of tool definitions in Responses API format
+    ({type: function, name, description, parameters, strict}). Pass
+    None to force a final assistant-message answer.
+  response_schema
+    Optional strict JSON schema constraining the assistant text output
+    when the model emits one. None = no schema constraint.
+  schema_name
+    Schema name shown in the json_schema format declaration.
+
+  Returns
+  -------
+  Dict with keys:
+    - "tool_calls": List[Dict[str, Any]] — function_call items the model
+        emitted this turn. Each carries {"id", "call_id", "name",
+        "arguments"} with arguments still as a JSON string.
+    - "assistant_message_text": Optional[str] — final text content if
+        the model emitted an assistant message instead of tool calls.
+    - "parsed_assistant_json": Optional[Dict[str, Any]] — assistant_
+        message_text parsed as JSON when present and valid.
+    - "raw_assistant_items": List[Dict[str, Any]] — the raw output
+        items so the caller can append them verbatim to the next turn's
+        input (Responses API requires assistant turns to round-trip
+        unchanged).
+    - "raw_openai_response", "decision_source", "detail", "model_used"
+        as in call_gpt_with_schema_or_fallback.
+  """
+  if _budget_exhausted():
+    _record_gpt_call(consultant_name, "python_proposer_only_budget_exhausted")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {},
+      "decision_source": "python_proposer_only_budget_exhausted",
+      "detail": (
+        f"gpt_call_budget_exhausted: {_GPT_CALL_BUDGET_PER_RUN} "
+        f"calls already issued in this planning run."
+      ),
+      "model_used": "",
+    }
+  api_key = _resolve_api_key()
+  if not api_key:
+    _record_gpt_call(consultant_name, "python_proposer_only_no_api_key")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {},
+      "decision_source": "python_proposer_only_no_api_key",
+      "detail": "OPENAI_API_KEY environment variable is not set.",
+      "model_used": "",
+    }
+  model = _resolve_model()
+  payload: Dict[str, Any] = {
+    "model": model,
+    "temperature": 0.0,
+    "input": list(input_items or []),
+  }
+  if tools:
+    payload["tools"] = list(tools)
+  if isinstance(response_schema, dict) and response_schema:
+    payload["text"] = {
+      "format": {
+        "type": "json_schema",
+        "name": str(schema_name or consultant_name),
+        "strict": True,
+        "schema": response_schema,
+      }
+    }
+  headers = {
+    "Authorization": f"Bearer {api_key}",
+    "Content-Type": "application/json",
+  }
+  try:
+    from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+    resp = post_openai_with_retries(
+      url=_DEFAULT_OPENAI_RESPONSES_URL,
+      headers=headers,
+      payload=payload,
+      timeout_seconds=float(timeout_seconds),
+      retryable_status=(429, 500, 502, 503, 504),
+      max_attempts=3,
+    )
+  except TimeoutError as exc:
+    logger.warning("post_intake_solver:%s_critic_timeout: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_timeout")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {},
+      "decision_source": "python_proposer_only_critic_timeout",
+      "detail": f"timeout_after_{timeout_seconds:.1f}s",
+      "model_used": model,
+    }
+  except Exception as exc:
+    logger.warning("post_intake_solver:%s_critic_unexpected_error: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_unexpected_error")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {},
+      "decision_source": "python_proposer_only_critic_unexpected_error",
+      "detail": str(exc)[:200],
+      "model_used": model,
+    }
+  status = int(getattr(resp, "status_code", 0) or 0)
+  body_text = str(getattr(resp, "text", "") or "")[:4000]
+  if status >= 400:
+    logger.warning(
+      "post_intake_solver:%s_critic_http_error: status=%s body=%s",
+      consultant_name, status, body_text[:200],
+    )
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {"status": status, "body": body_text},
+      "decision_source": "python_proposer_only_critic_http_error",
+      "detail": f"http_status_{status}",
+      "model_used": model,
+    }
+  try:
+    raw = resp.json() if isinstance(resp.json(), dict) else {"response": body_text}
+  except Exception as exc:
+    logger.warning("post_intake_solver:%s_critic_invalid_json: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_invalid_json")
+    return {
+      "tool_calls": [],
+      "assistant_message_text": None,
+      "parsed_assistant_json": None,
+      "raw_assistant_items": [],
+      "raw_openai_response": {"response": body_text},
+      "decision_source": "python_proposer_only_critic_invalid_json",
+      "detail": "response_body_not_json",
+      "model_used": model,
+    }
+
+  tool_calls: List[Dict[str, Any]] = []
+  assistant_text: Optional[str] = None
+  raw_assistant_items: List[Dict[str, Any]] = []
+  output = raw.get("output") if isinstance(raw, dict) else None
+  if isinstance(output, list):
+    for item in output:
+      if not isinstance(item, dict):
+        continue
+      raw_assistant_items.append(copy.deepcopy(item))
+      itype = str(item.get("type") or "").strip()
+      if itype == "function_call":
+        tool_calls.append({
+          "id": str(item.get("id") or "").strip(),
+          "call_id": str(item.get("call_id") or "").strip(),
+          "name": str(item.get("name") or "").strip(),
+          "arguments": item.get("arguments") or "",
+        })
+        continue
+      content = item.get("content")
+      if isinstance(content, list):
+        for block in content:
+          if not isinstance(block, dict):
+            continue
+          text = block.get("text")
+          if isinstance(text, str) and text.strip():
+            assistant_text = (assistant_text or "") + text
+  if assistant_text is None:
+    text_from_top = raw.get("output_text") if isinstance(raw, dict) else None
+    if isinstance(text_from_top, str) and text_from_top.strip():
+      assistant_text = text_from_top
+
+  parsed_assistant_json: Optional[Dict[str, Any]] = None
+  if isinstance(assistant_text, str) and assistant_text.strip():
+    try:
+      candidate = json.loads(assistant_text)
+      if isinstance(candidate, dict):
+        parsed_assistant_json = candidate
+    except Exception:
+      parsed_assistant_json = None
+
+  _record_gpt_call(consultant_name, "python_proposer_plus_gpt_critic")
+  return {
+    "tool_calls": tool_calls,
+    "assistant_message_text": assistant_text,
+    "parsed_assistant_json": parsed_assistant_json,
+    "raw_assistant_items": raw_assistant_items,
+    "raw_openai_response": copy.deepcopy(raw),
+    "decision_source": "python_proposer_plus_gpt_critic",
+    "detail": "",
+    "model_used": model,
+  }
