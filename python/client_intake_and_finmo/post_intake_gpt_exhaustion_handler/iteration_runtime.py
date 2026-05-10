@@ -176,14 +176,48 @@ def _snap_into_place(
     DriverBound,
     SolverStatus,
     solve_for_target,
+    _find_rows_for_lever,
   )
 
   # Build the EBITDA target ramp from GPT's Q11 / Q20 anchors and
-  # current Q1 actual.
-  q1_em = float((q1_state or {}).get("ebitda_margin", 0.0))
+  # the CURRENT Q1 EBITDA margin (read from a fresh FINMO build, not
+  # the stale q1_state captured at handler entry — handler iterations
+  # will have moved Q1 EBITDA away from the operator-baseline that
+  # q1_state captured). Using stale q1_em produced a target_ramp Q1
+  # at the operator-baseline value (e.g., -1.014 for Sunny), telling
+  # the solver "keep Q1 at -101%" — which traps allocation away from
+  # Q11 where the residual lives.
+  pre_snap_finmo = build_finmo(copy.deepcopy(model_input))
+  q1_em = 0.0
+  for row in (pre_snap_finmo or {}).get("quarter_rows") or []:
+    if not isinstance(row, dict):
+      continue
+    try:
+      qi = int(float(row.get("quarter_index") or 0))
+    except Exception:
+      continue
+    if qi == 1:
+      rev = float(row.get("revenue") or 0.0)
+      if rev > 0:
+        q1_em = float(row.get("ebitda") or 0.0) / rev
+      break
   q11_target = float((call_1_output or {}).get("ebitda_anchors", {}).get("q11", 0.0))
   target_ramp = interpolate_three_anchors(
     q1=q1_em, q11=q11_target, q20=float(q20_target), horizon=HORIZON_QUARTERS,
+  )
+
+  # Detect labor-driven capacity. Skip Capacity in snap-in writes for
+  # rows with derived_driver=payroll_supported_capacity — same rule as
+  # the handler's writer. Without this, snap-in writes Capacity values
+  # that may diverge from FINMO's payroll-derived capacity, violating
+  # the revenue_driver_formula_contract on rebuild.
+  capacity_rows_for_detect = _find_rows_for_lever(
+    model_input or {}, "revenue::Capacity"
+  )
+  capacity_is_payroll_supported = any(
+    str(r.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+    or isinstance(r.get("payroll_supported_capacity"), dict)
+    for r in (capacity_rows_for_detect or [])
   )
 
   # Build per-driver bounds = ±15% around GPT's most-recent values.
@@ -192,6 +226,9 @@ def _snap_into_place(
   driver_bounds: Dict[str, DriverBound] = {}
   driver_kind_for_lever = _driver_kind_lookup()
   for driver_key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
+    if lever_id == "revenue::Capacity" and capacity_is_payroll_supported:
+      # Same skip rule as the handler's writer.
+      continue
     triple = (most_recent_drivers or {}).get(driver_key)
     if not isinstance(triple, dict):
       continue
