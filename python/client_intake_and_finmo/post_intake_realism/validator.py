@@ -471,6 +471,22 @@ def validate_industry_realism_bands(
     if str(code or "").strip()
   )
 
+  # Phase 9 P3.5 — per-draft, per-metric realism mute. The GPT
+  # exhaustion handler publishes _muted_realism_metrics on the
+  # model_input it returns; for each metric_key in that list, the
+  # validator computes the band-check (so the row appears in the
+  # memo with its actual value and band_source) but emits a
+  # status="muted_gpt_post_exhaustion" instead of contributing to
+  # hard_fail_violations or warnings. Per-draft only — metric
+  # definitions in lookup.py stay unchanged.
+  muted_metric_keys: set = set()
+  if isinstance(model_input_json, dict):
+    raw_muted = model_input_json.get("_muted_realism_metrics")
+    if isinstance(raw_muted, list):
+      muted_metric_keys = set(
+        str(m).strip() for m in raw_muted if str(m or "").strip()
+      )
+
   # Lazy import the resolver so the validator module can be imported even
   # when the resolver package is not yet on sys.path (tests / migrations).
   from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
@@ -494,6 +510,12 @@ def validate_industry_realism_bands(
     # active 4 solver-target + 6 viability set without losing per-metric
     # observability.
     is_silenced = (gate_kind == "skip")
+
+    # Phase 9 P3.5 — per-draft mute. Same observable-but-non-binding
+    # behavior as gate_kind="skip"; differs only in provenance status
+    # so the audit trail records WHY this metric isn't binding (the
+    # GPT exhaustion handler authored its drivers).
+    is_muted_for_this_draft = (metric_key in muted_metric_keys)
 
     # Phase 9 Phase D — trajectory_check rows (universal viability
     # timeline) are evaluated separately from the band-comparison loop.
@@ -543,6 +565,11 @@ def validate_industry_realism_bands(
         # Phase 9 P3 — silenced trajectory rows compute their value but
         # do not contribute to the verdict.
         status = "silenced"
+      elif is_muted_for_this_draft and not passed:
+        # Phase 9 P3.5 — drivers behind this metric are GPT-authored
+        # for this draft; band-check evaluation muted, value still
+        # computed for the audit trail.
+        status = "muted_gpt_post_exhaustion"
       else:
         status = "in_band" if passed else "out_of_band_hard_fail"
       trajectory_reason = (
@@ -927,6 +954,11 @@ def validate_industry_realism_bands(
           # contribute to the gate verdict; surface as "silenced" so
           # the memo shows the value while the cascade ignores it.
           status = "silenced"
+        elif is_muted_for_this_draft:
+          # Phase 9 P3.5 — drivers behind this metric are GPT-authored
+          # for this draft; band-check muted, value still computed
+          # for the audit trail.
+          status = "muted_gpt_post_exhaustion"
         elif (
           gate_kind == "hard_fail"
           and derived_issue_code is not None

@@ -334,8 +334,11 @@ def _gpt_call_2_with_retry(
 
 
 def _default_metrics_to_mute(exhaustion_diagnostic: Dict[str, Any]) -> List[str]:
-  """Phase 2 placeholder: mute ebitda_margin (the universal viability
-  driver). Phase 4 replaces this with the proper "metric had a hard_fail
-  AND its primary_levers include any GPT-authored driver" logic.
+  """Phase 4 — defer to iteration_runtime._realism_metrics_to_mute so
+  the LANDED_GPT (Call 2 converged immediately) path emits the same
+  mute list as the iteration / snap-in paths.
   """
-  return ["ebitda_margin"]
+  from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.iteration_runtime import (  # type: ignore
+    _realism_metrics_to_mute,
+  )
+  return _realism_metrics_to_mute(exhaustion_diagnostic)

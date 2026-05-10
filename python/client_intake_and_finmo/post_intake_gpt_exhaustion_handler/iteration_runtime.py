@@ -427,10 +427,62 @@ def iterate_and_snap(
 def _realism_metrics_to_mute(
   exhaustion_diagnostic: Dict[str, Any]
 ) -> List[str]:
-  """Phase 3 placeholder — Phase 4 finalizes this with the proper
-  "metric had a hard_fail AND its primary_levers include any GPT-
-  authored driver" logic. For now, the universal viability gate
-  (ebitda_margin) is muted because GPT authored the drivers that
-  produce it.
+  """Phase 4 — determine which realism metrics to mute for THIS draft.
+
+  A metric is muted iff:
+    1. It is one of the realism gate's checked metrics AND its
+       primary_levers include any GPT-authored driver
+       (GPT_AUTHORED_LEVER_IDS), OR
+    2. It is the universal viability metric ``ebitda_margin``
+       (always muted post-exhaustion because GPT authored the EBITDA
+       trajectory itself).
+
+  We inspect the realism config's primary_levers for each metric and
+  cross-check against GPT_AUTHORED_LEVER_IDS. Universal viability
+  trajectory checks (ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11,
+  loss_window_funded_through_q5, no_post_recovery_relapse_q11_q20,
+  gross_margin_supports_ebitda_recovery,
+  fixed_cost_burden_reduced_or_scaled_by_q11) STAY ACTIVE — they
+  evaluate against FINMO outputs (revenue, EBITDA dollar amounts), not
+  driver values. They MUST still pass for the verdict.
+
+  Per-draft only — metric definitions in lookup.py stay unchanged.
   """
-  return ["ebitda_margin"]
+  to_mute: List[str] = ["ebitda_margin"]
+  gpt_authored = set(GPT_AUTHORED_LEVER_IDS)
+
+  # Trajectory checks (universal viability) — never muted.
+  _UNIVERSAL_VIABILITY_TRAJECTORY_METRICS = {
+    "ebitda_positive_by_q11",
+    "ebitda_recovery_trend_q5_q11",
+    "loss_window_funded_through_q5",
+    "no_post_recovery_relapse_q11_q20",
+    "gross_margin_supports_ebitda_recovery",
+    "fixed_cost_burden_reduced_or_scaled_by_q11",
+  }
+
+  try:
+    from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
+      post_intake_finalize_realism_check_rows,
+    )
+    rows = post_intake_finalize_realism_check_rows() or []
+  except Exception:
+    rows = []
+
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    metric_key = str(row.get("metric_key") or "").strip()
+    if not metric_key or metric_key in to_mute:
+      continue
+    if metric_key in _UNIVERSAL_VIABILITY_TRAJECTORY_METRICS:
+      continue
+    if not bool(row.get("active", True)):
+      continue
+    primary_levers = row.get("primary_levers") or []
+    if not isinstance(primary_levers, (list, tuple)):
+      continue
+    if any(str(p or "").strip() in gpt_authored for p in primary_levers):
+      to_mute.append(metric_key)
+
+  return to_mute
