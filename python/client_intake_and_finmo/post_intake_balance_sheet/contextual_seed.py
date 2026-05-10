@@ -221,10 +221,30 @@ def apply_balance_sheet_contextual_seed_to_model_input(
     stub_value = values[0] if values else 0.0
     existing_live = _live_values(model_row, horizon=live_count)
     seed_value = float(_safe_float(seed_row.get("seed_value")) or 0.0)
+    # Phase 9 P3 — exclusion path for target-solver-authored quarters.
+    # When the target-driven restoration loop has tagged a quarter on
+    # this row with `applied_by_target_solver_quarters[q] = {...}`, the
+    # contextual-seed flat-stamp must NOT overwrite that quarter's value.
+    # The solver authored a per-quarter value to land its target metric
+    # within cohort bounds; clobbering it with the seed undoes the work
+    # and produces the post-rebuild sawtooth. Quarters NOT solver-authored
+    # still receive the seed flat-stamp normally.
+    solver_authored_qs: set = set()
+    raw_tag = model_row.get("applied_by_target_solver_quarters")
+    if isinstance(raw_tag, dict):
+      for k in raw_tag.keys():
+        try:
+          solver_authored_qs.add(int(k))
+        except Exception:
+          continue
     live_values: List[float] = []
     for idx in range(max(0, live_count)):
+      quarter_index_1based = idx + 1
       existing = _safe_float(existing_live[idx]) if idx < len(existing_live) else None
-      if bool(seed_row.get("applicable")):
+      if quarter_index_1based in solver_authored_qs:
+        # Solver-authored quarter — preserve the existing live value.
+        live_values.append(round(float(existing or 0.0), 6))
+      elif bool(seed_row.get("applicable")):
         live_values.append(round(seed_value, 6))
       else:
         live_values.append(round(float(existing or 0.0), 6))

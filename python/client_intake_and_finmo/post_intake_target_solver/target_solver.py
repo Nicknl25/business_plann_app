@@ -348,6 +348,11 @@ def _read_driver_state(
   model_input: Dict[str, Any],
   horizon: int,
 ) -> _DriverState:
+  """Read the per-quarter live values for a driver. The model_input row
+  ``values`` array is laid out as ``[stub_value, live_q1, live_q2, ...,
+  live_q<horizon>]`` (length horizon+1). The solver operates on the LIVE
+  range only; index 0 (stub) is never touched.
+  """
   driver_kind = _driver_kind_for_lever(lever_id)
   rows = _find_rows_for_lever(model_input, lever_id)
   if not rows:
@@ -357,15 +362,16 @@ def _read_driver_state(
       bound_pinned_per_q=[None] * horizon, rows=[],
     )
   # Combine values across rows by averaging (typical for revenue
-  # shortcuts that hit multiple LOBs). Path-shape writes will broadcast
-  # the chosen new mature back through each row independently.
+  # shortcuts that hit multiple LOBs). Per-quarter writes preserve the
+  # path shape directly: each quarter is independently chosen.
   per_q: List[float] = [0.0] * horizon
   for row in rows:
     vals = row.get("values") or []
-    for q in range(horizon):
-      if q < len(vals):
+    for q_idx in range(horizon):
+      live_idx = 1 + q_idx  # skip stub at index 0
+      if live_idx < len(vals):
         try:
-          per_q[q] += float(vals[q]) if vals[q] is not None else 0.0
+          per_q[q_idx] += float(vals[live_idx]) if vals[live_idx] is not None else 0.0
         except Exception:
           pass
   per_q = [v / max(1, len(rows)) for v in per_q]
@@ -378,24 +384,41 @@ def _read_driver_state(
 def _write_driver_value_at_quarter(
   *,
   driver_state: _DriverState,
-  q_idx: int,  # 0-based quarter index
+  q_idx: int,  # 0-based quarter index (q_idx=0 means live Q1)
   new_value: float,
+  target_metric: str,
 ) -> None:
-  """Write `new_value` to every row backing this lever at quarter q_idx
-  (0-based). Clamps to the driver's bounds. The solver-side path
-  shaping happens by virtue of this being a per-quarter write — each
-  quarter independently chosen by the solver's per-quarter allocation
-  produces the path-shape directly (no flat broadcast).
+  """Write `new_value` to every row backing this lever at LIVE quarter
+  ``q_idx + 1`` (since row["values"][0] is the stub). Clamps to the
+  driver's bounds. Tags the row with ``applied_by_target_solver_quarters``
+  provenance so the derived-driver policy layer skips the per-quarter
+  re-shape for solver-authored quarters (Phase 9 P3 exclusion path).
   """
   clamped = max(float(driver_state.bound.lower), min(float(driver_state.bound.upper), float(new_value)))
+  live_idx = 1 + int(q_idx)  # skip stub at index 0
+  quarter_index_1based = int(q_idx) + 1
   for row in driver_state.rows:
     vals = row.get("values")
     if not isinstance(vals, list):
-      vals = [0.0] * (q_idx + 1)
+      # Fresh row — initialize stub + live cells up through this quarter.
+      vals = [0.0] * (live_idx + 1)
       row["values"] = vals
-    while len(vals) <= q_idx:
+    while len(vals) <= live_idx:
       vals.append(0.0)
-    vals[q_idx] = float(clamped)
+    vals[live_idx] = float(clamped)
+    # Provenance tag for the derived-driver policy exclusion path.
+    # Stamps which quarters the target solver authored, and for which
+    # target. apply_balance_sheet_contextual_seed_to_model_input,
+    # _shape_revenue_capacity_and_utilization, etc. read this and skip
+    # per-quarter re-shaping for solver-authored quarters.
+    tag = row.get("applied_by_target_solver_quarters")
+    if not isinstance(tag, dict):
+      tag = {}
+      row["applied_by_target_solver_quarters"] = tag
+    tag[str(quarter_index_1based)] = {
+      "target_metric": target_metric,
+      "applied_value": float(clamped),
+    }
   driver_state.current_per_q[q_idx] = float(clamped)
 
 
@@ -629,6 +652,7 @@ def solve_for_target(
           continue
         _write_driver_value_at_quarter(
           driver_state=ds, q_idx=q_idx, new_value=new_value,
+          target_metric=target_metric,
         )
         any_quarter_moved = True
 
