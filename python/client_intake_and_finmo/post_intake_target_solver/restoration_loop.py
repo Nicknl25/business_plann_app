@@ -92,10 +92,16 @@ _REVENUE_CAPACITY_LOWER_FRAC = 1.00
 _REVENUE_CAPACITY_UPPER_FRAC = 1.50
 
 # Utilization: bounded below by current operator state (no manufactured
-# slack), bounded above by the FINMO capacity_utilization_ceiling
-# convention (0.90 leaves headroom before the path engine triggers a
-# capacity expansion).
-_REVENUE_UTILIZATION_UPPER = 0.90
+# slack), bounded above by 0.84 — strictly BELOW FINMO's
+# capacity_utilization_ceiling = 0.85 to avoid triggering
+# _shape_revenue_capacity_and_utilization's one-shot capacity expansion
+# branch, which would (a) auto-expand capacity once and freeze it for
+# the rest of the horizon (breaking revenue_not_flat_q1_q10), and
+# (b) clip utilization back to post_expansion_utilization = 0.70,
+# silently UNDOING the solver's utilization writes and leaving the
+# lever effectively pinned at lower bound on every subsequent
+# iteration. Stay below the ceiling so writes hold.
+_REVENUE_UTILIZATION_UPPER = 0.84
 
 
 class RestorationStatus(str, Enum):
