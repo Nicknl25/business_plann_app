@@ -1683,6 +1683,7 @@ def _run_post_cascade_completion(
         build_finmo=_build_finmo_for_restoration,
         business_naics_6=naics_for_restoration or None,
         horizon=int(horizon or 20),
+        planning_mode=planning_mode,
       )
       # Rebuild FINMO so subsequent steps (cash strategy, realism gate,
       # finalize) see the restored operating model.

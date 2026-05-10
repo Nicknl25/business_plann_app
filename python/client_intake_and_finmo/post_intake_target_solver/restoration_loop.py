@@ -144,6 +144,57 @@ def _evaluate_viability(
   return out
 
 
+_PROFITABILITY_FLOOR_METRICS_FOR_RAMP = ("gross_margin_percent", "ebitda_margin")
+
+
+def _planning_mode_floor_per_q(
+  *,
+  target_metric: str,
+  planning_mode: Optional[str],
+  horizon: int,
+) -> List[float]:
+  """Per-quarter floor that the realism gate's planning_mode_policy
+  applies. Mirrors the realism validator's _profitability_floor_for_quarter
+  branching (Q1-Q4 / Q5-Q10 / Q11-Q20 buckets) so the solver's target
+  ramp respects the same floor the gate enforces. None floors decay to
+  0.0; non-profitability targets get a flat 0.0 floor (no per-quarter
+  adjustment).
+  """
+  floor_per_q = [0.0] * horizon
+  if target_metric not in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP:
+    return floor_per_q
+  policy: Optional[Dict[str, Any]] = None
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_planning_mode_policy_for,
+    )
+    policy = post_intake_planning_mode_policy_for(planning_mode) if planning_mode else None
+  except Exception:
+    policy = None
+  if not isinstance(policy, dict):
+    return floor_per_q
+  def _val(key: str) -> float:
+    raw = policy.get(key)
+    if raw is None:
+      return 0.0
+    try:
+      return float(raw)
+    except Exception:
+      return 0.0
+  q1_q4 = _val("profitability_floor_q1_q4")
+  q5_q10 = _val("profitability_floor_q5_q10")
+  q11_q20 = _val("profitability_floor_q11_q20")
+  for q in range(horizon):
+    quarter_index = q + 1
+    if quarter_index <= 4:
+      floor_per_q[q] = q1_q4
+    elif quarter_index <= 10:
+      floor_per_q[q] = q5_q10
+    else:
+      floor_per_q[q] = q11_q20
+  return floor_per_q
+
+
 def _build_target_ramp(
   *,
   target_metric: str,
@@ -151,6 +202,7 @@ def _build_target_ramp(
   band_target: float,
   band_min: float,
   horizon: int,
+  planning_mode_floor_per_q: Optional[List[float]] = None,
 ) -> List[float]:
   """Build the 20-quarter target ramp. Q1 starts at max(current intake
   state, band_min) so the ramp respects the realism gate's per-quarter
@@ -171,19 +223,29 @@ def _build_target_ramp(
   """
   q1_current = float(current_metric_per_q[0]) if current_metric_per_q else float(band_target)
   q20_target = float(band_target)
+  pm_floor = planning_mode_floor_per_q if isinstance(planning_mode_floor_per_q, list) else [0.0] * horizon
+  # Q1 anchor: max(current state, band_min floor, planning_mode floor at Q1)
   q1_anchor = q1_current
-  if target_metric in ("gross_margin_percent", "ebitda_margin"):
-    floor = max(0.0, float(band_min))
-    q1_anchor = max(q1_current, floor)
+  if target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP:
+    floor_q1 = max(0.0, float(band_min), float(pm_floor[0]) if pm_floor else 0.0)
+    q1_anchor = max(q1_current, floor_q1)
   ramp = [0.0] * horizon
   for q in range(horizon):
     frac = q / max(1, horizon - 1)
     ramp[q] = (1.0 - frac) * q1_anchor + frac * q20_target
-  if target_metric in ("gross_margin_percent", "ebitda_margin"):
-    floor = max(0.0, float(band_min))
+  if target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP:
+    floor_band = max(0.0, float(band_min))
     for q in range(horizon):
-      if ramp[q] < floor:
-        ramp[q] = floor
+      # Per-quarter floor: max(band floor, planning_mode floor for that quarter).
+      # Add a small safety margin (50 bps) above the floor so the solver
+      # has a target to land at, not a knife-edge that frequently misses
+      # by tolerance noise.
+      pm_q = float(pm_floor[q]) if q < len(pm_floor) else 0.0
+      floor_q = max(floor_band, pm_q)
+      if floor_q > 0.0:
+        floor_q = floor_q + 0.005  # 50 bps safety margin above floor
+      if ramp[q] < floor_q:
+        ramp[q] = floor_q
     if horizon > 10 and ramp[10] < 0.0:
       ramp[10] = max(0.0, q20_target / 2.0)
   return ramp
@@ -339,6 +401,7 @@ def run_restoration_loop(
   business_naics_6: Optional[str],
   horizon: int = HORIZON_QUARTERS_DEFAULT,
   max_outer_passes: int = MAX_OUTER_PASSES,
+  planning_mode: Optional[str] = None,
 ) -> RestorationResult:
   """Outer loop over the 4 solver targets in priority order.
 
@@ -384,12 +447,18 @@ def run_restoration_loop(
       current_metric_per_q = _compute_metric_per_q(
         target_metric=target_metric, finmo_json=current_finmo, horizon=horizon,
       )
+      pm_floor_per_q = _planning_mode_floor_per_q(
+        target_metric=target_metric,
+        planning_mode=planning_mode,
+        horizon=horizon,
+      )
       target_ramp = _build_target_ramp(
         target_metric=target_metric,
         current_metric_per_q=current_metric_per_q,
         band_target=band_target,
         band_min=band_min,
         horizon=horizon,
+        planning_mode_floor_per_q=pm_floor_per_q,
       )
 
       try:
