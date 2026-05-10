@@ -254,6 +254,54 @@ def _payload_from_row(
   }
 
 
+# Phase 9 P3 — generic-default bands for the two new working-capital
+# structure metrics (Targets 3 & 4 in the target-driven restoration
+# loop). The cohort tables (industry_metrics_alpha / industry_metrics_edgar)
+# only store derived ratios, not raw balance sheet items; until those
+# tables are extended with the components needed to compute these
+# metrics empirically per NAICS, fall back to cross-industry defaults
+# when both the alternating-walk and the baseline lookup come up empty.
+#
+# Bands sourced from typical small-business working-capital structure:
+#   current_assets_minus_cash / revenue ≈ 15-30% of quarterly revenue
+#     (AR + inventory + prepaid combined)
+#   current_liabilities / revenue       ≈  8-20% of quarterly revenue
+#     (AP + short-term debt + accrued + deferred)
+#
+# Phase 9 P3 callers: realism gate Targets 3 & 4 in
+# python/client_intake_and_finmo/post_intake_realism/lookup.py
+_PHASE_9_P3_GENERIC_BANDS: Dict[str, Tuple[float, float, float]] = {
+  # (min, target, max) — ratios against quarterly revenue.
+  "current_assets_minus_cash": (0.15, 0.225, 0.30),
+  "current_liabilities_to_revenue": (0.08, 0.14, 0.20),
+}
+
+
+def _phase_9_p3_generic_default_payload(
+  *, metric_key: str, fallback_chain: List[str]
+) -> Optional[Dict[str, Any]]:
+  band = _PHASE_9_P3_GENERIC_BANDS.get(metric_key)
+  if band is None:
+    return None
+  band_min, band_target, band_max = band
+  fallback_chain.append("phase_9_p3_generic_default")
+  return {
+    "metric_key": metric_key,
+    "benchmark_min": float(band_min),
+    "benchmark_target": float(band_target),
+    "benchmark_max": float(band_max),
+    "naics_code_used": "*",
+    "naics_level_used": 0,
+    "data_source": "phase_9_p3_generic_default",
+    "source_year": None,
+    "sample_size": None,
+    "confidence_tier": "generic_default",
+    "raw_confidence_tier": None,
+    "trust_flag": TRUST_GENERIC_DEFAULT,
+    "fallback_chain_attempted": list(fallback_chain),
+  }
+
+
 def _no_coverage_payload(
   *, metric_key: str, fallback_chain: List[str]
 ) -> Dict[str, Any]:
@@ -460,9 +508,18 @@ def post_intake_industry_baseline_for_naics(
   metric_key_clean = str(metric_key or "").strip()
   if not metric_key_clean:
     raise ValueError("post_intake_industry_baseline_metric_key_required")
-  registry_row = post_intake_industry_metric_registry_row(metric_key_clean)
-  primary_source = registry_row.get("primary_source")
-  fail_if_no_coverage = bool(registry_row.get("fail_if_no_coverage"))
+  try:
+    registry_row = post_intake_industry_metric_registry_row(metric_key_clean)
+    primary_source = registry_row.get("primary_source")
+    fail_if_no_coverage = bool(registry_row.get("fail_if_no_coverage"))
+  except KeyError:
+    # Phase 9 P3 — metric not yet in post_intake_industry_metric_registry
+    # (e.g. the new current_assets_minus_cash / current_liabilities_to_revenue
+    # targets). Treat as no-registry-row: skip primary-source-only L6 path,
+    # try generic-default-aware cascade, then fall through to inline
+    # generic-default payload for known-band metrics.
+    primary_source = None
+    fail_if_no_coverage = False
 
   digits = _normalize_naics(naics_6)
   if len(digits) < 2:
@@ -540,6 +597,17 @@ def post_intake_industry_baseline_for_naics(
       )
   finally:
     conn.close()
+
+  # Phase 9 P3 — inline generic-default for the new working-capital
+  # structure metrics (Targets 3 & 4 in the target-driven restoration
+  # loop). When cohort + table cascade both come up empty, return a
+  # cross-industry default rather than no_coverage; the restoration
+  # loop needs a band to solve against.
+  generic_default = _phase_9_p3_generic_default_payload(
+    metric_key=metric_key_clean, fallback_chain=fallback_chain
+  )
+  if generic_default is not None:
+    return generic_default
 
   payload = _no_coverage_payload(
     metric_key=metric_key_clean, fallback_chain=fallback_chain

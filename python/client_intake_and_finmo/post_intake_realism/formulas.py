@@ -518,6 +518,68 @@ def _formula_quick_ratio(
   return _ratio(float(current_assets) - float(inventory), current_liabilities)
 
 
+def _formula_current_assets_minus_cash_div_revenue(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Phase 9 P3 Target 3 — (AR + Inventory + Prepaid) / Revenue.
+
+  Working capital tied up in operating assets, expressed as a ratio to
+  the quarter's revenue so cohort comparison is scale-free. Cash is
+  excluded; cash position is owned by the cash strategy. The numerator
+  prefers the FINMO `current_assets` aggregate minus `cash` if both are
+  present; falls back to summing AR + inventory + prepaid_expenses
+  individually when current_assets is unavailable.
+  """
+  if quarter_index is None:
+    return None
+  revenue = _finmo_quarter_field(finmo_json, quarter_index, "revenue")
+  if revenue is None or abs(revenue) <= 1e-9:
+    return None
+  current_assets = _finmo_quarter_field(finmo_json, quarter_index, "current_assets")
+  cash = _finmo_quarter_field(finmo_json, quarter_index, "cash") or 0.0
+  if current_assets is not None:
+    numerator = float(current_assets) - float(cash)
+  else:
+    ar = _finmo_quarter_field(finmo_json, quarter_index, "accounts_receivable") or 0.0
+    inv = _finmo_quarter_field(finmo_json, quarter_index, "inventory") or 0.0
+    prepaid = _finmo_quarter_field(finmo_json, quarter_index, "prepaid_expenses") or 0.0
+    numerator = float(ar) + float(inv) + float(prepaid)
+  return float(numerator) / float(revenue)
+
+
+def _formula_current_liabilities_div_revenue(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Phase 9 P3 Target 4 — current_liabilities / revenue.
+
+  Total current liabilities (AP + short-term debt + accrued + deferred
+  revenue) over the quarter's revenue. Prefers the FINMO
+  `current_liabilities` aggregate when present; falls back to summing
+  the components individually.
+  """
+  if quarter_index is None:
+    return None
+  revenue = _finmo_quarter_field(finmo_json, quarter_index, "revenue")
+  if revenue is None or abs(revenue) <= 1e-9:
+    return None
+  current_liabilities = _finmo_quarter_field(
+    finmo_json, quarter_index, "current_liabilities"
+  )
+  if current_liabilities is not None:
+    return float(current_liabilities) / float(revenue)
+  ap = _finmo_quarter_field(finmo_json, quarter_index, "accounts_payable") or 0.0
+  std = _finmo_quarter_field(finmo_json, quarter_index, "short_term_debt") or 0.0
+  accrued = _finmo_quarter_field(finmo_json, quarter_index, "accrued_expenses") or 0.0
+  deferred = _finmo_quarter_field(finmo_json, quarter_index, "deferred_revenue") or 0.0
+  return (float(ap) + float(std) + float(accrued) + float(deferred)) / float(revenue)
+
+
 def _formula_total_debt_div_total_equity(
   *,
   model_input_json: Dict[str, Any],
@@ -863,6 +925,9 @@ _FORMULA_REGISTRY: Dict[str, Callable[..., Optional[float]]] = {
   "owners_capital_div_total_assets": _formula_owners_capital_div_total_assets,
   "current_ratio": _formula_current_ratio,
   "quick_ratio": _formula_quick_ratio,
+  # Phase 9 P3 — Target 3 & Target 4 working-capital structure metrics.
+  "current_assets_minus_cash_div_revenue": _formula_current_assets_minus_cash_div_revenue,
+  "current_liabilities_div_revenue": _formula_current_liabilities_div_revenue,
   "total_debt_div_total_equity": _formula_total_debt_div_total_equity,
   "total_debt_div_total_assets": _formula_total_debt_div_total_assets,
   # Cash flow ratios.

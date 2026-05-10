@@ -52,7 +52,7 @@ class RealismCheckResult:
   tolerance_applied_bps: Optional[int]
   effective_min: Optional[float]
   effective_max: Optional[float]
-  status: str  # 'in_band' | 'out_of_band_warn' | 'out_of_band_hard_fail' | 'skipped' | 'no_coverage'
+  status: str  # 'in_band' | 'out_of_band_warn' | 'out_of_band_hard_fail' | 'skipped' | 'no_coverage' | 'silenced'
   reason: str
   governs_lever_id: Optional[str] = None
   # Phase 6 Step 5 — band-source provenance. Records WHICH path resolved
@@ -487,6 +487,14 @@ def validate_industry_realism_bands(
     governs_lever = row.get("governs_model_input_lever_id")
     gate_kind = str(row.get("gate_kind") or "warn").strip().lower()
 
+    # Phase 9 P3 — gate_kind="skip" means: compute the metric value so
+    # provenance flows into the realism memo (consultant review / audit
+    # trail) but the value does NOT contribute to hard_fail_violations
+    # or warnings. Used to silence the legacy 23-metric gate down to the
+    # active 4 solver-target + 6 viability set without losing per-metric
+    # observability.
+    is_silenced = (gate_kind == "skip")
+
     # Phase 9 Phase D — trajectory_check rows (universal viability
     # timeline) are evaluated separately from the band-comparison loop.
     # The formula returns a value where >= 0.0 = pass, < 0.0 = fail.
@@ -531,7 +539,12 @@ def validate_industry_realism_bands(
         ))
         continue
       passed = float(trajectory_value) >= 0.0
-      status = "in_band" if passed else "out_of_band_hard_fail"
+      if is_silenced and not passed:
+        # Phase 9 P3 — silenced trajectory rows compute their value but
+        # do not contribute to the verdict.
+        status = "silenced"
+      else:
+        status = "in_band" if passed else "out_of_band_hard_fail"
       trajectory_reason = (
         None if passed
         else f"viability_check_failed: value={trajectory_value:.4f} below universal floor 0.0"
@@ -909,7 +922,12 @@ def validate_industry_realism_bands(
           _REALISM_METRIC_BELOW_BAND_TO_ISSUE_CODE.get(metric_key)
           if below_band else None
         )
-        if (
+        if is_silenced:
+          # Phase 9 P3 silenced metric — out-of-band but does not
+          # contribute to the gate verdict; surface as "silenced" so
+          # the memo shows the value while the cascade ignores it.
+          status = "silenced"
+        elif (
           gate_kind == "hard_fail"
           and derived_issue_code is not None
           and derived_issue_code in tolerated_codes
@@ -1042,6 +1060,9 @@ _RATIO_METRICS = {
   "debt_to_equity",
   "debt_to_assets",
   "total_assets_to_revenue",
+  # Phase 9 P3 — Target 3 & 4 are ratios (numerator $/revenue $).
+  "current_assets_minus_cash",
+  "current_liabilities_to_revenue",
 }
 
 

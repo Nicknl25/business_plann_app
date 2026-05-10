@@ -34,7 +34,12 @@ _QUARTER_AGGREGATIONS = {
   "horizon_average",
   "trajectory_check",
 }
-_GATE_KINDS = {"hard_fail", "warn", "skip_if_no_coverage"}
+# Phase 9 P3 — `skip` is the silenced-but-computed gate kind. The validator
+# computes the metric so its provenance is visible in the realism memo,
+# but the value does NOT contribute to hard_fail_violations or warnings.
+# Used to collapse the realism gate down to the active solver-target +
+# viability set without losing observability on the silenced metrics.
+_GATE_KINDS = {"hard_fail", "warn", "skip", "skip_if_no_coverage"}
 
 # Phase 9 Phase D — adaptation family vocabulary. Mirrors
 # post_intake_adaptive_planning.policy.ADAPTATION_FAMILIES so the
@@ -401,7 +406,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
     issue_family="margin_compression",
     remediation_family="margin_compression",
@@ -409,7 +414,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["revenue::Unit Price"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=11,
-    notes="Per-quarter COGS / revenue. Strong NAICS coverage (n=1,686). Promoted to hard_fail in v3 — high-confidence metric with broad NAICS-6/5/4 coverage.",
+    notes="Phase 9 P3 silenced — gross_margin_percent now owns COGS via Target 1 in the target-driven restoration loop; computed for memo provenance only.",
   ),
   _row(
     metric_key="gross_margin_percent",
@@ -437,7 +442,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Marketing",
     issue_family="industry_normalization",
     remediation_family="industry_normalization",
@@ -445,7 +450,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["expenses::General & Administrative"],
     stage_sensitivity=_STAGE_SENSITIVITY_RAMP_LIGHT,
     deadline_quarter=11,
-    notes="SEC EDGAR-backed for many NAICS (n=421). Stays at warn until Module 6 marketing schedule replaces this metric's authority entirely.",
+    notes="Phase 9 P3 silenced — marketing now flows through ebitda_margin Target 2 in the target-driven restoration loop; computed for memo provenance only.",
   ),
   _row(
     metric_key="advertising_percent_of_revenue",
@@ -473,7 +478,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Research & Development",
     issue_family="industry_normalization",
     remediation_family="industry_normalization",
@@ -491,7 +496,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Lease",
     issue_family="operating_scale_adaptation",
     remediation_family="operating_scale_adaptation",
@@ -509,7 +514,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::General & Administrative",
     issue_family="industry_normalization",
     remediation_family="industry_normalization",
@@ -527,7 +532,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Payroll",
     issue_family="payroll_ratio_excess",
     remediation_family="payroll_ratio_excess",
@@ -545,7 +550,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Depreciation",
     issue_family="capital_intensity_adaptation",
     remediation_family="capital_intensity_adaptation",
@@ -565,7 +570,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=1000,
     tolerance_bps_low_confidence=2000,
     tolerance_bps_generic_default=3000,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Taxes",
     issue_family="industry_normalization",
     remediation_family="industry_normalization",
@@ -619,7 +624,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
     primary_levers=[
@@ -641,7 +646,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
     primary_levers=[
@@ -668,7 +673,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_DAYS_TOL_MEDIUM,
     tolerance_bps_low_confidence=_DAYS_TOL_LOW,
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="balance_sheet::Accounts Receivable Days",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
@@ -687,7 +692,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_DAYS_TOL_MEDIUM,
     tolerance_bps_low_confidence=_DAYS_TOL_LOW,
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="balance_sheet::Accounts Payable Days",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
@@ -706,7 +711,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_DAYS_TOL_MEDIUM,
     tolerance_bps_low_confidence=_DAYS_TOL_LOW,
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="balance_sheet::Inventory Days",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
@@ -724,7 +729,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="balance_sheet::Prepaid Expenses (% of Revenue)",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
@@ -743,7 +748,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="balance_sheet::Deferred Revenue (% of Revenue)",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
@@ -762,7 +767,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="capital_intensity_adaptation",
     remediation_family="capital_intensity_adaptation",
     primary_levers=["revenue::Capacity", "schedules::Capital Expenditures"],
@@ -782,7 +787,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
     primary_levers=[
@@ -803,7 +808,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="balance_sheet_adaptation",
     remediation_family="balance_sheet_adaptation",
     primary_levers=[
@@ -824,7 +829,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="leverage_excess",
     remediation_family="leverage_excess",
     primary_levers=["schedules::Debt Issuance (New Borrowing)", "balance_sheet::Owner's Capital"],
@@ -842,7 +847,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="leverage_excess",
     remediation_family="leverage_excess",
     primary_levers=["schedules::Debt Issuance (New Borrowing)", "balance_sheet::Owner's Capital"],
@@ -863,7 +868,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
     primary_levers=[
@@ -886,7 +891,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="schedules::Capital Expenditures",
     issue_family="capital_intensity_adaptation",
     remediation_family="capital_intensity_adaptation",
@@ -899,6 +904,68 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
   # distributions_percent_of_net_income removed — cash-strategy output
   # (smart_funding_policy + cash_strategy own distribution sizing); the
   # operating-side gate must not adapt against it.
+
+  # ============================================================
+  # Phase 9 P3 — NEW working-capital structure targets (Targets 3 & 4).
+  #
+  # The target-driven restoration loop solves these alongside
+  # gross_margin_percent (Target 1) and ebitda_margin (Target 2):
+  #
+  #   current_assets_minus_cash      = AR + inventory + prepaid expenses
+  #     (the working-capital tied up in operations, expressed as a
+  #      ratio to revenue so cohort comparison is scale-free)
+  #   current_liabilities_to_revenue = (AP + short-term debt + accrued
+  #     expenses + deferred revenue) / revenue
+  #
+  # Bands resolve through the alternating-walk resolver (cohort first,
+  # baseline-lookup fallback). Cash-pass-owned levers (short-term debt
+  # specifically) are excluded from the solver's driver list — the
+  # restoration loop solves only operating-side levers; cash strategy
+  # owns short-term debt sizing end-to-end.
+  # ============================================================
+  _row(
+    metric_key="current_assets_minus_cash",
+    finmo_line_label="Current Assets",
+    derivation_formula_key="current_assets_minus_cash_div_revenue",
+    applicability_rule_key="skip_when_revenue_zero",
+    tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
+    tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
+    tolerance_bps_low_confidence=_RATIO_TOL_LOW,
+    tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
+    gate_kind="hard_fail",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=[
+      "balance_sheet::Accounts Receivable Days",
+      "balance_sheet::Inventory Days",
+      "balance_sheet::Prepaid Expenses (% of Revenue)",
+    ],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Phase 9 P3 Target 3 — (AR + Inventory + Prepaid) / Revenue. Working-capital tied up in operations; solver allocates delta across the three days/percent levers proportional to slack-to-bound.",
+  ),
+  _row(
+    metric_key="current_liabilities_to_revenue",
+    finmo_line_label="Current Liabilities",
+    derivation_formula_key="current_liabilities_div_revenue",
+    applicability_rule_key="skip_when_revenue_zero",
+    tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
+    tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
+    tolerance_bps_low_confidence=_RATIO_TOL_LOW,
+    tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
+    gate_kind="hard_fail",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=[
+      "balance_sheet::Accounts Payable Days",
+      "balance_sheet::Deferred Revenue (% of Revenue)",
+    ],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Phase 9 P3 Target 4 — (AP + short-term debt + accrued + deferred revenue) / Revenue. Short-term debt is cash-pass-owned and excluded from the solver's driver list; the operating-side levers (AP days, deferred revenue %) are the solver's authority.",
+  ),
 
   # ============================================================
   # Phase 9 Phase D — Universal viability timeline checks.
