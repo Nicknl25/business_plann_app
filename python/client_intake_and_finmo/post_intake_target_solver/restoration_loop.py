@@ -73,6 +73,31 @@ _VIABILITY_TRAJECTORY_METRICS: Tuple[str, ...] = (
 MAX_OUTER_PASSES = 5
 
 
+# Phase 9 P3 case (b) — conservative fallback multipliers for revenue-side
+# levers (Unit Price, Capacity, Utilization). There is no NAICS cohort
+# for these absolute-unit levers; bounds derive from the operator-stated
+# current value plus a documented multiplier. NOT widened to make any
+# specific business land — these are the doctrine's standing fallback.
+#
+# Unit Price: ±15% / +20% asymmetric — pricing power is bounded above
+# by competitive market position; downside is tighter (operators rarely
+# cut prices below a floor without harming brand).
+_REVENUE_PRICE_LOWER_FRAC = 0.85
+_REVENUE_PRICE_UPPER_FRAC = 1.20
+
+# Capacity: 0% downside, +50% upside — plant/equipment/headcount can
+# expand within a planning horizon but seldom contracts; closing a
+# location is a structural change outside the solver's authority.
+_REVENUE_CAPACITY_LOWER_FRAC = 1.00
+_REVENUE_CAPACITY_UPPER_FRAC = 1.50
+
+# Utilization: bounded below by current operator state (no manufactured
+# slack), bounded above by the FINMO capacity_utilization_ceiling
+# convention (0.90 leaves headroom before the path engine triggers a
+# capacity expansion).
+_REVENUE_UTILIZATION_UPPER = 0.90
+
+
 class RestorationStatus(str, Enum):
   LANDED = "landed"
   EXHAUSTED = "exhausted"
@@ -334,31 +359,140 @@ def _resolve_band_for_target(
 # ----------------------------------------------------------------------------
 
 
+# Per-lever-kind metadata. Maps lever_id (or a prefix) to (NAICS metric_key
+# the cohort cascade uses for the bound, driver_kind tag used by the solver).
+# This is the single source of truth for "how do I look up this lever's
+# bound in the cohort tables." Adding a new lever to a target's
+# primary_levers in the realism config picks it up here automatically when
+# the lever_id matches a known prefix; otherwise it falls through to the
+# revenue-side fallback or is dropped with a no_band_resolved diagnostic.
+_LEVER_TO_NAICS_METRIC_KEY: Dict[str, str] = {
+  "expenses::Cost of Goods Sold":           "cogs_percent_of_revenue",
+  "expenses::Marketing":                    "marketing_percent_of_revenue",
+  "expenses::Research & Development":       "r_and_d_percent_of_revenue",
+  "expenses::General & Administrative":     "sga_percent_of_revenue",
+  "expenses::Payroll":                      "payroll_percent_of_revenue",
+  "expenses::Lease":                        "rent_percent_of_revenue",
+  "balance_sheet::Accounts Receivable Days":      "ar_days_dso",
+  "balance_sheet::Accounts Payable Days":         "ap_days_dpo",
+  "balance_sheet::Inventory Days":                "inventory_days",
+  "balance_sheet::Prepaid Expenses (% of Revenue)":   "prepaid_expenses_percent_of_revenue",
+  "balance_sheet::Deferred Revenue (% of Revenue)":   "deferred_revenue_percent_of_revenue",
+}
+
+
+def _q1_revenue(model_input: Dict[str, Any], build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]]) -> float:
+  """Q1 revenue from the current model_input via FINMO build. Used as
+  the scaling base for payroll / lease quarter-currency bounds.
+  """
+  try:
+    finmo = build_finmo(copy.deepcopy(model_input or {}))
+  except Exception:
+    return 0.0
+  for row in (finmo or {}).get("quarter_rows") or []:
+    if not isinstance(row, dict):
+      continue
+    try:
+      if int(float(row.get("quarter_index") or 0)) == 1:
+        return float(row.get("revenue") or 0.0)
+    except Exception:
+      continue
+  return 0.0
+
+
+def _current_revenue_lever_value(
+  model_input: Dict[str, Any], lever_id: str, horizon: int,
+) -> Optional[float]:
+  """Read the operator-stated current value for a revenue-side lever
+  (Unit Price / Capacity / Utilization). Averages across LOB rows when
+  the shortcut maps to multiple model_input rows. Reads live Q1
+  (index 1 in the [stub, live_q1, ...] layout); returns None when
+  the lever is not present.
+  """
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  rows = _find_rows_for_lever(model_input or {}, lever_id)
+  if not rows:
+    return None
+  values: List[float] = []
+  for row in rows:
+    vals = row.get("values") or []
+    if len(vals) >= 2 and vals[1] is not None:
+      try:
+        v = float(vals[1])
+        if v > 0:
+          values.append(v)
+      except Exception:
+        pass
+  if not values:
+    return None
+  return sum(values) / len(values)
+
+
 def _driver_bounds_for_target(
   *,
   target_metric: str,
   business_naics_6: Optional[str],
+  model_input: Dict[str, Any],
+  build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
+  horizon: int = HORIZON_QUARTERS_DEFAULT,
 ) -> Dict[str, DriverBound]:
-  """Resolve per-driver (lower, upper) bounds from the cohort/baseline
-  resolver. Per-driver kind dispatch:
+  """Resolve per-driver (lower, upper) bounds for the target metric's
+  primary_levers list. Single source of truth: the realism lookup row
+  for ``target_metric`` — what the realism gate evaluates against is
+  what the solver tries to land.
 
-    - cogs%, marketing%, r_and_d%, sga%, prepaid%, deferred%:
-      bounds from the corresponding ``*_percent_of_revenue`` cohort row.
-    - ar_days_dso, ap_days_dpo, inventory_days: bounds from the
-      corresponding ``*_days`` cohort row.
-    - revenue::Unit Price, Capacity, Utilization: bounds derived
-      conservatively from the current model value (±50%) — there is
-      no NAICS cohort for these absolute units.
-    - quarter_currency (payroll, lease): bounds derived from the
-      corresponding *_percent_of_revenue band scaled by current
-      revenue.
+  Per-lever-kind dispatch (driven by ``_driver_kind_for_lever``):
+
+    percent_of_revenue (cogs%, marketing%, r_and_d%, sga%, prepaid%,
+                        deferred%): bounds from the corresponding
+                        cohort *_percent_of_revenue row.
+    days (AR/AP/Inventory days): bounds from the corresponding cohort
+                        *_days row.
+    quarter_currency (Payroll, Lease): bounds = (cohort
+                        *_percent_of_revenue band) × Q1 revenue,
+                        producing dollar-denominated lower/upper.
+                        bound_source = "payroll_percent_band_scaled".
+    revenue_unit (Unit Price, Capacity, Utilization): bounds from
+                        operator-stated current value × the named
+                        conservative fallback multipliers. There is no
+                        NAICS cohort for absolute price / capacity /
+                        utilization. bound_source =
+                        "hardcoded_fallback_no_data".
+
+  Cash-pass-owned levers are skipped (cash strategy owns those
+  end-to-end). Levers without resolvable bounds are dropped with no
+  error — the solver simply has no authority over them.
   """
   from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
     post_intake_industry_baseline_for_naics,
   )
+  from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
+    post_intake_finalize_realism_check_for_metric,
+  )
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _driver_kind_for_lever,
+  )
+
+  realism_row = post_intake_finalize_realism_check_for_metric(target_metric) or {}
+  primary_levers = list(realism_row.get("primary_levers") or [])
   bounds: Dict[str, DriverBound] = {}
 
-  def _band(metric_key: str) -> Optional[Tuple[float, float]]:
+  if not primary_levers:
+    return bounds
+
+  # Compute Q1 revenue once (used for quarter_currency lever bounds).
+  q1_revenue_cached: Optional[float] = None
+
+  # Phase 9 P3 case (b) — when the cohort cascade returns a band_target
+  # but no min/max (e.g., derived_CBP_SOI_rollup payroll rows), fan out
+  # to a ±30% envelope around the target. Documented margin, not magic;
+  # matches the validator's tolerance-around-target convention.
+  _TARGET_ONLY_FALLBACK_LOWER_FRAC = 0.70
+  _TARGET_ONLY_FALLBACK_UPPER_FRAC = 1.30
+
+  def _band(metric_key: str) -> Optional[Tuple[float, float, str]]:
     try:
       payload = post_intake_industry_baseline_for_naics(
         metric_key=metric_key, naics_6=business_naics_6 or "",
@@ -367,66 +501,108 @@ def _driver_bounds_for_target(
       return None
     bmin = payload.get("benchmark_min") if payload else None
     bmax = payload.get("benchmark_max") if payload else None
-    if bmin is None and bmax is None:
+    btarget = payload.get("benchmark_target") if payload else None
+    src = str((payload or {}).get("data_source") or "unknown").strip()
+    if bmin is None and bmax is None and btarget is None:
       return None
+    if bmin is None and bmax is None and btarget is not None:
+      # Target-only band — fan out around target.
+      bmin = float(btarget) * _TARGET_ONLY_FALLBACK_LOWER_FRAC
+      bmax = float(btarget) * _TARGET_ONLY_FALLBACK_UPPER_FRAC
+      src = f"{src}_target_only_envelope"
     if bmin is None:
       bmin = float(bmax) * 0.5 if bmax is not None else 0.0
     if bmax is None:
       bmax = float(bmin) * 1.5
-    return (float(bmin), float(bmax))
+    return (float(bmin), float(bmax), src)
 
-  # Operating-side levers per target. Strictly excludes
-  # _CASH_PASS_OWNED_LEVER_IDS.
-  if target_metric == "gross_margin_percent":
-    b = _band("cogs_percent_of_revenue")
-    if b is not None:
-      bounds["expenses::Cost of Goods Sold"] = DriverBound(
-        lower=b[0], upper=b[1], driver_kind="percent_of_revenue",
-      )
-  elif target_metric == "ebitda_margin":
-    for metric_key, lever_id in (
-      ("cogs_percent_of_revenue", "expenses::Cost of Goods Sold"),
-      ("marketing_percent_of_revenue", "expenses::Marketing"),
-      ("r_and_d_percent_of_revenue", "expenses::Research & Development"),
-      ("sga_percent_of_revenue", "expenses::General & Administrative"),
-    ):
-      b = _band(metric_key)
-      if b is not None:
-        bounds[lever_id] = DriverBound(
-          lower=b[0], upper=b[1], driver_kind="percent_of_revenue",
-        )
-  elif target_metric == "current_assets_minus_cash":
-    ar = _band("ar_days_dso")
-    if ar is not None:
-      bounds["balance_sheet::Accounts Receivable Days"] = DriverBound(
-        lower=ar[0], upper=ar[1], driver_kind="days",
-      )
-    inv = _band("inventory_days")
-    if inv is not None:
-      bounds["balance_sheet::Inventory Days"] = DriverBound(
-        lower=inv[0], upper=inv[1], driver_kind="days",
-      )
-    pp = _band("prepaid_expenses_percent_of_revenue")
-    if pp is not None:
-      bounds["balance_sheet::Prepaid Expenses (% of Revenue)"] = DriverBound(
-        lower=pp[0], upper=pp[1], driver_kind="percent_of_revenue",
-      )
-  elif target_metric == "current_liabilities_to_revenue":
-    ap = _band("ap_days_dpo")
-    if ap is not None:
-      bounds["balance_sheet::Accounts Payable Days"] = DriverBound(
-        lower=ap[0], upper=ap[1], driver_kind="days",
-      )
-    dr = _band("deferred_revenue_percent_of_revenue")
-    if dr is not None:
-      bounds["balance_sheet::Deferred Revenue (% of Revenue)"] = DriverBound(
-        lower=dr[0], upper=dr[1], driver_kind="percent_of_revenue",
-      )
-
-  # Defensive: strip cash-pass-owned levers if any slipped in.
-  for lid in list(bounds.keys()):
+  for lever_id in primary_levers:
+    lid = str(lever_id or "").strip()
+    if not lid:
+      continue
     if lid in _CASH_PASS_OWNED_LEVER_IDS:
-      del bounds[lid]
+      # Cash strategy owns these end-to-end; solver MUST NOT touch.
+      continue
+
+    driver_kind = _driver_kind_for_lever(lid)
+
+    if driver_kind == "percent_of_revenue":
+      naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
+      if not naics_metric:
+        continue
+      band = _band(naics_metric)
+      if band is None:
+        continue
+      bmin, bmax, src = band
+      bounds[lid] = DriverBound(
+        lower=bmin, upper=bmax, driver_kind="percent_of_revenue",
+        bound_source=f"cohort_{src}" if src and not src.startswith("cohort_") else src,
+      )
+      continue
+
+    if driver_kind == "days":
+      naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
+      if not naics_metric:
+        continue
+      band = _band(naics_metric)
+      if band is None:
+        continue
+      bmin, bmax, src = band
+      bounds[lid] = DriverBound(
+        lower=bmin, upper=bmax, driver_kind="days",
+        bound_source=f"cohort_{src}" if src and not src.startswith("cohort_") else src,
+      )
+      continue
+
+    if driver_kind == "quarter_currency":
+      # Payroll / Lease — scale the percent-of-revenue cohort band by
+      # current Q1 revenue to produce dollar bounds.
+      naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
+      if not naics_metric:
+        continue
+      band = _band(naics_metric)
+      if band is None:
+        continue
+      bmin_pct, bmax_pct, src = band
+      if q1_revenue_cached is None:
+        q1_revenue_cached = _q1_revenue(model_input, build_finmo)
+      r = float(q1_revenue_cached or 0.0)
+      if r <= 0.0:
+        continue
+      bounds[lid] = DriverBound(
+        lower=bmin_pct * r, upper=bmax_pct * r, driver_kind="quarter_currency",
+        bound_source=f"payroll_percent_band_scaled (cohort_src={src}, Q1_revenue={r:.2f})",
+      )
+      continue
+
+    if driver_kind == "revenue_unit":
+      cur = _current_revenue_lever_value(model_input, lid, horizon)
+      if cur is None or cur <= 0.0:
+        continue
+      if "Unit Price" in lid:
+        lower = cur * _REVENUE_PRICE_LOWER_FRAC
+        upper = cur * _REVENUE_PRICE_UPPER_FRAC
+      elif "Capacity" in lid:
+        lower = cur * _REVENUE_CAPACITY_LOWER_FRAC
+        upper = cur * _REVENUE_CAPACITY_UPPER_FRAC
+      elif "Utilization" in lid:
+        lower = cur
+        upper = max(cur, _REVENUE_UTILIZATION_UPPER)
+      else:
+        # Unknown revenue lever — skip rather than guess.
+        continue
+      bounds[lid] = DriverBound(
+        lower=lower, upper=upper, driver_kind="revenue_unit",
+        bound_source=(
+          f"hardcoded_fallback_no_data (current={cur:.4f}, "
+          f"lower_frac={lower/cur:.2f}, upper_frac={upper/cur:.2f})"
+        ),
+      )
+      continue
+
+    # Unknown driver_kind — skip with no entry. Solver simply has no
+    # authority over levers it cannot bound.
+
   return bounds
 
 
@@ -472,6 +648,7 @@ def run_restoration_loop(
       # Bounds for the target's drivers.
       driver_bounds = _driver_bounds_for_target(
         target_metric=target_metric, business_naics_6=business_naics_6,
+        model_input=model_input, build_finmo=build_finmo, horizon=horizon,
       )
       if not driver_bounds:
         pass_diag["targets_attempted"].append({
@@ -587,6 +764,7 @@ def run_restoration_loop(
     for target_metric in TARGETS_IN_PRIORITY_ORDER:
       bounds = _driver_bounds_for_target(
         target_metric=target_metric, business_naics_6=business_naics_6,
+        model_input=model_input, build_finmo=build_finmo, horizon=horizon,
       )
       all_drivers.update(bounds.keys())
     if all_drivers and all(lid in drivers_at_bounds_summary for lid in all_drivers):

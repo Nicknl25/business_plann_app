@@ -112,11 +112,20 @@ class DriverBound:
   - For ``revenue_unit`` levers (unit price, capacity, utilization):
     bounds are in the lever's native unit (price = $/unit, capacity =
     units/period, utilization = fraction).
+
+  ``bound_source`` records WHERE the (lower, upper) numbers came from.
+  Examples: "cohort_alternating_edgar", "cohort_alternating_alpha",
+  "phase_9_p3_generic_default", "payroll_percent_band_scaled",
+  "hardcoded_fallback_no_data" (for revenue-side levers where there is
+  no NAICS cohort for absolute units). Surfaces in the restoration
+  loop's per-target / per-driver diagnostics so an EXHAUSTED return
+  shows which bound source pinned each lever.
   """
 
   lower: float
   upper: float
   driver_kind: str  # "percent_of_revenue" | "days" | "quarter_currency" | "revenue_unit"
+  bound_source: str = ""
 
 
 @dataclass
@@ -209,21 +218,50 @@ def _sensitivity_coefficient(
   driver_lever_id: str,
   current_quarter_revenue: float,
   current_quarter_cogs: float,
+  current_quarter_fixed_cost: float = 0.0,
+  current_driver_value: Optional[float] = None,
 ) -> Optional[float]:
-  """Return Δmetric / Δdriver for a single quarter. None for empirical."""
+  """Return Δmetric / Δdriver for a single quarter, evaluated at the
+  current state. Returns None when the (target, driver_kind) pair has
+  no analytic sensitivity defined (caller drops the driver from the
+  active set for that quarter).
+
+  Phase 9 P3 extension — partial derivatives for revenue-side and
+  payroll levers, using the standard FINMO model:
+
+    revenue R = capacity * unit_price * utilization
+    ebitda  = R * (1 - cogs% - mkt% - rnd% - sga%) - F
+            (where F = payroll + lease + depreciation,  the lines
+             that do NOT scale with revenue)
+    ebitda_margin = ebitda / R = (1 - cogs% - opex%) - F/R
+
+  Partial derivatives:
+    ∂em / ∂cogs%        = -1
+    ∂em / ∂mkt%/sga%/rnd% = -1
+    ∂em / ∂payroll_$    = -1 / R
+    ∂em / ∂unit_price   = F / (R * unit_price)        (positive)
+    ∂em / ∂capacity     = F / (R * capacity)           (positive)
+    ∂em / ∂utilization  = F / (R * utilization)        (positive)
+
+  For gross_margin_percent under the current FINMO setup, cogs% is
+  the lever value directly; raising unit_price scales COGS$ in
+  proportion (COGS$ = cogs% × R), so gross_margin = 1 - cogs% does
+  not move with price. ∂gm/∂unit_price returns None to signal "no
+  contribution" — solver drops the driver for that quarter.
+  """
   rev = float(current_quarter_revenue) if current_quarter_revenue else 0.0
+  fixed = float(current_quarter_fixed_cost) if current_quarter_fixed_cost else 0.0
+  drv = float(current_driver_value) if current_driver_value is not None else 0.0
   if target_metric == "gross_margin_percent":
     if driver_kind == "percent_of_revenue" and "Cost of Goods Sold" in driver_lever_id:
       return -1.0
-    if driver_kind == "revenue_unit" and "Unit Price" in driver_lever_id:
-      # Δgm = Δprice × (cogs / revenue^2). Empirically; sign is positive
-      # (raising price raises gm). For v1 use a small positive proxy
-      # scaled by current cogs share.
-      if rev > 0:
-        cogs_share = float(current_quarter_cogs) / rev if rev > 0 else 0.0
-        # Δgm ≈ cogs_share / revenue × Δprice (per unit). Use cogs_share
-        # / revenue as a unit proxy.
-        return cogs_share / rev if rev > 0 else None
+    if driver_kind == "revenue_unit":
+      # Under our FINMO model, raising unit_price scales COGS$ in
+      # lockstep with revenue (cogs% lever stays fixed), so
+      # gross_margin = 1 - cogs% does not move. Return None so the
+      # solver treats Unit Price as a no-op driver for gross_margin.
+      # Realism config lists it as a primary_lever; under the current
+      # FINMO this connection is non-actuating.
       return None
     return None
   if target_metric == "ebitda_margin":
@@ -236,9 +274,13 @@ def _sensitivity_coefficient(
       if rev > 0:
         return -1.0 / rev
       return None
-    if driver_kind == "revenue_unit" and "Unit Price" in driver_lever_id:
-      # Higher price -> higher revenue -> dilutes fixed-cost burden,
-      # raising ebitda_margin. Empirical for now.
+    if driver_kind == "revenue_unit":
+      # ∂em/∂{price, capacity, utilization} = F / (R × current_driver)
+      # Positive sensitivity — raising any of price / capacity /
+      # utilization raises revenue and dilutes the fixed-cost burden,
+      # lifting ebitda_margin.
+      if rev > 0 and drv > 0 and fixed > 0:
+        return fixed / (rev * drv)
       return None
     return None
   if target_metric == "current_assets_minus_cash":
@@ -499,6 +541,32 @@ def _quarter_cogs(finmo_json: Dict[str, Any], q_idx_1based: int) -> float:
   return 0.0
 
 
+def _quarter_fixed_cost_proxy(finmo_json: Dict[str, Any], q_idx_1based: int) -> float:
+  """Sum of cost lines that do NOT scale with revenue at this quarter:
+  payroll + lease_rent + depreciation. Used as F in
+  ebitda_margin = (1 - cogs% - opex%) - F/R for revenue-side and
+  payroll sensitivity computations.
+  """
+  total = 0.0
+  for row in (finmo_json or {}).get("quarter_rows") or []:
+    if not isinstance(row, dict):
+      continue
+    try:
+      qi = int(float(row.get("quarter_index") or 0))
+    except Exception:
+      continue
+    if qi == q_idx_1based:
+      for field_name in ("payroll", "lease_rent", "depreciation"):
+        try:
+          v = row.get(field_name)
+          if v is not None:
+            total += float(v)
+        except Exception:
+          pass
+      break
+  return total
+
+
 # ----------------------------------------------------------------------------
 # The solver.
 # ----------------------------------------------------------------------------
@@ -597,16 +665,20 @@ def solve_for_target(
       raise_metric = r > 0
       q_revenue = _quarter_revenue(current_finmo, q_idx + 1)
       q_cogs = _quarter_cogs(current_finmo, q_idx + 1)
+      q_fixed = _quarter_fixed_cost_proxy(current_finmo, q_idx + 1)
       # For each active driver, compute (sensitivity, slack_in_driver_direction).
       contributions: List[Tuple[str, float, float, str]] = []
       # Tuple: (lever_id, sensitivity, slack_in_driver_direction, driver_direction)
       for lid, ds in driver_states.items():
+        current_value = ds.current_per_q[q_idx] if q_idx < len(ds.current_per_q) else None
         sens = _sensitivity_coefficient(
           target_metric=target_metric,
           driver_kind=ds.driver_kind,
           driver_lever_id=lid,
           current_quarter_revenue=q_revenue,
           current_quarter_cogs=q_cogs,
+          current_quarter_fixed_cost=q_fixed,
+          current_driver_value=current_value,
         )
         if sens is None or abs(sens) < 1e-12:
           continue
