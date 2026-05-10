@@ -850,14 +850,39 @@ def run_restoration_loop(
         reason="all_viability_trajectory_checks_passed",
       )
 
-    # Exhausted exit: every operating driver across all 4 targets is
-    # pinned at its bound. Re-resolve the union of driver lists for the
-    # exhaustion check (drivers_at_bounds_summary captures the
-    # cumulative state).
+    # Exhausted exit (formal): every operating driver across all
+    # targets is fully pinned at its bound across all 20 quarters.
+    # This is the strict shape — drivers_at_bounds_summary gets a lid
+    # entry only when EVERY quarter's value is at the bound.
     all_drivers: set = set()
     for target_metric in TARGETS_IN_PRIORITY_ORDER:
       all_drivers.update(bounds_by_target.get(target_metric, {}).keys())
-    if all_drivers and all(lid in drivers_at_bounds_summary for lid in all_drivers):
+    formal_exhaustion = bool(all_drivers) and all(
+      lid in drivers_at_bounds_summary for lid in all_drivers
+    )
+
+    # Exhausted exit (semantic): every target the loop attempted in
+    # the latest pass returned bound_pinned. The inner solver returns
+    # bound_pinned when "all drivers in the active set are pinned for
+    # the residual's needed direction" — its own authoritative "no
+    # more authority" signal. When every target reports that, the
+    # deterministic algebra is exhausted in the sense the architecture
+    # cares about (no more progress possible), even if some drivers
+    # are at bound only in some quarters.
+    targets_attempted_count = len([
+      t for t in (pass_diag.get("targets_attempted") or [])
+      if t.get("status") in ("bound_pinned", "converged", "max_inner_iterations_reached")
+    ])
+    targets_bound_pinned = list(pass_diag.get("targets_bound_pinned") or [])
+    targets_converged = list(pass_diag.get("targets_converged") or [])
+    semantic_exhaustion = (
+      bool(targets_attempted_count)
+      and len(targets_bound_pinned) + len(targets_converged) >= targets_attempted_count
+      and len(targets_bound_pinned) >= 1
+      and not all(final_viability.get(m, False) for m in _VIABILITY_TRAJECTORY_METRICS)
+    )
+
+    if formal_exhaustion or semantic_exhaustion:
       from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
         evaluate_realism_formula,
       )
@@ -868,6 +893,18 @@ def run_restoration_loop(
         )
       except Exception:
         q11_em = None
+      reason = (
+        "every_operating_driver_pinned_at_bound "
+        f"drivers={sorted(all_drivers)} "
+        "diagnostic: cohort tolerances may be too tight, operator intake "
+        "may have structural issues, or stage shift may be needed"
+        if formal_exhaustion else
+        "every_target_returned_bound_pinned_in_latest_pass "
+        f"targets_bound_pinned={targets_bound_pinned} "
+        f"targets_converged={targets_converged} "
+        "diagnostic: deterministic algebra exhausted; no further driver "
+        "movement available within conservative bounds"
+      )
       return RestorationResult(
         status=RestorationStatus.EXHAUSTED,
         outer_passes_used=outer_pass,
@@ -876,12 +913,7 @@ def run_restoration_loop(
         drivers_at_bounds_summary=drivers_at_bounds_summary,
         per_target_results=per_target_results,
         q11_ebitda_margin=float(q11_em) if q11_em is not None else None,
-        reason=(
-          "every_operating_driver_pinned_at_bound "
-          f"drivers={sorted(all_drivers)} "
-          "diagnostic: cohort tolerances may be too tight, operator intake "
-          "may have structural issues, or stage shift may be needed"
-        ),
+        reason=reason,
       )
 
   # Hit max outer passes without landing or exhausting.
