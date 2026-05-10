@@ -6,33 +6,33 @@ post-cascade orchestrator when ``run_restoration_loop`` returns
 (operating-side deterministic algebra) and the cash strategy
 (financing-side, untouched here).
 
-Pipeline inside this handler:
-  1. Build operating model + Q1 actual state from intake / FINMO inputs.
-  2. Call 1: GPT returns {Q1, Q11, Q20} EBITDA anchors.
-  3. Call 2: GPT returns {Q1, Q11, Q20} anchors per driver consistent
-     with the EBITDA anchors.
-  4. Validate Call 2; on failure, retry once with the validation error
-     in-prompt; if still invalid, fall through to deterministic snap-in.
-  5. Interpolate driver anchors -> 20-quarter trajectories and write to
-     model_input with provenance tags.
-  6. Rebuild FINMO. Compare FINMO Q11 EBITDA vs GPT Call 1 Q11 anchor.
-  7. If gap <= TOLERANCE_BPS / 10000: LANDED_GPT (or LANDED_ITERATED if
-     iterations were used).
-  8. Otherwise iterate up to MAX_ITERATIONS; each iteration is a fresh
-     GPT call carrying cumulative diagnostic.
-  9. If 3 iterations don't converge: deterministic snap-in via
-     ``solve_for_target`` with ±15% bounds around GPT's anchored values.
- 10. Determine which realism metrics to mute for this draft (the
-     metrics whose primary_levers include any GPT-authored driver).
+Pipeline inside this handler (Phase 9 P3.5 tool-calling pattern):
+  1. Build operating context (Q1 actual state, capacity-driver detection,
+     fixed-rent computation, build_finmo callable closure).
+  2. Run the GPT tool-calling session: GPT proposes driver anchors and
+     calls compute_full_trajectory(anchors) to verify the EBITDA path
+     the system would compute. GPT iterates against the tool result
+     up to MAX_TOOL_CALLS times, then commits a final answer.
+  3. Path-engine-interpolate the committed anchors to 20 quarters.
+  4. Write per-driver per-quarter values into model_input with
+     provenance tags (FINMO contract compliance: skip Capacity for
+     labor-driven businesses, integer-round capacity, clip utilization).
+  5. Rebuild FINMO so the rest of the post-cascade tail sees the
+     GPT-authored operating model.
+  6. Determine which realism metrics to mute for THIS draft (per-draft,
+     per-metric — universal viability trajectory checks stay active).
 
-This module is universal across NAICS / stage / archetype. Differences
-in output flow from the operating_model JSON, never from code branches.
+The Call 1 / Call 2 / iteration / snap-into-place pattern is retired.
+GPT verifies the math himself before committing — the structural gap
+between his anchored target and FINMO's computed result no longer
+exists because the tool runs full FINMO under the hood.
+
+Cash strategy is NOT touched. It runs after this handler completes.
 """
 
 from __future__ import annotations
 
 import copy
-import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -42,35 +42,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Constants — exposed as module-level so they're easy to find / tune.
-# ---------------------------------------------------------------------------
-
-TOLERANCE_BPS = 50          # Q11 EBITDA convergence: |GPT_target - FINMO| <= 50bps
-# MAX_ITERATIONS bumped from 3 to 5. Per Sunny iteration data, each
-# iteration roughly halves the residual gap (Sunny v7: -0.502 -> -0.418
-# -> -0.299 -> -0.025 across 3 iterations). 3 iterations was leaving
-# >50bps residuals on some GPT non-deterministic Call 2 outputs that
-# started further out (v8 ended at -0.072 after iter 3); 5 iterations
-# carries the halving curve down to within snap-in's reach. The 8-call
-# global GPT budget still accommodates: 1 (Call 1) + 1 (Call 2) + 5
-# iterations + 1 cash strategy review + 1 path engine ramp = 8 ceiling
-# (Phase 3 consultants are retired, so they don't consume budget).
-MAX_ITERATIONS = 5
-# SNAP_IN_DRIVER_TOLERANCE bumped from 0.15 to 0.20 (±20%). Sunny v8
-# trace showed snap-in landing snap_status=bound_pinned at -0.072
-# Q11 EBITDA — every relevant driver hit ±15% bound for the residual's
-# needed direction without closing the gap. The driver value range
-# GPT picks at iteration N is itself an approximation; allowing the
-# deterministic solver one fifth more authority around those anchors
-# gives it room to close gaps up to ~10pp on EBITDA margin without
-# departing from GPT's strategic choice.
-SNAP_IN_DRIVER_TOLERANCE = 0.20
 HORIZON_QUARTERS = 20
 
 # Lever IDs the handler authors. These are the "drivers" GPT returns
-# anchors for in Call 2; the path engine interpolates each driver's
-# 3 anchors into a 20-quarter trajectory. Universal across NAICS.
+# anchors for; the path engine interpolates each driver's 3 anchors into
+# a 20-quarter trajectory. Universal across NAICS.
 GPT_AUTHORED_LEVER_IDS: Tuple[str, ...] = (
   "revenue::Unit Price",
   "revenue::Capacity",
@@ -93,19 +69,39 @@ _DRIVER_KEY_TO_LEVER_ID: Dict[str, str] = {
 }
 
 
+# Universal viability trajectory checks. These evaluate against FINMO
+# outputs (revenue, EBITDA dollar amounts), not driver values, and stay
+# active in the realism gate even after the handler runs.
+_UNIVERSAL_VIABILITY_TRAJECTORY_METRICS = frozenset({
+  "ebitda_positive_by_q11",
+  "ebitda_recovery_trend_q5_q11",
+  "loss_window_funded_through_q5",
+  "no_post_recovery_relapse_q11_q20",
+  "gross_margin_supports_ebitda_recovery",
+  "fixed_cost_burden_reduced_or_scaled_by_q11",
+})
+
+
 class HandlerStatus(str, Enum):
-  LANDED_GPT = "landed_gpt"           # Call 2 succeeded immediately
-  LANDED_ITERATED = "landed_iterated"  # 1-3 iterations needed
-  LANDED_SNAP = "landed_snap"          # Deterministic snap-in finished
-  LANDED_PARTIAL = "landed_partial"    # Snap-in within tolerance window but not exact
-  FAILED = "failed"                    # Snap-in couldn't reach target
+  # Tool-calling session committed and FINMO rebuild produced Q11
+  # EBITDA >= 0 (universal viability). GPT iterated against the tool
+  # until all viability checks passed.
+  LANDED_TOOL_CALL_COMMIT = "landed_tool_call_commit"
+  # Tool-calling session hit the MAX_TOOL_CALLS budget cap; GPT
+  # committed under pressure with whatever was best at that point.
+  # FINMO rebuild may or may not satisfy Q11 >= 0; the status records
+  # that the budget rather than convergence forced the commit.
+  LANDED_TOOL_CALL_BUDGET_HIT = "landed_tool_call_budget_hit"
+  # Catch-all: GPT failed to produce a valid commit despite forced
+  # follow-ups, OR FINMO rebuild after a successful commit produced
+  # Q11 EBITDA < 0. Should be rare; provenance carries the diagnostic.
+  FAILED = "failed"
 
 
 @dataclass
 class HandlerResult:
   status: HandlerStatus
   gpt_calls_made: int = 0
-  iterations_used: int = 0
   q11_ebitda_target: Optional[float] = None
   q11_ebitda_actual: Optional[float] = None
   provenance: Dict[str, Any] = field(default_factory=dict)
@@ -114,9 +110,12 @@ class HandlerResult:
 
   def to_dict(self) -> Dict[str, Any]:
     return {
-      "status": self.status.value if isinstance(self.status, HandlerStatus) else str(self.status),
+      "status": (
+        self.status.value
+        if isinstance(self.status, HandlerStatus)
+        else str(self.status)
+      ),
       "gpt_calls_made": int(self.gpt_calls_made),
-      "iterations_used": int(self.iterations_used),
       "q11_ebitda_target": self.q11_ebitda_target,
       "q11_ebitda_actual": self.q11_ebitda_actual,
       "provenance": dict(self.provenance),
@@ -126,14 +125,14 @@ class HandlerResult:
 
 
 # ---------------------------------------------------------------------------
-# Q1 actual state extraction.
+# Q1 / Q11 actual-state extraction.
 # ---------------------------------------------------------------------------
 
 
 def _q1_actual_state(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
-  """Pull the Q1 actuals the prompts care about — revenue, ebitda_margin,
-  total_opex, payroll, cogs, marketing, sga, gross_profit. Read from the
-  FINMO output's quarter_rows[quarter_index=1].
+  """Pull Q1 actuals from the FINMO output's quarter_rows[quarter_index=1].
+  Used for the operator-baseline state that the tool-calling session
+  shows GPT.
   """
   q1: Dict[str, Any] = {}
   rows = (finmo_json or {}).get("quarter_rows") or []
@@ -150,7 +149,9 @@ def _q1_actual_state(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
     ebitda = float(row.get("ebitda") or 0.0)
     cogs = float(row.get("cost_of_goods_sold") or 0.0)
     payroll = float(row.get("payroll") or 0.0)
-    marketing = float(row.get("marketing") or row.get("marketing_expense") or 0.0)
+    marketing = float(
+      row.get("marketing") or row.get("marketing_expense") or 0.0
+    )
     sga = float(row.get("general_and_administrative") or row.get("sga") or 0.0)
     gross_profit = revenue - cogs
     em = (ebitda / revenue) if revenue else 0.0
@@ -166,40 +167,6 @@ def _q1_actual_state(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
     }
     break
   return q1
-
-
-def _q11_line_items(finmo_json: Dict[str, Any]) -> Dict[str, float]:
-  out: Dict[str, float] = {}
-  rows = (finmo_json or {}).get("quarter_rows") or []
-  for row in rows:
-    if not isinstance(row, dict):
-      continue
-    try:
-      qi = int(float(row.get("quarter_index") or 0))
-    except Exception:
-      continue
-    if qi != 11:
-      continue
-    revenue = float(row.get("revenue") or 0.0)
-    cogs = float(row.get("cost_of_goods_sold") or 0.0)
-    payroll = float(row.get("payroll") or 0.0)
-    marketing = float(row.get("marketing") or row.get("marketing_expense") or 0.0)
-    sga = float(row.get("general_and_administrative") or row.get("sga") or 0.0)
-    gross_profit = revenue - cogs
-    total_opex = payroll + marketing + sga
-    ebitda = float(row.get("ebitda") or (gross_profit - total_opex))
-    out = {
-      "revenue": revenue,
-      "cogs": cogs,
-      "gross_profit": gross_profit,
-      "payroll": payroll,
-      "marketing": marketing,
-      "sga": sga,
-      "total_opex": total_opex,
-      "ebitda": ebitda,
-    }
-    break
-  return out
 
 
 def _q11_ebitda_margin(finmo_json: Dict[str, Any]) -> Optional[float]:
@@ -222,22 +189,19 @@ def _q11_ebitda_margin(finmo_json: Dict[str, Any]) -> Optional[float]:
 
 
 # ---------------------------------------------------------------------------
-# 3-anchor -> 20-quarter interpolation.
+# Path engine — 3-anchor -> 20-quarter linear interpolation.
 # ---------------------------------------------------------------------------
 
 
 def interpolate_three_anchors(
   *, q1: float, q11: float, q20: float, horizon: int = HORIZON_QUARTERS,
 ) -> List[float]:
-  """Linear interpolation Q1->Q11->Q20 across ``horizon`` quarters
-  (1-indexed semantics: index 0 = Q1, index 10 = Q11, index 19 = Q20).
+  """Two-segment linear ramp Q1->Q11->Q20 across ``horizon`` quarters.
 
-  This is intentionally a clean two-segment linear ramp so the GPT-
-  authored anchors land EXACTLY at Q1, Q11, Q20. Per-driver path-shape
-  doctrine (s_curve / glidepath / etc.) is intentionally bypassed: GPT
-  has produced the strategic anchors and this handler honors them
-  verbatim. The path engine's per-shape variation is a generic-default
-  policy when no anchors are GPT-authored; here, GPT is the authority.
+  GPT-authored anchors land EXACTLY at Q1, Q11, Q20. Per-driver path-
+  shape doctrine (s_curve / glidepath / etc.) is intentionally
+  bypassed: GPT has authored the strategic anchors and this handler
+  honors them verbatim.
   """
   h = max(1, int(horizon))
   values: List[float] = [0.0] * h
@@ -246,11 +210,9 @@ def interpolate_three_anchors(
   q20f = float(q20)
   for q in range(h):
     if q <= 10:
-      # Segment 1: Q1 (idx 0) -> Q11 (idx 10).
       frac = q / 10.0 if h > 1 else 0.0
       values[q] = (1.0 - frac) * q1f + frac * q11f
     else:
-      # Segment 2: Q11 (idx 10) -> Q20 (idx h-1).
       span = max(1, (h - 1) - 10)
       frac = (q - 10) / float(span)
       values[q] = (1.0 - frac) * q11f + frac * q20f
@@ -260,6 +222,23 @@ def interpolate_three_anchors(
 # ---------------------------------------------------------------------------
 # Model input writer for GPT-authored drivers.
 # ---------------------------------------------------------------------------
+
+
+def _detect_payroll_supported_capacity(model_input: Dict[str, Any]) -> bool:
+  """Return True when the Capacity row is FINMO-derived from payroll
+  (capacity_driver=labor in operating_model). In that case, direct
+  Capacity writes violate revenue_driver_formula_contract; the writer
+  skips Capacity and lets FINMO derive it from payroll.
+  """
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  capacity_rows = _find_rows_for_lever(model_input or {}, "revenue::Capacity")
+  return any(
+    str(r.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+    or isinstance(r.get("payroll_supported_capacity"), dict)
+    for r in (capacity_rows or [])
+  )
 
 
 def _write_gpt_authored_per_quarter_values(
@@ -275,39 +254,32 @@ def _write_gpt_authored_per_quarter_values(
   "value": v, "gpt_authored": True}`` so:
     - the derived-driver / FINMO seed-policy shapers skip those quarters
       (existing exclusion mechanism — re-uses target-solver provenance);
-    - the realism mute mechanism (Phase 4) can find the GPT-authored
-      drivers via this tag.
-  Returns a per-driver write summary used by the handler's provenance
-  trail.
+    - the realism mute mechanism can find the GPT-authored drivers via
+      this tag.
+
+  FINMO contract compliance:
+    - For labor-driven capacity (capacity_driver=labor; the Capacity row
+      carries derived_driver=payroll_supported_capacity), skip Capacity
+      writes — FINMO derives capacity from payroll, and a direct write
+      would violate revenue_driver_formula_contract.
+    - Clip utilization to <= 0.84 to keep writes from triggering FINMO's
+      capacity-expansion branch (utilization_ceiling=0.85), which
+      auto-expands capacity and clips utilization back to 0.70 — silently
+      undoing the writer's outputs.
+    - Round capacity per row to integer so capacity * price * util holds
+      under FINMO's revenue_driver_formula_contract.
+
+  Returns a per-driver summary used for provenance.
   """
   from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
     _find_rows_for_lever,
   )
   per_driver_summary: Dict[str, Any] = {}
 
-  # Detect labor-driven capacity. When the Capacity row carries
-  # `derived_driver == "payroll_supported_capacity"` (e.g., Sunny —
-  # `capacity_driver: "labor"`), capacity is computed by FINMO from
-  # payroll/headcount rather than directly written. Writing capacity
-  # directly produces a `revenue_driver_formula_contract_failed`
-  # ValueError because the FINMO-internal capacity differs from the
-  # model_input write at sub-unit precision. Skip writing Capacity in
-  # that case; the handler still adjusts payroll, and capacity follows.
-  capacity_rows_for_detect = _find_rows_for_lever(
-    model_input or {}, "revenue::Capacity"
-  )
-  capacity_is_payroll_supported = any(
-    str(r.get("derived_driver") or "").strip() == "payroll_supported_capacity"
-    or isinstance(r.get("payroll_supported_capacity"), dict)
-    for r in (capacity_rows_for_detect or [])
+  capacity_is_payroll_supported = _detect_payroll_supported_capacity(
+    model_input or {}
   )
 
-  # FINMO's capacity-shaping policy uses utilization_ceiling=0.85.
-  # Utilization writes >= 0.85 trigger the one-shot capacity-expansion
-  # branch which (a) auto-expands capacity and (b) clips utilization
-  # back to post_expansion_utilization=0.70 — silently undoing the
-  # handler's writes for the rest of the horizon. Mirror the target
-  # solver's _REVENUE_UTILIZATION_UPPER (0.84) clip so writes hold.
   _UTILIZATION_CLIP_UPPER = 0.84
 
   for driver_key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
@@ -315,14 +287,10 @@ def _write_gpt_authored_per_quarter_values(
     if not isinstance(triple, dict):
       per_driver_summary[lever_id] = {
         "status": "skipped_no_anchor",
-        "reason": "anchor_not_in_call_2_payload",
+        "reason": "anchor_not_in_commit_payload",
       }
       continue
 
-    # Universal-app rule: detect derived-driver rows and skip writes.
-    # Labor-driven capacity (capacity_driver=labor) is the canonical
-    # case; FINMO derives capacity from payroll, so a direct write
-    # collides with the derivation.
     if lever_id == "revenue::Capacity" and capacity_is_payroll_supported:
       per_driver_summary[lever_id] = {
         "status": "skipped_payroll_supported_capacity",
@@ -349,8 +317,6 @@ def _write_gpt_authored_per_quarter_values(
       }
       continue
 
-    # Clip utilization to keep writes from triggering FINMO's
-    # capacity-expansion branch.
     if lever_id == "revenue::Utilization":
       q1v = min(q1v, _UTILIZATION_CLIP_UPPER)
       q11v = min(q11v, _UTILIZATION_CLIP_UPPER)
@@ -368,40 +334,27 @@ def _write_gpt_authored_per_quarter_values(
       }
       continue
 
-    # For revenue-shortcut levers that map to multiple LOB rows, divide
-    # the anchor value across rows so the AGGREGATE (sum of LOBs) lands
-    # at the GPT-authored value. This mirrors the target solver's
-    # combine-by-average read pattern in _read_driver_state.
-    write_value_per_row: List[List[float]] = []
     n_rows = max(1, len(rows))
+    write_value_per_row: List[List[float]]
     if lever_id == "revenue::Capacity":
-      # Capacity is additive across LOBs -> divide. Round to integer
-      # so capacity * price * util produces consistent ints under
-      # FINMO's revenue_driver_formula_contract.
       write_value_per_row = [
         [round(v / float(n_rows)) for v in per_q_values] for _ in range(n_rows)
       ]
     elif lever_id == "revenue::Unit Price" or lever_id == "revenue::Utilization":
-      # Price/utilization don't sum across LOBs; broadcast same value.
-      # Round to 6 decimals (matching FINMO's internal precision) so
-      # the contract validator sees consistent numbers.
       write_value_per_row = [
         [round(v, 6) for v in per_q_values] for _ in range(n_rows)
       ]
     elif lever_id == "expenses::Payroll":
-      # Total quarterly payroll is divided across payroll rows.
       write_value_per_row = [
         [v / float(n_rows) for v in per_q_values] for _ in range(n_rows)
       ]
     else:
-      # Cost-ratio levers — broadcast same percentage to each row.
       write_value_per_row = [list(per_q_values) for _ in range(n_rows)]
 
     for row_idx, row in enumerate(rows):
       vals = row.get("values")
       values_to_write = write_value_per_row[row_idx]
       if not isinstance(vals, list):
-        # Fresh row — initialize with stub at index 0 plus 20 live cells.
         vals = [0.0] * (HORIZON_QUARTERS + 1)
         row["values"] = vals
       while len(vals) <= HORIZON_QUARTERS:
@@ -435,6 +388,63 @@ def _write_gpt_authored_per_quarter_values(
 
 
 # ---------------------------------------------------------------------------
+# Realism flag mute computation.
+# ---------------------------------------------------------------------------
+
+
+def compute_metrics_to_mute() -> List[str]:
+  """Determine which realism metrics to mute for THIS draft.
+
+  A metric is muted iff:
+    1. It is one of the realism gate's checked metrics AND its
+       primary_levers include any GPT-authored driver
+       (GPT_AUTHORED_LEVER_IDS), OR
+    2. It is the universal viability metric ``ebitda_margin``
+       (always muted post-exhaustion because GPT authored the EBITDA
+       trajectory itself).
+
+  Universal viability trajectory checks (ebitda_positive_by_q11,
+  ebitda_recovery_trend_q5_q11, loss_window_funded_through_q5,
+  no_post_recovery_relapse_q11_q20, gross_margin_supports_ebitda_recovery,
+  fixed_cost_burden_reduced_or_scaled_by_q11) STAY ACTIVE — they
+  evaluate against FINMO outputs (revenue, EBITDA dollar amounts), not
+  driver values, and MUST still pass for the verdict.
+
+  Per-draft only — metric definitions in lookup.py stay unchanged.
+  """
+  to_mute: List[str] = ["ebitda_margin"]
+  gpt_authored = set(GPT_AUTHORED_LEVER_IDS)
+
+  try:
+    from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
+      post_intake_finalize_realism_check_rows,
+    )
+    rows = post_intake_finalize_realism_check_rows() or []
+  except Exception:
+    rows = []
+
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    metric_key = str(row.get("metric_key") or "").strip()
+    if not metric_key or metric_key in to_mute:
+      continue
+    if metric_key in _UNIVERSAL_VIABILITY_TRAJECTORY_METRICS:
+      continue
+    if not bool(row.get("active", True)):
+      continue
+    primary_levers = row.get("primary_levers") or []
+    if not isinstance(primary_levers, (list, tuple)):
+      continue
+    if any(
+      str(p or "").strip() in gpt_authored for p in primary_levers
+    ):
+      to_mute.append(metric_key)
+
+  return to_mute
+
+
+# ---------------------------------------------------------------------------
 # Public entry point.
 # ---------------------------------------------------------------------------
 
@@ -449,69 +459,78 @@ def run_gpt_exhaustion_handler(
   finmo_json: Optional[Dict[str, Any]] = None,
 ) -> HandlerResult:
   """Run the GPT exhaustion handler. Mutates ``model_input`` in place
-  with GPT-authored per-quarter driver values; rebuilds FINMO between
-  iterations. Returns a HandlerResult with status, GPT-call count,
-  provenance, and realism metrics to mute.
+  with GPT-authored per-quarter driver values; rebuilds FINMO. Returns
+  a HandlerResult with status, GPT-call count, provenance, and realism
+  metrics to mute.
 
-  Parameters
-  ----------
-  restoration_result
-    The RestorationResult returned by ``run_restoration_loop``. Used
-    for the exhaustion diagnostic and to identify which realism metrics
-    triggered exhaustion (those metrics' band-checks get muted on this
-    draft because their drivers are now GPT-authored).
-  model_input
-    The model_input dict the handler will mutate with per-quarter
-    driver values. Same dict the cash strategy will read after this
-    handler completes (so cash sees the GPT-authored operating model).
-  operating_model
-    The ops_json — the universal "operating model" structure that
-    carries business_stage, business_naics_6, business_type, location,
-    capacity, pricing, employees, sales_modality, business_description_summary,
-    and all related fields. Passed verbatim into the GPT prompt.
-  build_finmo
-    Callable mapping model_input -> finmo_json. The handler invokes
-    this to recompute Q11 EBITDA margin after GPT-authored writes.
-  intake_context
-    Optional context dict (financials_json, planning_mode,
-    business_naics_6 — looked up only if needed by snap-in's bound
-    resolver). The handler does not use this for the GPT prompt; it
-    flows into snap-in if reached.
-  finmo_json
-    Optional pre-computed FINMO output for Q1 actuals. If absent, the
-    handler builds it via ``build_finmo``.
+  Phase 9 P3.5 tool-calling pattern: GPT proposes anchors, calls
+  compute_full_trajectory(anchors) to verify the EBITDA path, iterates
+  against the tool result until viable, then commits a final answer.
 
-  Imports happen lazily inside the function so this module can be
-  imported even when the orchestrator package is not on sys.path
-  (tests / migrations).
-
-  Phase 1 scaffolding note
-  ------------------------
-  Phase 1 wires the entry point and provenance plumbing. The actual
-  GPT call paths (Phase 2) and iteration / snap-in (Phase 3) are
-  filled in as their phases land. In Phase 1, calling this handler
-  with no GPT availability returns HandlerStatus.FAILED with reason
-  "phase_1_scaffolding_only" so the caller can see the wiring works
-  end-to-end without yet attempting a real GPT call.
+  Phase 1 commit landing point: Phase 2-4 rebuild the runtime in
+  mini_finmo.py + tool_calling_session.py + handler-side wiring. Until
+  those land, this entry point returns FAILED with reason
+  "phase_1_internals_deleted_phase_2_pending" so callers see the wiring
+  is observable end-to-end without claiming success the system did not
+  deliver.
   """
-  # Phase 2/3 implementations live in handler_runtime.py — Phase 1
-  # delegates to that module so Phase 1's commit can land cleanly
-  # without forward-referencing logic that doesn't exist yet.
+  exhaustion_diagnostic: Dict[str, Any] = {}
   try:
-    from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.handler_runtime import (  # type: ignore
-      execute_handler,
+    if hasattr(restoration_result, "to_dict"):
+      exhaustion_diagnostic = restoration_result.to_dict()
+    elif isinstance(restoration_result, dict):
+      exhaustion_diagnostic = dict(restoration_result)
+  except Exception:
+    exhaustion_diagnostic = {"note": "restoration_result_not_serializable"}
+
+  if not isinstance(finmo_json, dict) or not finmo_json:
+    try:
+      finmo_json = build_finmo(copy.deepcopy(model_input or {}))
+    except Exception as exc:
+      return HandlerResult(
+        status=HandlerStatus.FAILED,
+        gpt_calls_made=0,
+        provenance={
+          "phase": "phase_1_pre_session_finmo_failed",
+          "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+        },
+        reason="finmo_rebuild_failed_before_tool_calling_session",
+      )
+
+  q1_state = _q1_actual_state(finmo_json or {})
+  q11_pre = _q11_ebitda_margin(finmo_json or {})
+
+  try:
+    from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.tool_calling_session import (  # type: ignore
+      execute_tool_calling_session_and_commit,
     )
   except Exception as exc:
     return HandlerResult(
       status=HandlerStatus.FAILED,
-      reason=f"phase_1_scaffolding_only_no_runtime_module_yet: {type(exc).__name__}: {str(exc)[:200]}",
-      provenance={"scaffolding_phase": "phase_1"},
+      gpt_calls_made=0,
+      q11_ebitda_actual=q11_pre,
+      provenance={
+        "phase": "phase_1_internals_deleted",
+        "q1_state": q1_state,
+        "exhaustion_diagnostic": {
+          "status": exhaustion_diagnostic.get("status"),
+          "q11_ebitda_margin": exhaustion_diagnostic.get("q11_ebitda_margin"),
+          "drivers_at_bounds_summary": exhaustion_diagnostic.get(
+            "drivers_at_bounds_summary"
+          ),
+          "reason": exhaustion_diagnostic.get("reason"),
+        },
+        "import_error": f"{type(exc).__name__}: {str(exc)[:200]}",
+      },
+      reason="phase_1_internals_deleted_phase_2_pending",
     )
-  return execute_handler(
+
+  return execute_tool_calling_session_and_commit(
     restoration_result=restoration_result,
-    model_input=model_input,
-    operating_model=operating_model,
+    exhaustion_diagnostic=exhaustion_diagnostic,
+    q1_state=q1_state,
+    model_input=model_input or {},
+    operating_model=operating_model or {},
     build_finmo=build_finmo,
     intake_context=intake_context or {},
-    finmo_json=finmo_json,
   )

@@ -1,23 +1,30 @@
-"""Phase 9 P3.5 — GPT exhaustion handler.
+"""Phase 9 P3.5 — GPT exhaustion handler (tool-calling pattern).
 
 When the deterministic restoration loop returns RestorationStatus.EXHAUSTED
 at conservative bounds, this handler is the authoritative path that lands
 Q11 EBITDA viability without delivering a broken plan.
 
 Pipeline (post-restoration):
-  1. Call 1 — GPT returns EBITDA anchors {Q1, Q11, Q20}.
-  2. Call 2 — GPT returns driver anchors that produce those EBITDA values.
+  1. Build operating context (Q1 actual state, capacity-driver detection,
+     FINMO callable closure).
+  2. Run GPT tool-calling session: GPT proposes driver anchors and calls
+     compute_full_trajectory(anchors) to verify the EBITDA path the
+     system would compute. GPT iterates against the tool result up to
+     MAX_TOOL_CALLS times, then commits a final answer.
   3. Path engine interpolates anchors -> 20 quarters per driver.
   4. System writes per-quarter values to model_input, tags
-     gpt_authored=True.
-  5. FINMO recalculates.
-  6. Compare FINMO Q11 EBITDA vs GPT's Q11 EBITDA anchor (tolerance ±50bps).
-  7. If gap, iterate up to 3 times. Each iteration is a fresh GPT call
-     with cumulative diagnostic. GPT keeps Call 1 EBITDA anchor stable
-     and updates drivers only.
-  8. If 3 iterations don't converge, deterministic solver snaps drivers
-     to GPT's EBITDA anchor as target ramp.
-  9. Mute realism flags that triggered exhaustion (per-draft, per-metric).
+     gpt_authored=True (FINMO contracts: skip Capacity for labor-driven,
+     integer-round capacity, clip utilization).
+  5. FINMO rebuild so the rest of the post-cascade tail sees the
+     GPT-authored operating model.
+  6. Mute realism flags whose primary_levers include GPT-authored
+     drivers (per-draft, per-metric — universal viability trajectory
+     checks stay active).
+
+The Call 1 / Call 2 / iteration / snap-into-place pattern is retired.
+GPT verifies the math himself before committing — the structural gap
+between his anchored target and FINMO's computed result no longer
+exists because the tool runs full FINMO under the hood.
 
 Universal-app principle: same handler runs for every NAICS, every stage,
 every business archetype. Differences in output come from the
