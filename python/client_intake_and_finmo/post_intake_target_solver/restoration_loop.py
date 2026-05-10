@@ -50,8 +50,18 @@ from client_intake_and_finmo.post_intake_target_solver.target_solver import (
 
 # Targets in priority order. The outer loop solves them in sequence;
 # after each, re-evaluates viability and exits if all conditions met.
+#
+# Phase 9 P3 — gross_margin_percent REMOVED as a solver target. It is
+# mathematically downstream of COGS% (gross_margin = 1 - cogs%) and
+# the cohort band is 1 - cogs_percent_band. COGS% is already a Tier 1
+# driver in ebitda_margin's primary_levers, so whatever COGS% lands at
+# to satisfy ebitda viability, gross_margin reflects automatically.
+# Keeping gross_margin as a separate target created cross-target
+# conflict on revenue::Unit Price (gm solver compressed price-down,
+# ebitda solver wanted price-up). The trajectory check
+# gross_margin_supports_ebitda_recovery (Q5->Q11 movement test) stays
+# active in the realism gate; the band-check row is gate_kind="skip".
 TARGETS_IN_PRIORITY_ORDER: Tuple[str, ...] = (
-  "gross_margin_percent",
   "ebitda_margin",
   "current_assets_minus_cash",
   "current_liabilities_to_revenue",

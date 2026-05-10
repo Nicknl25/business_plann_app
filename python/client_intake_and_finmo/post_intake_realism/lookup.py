@@ -424,7 +424,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
+    gate_kind="skip",
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
     issue_family="margin_compression",
     remediation_family="margin_compression",
@@ -432,7 +432,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=[],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=11,
-    notes="(Revenue - COGS) / revenue. Cross-check on COGS; warn-mode because hard_fail on COGS already catches the same condition.",
+    notes="Phase 9 P3 silenced — gross_margin removed as solver target. Mathematically downstream of COGS% (gross_margin = 1 - cogs%); cohort band is 1 - cogs_percent_band. COGS% is already a Tier 1 driver in ebitda_margin's primary_levers — whatever COGS% lands at to satisfy ebitda viability, gross_margin reflects automatically. Keeping it as a separate solver target created cross-target conflict on revenue::Unit Price (gm solver compressed price-down, ebitda solver wanted price-up). Trajectory check gross_margin_supports_ebitda_recovery (Q5->Q11 movement test) stays active.",
   ),
   _row(
     metric_key="marketing_percent_of_revenue",
