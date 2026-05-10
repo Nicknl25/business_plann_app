@@ -149,27 +149,41 @@ def _build_target_ramp(
   target_metric: str,
   current_metric_per_q: List[float],
   band_target: float,
+  band_min: float,
   horizon: int,
 ) -> List[float]:
-  """Build the 20-quarter target ramp. Q1 starts at current intake
-  state, Q20 lands at industry typical (cohort p50 / band_target),
-  Q11 binds the viability constraint when applicable. Linear ramp
-  Q1->Q20; the path engine reshapes per-driver via solver writes.
+  """Build the 20-quarter target ramp. Q1 starts at max(current intake
+  state, band_min) so the ramp respects the realism gate's per-quarter
+  band floor; Q20 lands at industry typical (cohort p50 / band_target);
+  Q11 binds the viability constraint (>= 0) for profitability metrics.
 
-  When the metric is gross_margin_percent / ebitda_margin and Q11
-  current value is below 0, the ramp lifts Q11 to max(0, band_target/2)
-  so the binding viability constraint (EBITDA >= 0 by Q11) is part of
-  the target shape itself.
+  Phase 9 P3 iter 2 — for gross_margin_percent / ebitda_margin, every
+  ramp quarter is clamped to >= max(0.0, band_min). The realism gate
+  applies a planning_mode_floor of 0.0 on effective_min for these
+  profitability metrics, so a ramp that lets Q1..Q10 stay negative
+  (linear interpolation from a negative current value) leaves the
+  solver landing metrics in [-0.25, +0.04] which the gate rejects.
+  Forcing the ramp to start at the band floor pushes the solver to
+  drive Q1..Q10 metrics to >= 0 (or hit BOUND_PINNED honestly when
+  drivers exhaust). Working-capital metrics (current_assets_minus_cash,
+  current_liabilities_to_revenue) keep the linear interpolation since
+  they have no positive-only viability constraint.
   """
-  q1_anchor = float(current_metric_per_q[0]) if current_metric_per_q else float(band_target)
+  q1_current = float(current_metric_per_q[0]) if current_metric_per_q else float(band_target)
   q20_target = float(band_target)
+  q1_anchor = q1_current
+  if target_metric in ("gross_margin_percent", "ebitda_margin"):
+    floor = max(0.0, float(band_min))
+    q1_anchor = max(q1_current, floor)
   ramp = [0.0] * horizon
   for q in range(horizon):
     frac = q / max(1, horizon - 1)
     ramp[q] = (1.0 - frac) * q1_anchor + frac * q20_target
-  # Viability shaping: ensure Q11 (index 10) is at or above the
-  # universal viability floor for the relevant metrics.
   if target_metric in ("gross_margin_percent", "ebitda_margin"):
+    floor = max(0.0, float(band_min))
+    for q in range(horizon):
+      if ramp[q] < floor:
+        ramp[q] = floor
     if horizon > 10 and ramp[10] < 0.0:
       ramp[10] = max(0.0, q20_target / 2.0)
   return ramp
@@ -374,6 +388,7 @@ def run_restoration_loop(
         target_metric=target_metric,
         current_metric_per_q=current_metric_per_q,
         band_target=band_target,
+        band_min=band_min,
         horizon=horizon,
       )
 
