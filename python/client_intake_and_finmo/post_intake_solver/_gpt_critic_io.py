@@ -1,23 +1,30 @@
-"""Shared GPT critic IO for the Phase 3 consultants.
+"""Shared GPT chokepoint for solver-side GPT calls.
 
-Each Phase 3 consultant (band shaping, target shaping, conflict adjudication)
-calls a deterministic Python proposer first, then optionally calls GPT to
-critique or adjudicate. All three follow the same wire pattern:
+Phase 9 P3.5 — the three Phase 3 consultants (band shaping, target
+shaping, conflict adjudication) that originally called this chokepoint
+have been retired. Their per-scope GPT amendments to `envelope_payload`
+and `targets_payload` placed GPT inside the deterministic solver loop,
+which the Phase 9 P3 architecture explicitly rules out. This module
+remains in place because the GPT exhaustion handler
+(``post_intake_gpt_exhaustion_handler``) routes its Call 1 / Call 2 /
+iteration GPT calls through the same wire pattern.
 
-  1. Check OPENAI_API_KEY availability. When absent, return immediately with
-     decision_source=`python_proposer_only_no_api_key`. The orchestrator
-     never blocks on GPT availability — Python defaults stand.
-  2. Build an OpenAI Responses-API payload with the supplied system prompt,
-     a user JSON-encoded context, and the supplied strict JSON schema.
-  3. Call OpenAI via post_openai_with_retries. Catch every exception class
-     and translate to a structured fallback (timeout, http_error,
+Wire pattern (every caller):
+
+  1. Check OPENAI_API_KEY availability. When absent, return immediately
+     with decision_source=`python_proposer_only_no_api_key`.
+  2. Build an OpenAI Responses-API payload with the supplied system
+     prompt, a user JSON-encoded context, and the supplied strict JSON
+     schema.
+  3. Call OpenAI via post_openai_with_retries. Catch every exception
+     class and translate to a structured fallback (timeout, http_error,
      invalid_json, unexpected_error). Never raise.
-  4. Return {parsed, raw_openai_response, decision_source, detail} so the
-     consultant can apply corrections (or fall back to its proposal).
+  4. Return {parsed, raw_openai_response, decision_source, detail} so
+     the caller can apply corrections (or fall back to its proposal).
 
-This module is intentionally tiny and dependency-light — the heavy lifting
-(schema construction, prompt building, correction application) is each
-consultant's responsibility.
+This module is intentionally tiny and dependency-light — the heavy
+lifting (schema construction, prompt building, correction application)
+is each caller's responsibility.
 """
 
 from __future__ import annotations
@@ -38,9 +45,13 @@ _DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 _DEFAULT_TIMEOUT_SECONDS = 45.0
 # Phase 6 Step 2 — reproducible-output seed. temperature=0 minimizes but does
 # not eliminate OpenAI's sampling variance; the seed parameter (combined with
-# temperature=0) gives reproducible outputs across calls. Phase 3 consultants
-# run per-scope (per-lever / per-metric / per-conflict) and the diagnostic
-# value of "same scope key → same GPT amendment across runs" is high.
+# temperature=0) gives reproducible outputs across calls.
+#
+# Phase 9 P3.5 — NOT USED by the current Responses-API caller path. The
+# OpenAI Responses API rejects the `seed` parameter with HTTP 400
+# (`unknown_parameter`); see the payload assembly below. Constant
+# preserved at module scope only for any future Chat-Completions-API
+# caller that does support seed. The current chokepoint omits it.
 _PHASE_3_CONSULTANT_SEED = 1729
 
 

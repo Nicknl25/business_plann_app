@@ -363,12 +363,18 @@ def _phase_3_calibrated_band(
   solver_input_targets_payload: Optional[Dict[str, Any]],
   metric_key: str,
 ) -> Optional[Dict[str, Any]]:
-  """Return Phase 3 calibrated band for the metric, or None if absent.
+  """Return the per-business calibrated band for ``metric_key``, or
+  None if absent.
 
-  The Phase 3 target-shaping consultant calibrates per-metric bands and
-  stamps them on solver_input.finmo_output_targets.metrics. When present
-  for the metric being validated, the realism gate prefers this
-  business-specific band over the static NAICS baseline.
+  Phase 9 P3.5 — the GPT amendment layer (target_shaping consultant)
+  has been retired. The deterministic Python proposer
+  ``assemble_finmo_output_targets`` is now the sole producer of
+  ``solver_input.finmo_output_targets.metrics``. The realism gate
+  continues to prefer this per-business calibrated band over the
+  static NAICS baseline; the band_source label "phase_3_calibrated"
+  is preserved for backward compatibility with downstream consumers
+  (acceptance gate's ``phase_3_calibrated_bands_consulted`` check)
+  but no longer implies GPT involvement.
   """
   if not isinstance(solver_input_targets_payload, dict):
     return None
@@ -663,7 +669,11 @@ def validate_industry_realism_bands(
       band_naics_code = (naics_band or {}).get("naics_code_used")
       band_naics_level = (naics_band or {}).get("naics_level_used")
       band_data_source = "phase_3_target_shaping_consultant"
-      band_trust_flag = phase_3_band.get("calibration_source") or "gpt_calibrated"
+      # Phase 9 P3.5 — GPT amendment layer retired; the band is now
+      # always the deterministic Python proposer's output. Default to
+      # the entry's actual provenance label if present, otherwise the
+      # post-retirement default.
+      band_trust_flag = phase_3_band.get("calibration_source") or "phase_3_python_calibrated"
     else:
       row_band_source = "naics_baseline"
       band_naics_code = (naics_band or {}).get("naics_code_used")

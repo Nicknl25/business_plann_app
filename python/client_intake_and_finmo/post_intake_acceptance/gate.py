@@ -515,8 +515,16 @@ def _check_phase_3_calibrated_bands_consulted(
   realism_memo: Dict[str, Any],
 ) -> Tuple[bool, Dict[str, Any]]:
   """Phase 9 G4 — at least one metric must have band_source containing
-  'phase_3_calibrated' so we know cohort/GPT calibration actually flowed
-  through the realism gate."""
+  'phase_3_calibrated' so we know cohort calibration flowed through the
+  realism gate.
+
+  Phase 9 P3.5 — the GPT amendment layer (target_shaping consultant)
+  has been retired; the "phase_3_calibrated" band_source label now
+  signifies the deterministic Phase 3 Python proposer's calibrated
+  per-business targets band (no GPT). The gate check still passes
+  whenever the per-business band cascade fired — which it does
+  unconditionally now that ``assemble_finmo_output_targets`` is the
+  sole producer."""
   results = (realism_memo or {}).get("results") or []
   calibrated_metrics: List[str] = []
   naics_baseline_metrics: List[str] = []

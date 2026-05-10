@@ -1,13 +1,20 @@
 """Post-intake target-seeking solver package.
 
-Phase 2 of the post-intake solver architecture shift. The solver becomes
-target-seeking: tweaks drivers within calibrated movement envelopes to land
-FINMO outputs (gross profit, gross margin, EBITDA, current ratio, etc.)
-inside calibrated target ranges. Drivers are tweaked within envelopes
-informed by NAICS bands, applicability tables, schedule constraints, and
-stage policy. GPT participates as a consultant (Phase 3) upstream of the
-solver to calibrate bands and targets per business; the solver itself
-stays deterministic and auditable.
+The solver is target-seeking: tweaks drivers within calibrated movement
+envelopes to land FINMO outputs (gross profit, gross margin, EBITDA,
+current ratio, etc.) inside calibrated target ranges. Drivers are
+tweaked within envelopes informed by NAICS bands, applicability tables,
+schedule constraints, and stage policy.
+
+Phase 9 P3.5 — the three Phase 3 GPT consultants (band_shaping,
+target_shaping, conflict_adjudication) are RETIRED. They placed GPT
+inside the deterministic solver loop, which violates the Phase 9 P3
+architecture (deterministic algebra owns operating-driver adaptation;
+GPT lives at intake / cash strategy / path engine ramps / exhaustion
+handler). Deterministic Python proposers
+(``assemble_driver_movement_envelope`` and
+``assemble_finmo_output_targets``) are now the sole source of
+envelope_payload and targets_payload.
 
 Modules:
   - driver_movement_assembler: per-lever movement envelope (min/max/default)
@@ -54,18 +61,6 @@ from client_intake_and_finmo.post_intake_solver.orchestrator import (  # noqa: F
 from client_intake_and_finmo.post_intake_solver.inner_joint_fit_adapter import (  # noqa: F401
   build_inner_joint_fit_adapter,
 )
-from client_intake_and_finmo.post_intake_solver.consultant_band_shaping import (  # noqa: F401
-  calibrate_driver_movement_envelope_with_gpt,
-)
-from client_intake_and_finmo.post_intake_solver.consultant_target_shaping import (  # noqa: F401
-  calibrate_finmo_output_targets_with_gpt,
-)
-from client_intake_and_finmo.post_intake_solver.consultant_conflict_adjudication import (  # noqa: F401
-  adjudicate_intake_vs_band_conflicts_with_gpt,
-)
-from client_intake_and_finmo.post_intake_solver.consultant_context_resolver import (  # noqa: F401
-  resolve_consultant_context,
-)
 from client_intake_and_finmo.post_intake_solver.joint_feasibility_check import (  # noqa: F401
   FeasibilityResult,
   verify_joint_feasibility,
@@ -107,16 +102,12 @@ __all__ = [
   "PLAN_CONFIDENCE_SUPPLEMENTARY_LEVERS",
   "PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED",
   "FeasibilityResult",
-  "resolve_consultant_context",
   "run_adaptation_cascade",
   "verify_joint_feasibility",
-  "adjudicate_intake_vs_band_conflicts_with_gpt",
   "assemble_driver_movement_envelope",
   "assemble_finmo_output_targets",
   "assert_solver_respected_targets",
   "build_inner_joint_fit_adapter",
-  "calibrate_driver_movement_envelope_with_gpt",
-  "calibrate_finmo_output_targets_with_gpt",
   "clear_cohort_cache",
   "cohort_calibration_source_for_confidence",
   "compute_band_from_rows",

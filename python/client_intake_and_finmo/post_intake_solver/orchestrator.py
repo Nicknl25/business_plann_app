@@ -876,98 +876,33 @@ def run_target_seeking_orchestrated_system_run(
       envelope_payload = inputs["envelope"]
       targets_payload = inputs["targets"]
 
-  # ---------- Phase 3 / 5.2: GPT consultants calibrate bands and targets -----
-  # Three consultants run per business before the pre-flight pass. Each
-  # makes per-scope GPT calls (per-lever band shaping, per-metric target
-  # shaping, per-conflict adjudication). Each call's prompt context is
-  # resolved from post_intake_gpt_context_lookup via
-  # resolve_consultant_context — the table is the single source of truth
-  # for what each consultant sees.
+  # ---------- Phase 9 P3.5: Phase 3 GPT consultants RETIRED -----
+  # The three Phase 3 consultants (band_shaping, target_shaping,
+  # conflict_adjudication) used to fire here. They were retired in
+  # Phase 9 P3.5 because they put GPT INSIDE the deterministic solver
+  # loop — they amended `envelope_payload.drivers` and
+  # `targets_payload.metrics` per-lever / per-metric / per-conflict,
+  # and those amended payloads were read by the pre-flight target
+  # seeking pass, the cascade, the post-cascade target seeking pass,
+  # and the realism gate. The Phase 9 P3 architecture says the solver
+  # loop is deterministic algebra; GPT lives at intake, cash strategy,
+  # path engine ramps, and the new exhaustion handler.
   #
-  # After calibration, a pre-solver joint feasibility check verifies the
-  # calibrated bands collectively admit at least one feasible solution
-  # for the calibrated target ranges. Infeasibility triggers the
-  # adaptation cascade's pre-solver tier (Tier 1 GPT walk-back; Tier 2
-  # cohort walk-back) before the solver wastes time.
-  calibration_diagnostics: Dict[str, Any] = {}
-  resolver_runtime_objects = {
-    "business_facts": business_facts or {},
-    "ops_json": ops_json or {},
-    "target_market_json": target_market_json or {},
-    "people_json": people_json or {},
-    "financials_json": financials_json or {},
-    "financials_year1_json": financials_year1_json or {},
-    "fulfillment_json": fulfillment_json or {},
-    "marketing_model_json": marketing_model_json or {},
-    "planning_mode_context": {
-      "planning_mode": str(planning_mode or "").strip(),
-      "planning_mode_reason": str(planning_mode_reason or "").strip(),
-    },
-    "business_profile_for_cohort": business_profile_for_cohort,
-    "stage_ramp_contract": stage_ramp_contract or {},
-    "envelope_proposal": envelope_payload or {},
-    "targets_proposal": targets_payload or {},
+  # The consultants were structurally dormant from authoring through
+  # commit 4a09142 because the OpenAI Responses API rejects the
+  # `seed` parameter the chokepoint was sending; every consultant
+  # call returned the python-proposer-only fallback. The 16/16
+  # ExpressLogix passes happened with consultants effectively absent.
+  # Removing them returns the system to its tested-working baseline.
+  #
+  # Deterministic Python proposers — `assemble_driver_movement_envelope`
+  # (drivers / bands) and `assemble_finmo_output_targets` (per-metric
+  # target ranges) — are the sole source of envelope_payload and
+  # targets_payload. The pre-solver joint feasibility check
+  # (`verify_joint_feasibility`) and the cascade still run below.
+  calibration_diagnostics: Dict[str, Any] = {
+    "phase_3_consultants": "retired_phase_9_p3_5",
   }
-
-  if envelope_payload:
-    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
-      calibrate_driver_movement_envelope_with_gpt,
-      adjudicate_intake_vs_band_conflicts_with_gpt,
-    )
-    band_result = calibrate_driver_movement_envelope_with_gpt(
-      envelope_proposal=envelope_payload,
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(planning_run_id or "").strip(),
-      conn=conn,
-      runtime_objects=resolver_runtime_objects,
-    )
-    envelope_payload = band_result.get("calibrated_envelope") or envelope_payload
-    calibration_diagnostics["band_shaping"] = {
-      "decision_source": band_result.get("decision_source"),
-      "amended_lever_count": len(band_result.get("amended_lever_ids") or []),
-      "uncalibrated_lever_count": len(band_result.get("uncalibrated_lever_ids") or []),
-      "fallback_detail": (band_result.get("critic_diagnostics") or {}).get("fallback_detail"),
-    }
-    resolver_runtime_objects["envelope_proposal"] = envelope_payload
-    conflict_result = adjudicate_intake_vs_band_conflicts_with_gpt(
-      envelope_payload=envelope_payload,
-      financials_json=financials_json or {},
-      financials_year1_json=financials_year1_json or {},
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(planning_run_id or "").strip(),
-      conn=conn,
-      runtime_objects=resolver_runtime_objects,
-      ops_json=ops_json or {},
-    )
-    envelope_payload = conflict_result.get("calibrated_envelope") or envelope_payload
-    resolver_runtime_objects["envelope_proposal"] = envelope_payload
-    calibration_diagnostics["conflict_adjudication"] = {
-      "decision_source": conflict_result.get("decision_source"),
-      "conflicts_detected": conflict_result.get("conflicts_detected"),
-      "decisions_applied": [
-        d.get("decision") for d in (conflict_result.get("decisions_applied") or [])
-      ],
-      "fallback_detail": conflict_result.get("fallback_detail"),
-    }
-  if targets_payload:
-    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
-      calibrate_finmo_output_targets_with_gpt,
-    )
-    target_result = calibrate_finmo_output_targets_with_gpt(
-      targets_proposal=targets_payload,
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(planning_run_id or "").strip(),
-      conn=conn,
-      runtime_objects=resolver_runtime_objects,
-    )
-    targets_payload = target_result.get("calibrated_targets") or targets_payload
-    resolver_runtime_objects["targets_proposal"] = targets_payload
-    calibration_diagnostics["target_shaping"] = {
-      "decision_source": target_result.get("decision_source"),
-      "amended_metric_count": len(target_result.get("amended_metric_keys") or []),
-      "uncalibrated_metric_count": len(target_result.get("uncalibrated_metric_keys") or []),
-      "fallback_detail": (target_result.get("critic_diagnostics") or {}).get("fallback_detail"),
-    }
 
   # ---------- Phase 5.2 R3: pre-solver joint feasibility check -----
   # Verify the calibrated bands collectively admit a feasible solution
