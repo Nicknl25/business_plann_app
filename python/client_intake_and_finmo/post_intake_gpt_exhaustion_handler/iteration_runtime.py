@@ -306,7 +306,21 @@ def iterate_and_snap(
         abs(q11_target - float(q11_now)) if q11_now is not None else None
       ),
     })
-    if q11_now is not None and abs(q11_target - float(q11_now)) <= tolerance_decimal:
+    # Phase 9 P3.5 — convergence requires BOTH:
+    #   (a) within-tolerance: |gpt_target_q11 - finmo_q11| <= 50bps
+    #   (b) gate-threshold met: finmo_q11 >= 0.0 (universal viability
+    #       doctrine — the realism gate's strict ebitda_positive_by_q11
+    #       check must also pass)
+    # GPT can correctly anchor Q11 = 0.0 (binding viability constraint)
+    # and FINMO can drift down by tens of bps. Without (b) the handler
+    # would report LANDED while the gate fails. The iteration / snap-in
+    # paths below close the residual.
+    within_tolerance = (
+      q11_now is not None
+      and abs(q11_target - float(q11_now)) <= tolerance_decimal
+    )
+    gate_threshold_met = q11_now is not None and float(q11_now) >= 0.0
+    if within_tolerance and gate_threshold_met:
       provenance["iterations"] = iteration_records
       return HandlerResult(
         status=HandlerStatus.LANDED_ITERATED if iterations_used > 0 else HandlerStatus.LANDED_GPT,
@@ -316,7 +330,7 @@ def iterate_and_snap(
         q11_ebitda_actual=float(q11_now),
         provenance=provenance,
         realism_flags_to_mute=_realism_metrics_to_mute(exhaustion_diagnostic),
-        reason="converged_within_tolerance",
+        reason="converged_within_tolerance_and_gate_threshold",
       )
 
     line_items = _q11_line_items(finmo_now or {})
@@ -362,13 +376,20 @@ def iterate_and_snap(
     iteration_record["write_summary"] = write_summary
     iteration_records.append(iteration_record)
 
-  # 3 iterations done — final convergence check.
+  # 3 iterations done — final convergence check (dual condition).
   finmo_final = build_finmo(copy.deepcopy(model_input))
   q11_final = _q11_ebitda_margin(finmo_final or {})
   provenance["iterations"] = iteration_records
   provenance["post_iterations_q11_ebitda_margin"] = q11_final
 
-  if q11_final is not None and abs(q11_target - float(q11_final)) <= tolerance_decimal:
+  final_within_tolerance = (
+    q11_final is not None
+    and abs(q11_target - float(q11_final)) <= tolerance_decimal
+  )
+  final_gate_threshold_met = (
+    q11_final is not None and float(q11_final) >= 0.0
+  )
+  if final_within_tolerance and final_gate_threshold_met:
     return HandlerResult(
       status=HandlerStatus.LANDED_ITERATED,
       gpt_calls_made=gpt_calls_made,
@@ -377,10 +398,14 @@ def iterate_and_snap(
       q11_ebitda_actual=float(q11_final),
       provenance=provenance,
       realism_flags_to_mute=_realism_metrics_to_mute(exhaustion_diagnostic),
-      reason="converged_after_iteration",
+      reason="converged_after_iteration_and_gate_threshold",
     )
 
-  # Snap-in fallback.
+  # Snap-in fallback. Closes the residual gap deterministically when
+  # the GPT iteration loop didn't reach BOTH within-tolerance AND
+  # gate-threshold-met. Common path: iterations got within 50bps of
+  # target but FINMO Q11 sits a few bps below 0; snap-in nudges
+  # drivers within ±15% of GPT anchors to push it positive.
   snap_diag = _snap_into_place(
     call_1_output=call_1_output,
     most_recent_drivers=current_drivers,
@@ -393,10 +418,14 @@ def iterate_and_snap(
   provenance["snap_in"] = snap_diag
   q11_after_snap = snap_diag.get("final_q11_ebitda_margin")
 
-  if (
+  snap_within_tolerance = (
     q11_after_snap is not None
     and abs(q11_target - float(q11_after_snap)) <= tolerance_decimal
-  ):
+  )
+  snap_gate_threshold_met = (
+    q11_after_snap is not None and float(q11_after_snap) >= 0.0
+  )
+  if snap_within_tolerance and snap_gate_threshold_met:
     return HandlerResult(
       status=HandlerStatus.LANDED_SNAP,
       gpt_calls_made=gpt_calls_made,
@@ -405,11 +434,13 @@ def iterate_and_snap(
       q11_ebitda_actual=float(q11_after_snap),
       provenance=provenance,
       realism_flags_to_mute=_realism_metrics_to_mute(exhaustion_diagnostic),
-      reason="snap_in_landed_within_tolerance",
+      reason="snap_in_landed_within_tolerance_and_gate_threshold",
     )
 
   # Snap-in fell short (rare). Return LANDED_PARTIAL so the plan still
-  # gets persisted with Q11 close to but not exactly at GPT's target.
+  # gets persisted with Q11 close to but not exactly at GPT's target
+  # OR not strictly above zero. Diagnostic captures which condition
+  # was the missed one for downstream debugging.
   return HandlerResult(
     status=HandlerStatus.LANDED_PARTIAL,
     gpt_calls_made=gpt_calls_made,
@@ -420,7 +451,12 @@ def iterate_and_snap(
     ),
     provenance=provenance,
     realism_flags_to_mute=_realism_metrics_to_mute(exhaustion_diagnostic),
-    reason="snap_in_did_not_reach_tolerance_persisting_partial",
+    reason=(
+      "snap_in_did_not_reach_convergence_persisting_partial: "
+      f"within_tolerance={snap_within_tolerance} "
+      f"gate_threshold_met={snap_gate_threshold_met} "
+      f"q11_after_snap={q11_after_snap}"
+    ),
   )
 
 

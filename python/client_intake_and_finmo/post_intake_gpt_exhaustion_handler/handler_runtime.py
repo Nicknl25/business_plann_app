@@ -232,7 +232,18 @@ def execute_handler(
   q11_actual = _q11_ebitda_margin(rebuilt_finmo or {})
   provenance["post_call_2_q11_ebitda_margin"] = q11_actual
   tolerance_decimal = float(TOLERANCE_BPS) / 10000.0
-  if q11_actual is not None and abs(q11_target - float(q11_actual)) <= tolerance_decimal:
+  # Phase 9 P3.5 — convergence requires BOTH:
+  #   (a) within-tolerance: |gpt_target_q11 - finmo_actual_q11| <= 50bps
+  #   (b) gate-threshold met: finmo_actual_q11 >= 0.0 (universal
+  #       viability doctrine — the realism gate's strict >= 0 check
+  #       on ebitda_positive_by_q11 must also pass)
+  # Both must hold; otherwise iterate / snap-in closes the residual.
+  within_tolerance = (
+    q11_actual is not None
+    and abs(q11_target - float(q11_actual)) <= tolerance_decimal
+  )
+  gate_threshold_met = q11_actual is not None and float(q11_actual) >= 0.0
+  if within_tolerance and gate_threshold_met:
     return HandlerResult(
       status=HandlerStatus.LANDED_GPT,
       gpt_calls_made=gpt_calls_made,
