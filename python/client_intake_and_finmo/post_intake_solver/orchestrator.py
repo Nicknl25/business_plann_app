@@ -1693,6 +1693,70 @@ def _run_post_cascade_completion(
         next_result["finmo_json"] = final_finmo_json
         next_result["model_input_json"] = final_model_input_json
     completion_trace["restoration_loop"] = restoration_result.to_dict()
+
+    # Phase 9 P3.5 — GPT exhaustion handler.
+    #
+    # When the deterministic restoration loop returns EXHAUSTED, every
+    # operating-side driver is pinned at its conservative bound and
+    # viability is still failing. Without this handoff the realism gate
+    # rejects the plan. The exhaustion handler asks GPT for EBITDA
+    # anchors and consistent driver anchors, interpolates Q1/Q11/Q20 to
+    # 20 quarters, recomputes FINMO, iterates if needed, and falls
+    # through to a deterministic snap-in if 3 iterations don't land.
+    # The handler then publishes a list of realism metric_keys to mute
+    # for THIS draft (per-draft, per-metric — not global).
+    #
+    # Cash strategy is NOT touched. It runs after the handler completes.
+    from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+      RestorationStatus,
+    )
+    if restoration_result.status == RestorationStatus.EXHAUSTED:
+      try:
+        from client_intake_and_finmo.post_intake_gpt_exhaustion_handler import (  # type: ignore
+          run_gpt_exhaustion_handler,
+        )
+        with post_intake_sequence_step_scope(
+          step_key="post_intake_target_seeking_gpt_exhaustion_handler",
+          executor_function="phase_9_p3_5_gpt_exhaustion_handler",
+        ):
+          handler_result = run_gpt_exhaustion_handler(
+            restoration_result=restoration_result,
+            model_input=final_model_input_json or {},
+            operating_model=ops_json or {},
+            build_finmo=_build_finmo_for_restoration,
+            intake_context={
+              "business_naics_6": naics_for_restoration or None,
+              "planning_mode": planning_mode,
+              "financials_json": financials_json,
+            },
+            finmo_json=final_finmo_json,
+          )
+          # Rebuild FINMO so the rest of the post-cascade tail sees the
+          # GPT-authored operating model.
+          rebuilt = _build_finmo_for_restoration(final_model_input_json or {})
+          if isinstance(rebuilt, dict) and rebuilt:
+            final_finmo_json = rebuilt
+            next_result["finmo_json"] = final_finmo_json
+            next_result["model_input_json"] = final_model_input_json
+        completion_trace["gpt_exhaustion_handler"] = handler_result.to_dict()
+        # Persist the muted realism metrics so the realism gate skips
+        # band-checks for those keys on this draft. Per-draft, per-metric.
+        muted = list(handler_result.realism_flags_to_mute or [])
+        if muted and isinstance(final_model_input_json, dict):
+          existing = final_model_input_json.get("_muted_realism_metrics")
+          if isinstance(existing, list):
+            merged = list(existing)
+            for m in muted:
+              if m not in merged:
+                merged.append(m)
+            final_model_input_json["_muted_realism_metrics"] = merged
+          else:
+            final_model_input_json["_muted_realism_metrics"] = list(muted)
+      except Exception as exc:
+        completion_trace["gpt_exhaustion_handler"] = {
+          "status": "failed",
+          "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
   except Exception as exc:
     completion_trace["restoration_loop"] = {
       "status": "failed",

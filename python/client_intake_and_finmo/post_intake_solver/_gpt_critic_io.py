@@ -58,7 +58,22 @@ _PHASE_3_CONSULTANT_SEED = 1729
 # applies its Python-only proposal. No exceptions, no broken runs.
 # ----------------------------------------------------------------------------
 
-_GPT_CALL_BUDGET_PER_RUN = 4
+# Phase 9 P3.5 — budget raised from 4 to 8 to accommodate the GPT
+# exhaustion handler. Allocation under P3.5:
+#   - 1 band shaping batch, 1 target shaping batch, 1 conflict
+#     adjudication batch, 1 final realism critique on assembled plan
+#     (the original 4 Phase H slots).
+#   - Up to 3 GPT exhaustion handler calls: 1 EBITDA-anchor call,
+#     1 driver-anchor call, and up to 3 iteration calls (sharing a
+#     budget within this handler — capped to 5 total handler-side
+#     calls in practice, gated by the handler's own MAX_ITERATIONS).
+#   - Cash strategy GPT review continues to draw from this pool when
+#     it fires.
+# Worst-case ceiling: 4 (Phase H) + 5 (P3.5 handler) = 9; in practice
+# the handler stops at LANDED earlier, and the 8-call budget covers the
+# realistic envelope. Calls beyond 8 fall back to Python deterministic
+# proposers, which is the safe degradation path.
+_GPT_CALL_BUDGET_PER_RUN = 8
 _gpt_call_state_lock = threading.Lock()
 _gpt_call_count: int = 0
 _gpt_call_log: List[Dict[str, Any]] = []
