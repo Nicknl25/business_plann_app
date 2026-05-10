@@ -493,20 +493,6 @@ def _current_revenue_lever_value(
   return sum(values) / len(values)
 
 
-# Phase 9 P3 case (b) iter 5 — lever-set gating. The realism config's
-# primary_levers list for ebitda_margin includes Payroll, Unit Price,
-# Capacity, Utilization. Including these unconditionally caused
-# ExpressLogix (planning_mode does NOT tolerate mature_loss_state) to
-# regress from 16/16 to 12/16: the broadened authority made the solver
-# move drivers counter-productively for a business that didn't need
-# the additional levers (its viability landed cleanly with cogs% +
-# opex% alone). For businesses where the planning_mode tolerates the
-# metric's loss code (Sunny: mature_loss_state), the broader lever
-# set is genuinely needed -- the conservative-margin metric can't
-# land at floor without it. Gate accordingly.
-_BROAD_LEVER_KIND_PREFIXES: Tuple[str, ...] = ("revenue::", "expenses::Payroll", "expenses::Lease")
-
-
 def _driver_bounds_for_target(
   *,
   target_metric: str,
@@ -514,7 +500,6 @@ def _driver_bounds_for_target(
   model_input: Dict[str, Any],
   build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
   horizon: int = HORIZON_QUARTERS_DEFAULT,
-  planning_mode: Optional[str] = None,
 ) -> Dict[str, DriverBound]:
   """Resolve per-driver (lower, upper) bounds for the target metric's
   primary_levers list. Single source of truth: the realism lookup row
@@ -560,19 +545,6 @@ def _driver_bounds_for_target(
   if not primary_levers:
     return bounds
 
-  # Lever-set gating (iter 5). Broaden the driver list to include
-  # revenue-side and payroll/lease levers ONLY when the planning_mode
-  # tolerates the metric's below-band issue code AND the metric is a
-  # profitability metric that needs the extra authority. For
-  # businesses where the planning_mode does not tolerate Q1 losses
-  # (e.g., ExpressLogix), keep the original cohort-based subset
-  # (cogs%, marketing%, r_and_d%, sga%, working-capital days/percent
-  # levers) — adding revenue/payroll there caused a 16/16 -> 12/16
-  # regression.
-  broad_lever_set_enabled = _planning_mode_tolerates_q1_loss(
-    target_metric=target_metric, planning_mode=planning_mode,
-  )
-
   # Compute Q1 revenue once (used for quarter_currency lever bounds).
   q1_revenue_cached: Optional[float] = None
 
@@ -613,12 +585,6 @@ def _driver_bounds_for_target(
       continue
     if lid in _CASH_PASS_OWNED_LEVER_IDS:
       # Cash strategy owns these end-to-end; solver MUST NOT touch.
-      continue
-    # Lever-set gating: only include broad-set levers (revenue::*,
-    # Payroll, Lease) when the planning_mode genuinely needs them.
-    if not broad_lever_set_enabled and any(
-      lid.startswith(prefix) or lid == prefix for prefix in _BROAD_LEVER_KIND_PREFIXES
-    ):
       continue
 
     driver_kind = _driver_kind_for_lever(lid)
@@ -747,7 +713,6 @@ def run_restoration_loop(
     bounds_by_target[target_metric] = _driver_bounds_for_target(
       target_metric=target_metric, business_naics_6=business_naics_6,
       model_input=intake_snapshot, build_finmo=build_finmo, horizon=horizon,
-      planning_mode=planning_mode,
     )
 
   for outer_pass in range(1, max_outer_passes + 1):

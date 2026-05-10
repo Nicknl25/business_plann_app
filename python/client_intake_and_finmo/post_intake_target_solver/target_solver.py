@@ -84,6 +84,53 @@ DEFAULT_TOLERANCE = 0.005   # 50bps absolute on ratio metrics
 MAX_INNER_ITERATIONS = 10
 
 
+# Phase 9 P3 cost-priority tiering — universal mechanism.
+# All businesses get every lever from the realism config. The allocator
+# decides which actually move based on tier and slack:
+#
+#   Tier 1 (operational, cheap): cost-ratio drivers. Per-quarter %-of-
+#     revenue lines that compress without structural change to the
+#     business. cogs%, marketing%, G&A%, R&D%.
+#   Tier 2 (structural, expensive): revenue-side and quarter-currency
+#     drivers. Touching these implies a structural change (price hike,
+#     headcount change, capacity expansion, lease renegotiation) and
+#     should only fire when Tier 1 cannot absorb the residual.
+#
+# Per-quarter allocation:
+#   1. Allocate residual across Tier 1 drivers with slack (proportional
+#      to slack × |sensitivity|). Drop pinned drivers, reallocate.
+#   2. If after Tier 1's full pass the residual at this quarter is
+#      still outside tolerance AND every Tier 1 driver is pinned at
+#      its bound for this quarter, engage Tier 2 for the remaining
+#      residual.
+#
+# Provenance: when a Tier 2 lever is touched in any quarter, the
+# row gets `applied_by_target_solver_quarters[q]["tier_used"] =
+# "tier_2_structural_after_tier_1_exhausted"`. Diagnostics show
+# which structural levers were reached for.
+_TIER_2_LEVER_PREFIXES: Tuple[str, ...] = (
+  "revenue::",
+  "expenses::Payroll",
+  "expenses::Lease",
+)
+
+_TIER_2_TAG_VALUE = "tier_2_structural_after_tier_1_exhausted"
+
+
+def _lever_tier(lever_id: str) -> int:
+  """Return 1 for operational/cheap drivers, 2 for structural/expensive.
+
+  Tier 2 is anything in _TIER_2_LEVER_PREFIXES (revenue-side and the
+  two quarter-currency expense lines). Tier 1 is everything else
+  (cost-ratio %-of-revenue, balance-sheet days/percent levers).
+  """
+  lid = str(lever_id or "").strip()
+  for prefix in _TIER_2_LEVER_PREFIXES:
+    if lid == prefix or lid.startswith(prefix):
+      return 2
+  return 1
+
+
 class CashPassLeverViolation(RuntimeError):
   """Raised when the caller passes a cash-pass-owned lever_id into
   solve_for_target's driver_lever_ids. Cash strategy owns these
@@ -655,78 +702,117 @@ def solve_for_target(
       break
 
     # Per quarter, allocate residual across drivers with slack in the
-    # needed direction.
+    # needed direction. Cost-priority tiering: try Tier 1 (operational,
+    # cheap) first; only engage Tier 2 (structural, expensive) for the
+    # residual portion of this quarter that Tier 1 could not absorb.
     any_quarter_moved = False
     for q_idx in range(horizon):
       r = residuals[q_idx]
       if abs(r) <= tolerance:
         continue
-      # Direction the metric must move: positive r => raise metric.
       raise_metric = r > 0
       q_revenue = _quarter_revenue(current_finmo, q_idx + 1)
       q_cogs = _quarter_cogs(current_finmo, q_idx + 1)
       q_fixed = _quarter_fixed_cost_proxy(current_finmo, q_idx + 1)
-      # For each active driver, compute (sensitivity, slack_in_driver_direction).
-      contributions: List[Tuple[str, float, float, str]] = []
-      # Tuple: (lever_id, sensitivity, slack_in_driver_direction, driver_direction)
-      for lid, ds in driver_states.items():
-        current_value = ds.current_per_q[q_idx] if q_idx < len(ds.current_per_q) else None
-        sens = _sensitivity_coefficient(
-          target_metric=target_metric,
-          driver_kind=ds.driver_kind,
-          driver_lever_id=lid,
-          current_quarter_revenue=q_revenue,
-          current_quarter_cogs=q_cogs,
-          current_quarter_fixed_cost=q_fixed,
-          current_driver_value=current_value,
-        )
-        if sens is None or abs(sens) < 1e-12:
-          continue
-        # Direction the driver must move:
-        #   raise metric AND positive sens => raise driver
-        #   raise metric AND negative sens => lower driver
-        #   lower metric AND positive sens => lower driver
-        #   lower metric AND negative sens => raise driver
-        if raise_metric == (sens > 0):
-          driver_dir = "raise"
-        else:
-          driver_dir = "lower"
-        slack = ds.slack_in_direction_for_quarter(q_idx, driver_dir)
-        if slack <= 0.0:
-          continue
-        contributions.append((lid, sens, slack, driver_dir))
 
-      if not contributions:
-        continue
-      # Allocate residual across contributions proportional to
-      # slack × |sensitivity| (giving more weight to drivers that have
-      # both range AND influence). Each driver absorbs its share of r;
-      # convert metric-share to driver delta via /sensitivity.
-      weights = [slack * abs(sens) for (_lid, sens, slack, _dir) in contributions]
-      total_weight = sum(weights)
-      if total_weight <= 0:
-        continue
-      for (lid, sens, slack, driver_dir), w in zip(contributions, weights):
-        if w <= 0:
-          continue
-        share_of_metric = (w / total_weight) * r
-        # Driver delta in driver units. share_of_metric / sens = Δdriver
-        # such that sens * Δdriver = share_of_metric.
-        driver_delta = share_of_metric / sens
-        ds = driver_states[lid]
-        new_value = ds.current_per_q[q_idx] + float(driver_delta)
-        # Honor slack: don't move past the bound.
-        if driver_dir == "raise":
-          new_value = min(new_value, ds.bound.upper)
-        else:
-          new_value = max(new_value, ds.bound.lower)
-        if abs(new_value - ds.current_per_q[q_idx]) <= 1e-12:
-          continue
-        _write_driver_value_at_quarter(
-          driver_state=ds, q_idx=q_idx, new_value=new_value,
-          target_metric=target_metric,
-        )
+      def _build_contributions_for_tier(target_tier: int) -> List[Tuple[str, float, float, str]]:
+        """Compute per-driver (lever_id, sensitivity, slack, driver_dir)
+        for drivers in the requested tier that have slack in the
+        needed direction.
+        """
+        out: List[Tuple[str, float, float, str]] = []
+        for lid, ds in driver_states.items():
+          if _lever_tier(lid) != target_tier:
+            continue
+          current_value = ds.current_per_q[q_idx] if q_idx < len(ds.current_per_q) else None
+          sens = _sensitivity_coefficient(
+            target_metric=target_metric,
+            driver_kind=ds.driver_kind,
+            driver_lever_id=lid,
+            current_quarter_revenue=q_revenue,
+            current_quarter_cogs=q_cogs,
+            current_quarter_fixed_cost=q_fixed,
+            current_driver_value=current_value,
+          )
+          if sens is None or abs(sens) < 1e-12:
+            continue
+          driver_dir = "raise" if raise_metric == (sens > 0) else "lower"
+          slack = ds.slack_in_direction_for_quarter(q_idx, driver_dir)
+          if slack <= 0.0:
+            continue
+          out.append((lid, sens, slack, driver_dir))
+        return out
+
+      def _allocate(
+        contributions: List[Tuple[str, float, float, str]],
+        residual_to_absorb: float,
+        is_tier_2: bool,
+      ) -> Tuple[float, bool]:
+        """Allocate ``residual_to_absorb`` across the contributions
+        proportional to slack × |sensitivity|. Returns
+        (residual_remaining, any_move). residual_remaining = the
+        portion of the residual NOT absorbed because some drivers
+        clamped at their bounds.
+        """
+        if not contributions or abs(residual_to_absorb) <= 0:
+          return residual_to_absorb, False
+        weights = [s * abs(sens) for (_lid, sens, s, _dir) in contributions]
+        total_weight = sum(weights)
+        if total_weight <= 0:
+          return residual_to_absorb, False
+        absorbed_metric = 0.0
+        any_move = False
+        for (lid, sens, slack, driver_dir), w in zip(contributions, weights):
+          if w <= 0:
+            continue
+          share_of_metric = (w / total_weight) * residual_to_absorb
+          driver_delta = share_of_metric / sens
+          ds = driver_states[lid]
+          new_value = ds.current_per_q[q_idx] + float(driver_delta)
+          if driver_dir == "raise":
+            new_value = min(new_value, ds.bound.upper)
+          else:
+            new_value = max(new_value, ds.bound.lower)
+          actual_driver_delta = new_value - ds.current_per_q[q_idx]
+          if abs(actual_driver_delta) <= 1e-12:
+            continue
+          actual_metric_absorbed = sens * float(actual_driver_delta)
+          absorbed_metric += actual_metric_absorbed
+          _write_driver_value_at_quarter(
+            driver_state=ds, q_idx=q_idx, new_value=new_value,
+            target_metric=target_metric,
+          )
+          # Provenance tag for Tier 2 engagement.
+          if is_tier_2:
+            for row in ds.rows:
+              tag = row.get("applied_by_target_solver_quarters")
+              if isinstance(tag, dict):
+                q_str = str(q_idx + 1)
+                if isinstance(tag.get(q_str), dict):
+                  tag[q_str]["tier_used"] = _TIER_2_TAG_VALUE
+          any_move = True
+        return residual_to_absorb - absorbed_metric, any_move
+
+      # Tier 1 phase: try to absorb the full residual using cost-ratio
+      # / balance-sheet drivers.
+      tier1_contribs = _build_contributions_for_tier(target_tier=1)
+      residual_after_tier1, t1_moved = _allocate(
+        tier1_contribs, r, is_tier_2=False,
+      )
+      if t1_moved:
         any_quarter_moved = True
+
+      # Tier 2 phase: only engage if Tier 1 could not close the
+      # residual at THIS quarter (every Tier 1 driver pinned at its
+      # bound for this q's needed direction). Pass the leftover
+      # residual to Tier 2 drivers; they absorb what they can.
+      if abs(residual_after_tier1) > tolerance:
+        tier2_contribs = _build_contributions_for_tier(target_tier=2)
+        _residual_after_tier2, t2_moved = _allocate(
+          tier2_contribs, residual_after_tier1, is_tier_2=True,
+        )
+        if t2_moved:
+          any_quarter_moved = True
 
     if not any_quarter_moved:
       # No driver had slack in any quarter -> bound-pinned across the
