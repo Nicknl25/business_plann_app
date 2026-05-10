@@ -43,6 +43,7 @@ from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.handler import (
   HandlerStatus,
   TOLERANCE_BPS,
   MAX_ITERATIONS,
+  SNAP_IN_DRIVER_TOLERANCE,
   HORIZON_QUARTERS,
   GPT_AUTHORED_LEVER_IDS,
   _DRIVER_KEY_TO_LEVER_ID,
@@ -64,10 +65,13 @@ from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.validators impor
 logger = logging.getLogger(__name__)
 
 
-# Snap-in tolerance — ±15% around GPT's most-recent driver anchor values.
-# Documented in handler.py via SNAP_IN_DRIVER_TOLERANCE.
-_SNAP_IN_LOWER_FRAC = 0.85
-_SNAP_IN_UPPER_FRAC = 1.15
+# Snap-in tolerance read from handler.py's SNAP_IN_DRIVER_TOLERANCE so
+# changes to the constant propagate uniformly. Per Phase 9 P3.5
+# tuning: ±20% (was ±15%) — gives the deterministic solver enough
+# room to close gaps up to ~10pp on EBITDA margin without departing
+# from GPT's strategic anchor choice.
+_SNAP_IN_LOWER_FRAC = 1.0 - float(SNAP_IN_DRIVER_TOLERANCE)
+_SNAP_IN_UPPER_FRAC = 1.0 + float(SNAP_IN_DRIVER_TOLERANCE)
 
 
 def _gpt_call_iteration(

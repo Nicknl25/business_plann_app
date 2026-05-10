@@ -47,8 +47,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TOLERANCE_BPS = 50          # Q11 EBITDA convergence: |GPT_target - FINMO| <= 50bps
-MAX_ITERATIONS = 3          # Iterations before falling through to snap-in
-SNAP_IN_DRIVER_TOLERANCE = 0.15  # ±15% around GPT's driver anchors for snap-in
+# MAX_ITERATIONS bumped from 3 to 5. Per Sunny iteration data, each
+# iteration roughly halves the residual gap (Sunny v7: -0.502 -> -0.418
+# -> -0.299 -> -0.025 across 3 iterations). 3 iterations was leaving
+# >50bps residuals on some GPT non-deterministic Call 2 outputs that
+# started further out (v8 ended at -0.072 after iter 3); 5 iterations
+# carries the halving curve down to within snap-in's reach. The 8-call
+# global GPT budget still accommodates: 1 (Call 1) + 1 (Call 2) + 5
+# iterations + 1 cash strategy review + 1 path engine ramp = 8 ceiling
+# (Phase 3 consultants are retired, so they don't consume budget).
+MAX_ITERATIONS = 5
+# SNAP_IN_DRIVER_TOLERANCE bumped from 0.15 to 0.20 (±20%). Sunny v8
+# trace showed snap-in landing snap_status=bound_pinned at -0.072
+# Q11 EBITDA — every relevant driver hit ±15% bound for the residual's
+# needed direction without closing the gap. The driver value range
+# GPT picks at iteration N is itself an approximation; allowing the
+# deterministic solver one fifth more authority around those anchors
+# gives it room to close gaps up to ~10pp on EBITDA margin without
+# departing from GPT's strategic choice.
+SNAP_IN_DRIVER_TOLERANCE = 0.20
 HORIZON_QUARTERS = 20
 
 # Lever IDs the handler authors. These are the "drivers" GPT returns
