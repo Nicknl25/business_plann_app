@@ -267,6 +267,32 @@ def _write_gpt_authored_per_quarter_values(
     _find_rows_for_lever,
   )
   per_driver_summary: Dict[str, Any] = {}
+
+  # Detect labor-driven capacity. When the Capacity row carries
+  # `derived_driver == "payroll_supported_capacity"` (e.g., Sunny —
+  # `capacity_driver: "labor"`), capacity is computed by FINMO from
+  # payroll/headcount rather than directly written. Writing capacity
+  # directly produces a `revenue_driver_formula_contract_failed`
+  # ValueError because the FINMO-internal capacity differs from the
+  # model_input write at sub-unit precision. Skip writing Capacity in
+  # that case; the handler still adjusts payroll, and capacity follows.
+  capacity_rows_for_detect = _find_rows_for_lever(
+    model_input or {}, "revenue::Capacity"
+  )
+  capacity_is_payroll_supported = any(
+    str(r.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+    or isinstance(r.get("payroll_supported_capacity"), dict)
+    for r in (capacity_rows_for_detect or [])
+  )
+
+  # FINMO's capacity-shaping policy uses utilization_ceiling=0.85.
+  # Utilization writes >= 0.85 trigger the one-shot capacity-expansion
+  # branch which (a) auto-expands capacity and (b) clips utilization
+  # back to post_expansion_utilization=0.70 — silently undoing the
+  # handler's writes for the rest of the horizon. Mirror the target
+  # solver's _REVENUE_UTILIZATION_UPPER (0.84) clip so writes hold.
+  _UTILIZATION_CLIP_UPPER = 0.84
+
   for driver_key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
     triple = (driver_anchors or {}).get(driver_key)
     if not isinstance(triple, dict):
@@ -275,6 +301,26 @@ def _write_gpt_authored_per_quarter_values(
         "reason": "anchor_not_in_call_2_payload",
       }
       continue
+
+    # Universal-app rule: detect derived-driver rows and skip writes.
+    # Labor-driven capacity (capacity_driver=labor) is the canonical
+    # case; FINMO derives capacity from payroll, so a direct write
+    # collides with the derivation.
+    if lever_id == "revenue::Capacity" and capacity_is_payroll_supported:
+      per_driver_summary[lever_id] = {
+        "status": "skipped_payroll_supported_capacity",
+        "anchor": {
+          "q1": triple.get("q1"), "q11": triple.get("q11"),
+          "q20": triple.get("q20"),
+        },
+        "reason": (
+          "capacity_row.derived_driver=payroll_supported_capacity; "
+          "FINMO computes capacity from payroll, direct write would "
+          "violate the revenue_driver_formula_contract"
+        ),
+      }
+      continue
+
     try:
       q1v = float(triple.get("q1"))
       q11v = float(triple.get("q11"))
@@ -285,6 +331,14 @@ def _write_gpt_authored_per_quarter_values(
         "anchor": dict(triple),
       }
       continue
+
+    # Clip utilization to keep writes from triggering FINMO's
+    # capacity-expansion branch.
+    if lever_id == "revenue::Utilization":
+      q1v = min(q1v, _UTILIZATION_CLIP_UPPER)
+      q11v = min(q11v, _UTILIZATION_CLIP_UPPER)
+      q20v = min(q20v, _UTILIZATION_CLIP_UPPER)
+
     per_q_values = interpolate_three_anchors(
       q1=q1v, q11=q11v, q20=q20v, horizon=HORIZON_QUARTERS,
     )
@@ -304,13 +358,19 @@ def _write_gpt_authored_per_quarter_values(
     write_value_per_row: List[List[float]] = []
     n_rows = max(1, len(rows))
     if lever_id == "revenue::Capacity":
-      # Capacity is additive across LOBs -> divide.
+      # Capacity is additive across LOBs -> divide. Round to integer
+      # so capacity * price * util produces consistent ints under
+      # FINMO's revenue_driver_formula_contract.
       write_value_per_row = [
-        [v / float(n_rows) for v in per_q_values] for _ in range(n_rows)
+        [round(v / float(n_rows)) for v in per_q_values] for _ in range(n_rows)
       ]
     elif lever_id == "revenue::Unit Price" or lever_id == "revenue::Utilization":
       # Price/utilization don't sum across LOBs; broadcast same value.
-      write_value_per_row = [list(per_q_values) for _ in range(n_rows)]
+      # Round to 6 decimals (matching FINMO's internal precision) so
+      # the contract validator sees consistent numbers.
+      write_value_per_row = [
+        [round(v, 6) for v in per_q_values] for _ in range(n_rows)
+      ]
     elif lever_id == "expenses::Payroll":
       # Total quarterly payroll is divided across payroll rows.
       write_value_per_row = [

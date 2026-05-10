@@ -1667,13 +1667,21 @@ def _run_post_cascade_completion(
             finmo_json=final_finmo_json,
           )
           # Rebuild FINMO so the rest of the post-cascade tail sees the
-          # GPT-authored operating model.
-          rebuilt = _build_finmo_for_restoration(final_model_input_json or {})
-          if isinstance(rebuilt, dict) and rebuilt:
-            final_finmo_json = rebuilt
-            next_result["finmo_json"] = final_finmo_json
-            next_result["model_input_json"] = final_model_input_json
+          # GPT-authored operating model. Wrapped in its own try so a
+          # contract violation here doesn't blow up the run — the
+          # handler_result still records what the handler did.
+          rebuild_error: Optional[str] = None
+          try:
+            rebuilt = _build_finmo_for_restoration(final_model_input_json or {})
+            if isinstance(rebuilt, dict) and rebuilt:
+              final_finmo_json = rebuilt
+              next_result["finmo_json"] = final_finmo_json
+              next_result["model_input_json"] = final_model_input_json
+          except Exception as rebuild_exc:
+            rebuild_error = f"{type(rebuild_exc).__name__}: {str(rebuild_exc)[:500]}"
         completion_trace["gpt_exhaustion_handler"] = handler_result.to_dict()
+        if rebuild_error:
+          completion_trace["gpt_exhaustion_handler"]["post_handler_finmo_rebuild_error"] = rebuild_error
         # Persist the muted realism metrics so the realism gate skips
         # band-checks for those keys on this draft. Per-draft, per-metric.
         muted = list(handler_result.realism_flags_to_mute or [])
