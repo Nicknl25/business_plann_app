@@ -1637,6 +1637,67 @@ def _run_post_cascade_completion(
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
     }
 
+  # 1.7. Phase 9 P3 — Target-driven restoration loop.
+  #
+  # Replaces the silo'd _remediate_realism_hard_fails. Iterates 4 solver
+  # targets in priority order (gross_margin, ebitda_margin,
+  # current_assets_minus_cash, current_liabilities_to_revenue) across
+  # all 20 quarters at once, allocating per-quarter delta across
+  # operating-side drivers proportional to slack-to-bound. Cash strategy
+  # runs AFTER this loop with the new operating model — financing
+  # decisions size against the restored trajectory.
+  #
+  # The loop's authority is operating-side only — it hard-errors on
+  # cash-pass-owned levers in any driver list (Owner's Capital,
+  # Other Equity, Distributions, Short Term Debt %, Debt Issuance,
+  # Debt Repayment).
+  try:
+    from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+      run_restoration_loop,
+    )
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json,
+    )
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope,
+    )
+
+    naics_for_restoration = business_naics_6
+    if not naics_for_restoration and isinstance(ops_json, dict):
+      naics_for_restoration = "".join(
+        ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+      )
+
+    def _build_finmo_for_restoration(mi: Dict[str, Any]) -> Dict[str, Any]:
+      payload = build_python_finmo_json(
+        model_input_json=copy.deepcopy(mi or {}),
+      )
+      return payload if isinstance(payload, dict) else {}
+
+    with post_intake_sequence_step_scope(
+      step_key="post_intake_target_seeking_restoration_loop",
+      executor_function="phase_9_p3_target_driven_restoration_loop",
+    ):
+      restoration_result = run_restoration_loop(
+        model_input=final_model_input_json or {},
+        build_finmo=_build_finmo_for_restoration,
+        business_naics_6=naics_for_restoration or None,
+        horizon=int(horizon or 20),
+      )
+      # Rebuild FINMO so subsequent steps (cash strategy, realism gate,
+      # finalize) see the restored operating model.
+      restored_finmo = _build_finmo_for_restoration(final_model_input_json or {})
+      if isinstance(restored_finmo, dict) and restored_finmo:
+        final_finmo_json = restored_finmo
+        next_result["finmo_json"] = final_finmo_json
+        next_result["model_input_json"] = final_model_input_json
+    completion_trace["restoration_loop"] = restoration_result.to_dict()
+  except Exception as exc:
+    completion_trace["restoration_loop"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
   # 2. Cash pass — Phase 9 Phase F mode-based cash strategy.
   #
   # Replaces the Phase 8 minimal cash strategy (Q1 lump-sum dump) with
