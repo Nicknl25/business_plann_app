@@ -224,30 +224,71 @@ def _build_target_ramp(
   q1_current = float(current_metric_per_q[0]) if current_metric_per_q else float(band_target)
   q20_target = float(band_target)
   pm_floor = planning_mode_floor_per_q if isinstance(planning_mode_floor_per_q, list) else [0.0] * horizon
-  # Q1 anchor: max(current state, band_min floor, planning_mode floor at Q1)
-  q1_anchor = q1_current
-  if target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP:
-    floor_q1 = max(0.0, float(band_min), float(pm_floor[0]) if pm_floor else 0.0)
-    q1_anchor = max(q1_current, floor_q1)
-  ramp = [0.0] * horizon
-  for q in range(horizon):
-    frac = q / max(1, horizon - 1)
-    ramp[q] = (1.0 - frac) * q1_anchor + frac * q20_target
-  if target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP:
-    floor_band = max(0.0, float(band_min))
+  is_profit_metric = target_metric in _PROFITABILITY_FLOOR_METRICS_FOR_RAMP
+
+  if not is_profit_metric:
+    # Working-capital / non-profitability targets: linear ramp Q1 -> Q20.
+    ramp = [0.0] * horizon
     for q in range(horizon):
-      # Per-quarter floor: max(band floor, planning_mode floor for that quarter).
-      # Add a small safety margin (50 bps) above the floor so the solver
-      # has a target to land at, not a knife-edge that frequently misses
-      # by tolerance noise.
-      pm_q = float(pm_floor[q]) if q < len(pm_floor) else 0.0
-      floor_q = max(floor_band, pm_q)
-      if floor_q > 0.0:
-        floor_q = floor_q + 0.005  # 50 bps safety margin above floor
-      if ramp[q] < floor_q:
-        ramp[q] = floor_q
-    if horizon > 10 and ramp[10] < 0.0:
-      ramp[10] = max(0.0, q20_target / 2.0)
+      frac = q / max(1, horizon - 1)
+      ramp[q] = (1.0 - frac) * q1_current + frac * q20_target
+    return ramp
+
+  # Profitability metrics (gross_margin_percent, ebitda_margin) — 2-phase
+  # ramp shaped by the universal viability doctrine:
+  #   Q1..Q4    >= floor_q1_q4 + safety
+  #   Q5..Q10   >= floor_q5_q10 + safety
+  #   Q11       >= max(q20_target, Q5_floor + recovery_delta + safety)
+  #   Q12..Q20  linear Q11 -> q20_target (no relapse: must stay >= 0)
+  # This bakes in the recovery requirement so Q11 is always >= Q5 + the
+  # 0.02 doctrine recovery delta, regardless of where q20_target lands.
+  safety = 0.005   # 50 bps above floor to avoid knife-edge tolerance misses
+  recovery_delta = 0.020  # doctrine: ebitda_recovery_trend_q5_q11 requires
+  recovery_delta_safety = 0.005  # +50 bps margin above the doctrine threshold
+  band_floor = max(0.0, float(band_min))
+
+  def _floor_for_quarter(q_idx_zero_based: int) -> float:
+    pm_q = float(pm_floor[q_idx_zero_based]) if q_idx_zero_based < len(pm_floor) else 0.0
+    base = max(band_floor, pm_q)
+    return base + safety if base > 0.0 else safety
+
+  q1_anchor = max(q1_current, _floor_for_quarter(0))
+  # Q11 binding: max( cohort q20_target, Q5_floor + recovery_delta + safety )
+  q5_floor = _floor_for_quarter(4)  # Q5 = index 4
+  q11_binding = max(q20_target, q5_floor + recovery_delta + recovery_delta_safety)
+
+  ramp = [0.0] * horizon
+  # Phase 1: Q1 (idx 0) -> Q11 (idx 10) linear from q1_anchor to q11_binding.
+  for q in range(min(11, horizon)):
+    frac = q / 10.0 if horizon > 10 else q / max(1, horizon - 1)
+    ramp[q] = (1.0 - frac) * q1_anchor + frac * q11_binding
+  # Phase 2: Q11 (idx 10) -> Q20 (idx horizon-1) linear from q11_binding to q20_target.
+  if horizon > 11:
+    for q in range(11, horizon):
+      frac = (q - 10) / max(1, horizon - 1 - 10)
+      ramp[q] = (1.0 - frac) * q11_binding + frac * q20_target
+
+  # Final per-quarter floor enforcement.
+  for q in range(horizon):
+    floor_q = _floor_for_quarter(q)
+    if ramp[q] < floor_q:
+      ramp[q] = floor_q
+  # Defensive: Q11 must be >= Q5 + recovery_delta after all clamping.
+  if horizon > 10:
+    required_q11 = ramp[4] + recovery_delta + recovery_delta_safety
+    if ramp[10] < required_q11:
+      ramp[10] = required_q11
+      # Re-interpolate Q12..Q20 from the bumped Q11.
+      if horizon > 11:
+        for q in range(11, horizon):
+          frac = (q - 10) / max(1, horizon - 1 - 10)
+          q20_clamped = max(q20_target, ramp[10])
+          ramp[q] = (1.0 - frac) * ramp[10] + frac * q20_clamped
+      # And re-walk to honor floors again.
+      for q in range(11, horizon):
+        floor_q = _floor_for_quarter(q)
+        if ramp[q] < floor_q:
+          ramp[q] = floor_q
   return ramp
 
 
