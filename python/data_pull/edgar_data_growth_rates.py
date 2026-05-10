@@ -138,6 +138,11 @@ CREATE TABLE IF NOT EXISTS industry_metrics_edgar (
   depreciation_percent_revenue DECIMAL(18,6),
   roa DECIMAL(18,6),
   roe DECIMAL(18,6),
+  -- Phase 9 P3 — derived working-capital structure metrics. Computed
+  -- in compute_row_for_period from existing component columns. Backfill
+  -- for pre-existing rows handled by python/scripts/phase_9_p3_derive_working_capital_columns.py.
+  current_assets_minus_cash_to_revenue DECIMAL(18,6),
+  current_liabilities_to_revenue DECIMAL(18,6),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY u_symbol_period (symbol, fiscalDateEnding),
   INDEX idx_naics (naics_code)
@@ -222,6 +227,11 @@ _BOUNDS: Dict[str, Tuple[float, float]] = {
   "roa":                     (-2.0, 1.0),
   "roe":                     (-50.0, 50.0),
   "revenue_growth_q":        (-1.0, 50.0),
+  # Phase 9 P3 derived working-capital columns. Bound matches the
+  # migration script's [0, 5] guard so future inserts stay consistent
+  # with the backfill.
+  "current_assets_minus_cash_to_revenue": (0.0, 5.0),
+  "current_liabilities_to_revenue":       (0.0, 5.0),
 }
 
 
@@ -372,6 +382,25 @@ def compute_row_for_period(
   roa = div(net, ta)
   roe = div(net, tse)
 
+  # Phase 9 P3 — derived working-capital structure metrics. EDGAR's pull
+  # does not include a cash concept, so current_assets_minus_cash falls
+  # back to the dso/inv-days × cogs% formula (matches the migration
+  # script's backfill). current_liabilities_to_revenue uses the raw
+  # `cl` (LiabilitiesCurrent) when available; otherwise dpo*cogs/90.
+  if dso is not None or inv_days is not None:
+    ca_minus_cash_to_rev = (
+      ((dso or 0.0) / 90.0)
+      + ((inv_days or 0.0) / 90.0) * (cogs_pct or 0.0)
+    )
+  else:
+    ca_minus_cash_to_rev = None
+  if cl is not None and rev:
+    cl_to_rev = float(cl) / float(rev)
+  elif dpo is not None:
+    cl_to_rev = ((dpo or 0.0) / 90.0) * (cogs_pct or 0.0)
+  else:
+    cl_to_rev = None
+
   # Sanity-bound everything.
   metrics = {
     "revenue_growth_q": rev_growth,
@@ -397,6 +426,8 @@ def compute_row_for_period(
     "depreciation_percent_revenue": dep_pct,
     "roa": roa,
     "roe": roe,
+    "current_assets_minus_cash_to_revenue": ca_minus_cash_to_rev,
+    "current_liabilities_to_revenue": cl_to_rev,
   }
   for k in list(metrics.keys()):
     metrics[k] = clip_or_null(k, metrics[k])
@@ -416,6 +447,8 @@ def compute_row_for_period(
     metrics["debt_to_ebitda"], metrics["interest_coverage"],
     metrics["capex_percent_revenue"], metrics["depreciation_percent_revenue"],
     metrics["roa"], metrics["roe"],
+    metrics["current_assets_minus_cash_to_revenue"],
+    metrics["current_liabilities_to_revenue"],
   ]
 
 
@@ -431,7 +464,8 @@ INSERT_SQL = """
     debt_to_equity, debt_to_assets,
     debt_to_ebitda, interest_coverage,
     capex_percent_revenue, depreciation_percent_revenue,
-    roa, roe
+    roa, roe,
+    current_assets_minus_cash_to_revenue, current_liabilities_to_revenue
   )
   VALUES (
     %s, %s, %s, %s, %s,
@@ -440,6 +474,7 @@ INSERT_SQL = """
     %s, %s,
     %s, %s, %s,
     %s, %s, %s, %s,
+    %s, %s,
     %s, %s,
     %s, %s,
     %s, %s,

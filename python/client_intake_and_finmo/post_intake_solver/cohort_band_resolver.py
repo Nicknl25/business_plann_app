@@ -95,6 +95,11 @@ METRIC_KEY_TO_COLUMN: Dict[str, str] = {
   "interest_coverage": "interest_coverage",
   "capex_percent_of_revenue": "capex_percent_revenue",
   "depreciation_percent_of_revenue": "depreciation_percent_revenue",
+  # Phase 9 P3 — derived working-capital metrics. Populated from existing
+  # dso / dpo / inventory_days / cogs_percent components by
+  # python/scripts/phase_9_p3_derive_working_capital_columns.py.
+  "current_assets_minus_cash": "current_assets_minus_cash_to_revenue",
+  "current_liabilities_to_revenue": "current_liabilities_to_revenue",
 }
 
 # Columns we know about in industry_metrics_raw — used to validate that a
@@ -107,6 +112,8 @@ _KNOWN_METRIC_COLUMNS = frozenset({
   "debt_to_ebitda", "interest_coverage",
   "capex_percent_revenue", "depreciation_percent_revenue",
   "roa", "roe",
+  # Phase 9 P3 derived working-capital columns.
+  "current_assets_minus_cash_to_revenue", "current_liabilities_to_revenue",
 })
 
 

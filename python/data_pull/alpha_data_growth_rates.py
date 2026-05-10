@@ -82,6 +82,13 @@ def create_tables(cursor):
         roa DECIMAL(18,6),
         roe DECIMAL(18,6),
 
+        -- Phase 9 P3 — derived working-capital structure metrics. Computed
+        -- from raw current assets / cash / current liabilities when present.
+        -- Backfill for pre-existing rows handled by
+        -- python/scripts/phase_9_p3_derive_working_capital_columns.py.
+        current_assets_minus_cash_to_revenue DECIMAL(18,6),
+        current_liabilities_to_revenue DECIMAL(18,6),
+
         UNIQUE KEY u_symbol_period (symbol, fiscalDateEnding)
     );
     """)
@@ -129,6 +136,17 @@ def create_tables(cursor):
         cursor.execute("ALTER TABLE industry_metrics_alpha ADD COLUMN total_revenue DECIMAL(22,4)")
     if "revenue_growth_q" not in cols_raw:
         cursor.execute("ALTER TABLE industry_metrics_alpha ADD COLUMN revenue_growth_q DECIMAL(18,6)")
+    # Phase 9 P3 derived working-capital columns.
+    if "current_assets_minus_cash_to_revenue" not in cols_raw:
+        cursor.execute(
+            "ALTER TABLE industry_metrics_alpha "
+            "ADD COLUMN current_assets_minus_cash_to_revenue DECIMAL(18,6)"
+        )
+    if "current_liabilities_to_revenue" not in cols_raw:
+        cursor.execute(
+            "ALTER TABLE industry_metrics_alpha "
+            "ADD COLUMN current_liabilities_to_revenue DECIMAL(18,6)"
+        )
 
     cursor.execute("""
         SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -332,6 +350,35 @@ def compute_ratios_for_quarter(cursor, period):
         roa = div(net, ta)
         roe = div(net, tse)
 
+        # Phase 9 P3 — derived working-capital structure metrics.
+        # Alpha has raw current assets, cash, and current liabilities so
+        # we compute the cleaner (ca - cash) / rev and cl / rev directly.
+        # Falls back to the dso/inv-days × cogs% formula (matches the
+        # migration script's backfill) when raw fields are missing.
+        if ca is not None and rev:
+            ca_minus_cash_to_rev = (float(ca) - float(cash or 0.0)) / float(rev)
+            if ca_minus_cash_to_rev < 0.0 or ca_minus_cash_to_rev > 5.0:
+                ca_minus_cash_to_rev = None
+        elif dso is not None or inv_days is not None:
+            ca_minus_cash_to_rev = (
+                ((dso or 0.0) / 90.0)
+                + ((inv_days or 0.0) / 90.0) * (cogs_pct or 0.0)
+            )
+            if ca_minus_cash_to_rev < 0.0 or ca_minus_cash_to_rev > 5.0:
+                ca_minus_cash_to_rev = None
+        else:
+            ca_minus_cash_to_rev = None
+        if cl is not None and rev:
+            cl_to_rev = float(cl) / float(rev)
+            if cl_to_rev < 0.0 or cl_to_rev > 5.0:
+                cl_to_rev = None
+        elif dpo is not None:
+            cl_to_rev = ((dpo or 0.0) / 90.0) * (cogs_pct or 0.0)
+            if cl_to_rev < 0.0 or cl_to_rev > 5.0:
+                cl_to_rev = None
+        else:
+            cl_to_rev = None
+
         # cap category
         if market_cap is None:
             cap_cat = None
@@ -358,7 +405,9 @@ def compute_ratios_for_quarter(cursor, period):
 
             capex_pct, dep_pct,
 
-            roa, roe
+            roa, roe,
+
+            ca_minus_cash_to_rev, cl_to_rev,
         ])
 
     return results
@@ -380,7 +429,8 @@ def insert_raw(cursor, rows):
             current_ratio, quick_ratio, debt_to_equity, debt_to_assets,
             debt_to_ebitda, interest_coverage,
             capex_percent_revenue, depreciation_percent_revenue,
-            roa, roe
+            roa, roe,
+            current_assets_minus_cash_to_revenue, current_liabilities_to_revenue
         )
         VALUES (%s, %s, %s, %s, %s,
                 %s, %s,
@@ -388,6 +438,7 @@ def insert_raw(cursor, rows):
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
                 %s, %s, %s, %s,
+                %s, %s,
                 %s, %s,
                 %s, %s,
                 %s, %s)

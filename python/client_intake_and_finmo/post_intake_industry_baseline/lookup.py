@@ -374,6 +374,13 @@ def _cohort_alt_metric_column(metric_key: str) -> Optional[str]:
     "interest_coverage": "interest_coverage",
     "capex_percent_of_revenue": "capex_percent_revenue",
     "depreciation_percent_of_revenue": "depreciation_percent_revenue",
+    # Phase 9 P3 — derived working-capital structure metrics. Populated
+    # by python/scripts/phase_9_p3_derive_working_capital_columns.py from
+    # the existing dso / dpo / inventory_days / cogs_percent components.
+    # When these columns resolve via the alternating walk, they replace
+    # the inline phase_9_p3_generic_default fallback for Targets 3 and 4.
+    "current_assets_minus_cash": "current_assets_minus_cash_to_revenue",
+    "current_liabilities_to_revenue": "current_liabilities_to_revenue",
   }.get(m)
 
 
