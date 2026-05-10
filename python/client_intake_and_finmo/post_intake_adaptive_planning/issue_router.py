@@ -233,61 +233,14 @@ def _is_universal_viability_check(metric_key: str) -> bool:
 # Public router entry points
 # ----------------------------------------------------------------------------
 
-def route_realism_violation(
-  *,
-  metric_key: str,
-  realism_row: Optional[Dict[str, Any]],
-  detected_value: Optional[float],
-  expected_floor: Optional[float],
-  expected_ceiling: Optional[float],
-  adaptive_policy: Optional[Dict[str, Any]] = None,
-  source_quarter: Optional[int] = None,
-) -> IssueRoute:
-  """Route a single realism gate violation to an adaptation family."""
-  row = realism_row if isinstance(realism_row, dict) else {}
-  family = (
-    str(row.get("issue_family") or "").strip()
-    or str(row.get("remediation_family") or "").strip()
-    or "industry_normalization"
-  )
-  if family not in ADAPTATION_FAMILIES:
-    family = "industry_normalization"
-  primary_levers = list(row.get("primary_levers") or [])
-  secondary_levers = list(row.get("secondary_levers") or [])
-  deadline_q = int(row.get("deadline_quarter") or 20)
-  stage_sensitivity = row.get("stage_sensitivity") if isinstance(row.get("stage_sensitivity"), dict) else None
-  stage_profile = _stage_profile_from_policy(adaptive_policy)
-  stage_multiplier = _stage_tolerance_multiplier(
-    stage_profile=stage_profile,
-    stage_sensitivity=stage_sensitivity,
-  )
-  universal = _is_universal_viability_check(metric_key)
-  severity = _classify_severity(
-    detected=detected_value,
-    floor=expected_floor,
-    ceiling=expected_ceiling,
-    stage_multiplier=stage_multiplier,
-    is_universal_viability_check=universal,
-  )
-  q_lo = int(source_quarter) if source_quarter else 1
-  q_hi = int(deadline_q)
-  return IssueRoute(
-    issue_code=metric_key,
-    severity=severity,
-    adaptation_family=family,
-    primary_levers=primary_levers,
-    secondary_levers=secondary_levers,
-    target_quarter_range=(min(q_lo, q_hi), max(q_lo, q_hi)),
-    deadline_quarter=deadline_q,
-    path_shape=_FAMILY_DEFAULT_PATH_SHAPES.get(family, "flat"),
-    gpt_consultant_required=False,
-    cash_pass_allowed=(family == "funding_adaptation"),
-    source="realism",
-    notes=str(row.get("notes") or "")[:500],
-    detected_value=detected_value,
-    expected_floor=expected_floor,
-    expected_ceiling=expected_ceiling,
-  )
+# Phase 9 P3 — route_realism_violation RETIRED. The realism-gate-to-
+# adaptation-family routing has been replaced by direct target → driver
+# allocation inside the target-driven restoration loop in
+# python/client_intake_and_finmo/post_intake_target_solver/. The new
+# loop reads the 4 active solver-target rows from the realism lookup
+# table and solves each target across all 20 quarters by allocating
+# delta across operating-side drivers proportional to slack-to-bound;
+# the family-routed flat-stamp adaptation is gone.
 
 
 def route_solver_residual(

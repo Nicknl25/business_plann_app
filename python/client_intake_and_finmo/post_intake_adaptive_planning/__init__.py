@@ -56,7 +56,6 @@ from client_intake_and_finmo.post_intake_adaptive_planning.issue_router import (
   route_cash_validation_issue,
   route_composite_revenue_violation,
   route_feasibility_diagnostic,
-  route_realism_violation,
   route_schedule_sanity_warning,
   route_solver_residual,
 )
@@ -107,7 +106,6 @@ __all__ = [
   "route_cash_validation_issue",
   "route_composite_revenue_violation",
   "route_feasibility_diagnostic",
-  "route_realism_violation",
   "route_schedule_sanity_warning",
   "route_solver_residual",
   "s_curve",

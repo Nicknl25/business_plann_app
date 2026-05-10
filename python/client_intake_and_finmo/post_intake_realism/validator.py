@@ -564,13 +564,13 @@ def validate_industry_realism_bands(
       )
       results.append(trajectory_result)
       # trajectory_check rows DO NOT raise RealismBandViolation, but
-      # they MUST surface in hard_fail_violations so the cascade can
-      # route them through the issue_router (the per-quarter loop
-      # below is the only other path that appends to
-      # hard_fail_violations, and it's skipped via `continue` for
-      # trajectory rows). The doctrine deadline / family /
-      # primary_levers travel on the realism lookup row and are
-      # resolved by route_realism_violation from `metric_key`.
+      # they MUST surface in hard_fail_violations so the post-cascade
+      # tail can read viability state. Phase 9 P3: the new target-
+      # driven restoration loop reads hard_fail_violations directly
+      # to decide which targets need solving (and the trajectory
+      # checks act as the loop's viability exit conditions). The
+      # silo'd issue-router routing of these violations was retired
+      # along with _remediate_realism_hard_fails.
       if status == "out_of_band_hard_fail":
         hard_fail_violations.append({
           "metric_key": metric_key,
