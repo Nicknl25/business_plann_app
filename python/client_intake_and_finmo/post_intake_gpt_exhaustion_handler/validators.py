@@ -63,9 +63,20 @@ def _check_triple(
 
 
 def validate_final_commit(
-  parsed: Optional[Dict[str, Any]]
+  parsed: Optional[Dict[str, Any]],
+  *,
+  scope: str = "pnl_path",
 ) -> Tuple[bool, Optional[str]]:
   """Validate GPT's final commit payload (driver_anchors + reasoning).
+
+  Phase 9 P3.7 — ``scope`` selects which fields are required:
+    - "pnl_path": all 7 P&L anchors required (each as a 3-anchor triple)
+      AND the working_capital_drivers section required (all 5 fields).
+    - "bs_only_path": NO P&L anchors required; working_capital_drivers
+      section required with each WC field OPTIONAL (GPT may author a
+      subset; the writer skips missing entries via its existing
+      skipped_no_value branch). Any WC value supplied still gets the
+      same sanity-band check.
 
   Sanity ranges are intentionally wide — the tool-calling loop already
   enforces viability via the trajectory pass/fail feedback; this catches
@@ -87,47 +98,71 @@ def validate_final_commit(
     "sga_percent_of_revenue": {"lower": 0.0, "upper": 1.0, "allow_zero": True},
   }
 
-  for driver_name in _DRIVER_KEYS:
-    band = bands[driver_name]
-    err = _check_triple(
-      driver_name=driver_name,
-      triple=anchors.get(driver_name),
-      lower=float(band["lower"]),
-      upper=float(band["upper"]),
-      allow_zero=bool(band["allow_zero"]),
-    )
-    if err:
-      return False, err
-
-  cogs = anchors.get("cogs_percent_of_revenue") or {}
-  mkt = anchors.get("marketing_percent_of_revenue") or {}
-  sga = anchors.get("sga_percent_of_revenue") or {}
-  for q_key in _ANCHOR_KEYS:
-    s = (
-      float(cogs.get(q_key, 0.0))
-      + float(mkt.get(q_key, 0.0))
-      + float(sga.get(q_key, 0.0))
-    )
-    if s > 1.05:
-      return False, (
-        f"commit_cost_ratios_sum_exceeds_revenue_at_{q_key}: "
-        f"cogs+mkt+sga={s:.3f}"
+  if scope == "pnl_path":
+    for driver_name in _DRIVER_KEYS:
+      band = bands[driver_name]
+      err = _check_triple(
+        driver_name=driver_name,
+        triple=anchors.get(driver_name),
+        lower=float(band["lower"]),
+        upper=float(band["upper"]),
+        allow_zero=bool(band["allow_zero"]),
       )
+      if err:
+        return False, err
 
-  # Phase 9 P3.6 — working capital drivers (single value each).
+    cogs = anchors.get("cogs_percent_of_revenue") or {}
+    mkt = anchors.get("marketing_percent_of_revenue") or {}
+    sga = anchors.get("sga_percent_of_revenue") or {}
+    for q_key in _ANCHOR_KEYS:
+      s = (
+        float(cogs.get(q_key, 0.0))
+        + float(mkt.get(q_key, 0.0))
+        + float(sga.get(q_key, 0.0))
+      )
+      if s > 1.05:
+        return False, (
+          f"commit_cost_ratios_sum_exceeds_revenue_at_{q_key}: "
+          f"cogs+mkt+sga={s:.3f}"
+        )
+
+  # Working capital drivers — required section in both scopes.
   wc = anchors.get("working_capital_drivers")
   if not isinstance(wc, dict):
     return False, "commit_missing_working_capital_drivers"
-  for wc_key, band in _WC_BANDS.items():
-    v = wc.get(wc_key)
-    if v is None or not isinstance(v, (int, float)):
-      return False, f"wc_{wc_key}_not_numeric"
-    fv = float(v)
-    lo = float(band["lower"])
-    hi = float(band["upper"])
-    if fv < lo or fv > hi:
-      return False, (
-        f"wc_{wc_key}_out_of_range_value={fv}_bounds=[{lo},{hi}]"
-      )
+
+  if scope == "bs_only_path":
+    # Each WC field is OPTIONAL; only sanity-check supplied values.
+    # At least one WC field must be present so the commit isn't empty.
+    any_present = False
+    for wc_key, band in _WC_BANDS.items():
+      v = wc.get(wc_key)
+      if v is None:
+        continue
+      any_present = True
+      if not isinstance(v, (int, float)):
+        return False, f"wc_{wc_key}_not_numeric"
+      fv = float(v)
+      lo = float(band["lower"])
+      hi = float(band["upper"])
+      if fv < lo or fv > hi:
+        return False, (
+          f"wc_{wc_key}_out_of_range_value={fv}_bounds=[{lo},{hi}]"
+        )
+    if not any_present:
+      return False, "bs_only_commit_has_no_wc_values"
+  else:
+    # P&L path — every WC field required.
+    for wc_key, band in _WC_BANDS.items():
+      v = wc.get(wc_key)
+      if v is None or not isinstance(v, (int, float)):
+        return False, f"wc_{wc_key}_not_numeric"
+      fv = float(v)
+      lo = float(band["lower"])
+      hi = float(band["upper"])
+      if fv < lo or fv > hi:
+        return False, (
+          f"wc_{wc_key}_out_of_range_value={fv}_bounds=[{lo},{hi}]"
+        )
 
   return True, None

@@ -49,6 +49,16 @@ MAX_TOOL_CALLS = 5
 _TOOL_NAME = "compute_full_trajectory"
 
 
+# Phase 9 P3.7 — scope literals. Restoration loop populates
+# RestorationResult.scope with a HandlerScope enum; the handler converts
+# to these string values before passing into the session. Tool schema,
+# commit schema, and user prompt all branch on these. No NAICS / stage /
+# archetype branching.
+SCOPE_PNL_PATH = "pnl_path"
+SCOPE_BS_ONLY_PATH = "bs_only_path"
+_VALID_SCOPES = (SCOPE_PNL_PATH, SCOPE_BS_ONLY_PATH)
+
+
 def _three_anchor_schema() -> Dict[str, Any]:
   return {
     "type": "object",
@@ -62,12 +72,41 @@ def _three_anchor_schema() -> Dict[str, Any]:
   }
 
 
-def _working_capital_schema() -> Dict[str, Any]:
+def _working_capital_schema(*, all_required: bool = True) -> Dict[str, Any]:
   """Phase 9 P3.6 — working capital drivers are SINGLE values per
   driver (not 3-anchor ramps). They are operationally stable across
   the 20-quarter horizon; the writer stamps each value uniformly
   across every live quarter.
+
+  Phase 9 P3.7 — when ``all_required=False`` (bs_only_path), every WC
+  field is OPTIONAL so GPT may author a subset. Strict json_schema
+  requires every property defined under ``properties`` to be in
+  ``required`` if ``additionalProperties=False`` and we want to allow
+  partial commits; the cleanest workaround is to keep all 5 in
+  ``required`` but use ``["number","null"]`` so GPT can pass null for
+  the unauthored slots. The writer treats null/None as "skipped".
   """
+  if all_required:
+    return {
+      "type": "object",
+      "additionalProperties": False,
+      "required": [
+        "accounts_receivable_days",
+        "accounts_payable_days",
+        "inventory_days",
+        "deferred_revenue_percent_of_revenue",
+        "prepaid_expenses_percent_of_revenue",
+      ],
+      "properties": {
+        "accounts_receivable_days": {"type": "number"},
+        "accounts_payable_days": {"type": "number"},
+        "inventory_days": {"type": "number"},
+        "deferred_revenue_percent_of_revenue": {"type": "number"},
+        "prepaid_expenses_percent_of_revenue": {"type": "number"},
+      },
+    }
+  # BS-only path: nullable values per driver; GPT may set any subset.
+  nullable_number = {"type": ["number", "null"]}
   return {
     "type": "object",
     "additionalProperties": False,
@@ -79,35 +118,43 @@ def _working_capital_schema() -> Dict[str, Any]:
       "prepaid_expenses_percent_of_revenue",
     ],
     "properties": {
-      "accounts_receivable_days": {"type": "number"},
-      "accounts_payable_days": {"type": "number"},
-      "inventory_days": {"type": "number"},
-      "deferred_revenue_percent_of_revenue": {"type": "number"},
-      "prepaid_expenses_percent_of_revenue": {"type": "number"},
+      "accounts_receivable_days": nullable_number,
+      "accounts_payable_days": nullable_number,
+      "inventory_days": nullable_number,
+      "deferred_revenue_percent_of_revenue": nullable_number,
+      "prepaid_expenses_percent_of_revenue": nullable_number,
     },
   }
 
 
-def _build_tool_definition() -> Dict[str, Any]:
-  """Responses API tool definition for compute_full_trajectory."""
-  return {
-    "type": "function",
-    "name": _TOOL_NAME,
-    "description": (
-      "Compute the resulting EBITDA margin trajectory across 20 quarters "
-      "from your proposed driver anchors at Q1, Q11, Q20 plus 5 working "
-      "capital drivers (single value each). Returns EBITDA margins at "
-      "key quarters (Q1/Q5/Q11/Q15/Q20), gross margin percents, "
-      "revenues, EBITDA dollars, and PASS/FAIL on each viability check "
-      "(ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11, "
-      "no_post_recovery_relapse_q11_q20, "
-      "gross_margin_supports_ebitda_recovery, "
-      "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
-      "aggregate. Use this to verify your anchors produce a viable plan "
-      "before committing your final answer."
-    ),
-    "strict": True,
-    "parameters": {
+def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
+  """Responses API tool definition for compute_full_trajectory.
+
+  Phase 9 P3.7 — when scope=="bs_only_path", the tool drops the 7 P&L
+  anchor fields entirely. GPT can probe with any subset of the 5 WC
+  values (each nullable) and the mini-FINMO will use the deterministic-
+  solver values for the P&L side.
+  """
+  if scope == SCOPE_BS_ONLY_PATH:
+    parameters = {
+      "type": "object",
+      "additionalProperties": False,
+      "required": ["working_capital_drivers"],
+      "properties": {
+        "working_capital_drivers": _working_capital_schema(all_required=False),
+      },
+    }
+    description = (
+      "Compute the resulting EBITDA margin trajectory and balance-sheet "
+      "realism across 20 quarters from your proposed working capital "
+      "driver values. P&L drivers are held at the deterministic-solver "
+      "values for this run. Pass null for any working capital driver "
+      "you wish to leave at its existing value. Returns EBITDA margins, "
+      "gross margin percents, revenues, EBITDA dollars, and PASS/FAIL "
+      "on each viability check plus an all_pass aggregate."
+    )
+  else:
+    parameters = {
       "type": "object",
       "additionalProperties": False,
       "required": [
@@ -128,14 +175,55 @@ def _build_tool_definition() -> Dict[str, Any]:
         "cogs_percent_of_revenue": _three_anchor_schema(),
         "marketing_percent_of_revenue": _three_anchor_schema(),
         "sga_percent_of_revenue": _three_anchor_schema(),
-        "working_capital_drivers": _working_capital_schema(),
+        "working_capital_drivers": _working_capital_schema(all_required=True),
       },
-    },
+    }
+    description = (
+      "Compute the resulting EBITDA margin trajectory across 20 quarters "
+      "from your proposed driver anchors at Q1, Q11, Q20 plus 5 working "
+      "capital drivers (single value each). Returns EBITDA margins at "
+      "key quarters (Q1/Q5/Q11/Q15/Q20), gross margin percents, "
+      "revenues, EBITDA dollars, and PASS/FAIL on each viability check "
+      "(ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11, "
+      "no_post_recovery_relapse_q11_q20, "
+      "gross_margin_supports_ebitda_recovery, "
+      "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
+      "aggregate. Use this to verify your anchors produce a viable plan "
+      "before committing your final answer."
+    )
+  return {
+    "type": "function",
+    "name": _TOOL_NAME,
+    "description": description,
+    "strict": True,
+    "parameters": parameters,
   }
 
 
-def _build_commit_schema() -> Dict[str, Any]:
-  """Strict JSON schema for GPT's final commit assistant message."""
+def _build_commit_schema(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
+  """Strict JSON schema for GPT's final commit assistant message.
+
+  Phase 9 P3.7 — on bs_only_path the P&L sections are absent from the
+  schema. GPT has no authority over P&L on this path; the
+  deterministic-solver values remain.
+  """
+  if scope == SCOPE_BS_ONLY_PATH:
+    return {
+      "type": "object",
+      "additionalProperties": False,
+      "required": ["driver_anchors", "reasoning"],
+      "properties": {
+        "driver_anchors": {
+          "type": "object",
+          "additionalProperties": False,
+          "required": ["working_capital_drivers"],
+          "properties": {
+            "working_capital_drivers": _working_capital_schema(all_required=False),
+          },
+        },
+        "reasoning": {"type": "string"},
+      },
+    }
   return {
     "type": "object",
     "additionalProperties": False,
@@ -162,7 +250,7 @@ def _build_commit_schema() -> Dict[str, Any]:
           "cogs_percent_of_revenue": _three_anchor_schema(),
           "marketing_percent_of_revenue": _three_anchor_schema(),
           "sga_percent_of_revenue": _three_anchor_schema(),
-          "working_capital_drivers": _working_capital_schema(),
+          "working_capital_drivers": _working_capital_schema(all_required=True),
         },
       },
       "reasoning": {"type": "string"},
@@ -187,17 +275,101 @@ def _format_exhaustion_diagnostic(diag: Dict[str, Any]) -> str:
   return "\n".join(parts) if parts else "(diagnostic empty)"
 
 
+def _format_failing_metrics(
+  failing_metrics: Optional[List[Dict[str, Any]]],
+) -> str:
+  if not failing_metrics:
+    return "(none)"
+  lines: List[str] = []
+  for fm in failing_metrics:
+    if not isinstance(fm, dict):
+      continue
+    mk = fm.get("metric_key")
+    q = fm.get("quarter_index")
+    av = fm.get("actual_value")
+    emin = fm.get("effective_min")
+    emax = fm.get("effective_max")
+    lines.append(
+      f"- {mk} (Q{q}): actual={av}, band=[{emin}, {emax}]"
+    )
+  return "\n".join(lines) if lines else "(none)"
+
+
+def _format_failing_primary_levers(
+  failing_metrics: Optional[List[Dict[str, Any]]],
+) -> str:
+  if not failing_metrics:
+    return "(none)"
+  distinct: List[str] = []
+  for fm in failing_metrics:
+    if not isinstance(fm, dict):
+      continue
+    for lever in fm.get("primary_levers") or []:
+      lever = str(lever).strip()
+      if lever and lever not in distinct:
+        distinct.append(lever)
+  return "\n".join(f"  - {lid}" for lid in distinct) if distinct else "(none)"
+
+
 def _build_initial_user_prompt(
   *,
   operating_model: Dict[str, Any],
   q1_state: Dict[str, Any],
   exhaustion_diagnostic: Dict[str, Any],
+  scope: str = SCOPE_PNL_PATH,
+  failing_metrics: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
   ops_block = json.dumps(
     operating_model or {}, ensure_ascii=False, indent=2, default=str
   )
   q1_block = _format_q1_state(q1_state)
   diag_block = _format_exhaustion_diagnostic(exhaustion_diagnostic)
+
+  if scope == SCOPE_BS_ONLY_PATH:
+    failing_block = _format_failing_metrics(failing_metrics)
+    primary_levers_block = _format_failing_primary_levers(failing_metrics)
+    return (
+      "OPERATING MODEL:\n"
+      f"{ops_block}\n\n"
+      "CURRENT Q1 STATE FROM INTAKE:\n"
+      f"{q1_block}\n\n"
+      "RESTORATION-LOOP DIAGNOSTIC:\n"
+      f"{diag_block}\n\n"
+      "The deterministic solver produced a plan that satisfies viability "
+      "but would fail one or more balance-sheet realism checks. The "
+      "following realism metrics are forecast to hard-fail on the "
+      "post-solver state:\n\n"
+      f"{failing_block}\n\n"
+      "Their primary_levers (the drivers that materially affect them):\n\n"
+      f"{primary_levers_block}\n\n"
+      "You have authority over the 5 working capital drivers for this "
+      "run. The P&L drivers are operating correctly and are outside "
+      "your authority on this path -- the deterministic solver landed "
+      "them.\n\n"
+      "Author only the working capital drivers needed to fix the failing "
+      "metrics. Leave the others as null in your commit; the existing "
+      "values will be preserved.\n\n"
+      "Reason from THIS specific business's operating model -- how it "
+      "collects payment, what it sells, how it manages stock, whether "
+      "it takes prepayments, what suppliers extend in terms. Use the "
+      f"{_TOOL_NAME} tool to verify your changes resolve the failures "
+      "without creating new ones.\n\n"
+      "Final-answer schema (your assistant message when you commit):\n"
+      "{\n"
+      '  "driver_anchors": {\n'
+      '    "working_capital_drivers": {\n'
+      '      "accounts_receivable_days": float | null,\n'
+      '      "accounts_payable_days": float | null,\n'
+      '      "inventory_days": float | null,\n'
+      '      "deferred_revenue_percent_of_revenue": float | null,\n'
+      '      "prepaid_expenses_percent_of_revenue": float | null\n'
+      "    }\n"
+      "  },\n"
+      '  "reasoning": "short prose explaining what you changed and why"\n'
+      "}\n"
+    )
+
+  # Default / pnl_path
   return (
     "OPERATING MODEL:\n"
     f"{ops_block}\n\n"
@@ -329,8 +501,14 @@ def run_tool_calling_session(
   exhaustion_diagnostic: Dict[str, Any],
   operating_context: Dict[str, Any],
   intake_context: Optional[Dict[str, Any]] = None,
+  scope: str = SCOPE_PNL_PATH,
+  failing_metrics: Optional[List[Dict[str, Any]]] = None,
 ) -> ToolCallSessionResult:
   """Run the tool-calling session. Returns the full session result.
+
+  Phase 9 P3.7 — ``scope`` selects which tool/commit/prompt variants
+  the session uses. ``failing_metrics`` populates the BS-only prompt's
+  "these metrics are forecast to hard-fail" block.
 
   The caller (handler.execute_tool_calling_session_and_commit) takes
   the committed driver_anchors and writes them into model_input via the
@@ -351,12 +529,16 @@ def run_tool_calling_session(
     validate_final_commit,
   )
 
-  tool_def = _build_tool_definition()
-  commit_schema = _build_commit_schema()
+  if scope not in _VALID_SCOPES:
+    scope = SCOPE_PNL_PATH
+  tool_def = _build_tool_definition(scope=scope)
+  commit_schema = _build_commit_schema(scope=scope)
   initial_user_prompt = _build_initial_user_prompt(
     operating_model=operating_model,
     q1_state=q1_state,
     exhaustion_diagnostic=exhaustion_diagnostic,
+    scope=scope,
+    failing_metrics=failing_metrics,
   )
 
   # Responses API input items. The caller appends to this list each
@@ -504,7 +686,7 @@ def run_tool_calling_session(
 
     # No tool calls in this turn -> GPT either committed or stalled.
     if isinstance(parsed_assistant_json, dict):
-      ok, err = validate_final_commit(parsed_assistant_json)
+      ok, err = validate_final_commit(parsed_assistant_json, scope=scope)
       if ok:
         parsed_commit = parsed_assistant_json
         last_assistant_text = assistant_text
@@ -608,8 +790,27 @@ def execute_tool_calling_session_and_commit(
     HandlerStatus,
     _q11_ebitda_margin,
     _write_gpt_authored_per_quarter_values,
+    authored_lever_ids_from_commit,
     compute_metrics_to_mute,
   )
+
+  # Phase 9 P3.7 — pull scope + failing_metrics off the restoration
+  # result. Default to PNL_PATH when restoration_result doesn't carry
+  # a scope (older callers, fallback safety).
+  scope_value = SCOPE_PNL_PATH
+  failing_metrics: List[Dict[str, Any]] = []
+  scope_raw = getattr(restoration_result, "scope", None)
+  if scope_raw is not None:
+    scope_str = (
+      scope_raw.value if hasattr(scope_raw, "value") else str(scope_raw)
+    )
+    if scope_str in _VALID_SCOPES:
+      scope_value = scope_str
+  fm_raw = getattr(restoration_result, "failing_metrics", None)
+  if isinstance(fm_raw, list):
+    failing_metrics = [
+      dict(item) for item in fm_raw if isinstance(item, dict)
+    ]
 
   # The mini-FINMO probe runs against a frozen template (the model_input
   # at the moment the session starts). Tool calls during the session see
@@ -629,6 +830,8 @@ def execute_tool_calling_session_and_commit(
     exhaustion_diagnostic=exhaustion_diagnostic,
     operating_context=operating_context,
     intake_context=intake_context or {},
+    scope=scope_value,
+    failing_metrics=failing_metrics,
   )
 
   provenance: Dict[str, Any] = {
@@ -687,12 +890,31 @@ def execute_tool_calling_session_and_commit(
   q11_actual = _q11_ebitda_margin(rebuilt_finmo or {})
   provenance["post_commit_q11_ebitda_margin"] = q11_actual
 
+  # Phase 9 P3.7 — mute set derived from what GPT ACTUALLY authored
+  # (not from what was authorized). Lets bs_only_path commits mute
+  # only the metrics whose primary_levers reference the WC drivers
+  # GPT supplied a value for, leaving everything else under the
+  # realism gate's normal authority.
+  authored_lever_ids = authored_lever_ids_from_commit(
+    session_result.final_anchors
+  )
+  provenance["authored_lever_ids"] = sorted(authored_lever_ids)
+  provenance["scope"] = scope_value
+
   # Decide final status. FINMO Q11 should match what GPT saw in his
   # last viable tool call (mini-FINMO uses full FINMO under the hood).
   # If it doesn't satisfy Q11 >= 0, that's a FAILED (rare — implies a
   # writer / contract drift).
-  q11_viable = q11_actual is not None and float(q11_actual) >= 0.0
-  metrics_to_mute = compute_metrics_to_mute()
+  # On bs_only_path the Q11 viability check is informational only:
+  # the deterministic solver already proved viability before the
+  # forecast classifier triggered. Skip the gate.
+  if scope_value == SCOPE_BS_ONLY_PATH:
+    q11_viable = True
+  else:
+    q11_viable = q11_actual is not None and float(q11_actual) >= 0.0
+  metrics_to_mute = compute_metrics_to_mute(
+    gpt_authored_lever_ids=authored_lever_ids,
+  )
 
   if not q11_viable:
     return HandlerResult(

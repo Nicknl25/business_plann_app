@@ -121,6 +121,47 @@ class RestorationStatus(str, Enum):
   FAILED = "failed"
 
 
+# Phase 9 P3.7 — Scoped GPT authority. The restoration loop's
+# forward-looking exhaustion semantics classify which lever set GPT
+# is authorized to author on the handler invocation.
+class HandlerScope(str, Enum):
+  # Handler authors all 7 P&L drivers + all 5 working capital drivers.
+  # Used when any forecast-failing realism metric has at least one P&L
+  # primary_lever (matches the P3.6 behavior used for Sunny).
+  PNL_PATH = "pnl_path"
+  # Handler authors only working capital drivers (P&L is left at the
+  # deterministic-solver values). Used when every forecast-failing
+  # realism metric's primary_levers are all in the WC set.
+  BS_ONLY_PATH = "bs_only_path"
+
+
+# Lever-set membership for the trigger classifier. Mirrors the
+# post_intake_gpt_exhaustion_handler constants intentionally — these
+# are the levers the handler has authority over. Source-of-truth
+# duplication is acceptable here because importing the handler module
+# would introduce a circular-ish dependency (handler imports
+# restoration_loop via the orchestrator); the trigger logic is
+# universal across NAICS / stage so the constants stay synchronised by
+# convention.
+_GPT_AUTHORED_PNL_LEVER_IDS: frozenset = frozenset({
+  "revenue::Unit Price",
+  "revenue::Capacity",
+  "revenue::Utilization",
+  "expenses::Payroll",
+  "expenses::Cost of Goods Sold",
+  "expenses::Marketing",
+  "expenses::General & Administrative",
+})
+_GPT_AUTHORED_WC_LEVER_IDS: frozenset = frozenset({
+  "balance_sheet::Accounts Receivable Days",
+  "balance_sheet::Accounts Payable Days",
+  "balance_sheet::Inventory Days",
+  "balance_sheet::Deferred Revenue (% of Revenue)",
+  "balance_sheet::Prepaid Expenses (% of Revenue)",
+})
+_GPT_AUTHORED_ALL: frozenset = _GPT_AUTHORED_PNL_LEVER_IDS | _GPT_AUTHORED_WC_LEVER_IDS
+
+
 @dataclass
 class RestorationResult:
   status: RestorationStatus
@@ -131,6 +172,14 @@ class RestorationResult:
   per_target_results: List[Dict[str, Any]] = field(default_factory=list)
   q11_ebitda_margin: Optional[float] = None
   reason: str = ""
+  # Phase 9 P3.7 — handler scope set by the forward-looking trigger
+  # classifier. Populated only when status == EXHAUSTED. None on LANDED.
+  scope: Optional[HandlerScope] = None
+  # Failing realism metrics that triggered the EXHAUSTED verdict.
+  # Each entry: {"metric_key", "quarter_index", "actual_value",
+  # "effective_min", "effective_max", "primary_levers"}. Used by the
+  # handler to tell GPT which specific metrics need fixing.
+  failing_metrics: List[Dict[str, Any]] = field(default_factory=list)
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -142,6 +191,12 @@ class RestorationResult:
       "per_target_results": list(self.per_target_results),
       "q11_ebitda_margin": self.q11_ebitda_margin,
       "reason": self.reason,
+      "scope": (
+        self.scope.value
+        if isinstance(self.scope, HandlerScope)
+        else (self.scope or None)
+      ),
+      "failing_metrics": list(self.failing_metrics),
     }
 
 
@@ -684,6 +739,119 @@ def _driver_bounds_for_target(
 # ----------------------------------------------------------------------------
 
 
+def _classify_forecast_exhaustion(
+  *,
+  model_input: Dict[str, Any],
+  post_finmo: Dict[str, Any],
+  business_naics_6: Optional[str],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  planning_mode: Optional[str],
+  solver_targets_payload: Optional[Dict[str, Any]],
+) -> Tuple[Optional[HandlerScope], List[Dict[str, Any]]]:
+  """Phase 9 P3.7 — Forward-looking exhaustion classifier.
+
+  Runs the realism validator on the post-restoration FINMO state and
+  inspects its hard_fail_violations. Filters to violations where every
+  primary_lever is in the GPT-authored superset (P&L + WC). Returns:
+    - (None, []) when no GPT-authorable metric forecasts to hard-fail
+      (restoration is genuinely LANDED; handler does not fire).
+    - (HandlerScope.PNL_PATH, [...]) when any failing metric has a
+      primary_lever in the P&L set (GPT authors all 12 drivers).
+    - (HandlerScope.BS_ONLY_PATH, [...]) when every failing metric's
+      primary_levers are entirely in the WC set (GPT authors only WC
+      drivers; the deterministic solver's P&L work is left alone).
+
+  Universal-app: scope is derived from generic signals (realism config
+  primary_levers + post-restoration FINMO metric values + the validator's
+  own band-resolution cascade). No NAICS / archetype / stage branching.
+
+  Defensive: if the validator raises or returns no hard_fail_violations,
+  treats as no-exhaustion. The realism gate downstream will catch the
+  same failures the validator would have reported, so the worst case is
+  a missed EXHAUSTED → handler trigger (i.e. the acceptance gate fails
+  later, same outcome the system had before P3.7).
+  """
+  try:
+    from client_intake_and_finmo.post_intake_realism.validator import (  # type: ignore
+      validate_industry_realism_bands,
+    )
+  except Exception:
+    return None, []
+  try:
+    payload = validate_industry_realism_bands(
+      model_input_json=model_input or {},
+      finmo_json=post_finmo or {},
+      business_naics_6=business_naics_6,
+      ops_json=ops_json or {},
+      financials_json=financials_json or {},
+      solver_input_targets_payload=solver_targets_payload,
+      planning_mode=planning_mode,
+    )
+  except Exception:
+    return None, []
+
+  violations = (payload or {}).get("hard_fail_violations") or []
+  if not isinstance(violations, list):
+    return None, []
+
+  # The validator's hard_fail_violations entries don't always carry
+  # primary_levers inline. Look them up from the realism row config.
+  try:
+    from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
+      post_intake_finalize_realism_check_rows,
+    )
+    rows = post_intake_finalize_realism_check_rows() or []
+  except Exception:
+    rows = []
+  levers_by_metric: Dict[str, List[str]] = {}
+  for r in rows:
+    if not isinstance(r, dict):
+      continue
+    mk = str(r.get("metric_key") or "").strip()
+    if not mk:
+      continue
+    pl = r.get("primary_levers") or []
+    if isinstance(pl, (list, tuple)):
+      levers_by_metric[mk] = [str(p).strip() for p in pl if str(p or "").strip()]
+
+  authorable_failures: List[Dict[str, Any]] = []
+  any_pnl_reference = False
+  for v in violations:
+    if not isinstance(v, dict):
+      continue
+    mk = str(v.get("metric_key") or "").strip()
+    if not mk:
+      continue
+    levers = list(levers_by_metric.get(mk) or [])
+    if not levers:
+      # No primary_levers configured -> can't decide scope; skip the
+      # metric from the GPT-authorable filter (the realism gate will
+      # still surface it downstream).
+      continue
+    if not all(lev in _GPT_AUTHORED_ALL for lev in levers):
+      # Some primary_lever is outside GPT's authority (e.g. debt
+      # schedule, owner's capital). The handler can't fix this metric
+      # by writing its 12 drivers, so don't trigger on it.
+      continue
+    if any(lev in _GPT_AUTHORED_PNL_LEVER_IDS for lev in levers):
+      any_pnl_reference = True
+    authorable_failures.append({
+      "metric_key": mk,
+      "quarter_index": v.get("quarter_index"),
+      "actual_value": v.get("actual_value"),
+      "effective_min": v.get("effective_min"),
+      "effective_max": v.get("effective_max"),
+      "band_source": v.get("band_source"),
+      "primary_levers": levers,
+    })
+
+  if not authorable_failures:
+    return None, []
+  scope = HandlerScope.PNL_PATH if any_pnl_reference else HandlerScope.BS_ONLY_PATH
+  return scope, authorable_failures
+
+
 def run_restoration_loop(
   *,
   model_input: Dict[str, Any],
@@ -692,6 +860,9 @@ def run_restoration_loop(
   horizon: int = HORIZON_QUARTERS_DEFAULT,
   max_outer_passes: int = MAX_OUTER_PASSES,
   planning_mode: Optional[str] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  solver_targets_payload: Optional[Dict[str, Any]] = None,
 ) -> RestorationResult:
   """Outer loop over the 4 solver targets in priority order.
 
@@ -826,7 +997,8 @@ def run_restoration_loop(
     pass_diag["viability_after_pass"] = dict(final_viability)
     per_pass_diagnostics.append(pass_diag)
 
-    # Landed exit: every viability trajectory check passes.
+    # Landed exit: every viability trajectory check passes AND no
+    # GPT-authorable realism metric forecasts to hard-fail.
     if all(final_viability.get(m, False) for m in _VIABILITY_TRAJECTORY_METRICS):
       # Compute Q11 EBITDA for the report.
       from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
@@ -839,6 +1011,44 @@ def run_restoration_loop(
         )
       except Exception:
         q11_em = None
+
+      # Phase 9 P3.7 — forward-looking exhaustion. If the post-restore
+      # FINMO would hard-fail a GPT-authorable realism metric, route to
+      # the handler via EXHAUSTED with a scope rather than returning
+      # LANDED. This catches NexGen-class cases where the deterministic
+      # solver clears viability but bound-pins a BS target and leaves a
+      # band-check overshoot in Q1-Q9.
+      forecast_scope, forecast_failures = _classify_forecast_exhaustion(
+        model_input=model_input,
+        post_finmo=post_finmo,
+        business_naics_6=business_naics_6,
+        ops_json=ops_json,
+        financials_json=financials_json,
+        planning_mode=planning_mode,
+        solver_targets_payload=solver_targets_payload,
+      )
+      if forecast_scope is not None:
+        return RestorationResult(
+          status=RestorationStatus.EXHAUSTED,
+          outer_passes_used=outer_pass,
+          per_pass_diagnostics=per_pass_diagnostics,
+          final_viability_state=final_viability,
+          drivers_at_bounds_summary=drivers_at_bounds_summary,
+          per_target_results=per_target_results,
+          q11_ebitda_margin=float(q11_em) if q11_em is not None else None,
+          reason=(
+            "viability_passed_but_forecast_realism_hard_fail "
+            f"scope={forecast_scope.value} "
+            f"failing_metric_keys={sorted({fm.get('metric_key') for fm in forecast_failures})} "
+            "diagnostic: deterministic solver landed viability but the "
+            "post-solver state would hard-fail one or more GPT-authorable "
+            "realism band checks; routing to handler under the "
+            "forward-looking exhaustion semantics."
+          ),
+          scope=forecast_scope,
+          failing_metrics=forecast_failures,
+        )
+
       return RestorationResult(
         status=RestorationStatus.LANDED,
         outer_passes_used=outer_pass,
@@ -847,7 +1057,7 @@ def run_restoration_loop(
         drivers_at_bounds_summary=drivers_at_bounds_summary,
         per_target_results=per_target_results,
         q11_ebitda_margin=float(q11_em) if q11_em is not None else None,
-        reason="all_viability_trajectory_checks_passed",
+        reason="all_viability_trajectory_checks_passed_and_realism_forecast_clean",
       )
 
     # Exhausted exit (formal): every operating driver across all
@@ -905,6 +1115,21 @@ def run_restoration_loop(
         "diagnostic: deterministic algebra exhausted; no further driver "
         "movement available within conservative bounds"
       )
+      # Phase 9 P3.7 — classify scope on the existing EXHAUSTED paths
+      # too. Sunny-class exhaustions (viability not reachable) will
+      # surface failing P&L metrics -> pnl_path. Defaulting to PNL_PATH
+      # when the forecast classifier returns no signal preserves the
+      # P3.5/P3.6 all-12-drivers behavior for prior-EXHAUSTED cases.
+      forecast_scope, forecast_failures = _classify_forecast_exhaustion(
+        model_input=model_input,
+        post_finmo=post_finmo,
+        business_naics_6=business_naics_6,
+        ops_json=ops_json,
+        financials_json=financials_json,
+        planning_mode=planning_mode,
+        solver_targets_payload=solver_targets_payload,
+      )
+      effective_scope = forecast_scope if forecast_scope is not None else HandlerScope.PNL_PATH
       return RestorationResult(
         status=RestorationStatus.EXHAUSTED,
         outer_passes_used=outer_pass,
@@ -914,6 +1139,8 @@ def run_restoration_loop(
         per_target_results=per_target_results,
         q11_ebitda_margin=float(q11_em) if q11_em is not None else None,
         reason=reason,
+        scope=effective_scope,
+        failing_metrics=forecast_failures,
       )
 
   # Hit max outer passes without landing or exhausting.

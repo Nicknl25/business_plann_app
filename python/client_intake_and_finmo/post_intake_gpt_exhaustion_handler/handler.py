@@ -69,6 +69,31 @@ _DRIVER_KEY_TO_LEVER_ID: Dict[str, str] = {
 }
 
 
+def authored_lever_ids_from_commit(
+  driver_anchors: Optional[Dict[str, Any]],
+) -> set:
+  """Phase 9 P3.7 — Return the set of lever_ids GPT actually authored
+  in this commit payload (drivers with a non-None / non-missing value).
+
+  Used to parameterize compute_metrics_to_mute on the BS-only path:
+  GPT may legitimately leave some WC drivers unset (e.g. inventory_days
+  for a service business), and muting metrics referencing levers GPT
+  did NOT author would silence band-checks that should still apply.
+  """
+  if not isinstance(driver_anchors, dict):
+    return set()
+  authored: set = set()
+  for key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
+    if key in driver_anchors and driver_anchors.get(key) is not None:
+      authored.add(lever_id)
+  wc = driver_anchors.get("working_capital_drivers")
+  if isinstance(wc, dict):
+    for wc_key, lever_id in _WC_KEY_TO_LEVER_ID.items():
+      if wc_key in wc and wc.get(wc_key) is not None:
+        authored.add(lever_id)
+  return authored
+
+
 # Phase 9 P3.6 — GPT also authors 5 working capital drivers. These are
 # operationally stable across the planning horizon, so GPT provides a
 # SINGLE value per driver and the writer stamps it uniformly across all
@@ -506,16 +531,24 @@ def _write_gpt_authored_per_quarter_values(
 # ---------------------------------------------------------------------------
 
 
-def compute_metrics_to_mute() -> List[str]:
+def compute_metrics_to_mute(
+  gpt_authored_lever_ids: Optional[set] = None,
+) -> List[str]:
   """Determine which realism metrics to mute for THIS draft.
 
-  A metric is muted iff:
-    1. It is one of the realism gate's checked metrics AND its
-       primary_levers include any GPT-authored driver
-       (GPT_AUTHORED_LEVER_IDS), OR
-    2. It is the universal viability metric ``ebitda_margin``
-       (always muted post-exhaustion because GPT authored the EBITDA
-       trajectory itself).
+  Phase 9 P3.7 — signature parameterized. ``gpt_authored_lever_ids`` is
+  the set of lever_ids GPT actually authored on this run (derived from
+  the commit payload, NOT from what was authorized). A metric is muted
+  iff its primary_levers are all in that set, OR iff it is the
+  universal viability metric ``ebitda_margin`` (always muted
+  post-exhaustion because GPT authored the EBITDA trajectory itself).
+
+  Callers under the BS-only path pass a subset of the WC lever IDs;
+  callers under the P&L path pass the full P&L+WC union. This prevents
+  over-muting in scoped fires.
+
+  When the argument is None, defaults to the full P&L+WC union (the
+  pre-P3.7 behaviour) for backwards compatibility.
 
   Universal viability trajectory checks (ebitda_positive_by_q11,
   ebitda_recovery_trend_q5_q11, loss_window_funded_through_q5,
@@ -527,13 +560,12 @@ def compute_metrics_to_mute() -> List[str]:
   Per-draft only — metric definitions in lookup.py stay unchanged.
   """
   to_mute: List[str] = ["ebitda_margin"]
-  # Phase 9 P3.6 — working capital lever IDs are also GPT-authored when
-  # the handler fires, so realism metrics whose primary_levers include
-  # AR/AP/inventory days or prepaid/deferred revenue ratios are muted
-  # for this draft on the same per-metric basis as the P&L drivers.
-  gpt_authored = set(GPT_AUTHORED_LEVER_IDS) | set(
-    GPT_AUTHORED_WORKING_CAPITAL_LEVER_IDS
-  )
+  if gpt_authored_lever_ids is None:
+    gpt_authored: set = set(GPT_AUTHORED_LEVER_IDS) | set(
+      GPT_AUTHORED_WORKING_CAPITAL_LEVER_IDS
+    )
+  else:
+    gpt_authored = set(gpt_authored_lever_ids)
 
   try:
     from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore

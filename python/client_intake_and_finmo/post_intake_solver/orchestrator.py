@@ -1619,6 +1619,18 @@ def _run_post_cascade_completion(
         business_naics_6=naics_for_restoration or None,
         horizon=int(horizon or 20),
         planning_mode=planning_mode,
+        # Phase 9 P3.7 — forward-looking exhaustion classifier needs
+        # ops/financials/targets so the realism validator runs with
+        # the same band-resolution context the post-cascade gate will
+        # use (phase_3_calibrated bands, applicability skip, etc.).
+        ops_json=ops_json or {},
+        financials_json=financials_json or {},
+        solver_targets_payload=(
+          targets_payload_post
+          if isinstance(targets_payload_post, dict)
+          and targets_payload_post.get("metrics")
+          else (targets_payload or None)
+        ),
       )
       # Rebuild FINMO so subsequent steps (cash strategy, realism gate,
       # finalize) see the restored operating model.
