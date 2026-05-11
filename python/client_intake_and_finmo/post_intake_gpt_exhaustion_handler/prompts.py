@@ -1,5 +1,6 @@
 """Phase 9 P3.5 — System prompt for the GPT exhaustion handler's
-tool-calling session.
+tool-calling session. Phase 9 P3.6 — Q11/Q20 doctrine tightening and
+working capital framing.
 
 Universal across every NAICS, stage, and archetype. Differences come from
 operating_model_json data, not from business-classification branches.
@@ -24,17 +25,30 @@ Stage definitions:
 - operating: 1+ year operating history (established, has track record)
 
 Trajectory anchor doctrine:
-- Q1 reflects operator's current reality from intake (do not change Q1
-  from current state unless the operator's intake values are clearly
-  inconsistent)
-- Q11 must satisfy: EBITDA margin >= 0 (binding viability constraint)
-- Q20 reflects realistic mature/steady-state for THIS business given
-  its stage
+- Q1: Reflects the operator's current reality from intake. Do not
+  change Q1 driver values unless intake values are clearly inconsistent.
+
+- Q11: The binding viability THRESHOLD. EBITDA margin MUST be >= 0 here.
+  Q11 represents a recovery milestone -- the moment the business has
+  crossed into viability. Q11 is NOT the final state of the business.
+
+- Q20: The realistic mature state. By Q20 the business has been
+  operating in viable territory for roughly two years beyond the Q11
+  threshold. Q20 should reflect that maturation: continued operational
+  improvement beyond the Q11 viability point. Reason about what would
+  realistically continue to evolve between Q11 and Q20 for this
+  specific business.
+
+  Anchoring Q20 driver values identical to Q11 driver values implies
+  the business stops evolving the moment it becomes viable. That is
+  rarely the realistic case. Some drivers may legitimately plateau at
+  Q11 (e.g., if a structural ceiling is reached); others typically
+  continue improving as the business matures.
 
 You have a tool: compute_full_trajectory(anchors). Call it with proposed
-anchor values for all 7 drivers at Q1, Q11, Q20. The tool returns the
-resulting EBITDA margin trajectory and pass/fail for all viability
-checks.
+anchor values for all 7 P&L drivers at Q1, Q11, Q20 plus 5 working
+capital drivers (single value each). The tool returns the resulting
+EBITDA margin trajectory and pass/fail for all viability checks.
 
 Use the tool to verify your anchors produce a viable plan. Iterate by
 calling the tool multiple times with adjusted anchors. When all

@@ -49,9 +49,8 @@ MAX_TOOL_CALLS = 5
 _TOOL_NAME = "compute_full_trajectory"
 
 
-def _build_tool_definition() -> Dict[str, Any]:
-  """Responses API tool definition for compute_full_trajectory."""
-  three_anchor_schema = {
+def _three_anchor_schema() -> Dict[str, Any]:
+  return {
     "type": "object",
     "additionalProperties": False,
     "required": ["q1", "q11", "q20"],
@@ -61,16 +60,47 @@ def _build_tool_definition() -> Dict[str, Any]:
       "q20": {"type": "number"},
     },
   }
+
+
+def _working_capital_schema() -> Dict[str, Any]:
+  """Phase 9 P3.6 — working capital drivers are SINGLE values per
+  driver (not 3-anchor ramps). They are operationally stable across
+  the 20-quarter horizon; the writer stamps each value uniformly
+  across every live quarter.
+  """
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+      "accounts_receivable_days",
+      "accounts_payable_days",
+      "inventory_days",
+      "deferred_revenue_percent_of_revenue",
+      "prepaid_expenses_percent_of_revenue",
+    ],
+    "properties": {
+      "accounts_receivable_days": {"type": "number"},
+      "accounts_payable_days": {"type": "number"},
+      "inventory_days": {"type": "number"},
+      "deferred_revenue_percent_of_revenue": {"type": "number"},
+      "prepaid_expenses_percent_of_revenue": {"type": "number"},
+    },
+  }
+
+
+def _build_tool_definition() -> Dict[str, Any]:
+  """Responses API tool definition for compute_full_trajectory."""
   return {
     "type": "function",
     "name": _TOOL_NAME,
     "description": (
       "Compute the resulting EBITDA margin trajectory across 20 quarters "
-      "from your proposed driver anchors at Q1, Q11, Q20. Returns EBITDA "
-      "margins at key quarters (Q1/Q5/Q11/Q15/Q20), gross margin "
-      "percents, revenues, EBITDA dollars, and PASS/FAIL on each "
-      "viability check (ebitda_positive_by_q11, "
-      "ebitda_recovery_trend_q5_q11, no_post_recovery_relapse_q11_q20, "
+      "from your proposed driver anchors at Q1, Q11, Q20 plus 5 working "
+      "capital drivers (single value each). Returns EBITDA margins at "
+      "key quarters (Q1/Q5/Q11/Q15/Q20), gross margin percents, "
+      "revenues, EBITDA dollars, and PASS/FAIL on each viability check "
+      "(ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11, "
+      "no_post_recovery_relapse_q11_q20, "
       "gross_margin_supports_ebitda_recovery, "
       "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
       "aggregate. Use this to verify your anchors produce a viable plan "
@@ -88,15 +118,17 @@ def _build_tool_definition() -> Dict[str, Any]:
         "cogs_percent_of_revenue",
         "marketing_percent_of_revenue",
         "sga_percent_of_revenue",
+        "working_capital_drivers",
       ],
       "properties": {
-        "unit_price": three_anchor_schema,
-        "units_per_period_capacity": three_anchor_schema,
-        "utilization_rate": three_anchor_schema,
-        "payroll_dollars_per_quarter": three_anchor_schema,
-        "cogs_percent_of_revenue": three_anchor_schema,
-        "marketing_percent_of_revenue": three_anchor_schema,
-        "sga_percent_of_revenue": three_anchor_schema,
+        "unit_price": _three_anchor_schema(),
+        "units_per_period_capacity": _three_anchor_schema(),
+        "utilization_rate": _three_anchor_schema(),
+        "payroll_dollars_per_quarter": _three_anchor_schema(),
+        "cogs_percent_of_revenue": _three_anchor_schema(),
+        "marketing_percent_of_revenue": _three_anchor_schema(),
+        "sga_percent_of_revenue": _three_anchor_schema(),
+        "working_capital_drivers": _working_capital_schema(),
       },
     },
   }
@@ -104,16 +136,6 @@ def _build_tool_definition() -> Dict[str, Any]:
 
 def _build_commit_schema() -> Dict[str, Any]:
   """Strict JSON schema for GPT's final commit assistant message."""
-  three_anchor_schema = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["q1", "q11", "q20"],
-    "properties": {
-      "q1": {"type": "number"},
-      "q11": {"type": "number"},
-      "q20": {"type": "number"},
-    },
-  }
   return {
     "type": "object",
     "additionalProperties": False,
@@ -130,15 +152,17 @@ def _build_commit_schema() -> Dict[str, Any]:
           "cogs_percent_of_revenue",
           "marketing_percent_of_revenue",
           "sga_percent_of_revenue",
+          "working_capital_drivers",
         ],
         "properties": {
-          "unit_price": three_anchor_schema,
-          "units_per_period_capacity": three_anchor_schema,
-          "utilization_rate": three_anchor_schema,
-          "payroll_dollars_per_quarter": three_anchor_schema,
-          "cogs_percent_of_revenue": three_anchor_schema,
-          "marketing_percent_of_revenue": three_anchor_schema,
-          "sga_percent_of_revenue": three_anchor_schema,
+          "unit_price": _three_anchor_schema(),
+          "units_per_period_capacity": _three_anchor_schema(),
+          "utilization_rate": _three_anchor_schema(),
+          "payroll_dollars_per_quarter": _three_anchor_schema(),
+          "cogs_percent_of_revenue": _three_anchor_schema(),
+          "marketing_percent_of_revenue": _three_anchor_schema(),
+          "sga_percent_of_revenue": _three_anchor_schema(),
+          "working_capital_drivers": _working_capital_schema(),
         },
       },
       "reasoning": {"type": "string"},
@@ -183,10 +207,25 @@ def _build_initial_user_prompt(
     "viability at conservative bounds):\n"
     f"{diag_block}\n\n"
     "QUESTION:\n"
-    "Propose driver anchors at Q1, Q11, Q20 for all 7 drivers and call "
-    f"the {_TOOL_NAME} tool to verify the resulting trajectory. Iterate "
-    "by adjusting anchors and calling the tool again until all viability "
-    "checks PASS. Then commit your final answer.\n\n"
+    "Propose driver anchors at Q1, Q11, Q20 for all 7 P&L drivers and "
+    f"call the {_TOOL_NAME} tool to verify the resulting trajectory. "
+    "Iterate by adjusting anchors and calling the tool again until all "
+    "viability checks PASS. Then commit your final answer.\n\n"
+    "WORKING CAPITAL DRIVERS:\n"
+    "You also author working capital drivers for this business. These\n"
+    "are operationally stable across quarters, so provide a SINGLE\n"
+    "value per driver that the system will apply uniformly across all\n"
+    "20 quarters:\n\n"
+    "- accounts_receivable_days\n"
+    "- accounts_payable_days\n"
+    "- inventory_days\n"
+    "- deferred_revenue_percent_of_revenue\n"
+    "- prepaid_expenses_percent_of_revenue\n\n"
+    "Reason from this specific business's operating model -- how it\n"
+    "collects payment, what it sells, how it manages stock, whether it\n"
+    "takes prepayments, what suppliers extend in terms. Different\n"
+    "business models produce fundamentally different working capital\n"
+    "structures.\n\n"
     "Final-answer schema (your assistant message when you commit):\n"
     "{\n"
     '  "driver_anchors": {\n'
@@ -196,7 +235,14 @@ def _build_initial_user_prompt(
     '    "payroll_dollars_per_quarter": {"q1": float, "q11": float, "q20": float},\n'
     '    "cogs_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
     '    "marketing_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
-    '    "sga_percent_of_revenue": {"q1": float, "q11": float, "q20": float}\n'
+    '    "sga_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
+    '    "working_capital_drivers": {\n'
+    '      "accounts_receivable_days": float,\n'
+    '      "accounts_payable_days": float,\n'
+    '      "inventory_days": float,\n'
+    '      "deferred_revenue_percent_of_revenue": float,\n'
+    '      "prepaid_expenses_percent_of_revenue": float\n'
+    "    }\n"
     "  },\n"
     '  "reasoning": "short prose explaining the path for this business"\n'
     "}\n"

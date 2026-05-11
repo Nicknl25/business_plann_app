@@ -69,6 +69,35 @@ _DRIVER_KEY_TO_LEVER_ID: Dict[str, str] = {
 }
 
 
+# Phase 9 P3.6 — GPT also authors 5 working capital drivers. These are
+# operationally stable across the planning horizon, so GPT provides a
+# SINGLE value per driver and the writer stamps it uniformly across all
+# 20 quarters. FINMO derives current assets / current liabilities from
+# these in its existing AR / Inventory / AP / prepaid / deferred-revenue
+# formulas. Universal across NAICS.
+GPT_AUTHORED_WORKING_CAPITAL_LEVER_IDS: Tuple[str, ...] = (
+  "balance_sheet::Accounts Receivable Days",
+  "balance_sheet::Accounts Payable Days",
+  "balance_sheet::Inventory Days",
+  "balance_sheet::Deferred Revenue (% of Revenue)",
+  "balance_sheet::Prepaid Expenses (% of Revenue)",
+)
+
+
+# Map GPT working-capital key -> lever_id.
+_WC_KEY_TO_LEVER_ID: Dict[str, str] = {
+  "accounts_receivable_days": "balance_sheet::Accounts Receivable Days",
+  "accounts_payable_days": "balance_sheet::Accounts Payable Days",
+  "inventory_days": "balance_sheet::Inventory Days",
+  "deferred_revenue_percent_of_revenue": (
+    "balance_sheet::Deferred Revenue (% of Revenue)"
+  ),
+  "prepaid_expenses_percent_of_revenue": (
+    "balance_sheet::Prepaid Expenses (% of Revenue)"
+  ),
+}
+
+
 # Universal viability trajectory checks. These evaluate against FINMO
 # outputs (revenue, EBITDA dollar amounts), not driver values, and stay
 # active in the realism gate even after the handler runs.
@@ -241,6 +270,81 @@ def _detect_payroll_supported_capacity(model_input: Dict[str, Any]) -> bool:
   )
 
 
+def _write_gpt_authored_working_capital_values(
+  *,
+  model_input: Dict[str, Any],
+  working_capital_drivers: Dict[str, Any],
+  provenance_tag: str,
+) -> Dict[str, Any]:
+  """Stamp each GPT-authored working capital driver as a SINGLE value
+  uniformly across all 20 live quarters. These drivers are
+  operationally stable across the planning horizon (AR / AP / inventory
+  days, prepaid + deferred revenue ratios), so the writer treats them
+  as flat across the horizon — no interpolation. Tags each write with
+  the same provenance mechanism the P&L writer uses so FINMO seed-
+  policy doesn't clobber.
+  """
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  per_driver_summary: Dict[str, Any] = {}
+  for wc_key, lever_id in _WC_KEY_TO_LEVER_ID.items():
+    raw = (working_capital_drivers or {}).get(wc_key)
+    if raw is None:
+      per_driver_summary[lever_id] = {
+        "status": "skipped_no_value",
+        "reason": "wc_value_not_in_commit_payload",
+      }
+      continue
+    try:
+      value = float(raw)
+    except Exception:
+      per_driver_summary[lever_id] = {
+        "status": "skipped_non_numeric",
+        "raw_value": raw,
+      }
+      continue
+
+    rows = _find_rows_for_lever(model_input or {}, lever_id)
+    if not rows:
+      per_driver_summary[lever_id] = {
+        "status": "skipped_no_rows",
+        "value": value,
+      }
+      continue
+
+    for row in rows:
+      vals = row.get("values")
+      if not isinstance(vals, list):
+        vals = [0.0] * (HORIZON_QUARTERS + 1)
+        row["values"] = vals
+      while len(vals) <= HORIZON_QUARTERS:
+        vals.append(0.0)
+      for q_idx in range(HORIZON_QUARTERS):
+        live_idx = 1 + q_idx
+        if live_idx < len(vals):
+          vals[live_idx] = float(value)
+
+      tag = row.get("applied_by_target_solver_quarters")
+      if not isinstance(tag, dict):
+        tag = {}
+        row["applied_by_target_solver_quarters"] = tag
+      for q_idx in range(HORIZON_QUARTERS):
+        tag[str(q_idx + 1)] = {
+          "target_metric": provenance_tag,
+          "applied_value": float(value),
+          "gpt_authored": True,
+          "lever_id": lever_id,
+        }
+
+    per_driver_summary[lever_id] = {
+      "status": "written",
+      "value": value,
+      "rows_written": len(rows),
+    }
+  return per_driver_summary
+
+
 def _write_gpt_authored_per_quarter_values(
   *,
   model_input: Dict[str, Any],
@@ -384,6 +488,16 @@ def _write_gpt_authored_per_quarter_values(
         per_q_values[0], per_q_values[10], per_q_values[-1]
       ],
     }
+
+  # Phase 9 P3.6 — working capital drivers (flat across 20 quarters).
+  wc = (driver_anchors or {}).get("working_capital_drivers")
+  if isinstance(wc, dict) and wc:
+    wc_summary = _write_gpt_authored_working_capital_values(
+      model_input=model_input,
+      working_capital_drivers=wc,
+      provenance_tag=provenance_tag,
+    )
+    per_driver_summary["_working_capital"] = wc_summary
   return per_driver_summary
 
 
@@ -413,7 +527,13 @@ def compute_metrics_to_mute() -> List[str]:
   Per-draft only — metric definitions in lookup.py stay unchanged.
   """
   to_mute: List[str] = ["ebitda_margin"]
-  gpt_authored = set(GPT_AUTHORED_LEVER_IDS)
+  # Phase 9 P3.6 — working capital lever IDs are also GPT-authored when
+  # the handler fires, so realism metrics whose primary_levers include
+  # AR/AP/inventory days or prepaid/deferred revenue ratios are muted
+  # for this draft on the same per-metric basis as the P&L drivers.
+  gpt_authored = set(GPT_AUTHORED_LEVER_IDS) | set(
+    GPT_AUTHORED_WORKING_CAPITAL_LEVER_IDS
+  )
 
   try:
     from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore

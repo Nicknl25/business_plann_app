@@ -27,6 +27,17 @@ _DRIVER_KEYS = (
 )
 
 
+# Phase 9 P3.6 — working capital driver sanity bands. Single value
+# per driver (not 3-anchor). Bands intentionally wide.
+_WC_BANDS: Dict[str, Dict[str, float]] = {
+  "accounts_receivable_days": {"lower": 0.0, "upper": 365.0},
+  "accounts_payable_days": {"lower": 0.0, "upper": 365.0},
+  "inventory_days": {"lower": 0.0, "upper": 365.0},
+  "deferred_revenue_percent_of_revenue": {"lower": 0.0, "upper": 1.0},
+  "prepaid_expenses_percent_of_revenue": {"lower": 0.0, "upper": 1.0},
+}
+
+
 def _check_triple(
   *,
   driver_name: str,
@@ -101,6 +112,22 @@ def validate_final_commit(
       return False, (
         f"commit_cost_ratios_sum_exceeds_revenue_at_{q_key}: "
         f"cogs+mkt+sga={s:.3f}"
+      )
+
+  # Phase 9 P3.6 — working capital drivers (single value each).
+  wc = anchors.get("working_capital_drivers")
+  if not isinstance(wc, dict):
+    return False, "commit_missing_working_capital_drivers"
+  for wc_key, band in _WC_BANDS.items():
+    v = wc.get(wc_key)
+    if v is None or not isinstance(v, (int, float)):
+      return False, f"wc_{wc_key}_not_numeric"
+    fv = float(v)
+    lo = float(band["lower"])
+    hi = float(band["upper"])
+    if fv < lo or fv > hi:
+      return False, (
+        f"wc_{wc_key}_out_of_range_value={fv}_bounds=[{lo},{hi}]"
       )
 
   return True, None

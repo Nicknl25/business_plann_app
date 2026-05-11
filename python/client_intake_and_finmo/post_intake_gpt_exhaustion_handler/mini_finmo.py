@@ -197,14 +197,24 @@ def compute_trajectory_from_anchors(
   Parameters
   ----------
   anchors
-    GPT's proposed driver anchors at Q1, Q11, Q20. Shape:
+    GPT's proposed driver anchors. Shape:
       {"unit_price": {"q1": ..., "q11": ..., "q20": ...},
        "units_per_period_capacity": {...},
        "utilization_rate": {...},
        "payroll_dollars_per_quarter": {...},
        "cogs_percent_of_revenue": {...},
        "marketing_percent_of_revenue": {...},
-       "sga_percent_of_revenue": {...}}
+       "sga_percent_of_revenue": {...},
+       "working_capital_drivers": {                  # Phase 9 P3.6
+         "accounts_receivable_days": <number>,
+         "accounts_payable_days": <number>,
+         "inventory_days": <number>,
+         "deferred_revenue_percent_of_revenue": <decimal>,
+         "prepaid_expenses_percent_of_revenue": <decimal>
+       }}
+    Working capital drivers are SINGLE values per driver (no Q1/Q11/Q20
+    ramp) — operationally stable across the planning horizon; the
+    writer stamps them uniformly across all 20 live quarters.
   operating_context
     {
       "model_input_template": Dict[str, Any]    # deepcopy source
