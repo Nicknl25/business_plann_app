@@ -248,3 +248,120 @@ If a new bug surfaces, that's the next iteration of the loop. Stop the fix here;
 The proposed fix is one focused change in [`schedule.py:2463-2485`](python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2463) plus a unit smoke test file. Push as `phase_9_p3_10_bug_c_fix_payroll_rationalization_rollup_skip`.
 
 **Awaiting your direction:** approve Option D as scoped, or pick Option E / F instead.
+
+---
+
+## 7. Addendum (post user follow-up): two pre-fix questions answered + revised recommendation
+
+The user asked two questions before authorizing Option D. Both turn out to invalidate Options D and E and point to a fourth option: **the cap is dead workaround code; remove it.**
+
+### 7.1 Q1 — Is the deferred-headcount-bug still live in the current schedule build path?
+
+**No. It's been fixed at the source.** The rationalization docstring (lines 168-173) explains the cap was a workaround for "the deferred headcount bug" — the schedule used to anchor on `operator_stated_current_payroll / 4` distributed evenly. Today the schedule build path is entirely per-row OEWS-resolved:
+
+- Key people ([`_key_people_rows_from_intake`](python/client_intake_and_finmo/post_intake_headcount/schedule.py#L746-L805)): one row per intake person, `annual_wage = person.get("annual_wage")` (intake/OEWS resolved per-person at lines 769-776), `starting_fte=ending_fte=1.0`. No reference to `current_payroll`.
+- Supporting staff ([`_resolve_supporting_staff_wages`](python/client_intake_and_finmo/post_intake_headcount/schedule.py#L1115-L1232)): one row per supporting position, `annual_wage` resolved from the **NAICS OEWS title catalog** for the business's naics_6 (lines 1124-1128, 1182-1198). Hard-fail if the OEWS title isn't in the catalog. No reference to `current_payroll`.
+
+Sunny's persisted Q1 row data confirms this: 3 distinct rows with 3 distinct OEWS-resolved wages (75820, 36550, 36246) and stated FTEs. None of the wages are derived from `current_payroll / 3` or any flat distribution. The wages reflect actual cohort-typical OEWS values for bakery occupations.
+
+The string `"current_payroll"` appears in `schedule.py` at exactly two sites — lines 542 and 3059 — both are intake-snapshot reflections (preserved in metadata), not used as the basis for any per-row wage. Verified by grep.
+
+**Conclusion Q1:** the build-time bug the cap was patching no longer exists.
+
+### 7.2 Q2 — Does FINMO read `quarter_totals.payroll` or re-sum rows?
+
+**FINMO reads `quarter_totals.payroll` (indirectly via `model_input.expenses.Payroll.values`). It does NOT re-sum rows.** Verified by tracing:
+
+1. Schedule writer or restoration cap → `quarter_totals[i].payroll`.
+2. [`apply_payroll_headcount_payload_to_model_input`](python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2549-L2582) line 2565: `derived_live_values = [float(totals_by_quarter[quarter]) for quarter in range(1, live_count + 1)]` — pulls from `quarter_totals.payroll` and stamps into `model_input.expenses.Payroll.values`. The `rows` field is **not consulted**.
+3. [`_apply_restoration_to_model_input`](python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L481-L502) does the same: reads `adjusted_payroll_headcount.quarter_totals[i].payroll`, writes to `model_input.expenses.Payroll.values`.
+4. [`finmo_model.py:354`](python/financial_model_engine/finmo_model.py#L354): `payroll = quarter.expenses.payroll_amount`.
+5. [`model_inputs.py:776`](python/financial_model_engine/model_inputs.py#L776): `quarter.expenses.payroll_amount = value` where `value` comes from the model_input Payroll row's `values` array.
+
+So FINMO consumes the **capped** `quarter_totals.payroll` value. The row-level FTE / wage / per-row totals are vestigial as far as FINMO is concerned.
+
+The `rows` field is read by exactly one consumer in the post-intake critical path: the validator `_validate_quarter_totals_match_title_rows` (the one we're trying to fix). Other consumers are non-critical (Diagnostics sheet narrative, FTE counts in workbook tabs).
+
+**Conclusion Q2:** FINMO is happy with the cap. The cap successfully reduces FINMO payroll. The validator's "rows must match totals" check is the only place the cap divergence matters.
+
+### 7.3 Implications: the cap is dead workaround code
+
+Putting Q1 + Q2 together:
+
+- The cap was a workaround for the deferred-headcount-bug (which made `current_payroll / 4` appear as the schedule baseline regardless of capacity). That bug is fixed.
+- Without that bug, the schedule baseline IS already capacity-appropriate-by-construction: row-level FTE × OEWS-cohort wage × stated benefits %. There's nothing to "rationalize down."
+- For Sunny: the operator stated 2 key people + 0.5 supporting staff at OEWS-cohort wages. The resulting Q1 payroll = $39,620 = the operator's actual reality. Capping it to $20,777 doesn't reflect any real "you're overstaffed" signal — it's the cap reapplying the OLD bug's logic on data that's already been built correctly.
+- The cap fights downstream consumers: it forces FINMO payroll DOWN to a cohort target that doesn't reflect the operator's stated headcount. The realism gate then sees a payroll % of revenue that's artificially low; downstream targets and bands are computed against a phantom payroll level.
+- The marker fields (`_phase_7_2_capped_for_capacity`, `_phase_7_2_original_payroll`, `_phase_7_2_target_annual_payroll`, `_phase_7_2_naics_payroll_pct_used`, `_phase_7_2_headcount_rationalization_applied`) are not consumed by any downstream code in `python/`. Verified by grep — the only matches outside `feasibility_restoration.py` are in three docs (this one + two pre-existing diagnostic docs). The cap leaves no narrative trace any consumer reads.
+- The cascade ([`restore_feasibility`](python/client_intake_and_finmo/post_intake_solver/feasibility_restoration.py#L423-L550)) treats the rationalization lever as one of four. If it returns 0 savings, levers 2-4 (price lift / utilization lift / capacity expansion) absorb the gap. The cascade still functions; it just stops applying a phantom override.
+
+### 7.4 Revised recommendation: Option G — remove the cap
+
+Per the user's standing rule (*"Remove or convert legacy code, don't just route around it"*), the right fix is to delete `_apply_headcount_rationalization` entirely (or convert it to a no-op stub that always returns 0 savings) AND remove the call site at [`feasibility_restoration.py:471-478`](python/client_intake_and_finmo/post_intake_solver/feasibility_restoration.py#L471).
+
+**Why this beats Options D / E / F:**
+
+| | D (skip check on flag) | E (rebuild rows) | F (remove rationalization, hard-fail) | **G (remove cap entirely)** |
+|---|---|---|---|---|
+| Fixes Sunny | yes | yes | yes (different way) | **yes** |
+| FINMO sees operator-stated payroll | no (capped) | no (capped, FTE rebuilt) | yes | **yes** |
+| Realism gate sees operator-stated payroll % of revenue | no | no | yes | **yes** |
+| Removes dead workaround | no (preserves dead path with new validator carve-out) | no (replaces with new dead path: scaled phantom FTE) | yes (but adds a new hard-fail surface) | **yes** |
+| Cascade still has fallback levers (price / util / capacity) | n/a | n/a | no (removes a lever) | **yes (lever returns 0; cascade continues)** |
+| Risk to production runs | low (validator-only) | medium (per-row FTE rewrites ripple) | high (some businesses now hard-fail at structural check) | **low (lever was already vestigial; FINMO already preferred uncapped baseline conceptually)** |
+
+**Concrete change:**
+
+```python
+# python/client_intake_and_finmo/post_intake_solver/feasibility_restoration.py
+
+def _apply_headcount_rationalization(*args, **kwargs) -> float:
+  """Phase 9 P3.10 Bug C — DEAD WORKAROUND REMOVED.
+
+  This lever was patching the deferred-headcount-bug (schedule built
+  payroll from operator_stated_current_payroll / 4). That bug is fixed
+  at the source: the current schedule build path resolves per-row
+  OEWS wages × stated FTE, so the rollup is already cohort-appropriate
+  by construction.
+
+  Removing the cap restores the operator-stated row totals to FINMO,
+  the realism gate, and downstream cohort comparisons. The cascade's
+  remaining levers (price lift / utilization lift / capacity expansion)
+  continue to absorb any structural feasibility gap.
+
+  Kept as a stub returning 0.0 so the existing cascade signature
+  (positional payroll_savings) is preserved. Caller updates can fold
+  this lever out of the cascade list in a follow-up commit if desired.
+  """
+  return 0.0
+```
+
+Plus delete the helper functions only used by this lever (`_naics_payroll_pct`, `_annual_payroll_from_schedule` if not referenced elsewhere) — to be confirmed by grep before final cut.
+
+**Universal-app discipline:** this change applies to every business identically. No NAICS / archetype branching.
+
+**Risk assessment:**
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| Some business that *was* relying on the cap to appear feasible now fails the structural check | Possible — any business currently capped goes through the cascade with `payroll_savings = 0` instead of `> 0`. Levers 2-4 try to close the gap; if they can't, the cascade hits its existing terminal-failure path. | The cascade's residual-gap path is already handled (it logs and returns infeasible-with-narrative; the orchestrator continues with the adjusted ops). The new behavior is correct: communicating to the planning consultant that price/utilization/capacity adjustments are needed instead of silently shrinking payroll. |
+| FINMO payroll values change for previously-capped runs | Yes for any business where the cap fired. FINMO will see operator-stated payroll instead of the cap. | This IS the correct semantic. The realism gate has its own per-quarter cohort cap on `payroll_percent_of_revenue` — that's the proper place for "your payroll is too high relative to cohort." A failure there has the right diagnostic shape. |
+| Realism gate may now flag payroll-percent-of-revenue out-of-band where the cap previously hid it | Yes — this is the surfaced-bug pattern again, exactly what the user's hard-fail architecture is designed to do: stop hiding latent issues. If the realism gate raises, the right next step is a planning-consultant communication, not a silent cap. | None needed; this is the correct behaviour under CONVERGENCE_TEST_MODE=true. |
+| Two helper functions (`_naics_payroll_pct`, `_annual_payroll_from_schedule`) become dead code | Verified locally only; need a grep before deletion. | Confirm dead via grep; delete in same commit. |
+
+**Test plan (revised):**
+
+1. Unit smoke test: `_apply_headcount_rationalization(...)` returns 0.0 regardless of inputs (stub behaviour).
+2. Unit smoke test: `restore_feasibility` produces a `RestorationResult` whose `applied_adjustments` does NOT include a `headcount_rationalization` entry, and whose `adjusted_payroll_headcount.quarter_totals[i]` are NOT carrying `_phase_7_2_capped_for_capacity` or `_phase_7_2_original_payroll`.
+3. Unit smoke test: `restore_feasibility` for a structurally-infeasible business still produces a result (cascade levers 2-4 fire as before).
+4. **E2E Sunny re-run:** payroll rollup check passes; surface the next bug or land 16/16.
+
+**Push as:** `phase_9_p3_10_bug_c_remove_dead_payroll_rationalization_workaround`.
+
+### 7.5 Awaiting your direction (revised)
+
+Given Q1 + Q2 evidence, the cap is dead workaround code. Recommend **Option G — remove**.
+
+Options D, E, F all preserve the cap in some form. They each fix the validator failure but leave the dead workaround in place, perpetuating the FINMO/realism distortion the cap creates. None of them serve the architectural intent of P3.10.
+
+If you want to keep the cap for a non-obvious reason (e.g., it's protecting against a class of failure I haven't seen), say so and I'll re-scope. Otherwise, the cleanest path is delete.
