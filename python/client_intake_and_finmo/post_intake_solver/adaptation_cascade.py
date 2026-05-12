@@ -677,6 +677,27 @@ def run_adaptation_cascade(
       "review_status": "tier_7_floor",
     }
   except Exception as exc:
+    # Phase 9 P3.10 Commit 2 — under CONVERGENCE_TEST_MODE the Tier 7
+    # envelope-build failure must propagate. The previous fallback to
+    # the prior envelope produced a "Tier 7 attempted with degraded
+    # inputs" plan that the cascade then declared a clean landing —
+    # exactly the masquerade pattern the audit flagged.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="adaptation_cascade_tier7_envelope_build",
+        pipeline_stage="post_intake_adaptation_cascade",
+        expected="Tier 7 envelope build returns a usable envelope payload",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "business_naics_6": business_naics_6,
+          "business_stage": business_stage,
+        },
+        cause=exc,
+      ) from exc
     logger.warning("adaptation_cascade_tier7_envelope_build_failed: %s", exc)
     t7_env = envelope_payload_post
     t7_targets = targets_payload_post
@@ -696,6 +717,32 @@ def run_adaptation_cascade(
       influence=t4_influence or influence_payload,
     )
   except Exception as exc:
+    # Phase 9 P3.10 Commit 2 — the most consequential silent-failure
+    # site in the cascade. Previously: residuals=[] which then trips
+    # the `if not residuals:` branch -> declares Tier 7 a clean landing.
+    # An exception literally became "success." Under test mode the
+    # exception now propagates so the operator sees the real failure.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="adaptation_cascade_tier7_inner_runner",
+        pipeline_stage="post_intake_adaptation_cascade",
+        expected=(
+          "Tier 7 inner runner produces (new_inner, repair, residuals) "
+          "from generic NAICS-cascade envelope + widened tolerances"
+        ),
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "business_naics_6": business_naics_6,
+          "business_stage": business_stage,
+          "widened_metric_count": len(widened_all),
+          "envelope_source": "naics_cascade_only_no_cohort_no_gpt",
+        },
+        cause=exc,
+      ) from exc
     logger.warning("adaptation_cascade_tier7_inner_runner_failed: %s", exc)
     new_inner = inner_result
     repair = repair_pass or {}

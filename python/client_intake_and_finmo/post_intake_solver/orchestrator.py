@@ -1708,11 +1708,30 @@ def _run_post_cascade_completion(
           else:
             final_model_input_json["_muted_realism_metrics"] = list(muted)
       except Exception as exc:
+        # Phase 9 P3.10 Commit 2 — under CONVERGENCE_TEST_MODE the
+        # handler exception must propagate. Without this, every
+        # PostIntakePreconditionFailed raised from the handler (#19,
+        # #27) would be swallowed here and the run would silently
+        # continue past the broken plan — the canonical Sunny pattern.
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise
         completion_trace["gpt_exhaustion_handler"] = {
           "status": "failed",
           "error": f"{type(exc).__name__}: {str(exc)[:500]}",
         }
   except Exception as exc:
+    # Phase 9 P3.10 Commit 2 — same propagation rule for the
+    # restoration-loop wrapper. The combined block (loop + handler)
+    # must hard-fail under test mode so failures land at the API
+    # boundary with a clear diagnostic.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
     completion_trace["restoration_loop"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
@@ -1987,15 +2006,25 @@ def _run_post_cascade_completion(
         solver_target_assertion = stax
         next_result["solver_target_assertion"] = copy.deepcopy(stax)
   except Exception as exc:
+    # Phase 9 P3.10 Commit 2 — the legacy Phase-8 finalize warning
+    # downgrade is removed. Under test mode the finalize fail-fast
+    # (which IS the existing fail-fast layer) must not be undone at
+    # the orchestrator level. The legacy Phase 8 note explained why
+    # this downgrade existed; with the acceptance gate in place,
+    # downgrading produces exactly the misleading 13/16 outcomes the
+    # P3.10 overhaul is fixing.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
     completion_trace["finalize_validation"] = {
-      "status": "failed_downgraded_to_warning",
+      "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
       "note": (
-        "Phase 8: finalize raised on legacy fail-fasts (revenue formula "
-        "mismatch / cash buffer / etc.) that the legacy GPT loop's "
-        "authority reapplication used to reconcile. The acceptance gate "
-        "is the new authority — its checks for revenue / cash / current "
-        "assets cover the same ground."
+        "Production-mode legacy path: finalize exception captured but "
+        "not raised. Test mode (CONVERGENCE_TEST_MODE=true) propagates "
+        "the exception to the API boundary."
       ),
     }
     finalize_result = {"solver_target_assertion": solver_target_assertion}

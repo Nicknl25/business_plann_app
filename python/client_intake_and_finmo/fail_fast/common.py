@@ -9,6 +9,64 @@ from typing import Any, Dict, Optional
 _FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
 
 
+class PostIntakePreconditionFailed(RuntimeError):
+  """Phase 9 P3.10 — hard-fail raised when a critical post-intake
+  operation's precondition fails or an unrecoverable error is hit.
+
+  Carries structured diagnostic context so the operator can identify
+  the exact fix in one log line: the operation that failed, the
+  expected state, the actual state, and where in the pipeline the
+  failure occurred. Only raised when ``CONVERGENCE_TEST_MODE`` is
+  enabled — production-mode callers continue to receive the legacy
+  status-dict pattern (separate decision).
+
+  Distinguished from ``FailFastError`` (state-checking asserts in
+  ``post_intake_fail_fast``) — ``PostIntakePreconditionFailed`` is for
+  operation-level preconditions (build_finmo, GPT session, post-commit
+  rebuild, writer contract violations) where the operation cannot
+  produce a usable result. ``FailFastError`` is for state invariants
+  (model_input rows, FINMO statement math, contract conformance) that
+  must hold across operation boundaries.
+  """
+
+  def __init__(
+    self,
+    *,
+    operation: str,
+    pipeline_stage: str,
+    expected: str = "",
+    actual: str = "",
+    details: Optional[Dict[str, Any]] = None,
+    cause: Optional[BaseException] = None,
+  ) -> None:
+    self.operation = str(operation or "").strip()
+    self.pipeline_stage = str(pipeline_stage or "").strip()
+    self.expected = str(expected or "").strip()
+    self.actual = str(actual or "").strip()
+    self.details = details if isinstance(details, dict) else {}
+    self.cause = cause
+    header = (
+      f"post_intake_precondition_failed: operation={self.operation} "
+      f"pipeline_stage={self.pipeline_stage}"
+    )
+    if self.expected or self.actual:
+      header += f" expected={self.expected!r} actual={self.actual!r}"
+    if cause is not None:
+      header += f" cause={type(cause).__name__}: {str(cause)[:200]}"
+    super().__init__(header)
+
+  def to_dict(self) -> Dict[str, Any]:
+    return {
+      "operation": self.operation,
+      "pipeline_stage": self.pipeline_stage,
+      "expected": self.expected,
+      "actual": self.actual,
+      "details": dict(self.details),
+      "cause_class": type(self.cause).__name__ if self.cause else None,
+      "cause_detail": str(self.cause)[:500] if self.cause else None,
+    }
+
+
 class FailFastError(RuntimeError):
   """Runtime error raised when an enabled fail-fast guard trips."""
 

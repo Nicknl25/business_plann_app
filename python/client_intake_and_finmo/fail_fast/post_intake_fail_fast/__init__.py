@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+  PostIntakePreconditionFailed,
+)
 from .fail_fast import (
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
   BUSINESS_SHAPE_TEST_MODE_FAIL_FLAGS,
@@ -33,6 +36,7 @@ from .fail_fast import (
 )
 
 __all__ = [
+  "PostIntakePreconditionFailed",
   "CASH_STRATEGY_TEST_MODE_FAIL_FLAGS",
   "BUSINESS_SHAPE_TEST_MODE_FAIL_FLAGS",
   "CONVERGENCE_TEST_MODE_FAIL_FLAGS",

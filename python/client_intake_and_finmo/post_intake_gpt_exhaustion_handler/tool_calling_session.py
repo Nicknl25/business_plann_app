@@ -736,10 +736,41 @@ def execute_tool_calling_session_and_commit(
     "tool_calling_session": session_result.to_dict(),
   }
 
-  # No anchors to commit -> failed precondition.
+  # Phase 9 P3.10 Commit 2 — split FAILED_PRECONDITION semantics.
+  # When the session produced no anchors AND the failure was a network
+  # retry exhaustion (Sunny pattern: DNS outage on first turn), raise
+  # PostIntakePreconditionFailed under test mode so the operator sees
+  # the network diagnostic in one line. When the failure was something
+  # else (parse error, GPT stopped without all_pass on every probe),
+  # return FAILED_NO_USABLE_ANCHORS — Commit 3 will convert that
+  # receiving end too.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+
   if session_result.final_anchors is None:
+    detail_text = str(session_result.detail or "")
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="gpt_exhaustion_handler_tool_calling_session_no_anchors",
+        pipeline_stage="phase_9_p3_9_tool_calling_session",
+        expected="At least one tool call produces usable anchors",
+        actual=detail_text[:300] or "no tool calls completed",
+        details={
+          "tool_calls_used": int(session_result.tool_calls_used),
+          "gpt_calls_made": int(session_result.gpt_calls_made),
+          "budget_extension_triggered": bool(
+            session_result.budget_extension_triggered
+          ),
+          "decision_sources": list(session_result.decision_sources),
+          "last_viability_checks": session_result.last_viability_checks,
+        },
+      )
+    # Production-mode legacy path — return FAILED_NO_USABLE_ANCHORS so
+    # downstream can distinguish from genuine preconditions.
     return HandlerResult(
-      status=HandlerStatus.FAILED_PRECONDITION,
+      status=HandlerStatus.FAILED_NO_USABLE_ANCHORS,
       gpt_calls_made=session_result.gpt_calls_made,
       q11_ebitda_target=None,
       q11_ebitda_actual=_q11_ebitda_margin(
@@ -747,7 +778,7 @@ def execute_tool_calling_session_and_commit(
       ),
       provenance=provenance,
       reason=(
-        f"tool_calling_session_failed: {session_result.detail or 'unknown'}"
+        f"tool_calling_session_failed: {detail_text or 'unknown'}"
       ),
     )
 
@@ -762,9 +793,34 @@ def execute_tool_calling_session_and_commit(
   provenance["commit_write_summary"] = write_summary
 
   # Rebuild FINMO so downstream sees the updated state.
+  # Phase 9 P3.10 Commit 2 — post-commit rebuild failure is a genuine
+  # precondition: GPT committed verified anchors, the writer applied
+  # them, and the rebuild after the writer must succeed. A failure here
+  # means the writer produced an invalid model_input that even mini-
+  # FINMO accepted under its probe — a real divergence between probe
+  # and commit (the system was supposed to make this structurally
+  # impossible per P3.9). Hard-fail under test mode.
   try:
     rebuilt_finmo = build_finmo(copy.deepcopy(model_input or {}))
   except Exception as exc:
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="gpt_exhaustion_handler_post_commit_finmo_rebuild",
+        pipeline_stage="phase_9_p3_9_tool_calling_session",
+        expected=(
+          "build_finmo() succeeds on writer-mutated model_input "
+          "(mini-FINMO probe already accepted the same anchors)"
+        ),
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "session_status": session_result.status,
+          "tool_calls_used": int(session_result.tool_calls_used),
+          "implied_q11_ebitda_margin": session_result.implied_q11_ebitda_margin,
+          "verified_commit_call_n": session_result.verified_commit_call_n,
+          "best_effort_call_n": session_result.best_effort_call_n,
+        },
+        cause=exc,
+      ) from exc
     return HandlerResult(
       status=HandlerStatus.FAILED_PRECONDITION,
       gpt_calls_made=session_result.gpt_calls_made,

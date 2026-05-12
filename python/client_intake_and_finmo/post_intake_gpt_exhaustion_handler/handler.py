@@ -150,11 +150,20 @@ class HandlerStatus(str, Enum):
   # viability checks (tiebreaker: highest Q11 EBITDA margin) was used.
   # The plan is delivered with this status flagging it as marginal.
   LANDED_BEST_EFFORT_NO_ALL_PASS = "landed_best_effort_no_all_pass"
-  # Pre-flight issue (FINMO build failure before the session, missing
-  # API key, malformed model_input, etc.). NOT used for GPT being
-  # unable to find viability — the budget-extension + best-effort path
-  # handles that case as LANDED_BEST_EFFORT_NO_ALL_PASS.
+  # Phase 9 P3.10 split — pre-flight precondition (genuine: FINMO build
+  # failure before the session, tool_calling_session import error,
+  # post-commit FINMO rebuild raised). Under CONVERGENCE_TEST_MODE=true
+  # these sites now raise PostIntakePreconditionFailed instead of
+  # returning this status. The status value is preserved for prod-mode
+  # callers but is the LEGACY path; new code must raise.
   FAILED_PRECONDITION = "failed_precondition"
+  # Phase 9 P3.10 split — post-session result indicating no usable
+  # anchors were produced (every turn errored, GPT never called the
+  # tool, or network retries exhausted within the session). Under test
+  # mode the session-loop receiving end will convert this to a hard
+  # fail in Commit 2-3; preserved here as a distinct status so the
+  # diagnostic carries the correct kind.
+  FAILED_NO_USABLE_ANCHORS = "failed_no_usable_anchors"
 
 
 @dataclass
@@ -641,10 +650,37 @@ def run_gpt_exhaustion_handler(
   except Exception:
     exhaustion_diagnostic = {"note": "restoration_result_not_serializable"}
 
+  # Phase 9 P3.10 Commit 2 — pre-session FINMO build is a genuine
+  # precondition. Under CONVERGENCE_TEST_MODE=true a failure here raises
+  # PostIntakePreconditionFailed so the operator sees the exact build
+  # error in one log line. Production-mode callers continue to receive
+  # FAILED_PRECONDITION (legacy path) for backwards compat.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+
   if not isinstance(finmo_json, dict) or not finmo_json:
     try:
       finmo_json = build_finmo(copy.deepcopy(model_input or {}))
     except Exception as exc:
+      if convergence_test_mode_enabled():
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_pre_session_finmo_build",
+          pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler",
+          expected="build_finmo(model_input) returns a valid FINMO dict",
+          actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+          details={
+            "model_input_section_count": (
+              len((model_input or {}).get("sections") or {})
+              if isinstance(model_input, dict) else 0
+            ),
+            "restoration_status": (
+              str(exhaustion_diagnostic.get("status") or "")
+            ),
+          },
+          cause=exc,
+        ) from exc
       return HandlerResult(
         status=HandlerStatus.FAILED_PRECONDITION,
         gpt_calls_made=0,
@@ -663,6 +699,15 @@ def run_gpt_exhaustion_handler(
       execute_tool_calling_session_and_commit,
     )
   except Exception as exc:
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="gpt_exhaustion_handler_module_import",
+        pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler",
+        expected="tool_calling_session module importable",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"q1_state": q1_state},
+        cause=exc,
+      ) from exc
     return HandlerResult(
       status=HandlerStatus.FAILED_PRECONDITION,
       gpt_calls_made=0,
