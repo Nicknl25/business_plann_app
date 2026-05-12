@@ -68,6 +68,11 @@ class DraftWorkbookData:
   payroll_headcount: Dict[str, Any]
   debt_schedule: Dict[str, Any]
   planning_run_json: Dict[str, Any]
+  # Phase 9 P3.9 -- optional run diagnostic payload. When set, the
+  # workbook builder renders the trailing 'Diagnostics' sheet from
+  # this dict. Source of truth lives in `post_intake_run_diagnostics`;
+  # the workbook is a pure reflection.
+  run_diagnostics: Optional[Dict[str, Any]] = None
 
   @property
   def draft_id(self) -> str:
@@ -160,7 +165,11 @@ class DraftWorkbookData:
     return {}
 
 
-def draft_data_from_row(row: Dict[str, Any]) -> DraftWorkbookData:
+def draft_data_from_row(
+  row: Dict[str, Any],
+  *,
+  run_diagnostics: Optional[Dict[str, Any]] = None,
+) -> DraftWorkbookData:
   return DraftWorkbookData(
     draft_row=dict(row or {}),
     model_input_json=parse_json_object((row or {}).get("model_input_json")),
@@ -168,6 +177,7 @@ def draft_data_from_row(row: Dict[str, Any]) -> DraftWorkbookData:
     payroll_headcount=parse_json_object((row or {}).get("payroll_headcount")),
     debt_schedule=parse_json_object((row or {}).get("debt_schedule")),
     planning_run_json=parse_json_object((row or {}).get("planning_run_json")),
+    run_diagnostics=run_diagnostics if isinstance(run_diagnostics, dict) else None,
   )
 
 

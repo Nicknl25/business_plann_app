@@ -7222,6 +7222,161 @@ def post_intake_consult_system_run_handler(*, app, request):
         ),
         500,
       )
+    # Phase 9 P3.9 -- diagnostic persistence, workbook export, and
+    # auto-email run for EVERY planning run (success or failure). The
+    # workbook is still written to the local Client Plans folder as
+    # before; in addition, it's emailed to the operator. Acceptance-gate
+    # verdict no longer short-circuits these steps -- they happen
+    # regardless, and the HTTP response code reflects the gate result
+    # AFTER the diagnostics + workbook + email are complete.
+    diagnostic_payload: Dict[str, Any] = {}
+    diagnostic_persisted: bool = False
+    client_workbook_path: str = ""
+    workbook_export_error: Optional[str] = None
+    email_outcome: Dict[str, Any] = {"sent": False, "reason": "not_attempted"}
+    try:
+      from client_intake_and_finmo.post_intake_run_diagnostics import (  # type: ignore
+        build_run_diagnostics_payload,
+        persist_run_diagnostics,
+      )
+      from client_intake_and_finmo.workbook_email import (  # type: ignore
+        send_workbook_alert,
+        build_run_email_body,
+      )
+
+      # Pull the draft row's relevant JSON blobs and ops/financials for
+      # the diagnostic builder. Tolerate missing fields -- the builder
+      # is defensive.
+      try:
+        draft_row_for_diag = _select_consult_row_by_draft_id(  # type: ignore[name-defined]
+          conn, result_draft_id,
+        ) if "_select_consult_row_by_draft_id" in globals() else None
+      except Exception:
+        draft_row_for_diag = None
+      if draft_row_for_diag is None:
+        try:
+          cur_diag = conn.cursor(dictionary=True)
+          cur_diag.execute(
+            "SELECT draft_id, business_name, business_naics_6, "
+            "business_stage, business_start_date, planning_run_json, "
+            "realism_memo_json, model_input_json, operating_model_json, "
+            "financials_json FROM intake_consult_drafts WHERE draft_id = %s LIMIT 1",
+            (result_draft_id,),
+          )
+          draft_row_for_diag = cur_diag.fetchone() or {}
+          try:
+            cur_diag.close()
+          except Exception:
+            pass
+        except Exception:
+          draft_row_for_diag = {}
+
+      import json as _json_for_diag
+      def _parse_blob(raw: Any) -> Dict[str, Any]:
+        if isinstance(raw, dict):
+          return raw
+        if not raw:
+          return {}
+        try:
+          parsed = _json_for_diag.loads(str(raw))
+        except Exception:
+          return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+      realism_memo_for_diag = _parse_blob(
+        (draft_row_for_diag or {}).get("realism_memo_json")
+      )
+      ops_for_diag = _parse_blob(
+        (draft_row_for_diag or {}).get("operating_model_json")
+      )
+      financials_for_diag = _parse_blob(
+        (draft_row_for_diag or {}).get("financials_json")
+      )
+
+      diagnostic_payload = build_run_diagnostics_payload(
+        draft_row=draft_row_for_diag or {},
+        planning_run_json=planning_run_json if isinstance(planning_run_json, dict) else {},
+        realism_memo_json=realism_memo_for_diag,
+        ops_json=ops_for_diag,
+        financials_json=financials_for_diag,
+        acceptance_verdict=acceptance_verdict,
+        draft_id=result_draft_id,
+        planning_run_id=(
+          str((planning_run_json or {}).get("planning_run_id") or planning_run_id or "").strip()
+        ),
+      )
+      try:
+        diagnostic_persisted = persist_run_diagnostics(
+          conn, payload=diagnostic_payload,
+        )
+      except Exception as diag_exc:
+        app.logger.warning(
+          "Run diagnostics persist failed for draft %s: %s: %s",
+          result_draft_id, type(diag_exc).__name__, str(diag_exc)[:200],
+        )
+        diagnostic_persisted = False
+    except Exception as setup_exc:
+      app.logger.warning(
+        "Run diagnostics setup failed for draft %s: %s: %s",
+        result_draft_id, type(setup_exc).__name__, str(setup_exc)[:200],
+      )
+
+    # Generate the workbook regardless of acceptance verdict. The
+    # Diagnostics sheet renders from the just-persisted diagnostic row.
+    try:
+      from client_statements_output_excel.export_client_workbook import export_workbook_for_draft_id  # type: ignore
+
+      client_workbook_path = str(
+        export_workbook_for_draft_id(
+          draft_id=result_draft_id,
+          conn=conn,
+          run_diagnostics=(diagnostic_payload or None),
+        )
+      )
+    except Exception as exc:
+      workbook_export_error = str(exc).strip() or "client_workbook_export_failed"
+      app.logger.exception(
+        "Client workbook export failed for draft %s: %s",
+        result_draft_id, workbook_export_error,
+      )
+
+    # Auto-email the workbook (if export succeeded). Never block the
+    # response on email outcome -- log warnings only.
+    if client_workbook_path:
+      try:
+        from client_intake_and_finmo.workbook_email import (  # type: ignore
+          send_workbook_alert, build_run_email_body,
+        )
+        biz_name = (diagnostic_payload or {}).get("business_name") or result_draft_id
+        score = (diagnostic_payload or {}).get("acceptance_score") or "?/?"
+        passed = (diagnostic_payload or {}).get("acceptance_passed")
+        verdict_label = (
+          "PASSED" if passed is True
+          else "FAILED" if passed is False
+          else "UNKNOWN"
+        )
+        subject = (
+          f"[Planning Run] {biz_name} -- {verdict_label} ({score})"
+        )
+        body = build_run_email_body(diagnostic_payload or {})
+        email_outcome = send_workbook_alert(
+          subject=subject,
+          body=body,
+          attachment_paths=[client_workbook_path],
+        )
+      except Exception as mail_exc:
+        app.logger.warning(
+          "Workbook auto-email failed for draft %s: %s: %s",
+          result_draft_id, type(mail_exc).__name__, str(mail_exc)[:200],
+        )
+        email_outcome = {
+          "sent": False,
+          "reason": "send_exception",
+          "error": f"{type(mail_exc).__name__}: {str(mail_exc)[:200]}",
+        }
+
+    # Now honor the acceptance verdict in the HTTP response. Diagnostics,
+    # workbook, and email have already been produced (or attempted).
     if not bool(acceptance_verdict.get("passed")):
       app.logger.error(
         "Acceptance gate failed for draft %s: %s",
@@ -7236,34 +7391,32 @@ def post_intake_consult_system_run_handler(*, app, request):
             "draft_id": result_draft_id,
             "planning_run_id": acceptance_verdict.get("planning_run_id"),
             "acceptance_verdict": acceptance_verdict,
+            "client_workbook_path": client_workbook_path,
+            "workbook_export_error": workbook_export_error,
+            "run_diagnostics": diagnostic_payload,
+            "run_diagnostics_persisted": diagnostic_persisted,
+            "auto_email": email_outcome,
           }
         ),
         500,
       )
 
-    client_workbook_path = ""
-    try:
-      from client_statements_output_excel.export_client_workbook import export_workbook_for_draft_id  # type: ignore
-
-      client_workbook_path = str(
-        export_workbook_for_draft_id(
-          draft_id=result_draft_id,
-          conn=conn,
-        )
-      )
-    except Exception as exc:
-      detail = str(exc).strip() or "client_workbook_export_failed"
-      app.logger.exception("Client workbook export failed for draft %s: %s", result_draft_id, detail)
+    if workbook_export_error:
       return (
         jsonify(
           {
             "error": "client_workbook_export_failed",
-            "detail": detail,
+            "detail": workbook_export_error,
             "draft_id": result_draft_id,
+            "acceptance_verdict": acceptance_verdict,
+            "run_diagnostics": diagnostic_payload,
+            "run_diagnostics_persisted": diagnostic_persisted,
+            "auto_email": email_outcome,
           }
         ),
         500,
       )
+
     return jsonify(
       {
         "status": "ok",
@@ -7276,6 +7429,9 @@ def post_intake_consult_system_run_handler(*, app, request):
         "planning_runtime_json": planning_runtime_json,
         "numeric_solver_feedback_json": numeric_solver_feedback_json,
         "acceptance_verdict": acceptance_verdict,
+        "run_diagnostics": diagnostic_payload,
+        "run_diagnostics_persisted": diagnostic_persisted,
+        "auto_email": email_outcome,
       }
     )
   finally:

@@ -58,13 +58,34 @@ def _select_draft_row(conn, *, draft_id: str = "", client_id: str = "") -> Dict[
   return row
 
 
+def _load_run_diagnostics(conn: Any, draft_id: str) -> Optional[Dict[str, Any]]:
+  """Phase 9 P3.9 -- best-effort fetch of the most recent run
+  diagnostics for this draft so the workbook can render the
+  Diagnostics sheet. Returns None when no diagnostics row exists or
+  the lookup module isn't importable.
+  """
+  if not draft_id:
+    return None
+  try:
+    from client_intake_and_finmo.post_intake_run_diagnostics import (  # type: ignore
+      load_latest_diagnostics_for_draft,
+    )
+  except Exception:
+    return None
+  try:
+    return load_latest_diagnostics_for_draft(conn, draft_id=draft_id)
+  except Exception:
+    return None
+
+
 def export_workbook_for_row(
   row: Dict[str, Any],
   *,
   output_dir: Optional[Path] = None,
   written_at: Optional[datetime] = None,
+  run_diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Path:
-  data = draft_data_from_row(row)
+  data = draft_data_from_row(row, run_diagnostics=run_diagnostics)
   target_dir = Path(output_dir or DEFAULT_OUTPUT_DIR)
   target_dir.mkdir(parents=True, exist_ok=True)
   stamp = written_at or datetime.now()
@@ -89,6 +110,7 @@ def export_workbook_for_draft_id(
   client_id: str = "",
   output_dir: Optional[Path] = None,
   conn: Any = None,
+  run_diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Path:
   _load_env()
   owns_connection = conn is None
@@ -98,7 +120,11 @@ def export_workbook_for_draft_id(
     conn = get_mysql_connection()
   try:
     row = _select_draft_row(conn, draft_id=draft_id, client_id=client_id)
-    return export_workbook_for_row(row, output_dir=output_dir)
+    if run_diagnostics is None:
+      run_diagnostics = _load_run_diagnostics(conn, draft_id=str(row.get("draft_id") or ""))
+    return export_workbook_for_row(
+      row, output_dir=output_dir, run_diagnostics=run_diagnostics,
+    )
   finally:
     if owns_connection and conn is not None:
       try:

@@ -4,6 +4,7 @@ from openpyxl.styles import Font, PatternFill
 
 from .checks_sheet import build_checks_sheet
 from .data import DraftWorkbookData, validate_draft_data
+from .diagnostics_sheet import build_diagnostics_sheet
 from .excel_utils import (
   CASH_EQUITY_SHEET,
   CHECKS_SHEET,
@@ -44,6 +45,14 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   build_finmo_sheet(wb, data, ctx)
   build_source_audit_sheet(wb, data, ctx)
   build_checks_sheet(wb, ctx)
+
+  # Phase 9 P3.9 -- Diagnostics sheet appended LAST. Additive; never
+  # modifies or replaces any other sheet. Failures inside this builder
+  # are caught so they don't take down the rest of the workbook.
+  try:
+    build_diagnostics_sheet(wb, data, ctx, data.run_diagnostics)
+  except Exception:
+    pass
 
   wb.active = wb.sheetnames.index(FINMO_SHEET)
   set_tab_colors(wb)
