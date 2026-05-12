@@ -185,7 +185,7 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
       "key quarters (Q1/Q5/Q11/Q15/Q20), gross margin percents, "
       "revenues, EBITDA dollars, and PASS/FAIL on each viability check "
       "(ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11, "
-      "no_post_recovery_relapse_q11_q20, "
+      "ebitda_margin_q20_holds_or_improves_vs_q11, "
       "gross_margin_supports_ebitda_recovery, "
       "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
       "aggregate. Use this to verify your anchors produce a viable plan "

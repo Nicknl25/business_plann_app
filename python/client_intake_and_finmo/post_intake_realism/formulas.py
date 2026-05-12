@@ -820,22 +820,39 @@ def _formula_trajectory_loss_window_funded(
   return float(min(values))
 
 
-def _formula_trajectory_no_post_recovery_relapse(
+_EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE = 0.01
+
+def _formula_trajectory_ebitda_q20_holds_or_improves_vs_q11(
   *,
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
 ) -> Optional[float]:
-  """Minimum EBITDA margin across Q11..Q20. Positive = no post-recovery relapse."""
+  """Q20 EBITDA margin holds or improves relative to Q11.
+
+  Phase 9 P3.8 — replaces the prior 'no_post_recovery_relapse_q11_q20'
+  formula, which returned min(EBITDA margin Q11..Q20) and was paired
+  with a `>= 0` band check (a positivity test, not a relapse test).
+  Under that formula a trajectory peaking at Q11 (e.g. 5% EBITDA) and
+  declining toward break-even by Q20 (e.g. 0.5%) passed unconditionally
+  because every quarter stayed positive.
+
+  Universal viability doctrine: a business that crosses into viability
+  at Q11 should NOT regress back toward break-even (or toward an
+  industry-average that is structurally loss-making, as some NAICS
+  cohort medians show). The check enforces this by computing
+  `EBITDA_margin[Q20] - EBITDA_margin[Q11]` and adding 0.01 so the
+  validator's `>= 0` trajectory-check translates into the doctrinal
+  `>= -0.01` (Q20 may be at most 1pp below Q11). The 0.01 is a math-
+  noise / floating-point buffer, NOT a doctrinal allowance for
+  decline.
+  """
   _ = (model_input_json, quarter_index)
-  values: List[float] = []
-  for q in range(11, 21):
-    v = _quarter_ebitda_margin(finmo_json, q)
-    if v is not None:
-      values.append(float(v))
-  if not values:
+  q11 = _quarter_ebitda_margin(finmo_json, 11)
+  q20 = _quarter_ebitda_margin(finmo_json, 20)
+  if q11 is None or q20 is None:
     return None
-  return float(min(values))
+  return float(q20) - float(q11) + _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE
 
 
 _GROSS_MARGIN_RECOVERY_FLOOR = 0.20
@@ -944,7 +961,7 @@ _FORMULA_REGISTRY: Dict[str, Callable[..., Optional[float]]] = {
   "trajectory_ebitda_positive_at_quarter": _formula_trajectory_ebitda_positive_at_quarter,
   "trajectory_ebitda_recovery_trend": _formula_trajectory_ebitda_recovery_trend,
   "trajectory_loss_window_funded": _formula_trajectory_loss_window_funded,
-  "trajectory_no_post_recovery_relapse": _formula_trajectory_no_post_recovery_relapse,
+  "trajectory_ebitda_q20_holds_or_improves_vs_q11": _formula_trajectory_ebitda_q20_holds_or_improves_vs_q11,
   "trajectory_gross_margin_supports_recovery": _formula_trajectory_gross_margin_supports_recovery,
   "trajectory_fixed_cost_burden_at_industry_floor": _formula_trajectory_fixed_cost_burden_at_industry_floor,
 }

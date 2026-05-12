@@ -74,7 +74,10 @@ _VIABILITY_TRAJECTORY_METRICS: Tuple[str, ...] = (
   "ebitda_positive_by_q11",
   "ebitda_recovery_trend_q5_q11",
   "loss_window_funded_through_q5",
-  "no_post_recovery_relapse_q11_q20",
+  # Phase 9 P3.8 — renamed from no_post_recovery_relapse_q11_q20. The
+  # old formula (min EBITDA Q11..Q20 >= 0) was a positivity test, not
+  # a relapse test. The new check enforces Q20 >= Q11 - 0.01.
+  "ebitda_margin_q20_holds_or_improves_vs_q11",
   "gross_margin_supports_ebitda_recovery",
   "fixed_cost_burden_reduced_or_scaled_by_q11",
 )
@@ -221,7 +224,7 @@ def _evaluate_viability(
     "ebitda_positive_by_q11": "trajectory_ebitda_positive_at_quarter",
     "ebitda_recovery_trend_q5_q11": "trajectory_ebitda_recovery_trend",
     "loss_window_funded_through_q5": "trajectory_loss_window_funded",
-    "no_post_recovery_relapse_q11_q20": "trajectory_no_post_recovery_relapse",
+    "ebitda_margin_q20_holds_or_improves_vs_q11": "trajectory_ebitda_q20_holds_or_improves_vs_q11",
     "gross_margin_supports_ebitda_recovery": "trajectory_gross_margin_supports_recovery",
     "fixed_cost_burden_reduced_or_scaled_by_q11": "trajectory_fixed_cost_burden_at_industry_floor",
   }

@@ -37,10 +37,11 @@ logger = logging.getLogger(__name__)
 # Quarter indices used for trajectory check-points.
 _Q1, _Q5, _Q11, _Q15, _Q20 = 1, 5, 11, 15, 20
 
-# Tolerance for the no_post_recovery_relapse check: Q20 EBITDA margin
-# must not drop more than 200 bps below Q11. Matches the realism gate's
-# treatment of trajectory volatility.
-_NO_POST_RECOVERY_RELAPSE_TOLERANCE = 0.02
+# Phase 9 P3.8 — tolerance for the ebitda_margin_q20_holds_or_improves_vs_q11
+# check. Q20 EBITDA margin must be at most 1pp below Q11 (1pp is a
+# math-noise buffer, not a doctrinal allowance for decline). Matches the
+# realism gate's universal-viability threshold exactly.
+_EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE = 0.01
 
 
 def _row_for_quarter(
@@ -129,10 +130,10 @@ def _eval_viability_checks(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
   ebitda_recovery_trend_q5_q11 = (
     q5_em is not None and q11_em is not None and q11_em > q5_em
   )
-  no_post_recovery_relapse_q11_q20 = (
+  ebitda_margin_q20_holds_or_improves_vs_q11 = (
     q11_em is not None
     and q20_em is not None
-    and q20_em >= q11_em - _NO_POST_RECOVERY_RELAPSE_TOLERANCE
+    and q20_em >= q11_em - _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE
   )
   # Gross margin "supports" EBITDA recovery: Q11 GM not lower than
   # Q5 GM (gross margin stable or improving across the recovery window).
@@ -151,8 +152,8 @@ def _eval_viability_checks(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
     "ebitda_recovery_trend_q5_q11": (
       "PASS" if ebitda_recovery_trend_q5_q11 else "FAIL"
     ),
-    "no_post_recovery_relapse_q11_q20": (
-      "PASS" if no_post_recovery_relapse_q11_q20 else "FAIL"
+    "ebitda_margin_q20_holds_or_improves_vs_q11": (
+      "PASS" if ebitda_margin_q20_holds_or_improves_vs_q11 else "FAIL"
     ),
     "gross_margin_supports_ebitda_recovery": (
       "PASS" if gross_margin_supports_ebitda_recovery else "FAIL"

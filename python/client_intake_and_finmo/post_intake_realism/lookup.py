@@ -118,6 +118,11 @@ def _ensure_realism_check_lookup_table(conn) -> None:
       for orphaned_metric_key in (
         "distributions_percent_of_net_income",
         "owners_capital_percent_of_assets",
+        # Phase 9 P3.8 — renamed to ebitda_margin_q20_holds_or_improves_vs_q11.
+        # The old metric's formula was a positivity check (min EBITDA
+        # margin Q11..Q20 >= 0); the new metric enforces Q20 >= Q11 - 0.01.
+        # Idempotent: any deployment that already loaded the new row keeps it.
+        "no_post_recovery_relapse_q11_q20",
       ):
         try:
           cur.execute(
@@ -1053,9 +1058,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     notes="Universal viability rule: losses through Q5 must be FUNDED (cash never goes below zero, debt covers the gap, equity covers the gap). Unfunded losses fail.",
   ),
   _row(
-    metric_key="no_post_recovery_relapse_q11_q20",
+    metric_key="ebitda_margin_q20_holds_or_improves_vs_q11",
     finmo_line_label="EBITDA",
-    derivation_formula_key="trajectory_no_post_recovery_relapse",
+    derivation_formula_key="trajectory_ebitda_q20_holds_or_improves_vs_q11",
     quarter_aggregation="trajectory_check",
     tolerance_bps_high_confidence=0,
     tolerance_bps_medium_confidence=0,
@@ -1072,7 +1077,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["revenue::Unit Price", "expenses::Payroll"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Universal viability rule: once EBITDA goes positive at Q11, it stays positive through Q20 unless a deliberate funded expansion event causes a temporary dip. Drift back into losses fails.",
+    notes="Universal viability rule (Phase 9 P3.8): Q20 EBITDA margin must hold or improve relative to Q11. Formula returns (Q20_margin - Q11_margin) + 0.01 so the validator's >= 0 trajectory check translates to Q20 >= Q11 - 0.01. The 0.01 is a math-noise buffer, NOT a doctrinal allowance for decline. A plan that peaks at Q11 and declines back toward an industry-average that is structurally loss-making (some NAICS cohort medians) is not a viable plan.",
   ),
   _row(
     metric_key="gross_margin_supports_ebitda_recovery",

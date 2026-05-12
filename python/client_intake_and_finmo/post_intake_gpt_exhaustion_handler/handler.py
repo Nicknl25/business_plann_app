@@ -130,7 +130,8 @@ _UNIVERSAL_VIABILITY_TRAJECTORY_METRICS = frozenset({
   "ebitda_positive_by_q11",
   "ebitda_recovery_trend_q5_q11",
   "loss_window_funded_through_q5",
-  "no_post_recovery_relapse_q11_q20",
+  # Phase 9 P3.8 — renamed from no_post_recovery_relapse_q11_q20.
+  "ebitda_margin_q20_holds_or_improves_vs_q11",
   "gross_margin_supports_ebitda_recovery",
   "fixed_cost_burden_reduced_or_scaled_by_q11",
 })
@@ -552,7 +553,8 @@ def compute_metrics_to_mute(
 
   Universal viability trajectory checks (ebitda_positive_by_q11,
   ebitda_recovery_trend_q5_q11, loss_window_funded_through_q5,
-  no_post_recovery_relapse_q11_q20, gross_margin_supports_ebitda_recovery,
+  ebitda_margin_q20_holds_or_improves_vs_q11,
+  gross_margin_supports_ebitda_recovery,
   fixed_cost_burden_reduced_or_scaled_by_q11) STAY ACTIVE — they
   evaluate against FINMO outputs (revenue, EBITDA dollar amounts), not
   driver values, and MUST still pass for the verdict.
