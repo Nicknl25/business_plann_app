@@ -227,9 +227,31 @@ def compute_trajectory_from_anchors(
   dict carries everything GPT needs to decide whether to commit or
   iterate.
   """
+  # Phase 9 P3.10 Commit 3 — mini-FINMO is a probe; an error here is
+  # NOT "anchor rejected by viability checks" — it's a code bug (writer
+  # contract violation or FINMO math failure on inputs mini-FINMO is
+  # supposed to accept). Previously the error masqueraded as a probe
+  # with all_pass=False, GPT iterated against the phantom, and the
+  # real failure stayed invisible.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+
   template = operating_context.get("model_input_template")
   build_finmo = operating_context.get("build_finmo")
   if not isinstance(template, dict) or not callable(build_finmo):
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="mini_finmo_compute_trajectory_invalid_context",
+        pipeline_stage="phase_9_p3_9_tool_calling_session",
+        expected="operating_context has dict model_input_template + callable build_finmo",
+        actual=(
+          f"template_is_dict={isinstance(template, dict)} "
+          f"build_finmo_callable={callable(build_finmo)}"
+        ),
+        details={},
+      )
     return {
       "error": "operating_context_invalid",
       "viability_checks": {"all_pass": False},
@@ -249,6 +271,15 @@ def compute_trajectory_from_anchors(
       provenance_tag="tool_call_probe",
     )
   except Exception as exc:
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="mini_finmo_writer_failed",
+        pipeline_stage="phase_9_p3_9_tool_calling_session",
+        expected="writer applies GPT-authored anchors without raising",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"anchor_keys": sorted(list((anchors or {}).keys()))},
+        cause=exc,
+      ) from exc
     return {
       "error": f"writer_failed: {type(exc).__name__}: {str(exc)[:200]}",
       "viability_checks": {"all_pass": False},
@@ -257,6 +288,15 @@ def compute_trajectory_from_anchors(
   try:
     finmo = build_finmo(probe_input)
   except Exception as exc:
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="mini_finmo_build_finmo_failed",
+        pipeline_stage="phase_9_p3_9_tool_calling_session",
+        expected="build_finmo(writer-mutated probe input) returns FINMO dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"anchor_keys": sorted(list((anchors or {}).keys()))},
+        cause=exc,
+      ) from exc
     return {
       "error": f"finmo_rebuild_failed: {type(exc).__name__}: {str(exc)[:200]}",
       "viability_checks": {"all_pass": False},

@@ -522,17 +522,26 @@ def _compute_metric_per_q(
   finmo_json: Dict[str, Any],
   horizon: int,
 ) -> List[float]:
-  """Return the metric value at each quarter 1..horizon, or NaN-equiv
-  (None as 0.0 for the solver's purposes; the residual stays huge so
-  the solver keeps trying). Uses the realism formula registry as
-  source of truth.
+  """Return the metric value at each quarter 1..horizon. Uses the
+  realism formula registry as source of truth.
+
+  Phase 9 P3.10 Commit 3 — formula errors are no longer silently
+  substituted with 0.0. A formula crash is a code bug, not a
+  legitimate "metric is zero this quarter" signal. Under
+  CONVERGENCE_TEST_MODE the exception propagates so the solver does
+  not chase a phantom residual against an artificially-zero metric.
   """
   from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
     evaluate_realism_formula,
   )
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
   formula_key = _FORMULA_KEY_BY_TARGET.get(target_metric)
   if not formula_key:
     raise ValueError(f"target_solver_unknown_target_metric: {target_metric}")
+  test_mode = convergence_test_mode_enabled()
   out: List[float] = []
   for q in range(1, horizon + 1):
     try:
@@ -542,7 +551,23 @@ def _compute_metric_per_q(
         finmo_json=finmo_json,
         quarter_index=q,
       )
-    except Exception:
+    except Exception as exc:
+      if test_mode:
+        raise PostIntakePreconditionFailed(
+          operation="target_solver_realism_formula_evaluation_failed",
+          pipeline_stage="post_intake_target_solver",
+          expected=(
+            f"realism formula {formula_key} evaluates without raising "
+            f"on quarter {q}"
+          ),
+          actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+          details={
+            "target_metric": target_metric,
+            "formula_key": formula_key,
+            "quarter_index": q,
+          },
+          cause=exc,
+        ) from exc
       v = None
     out.append(float(v) if v is not None else 0.0)
   return out

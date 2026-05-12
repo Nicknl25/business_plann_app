@@ -243,6 +243,25 @@ def run_mode_based_cash_strategy(
       prior_numeric_feedback={},
     )
   except Exception as exc:
+    # Phase 9 P3.10 Commit 3 — under test mode, cash-strategy step
+    # failures hard-fail. The cash strategy has no Python floor — if
+    # context build fails, every downstream step operates on garbage.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_build_context_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="_build_cash_strategy_review_context_payload returns context dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "cash_strategy_mode": cash_strategy_mode,
+          "draft_id": draft_id_str,
+        },
+        cause=exc,
+      ) from exc
     return _failure_result(
       cash_strategy_mode=cash_strategy_mode,
       reason=f"build_context_failed: {type(exc).__name__}: {str(exc)[:300]}",
@@ -271,6 +290,22 @@ def run_mode_based_cash_strategy(
       controller_retry_context={},
     )
   except Exception as exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_review_openai_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="_run_cash_strategy_review_openai returns decision dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "cash_strategy_mode": cash_strategy_mode,
+          "draft_id": draft_id_str,
+        },
+        cause=exc,
+      ) from exc
     return _failure_result(
       cash_strategy_mode=cash_strategy_mode,
       funding_source_policy=funding_source_policy_payload,
@@ -304,6 +339,19 @@ def run_mode_based_cash_strategy(
       ),
     )
   except Exception as exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_second_pass_plan_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="_build_cash_strategy_second_pass_plan returns plan dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"cash_strategy_mode": cash_strategy_mode},
+        cause=exc,
+      ) from exc
     return _failure_result(
       cash_strategy_mode=cash_strategy_mode,
       funding_source_policy=funding_source_policy_payload,
@@ -319,6 +367,19 @@ def run_mode_based_cash_strategy(
       current_finmo_json=copy.deepcopy(pre_cash_finmo_json),
     )
   except Exception as exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_apply_exact_updates_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="_apply_cash_strategy_exact_updates returns updated state dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"cash_strategy_mode": cash_strategy_mode},
+        cause=exc,
+      ) from exc
     return _failure_result(
       cash_strategy_mode=cash_strategy_mode,
       funding_source_policy=funding_source_policy_payload,
@@ -362,6 +423,19 @@ def run_mode_based_cash_strategy(
       planning_mode=planning_mode_str or None,
     )
   except Exception as exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_post_pass_validation_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="_validate_cash_strategy_post_pass returns validation dict",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"cash_strategy_mode": cash_strategy_mode},
+        cause=exc,
+      ) from exc
     cash_post_validation = {
       "status": "validation_failed",
       "keep_changes": False,

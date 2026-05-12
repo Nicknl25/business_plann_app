@@ -228,13 +228,32 @@ def _evaluate_viability(
     "gross_margin_supports_ebitda_recovery": "trajectory_gross_margin_supports_recovery",
     "fixed_cost_burden_reduced_or_scaled_by_q11": "trajectory_fixed_cost_burden_at_industry_floor",
   }
+  # Phase 9 P3.10 Commit 3 — formula errors no longer flip viability
+  # to False. A formula crash during viability evaluation is a code bug
+  # — it must propagate so the solver doesn't route to EXHAUSTED on a
+  # phantom failure (the audit's #16 finding: "error becomes business
+  # verdict").
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+  test_mode_v = convergence_test_mode_enabled()
   out: Dict[str, bool] = {}
   for metric, fkey in formula_keys.items():
     try:
       v = evaluate_realism_formula(
         fkey, model_input_json={}, finmo_json=finmo_json, quarter_index=None,
       )
-    except Exception:
+    except Exception as exc:
+      if test_mode_v:
+        raise PostIntakePreconditionFailed(
+          operation="restoration_loop_viability_formula_failed",
+          pipeline_stage="post_intake_target_seeking_restoration_loop",
+          expected=f"realism trajectory formula {fkey} evaluates without raising",
+          actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+          details={"viability_metric": metric, "formula_key": fkey},
+          cause=exc,
+        ) from exc
       v = None
     if v is None:
       out[metric] = False
@@ -461,12 +480,32 @@ def _resolve_band_for_target(
   from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
     post_intake_industry_baseline_for_naics,
   )
+  # Phase 9 P3.10 Commit 3 — band resolver exception swallow removed
+  # under test mode. Audit #18: NAICS baseline service outage silently
+  # strips levers from the driver list, leaving restoration with zero
+  # authority. Under test mode the resolver failure now propagates.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
   payload: Optional[Dict[str, Any]] = None
   try:
     payload = post_intake_industry_baseline_for_naics(
       metric_key=target_metric, naics_6=business_naics_6 or "",
     )
-  except Exception:
+  except Exception as exc:
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="restoration_loop_band_resolver_baseline_lookup_failed",
+        pipeline_stage="post_intake_target_seeking_restoration_loop",
+        expected="post_intake_industry_baseline_for_naics returns payload (or None for no-coverage)",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "target_metric": target_metric,
+          "business_naics_6": business_naics_6,
+        },
+        cause=exc,
+      ) from exc
     payload = None
   if not payload:
     return (0.0, 0.0, 0.0)
@@ -624,11 +663,31 @@ def _driver_bounds_for_target(
   _TARGET_ONLY_FALLBACK_UPPER_FRAC = 1.30
 
   def _band(metric_key: str) -> Optional[Tuple[float, float, str]]:
+    # Phase 9 P3.10 Commit 3 — same band-resolver fix as
+    # _resolve_band_for_target. Service outage no longer silently
+    # returns None (which strips the lever).
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
     try:
       payload = post_intake_industry_baseline_for_naics(
         metric_key=metric_key, naics_6=business_naics_6 or "",
       )
-    except Exception:
+    except Exception as exc:
+      if convergence_test_mode_enabled():
+        raise PostIntakePreconditionFailed(
+          operation="restoration_loop_driver_bound_baseline_lookup_failed",
+          pipeline_stage="post_intake_target_seeking_restoration_loop",
+          expected="post_intake_industry_baseline_for_naics returns payload (or None for no-coverage)",
+          actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+          details={
+            "lookup_metric_key": metric_key,
+            "target_metric": target_metric,
+            "business_naics_6": business_naics_6,
+          },
+          cause=exc,
+        ) from exc
       return None
     bmin = payload.get("benchmark_min") if payload else None
     bmax = payload.get("benchmark_max") if payload else None
@@ -775,11 +834,30 @@ def _classify_forecast_exhaustion(
   a missed EXHAUSTED → handler trigger (i.e. the acceptance gate fails
   later, same outcome the system had before P3.7).
   """
+  # Phase 9 P3.10 Commit 3 — classifier exception swallows removed
+  # under test mode. Audit #17 finding: silent (None, []) return on
+  # validator failure routes to default HandlerScope.PNL_PATH or skips
+  # handler entirely on LANDED path — classifier correctness IS the
+  # run's correctness.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+  test_mode_cls = convergence_test_mode_enabled()
   try:
     from client_intake_and_finmo.post_intake_realism.validator import (  # type: ignore
       validate_industry_realism_bands,
     )
-  except Exception:
+  except Exception as exc:
+    if test_mode_cls:
+      raise PostIntakePreconditionFailed(
+        operation="forecast_classifier_validator_import_failed",
+        pipeline_stage="post_intake_target_seeking_restoration_loop",
+        expected="post_intake_realism.validator module importable",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={},
+        cause=exc,
+      ) from exc
     return None, []
   try:
     payload = validate_industry_realism_bands(
@@ -791,7 +869,19 @@ def _classify_forecast_exhaustion(
       solver_input_targets_payload=solver_targets_payload,
       planning_mode=planning_mode,
     )
-  except Exception:
+  except Exception as exc:
+    if test_mode_cls:
+      raise PostIntakePreconditionFailed(
+        operation="forecast_classifier_validator_call_failed",
+        pipeline_stage="post_intake_target_seeking_restoration_loop",
+        expected="validate_industry_realism_bands returns realism payload",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "business_naics_6": business_naics_6,
+          "planning_mode": planning_mode,
+        },
+        cause=exc,
+      ) from exc
     return None, []
 
   violations = (payload or {}).get("hard_fail_violations") or []
@@ -800,12 +890,25 @@ def _classify_forecast_exhaustion(
 
   # The validator's hard_fail_violations entries don't always carry
   # primary_levers inline. Look them up from the realism row config.
+  # Phase 9 P3.10 Commit 3 — under test mode, lookup failures must
+  # raise (audit #17): silent rows=[] makes every metric appear to
+  # have no primary_levers, so authorable_failures stays empty and the
+  # classifier returns the wrong (None, []) verdict.
   try:
     from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
       post_intake_finalize_realism_check_rows,
     )
     rows = post_intake_finalize_realism_check_rows() or []
-  except Exception:
+  except Exception as exc:
+    if test_mode_cls:
+      raise PostIntakePreconditionFailed(
+        operation="forecast_classifier_realism_rows_lookup_failed",
+        pipeline_stage="post_intake_target_seeking_restoration_loop",
+        expected="post_intake_finalize_realism_check_rows() returns row list",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={},
+        cause=exc,
+      ) from exc
     rows = []
   levers_by_metric: Dict[str, List[str]] = {}
   for r in rows:

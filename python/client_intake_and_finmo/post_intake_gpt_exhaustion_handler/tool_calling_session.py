@@ -532,9 +532,39 @@ def run_tool_calling_session(
     gpt_calls_made += 1
     decision_sources.append(str(turn_resp.get("decision_source") or ""))
 
-    if turn_resp.get("decision_source") != "python_proposer_plus_gpt_critic":
+    decision_source = str(turn_resp.get("decision_source") or "")
+    if decision_source != "python_proposer_plus_gpt_critic":
+      # Phase 9 P3.10 Commit 3 — the receiving end of Commit 1's
+      # chokepoint signaling. The handler has NO Python floor — if GPT
+      # cannot author anchors, the run has no fallback. Under test mode
+      # we raise here so the network outage / parse failure / etc.
+      # surfaces at the API boundary with the chokepoint's full
+      # diagnostic. Production-mode keeps the legacy break.
+      from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+        PostIntakePreconditionFailed,
+        convergence_test_mode_enabled,
+      )
+      if convergence_test_mode_enabled():
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_tool_calling_session_turn_failed",
+          pipeline_stage="phase_9_p3_9_tool_calling_session",
+          expected="decision_source=python_proposer_plus_gpt_critic",
+          actual=decision_source,
+          details={
+            "tool_calls_used_before_failure": int(tool_calls_used),
+            "gpt_calls_made_before_failure": int(gpt_calls_made),
+            "budget_extension_triggered": bool(budget_extension_triggered),
+            "verified_commit_candidate_present": (
+              verified_commit_candidate is not None
+            ),
+            "turn_detail": str(turn_resp.get("detail") or "")[:500],
+            "network_retry_exhausted": turn_resp.get(
+              "network_retry_exhausted"
+            ),
+          },
+        )
       detail = (
-        f"gpt_turn_failed: {turn_resp.get('detail') or turn_resp.get('decision_source')}"
+        f"gpt_turn_failed: {turn_resp.get('detail') or decision_source}"
       )
       break
 

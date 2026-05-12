@@ -397,6 +397,26 @@ def verify_structural_feasibility(
     inputs_used["fixed_cost_components"].append("interest_annual / 4")
 
   if upper_revenue is None:
+    # Phase 9 P3.10 Commit 3 — under test mode the pre-flight no
+    # longer fail-opens with feasible=True on missing inputs. Missing
+    # capacity AND unit_price AND year-1 AND current revenue means
+    # upstream intake corruption that the structural check cannot see
+    # past; raise so the operator finds the upstream issue.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="structural_feasibility_check_insufficient_revenue_inputs",
+        pipeline_stage="post_intake_structural_feasibility_check",
+        expected=(
+          "at least one of capacity, unit_price, Year-1 projection, or "
+          "current revenue snapshot is available for revenue ceiling"
+        ),
+        actual="all four revenue inputs missing",
+        details=inputs_used,
+      )
     return StructuralFeasibilityResult(
       feasible=True,
       upper_bound_annual_revenue=upper_revenue,
@@ -467,6 +487,24 @@ def verify_structural_feasibility(
     if interest_annual:
       components_total.append(interest_annual)
     if not components_total:
+      # Phase 9 P3.10 Commit 3 — same fail-open removal under test
+      # mode. The pre-flight needs at least one fixed-cost component
+      # to be evaluable.
+      from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+        PostIntakePreconditionFailed,
+        convergence_test_mode_enabled,
+      )
+      if convergence_test_mode_enabled():
+        raise PostIntakePreconditionFailed(
+          operation="structural_feasibility_check_no_fixed_cost_components",
+          pipeline_stage="post_intake_structural_feasibility_check",
+          expected=(
+            "at least one of payroll headcount schedule, annual payroll "
+            "fallback, lease, or interest is available for fixed-cost floor"
+          ),
+          actual="all fixed-cost components missing",
+          details=inputs_used,
+        )
       return StructuralFeasibilityResult(
         feasible=True,
         upper_bound_annual_revenue=float(upper_revenue),

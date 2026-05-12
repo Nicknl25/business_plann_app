@@ -536,6 +536,23 @@ def validate_industry_realism_bands(
           quarter_index=None,
         )
       except Exception as exc:
+        # Phase 9 P3.10 Commit 3 — under test mode, a trajectory
+        # formula exception is a code bug. Previously: status=skipped
+        # silently hides the bug; acceptance gate sees the metric as
+        # "not evaluated", which it counts as PASS.
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="realism_validator_trajectory_formula_exception",
+            pipeline_stage="post_intake_realism_validator",
+            expected=f"trajectory formula {formula_key} evaluates without raising",
+            actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+            details={"metric_key": metric_key, "formula_key": formula_key},
+            cause=exc,
+          ) from exc
         results.append(RealismCheckResult(
           metric_key=metric_key, finmo_line_label=finmo_label,
           derivation_formula_key=formula_key, quarter_aggregation=aggregation,
@@ -657,7 +674,28 @@ def validate_industry_realism_bands(
         naics_band = post_intake_industry_baseline_for_naics(
           metric_key=metric_key, naics_6=business_naics_6
         )
-      except Exception:
+      except Exception as exc:
+        # Phase 9 P3.10 Commit 3 — NAICS resolver exception no longer
+        # silently demoted to None. A baseline-service outage strips
+        # the realism band-resolution cascade and the gate evaluates
+        # against universal-viability defaults only — invisibly
+        # degraded coverage.
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="realism_validator_naics_baseline_lookup_failed",
+            pipeline_stage="post_intake_realism_validator",
+            expected="post_intake_industry_baseline_for_naics returns payload or None",
+            actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+            details={
+              "metric_key": metric_key,
+              "business_naics_6": business_naics_6,
+            },
+            cause=exc,
+          ) from exc
         naics_band = None
 
     if phase_3_band is not None:
@@ -814,6 +852,29 @@ def validate_industry_realism_bands(
           year_index=year_index_arg,
         )
       except Exception as exc:
+        # Phase 9 P3.10 Commit 3 — under test mode the per-metric
+        # formula exception propagates. Previously: status=skipped per
+        # quarter hides the bug; the acceptance gate sees the metric
+        # as "all quarters skipped" which it counts as PASS.
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="realism_validator_per_quarter_formula_exception",
+            pipeline_stage="post_intake_realism_validator",
+            expected=(
+              f"realism formula {formula_key} evaluates on quarter {q}"
+            ),
+            actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+            details={
+              "metric_key": metric_key,
+              "formula_key": formula_key,
+              "quarter_index": q,
+            },
+            cause=exc,
+          ) from exc
         results.append(
           RealismCheckResult(
             metric_key=metric_key,

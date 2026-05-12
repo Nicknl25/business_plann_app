@@ -323,10 +323,21 @@ def _write_gpt_authored_working_capital_values(
   the same provenance mechanism the P&L writer uses so FINMO seed-
   policy doesn't clobber.
   """
+  # Phase 9 P3.10 Commit 3 — WC writer silent-skip conversions. Note
+  # that `skipped_no_value` (None in WC dict) is LEGITIMATE on the
+  # bs_only_path because the tool schema marks each WC field as
+  # nullable — GPT may explicitly null fields it does not wish to
+  # change. `skipped_non_numeric` and `skipped_no_rows` are always
+  # contract violations and now raise under test mode.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
   from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
     _find_rows_for_lever,
   )
   per_driver_summary: Dict[str, Any] = {}
+  test_mode_wc = convergence_test_mode_enabled()
   for wc_key, lever_id in _WC_KEY_TO_LEVER_ID.items():
     raw = (working_capital_drivers or {}).get(wc_key)
     if raw is None:
@@ -337,7 +348,16 @@ def _write_gpt_authored_working_capital_values(
       continue
     try:
       value = float(raw)
-    except Exception:
+    except Exception as exc:
+      if test_mode_wc:
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_wc_writer_non_numeric_value",
+          pipeline_stage="phase_9_p3_6_wc_writer",
+          expected=f"working_capital_drivers.{wc_key} is a numeric value",
+          actual=f"raw_value={raw!r} ({type(raw).__name__})",
+          details={"wc_key": wc_key, "lever_id": lever_id},
+          cause=exc,
+        ) from exc
       per_driver_summary[lever_id] = {
         "status": "skipped_non_numeric",
         "raw_value": raw,
@@ -346,6 +366,18 @@ def _write_gpt_authored_working_capital_values(
 
     rows = _find_rows_for_lever(model_input or {}, lever_id)
     if not rows:
+      if test_mode_wc:
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_wc_writer_no_rows_for_lever",
+          pipeline_stage="phase_9_p3_6_wc_writer",
+          expected=f"model_input has at least one row for {lever_id}",
+          actual="no rows found",
+          details={
+            "wc_key": wc_key,
+            "lever_id": lever_id,
+            "value": value,
+          },
+        )
       per_driver_summary[lever_id] = {
         "status": "skipped_no_rows",
         "value": value,
@@ -414,13 +446,43 @@ def _write_gpt_authored_per_quarter_values(
 
   Returns a per-driver summary used for provenance.
   """
+  # Phase 9 P3.10 Commit 3 — silent-skip patterns are converted to
+  # hard-fails under CONVERGENCE_TEST_MODE. The writer must succeed for
+  # every anchor GPT committed. Three skip categories:
+  #
+  #  skipped_no_anchor — GPT did not author this driver. Legitimate
+  #    for bs_only_path (P&L drivers absent by schema). For pnl_path
+  #    every P&L driver is required by the tool schema, so a missing
+  #    P&L anchor while OTHER P&L anchors are present means GPT broke
+  #    the schema contract.
+  #  skipped_non_numeric_anchor — GPT supplied a non-float value.
+  #    Always a contract violation (schema requires number).
+  #  skipped_no_rows — model_input has no rows for this lever_id.
+  #    Always a setup/contract violation (the lever ID list and the
+  #    model_input shape must agree).
+  #  skipped_payroll_supported_capacity — preserved (legitimate skip;
+  #    capacity is FINMO-derived from payroll, direct write would
+  #    violate revenue_driver_formula_contract).
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
   from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
     _find_rows_for_lever,
   )
   per_driver_summary: Dict[str, Any] = {}
+  test_mode = convergence_test_mode_enabled()
 
   capacity_is_payroll_supported = _detect_payroll_supported_capacity(
     model_input or {}
+  )
+
+  # Detect whether this commit looks like a pnl_path commit (≥1 P&L
+  # anchor present). bs_only_path commits omit all 7 P&L drivers; for
+  # those, `skipped_no_anchor` is the legitimate path.
+  _any_pnl_anchor_present = any(
+    isinstance((driver_anchors or {}).get(k), dict)
+    for k in _DRIVER_KEY_TO_LEVER_ID.keys()
   )
 
   _UTILIZATION_CLIP_UPPER = 0.84
@@ -428,6 +490,23 @@ def _write_gpt_authored_per_quarter_values(
   for driver_key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
     triple = (driver_anchors or {}).get(driver_key)
     if not isinstance(triple, dict):
+      if test_mode and _any_pnl_anchor_present:
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_writer_missing_pnl_anchor",
+          pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler_writer",
+          expected=(
+            f"pnl_path commit contains an anchor for {driver_key}"
+          ),
+          actual="anchor key missing from driver_anchors payload",
+          details={
+            "missing_driver_key": driver_key,
+            "lever_id": lever_id,
+            "present_pnl_driver_keys": sorted([
+              k for k in _DRIVER_KEY_TO_LEVER_ID
+              if isinstance((driver_anchors or {}).get(k), dict)
+            ]),
+          },
+        )
       per_driver_summary[lever_id] = {
         "status": "skipped_no_anchor",
         "reason": "anchor_not_in_commit_payload",
@@ -453,7 +532,22 @@ def _write_gpt_authored_per_quarter_values(
       q1v = float(triple.get("q1"))
       q11v = float(triple.get("q11"))
       q20v = float(triple.get("q20"))
-    except Exception:
+    except Exception as exc:
+      if test_mode:
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_writer_non_numeric_anchor",
+          pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler_writer",
+          expected=(
+            f"{driver_key} anchor has numeric q1/q11/q20 values"
+          ),
+          actual=f"{type(exc).__name__}: {str(exc)[:120]}",
+          details={
+            "driver_key": driver_key,
+            "lever_id": lever_id,
+            "anchor_raw": dict(triple),
+          },
+          cause=exc,
+        ) from exc
       per_driver_summary[lever_id] = {
         "status": "skipped_non_numeric_anchor",
         "anchor": dict(triple),
@@ -471,6 +565,18 @@ def _write_gpt_authored_per_quarter_values(
 
     rows = _find_rows_for_lever(model_input or {}, lever_id)
     if not rows:
+      if test_mode:
+        raise PostIntakePreconditionFailed(
+          operation="gpt_exhaustion_handler_writer_no_rows_for_lever",
+          pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler_writer",
+          expected=f"model_input has at least one row for {lever_id}",
+          actual="no rows found",
+          details={
+            "driver_key": driver_key,
+            "lever_id": lever_id,
+            "anchor": {"q1": q1v, "q11": q11v, "q20": q20v},
+          },
+        )
       per_driver_summary[lever_id] = {
         "status": "skipped_no_rows",
         "anchor": {"q1": q1v, "q11": q11v, "q20": q20v},

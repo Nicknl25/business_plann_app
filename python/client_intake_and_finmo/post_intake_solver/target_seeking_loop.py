@@ -323,6 +323,28 @@ def run_target_seeking_solver(
       try:
         inner_result = inner_joint_fit_callable(state_input, worst)
       except Exception as exc:
+        # Phase 9 P3.10 Commit 3 — under test mode the inner-runner
+        # exception must propagate. Previously: status string masquerading
+        # as "no_progress" let the outer loop spin to max_iterations and
+        # return a status dict with no surfaced root cause.
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="target_seeking_loop_inner_joint_fit_raised",
+            pipeline_stage="post_intake_target_seeking_loop",
+            expected="inner_joint_fit_callable returns a dict",
+            actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+            details={
+              "iteration": int(iteration),
+              "worst_metric": worst.get("metric_key"),
+              "worst_quarter_index": worst.get("quarter_index"),
+              "inner_invocation_count": int(inner_invocations),
+            },
+            cause=exc,
+          ) from exc
         inner_result = {"status": "inner_joint_fit_raised", "detail": str(exc)}
       inner_invocations += 1
       if isinstance(inner_result, dict) and isinstance(inner_result.get("model_input_json"), dict):

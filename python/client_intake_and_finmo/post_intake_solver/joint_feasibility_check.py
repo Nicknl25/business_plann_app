@@ -96,6 +96,51 @@ def verify_joint_feasibility(
   would deterministically prevent the solver from landing. Caller (the
   orchestrator) forwards the diagnostic into the adaptation cascade.
   """
+  # Phase 9 P3.10 Commit 3 — under test mode, missing envelope or
+  # targets payload is a precondition violation (the joint feasibility
+  # check has no work to do without them, and previously fail-opened
+  # with feasible=True when editable_lever_count was somehow >= 4
+  # despite no inputs). Raise so the caller sees the upstream failure.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+    convergence_test_mode_enabled,
+  )
+  if convergence_test_mode_enabled():
+    if not isinstance(envelope_payload, dict) or not envelope_payload.get("drivers"):
+      raise PostIntakePreconditionFailed(
+        operation="joint_feasibility_check_envelope_missing",
+        pipeline_stage="post_intake_joint_feasibility_check",
+        expected="envelope_payload has drivers dict",
+        actual=(
+          "envelope_payload is not a dict"
+          if not isinstance(envelope_payload, dict)
+          else "envelope_payload.drivers is missing or empty"
+        ),
+        details={
+          "envelope_keys": (
+            sorted(list(envelope_payload.keys()))
+            if isinstance(envelope_payload, dict) else None
+          ),
+        },
+      )
+    if not isinstance(targets_payload, dict) or not targets_payload.get("metrics"):
+      raise PostIntakePreconditionFailed(
+        operation="joint_feasibility_check_targets_missing",
+        pipeline_stage="post_intake_joint_feasibility_check",
+        expected="targets_payload has metrics dict",
+        actual=(
+          "targets_payload is not a dict"
+          if not isinstance(targets_payload, dict)
+          else "targets_payload.metrics is missing or empty"
+        ),
+        details={
+          "targets_keys": (
+            sorted(list(targets_payload.keys()))
+            if isinstance(targets_payload, dict) else None
+          ),
+        },
+      )
+
   envelope = envelope_payload if isinstance(envelope_payload, dict) else {}
   targets = targets_payload if isinstance(targets_payload, dict) else {}
   drivers = envelope.get("drivers") if isinstance(envelope.get("drivers"), dict) else {}
