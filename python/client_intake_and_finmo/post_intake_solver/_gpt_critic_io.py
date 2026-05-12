@@ -197,15 +197,23 @@ def call_gpt_with_schema_or_fallback(
   decision_source values:
     - "python_proposer_only_no_api_key"
     - "python_proposer_plus_gpt_critic"
-    - "python_proposer_only_critic_timeout"
     - "python_proposer_only_critic_http_error"
     - "python_proposer_only_critic_invalid_json"
-    - "python_proposer_only_critic_unexpected_error"
+    - "python_proposer_only_critic_network_retry_exhausted"  (Phase 9 P3.10)
 
-  Never raises. The orchestrator treats anything other than
-  python_proposer_plus_gpt_critic as "Python proposal stands as the
-  safety floor" and tags affected entries with calibration_source=
-  uncalibrated_due_to_gpt_failure.
+  Never raises (Commit 1 of Phase 9 P3.10 — the chokepoint preserves
+  the Phase-3 critic contract for sites with a valid Python floor; the
+  exhaustion-handler call site (which has no floor) gets its own
+  hard-fail conversion in Commits 2-5).
+
+  Phase 9 P3.10 — network failures (DNS, timeout, connection, HTTP
+  429/5xx) now retry up to 2 times via the _network_retry primitive
+  with exponential backoff (1s, 2s). HTTP 429 honors Retry-After when
+  present. On retry exhaustion the call returns decision_source=
+  "python_proposer_only_critic_network_retry_exhausted" with the full
+  attempt log in raw_openai_response and detail. Per Q2: retry-exhausted
+  calls do NOT consume the GPT call budget; only successful HTTP
+  responses do.
   """
   # Phase 9 Phase H — enforce 4-call budget per planning run.
   if _budget_exhausted():
@@ -268,34 +276,63 @@ def call_gpt_with_schema_or_fallback(
     "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json",
   }
+  # Phase 9 P3.10 Commit 1 — route every OpenAI call through the
+  # network retry primitive. Transient failures (DNS, timeout, 429,
+  # 5xx) retry up to 2 times with exponential backoff (1s, 2s); HTTP
+  # 429 honors Retry-After when present. Non-retriable HTTP statuses
+  # (400/401/403/404) and retry exhaustion raise structured exceptions
+  # that the caller surfaces as the existing decision_source dict (this
+  # commit) — Commit 2+ converts those to hard-fails at sites without a
+  # Python floor. Per Q2: network-retry-exhausted calls do NOT consume
+  # the GPT call budget; only successful HTTP responses do.
+  from client_intake_and_finmo.post_intake_solver._network_retry import (  # type: ignore
+    NetworkRetryExhausted,
+    NonRetriableHTTPError,
+    call_with_retries,
+  )
+
+  def _do_request():
+    from client_intake_and_finmo.openai_http import _openai_session  # type: ignore
+    from client_intake_and_finmo.openai_http import _resolve_timeout_seconds  # type: ignore
+
+    resolved_timeout = _resolve_timeout_seconds(float(timeout_seconds))
+    with _openai_session() as session:
+      return session.post(
+        _DEFAULT_OPENAI_RESPONSES_URL,
+        headers=headers,
+        json=payload,
+        timeout=resolved_timeout,
+      )
+
   try:
-    from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
-    resp = post_openai_with_retries(
-      url=_DEFAULT_OPENAI_RESPONSES_URL,
-      headers=headers,
-      payload=payload,
-      timeout_seconds=float(timeout_seconds),
-      retryable_status=(429, 500, 502, 503, 504),
-      max_attempts=3,
+    resp = call_with_retries(
+      _do_request,
+      endpoint=_DEFAULT_OPENAI_RESPONSES_URL,
     )
-  except TimeoutError as exc:
-    logger.warning("post_intake_solver:%s_critic_timeout: %s", consultant_name, exc)
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_timeout")
+  except NetworkRetryExhausted as exc:
+    logger.error(
+      "post_intake_solver:%s_critic_network_retry_exhausted: %s",
+      consultant_name, exc,
+    )
     return {
       "parsed": None,
-      "raw_openai_response": {},
-      "decision_source": "python_proposer_only_critic_timeout",
-      "detail": f"timeout_after_{timeout_seconds:.1f}s",
+      "raw_openai_response": {"network_retry_exhausted": exc.to_dict()},
+      "decision_source": "python_proposer_only_critic_network_retry_exhausted",
+      "detail": str(exc)[:500],
       "model_used": model,
+      "network_retry_exhausted": exc.to_dict(),
     }
-  except Exception as exc:
-    logger.warning("post_intake_solver:%s_critic_unexpected_error: %s", consultant_name, exc)
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_unexpected_error")
+  except NonRetriableHTTPError as exc:
+    logger.warning(
+      "post_intake_solver:%s_critic_http_error: status=%s body=%s",
+      consultant_name, exc.status_code, exc.body_text[:200],
+    )
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
     return {
       "parsed": None,
-      "raw_openai_response": {},
-      "decision_source": "python_proposer_only_critic_unexpected_error",
-      "detail": str(exc)[:200],
+      "raw_openai_response": {"status": exc.status_code, "body": exc.body_text},
+      "decision_source": "python_proposer_only_critic_http_error",
+      "detail": f"http_status_{exc.status_code}",
       "model_used": model,
     }
   status = int(getattr(resp, "status_code", 0) or 0)
@@ -462,40 +499,71 @@ def call_gpt_responses_api_turn(
     "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json",
   }
+  # Phase 9 P3.10 Commit 1 — route the tool-calling chokepoint through
+  # the same retry primitive. On retry exhaustion this raises a
+  # structured NetworkRetryExhausted; for Commit 1 the chokepoint
+  # surfaces it as a decision_source dict (preserving Phase-3 critic
+  # semantics where Python-floor fallback exists). Commit 2 converts
+  # the receiving end (the tool-calling session loop) to a hard-fail
+  # because no Python floor exists for the exhaustion handler.
+  #
+  # Q2: failed network calls (NetworkRetryExhausted) do NOT consume the
+  # GPT call budget — _record_gpt_call is intentionally NOT invoked on
+  # that branch. Only successful HTTP responses count.
+  from client_intake_and_finmo.post_intake_solver._network_retry import (  # type: ignore
+    NetworkRetryExhausted,
+    NonRetriableHTTPError,
+    call_with_retries,
+  )
+
+  def _do_request():
+    from client_intake_and_finmo.openai_http import _openai_session  # type: ignore
+    from client_intake_and_finmo.openai_http import _resolve_timeout_seconds  # type: ignore
+
+    resolved_timeout = _resolve_timeout_seconds(float(timeout_seconds))
+    with _openai_session() as session:
+      return session.post(
+        _DEFAULT_OPENAI_RESPONSES_URL,
+        headers=headers,
+        json=payload,
+        timeout=resolved_timeout,
+      )
+
   try:
-    from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
-    resp = post_openai_with_retries(
-      url=_DEFAULT_OPENAI_RESPONSES_URL,
-      headers=headers,
-      payload=payload,
-      timeout_seconds=float(timeout_seconds),
-      retryable_status=(429, 500, 502, 503, 504),
-      max_attempts=3,
+    resp = call_with_retries(
+      _do_request,
+      endpoint=_DEFAULT_OPENAI_RESPONSES_URL,
     )
-  except TimeoutError as exc:
-    logger.warning("post_intake_solver:%s_critic_timeout: %s", consultant_name, exc)
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_timeout")
+  except NetworkRetryExhausted as exc:
+    logger.error(
+      "post_intake_solver:%s_critic_network_retry_exhausted: %s",
+      consultant_name, exc,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
       "parsed_assistant_json": None,
       "raw_assistant_items": [],
-      "raw_openai_response": {},
-      "decision_source": "python_proposer_only_critic_timeout",
-      "detail": f"timeout_after_{timeout_seconds:.1f}s",
+      "raw_openai_response": {"network_retry_exhausted": exc.to_dict()},
+      "decision_source": "python_proposer_only_critic_network_retry_exhausted",
+      "detail": str(exc)[:500],
       "model_used": model,
+      "network_retry_exhausted": exc.to_dict(),
     }
-  except Exception as exc:
-    logger.warning("post_intake_solver:%s_critic_unexpected_error: %s", consultant_name, exc)
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_unexpected_error")
+  except NonRetriableHTTPError as exc:
+    logger.warning(
+      "post_intake_solver:%s_critic_http_error: status=%s body=%s",
+      consultant_name, exc.status_code, exc.body_text[:200],
+    )
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
     return {
       "tool_calls": [],
       "assistant_message_text": None,
       "parsed_assistant_json": None,
       "raw_assistant_items": [],
-      "raw_openai_response": {},
-      "decision_source": "python_proposer_only_critic_unexpected_error",
-      "detail": str(exc)[:200],
+      "raw_openai_response": {"status": exc.status_code, "body": exc.body_text},
+      "decision_source": "python_proposer_only_critic_http_error",
+      "detail": f"http_status_{exc.status_code}",
       "model_used": model,
     }
   status = int(getattr(resp, "status_code", 0) or 0)
