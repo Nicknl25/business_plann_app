@@ -688,12 +688,32 @@ def compute_metrics_to_mute(
   else:
     gpt_authored = set(gpt_authored_lever_ids)
 
+  # Phase 9 P3.10 Commit 4 — realism lookup load failure raises under
+  # test mode. Audit #26: silent rows=[] produces a minimal mute set
+  # (just ["ebitda_margin"]), causing spurious realism failures to be
+  # attributed to GPT-authored drivers when they shouldn't be muted
+  # (under-muting), or vice versa.
   try:
     from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
       post_intake_finalize_realism_check_rows,
     )
     rows = post_intake_finalize_realism_check_rows() or []
-  except Exception:
+  except Exception as exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="compute_metrics_to_mute_realism_lookup_failed",
+        pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler_post_commit",
+        expected="post_intake_finalize_realism_check_rows() returns row list",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={
+          "gpt_authored_lever_count": len(gpt_authored),
+        },
+        cause=exc,
+      ) from exc
     rows = []
 
   for row in rows:

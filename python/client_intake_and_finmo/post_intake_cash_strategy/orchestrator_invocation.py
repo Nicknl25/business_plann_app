@@ -467,11 +467,25 @@ def run_mode_based_cash_strategy(
     )
     if isinstance(rebuilt_finmo, dict) and rebuilt_finmo:
       final_finmo_json = rebuilt_finmo
-  except Exception:
-    # If the final rebuild fails, leave the runner-supplied state in place;
-    # downstream callers (the orchestrator) also rebuild FINMO when the
-    # applied_updates_count > 0, so the outer rebuild is a second guard.
-    pass
+  except Exception as exc:
+    # Phase 9 P3.10 Commit 4 — final FINMO rebuild failure raises
+    # under test mode. The "second guard" justification is correct for
+    # production but masks a state divergence when test mode is on.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise PostIntakePreconditionFailed(
+        operation="cash_strategy_final_finmo_rebuild_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="build_python_finmo_json rebuilds successfully after cash sequence",
+        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
+        details={"cash_strategy_mode": cash_strategy_mode},
+        cause=exc,
+      ) from exc
+    # Production-mode legacy path: leave the runner-supplied state in
+    # place; the orchestrator's outer rebuild is a second guard.
 
   # Mutate caller-supplied dicts in place (matches the prior contract).
   if isinstance(model_input_json, dict):

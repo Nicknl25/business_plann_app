@@ -1567,6 +1567,16 @@ def _run_post_cascade_completion(
         r.to_dict() for r in composite_routes
       ]
   except Exception as exc:
+    # Phase 9 P3.10 Commit 4 — composite revenue trajectory check
+    # exception raises under test mode. Audit #15: silent failure
+    # skips the drift check; downstream sees no remediation routes
+    # and the cascade has no idea the revenue path violates the
+    # stage_ramp_contract.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
     completion_trace["composite_revenue_check"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
@@ -2094,6 +2104,17 @@ def _run_post_cascade_completion(
     )
     completion_trace["persist_finalize_stage"] = {"status": "completed"}
   except Exception as exc:
+    # Phase 9 P3.10 Commit 4 — persist_finalize_stage failure now
+    # raises under test mode. Audit #41: SQL UPDATE failure here
+    # leaves the draft stuck at convergence_running, the acceptance
+    # gate's stage_reached_finalize check fails, but the run continues
+    # and the operator sees a confusing acceptance failure instead of
+    # the persistence root cause.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
     completion_trace["persist_finalize_stage"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
