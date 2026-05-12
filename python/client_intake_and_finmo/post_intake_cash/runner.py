@@ -2175,8 +2175,14 @@ def _run_cash_strategy_review_openai(
       payload=payload,
     )
     if resp.status_code >= 400:
-      logger.warning(
-        "cash_strategy_review_critic_http_error: status=%s body=%s",
+      # Phase 9 P3.10 Commit 5 Part A — escalated to ERROR. The Python
+      # proposer is the verified safety floor (see
+      # docs/phase_9_p3_10_phase3_floor_audit.md); the run proceeds
+      # without GPT amendments, but the operator must see transient
+      # OpenAI outages in real-time review.
+      logger.error(
+        "cash_strategy_review_critic_http_error: status=%s body=%s; "
+        "falling back to Python proposer (floor verified Commit 5 Part A)",
         resp.status_code, resp.text[:500],
       )
       response = proposal_only_response(reason=f"critic_http_status_{resp.status_code}")
@@ -2186,10 +2192,18 @@ def _run_cash_strategy_review_openai(
       try:
         response = CritiqueResponse.from_payload(parsed)
       except RuntimeError as exc:
-        logger.warning("cash_strategy_review_critic_invalid_payload: %s", exc)
+        logger.error(
+          "cash_strategy_review_critic_invalid_payload: %s; "
+          "falling back to Python proposer (floor verified Commit 5 Part A)",
+          exc,
+        )
         response = proposal_only_response(reason=f"critic_invalid_payload: {exc}")
   except Exception as exc:
-    logger.warning("cash_strategy_review_critic_unexpected_error: %s", exc)
+    logger.error(
+      "cash_strategy_review_critic_unexpected_error: %s; "
+      "falling back to Python proposer (floor verified Commit 5 Part A)",
+      exc,
+    )
     response = proposal_only_response(reason=f"critic_unexpected_error: {exc}")
   finally:
     _set_active_openai_deadline(previous_cash_review_deadline)

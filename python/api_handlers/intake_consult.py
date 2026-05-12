@@ -222,6 +222,130 @@ def _bind_post_intake_runtime_dependencies() -> None:
   bind_convergence_runtime_dependencies(dependencies)
 
 
+def _dispatch_post_intake_failure_alert(
+  *,
+  app,
+  conn,
+  draft_id: str,
+  active_run: Optional[Dict[str, Any]],
+  exception: BaseException,
+  failure_detail: str,
+  failure_details_payload: Optional[Dict[str, Any]],
+  failure_diagnostics_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Phase 9 P3.10 Commit 5 Part B — failure-side outreach.
+
+  Called from both ``except RuntimeError`` and the catch-all
+  ``except Exception`` blocks of the system-run handler. Performs
+  three side-effects (each logged-and-continued; never raises):
+
+    1. Best-effort INSERT of a ``post_intake_run_diagnostics`` row
+       with ``acceptance_score="FAILED"`` so the failure is visible
+       to the same SQL telemetry the success path uses.
+    2. Best-effort fetch of the draft's business name + planning
+       run id for the email subject + body.
+    3. Best-effort dispatch of the failure-alert email via
+       ``workbook_email.send_failure_alert``. SMTP failure is logged
+       at ERROR; the run is already failing, the email outcome
+       cannot make it worse.
+
+  Returns the email outcome dict so the API's HTTP 500 response can
+  surface ``sent``, ``reason``, ``recipient``, ``subject`` to the
+  caller. The returned dict is always present, even when no email
+  could be attempted.
+  """
+  draft_id_s = str(draft_id or "").strip()
+  business_name = ""
+  planning_run_id = ""
+  if isinstance(active_run, dict):
+    planning_run_id = str(active_run.get("planning_run_id") or "").strip()
+  workbook_path: Optional[str] = None
+  if isinstance(active_run, dict):
+    workbook_candidate = active_run.get("client_workbook_path")
+    if isinstance(workbook_candidate, str) and workbook_candidate.strip():
+      workbook_path = workbook_candidate.strip()
+  try:
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        "SELECT business_name FROM intake_consult_drafts WHERE draft_id = %s",
+        (draft_id_s,),
+      )
+      row = cur.fetchone()
+      if isinstance(row, dict):
+        business_name = str(row.get("business_name") or "").strip()
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  except Exception as exc:
+    app.logger.error(
+      "Failure-alert business_name lookup failed for draft %s: %s: %s",
+      draft_id_s, type(exc).__name__, str(exc)[:200],
+    )
+
+  failure_diagnostic: Dict[str, Any] = {}
+  to_dict = getattr(exception, "to_dict", None)
+  if callable(to_dict):
+    try:
+      structured = to_dict()
+      if isinstance(structured, dict):
+        failure_diagnostic = structured
+    except Exception:
+      failure_diagnostic = {}
+  if not failure_diagnostic and isinstance(failure_details_payload, dict):
+    failure_diagnostic = dict(failure_details_payload)
+
+  failed_diag_payload = {
+    "draft_id": draft_id_s,
+    "planning_run_id": planning_run_id or None,
+    "business_name": business_name or None,
+    "acceptance_passed": False,
+    "acceptance_score": "FAILED",
+    "handler_fired": False,
+    "failure_exception_class": type(exception).__name__,
+    "failure_detail": str(failure_detail or "")[:4000],
+    "failure_diagnostic": failure_diagnostic,
+    "failure_diagnostics_payload": failure_diagnostics_payload or {},
+    "captured_at": datetime.utcnow().isoformat() + "Z",
+  }
+  try:
+    from client_intake_and_finmo.post_intake_run_diagnostics import (  # type: ignore
+      persist_run_diagnostics,
+    )
+    persist_run_diagnostics(conn, payload=failed_diag_payload)
+  except Exception as exc:
+    app.logger.error(
+      "Failed-run diagnostic persistence failed for draft %s: %s: %s",
+      draft_id_s, type(exc).__name__, str(exc)[:300],
+    )
+
+  try:
+    from client_intake_and_finmo.workbook_email import (  # type: ignore
+      send_failure_alert,
+    )
+    return send_failure_alert(
+      business_name=business_name or "(unknown business)",
+      exception_class=type(exception).__name__,
+      exception_message=str(exception),
+      failure_diagnostic=failure_diagnostic,
+      draft_id=draft_id_s or None,
+      planning_run_id=planning_run_id or None,
+      attachment_paths=[workbook_path] if workbook_path else None,
+    )
+  except Exception as exc:
+    app.logger.error(
+      "Failure-alert dispatch raised unexpectedly for draft %s: %s: %s",
+      draft_id_s, type(exc).__name__, str(exc)[:300],
+    )
+    return {
+      "sent": False,
+      "reason": "dispatch_exception",
+      "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+    }
+
+
 def _structured_system_run_failure_detail(
   *,
   diagnostics: Optional[Dict[str, Any]],
@@ -7134,12 +7258,28 @@ def post_intake_consult_system_run_handler(*, app, request):
         "System run failed for draft %s: %s | details=%s",
         draft_id, detail, failure_details_payload,
       )
+      # Phase 9 P3.10 Commit 5 Part B — email-on-failure + FAILED
+      # diagnostic SQL row. The email helper is never-raises by
+      # contract; if SMTP fails, we log the failure and continue with
+      # the HTTP 500 response so the caller still receives the
+      # diagnostic body.
+      email_outcome = _dispatch_post_intake_failure_alert(
+        app=app,
+        conn=conn,
+        draft_id=draft_id,
+        active_run=active_run if isinstance(active_run, dict) else None,
+        exception=exc,
+        failure_detail=detail,
+        failure_details_payload=failure_details_payload,
+        failure_diagnostics_payload=failure_diagnostics_payload,
+      )
       return (
         jsonify({
           "error": "system_run_failed",
           "detail": detail,
           "diagnostics": failure_diagnostics_payload or {},
           "details": failure_details_payload or {},
+          "failure_email": email_outcome,
         }),
         500,
       )
@@ -7164,7 +7304,24 @@ def post_intake_consult_system_run_handler(*, app, request):
         active_run=active_run if isinstance(active_run, dict) else None,
       )
       app.logger.exception("System run failed for draft %s", draft_id)
-      return (jsonify({"error": "system_run_failed", "detail": str(exc)}), 500)
+      email_outcome = _dispatch_post_intake_failure_alert(
+        app=app,
+        conn=conn,
+        draft_id=draft_id,
+        active_run=active_run if isinstance(active_run, dict) else None,
+        exception=exc,
+        failure_detail=str(exc),
+        failure_details_payload=None,
+        failure_diagnostics_payload=None,
+      )
+      return (
+        jsonify({
+          "error": "system_run_failed",
+          "detail": str(exc),
+          "failure_email": email_outcome,
+        }),
+        500,
+      )
 
     planning_run_json = (
       result.get("planning_run_json")
