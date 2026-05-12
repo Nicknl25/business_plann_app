@@ -7223,12 +7223,20 @@ def post_intake_consult_system_run_handler(*, app, request):
         500,
       )
     # Phase 9 P3.9 -- diagnostic persistence, workbook export, and
-    # auto-email run for EVERY planning run (success or failure). The
-    # workbook is still written to the local Client Plans folder as
-    # before; in addition, it's emailed to the operator. Acceptance-gate
-    # verdict no longer short-circuits these steps -- they happen
-    # regardless, and the HTTP response code reflects the gate result
-    # AFTER the diagnostics + workbook + email are complete.
+    # auto-email run for EVERY planning run (success or failure).
+    # Trace each step into a file so failures surface visibly rather
+    # than getting swallowed by Flask's logger configuration.
+    def _p3_9_trace(msg: str) -> None:
+      try:
+        from pathlib import Path as _Path
+        from datetime import datetime as _dt
+        _Path("/tmp/p3_9_handler_trace.log").parent.mkdir(parents=True, exist_ok=True)
+        with open("/tmp/p3_9_handler_trace.log", "a", encoding="utf-8") as _fh:
+          _fh.write(f"[{_dt.utcnow().isoformat()}Z] [{result_draft_id}] {msg}\n")
+      except Exception:
+        pass
+
+    _p3_9_trace("entered_post_acceptance_block")
     diagnostic_payload: Dict[str, Any] = {}
     diagnostic_persisted: bool = False
     client_workbook_path: str = ""
@@ -7257,10 +7265,10 @@ def post_intake_consult_system_run_handler(*, app, request):
         try:
           cur_diag = conn.cursor(dictionary=True)
           cur_diag.execute(
-            "SELECT draft_id, business_name, business_naics_6, "
-            "business_stage, business_start_date, planning_run_json, "
-            "realism_memo_json, model_input_json, operating_model_json, "
-            "financials_json FROM intake_consult_drafts WHERE draft_id = %s LIMIT 1",
+            "SELECT draft_id, business_name, business_start_date, "
+            "planning_run_id, planning_run_json, realism_memo_json, "
+            "model_input_json, operating_model_json, financials_json "
+            "FROM intake_consult_drafts WHERE draft_id = %s LIMIT 1",
             (result_draft_id,),
           )
           draft_row_for_diag = cur_diag.fetchone() or {}
@@ -7293,32 +7301,94 @@ def post_intake_consult_system_run_handler(*, app, request):
         (draft_row_for_diag or {}).get("financials_json")
       )
 
+      _p3_9_trace(f"draft_row_for_diag_keys={sorted(list((draft_row_for_diag or {}).keys()))[:20]}")
+      # Phase 9 P3.9 fix -- prefer the DB-persisted planning_run_json
+      # (full nested state) over the orchestrator's in-memory return
+      # value, which is sometimes a truncated subset missing
+      # planning_mode / post_cascade_completion. The fields we read
+      # (planning_mode, cash_pass.cash_strategy_mode, etc.) all live
+      # in the freshly-persisted blob.
+      persisted_planning_run_json = _parse_blob(
+        (draft_row_for_diag or {}).get("planning_run_json")
+      ) or (
+        planning_run_json if isinstance(planning_run_json, dict) else {}
+      )
+      # Planning Run ID is also a TOP-LEVEL column on intake_consult_drafts;
+      # prefer that, then the persisted JSON's planning_run_id, then the
+      # in-memory value, then the request param.
+      resolved_planning_run_id = str(
+        (draft_row_for_diag or {}).get("planning_run_id")
+        or (persisted_planning_run_json or {}).get("planning_run_id")
+        or (planning_run_json or {}).get("planning_run_id")
+        or planning_run_id
+        or ""
+      ).strip()
+      _p3_9_trace(
+        f"persisted_pr_keys_have_planning_mode="
+        f"{('planning_mode' in (persisted_planning_run_json or {}))} "
+        f"persisted_pr_keys_have_post_cascade="
+        f"{('post_cascade_completion' in (persisted_planning_run_json or {}))} "
+        f"resolved_planning_run_id={resolved_planning_run_id!r}"
+      )
       diagnostic_payload = build_run_diagnostics_payload(
         draft_row=draft_row_for_diag or {},
-        planning_run_json=planning_run_json if isinstance(planning_run_json, dict) else {},
+        planning_run_json=persisted_planning_run_json,
         realism_memo_json=realism_memo_for_diag,
         ops_json=ops_for_diag,
         financials_json=financials_for_diag,
         acceptance_verdict=acceptance_verdict,
         draft_id=result_draft_id,
-        planning_run_id=(
-          str((planning_run_json or {}).get("planning_run_id") or planning_run_id or "").strip()
-        ),
+        planning_run_id=resolved_planning_run_id,
+      )
+      # Path-miss diagnostics -- surface any None field that should
+      # have come from a known location so future schema drift fails
+      # visibly rather than silently.
+      _missing_fields = [
+        f for f in (
+          "business_name", "business_naics_6", "business_stage",
+          "business_start_date", "planning_mode", "cash_strategy_name",
+          "planning_run_id",
+        ) if not diagnostic_payload.get(f)
+      ]
+      if _missing_fields:
+        _p3_9_trace(
+          f"diagnostic_payload_missing_fields={_missing_fields}"
+        )
+        app.logger.warning(
+          "Run diagnostics has missing fields for draft %s: %s",
+          result_draft_id, _missing_fields,
+        )
+      _p3_9_trace(
+        "diagnostic_payload built: "
+        f"name={diagnostic_payload.get('business_name')!r} "
+        f"naics={diagnostic_payload.get('business_naics_6')!r} "
+        f"mode={diagnostic_payload.get('planning_mode')!r} "
+        f"cash={diagnostic_payload.get('cash_strategy_name')!r} "
+        f"run_id={diagnostic_payload.get('planning_run_id')!r} "
+        f"checks={len(diagnostic_payload.get('realism_checks') or [])}"
       )
       try:
         diagnostic_persisted = persist_run_diagnostics(
           conn, payload=diagnostic_payload,
         )
+        _p3_9_trace(f"persist_run_diagnostics returned={diagnostic_persisted}")
       except Exception as diag_exc:
         app.logger.warning(
           "Run diagnostics persist failed for draft %s: %s: %s",
           result_draft_id, type(diag_exc).__name__, str(diag_exc)[:200],
+        )
+        _p3_9_trace(
+          f"persist_run_diagnostics raised "
+          f"{type(diag_exc).__name__}: {str(diag_exc)[:200]}"
         )
         diagnostic_persisted = False
     except Exception as setup_exc:
       app.logger.warning(
         "Run diagnostics setup failed for draft %s: %s: %s",
         result_draft_id, type(setup_exc).__name__, str(setup_exc)[:200],
+      )
+      _p3_9_trace(
+        f"diagnostic setup raised {type(setup_exc).__name__}: {str(setup_exc)[:500]}"
       )
 
     # Generate the workbook regardless of acceptance verdict. The

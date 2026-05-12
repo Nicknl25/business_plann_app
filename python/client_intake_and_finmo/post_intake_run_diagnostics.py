@@ -207,20 +207,32 @@ def build_run_diagnostics_payload(
     or _text(draft_row.get("intake_start_date"))
   )
 
+  # Phase 9 P3.9 -- canonical paths per the architectural review:
+  # Planning Mode lives at planning_run_json.planning_mode (top-level
+  # of the JSON blob). adaptive_policy.planning_mode is a mirror and
+  # numeric_solver_contract.planning_mode_profile.planning_mode can
+  # carry a DIFFERENT solver-internal label (e.g. 'rebalance' while
+  # the user-facing mode is 'normalize'); don't read from there.
   planning_mode = (
     _text(pr.get("planning_mode"))
+    or _text((pr.get("adaptive_policy") or {}).get("planning_mode"))
     or _text(draft_row.get("planning_mode"))
   )
 
-  # Cash strategy name: orchestrator hands the name through cash_pass
-  # under `cash_strategy_mode` or similar. Best-effort lookup.
+  # Cash strategy: canonical source is
+  # planning_run_json.adaptive_policy.selected_cash_strategy (the
+  # policy that DROVE the run). post_cascade_completion.cash_pass.
+  # cash_strategy_mode is the echo by the cash pass module after it
+  # ran; kept as a fallback for runs where adaptive_policy wasn't
+  # populated.
+  adaptive_policy = pr.get("adaptive_policy") if isinstance(pr.get("adaptive_policy"), dict) else {}
   cs_name = cash_strategy_name
   if not cs_name:
     cs_name = (
-      _text(cash_pass.get("cash_strategy_mode"))
+      _text(adaptive_policy.get("selected_cash_strategy"))
+      or _text(cash_pass.get("cash_strategy_mode"))
       or _text(cash_pass.get("mode"))
       or _text(cash_pass.get("strategy"))
-      or _text(((cash_pass.get("inputs") or {}).get("cash_strategy_mode") if isinstance(cash_pass.get("inputs"), dict) else None))
     )
 
   passed, score = _acceptance_score(acceptance_verdict)
