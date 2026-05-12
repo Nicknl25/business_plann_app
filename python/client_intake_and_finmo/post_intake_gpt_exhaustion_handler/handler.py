@@ -138,19 +138,23 @@ _UNIVERSAL_VIABILITY_TRAJECTORY_METRICS = frozenset({
 
 
 class HandlerStatus(str, Enum):
-  # Tool-calling session committed and FINMO rebuild produced Q11
-  # EBITDA >= 0 (universal viability). GPT iterated against the tool
-  # until all viability checks passed.
-  LANDED_TOOL_CALL_COMMIT = "landed_tool_call_commit"
-  # Tool-calling session hit the MAX_TOOL_CALLS budget cap; GPT
-  # committed under pressure with whatever was best at that point.
-  # FINMO rebuild may or may not satisfy Q11 >= 0; the status records
-  # that the budget rather than convergence forced the commit.
-  LANDED_TOOL_CALL_BUDGET_HIT = "landed_tool_call_budget_hit"
-  # Catch-all: GPT failed to produce a valid commit despite forced
-  # follow-ups, OR FINMO rebuild after a successful commit produced
-  # Q11 EBITDA < 0. Should be rare; provenance carries the diagnostic.
-  FAILED = "failed"
+  # Phase 9 P3.9 — GPT achieved viability_checks.all_pass on some tool
+  # call (initial budget calls 1-5 OR extension calls 6-10). That tool
+  # call's anchor arguments were committed verbatim; the post-commit
+  # FINMO rebuild operates on identical inputs to mini-FINMO's verified
+  # probe, so divergence is structurally impossible. Most common
+  # success path.
+  LANDED_VERIFIED_TOOL_CALL = "landed_verified_tool_call"
+  # Hard cap (10 tool calls) reached without any all_pass. Best-effort
+  # commit happened — the tool call with the highest count of passing
+  # viability checks (tiebreaker: highest Q11 EBITDA margin) was used.
+  # The plan is delivered with this status flagging it as marginal.
+  LANDED_BEST_EFFORT_NO_ALL_PASS = "landed_best_effort_no_all_pass"
+  # Pre-flight issue (FINMO build failure before the session, missing
+  # API key, malformed model_input, etc.). NOT used for GPT being
+  # unable to find viability — the budget-extension + best-effort path
+  # handles that case as LANDED_BEST_EFFORT_NO_ALL_PASS.
+  FAILED_PRECONDITION = "failed_precondition"
 
 
 @dataclass
@@ -642,7 +646,7 @@ def run_gpt_exhaustion_handler(
       finmo_json = build_finmo(copy.deepcopy(model_input or {}))
     except Exception as exc:
       return HandlerResult(
-        status=HandlerStatus.FAILED,
+        status=HandlerStatus.FAILED_PRECONDITION,
         gpt_calls_made=0,
         provenance={
           "phase": "phase_1_pre_session_finmo_failed",
@@ -660,7 +664,7 @@ def run_gpt_exhaustion_handler(
     )
   except Exception as exc:
     return HandlerResult(
-      status=HandlerStatus.FAILED,
+      status=HandlerStatus.FAILED_PRECONDITION,
       gpt_calls_made=0,
       q11_ebitda_actual=q11_pre,
       provenance={

@@ -1,15 +1,20 @@
-"""Phase 9 P3.5 — System prompt for the GPT exhaustion handler's
-tool-calling session. Phase 9 P3.6 — Q11/Q20 doctrine tightening and
-working capital framing.
+"""Phase 9 P3.9 — System prompt for the GPT exhaustion handler.
 
 Universal across every NAICS, stage, and archetype. Differences come from
 operating_model_json data, not from business-classification branches.
 
-GPT proposes anchors, calls compute_full_trajectory tool to verify the
-EBITDA path the system would compute, iterates against the tool result,
-then commits a final answer. There is no Call 1 / Call 2 / iteration
-diagnostic / snap-into-place pattern any more — the tool replaces all
-of it because GPT verifies the math himself before committing.
+GPT iterates by calling compute_full_trajectory(anchors) and observing
+viability_checks. There is no separate final-commit step: the system
+saves the most recent tool call whose viability_checks.all_pass = True
+and uses those anchors as the committed plan. GPT's job is to find
+a viable set of anchors and verify it via the tool. The commit happens
+on the backend, invisible to GPT.
+
+P3.5 retired Call 1 / Call 2 / iteration / snap-into-place. P3.6 added
+the working-capital framework. P3.7 added scoped authority and forward-
+looking exhaustion. P3.8 fixed the trajectory check math. P3.9 removes
+the final-commit-JSON step entirely; the most recent verified tool call
+IS the commit.
 """
 
 from __future__ import annotations
@@ -50,10 +55,9 @@ anchor values for all 7 P&L drivers at Q1, Q11, Q20 plus 5 working
 capital drivers (single value each). The tool returns the resulting
 EBITDA margin trajectory and pass/fail for all viability checks.
 
-Use the tool to verify your anchors produce a viable plan. Iterate by
-calling the tool multiple times with adjusted anchors. When all
-viability checks PASS and you're confident the recommendations are
-realistic for THIS business, commit to your final answer.
+Iterate by calling the tool with adjusted anchors until
+viability_checks.all_pass is True. Once you have anchors you are
+confident in, you may stop calling the tool.
 
 Reason from THIS specific business -- its operating model, scale,
 geography, capacity driver, and stage. Do not anchor to industry
@@ -62,7 +66,17 @@ if conservative changes don't reach viability, make more aggressive
 structural recommendations (higher pricing, deeper payroll changes,
 larger capacity expansion) until the math lands. The operator will
 review the recommendations and decide which to accept.
-
-When committing your final answer, return JSON matching the schema
-specified in the user prompt.
 """
+
+
+# Phase 9 P3.9 — extension prompt appended when the initial tool-call
+# budget is exhausted without achieving viability. Universal language;
+# no NAICS / archetype / business-type branching.
+EXTENSION_PROMPT_TEXT = (
+  "You have used several tool calls without achieving viability "
+  "(viability_checks.all_pass = False on all checks so far). Be more "
+  "aggressive in your driver moves. Consider larger price increases, "
+  "deeper payroll reductions, more dramatic cost ratio improvements. "
+  "The plan must achieve viability. Iterate with stronger structural "
+  "changes until viability is reached."
+)

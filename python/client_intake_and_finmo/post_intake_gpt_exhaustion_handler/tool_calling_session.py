@@ -1,27 +1,34 @@
-"""Phase 9 P3.5 — GPT tool-calling session for the exhaustion handler.
+"""Phase 9 P3.9 — GPT tool-calling session for the exhaustion handler.
 
-GPT proposes driver anchors, calls compute_full_trajectory(anchors) to
-verify the EBITDA path the system would compute, iterates against the
-tool result, then commits a final answer. Replaces the retired Call 1 /
-Call 2 / iteration / snap-into-place pattern.
+Session model:
+  - GPT iterates by calling compute_full_trajectory(anchors). The tool
+    runs full FINMO under the hood (mini-FINMO is parity-by-construction)
+    and returns viability_checks. There is no separate final-commit step.
+  - After each tool call where viability_checks.all_pass == True, the
+    Python orchestrator saves that tool call's full arguments dict as
+    the current verified_commit_candidate. Each later all_pass call
+    REPLACES the candidate (most recent verified wins).
+  - When GPT stops calling the tool (returns a text response), or when
+    the budget is exhausted, the session ends.
+  - On session end, the system writes verified_commit_candidate's anchors
+    via the shared writer and rebuilds FINMO. Because mini-FINMO already
+    rebuilt FINMO on those same anchors, the post-commit Q11 EBITDA is
+    structurally identical to what GPT saw — no possibility of
+    divergence between probe and commit.
 
-Session flow:
-  1. Build initial input (system prompt + user prompt + tool definition).
-  2. Loop up to MAX_TOOL_CALLS (5):
-     - Issue one Responses-API turn with tools enabled.
-     - If GPT returns a function_call, run compute_trajectory_from_anchors
-       locally, append function_call_output to the input, continue.
-     - If GPT returns an assistant message (final commit), parse it as
-       the driver_anchors schema, exit.
-  3. If the loop exhausted MAX_TOOL_CALLS without a commit, force a
-     final answer by re-issuing the turn WITHOUT tools (so GPT has no
-     option but to emit an assistant message).
-  4. Return ToolCallSessionResult carrying status, final anchors, the
-     full tool-call history, and the implied Q11 EBITDA from GPT's last
-     compute_full_trajectory result (used downstream for provenance).
+Two-phase budget:
+  INITIAL_TOOL_CALL_BUDGET = 5
+  EXTENSION_TOOL_CALLS     = 5
+  HARD_CAP_TOOL_CALLS      = 10
+  If the initial budget is exhausted without verified_commit_candidate,
+  the extension is granted with the EXTENSION_PROMPT_TEXT appended.
+  If the hard cap is reached without verified_commit_candidate, the
+  session selects the best-effort tool call (highest pass-count, then
+  highest Q11 EBITDA margin) and commits its anchors. Status reflects
+  this as LANDED_BEST_EFFORT_NO_ALL_PASS.
 
-MAX_TOOL_CALLS is Python-enforced. GPT is not told the count — the
-prompt language "up to a few iterations" keeps him from hedging.
+GPT is never asked to produce a final commit JSON. The prompts describe
+the tool exploration only.
 
 Imports happen lazily inside functions so this module loads cleanly in
 contexts where the orchestrator package isn't on sys.path.
@@ -33,27 +40,29 @@ import copy
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 logger = logging.getLogger(__name__)
 
 
-# Python-enforced budget on tool calls within a single session. GPT
-# does not know this count. Each tool call runs full FINMO under the
-# hood, so 5 is a meaningful upper bound that still keeps the global
-# 8-call run budget intact (5 tool calls + 1 final commit + 1 cash
-# strategy review + 1 realism critique = 8).
-MAX_TOOL_CALLS = 5
+# Phase 9 P3.9 — two-phase budget.
+INITIAL_TOOL_CALL_BUDGET = 5
+EXTENSION_TOOL_CALLS = 5
+HARD_CAP_TOOL_CALLS = INITIAL_TOOL_CALL_BUDGET + EXTENSION_TOOL_CALLS
+
+# Legacy alias kept short-term for any external code that referenced
+# MAX_TOOL_CALLS. The session loop itself uses the new constants above.
+MAX_TOOL_CALLS = HARD_CAP_TOOL_CALLS
 
 _TOOL_NAME = "compute_full_trajectory"
 
 
 # Phase 9 P3.7 — scope literals. Restoration loop populates
 # RestorationResult.scope with a HandlerScope enum; the handler converts
-# to these string values before passing into the session. Tool schema,
-# commit schema, and user prompt all branch on these. No NAICS / stage /
-# archetype branching.
+# to these string values before passing into the session. Tool schema
+# and user prompt branch on these. No NAICS / stage / archetype
+# branching anywhere.
 SCOPE_PNL_PATH = "pnl_path"
 SCOPE_BS_ONLY_PATH = "bs_only_path"
 _VALID_SCOPES = (SCOPE_PNL_PATH, SCOPE_BS_ONLY_PATH)
@@ -73,18 +82,12 @@ def _three_anchor_schema() -> Dict[str, Any]:
 
 
 def _working_capital_schema(*, all_required: bool = True) -> Dict[str, Any]:
-  """Phase 9 P3.6 — working capital drivers are SINGLE values per
-  driver (not 3-anchor ramps). They are operationally stable across
-  the 20-quarter horizon; the writer stamps each value uniformly
-  across every live quarter.
+  """Working capital drivers are SINGLE values per driver (not 3-anchor
+  ramps). They are operationally stable across the 20-quarter horizon;
+  the writer stamps each value uniformly across every live quarter.
 
-  Phase 9 P3.7 — when ``all_required=False`` (bs_only_path), every WC
-  field is OPTIONAL so GPT may author a subset. Strict json_schema
-  requires every property defined under ``properties`` to be in
-  ``required`` if ``additionalProperties=False`` and we want to allow
-  partial commits; the cleanest workaround is to keep all 5 in
-  ``required`` but use ``["number","null"]`` so GPT can pass null for
-  the unauthored slots. The writer treats null/None as "skipped".
+  When ``all_required=False`` (bs_only_path), each WC field is nullable
+  so GPT may author a subset; the writer treats null/None as "skipped".
   """
   if all_required:
     return {
@@ -105,7 +108,6 @@ def _working_capital_schema(*, all_required: bool = True) -> Dict[str, Any]:
         "prepaid_expenses_percent_of_revenue": {"type": "number"},
       },
     }
-  # BS-only path: nullable values per driver; GPT may set any subset.
   nullable_number = {"type": ["number", "null"]}
   return {
     "type": "object",
@@ -130,10 +132,9 @@ def _working_capital_schema(*, all_required: bool = True) -> Dict[str, Any]:
 def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
   """Responses API tool definition for compute_full_trajectory.
 
-  Phase 9 P3.7 — when scope=="bs_only_path", the tool drops the 7 P&L
-  anchor fields entirely. GPT can probe with any subset of the 5 WC
-  values (each nullable) and the mini-FINMO will use the deterministic-
-  solver values for the P&L side.
+  bs_only_path: drops the 7 P&L anchor fields entirely; GPT can probe
+  with any subset of the 5 WC values (each nullable). P&L stays at the
+  deterministic-solver values for the duration of this run.
   """
   if scope == SCOPE_BS_ONLY_PATH:
     parameters = {
@@ -188,8 +189,7 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
       "ebitda_margin_q20_holds_or_improves_vs_q11, "
       "gross_margin_supports_ebitda_recovery, "
       "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
-      "aggregate. Use this to verify your anchors produce a viable plan "
-      "before committing your final answer."
+      "aggregate. Iterate until all_pass is True."
     )
   return {
     "type": "function",
@@ -197,64 +197,6 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
     "description": description,
     "strict": True,
     "parameters": parameters,
-  }
-
-
-def _build_commit_schema(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
-  """Strict JSON schema for GPT's final commit assistant message.
-
-  Phase 9 P3.7 — on bs_only_path the P&L sections are absent from the
-  schema. GPT has no authority over P&L on this path; the
-  deterministic-solver values remain.
-  """
-  if scope == SCOPE_BS_ONLY_PATH:
-    return {
-      "type": "object",
-      "additionalProperties": False,
-      "required": ["driver_anchors", "reasoning"],
-      "properties": {
-        "driver_anchors": {
-          "type": "object",
-          "additionalProperties": False,
-          "required": ["working_capital_drivers"],
-          "properties": {
-            "working_capital_drivers": _working_capital_schema(all_required=False),
-          },
-        },
-        "reasoning": {"type": "string"},
-      },
-    }
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["driver_anchors", "reasoning"],
-    "properties": {
-      "driver_anchors": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": [
-          "unit_price",
-          "units_per_period_capacity",
-          "utilization_rate",
-          "payroll_dollars_per_quarter",
-          "cogs_percent_of_revenue",
-          "marketing_percent_of_revenue",
-          "sga_percent_of_revenue",
-          "working_capital_drivers",
-        ],
-        "properties": {
-          "unit_price": _three_anchor_schema(),
-          "units_per_period_capacity": _three_anchor_schema(),
-          "utilization_rate": _three_anchor_schema(),
-          "payroll_dollars_per_quarter": _three_anchor_schema(),
-          "cogs_percent_of_revenue": _three_anchor_schema(),
-          "marketing_percent_of_revenue": _three_anchor_schema(),
-          "sga_percent_of_revenue": _three_anchor_schema(),
-          "working_capital_drivers": _working_capital_schema(all_required=True),
-        },
-      },
-      "reasoning": {"type": "string"},
-    },
   }
 
 
@@ -319,6 +261,10 @@ def _build_initial_user_prompt(
   scope: str = SCOPE_PNL_PATH,
   failing_metrics: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
+  """Phase 9 P3.9 — describes the tool exploration only. No final-commit
+  JSON language. GPT iterates with the tool; the system handles commit
+  on the backend from the most recent all_pass tool call.
+  """
   ops_block = json.dumps(
     operating_model or {}, ensure_ascii=False, indent=2, default=str
   )
@@ -335,10 +281,10 @@ def _build_initial_user_prompt(
       f"{q1_block}\n\n"
       "RESTORATION-LOOP DIAGNOSTIC:\n"
       f"{diag_block}\n\n"
-      "The deterministic solver produced a plan that satisfies viability "
-      "but would fail one or more balance-sheet realism checks. The "
-      "following realism metrics are forecast to hard-fail on the "
-      "post-solver state:\n\n"
+      "The deterministic solver produced a plan that satisfies "
+      "viability but would fail one or more balance-sheet realism "
+      "checks. The following realism metrics are forecast to hard-fail "
+      "on the post-solver state:\n\n"
       f"{failing_block}\n\n"
       "Their primary_levers (the drivers that materially affect them):\n\n"
       f"{primary_levers_block}\n\n"
@@ -346,30 +292,18 @@ def _build_initial_user_prompt(
       "run. The P&L drivers are operating correctly and are outside "
       "your authority on this path -- the deterministic solver landed "
       "them.\n\n"
-      "Author only the working capital drivers needed to fix the failing "
-      "metrics. Leave the others as null in your commit; the existing "
-      "values will be preserved.\n\n"
+      "Iterate with the compute_full_trajectory tool. Author only the "
+      "working capital drivers needed to fix the failing metrics. "
+      "Leave the others as null; the existing values will be preserved.\n\n"
       "Reason from THIS specific business's operating model -- how it "
       "collects payment, what it sells, how it manages stock, whether "
-      "it takes prepayments, what suppliers extend in terms. Use the "
-      f"{_TOOL_NAME} tool to verify your changes resolve the failures "
-      "without creating new ones.\n\n"
-      "Final-answer schema (your assistant message when you commit):\n"
-      "{\n"
-      '  "driver_anchors": {\n'
-      '    "working_capital_drivers": {\n'
-      '      "accounts_receivable_days": float | null,\n'
-      '      "accounts_payable_days": float | null,\n'
-      '      "inventory_days": float | null,\n'
-      '      "deferred_revenue_percent_of_revenue": float | null,\n'
-      '      "prepaid_expenses_percent_of_revenue": float | null\n'
-      "    }\n"
-      "  },\n"
-      '  "reasoning": "short prose explaining what you changed and why"\n'
-      "}\n"
+      "it takes prepayments, what suppliers extend in terms. Iterate "
+      f"with the {_TOOL_NAME} tool until viability_checks.all_pass = "
+      "True. The system uses your most recent verified tool call as "
+      "the committed plan."
     )
 
-  # Default / pnl_path
+  # pnl_path
   return (
     "OPERATING MODEL:\n"
     f"{ops_block}\n\n"
@@ -378,11 +312,12 @@ def _build_initial_user_prompt(
     "EXHAUSTION DIAGNOSTIC (deterministic solver could not bridge to "
     "viability at conservative bounds):\n"
     f"{diag_block}\n\n"
-    "QUESTION:\n"
+    "TASK:\n"
     "Propose driver anchors at Q1, Q11, Q20 for all 7 P&L drivers and "
     f"call the {_TOOL_NAME} tool to verify the resulting trajectory. "
-    "Iterate by adjusting anchors and calling the tool again until all "
-    "viability checks PASS. Then commit your final answer.\n\n"
+    "Iterate with adjusted anchors until viability_checks.all_pass = "
+    "True. The system uses your most recent verified tool call as the "
+    "committed plan.\n\n"
     "WORKING CAPITAL DRIVERS:\n"
     "You also author working capital drivers for this business. These\n"
     "are operationally stable across quarters, so provide a SINGLE\n"
@@ -397,27 +332,7 @@ def _build_initial_user_prompt(
     "collects payment, what it sells, how it manages stock, whether it\n"
     "takes prepayments, what suppliers extend in terms. Different\n"
     "business models produce fundamentally different working capital\n"
-    "structures.\n\n"
-    "Final-answer schema (your assistant message when you commit):\n"
-    "{\n"
-    '  "driver_anchors": {\n'
-    '    "unit_price": {"q1": float, "q11": float, "q20": float},\n'
-    '    "units_per_period_capacity": {"q1": int, "q11": int, "q20": int},\n'
-    '    "utilization_rate": {"q1": float, "q11": float, "q20": float},\n'
-    '    "payroll_dollars_per_quarter": {"q1": float, "q11": float, "q20": float},\n'
-    '    "cogs_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
-    '    "marketing_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
-    '    "sga_percent_of_revenue": {"q1": float, "q11": float, "q20": float},\n'
-    '    "working_capital_drivers": {\n'
-    '      "accounts_receivable_days": float,\n'
-    '      "accounts_payable_days": float,\n'
-    '      "inventory_days": float,\n'
-    '      "deferred_revenue_percent_of_revenue": float,\n'
-    '      "prepaid_expenses_percent_of_revenue": float\n'
-    "    }\n"
-    "  },\n"
-    '  "reasoning": "short prose explaining the path for this business"\n'
-    "}\n"
+    "structures."
   )
 
 
@@ -441,16 +356,18 @@ class ToolCallRecord:
 
 @dataclass
 class ToolCallSessionResult:
-  status: str  # "committed", "committed_after_budget_hit", "failed"
+  status: str  # "verified", "best_effort_no_all_pass", "failed_precondition"
   final_anchors: Optional[Dict[str, Any]] = None
-  reasoning: str = ""
   tool_calls_used: int = 0
   tool_call_history: List[ToolCallRecord] = field(default_factory=list)
   last_viability_checks: Optional[Dict[str, Any]] = None
   implied_q11_ebitda_margin: Optional[float] = None
   gpt_calls_made: int = 0
   decision_sources: List[str] = field(default_factory=list)
+  budget_extension_triggered: bool = False
   detail: str = ""
+  verified_commit_call_n: Optional[int] = None
+  best_effort_call_n: Optional[int] = None
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -461,7 +378,9 @@ class ToolCallSessionResult:
       "last_viability_checks": self.last_viability_checks,
       "tool_call_history": [r.to_dict() for r in self.tool_call_history],
       "decision_sources": list(self.decision_sources),
-      "reasoning_chars": len(self.reasoning or ""),
+      "budget_extension_triggered": bool(self.budget_extension_triggered),
+      "verified_commit_call_n": self.verified_commit_call_n,
+      "best_effort_call_n": self.best_effort_call_n,
       "detail": self.detail,
     }
 
@@ -473,25 +392,40 @@ def _summarize_anchors(anchors: Dict[str, Any]) -> Dict[str, Any]:
       out[k] = {
         "q1": v.get("q1"), "q11": v.get("q11"), "q20": v.get("q20"),
       }
+    else:
+      out[k] = v
   return out
 
 
-def _last_viable_implied_q11(history: List[ToolCallRecord]) -> Optional[float]:
-  """Return the Q11 EBITDA margin from the most recent tool result that
-  passed every check, or from the most recent tool result if none
-  passed.
+def _viability_pass_count(record: "ToolCallRecord") -> int:
+  checks = (record.result or {}).get("viability_checks") or {}
+  return sum(
+    1 for k, v in checks.items()
+    if k != "all_pass" and str(v).upper() == "PASS"
+  )
+
+
+def _q11_from_record(record: "ToolCallRecord") -> Optional[float]:
+  em = ((record.result or {}).get("ebitda_margins") or {}).get("q11")
+  try:
+    return float(em) if em is not None else None
+  except Exception:
+    return None
+
+
+def _best_effort_record(
+  history: List["ToolCallRecord"],
+) -> Optional["ToolCallRecord"]:
+  """Select the tool call with the highest count of passing viability
+  checks. Tiebreaker: highest Q11 EBITDA margin. Returns None for an
+  empty history.
   """
-  for rec in reversed(history):
-    checks = (rec.result or {}).get("viability_checks") or {}
-    if checks.get("all_pass"):
-      em = ((rec.result or {}).get("ebitda_margins") or {}).get("q11")
-      if em is not None:
-        return float(em)
-  for rec in reversed(history):
-    em = ((rec.result or {}).get("ebitda_margins") or {}).get("q11")
-    if em is not None:
-      return float(em)
-  return None
+  if not history:
+    return None
+  def _key(rec: "ToolCallRecord") -> Tuple[int, float]:
+    q11 = _q11_from_record(rec)
+    return (_viability_pass_count(rec), q11 if q11 is not None else float("-inf"))
+  return max(history, key=_key)
 
 
 def run_tool_calling_session(
@@ -504,17 +438,23 @@ def run_tool_calling_session(
   scope: str = SCOPE_PNL_PATH,
   failing_metrics: Optional[List[Dict[str, Any]]] = None,
 ) -> ToolCallSessionResult:
-  """Run the tool-calling session. Returns the full session result.
+  """Run the tool-calling session.
 
-  Phase 9 P3.7 — ``scope`` selects which tool/commit/prompt variants
-  the session uses. ``failing_metrics`` populates the BS-only prompt's
-  "these metrics are forecast to hard-fail" block.
+  Phase 9 P3.9 — verified-commit-candidate model. The session tracks the
+  most recent tool call where viability_checks.all_pass = True. On
+  session end, that tool call's arguments are the commit. No separate
+  final-answer JSON parsing step. GPT iterates with the tool; the
+  system handles commit on the backend.
 
-  The caller (handler.execute_tool_calling_session_and_commit) takes
-  the committed driver_anchors and writes them into model_input via the
-  shared writer, then rebuilds FINMO and decides the HandlerStatus.
-  This function does NOT mutate model_input — it only orchestrates the
-  GPT/tool dialogue.
+  Two-phase budget (5 + 5). Extension granted automatically when the
+  initial budget is exhausted without verification. Hard cap at 10 tool
+  calls; if reached without verification, best-effort selection picks
+  the tool call with the highest count of passing checks (tiebreaker:
+  highest Q11 EBITDA margin).
+
+  Mutates nothing in the caller's state — the operating_context's
+  model_input_template stays frozen across probes. The caller writes
+  the committed anchors via the shared writer after this returns.
   """
   from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
     call_gpt_responses_api_turn,
@@ -524,15 +464,12 @@ def run_tool_calling_session(
   )
   from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.prompts import (  # type: ignore
     SYSTEM_PROMPT,
-  )
-  from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.validators import (  # type: ignore
-    validate_final_commit,
+    EXTENSION_PROMPT_TEXT,
   )
 
   if scope not in _VALID_SCOPES:
     scope = SCOPE_PNL_PATH
   tool_def = _build_tool_definition(scope=scope)
-  commit_schema = _build_commit_schema(scope=scope)
   initial_user_prompt = _build_initial_user_prompt(
     operating_model=operating_model,
     q1_state=q1_state,
@@ -541,9 +478,9 @@ def run_tool_calling_session(
     failing_metrics=failing_metrics,
   )
 
-  # Responses API input items. The caller appends to this list each
-  # turn — assistant raw items (function_call wrappers) and our
-  # function_call_output replies.
+  # Responses API input items — the caller appends to this list each
+  # turn (assistant function_call wrappers + our function_call_output
+  # replies + any nudge messages).
   input_items: List[Dict[str, Any]] = [
     {
       "role": "system",
@@ -559,211 +496,163 @@ def run_tool_calling_session(
   tool_calls_used = 0
   gpt_calls_made = 0
   decision_sources: List[str] = []
-  last_assistant_text: Optional[str] = None
-  parsed_commit: Optional[Dict[str, Any]] = None
-  status_label = "failed"
+  budget_extension_triggered = False
+  verified_commit_candidate: Optional[ToolCallRecord] = None
   detail = ""
 
+  # Session loop: GPT iterates until either he stops calling the tool
+  # OR the hard cap is reached.
   while True:
-    # If we've used the tool budget, force a final answer this turn:
-    # remove tools from the request and append a user nudge so GPT
-    # commits a json_schema-conformant assistant message.
-    tools_for_turn: Optional[List[Dict[str, Any]]] = None
-    schema_for_turn: Optional[Dict[str, Any]] = None
-    schema_name_for_turn: Optional[str] = None
-    if tool_calls_used < MAX_TOOL_CALLS:
-      tools_for_turn = [tool_def]
-      # Don't constrain text-format when tools are available — GPT may
-      # emit a tool_call instead of text, and a text.format constraint
-      # only applies to text output. We attach the commit schema for
-      # the FINAL turn only (when tools are removed).
-      schema_for_turn = None
-      schema_name_for_turn = None
-    else:
-      # Final-commit turn: no tools, strict json_schema, plus an
-      # explicit user nudge.
+    # Budget management: extension grant if needed.
+    if (
+      tool_calls_used >= INITIAL_TOOL_CALL_BUDGET
+      and not budget_extension_triggered
+      and verified_commit_candidate is None
+    ):
       input_items.append({
         "role": "user",
-        "content": [{
-          "type": "input_text",
-          "text": (
-            "You have used your final tool call. Commit to your best "
-            "answer now based on what you have learned across the "
-            "tool calls so far. Return the final JSON schema with "
-            "driver_anchors and reasoning."
-          ),
-        }],
+        "content": [{"type": "input_text", "text": EXTENSION_PROMPT_TEXT}],
       })
-      tools_for_turn = None
-      schema_for_turn = commit_schema
-      schema_name_for_turn = (
-        "post_intake_gpt_exhaustion_handler_final_commit"
-      )
+      budget_extension_triggered = True
 
-    consultant_label = (
-      "post_intake_gpt_exhaustion_handler_tool_call_turn_"
-      f"{tool_calls_used + 1}"
-    ) if tools_for_turn else (
-      "post_intake_gpt_exhaustion_handler_final_commit_after_budget"
-    )
+    if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+      detail = "hard_cap_tool_calls_reached"
+      break
+
     turn_resp = call_gpt_responses_api_turn(
-      consultant_name=consultant_label,
+      consultant_name=(
+        "post_intake_gpt_exhaustion_handler_tool_call_turn_"
+        f"{tool_calls_used + 1}"
+      ),
       input_items=input_items,
-      tools=tools_for_turn,
-      response_schema=schema_for_turn,
-      schema_name=schema_name_for_turn,
+      tools=[tool_def],
+      response_schema=None,
+      schema_name=None,
     )
     gpt_calls_made += 1
     decision_sources.append(str(turn_resp.get("decision_source") or ""))
 
     if turn_resp.get("decision_source") != "python_proposer_plus_gpt_critic":
-      # Hard fail (no api key, http error, timeout, budget). Exit.
-      status_label = "failed"
-      detail = str(turn_resp.get("detail") or "") or str(
-        turn_resp.get("decision_source") or ""
+      detail = (
+        f"gpt_turn_failed: {turn_resp.get('detail') or turn_resp.get('decision_source')}"
       )
       break
 
     raw_assistant_items = turn_resp.get("raw_assistant_items") or []
     tool_calls = turn_resp.get("tool_calls") or []
-    assistant_text = turn_resp.get("assistant_message_text")
-    parsed_assistant_json = turn_resp.get("parsed_assistant_json")
 
-    # Always echo the assistant items back to the input so the next
-    # turn has the full conversation history.
+    # Echo assistant items back to the input for the next turn.
     for item in raw_assistant_items:
       input_items.append(item)
 
-    if tool_calls and tools_for_turn is not None:
-      # Process each tool call; append a function_call_output reply
-      # for each. (GPT typically emits one call per turn but Responses
-      # API allows parallel calls — handle them all.)
-      for call in tool_calls:
-        if str(call.get("name") or "").strip() != _TOOL_NAME:
-          # Unknown tool — feed back an error and continue.
-          input_items.append({
-            "type": "function_call_output",
-            "call_id": call.get("call_id") or "",
-            "output": json.dumps(
-              {"error": f"unknown_tool_{call.get('name')}"},
-              ensure_ascii=False,
-            ),
-          })
-          continue
-        try:
-          args = json.loads(call.get("arguments") or "{}")
-          if not isinstance(args, dict):
-            args = {}
-        except Exception as exc:
-          input_items.append({
-            "type": "function_call_output",
-            "call_id": call.get("call_id") or "",
-            "output": json.dumps(
-              {"error": f"arguments_not_json: {type(exc).__name__}"},
-              ensure_ascii=False,
-            ),
-          })
-          continue
+    if not tool_calls:
+      # GPT issued an assistant message instead of calling the tool —
+      # he's decided to stop iterating. Session ends; commit from
+      # verified_commit_candidate.
+      detail = "gpt_stopped_calling_tool"
+      break
 
-        result = compute_trajectory_from_anchors(args, operating_context)
-        tool_calls_used += 1
-        history.append(ToolCallRecord(
-          call_n=tool_calls_used,
-          arguments=args,
-          result=result,
-          call_id=str(call.get("call_id") or ""),
-        ))
+    # Process each tool call (Responses API supports parallel calls;
+    # typically one per turn, but the loop handles either).
+    for call in tool_calls:
+      if str(call.get("name") or "").strip() != _TOOL_NAME:
         input_items.append({
           "type": "function_call_output",
           "call_id": call.get("call_id") or "",
-          "output": json.dumps(result, ensure_ascii=False, default=str),
+          "output": json.dumps(
+            {"error": f"unknown_tool_{call.get('name')}"},
+            ensure_ascii=False,
+          ),
         })
-        if tool_calls_used >= MAX_TOOL_CALLS:
-          break
-      # Loop back; next iteration will either send tools again (if
-      # budget left) or force the final-commit turn.
-      continue
-
-    # No tool calls in this turn -> GPT either committed or stalled.
-    if isinstance(parsed_assistant_json, dict):
-      ok, err = validate_final_commit(parsed_assistant_json, scope=scope)
-      if ok:
-        parsed_commit = parsed_assistant_json
-        last_assistant_text = assistant_text
-        if tools_for_turn is None:
-          status_label = "committed_after_budget_hit"
-        else:
-          status_label = "committed"
-        break
-      else:
-        # Schema-valid JSON but failed sanity. Append a user nudge
-        # asking GPT to fix and emit a valid final answer.
+        continue
+      try:
+        args = json.loads(call.get("arguments") or "{}")
+        if not isinstance(args, dict):
+          args = {}
+      except Exception as exc:
         input_items.append({
-          "role": "user",
-          "content": [{
-            "type": "input_text",
-            "text": (
-              f"Your commit failed sanity validation: {err}. "
-              "Re-emit the final JSON schema with values in plausible "
-              "ranges. Do not call the tool again — return the final "
-              "answer now."
-            ),
-          }],
+          "type": "function_call_output",
+          "call_id": call.get("call_id") or "",
+          "output": json.dumps(
+            {"error": f"arguments_not_json: {type(exc).__name__}"},
+            ensure_ascii=False,
+          ),
         })
-        # Force tools_for_turn=None on next pass via budget exhaustion;
-        # here we explicitly mark budget hit to drive the next loop.
-        tool_calls_used = max(tool_calls_used, MAX_TOOL_CALLS)
         continue
 
-    # No tool call AND no parseable assistant JSON. Give GPT one
-    # explicit nudge; if we already nudged, fail.
-    if tools_for_turn is None:
-      status_label = "failed"
-      detail = "no_tool_call_and_no_parseable_commit_after_force"
-      last_assistant_text = assistant_text
-      break
-    input_items.append({
-      "role": "user",
-      "content": [{
-        "type": "input_text",
-        "text": (
-          "Return your final answer in the JSON schema now. If you "
-          "still need to verify, call compute_full_trajectory; "
-          "otherwise emit driver_anchors + reasoning."
-        ),
-      }],
-    })
-    # Promote to final-commit turn.
-    tool_calls_used = max(tool_calls_used, MAX_TOOL_CALLS)
+      result = compute_trajectory_from_anchors(args, operating_context)
+      tool_calls_used += 1
+      rec = ToolCallRecord(
+        call_n=tool_calls_used,
+        arguments=args,
+        result=result,
+        call_id=str(call.get("call_id") or ""),
+      )
+      history.append(rec)
 
-  # Build the result.
-  if parsed_commit is None:
+      # Verified-commit-candidate tracking. Most recent all_pass wins.
+      checks = (result or {}).get("viability_checks") or {}
+      if checks.get("all_pass") is True:
+        verified_commit_candidate = rec
+
+      input_items.append({
+        "type": "function_call_output",
+        "call_id": call.get("call_id") or "",
+        "output": json.dumps(result, ensure_ascii=False, default=str),
+      })
+      if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+        break
+
+    # Loop back. The while-loop guard handles hard cap on the next pass.
+
+  # Session ended. Decide commit.
+  last_viability_checks = (
+    history[-1].result.get("viability_checks") if history else None
+  )
+  if verified_commit_candidate is not None:
     return ToolCallSessionResult(
-      status="failed",
+      status="verified",
+      final_anchors=verified_commit_candidate.arguments,
       tool_calls_used=tool_calls_used,
       tool_call_history=history,
+      last_viability_checks=last_viability_checks,
+      implied_q11_ebitda_margin=_q11_from_record(verified_commit_candidate),
       gpt_calls_made=gpt_calls_made,
       decision_sources=decision_sources,
-      detail=detail or "no_parsed_commit",
-      last_viability_checks=(
-        history[-1].result.get("viability_checks") if history else None
-      ),
-      implied_q11_ebitda_margin=_last_viable_implied_q11(history),
+      budget_extension_triggered=budget_extension_triggered,
+      detail=detail or "verified_commit_candidate",
+      verified_commit_call_n=verified_commit_candidate.call_n,
     )
 
+  best_effort = _best_effort_record(history)
+  if best_effort is not None:
+    return ToolCallSessionResult(
+      status="best_effort_no_all_pass",
+      final_anchors=best_effort.arguments,
+      tool_calls_used=tool_calls_used,
+      tool_call_history=history,
+      last_viability_checks=last_viability_checks,
+      implied_q11_ebitda_margin=_q11_from_record(best_effort),
+      gpt_calls_made=gpt_calls_made,
+      decision_sources=decision_sources,
+      budget_extension_triggered=budget_extension_triggered,
+      detail=detail or "best_effort_selected",
+      best_effort_call_n=best_effort.call_n,
+    )
+
+  # No tool calls in history at all -> failed precondition (couldn't
+  # even probe). This is rare; happens when GPT never called the tool
+  # or every turn errored.
   return ToolCallSessionResult(
-    status=status_label,
-    final_anchors=parsed_commit.get("driver_anchors"),
-    reasoning=str(parsed_commit.get("reasoning") or ""),
+    status="failed_precondition",
     tool_calls_used=tool_calls_used,
     tool_call_history=history,
-    last_viability_checks=(
-      history[-1].result.get("viability_checks") if history else None
-    ),
-    implied_q11_ebitda_margin=_last_viable_implied_q11(history),
+    last_viability_checks=last_viability_checks,
+    implied_q11_ebitda_margin=None,
     gpt_calls_made=gpt_calls_made,
     decision_sources=decision_sources,
-    detail=detail,
+    budget_extension_triggered=budget_extension_triggered,
+    detail=detail or "no_tool_calls_completed",
   )
 
 
@@ -780,10 +669,15 @@ def execute_tool_calling_session_and_commit(
   """Run the tool-calling session, write the committed anchors into
   model_input, rebuild FINMO, and return a HandlerResult.
 
+  Phase 9 P3.9 — the committed anchors are the verified_commit_candidate
+  from the session (the most recent tool call with all_pass=True), OR
+  the best-effort record (highest pass-count) when no all_pass occurred
+  within the hard-cap budget.
+
   Mutates ``model_input`` in place with GPT-authored per-quarter driver
-  values (under provenance tag "gpt_tool_call_commit_drivers"). Returns
-  a HandlerResult; caller (handler.run_gpt_exhaustion_handler) returns
-  it verbatim.
+  values under provenance tag "gpt_tool_call_commit_drivers". Returns a
+  HandlerResult; caller (handler.run_gpt_exhaustion_handler) returns it
+  verbatim.
   """
   from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.handler import (  # type: ignore
     HandlerResult,
@@ -794,9 +688,8 @@ def execute_tool_calling_session_and_commit(
     compute_metrics_to_mute,
   )
 
-  # Phase 9 P3.7 — pull scope + failing_metrics off the restoration
-  # result. Default to PNL_PATH when restoration_result doesn't carry
-  # a scope (older callers, fallback safety).
+  # Pull scope + failing_metrics off the restoration result. Default to
+  # PNL_PATH when restoration_result doesn't carry a scope.
   scope_value = SCOPE_PNL_PATH
   failing_metrics: List[Dict[str, Any]] = []
   scope_raw = getattr(restoration_result, "scope", None)
@@ -812,11 +705,6 @@ def execute_tool_calling_session_and_commit(
       dict(item) for item in fm_raw if isinstance(item, dict)
     ]
 
-  # The mini-FINMO probe runs against a frozen template (the model_input
-  # at the moment the session starts). Tool calls during the session see
-  # the SAME starting state — they don't accumulate writes from previous
-  # tool calls. This matches the user's intent: each tool call is "if I
-  # used these anchors, what would the system compute?".
   operating_context = {
     "model_input_template": copy.deepcopy(model_input or {}),
     "build_finmo": build_finmo,
@@ -835,7 +723,7 @@ def execute_tool_calling_session_and_commit(
   )
 
   provenance: Dict[str, Any] = {
-    "phase": "phase_9_p3_5_tool_calling_session",
+    "phase": "phase_9_p3_9_tool_calling_session",
     "exhaustion_diagnostic": {
       "status": exhaustion_diagnostic.get("status"),
       "q11_ebitda_margin": exhaustion_diagnostic.get("q11_ebitda_margin"),
@@ -848,11 +736,12 @@ def execute_tool_calling_session_and_commit(
     "tool_calling_session": session_result.to_dict(),
   }
 
-  if session_result.status == "failed" or not session_result.final_anchors:
+  # No anchors to commit -> failed precondition.
+  if session_result.final_anchors is None:
     return HandlerResult(
-      status=HandlerStatus.FAILED,
+      status=HandlerStatus.FAILED_PRECONDITION,
       gpt_calls_made=session_result.gpt_calls_made,
-      q11_ebitda_target=session_result.implied_q11_ebitda_margin,
+      q11_ebitda_target=None,
       q11_ebitda_actual=_q11_ebitda_margin(
         build_finmo(copy.deepcopy(model_input or {})) or {}
       ),
@@ -862,9 +751,9 @@ def execute_tool_calling_session_and_commit(
       ),
     )
 
-  # Write committed anchors into model_input via the shared writer
-  # (FINMO contracts: skip Capacity for labor-driven, integer-round
-  # capacity, clip utilization to <= 0.84).
+  # Write committed anchors into the live model_input via the shared
+  # writer (FINMO contracts: skip Capacity for labor-driven, integer-
+  # round capacity, clip utilization to <= 0.84).
   write_summary = _write_gpt_authored_per_quarter_values(
     model_input=model_input or {},
     driver_anchors=session_result.final_anchors,
@@ -877,7 +766,7 @@ def execute_tool_calling_session_and_commit(
     rebuilt_finmo = build_finmo(copy.deepcopy(model_input or {}))
   except Exception as exc:
     return HandlerResult(
-      status=HandlerStatus.FAILED,
+      status=HandlerStatus.FAILED_PRECONDITION,
       gpt_calls_made=session_result.gpt_calls_made,
       q11_ebitda_target=session_result.implied_q11_ebitda_margin,
       q11_ebitda_actual=None,
@@ -890,59 +779,41 @@ def execute_tool_calling_session_and_commit(
   q11_actual = _q11_ebitda_margin(rebuilt_finmo or {})
   provenance["post_commit_q11_ebitda_margin"] = q11_actual
 
-  # Phase 9 P3.7 — mute set derived from what GPT ACTUALLY authored
-  # (not from what was authorized). Lets bs_only_path commits mute
-  # only the metrics whose primary_levers reference the WC drivers
-  # GPT supplied a value for, leaving everything else under the
-  # realism gate's normal authority.
+  # Mute set derived from what GPT ACTUALLY authored (not from what was
+  # authorized). bs_only_path commits mute only metrics whose
+  # primary_levers reference the WC drivers GPT supplied a value for.
   authored_lever_ids = authored_lever_ids_from_commit(
     session_result.final_anchors
   )
   provenance["authored_lever_ids"] = sorted(authored_lever_ids)
   provenance["scope"] = scope_value
-
-  # Decide final status. FINMO Q11 should match what GPT saw in his
-  # last viable tool call (mini-FINMO uses full FINMO under the hood).
-  # If it doesn't satisfy Q11 >= 0, that's a FAILED (rare — implies a
-  # writer / contract drift).
-  # On bs_only_path the Q11 viability check is informational only:
-  # the deterministic solver already proved viability before the
-  # forecast classifier triggered. Skip the gate.
-  if scope_value == SCOPE_BS_ONLY_PATH:
-    q11_viable = True
-  else:
-    q11_viable = q11_actual is not None and float(q11_actual) >= 0.0
   metrics_to_mute = compute_metrics_to_mute(
     gpt_authored_lever_ids=authored_lever_ids,
   )
 
-  if not q11_viable:
+  if session_result.status == "verified":
     return HandlerResult(
-      status=HandlerStatus.FAILED,
+      status=HandlerStatus.LANDED_VERIFIED_TOOL_CALL,
       gpt_calls_made=session_result.gpt_calls_made,
       q11_ebitda_target=session_result.implied_q11_ebitda_margin,
-      q11_ebitda_actual=q11_actual,
+      q11_ebitda_actual=float(q11_actual) if q11_actual is not None else None,
       provenance=provenance,
       realism_flags_to_mute=metrics_to_mute,
       reason=(
-        "post_commit_q11_below_zero: implied="
-        f"{session_result.implied_q11_ebitda_margin} actual={q11_actual}"
+        "verified_tool_call_committed"
+        + (" (extension_budget_used)" if session_result.budget_extension_triggered else "")
       ),
     )
 
-  if session_result.status == "committed_after_budget_hit":
-    final_status = HandlerStatus.LANDED_TOOL_CALL_BUDGET_HIT
-    reason = "tool_call_budget_hit_committed_under_pressure"
-  else:
-    final_status = HandlerStatus.LANDED_TOOL_CALL_COMMIT
-    reason = "tool_call_session_committed_with_viable_trajectory"
-
+  # best_effort_no_all_pass
   return HandlerResult(
-    status=final_status,
+    status=HandlerStatus.LANDED_BEST_EFFORT_NO_ALL_PASS,
     gpt_calls_made=session_result.gpt_calls_made,
     q11_ebitda_target=session_result.implied_q11_ebitda_margin,
-    q11_ebitda_actual=float(q11_actual),
+    q11_ebitda_actual=float(q11_actual) if q11_actual is not None else None,
     provenance=provenance,
     realism_flags_to_mute=metrics_to_mute,
-    reason=reason,
+    reason=(
+      "best_effort_no_all_pass_committed_under_hard_cap"
+    ),
   )
