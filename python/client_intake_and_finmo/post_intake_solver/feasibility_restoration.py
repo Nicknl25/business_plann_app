@@ -4,8 +4,7 @@ Phase 6 Step 9 introduced an upstream structural feasibility check that
 HALTED the run on infeasibility. Phase 7.2 rewires that signal into a
 cascade entry point: when the structural check finds the operator's
 configured intake can't produce a feasible plan, this module ADAPTS the
-inputs (payroll schedule, unit price, utilization, capacity) until the
-gap closes.
+inputs (unit price, utilization, capacity) until the gap closes.
 
 Architectural principle (Phase 7.2 directive):
   - The system fixes infeasibility, it does not report infeasibility.
@@ -20,18 +19,23 @@ Architectural principle (Phase 7.2 directive):
     to actually change.
 
 Lever priority:
-  1. Headcount rationalization — when today's payroll exceeds capacity-
-     implied requirements (NAICS payroll_percent_of_revenue × capacity-
-     driven revenue), cap the schedule at the capacity-appropriate
-     level. This is the deferred "headcount anchored on operator's
-     current_payroll" bug, addressed here as part of the restoration
-     toolkit.
-  2. Unit price within band — push toward NAICS price ceiling.
-  3. Utilization within band — push toward 0.95 cap.
-  4. Capacity expansion (unbounded final guarantee) — whatever capacity
+  1. Unit price within band — push toward NAICS price ceiling.
+  2. Utilization within band — push toward 0.95 cap.
+  3. Capacity expansion (unbounded final guarantee) — whatever capacity
      it takes to clear the residual gap. Reports the multiplier so the
      operator sees "to be feasible, your business needs to scale to N
      units/period (Mx current)."
+
+Phase 9 P3.10 Bug C — the prior "headcount rationalization" Lever 1
+was removed in commit
+phase_9_p3_10_fix_bug_c_remove_phase_7_2_headcount_rationalization.
+That lever was a workaround for a build-time bug (schedule anchoring
+on operator_stated_current_payroll / 4) that no longer exists; today's
+schedule build is per-row OEWS-resolved. Capping payroll without
+rebuilding rows produced the divergence the existing
+``payroll_headcount_quarter_total_mismatch`` fail-fast catches.
+``post_intake_realism/lookup.py:548`` Golden Rule (payroll is not
+clipped to NAICS) is the operative policy.
 
 The orchestrator consumes ``RestorationResult.adjusted_ops_json`` and
 ``adjusted_payroll_headcount`` and patches the model_input rows for the
@@ -60,10 +64,6 @@ def _safe_float(value: Any) -> Optional[float]:
 # Maximum permissive utilization. Anything higher is structurally
 # unrealistic.
 _UTILIZATION_BAND_MAX = 0.95
-
-# When NAICS payroll baseline is missing, fall back to 35% of revenue —
-# a conservative ratio that supports most retail/services businesses.
-_FALLBACK_PAYROLL_PCT_OF_REVENUE = 0.35
 
 # Price uplift cap as a multiplier of stated price. Going beyond 2x
 # requires explicit operator review of pricing strategy.
@@ -95,137 +95,6 @@ class RestorationResult:
       "applied_adjustments": list(self.applied_adjustments),
       "diagnostic_narrative": self.diagnostic_narrative,
     }
-
-
-def _naics_payroll_pct(
-  business_naics_6: Optional[str],
-  *,
-  industry_profile: Optional[Dict[str, Any]] = None,
-) -> Optional[float]:
-  """Phase 9 Step 2b — prefer Phase E IndustryProfile when provided.
-
-  Falls back to direct NAICS lookup so the function still works when
-  industry_profile isn't threaded through (e.g., upstream structural
-  feasibility check that runs at intake time).
-  """
-  if isinstance(industry_profile, dict):
-    bands = industry_profile.get("bands") or {}
-    if isinstance(bands, dict):
-      band_p = bands.get("payroll_percent_of_revenue")
-      if isinstance(band_p, dict):
-        target_p = _safe_float(band_p.get("benchmark_target"))
-        if target_p is not None and 0.0 < target_p < 1.0:
-          return float(target_p)
-  if not business_naics_6:
-    return None
-  try:
-    from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
-      post_intake_industry_baseline_for_naics,
-    )
-    band = post_intake_industry_baseline_for_naics(
-      metric_key="payroll_percent_of_revenue",
-      naics_6=str(business_naics_6),
-    )
-  except Exception:
-    return None
-  if not isinstance(band, dict):
-    return None
-  target = _safe_float(band.get("benchmark_target"))
-  if target is not None and 0.0 < target < 1.0:
-    return float(target)
-  return None
-
-
-def _annual_payroll_from_schedule(payroll_headcount: Optional[Dict[str, Any]]) -> Optional[float]:
-  if not isinstance(payroll_headcount, dict):
-    return None
-  quarter_totals = payroll_headcount.get("quarter_totals")
-  if not isinstance(quarter_totals, list) or not quarter_totals:
-    return None
-  values: List[float] = []
-  for row in quarter_totals[:4]:
-    if isinstance(row, dict):
-      payroll = _safe_float(row.get("payroll"))
-      if payroll is not None:
-        values.append(payroll)
-  if not values:
-    return None
-  return float(sum(values))
-
-
-def _apply_headcount_rationalization(
-  *,
-  adjusted_payroll: Dict[str, Any],
-  capacity_revenue_annual: float,
-  business_naics_6: Optional[str],
-  adjustments: List[Dict[str, Any]],
-  industry_profile: Optional[Dict[str, Any]] = None,
-) -> float:
-  """Lever 1: cap payroll schedule at NAICS-implied capacity-appropriate
-  level. Returns annual savings (positive number) or 0 when no
-  rationalization needed.
-
-  The current schedule anchors on operator's stated current_payroll/4
-  (the deferred headcount bug). When operator is over-staffed for
-  modeled capacity, this caps each quarter's payroll at
-  ``capacity_revenue × naics_payroll_pct / 4``. Downstream consumers
-  see the capped values; the override is flagged on the schedule so
-  the planning narrative can explain the change.
-  """
-  current_annual = _annual_payroll_from_schedule(adjusted_payroll)
-  if current_annual is None or current_annual <= 0:
-    return 0.0
-
-  payroll_pct = (
-    _naics_payroll_pct(business_naics_6, industry_profile=industry_profile)
-    or _FALLBACK_PAYROLL_PCT_OF_REVENUE
-  )
-  target_annual = capacity_revenue_annual * payroll_pct
-  if current_annual <= target_annual:
-    return 0.0
-
-  target_quarter_payroll = target_annual / 4.0
-  quarter_totals = adjusted_payroll.get("quarter_totals") or []
-  capped_qts: List[Dict[str, Any]] = []
-  for row in quarter_totals:
-    if not isinstance(row, dict):
-      capped_qts.append(row)
-      continue
-    new_row = dict(row)
-    original = _safe_float(row.get("payroll")) or 0.0
-    capped = min(original, target_quarter_payroll) if original > 0 else 0.0
-    new_row["payroll"] = round(capped, 2)
-    new_row["_phase_7_2_capped_for_capacity"] = True
-    new_row["_phase_7_2_original_payroll"] = original
-    capped_qts.append(new_row)
-  adjusted_payroll["quarter_totals"] = capped_qts
-  adjusted_payroll["_phase_7_2_headcount_rationalization_applied"] = True
-  adjusted_payroll["_phase_7_2_target_annual_payroll"] = round(target_annual, 2)
-  adjusted_payroll["_phase_7_2_naics_payroll_pct_used"] = payroll_pct
-
-  capped_q1_q4 = sum(
-    _safe_float(r.get("payroll")) or 0.0
-    for r in capped_qts[:4] if isinstance(r, dict)
-  )
-  savings = float(current_annual) - float(capped_q1_q4)
-  if savings <= 0:
-    return 0.0
-
-  adjustments.append({
-    "lever": "headcount_rationalization",
-    "payroll_pct_target": payroll_pct,
-    "payroll_annual_before": round(current_annual, 2),
-    "payroll_annual_after": round(capped_q1_q4, 2),
-    "annual_savings": round(savings, 2),
-    "rationale": (
-      f"Operator's stated payroll (${current_annual:,.0f}/yr) exceeds the "
-      f"capacity-implied level for NAICS {business_naics_6 or 'unknown'} "
-      f"(payroll {payroll_pct * 100:.0f}% of capacity-driven revenue "
-      f"${capacity_revenue_annual:,.0f} = ${target_annual:,.0f}/yr). "
-      f"Capping payroll schedule at capacity-appropriate level."
-    ),
-  })
-  return savings
 
 
 def _capacity_revenue_from_ops(ops_json: Dict[str, Any]) -> Optional[float]:
@@ -449,7 +318,10 @@ def restore_feasibility(
   adjusted_ops = copy.deepcopy(ops_json or {})
   adjusted_payroll = copy.deepcopy(payroll_headcount or {})
 
-  _ = financials_json, financials_year1_json  # accepted for forward compatibility
+  # Phase 9 P3.10 Bug C — business_naics_6 + industry_profile were
+  # consumed only by the removed headcount_rationalization lever; kept
+  # in the signature so existing callers don't break.
+  _ = financials_json, financials_year1_json, business_naics_6, industry_profile
 
   if initial_gap <= 0:
     return RestorationResult(
@@ -467,17 +339,15 @@ def restore_feasibility(
   current_gap = float(initial_gap)
   current_capacity_revenue = float(capacity_revenue_initial)
 
-  # Lever 1: headcount rationalization
-  payroll_savings = _apply_headcount_rationalization(
-    adjusted_payroll=adjusted_payroll,
-    capacity_revenue_annual=current_capacity_revenue,
-    business_naics_6=business_naics_6,
-    adjustments=adjustments,
-    industry_profile=industry_profile,
-  )
-  current_gap -= payroll_savings
+  # Phase 9 P3.10 Bug C — the prior Lever 1 (headcount rationalization)
+  # was removed. The current schedule build is per-row OEWS-resolved
+  # (no current_payroll/4 anchor), so the cap workaround it patched is
+  # obsolete; capping payroll while leaving rows untouched produced the
+  # divergence the existing payroll_headcount_quarter_total_mismatch
+  # fail-fast catches. Levers 1-3 below (price / utilization / capacity)
+  # absorb any structural gap the operator-stated payroll exposes.
 
-  # Lever 2: unit price within band (only fires if gap remains)
+  # Lever 1: unit price within band
   if current_gap > 0:
     price_lift = _apply_price_lift(
       adjusted_ops=adjusted_ops,
@@ -488,7 +358,7 @@ def restore_feasibility(
     current_gap -= price_lift
     current_capacity_revenue += price_lift
 
-  # Lever 3: utilization within band
+  # Lever 2: utilization within band
   if current_gap > 0:
     util_lift = _apply_utilization_lift(
       adjusted_ops=adjusted_ops,
@@ -499,7 +369,7 @@ def restore_feasibility(
     current_gap -= util_lift
     current_capacity_revenue += util_lift
 
-  # Lever 4: capacity expansion (unbounded final guarantee)
+  # Lever 3: capacity expansion (unbounded final guarantee)
   if current_gap > 0:
     capacity_lift = _apply_capacity_expansion(
       adjusted_ops=adjusted_ops,
@@ -511,12 +381,9 @@ def restore_feasibility(
     current_capacity_revenue += capacity_lift
 
   feasible = current_gap <= 0
-  fixed_cost_after = (
-    fixed_cost_initial - sum(
-      _safe_float(adj.get("annual_savings")) or 0.0
-      for adj in adjustments if adj.get("lever") == "headcount_rationalization"
-    )
-  )
+  # Phase 9 P3.10 Bug C — fixed_cost_after no longer subtracts the
+  # removed headcount_rationalization savings; pass-through unchanged.
+  fixed_cost_after = fixed_cost_initial
 
   if not adjustments:
     narrative = "No adjustments applicable; restoration cascade had no levers to pull."
