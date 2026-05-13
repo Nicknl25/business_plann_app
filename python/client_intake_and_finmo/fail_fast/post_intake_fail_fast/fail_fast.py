@@ -875,6 +875,19 @@ def assert_post_intake_business_shape_applied(
   stage: str,
   payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> None:
+  """Finalize-stage business shape verification.
+
+  Phase 9 P3.10 Bug F + Bug D — assert_stage_ramp_expense_path_applied and
+  assert_stage_ramp_profitability_path_applied are NO LONGER called from
+  here. They are GPT-authorable (the handler can adjust the underlying
+  cogs/marketing/sga/payroll/profitability drivers) and have been moved
+  to the pre-cash post-handler gate in orchestrator.py
+  (_evaluate_gpt_authorable_pre_cash_checks). Single source of truth.
+
+  Revenue path and marketing presence remain at finalize: they verify
+  authoring contract presence (e.g., the marketing row exists at all),
+  not values the handler can adjust.
+  """
   assert_stage_ramp_revenue_path_applied(
     stage_ramp_contract=stage_ramp_contract,
     finmo_json=finmo_json,
@@ -887,18 +900,9 @@ def assert_post_intake_business_shape_applied(
     finmo_json=finmo_json,
     stage=stage,
   )
-  assert_stage_ramp_expense_path_applied(
-    stage_ramp_contract=stage_ramp_contract,
-    model_input_json=model_input_json,
-    finmo_json=finmo_json,
-    payroll_headcount=payroll_headcount,
-    stage=stage,
-  )
-  assert_stage_ramp_profitability_path_applied(
-    stage_ramp_contract=stage_ramp_contract,
-    finmo_json=finmo_json,
-    stage=stage,
-  )
+  # MOVED to pre-cash post-handler gate (orchestrator.py):
+  #   assert_stage_ramp_expense_path_applied
+  #   assert_stage_ramp_profitability_path_applied
 
 
 def assert_post_intake_horizon_integrity(

@@ -49,6 +49,270 @@ _DEFAULT_POSTFLIGHT_MAX_ITERATIONS = 16
 _DEFAULT_NUMERIC_TOLERANCE = 1e-6
 
 
+# Phase 9 P3.10 Bug F + Bug D — names of the GPT-authorable checks
+# moved out of finalize into the pre-cash post-handler gate. Single
+# source of truth. Each name corresponds to a check the handler's
+# existing toolset (driver anchors, working_capital_drivers,
+# realism_flags_to_mute) can resolve.
+_GPT_AUTHORABLE_PRE_CASH_CHECK_NAMES = (
+  "stage_ramp_expense_path_applied",
+  "stage_ramp_profitability_path_applied",
+  "balance_sheet_driver_zero_but_applicable",
+)
+
+
+# Map FINMO-field names (as emitted by the stage_ramp_expense violations)
+# to (realism metric_key, primary lever_id). Used to translate
+# stage_ramp_expense_path_applied violations into handler-compatible
+# failing_metrics. Universal-app: every business uses the same map.
+_STAGE_RAMP_EXPENSE_FINMO_FIELD_TO_METRIC_LEVER = {
+  "cost_of_goods_sold": ("cogs_percent_of_revenue", "expenses::Cost of Goods Sold"),
+  "marketing": ("marketing_percent_of_revenue", "expenses::Marketing"),
+  "research_and_development": ("r_and_d_percent_of_revenue", "expenses::Research & Development"),
+  "lease_rent": ("rent_percent_of_revenue", "expenses::Lease"),
+  "general_and_administrative": ("sga_percent_of_revenue", "expenses::General & Administrative"),
+  "payroll": ("payroll_percent_of_revenue", "expenses::Payroll"),
+}
+
+
+# Map balance_sheet lever_ids to their realism metric_key for
+# zero_but_applicable violation translation.
+_BALANCE_SHEET_LEVER_TO_METRIC = {
+  "balance_sheet::Deferred Revenue (% of Revenue)": "deferred_revenue_percent_of_revenue",
+  "balance_sheet::Prepaid Expenses (% of Revenue)": "prepaid_expenses_percent_of_revenue",
+  "balance_sheet::Accounts Receivable Days": "ar_days_dso",
+  "balance_sheet::Accounts Payable Days": "ap_days_dpo",
+  "balance_sheet::Inventory Days": "inventory_days",
+}
+
+
+# P&L lever set — used to decide handler scope (PNL_PATH vs BS_ONLY_PATH).
+_PNL_LEVER_IDS = frozenset({
+  "expenses::Cost of Goods Sold",
+  "expenses::Marketing",
+  "expenses::Research & Development",
+  "expenses::Lease",
+  "expenses::General & Administrative",
+  "expenses::Payroll",
+  "revenue::Unit Price",
+  "revenue::Capacity",
+  "revenue::Utilization",
+})
+
+
+class _PreCashGateRestorationResult:
+  """Synthetic restoration_result for the pre-cash post-handler gate.
+
+  The handler's run_gpt_exhaustion_handler entry point expects a
+  RestorationResult-shaped object with `.scope`, `.failing_metrics`,
+  `.q11_ebitda_margin`, and `.to_dict()`. The gate fabricates one of
+  these from the GPT-authorable check violations so the handler runs
+  with the same callable, signature, and contract used by the
+  restoration-EXHAUSTED → handler path.
+  """
+
+  def __init__(self, *, scope, failing_metrics, q11_ebitda_margin) -> None:
+    from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+      RestorationStatus,
+    )
+    self.status = RestorationStatus.EXHAUSTED
+    self.scope = scope
+    self.failing_metrics = list(failing_metrics or [])
+    self.q11_ebitda_margin = q11_ebitda_margin
+    self.outer_passes_used = 0
+    self.per_pass_diagnostics = []
+    self.final_viability_state = {}
+    self.drivers_at_bounds_summary = {}
+    self.per_target_results = []
+    self.reason = "pre_cash_gate_gpt_authorable_check_failure"
+
+  def to_dict(self) -> Dict[str, Any]:
+    return {
+      "status": "exhausted",
+      "scope": (
+        self.scope.value
+        if hasattr(self.scope, "value")
+        else (self.scope or None)
+      ),
+      "failing_metrics": list(self.failing_metrics),
+      "reason": self.reason,
+      "q11_ebitda_margin": self.q11_ebitda_margin,
+      "outer_passes_used": self.outer_passes_used,
+      "per_pass_diagnostics": list(self.per_pass_diagnostics),
+      "final_viability_state": dict(self.final_viability_state),
+      "drivers_at_bounds_summary": dict(self.drivers_at_bounds_summary),
+      "per_target_results": list(self.per_target_results),
+    }
+
+
+def _q11_ebitda_margin_from_finmo(finmo_json: Optional[Dict[str, Any]]) -> Optional[float]:
+  rows = (finmo_json or {}).get("quarter_rows") or []
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    try:
+      qi = int(float(row.get("quarter_index") or 0))
+    except Exception:
+      continue
+    if qi != 11:
+      continue
+    revenue = float(_safe_float(row.get("revenue")) or 0.0)
+    if revenue <= 0:
+      return None
+    ebitda = float(_safe_float(row.get("ebitda")) or 0.0)
+    return ebitda / revenue
+  return None
+
+
+def _decide_handler_scope_from_failing_metrics(failing_metrics: List[Dict[str, Any]]):
+  from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+    HandlerScope,
+  )
+  has_pnl = False
+  for fm in failing_metrics or []:
+    for lid in (fm.get("primary_levers") or []):
+      if str(lid).strip() in _PNL_LEVER_IDS:
+        has_pnl = True
+        break
+    if has_pnl:
+      break
+  return HandlerScope.PNL_PATH if has_pnl else HandlerScope.BS_ONLY_PATH
+
+
+def _evaluate_gpt_authorable_pre_cash_checks(
+  *,
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  payroll_headcount: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+):
+  """Run the moved GPT-authorable checks. Returns (failing_metrics, scope).
+
+  Translates each check's native violation shape into the
+  realism-metric-style failing_metrics dict the handler consumes.
+  Picks scope based on whether any P&L lever is implicated.
+  """
+  failing_metrics: List[Dict[str, Any]] = []
+
+  # Check 1 + 2: stage_ramp_expense_path + stage_ramp_profitability_path.
+  # Both raise FailFastError on violation. We invoke them with stage
+  # set to "post_intake_pre_cash_gate" (which contains "post_" but not
+  # "final"/"finalize"); the existing assertion bodies key on stage so
+  # we use the finalize-style stage label inside a try/except to
+  # capture violations as failing_metrics rather than re-raising.
+  try:
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
+      assert_stage_ramp_expense_path_applied,
+      assert_stage_ramp_profitability_path_applied,
+    )
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      FailFastError,
+    )
+  except Exception:
+    assert_stage_ramp_expense_path_applied = None  # type: ignore
+    assert_stage_ramp_profitability_path_applied = None  # type: ignore
+    FailFastError = RuntimeError  # type: ignore
+
+  if assert_stage_ramp_expense_path_applied is not None:
+    try:
+      assert_stage_ramp_expense_path_applied(
+        stage_ramp_contract=stage_ramp_contract or {},
+        model_input_json=model_input_json or {},
+        finmo_json=finmo_json or {},
+        payroll_headcount=payroll_headcount or {},
+        stage="post_intake_pre_cash_gate_finalize",
+      )
+    except FailFastError as exc:
+      details_violations = (exc.details or {}).get("violations") or []
+      for v in details_violations:
+        finmo_field = str(v.get("finmo_field") or "").strip().lower()
+        if finmo_field not in _STAGE_RAMP_EXPENSE_FINMO_FIELD_TO_METRIC_LEVER:
+          continue
+        metric_key, lever_id = _STAGE_RAMP_EXPENSE_FINMO_FIELD_TO_METRIC_LEVER[finmo_field]
+        failing_metrics.append({
+          "metric_key": metric_key,
+          "quarter_index": int(v.get("quarter_index") or 0) or None,
+          "actual_value": float(v.get("actual_ratio") or 0.0),
+          "effective_min": None,
+          "effective_max": (
+            float(v.get("stage_ramp_max_ratio")) if v.get("stage_ramp_max_ratio") is not None else None
+          ),
+          "primary_levers": [lever_id],
+          "source_check": "stage_ramp_expense_path_applied",
+        })
+
+  if assert_stage_ramp_profitability_path_applied is not None:
+    try:
+      assert_stage_ramp_profitability_path_applied(
+        stage_ramp_contract=stage_ramp_contract or {},
+        finmo_json=finmo_json or {},
+        stage="post_intake_pre_cash_gate_finalize",
+      )
+    except FailFastError as exc:
+      details_violations = (exc.details or {}).get("violations") or []
+      for v in details_violations:
+        # Profitability violations affect overall margin; attribute to
+        # ebitda_margin metric and span all P&L levers as the handler's
+        # toolset can adjust any of them.
+        failing_metrics.append({
+          "metric_key": "ebitda_margin",
+          "quarter_index": int(v.get("quarter_index") or 0) or None,
+          "actual_value": float(v.get("actual_net_income_margin") or 0.0),
+          "effective_min": (
+            float(v.get("stage_ramp_net_income_margin_floor"))
+            if v.get("stage_ramp_net_income_margin_floor") is not None else None
+          ),
+          "effective_max": None,
+          "primary_levers": [
+            "expenses::Cost of Goods Sold",
+            "expenses::Marketing",
+            "expenses::General & Administrative",
+            "expenses::Payroll",
+          ],
+          "source_check": "stage_ramp_profitability_path_applied",
+        })
+
+  # Check 3: balance_sheet_driver_zero_but_applicable. Returns structured
+  # dicts (not error strings) since C2.
+  try:
+    from client_intake_and_finmo.post_intake_runtime_validation.balance_sheet_driver_validation import (  # type: ignore
+      balance_sheet_driver_zero_but_applicable_errors,
+    )
+  except Exception:
+    balance_sheet_driver_zero_but_applicable_errors = None  # type: ignore
+
+  if balance_sheet_driver_zero_but_applicable_errors is not None:
+    bs_errors = balance_sheet_driver_zero_but_applicable_errors(
+      financials_json=financials_json or {},
+      ops_json=ops_json or {},
+      model_input_json=model_input_json or {},
+      finmo_json=finmo_json or {},
+      debt_schedule=None,
+      cash_strategy_second_pass_result=None,
+    )
+    for entry in bs_errors:
+      lever_id = str(entry.get("lever_id") or "").strip()
+      metric_key = _BALANCE_SHEET_LEVER_TO_METRIC.get(lever_id, "")
+      if not metric_key:
+        continue
+      failing_metrics.append({
+        "metric_key": metric_key,
+        "quarter_index": None,
+        "actual_value": 0.0,
+        "effective_min": 0.0,
+        "effective_max": None,
+        "primary_levers": [lever_id],
+        "source_check": "balance_sheet_driver_zero_but_applicable",
+        "applicability_key": entry.get("applicability_key"),
+        "zero_allowed_reason_key": entry.get("zero_allowed_reason_key"),
+      })
+
+  scope = _decide_handler_scope_from_failing_metrics(failing_metrics)
+  return failing_metrics, scope
+
+
 def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "":
     return None
@@ -1707,6 +1971,161 @@ def _run_post_cascade_completion(
     completion_trace["restoration_loop"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
+  # 1.9. Phase 9 P3.10 Bug F + Bug D — pre-cash post-handler gate for
+  # GPT-authorable checks.
+  #
+  # Several finalize-stage checks are GPT-authorable: the handler's
+  # existing toolset (driver anchors + working_capital_drivers +
+  # realism_flags_to_mute) can resolve their failures. But they fire at
+  # finalize, AFTER the handler's existing window (restoration EXHAUSTED
+  # → handler). The handler is structurally impossible to trigger for
+  # these checks today.
+  #
+  # This gate runs the moved checks against current
+  # final_model_input_json + final_finmo_json. If any fail AND the
+  # handler has not already run (restoration was not EXHAUSTED), invoke
+  # the handler with a synthetic restoration_result carrying the
+  # failing checks as failing_metrics. Re-evaluate after handler. If
+  # checks still fail (or handler already ran and they still fail),
+  # hard-fail HERE before cash pass — the cash pass cannot fix
+  # GPT-authorable issues, and surfacing them at finalize is too late.
+  #
+  # _GPT_AUTHORABLE_PRE_CASH_CHECK_NAMES is the single source of truth
+  # for which checks moved.
+  _gate_handler_already_ran = False
+  try:
+    from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+      RestorationStatus as _GateRestorationStatus,
+    )
+    _gate_handler_already_ran = bool(
+      getattr(restoration_result, "status", None) == _GateRestorationStatus.EXHAUSTED
+    )
+  except Exception:
+    _gate_handler_already_ran = False
+
+  try:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+      convergence_test_mode_enabled,
+    )
+    from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+      HandlerScope,
+    )
+
+    def _build_finmo_for_gate(mi: Dict[str, Any]) -> Dict[str, Any]:
+      from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+        build_python_finmo_json,
+      )
+      return build_python_finmo_json(model_input_json=copy.deepcopy(mi or {}))
+
+    gate_violations, gate_scope = _evaluate_gpt_authorable_pre_cash_checks(
+      stage_ramp_contract=stage_ramp_contract or {},
+      model_input_json=final_model_input_json or {},
+      finmo_json=final_finmo_json or {},
+      payroll_headcount=payroll_headcount or {},
+      financials_json=financials_json or {},
+      ops_json=ops_json or {},
+    )
+
+    if gate_violations and not _gate_handler_already_ran:
+      from client_intake_and_finmo.post_intake_gpt_exhaustion_handler import (  # type: ignore
+        run_gpt_exhaustion_handler,
+      )
+      from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+        post_intake_sequence_step_scope,
+      )
+      synthetic_result = _PreCashGateRestorationResult(
+        scope=gate_scope,
+        failing_metrics=gate_violations,
+        q11_ebitda_margin=_q11_ebitda_margin_from_finmo(final_finmo_json),
+      )
+      with post_intake_sequence_step_scope(
+        step_key="post_intake_target_seeking_pre_cash_gate_handler",
+        executor_function="phase_9_p3_10_pre_cash_gate_handler",
+      ):
+        gate_handler_result = run_gpt_exhaustion_handler(
+          restoration_result=synthetic_result,
+          model_input=final_model_input_json or {},
+          operating_model=ops_json or {},
+          build_finmo=_build_finmo_for_gate,
+          intake_context={
+            "business_naics_6": (
+              business_naics_6_for_cascade
+              if "business_naics_6_for_cascade" in dir() else None
+            ),
+            "planning_mode": planning_mode,
+            "financials_json": financials_json,
+          },
+          finmo_json=final_finmo_json,
+        )
+        try:
+          rebuilt = _build_finmo_for_gate(final_model_input_json or {})
+          if isinstance(rebuilt, dict) and rebuilt:
+            final_finmo_json = rebuilt
+            next_result["finmo_json"] = final_finmo_json
+            next_result["model_input_json"] = final_model_input_json
+        except Exception:
+          pass
+      completion_trace["pre_cash_gate_handler"] = gate_handler_result.to_dict()
+      muted = list(gate_handler_result.realism_flags_to_mute or [])
+      if muted and isinstance(final_model_input_json, dict):
+        existing = final_model_input_json.get("_muted_realism_metrics")
+        if isinstance(existing, list):
+          merged = list(existing)
+          for m in muted:
+            if m not in merged:
+              merged.append(m)
+          final_model_input_json["_muted_realism_metrics"] = merged
+        else:
+          final_model_input_json["_muted_realism_metrics"] = list(muted)
+      _gate_handler_already_ran = True
+      gate_violations, gate_scope = _evaluate_gpt_authorable_pre_cash_checks(
+        stage_ramp_contract=stage_ramp_contract or {},
+        model_input_json=final_model_input_json or {},
+        finmo_json=final_finmo_json or {},
+        payroll_headcount=payroll_headcount or {},
+        financials_json=financials_json or {},
+        ops_json=ops_json or {},
+      )
+
+    if gate_violations:
+      muted_metrics = set(
+        (final_model_input_json or {}).get("_muted_realism_metrics") or []
+      )
+      unmuted = [
+        v for v in gate_violations
+        if str(v.get("metric_key") or "") not in muted_metrics
+      ]
+      if unmuted and convergence_test_mode_enabled():
+        raise PostIntakePreconditionFailed(
+          operation=(
+            "pre_cash_gate_gpt_authorable_checks_unfixed_after_handler"
+            if _gate_handler_already_ran
+            else "pre_cash_gate_gpt_authorable_checks_handler_unavailable"
+          ),
+          pipeline_stage="post_intake_pre_cash_gpt_authorable_gate",
+          expected="GPT-authorable checks pass after handler invocation (or muted post-commit)",
+          actual=f"{len(unmuted)} unmuted check violation(s) remain",
+          details={
+            "violations_sample": unmuted[:10],
+            "handler_invoked": bool(_gate_handler_already_ran),
+            "muted_metric_count": len(muted_metrics),
+          },
+        )
+  except PostIntakePreconditionFailed:
+    raise
+  except Exception as gate_exc:
+    # Same propagation rule as restoration loop wrapper above.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
+    completion_trace["pre_cash_gate"] = {
+      "status": "failed",
+      "error": f"{type(gate_exc).__name__}: {str(gate_exc)[:500]}",
     }
 
   # 2. Cash pass — Phase 9 Phase F mode-based cash strategy.

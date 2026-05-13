@@ -504,10 +504,11 @@ def balance_sheet_driver_finalize_errors(
       errors.append(f"balance_sheet_driver_nonnumeric: {lever_id}")
       continue
     if applicable and presence_rule == "positive_driver_when_applicable" and not _any_positive(values):
-      errors.append(
-        f"balance_sheet_driver_zero_but_applicable: {lever_id} "
-        f"applicability={applicability_key} zero_allowed_reason={_clean(mapping_row.get('zero_allowed_reason_key'))}"
-      )
+      # Phase 9 P3.10 Bug D fix — balance_sheet_driver_zero_but_applicable
+      # is GPT-authorable (handler can author the missing WC value via the
+      # working_capital_drivers tool). MOVED to the pre-cash post-handler
+      # gate in orchestrator.py via balance_sheet_driver_zero_but_applicable_errors().
+      # Skipped at finalize so the gate is the single source of truth.
       continue
     if not applicable and not _any_positive(values):
       continue
@@ -567,3 +568,57 @@ def balance_sheet_driver_finalize_errors(
           )
           break
   return errors
+
+
+def balance_sheet_driver_zero_but_applicable_errors(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  debt_schedule: Optional[Dict[str, Any]],
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  """Phase 9 P3.10 Bug D fix — extracted from balance_sheet_driver_finalize_errors.
+
+  Returns the GPT-authorable subset of balance-sheet driver checks: any
+  driver marked applicability=<applicable> but holding zero values. The
+  GPT exhaustion handler's working_capital_drivers tool (or P&L driver
+  anchors) can author the missing value. Called by the pre-cash post-
+  handler gate in orchestrator.py before the cash pass runs.
+
+  Returns a list of structured dicts (not bare strings) so the gate can
+  translate them into handler failing_metrics format directly.
+  """
+  out: List[Dict[str, Any]] = []
+  finmo_rows = _live_finmo_rows(finmo_json)
+  if len(finmo_rows) != HORIZON:
+    return out
+  for mapping_row in _balance_sheet_mapping_rows():
+    lever_id = _clean(mapping_row.get("lever_id"))
+    presence_rule = _lower(mapping_row.get("forecast_presence_rule_key"))
+    applicable, applicability_key = _mapping_row_applicable(
+      mapping_row,
+      financials_json=financials_json,
+      ops_json=ops_json,
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      debt_schedule=debt_schedule,
+      cash_strategy_second_pass_result=cash_strategy_second_pass_result,
+    )
+    if not applicable or presence_rule != "positive_driver_when_applicable":
+      continue
+    model_row = _model_input_row_for_lever(model_input_json, mapping_row)
+    if model_row is None:
+      continue
+    values = _live_values(model_row)
+    if len(values) != HORIZON:
+      continue
+    if _any_positive(values):
+      continue
+    out.append({
+      "lever_id": lever_id,
+      "applicability_key": applicability_key,
+      "zero_allowed_reason_key": _clean(mapping_row.get("zero_allowed_reason_key")),
+    })
+  return out

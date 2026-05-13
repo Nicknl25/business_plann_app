@@ -45,6 +45,7 @@ from client_intake_and_finmo.post_intake_target_solver.target_solver import (
   solve_for_target,
 )
 from client_intake_and_finmo.post_intake_target_solver.restoration_loop import (
+  HandlerScope,
   RestorationResult,
   RestorationStatus,
   TARGETS_IN_PRIORITY_ORDER,
@@ -54,6 +55,7 @@ from client_intake_and_finmo.post_intake_target_solver.restoration_loop import (
 __all__ = [
   "CashPassLeverViolation",
   "DriverBound",
+  "HandlerScope",
   "RestorationResult",
   "RestorationStatus",
   "SolverResult",
