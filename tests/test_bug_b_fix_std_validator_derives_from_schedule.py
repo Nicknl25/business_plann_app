@@ -29,7 +29,7 @@ if PYTHON_ROOT not in sys.path:
 class BugBFixSTDValidatorDerivesFromScheduleTest(unittest.TestCase):
   def test_derivation_marker_present_in_validator_source(self) -> None:
     """The validator now tags the formula_failed error with
-    derivation=sum_next_4_quarters_principal_repayment_from_schedule."""
+    derivation=sum_next_4_quarters_principal_repayment_from_schedule_exclusive."""
     p = (
       pathlib.Path(PYTHON_ROOT)
       / "client_intake_and_finmo"
@@ -38,7 +38,7 @@ class BugBFixSTDValidatorDerivesFromScheduleTest(unittest.TestCase):
     )
     text = p.read_text(encoding="utf-8")
     self.assertIn(
-      "derivation=sum_next_4_quarters_principal_repayment_from_schedule",
+      "derivation=sum_next_4_quarters_principal_repayment_from_schedule_exclusive",
       text,
       "Bug B fix marker missing from validator source",
     )
@@ -91,10 +91,11 @@ class BugBFixSTDValidatorDerivesFromScheduleTest(unittest.TestCase):
     opening = 300000
     for q in range(1, HORIZON + 1):
       closing = max(0, opening - quarterly_repay)
-      # Sum of next 4 quarters' repayment from this quarter onward.
+      # Phase 9 P3.10 STD canonical-source — sum of the NEXT 4 quarters'
+      # repayment, exclusive of the current quarter (q+1..q+4).
       next_four = sum(
         quarterly_repay
-        for nq in range(q, q + 4)
+        for nq in range(q + 1, q + 5)
         if nq <= HORIZON
       )
       finmo_rows.append({
@@ -233,7 +234,7 @@ class BugBFixSTDValidatorDerivesFromScheduleTest(unittest.TestCase):
     )
     # Verify the derivation tag is present
     self.assertTrue(
-      any("derivation=sum_next_4_quarters_principal_repayment_from_schedule" in str(e)
+      any("derivation=sum_next_4_quarters_principal_repayment_from_schedule_exclusive" in str(e)
           for e in std_formula_errors),
       f"Derivation tag missing from error: {std_formula_errors[:1]}",
     )

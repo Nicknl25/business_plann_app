@@ -69,7 +69,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Total Assets": "Current Assets + PPE",
   "Accounts Payable": "(balance_sheet::Accounts Payable Days / days_in_quarter) * SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
   "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses (% of Revenue)",
-  "Short Term Debt": "balance_sheet::Short Term Debt (% of LTD) * Long Term Debt",
+  "Short Term Debt": f"SUM(schedules::{DEBT_REPAYMENT_LABEL} for q+1..q+4)",
   "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
   "Current Liabilities": "SUM(Accounts Payable, Short Term Debt, Deferred Revenue)",
   "Long Term Debt": "Debt Schedule Closing Balance",
@@ -386,7 +386,17 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     accumulated_depreciation = previous_accumulated_depreciation - depreciation
 
     accounts_payable = (_row_value(model_inputs, "balance_sheet", "Accounts Payable Days", quarter.quarter_index) / max(1, days_in_quarter)) * (marketing + r_and_d + lease_rent + payroll + g_and_a)
-    short_term_debt = _row_value(model_inputs, "balance_sheet", "Short Term Debt (% of LTD)", quarter.quarter_index) * debt_closing
+    # Phase 9 P3.10 STD canonical-source layer 1 — short_term_debt is a
+    # derived classification sliced from the debt schedule's per-quarter
+    # principal repayment, NOT a driver. Standard accounting "current
+    # portion of long-term debt": sum of the NEXT 4 quarters' scheduled
+    # principal repayment, exclusive of the current quarter. _row_value
+    # returns 0 for out-of-horizon indices, so Q19 sums Q20+0+0+0 and
+    # Q20 sums 0+0+0+0.
+    short_term_debt = sum(
+      max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, q))
+      for q in range(quarter.quarter_index + 1, quarter.quarter_index + 5)
+    )
     current_liabilities = accounts_payable + short_term_debt + deferred_revenue
     long_term_debt = debt_closing
     total_liabilities = current_liabilities + long_term_debt + lease_closing

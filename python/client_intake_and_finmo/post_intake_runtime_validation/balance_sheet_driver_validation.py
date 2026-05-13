@@ -547,17 +547,19 @@ def balance_sheet_driver_finalize_errors(
           )
           break
       elif validation_key == "finmo_short_term_debt_percent_of_ltd":
-        # Phase 9 P3.10 Bug B fix — expected = sum of next 4 quarters'
-        # principal repayment from the rebuilt debt schedule. The
-        # amortization schedule is the rigorous math; intake's STD% was
-        # an operator estimate. Per intake-is-noise-by-design: the app
-        # exists to correct operator estimates with the table-backed
-        # amortization. The previous derivation (value × closing_debt
-        # where value was the intake-stated STD%) compared the operator
-        # estimate against itself filtered through different math —
-        # any small ratio mismatch (5-8% common) raised. With debt
-        # schedule rebuilt post-cash-pass (Bug A fix), the schedule's
-        # 4-quarter rolling principal payment IS the canonical STD.
+        # Phase 9 P3.10 STD canonical-source layer 1 — expected = sum of
+        # the NEXT 4 quarters' principal repayment from the rebuilt debt
+        # schedule, exclusive of the current quarter (standard accounting
+        # "current portion of long-term debt"). Window: q+1..q+4. Out-
+        # of-horizon quarters contribute zero, so Q19 expects schedule[Q20]
+        # and Q20 expects 0. The amortization schedule is the rigorous
+        # math; intake's STD% was an operator estimate. Per intake-is-
+        # noise-by-design: the app exists to correct operator estimates
+        # with the table-backed amortization. With debt schedule rebuilt
+        # post-cash-pass (Bug A fix), the schedule's 4-quarter rolling
+        # principal payment IS the canonical STD, and FINMO's
+        # short_term_debt is computed from the same window — they agree
+        # by construction.
         schedule = debt_schedule if isinstance(debt_schedule, dict) else {}
         schedule_rows = [
           item for item in (schedule.get("rows") or schedule.get("debt_schedule_rows") or [])
@@ -571,7 +573,7 @@ def balance_sheet_driver_finalize_errors(
         if closing_debt <= 0.0 and not applicable:
           continue
         next_four_repayments = 0
-        for next_q in range(quarter_index, quarter_index + 4):
+        for next_q in range(quarter_index + 1, quarter_index + 5):
           next_row = next(
             (item for item in schedule_rows if int(_safe_float(item.get("quarter_index")) or 0) == next_q),
             {},
@@ -590,7 +592,7 @@ def balance_sheet_driver_finalize_errors(
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
             f"field=short_term_debt actual={actual} expected={expected} "
-            f"derivation=sum_next_4_quarters_principal_repayment_from_schedule"
+            f"derivation=sum_next_4_quarters_principal_repayment_from_schedule_exclusive"
           )
           break
   return errors
