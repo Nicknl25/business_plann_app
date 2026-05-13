@@ -209,19 +209,11 @@ def run_mode_based_cash_strategy(
   if isinstance(seed_after_min_debt.get("updated_finmo_json"), dict):
     pre_cash_finmo_json = copy.deepcopy(seed_after_min_debt["updated_finmo_json"])
 
-  # Step 2 — short-term debt current portion seed (splits LTD into
-  # short_term_debt and long_term_debt per cash policy).
-  seed_after_short_term = _cash_runner._apply_cash_pass_short_term_debt_current_portion(
-    cash_strategy_result={
-      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
-      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
-      "applied_updates": copy.deepcopy(seed_after_min_debt.get("applied_updates") or []),
-    },
-  )
-  if isinstance(seed_after_short_term.get("updated_model_input_json"), dict):
-    pre_cash_model_input_json = copy.deepcopy(seed_after_short_term["updated_model_input_json"])
-  if isinstance(seed_after_short_term.get("updated_finmo_json"), dict):
-    pre_cash_finmo_json = copy.deepcopy(seed_after_short_term["updated_finmo_json"])
+  # Phase 9 P3.10 STD canonical-source layer 3 hotfix — Step 2 (short-
+  # term debt current portion seed) was removed. FINMO and the workbook
+  # now derive short_term_debt directly from the schedule's per-quarter
+  # principal repayment for q+1..q+4 (Layers 1+2). The STD% lever is no
+  # longer written by anyone.
 
   # Step 3 — build the cash strategy review context. Internally invokes
   # _cash_strategy_funding_source_policy() for the smart funding source
@@ -394,10 +386,10 @@ def run_mode_based_cash_strategy(
     financials_json=copy.deepcopy(financials_for_runner),
   )
 
-  # Step 8 — re-apply the short-term debt current portion.
-  cash_strategy_second_pass_result = _cash_runner._apply_cash_pass_short_term_debt_current_portion(
-    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
-  )
+  # Phase 9 P3.10 STD canonical-source layer 3 hotfix — Step 8 (re-apply
+  # short-term debt current portion) was removed. STD is derived from
+  # the schedule's per-quarter principal repayment, not from a written-
+  # back ratio lever.
 
   # Step 9 — surplus cleanup (distributions / debt repayment of true
   # surplus above the cash ceiling per cash policy weights).

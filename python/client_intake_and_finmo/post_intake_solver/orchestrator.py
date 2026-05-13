@@ -2196,6 +2196,18 @@ def _run_post_cascade_completion(
           next_result["model_input_json"] = final_model_input_json
     completion_trace["cash_pass"] = cash_result.to_dict()
   except Exception as exc:
+    # Phase 9 P3.10 STD canonical-source layer 3 hotfix — under
+    # CONVERGENCE_TEST_MODE, a cash-pass exception must hard-fail. The
+    # legacy silent stamp let the iter 4 Layer 3 regression run all the
+    # way through to finalize with stale FINMO state, producing four
+    # cascading downstream errors instead of the actual AttributeError.
+    # The doctrine work P3.10 already did (28 hard-fails, no silent
+    # paths) belongs here too.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
     completion_trace["cash_pass"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
