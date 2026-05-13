@@ -534,7 +534,6 @@ def validate_debt_schedule_post_cash_state(
     failures.append({"error": "debt_schedule_minimum_plan_failed", "reason": str(exc)})
   lever_values = _lever_value_map(model_input_json)
   repayment_values = [max(0.0, float(_safe_float(item) or 0.0)) for item in (lever_values.get(DEBT_REPAYMENT_LEVER_ID) or [])]
-  short_term_ratio_values = [max(0.0, float(_safe_float(item) or 0.0)) for item in (lever_values.get(SHORT_TERM_DEBT_RATIO_LEVER_ID) or [])]
   minimum_repayment_rows = {
     int(_safe_float(item.get("quarter_index")) or 0): int(round(float(_safe_float(item.get("minimum_principal_payment")) or 0.0)))
     for item in (minimum_plan.get("rows") or [])
@@ -547,16 +546,12 @@ def validate_debt_schedule_post_cash_state(
       under_scheduled.append({"quarter_index": quarter_index, "minimum_principal_payment": required_minimum, "actual_debt_repayment": actual})
   if under_scheduled:
     failures.append({"error": "debt_schedule_minimum_principal_not_applied", "violating_quarters": under_scheduled[:20]})
-  missing_current_portion = []
-  for item in (schedule.get("rows") or []):
-    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
-    closing_debt = max(0.0, float(_safe_float(item.get("closing_debt")) or 0.0))
-    next_four_repayments = sum(repayment_values[idx] for idx in range(quarter_index - 1, min(len(repayment_values), quarter_index + 3)))
-    ratio = float(short_term_ratio_values[quarter_index - 1]) if quarter_index - 1 < len(short_term_ratio_values) else 0.0
-    if closing_debt > 1.0 and next_four_repayments > 1.0 and round(ratio, 2) <= 0.0:
-      missing_current_portion.append({"quarter_index": quarter_index, "closing_debt": int(round(closing_debt)), "next_four_quarters_debt_repayment": int(round(next_four_repayments)), "short_term_debt_percent_of_ltd": round(ratio, 2)})
-  if missing_current_portion:
-    failures.append({"error": "debt_schedule_short_term_current_portion_missing", "violating_quarters": missing_current_portion[:20]})
+  # Phase 9 P3.10 STD canonical-source layer 3 hotfix — the post-cash
+  # `debt_schedule_short_term_current_portion_missing` check was removed.
+  # It read the STD% lever (now an inert zero row) and would have always
+  # fired as a false positive on every business with debt. STD is now
+  # derived from the schedule's per-quarter principal repayment by FINMO
+  # and the workbook formula (Layers 1+2).
   return {
     "status": "passed" if not failures else "failed",
     "debt_schedule_snapshot": copy.deepcopy(schedule),

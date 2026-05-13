@@ -34,11 +34,18 @@ if PYTHON_ROOT not in sys.path:
   sys.path.insert(0, PYTHON_ROOT)
 
 
-# Symbols deleted in Layer 3 + this hotfix; live code must not call them.
+# Symbols deleted in Layer 3 + this hotfix; live code must not call them
+# or reference them. NameErrors at runtime would otherwise surface as
+# misleading downstream errors (e.g. cascading finalize failures or
+# wrapped PostIntakePreconditionFailed). See iter 4 + iter 6.
 _DELETED_SYMBOLS = (
+  # Layer 3 deleted functions
   "_apply_cash_pass_short_term_debt_current_portion",
   "apply_short_term_debt_current_portion",
   "build_short_term_debt_current_portion_plan",
+  # Layer 3 deleted constants
+  "SHORT_TERM_DEBT_RATIO_LEVER_ID",
+  "_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID",
 )
 
 
