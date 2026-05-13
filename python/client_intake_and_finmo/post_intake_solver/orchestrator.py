@@ -1236,55 +1236,19 @@ def run_target_seeking_orchestrated_system_run(
   except Exception:
     pass
 
-  # Phase 7.2: build the debt schedule snapshot from the final state and
-  # persist to draft.debt_schedule. The convergence runner did this in
-  # its cash-pass step; the target-seeking orchestrator is a drop-in
-  # replacement for that runner and must produce the same artifact so
-  # workbook export and downstream finalization can complete. Without
-  # this, validate_draft_data raises 'Draft is missing workbook export
-  # inputs: debt_schedule'.
-  debt_schedule_payload: Optional[Dict[str, Any]] = None
-  try:
-    from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
-      build_debt_schedule_snapshot,
-    )
-    debt_schedule_payload = build_debt_schedule_snapshot(
-      finmo_payload=copy.deepcopy(final_finmo_json or {}),
-      model_input_json=copy.deepcopy(final_model_input_json or {}),
-      source_stage="target_seeking_orchestrator_completed",
-    )
-    if isinstance(debt_schedule_payload, dict):
-      debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
-      next_result["debt_schedule"] = debt_schedule_payload
-  except Exception as exc:
-    diagnostics["debt_schedule_build_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
-
-  # Persist the debt_schedule directly to the draft row so the workbook
-  # export reads it (it queries draft.debt_schedule, not the orchestrator
-  # result). Use a minimal SQL UPDATE — the larger persist_post_intake_
-  # execution_state path is owned by the convergence runner; replicating
-  # its full surface here would conflict with what the runner already
-  # wrote earlier in the flow.
-  if isinstance(debt_schedule_payload, dict) and debt_schedule_payload and conn is not None:
-    try:
-      import json as _json
-      cur = conn.cursor()
-      try:
-        cur.execute(
-          "UPDATE intake_consult_drafts SET debt_schedule=%s WHERE draft_id=%s",
-          (
-            _json.dumps(debt_schedule_payload, ensure_ascii=False, default=str),
-            str(draft_id or "").strip(),
-          ),
-        )
-        conn.commit()
-      finally:
-        try:
-          cur.close()
-        except Exception:
-          pass
-    except Exception as exc:
-      diagnostics["debt_schedule_persist_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+  # Phase 9 P3.10 Bug A fix — debt_schedule snapshot is no longer built
+  # here. The pre-cascade snapshot reflected pre-cash-pass model_input
+  # (DEBT_REPAYMENT_LEVER values all zero, so total_principal_payment=0
+  # and closing_debt unchanged across 20 quarters). The finalize
+  # validator caught the resulting flat-principal violation while the
+  # cash pass had ALREADY produced the proper amortization in memory —
+  # the validator was just looking at a stale snapshot.
+  #
+  # The build now runs inside _run_post_cascade_completion, immediately
+  # before run_finalize_post_intake_validation, against the post-cash-
+  # pass final_model_input_json + final_finmo_json. Single source of
+  # truth. The draft.debt_schedule SQL column is updated by that same
+  # post-cash-pass build site.
 
   if isinstance(payroll_headcount, dict) and payroll_headcount:
     next_result.setdefault("payroll_headcount", payroll_headcount)
@@ -1304,7 +1268,6 @@ def run_target_seeking_orchestrated_system_run(
     next_result=next_result,
     final_model_input_json=final_model_input_json,
     final_finmo_json=final_finmo_json,
-    debt_schedule_payload=debt_schedule_payload,
     payroll_headcount=payroll_headcount,
     business_facts=business_facts,
     ops_json=ops_json,
@@ -1343,7 +1306,6 @@ def _run_post_cascade_completion(
   next_result: Dict[str, Any],
   final_model_input_json: Optional[Dict[str, Any]],
   final_finmo_json: Optional[Dict[str, Any]],
-  debt_schedule_payload: Optional[Dict[str, Any]],
   payroll_headcount: Optional[Dict[str, Any]],
   business_facts: Dict[str, Any],
   ops_json: Dict[str, Any],
@@ -1987,6 +1949,51 @@ def _run_post_cascade_completion(
     }
   completion_trace["solver_target_assertion"] = copy.deepcopy(solver_target_assertion)
   next_result["solver_target_assertion"] = copy.deepcopy(solver_target_assertion)
+
+  # Phase 9 P3.10 Bug A fix — build the debt_schedule snapshot HERE,
+  # against post-cash-pass final_model_input_json + final_finmo_json.
+  # The pre-cascade build site (deleted) reflected zero DEBT_REPAYMENT
+  # values; the cash pass's apply_minimum_debt_schedule populates them
+  # in memory; this build site captures the proper amortization. Same
+  # SQL UPDATE as the deleted site so workbook export reads the correct
+  # post-cash-pass version.
+  debt_schedule_payload: Optional[Dict[str, Any]] = None
+  try:
+    from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
+      build_debt_schedule_snapshot,
+    )
+    debt_schedule_payload = build_debt_schedule_snapshot(
+      finmo_payload=copy.deepcopy(final_finmo_json or {}),
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      source_stage="post_intake_finalize_validation",
+    )
+    if isinstance(debt_schedule_payload, dict):
+      debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
+      next_result["debt_schedule"] = debt_schedule_payload
+  except Exception as exc:
+    diagnostics["debt_schedule_build_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+
+  if isinstance(debt_schedule_payload, dict) and debt_schedule_payload and conn is not None:
+    try:
+      import json as _json
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          "UPDATE intake_consult_drafts SET debt_schedule=%s WHERE draft_id=%s",
+          (
+            _json.dumps(debt_schedule_payload, ensure_ascii=False, default=str),
+            str(draft_id or "").strip(),
+          ),
+        )
+        conn.commit()
+      finally:
+        try:
+          cur.close()
+        except Exception:
+          pass
+    except Exception as exc:
+      diagnostics["debt_schedule_persist_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+
   try:
     from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore
       run_finalize_post_intake_validation,
