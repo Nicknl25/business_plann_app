@@ -1366,63 +1366,12 @@ def _derive_r_and_d_applicability_from_naics(
   financials_year1_json: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-  """Module 5 Task 5.2 — deterministic NAICS-2 R&D applicability decision.
-
-  Returns:
-    - decision dict (same shape as `_estimate_r_and_d_applicability_with_gpt`)
-      when the NAICS-2 sector unambiguously implies `required` or
-      `not_applicable`
-    - None when the NAICS-2 sector is `optional` (caller falls through to
-      GPT for the smaller tiebreaker decision)
-    - None when no NAICS available (caller falls through to GPT)
-
-  Realism note: this preserves the user's "real plans" requirement. Sectors
-  with deterministic answers (Information / Software → required, Retail
-  → not_applicable, etc.) get a faithful answer without GPT variance.
-  Ambiguous sectors (Manufacturing 32/33, Health Care 62, Finance 52,
-  Wholesale 42) keep GPT — the same business judgment that produced realistic
-  decisions before continues to do so.
+  """Phase 9 P3.10 — universal-app: there is no NAICS-2 R&D applicability
+  branch. The function is retained as a deprecated no-op for backwards
+  compatibility with external callers; always returns None so callers
+  fall through to the universal default.
   """
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  business_naics_6 = "".join(
-    ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit()
-  )
-  if len(business_naics_6) < 2:
-    return None
-  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-    post_intake_r_and_d_applicability_for_naics2,
-  )
-  applicability_row = post_intake_r_and_d_applicability_for_naics2(business_naics_6[:2])
-  if not isinstance(applicability_row, dict):
-    return None
-  applicability = str(applicability_row.get("applicability_default") or "").strip().lower()
-  if applicability == "optional":
-    return None
-  if applicability == "required":
-    enabled = True
-    rationale = (
-      f"NAICS-2 {business_naics_6[:2]} ({applicability_row.get('notes', '').split(' — ')[0] if applicability_row.get('notes') else ''}) "
-      "has R&D as a structural cost line for businesses in this sector."
-    )
-  elif applicability == "not_applicable":
-    enabled = False
-    rationale = (
-      f"NAICS-2 {business_naics_6[:2]} ({applicability_row.get('notes', '').split(' — ')[0] if applicability_row.get('notes') else ''}) "
-      "does not have R&D as a structural cost line. Routine operating expenses are not R&D."
-    )
-  else:
-    return None
-  return {
-    "contract_version": "r_and_d_applicability_decision_v2",
-    "decision_source": "naics_2_lookup",
-    "r_and_d_enabled": enabled,
-    "rationale": rationale,
-    "naics_provenance": {
-      "naics_2": business_naics_6[:2],
-      "applicability_default": applicability,
-      "table": "post_intake_r_and_d_applicability_lookup",
-    },
-  }
+  return None
 
 
 def _estimate_r_and_d_applicability_with_gpt(
@@ -1433,114 +1382,27 @@ def _estimate_r_and_d_applicability_with_gpt(
   financials_year1_json: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  # Module 5 Task 5.2 — try the deterministic NAICS-2 lookup first. When
-  # the sector is unambiguously `required` or `not_applicable` (~80% of
-  # businesses by NAICS coverage), we skip the GPT call entirely. When the
-  # sector is `optional`, fall through to the GPT tiebreaker below.
-  deterministic = _derive_r_and_d_applicability_from_naics(
-    business_facts=business_facts,
-    ops_json=ops_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    model_input_json=model_input_json,
-  )
-  if deterministic is not None:
-    return deterministic
-  api_key = _openai_key()
-  if not api_key:
-    raise RuntimeError("r_and_d_applicability_openai_key_missing: OPENAI_API_KEY is not configured.")
-  facts = business_facts if isinstance(business_facts, dict) else {}
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  current_live_values = _model_input_r_and_d_live_values(model_input_json)
-  user_context = {
-    "task": (
-      "Decide once, before any forecast grid or convergence, whether this business should have "
-      "a separate Research & Development P&L driver in the forecast world."
+  """Phase 9 P3.10 — universal-app: R&D is a regular driver. Intake or
+  cohort baselines drive the value; the realism band + GPT exhaustion
+  handler handle out-of-band cases the same way they handle every other
+  expense lever. There is no separate "is R&D applicable" decision.
+
+  This function returns a constant `r_and_d_enabled=True` decision so
+  the existing contract pipeline (validators, finmo_bridge policy
+  applier, etc.) keeps a uniform shape without consulting GPT or any
+  hardcoded archetype table.
+  """
+  return {
+    "contract_version": "r_and_d_applicability_universal_v3",
+    "decision_source": "universal_post_phase_9_p3_10",
+    "r_and_d_enabled": True,
+    "rationale": (
+      "R&D is a universal driver post Phase 9 P3.10 NexGen iter 2. "
+      "Intake / cohort baselines drive R&D %; the realism band + GPT "
+      "exhaustion handler engage on out-of-band values the same way "
+      "they engage for every other expense lever."
     ),
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("r_and_d_applicability"),
-    "business_identity": {
-      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
-      "business_type": ops.get("business_type"),
-      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
-      "business_start_date": facts.get("business_start_date") or facts.get("start_date") or ops.get("business_start_date"),
-    },
-    "business_context": {
-      "description": ops.get("business_description_summary") or ops.get("business_description"),
-      "products": ops.get("products") or ops.get("revenue_products") or ops.get("product_summary"),
-      "growth_lever": ops.get("growth_lever"),
-      "competitive_advantage": ops.get("competitive_advantage"),
-      "delivery_method": ops.get("delivery_method") or ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
-    },
-    "financial_context": {
-      "annual_revenue": (
-        year1.get("company_revenue_total_year1")
-        or year1.get("revenue_total_year1")
-        or financials.get("current_revenue")
-      ),
-      "intake_r_and_d_live_values_first_4": current_live_values[:4],
-    },
-    "hard_rules": [
-      "Return r_and_d_enabled=true only when this business has a true separate R&D function.",
-      "True R&D includes software/product engineering, scientific research, lab/product development, clinical innovation, technical platform development, or comparable development work.",
-      "Return r_and_d_enabled=false for ordinary local services, retail, restaurants, logistics, car lots, medical service delivery without product/lab R&D, routine quality control, menu changes, marketing tests, or general business improvement.",
-      "Do not preserve a separate R&D row just because intake produced a small default value.",
-      "This is a structural applicability decision, not a cost forecast.",
-    ],
   }
-  system_prompt = post_intake_build_prompt_from_contract(
-    "r_and_d_applicability",
-    context_payload=user_context,
-    static_instruction=(
-      "You make one pre-forecast structural applicability decision for a 3-statement planning app."
-    ),
-    task_instruction=(
-      "Decide whether Research & Development should exist as a separate P&L driver in the forecast. "
-      "Return only JSON matching the SQL contract. Be conservative: if R&D is not a real distinct operating function, return false."
-    ),
-  )
-  payload_base = {
-    "model": _openai_model(),
-    "temperature": 0,
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": "r_and_d_applicability",
-        "schema": _r_and_d_applicability_schema(),
-        "strict": True,
-      }
-    },
-  }
-  timeout_seconds = _r_and_d_applicability_timeout_seconds()
-  prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
-  try:
-    payload = copy.deepcopy(payload_base)
-    payload["input"] = [
-      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
-    ]
-    resp = _post_openai(
-      url="https://api.openai.com/v1/responses",
-      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-      payload=payload,
-    )
-    if resp.status_code >= 400:
-      raise RuntimeError(f"r_and_d_applicability_openai_status: {resp.text[:1200]}")
-    raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-    parsed = _parse_responses_json_dict(raw_openai_response)
-    if not isinstance(parsed, dict):
-      raise RuntimeError("r_and_d_applicability_parse_failed: GPT did not return a JSON object.")
-    decision = _validate_r_and_d_applicability_payload(parsed)
-  except TimeoutError as exc:
-    raise RuntimeError(
-      f"r_and_d_applicability_timeout: GPT R&D applicability selection exceeded {timeout_seconds:.0f}s before forecast."
-    ) from exc
-  finally:
-    _set_active_openai_deadline(prior_deadline)
-  decision["prompt_context"] = user_context
-  decision["raw_openai_response"] = raw_openai_response
-  return decision
 
 def _balance_sheet_seed_candidate_prompt_rows() -> List[Dict[str, Any]]:
   prompt_rows: List[Dict[str, Any]] = []

@@ -40,13 +40,10 @@ _PY = os.path.join(_ROOT, "python")
 if _PY not in sys.path:
   sys.path.insert(0, _PY)
 
-from client_intake_and_finmo.post_intake_mapping import (  # noqa: E402
-  load_post_intake_r_and_d_applicability_rows,
-  post_intake_r_and_d_applicability_for_naics2,
-)
 from client_intake_and_finmo.post_intake_contracts.runner import (  # noqa: E402
   _derive_maintenance_capex_percent_from_naics,
   _derive_r_and_d_applicability_from_naics,
+  _estimate_r_and_d_applicability_with_gpt,
 )
 from client_intake_and_finmo.post_intake_contracts import runner as _contracts_runner  # noqa: E402
 from client_intake_and_finmo.post_intake_balance_sheet.contextual_seed import (  # noqa: E402
@@ -160,92 +157,89 @@ def test_maintenance_capex_deterministic_raises_on_missing_naics() -> None:
 
 
 # --------------------------------------------------------------------------
-# Task 5.2 — R&D applicability NAICS-2 lookup.
+# Task 5.2 — R&D applicability is universal post Phase 9 P3.10 NexGen iter 2.
+#
+# The legacy NAICS-2 hardcoded applicability table + GPT estimator were
+# deleted: R&D is now a regular driver, intake/cohort baselines drive the
+# value, and the realism band + GPT exhaustion handler engage on out-of-
+# band cases the same way they engage for every other expense lever.
 # --------------------------------------------------------------------------
 
 
-def test_r_and_d_applicability_table_seeded_with_three_categories() -> None:
-  rows = load_post_intake_r_and_d_applicability_rows()
-  assert len(rows) >= 20, f"expected >=20 default rows, got {len(rows)}"
-  by_kind: Dict[str, List[str]] = {"required": [], "optional": [], "not_applicable": []}
-  for r in rows:
-    by_kind.setdefault(r["applicability_default"], []).append(r["naics_2"])
-  for k in ("required", "optional", "not_applicable"):
-    assert by_kind[k], f"missing rows for category {k}"
-  # Sanity-check known sectors are categorized correctly.
-  assert "51" in by_kind["required"], "Information should be required"
-  assert "54" in by_kind["required"], "Professional Services should be required"
-  assert "44" in by_kind["not_applicable"], "Retail should be not_applicable"
-  assert "72" in by_kind["not_applicable"], "Accommodation/Food should be not_applicable"
-  assert "33" in by_kind["optional"], "Manufacturing should be optional"
+def test_r_and_d_naics2_lookup_machinery_deleted() -> None:
+  """The NAICS-2 R&D applicability lookup table + helpers are gone."""
+  from client_intake_and_finmo import post_intake_mapping as _mapping
+  for symbol in (
+    "_DEFAULT_R_AND_D_APPLICABILITY_ROWS",
+    "_R_AND_D_APPLICABILITY_TABLE_NAME",
+    "_ENSURE_R_AND_D_APPLICABILITY_TABLE_READY",
+    "_ENSURE_R_AND_D_APPLICABILITY_TABLE_LOCK",
+    "_ensure_r_and_d_applicability_lookup_table",
+    "load_post_intake_r_and_d_applicability_rows",
+    "post_intake_r_and_d_applicability_for_naics2",
+  ):
+    assert not hasattr(_mapping, symbol), f"{symbol} must be removed from post_intake_mapping"
 
 
-def test_r_and_d_applicability_for_naics2_returns_row() -> None:
-  retail = post_intake_r_and_d_applicability_for_naics2("44")
-  assert retail is not None
-  assert retail["applicability_default"] == "not_applicable"
-
-  software = post_intake_r_and_d_applicability_for_naics2("51")
-  assert software is not None
-  assert software["applicability_default"] == "required"
-
-  # Pass full NAICS-6, function should slice to NAICS-2.
-  retail_full = post_intake_r_and_d_applicability_for_naics2("455211")
-  assert retail_full is not None
-  assert retail_full["applicability_default"] == "not_applicable"
-
-
-def test_r_and_d_deterministic_returns_decision_for_required() -> None:
-  result = _derive_r_and_d_applicability_from_naics(
-    business_facts={},
-    ops_json={"business_naics_6": "511210"},
-    financials_json={},
-    financials_year1_json={},
-    model_input_json={},
-  )
-  assert result is not None, "Information sector should produce deterministic decision"
-  assert result["r_and_d_enabled"] is True
-  assert result["decision_source"] == "naics_2_lookup"
-  prov = result.get("naics_provenance") or {}
-  assert prov.get("naics_2") == "51"
-  assert prov.get("applicability_default") == "required"
+def test_r_and_d_deterministic_naics_wrapper_always_returns_none() -> None:
+  """The deterministic NAICS-2 wrapper is now a no-op; it never returns
+  a decision dict — the universal estimator carries the constant."""
+  for naics in ("511210", "455211", "332999", "722511", "513210", "488510", ""):
+    result = _derive_r_and_d_applicability_from_naics(
+      business_facts={},
+      ops_json={"business_naics_6": naics},
+      financials_json={},
+      financials_year1_json={},
+      model_input_json={},
+    )
+    assert result is None, f"NAICS {naics!r} should not branch — got {result}"
 
 
-def test_r_and_d_deterministic_returns_decision_for_not_applicable() -> None:
-  result = _derive_r_and_d_applicability_from_naics(
-    business_facts={},
-    ops_json={"business_naics_6": "455211"},
-    financials_json={},
-    financials_year1_json={},
-    model_input_json={},
-  )
-  assert result is not None
-  assert result["r_and_d_enabled"] is False
-  assert result["decision_source"] == "naics_2_lookup"
+def test_r_and_d_estimator_returns_universal_enabled_regardless_of_naics() -> None:
+  """Universal-app: every NAICS gets r_and_d_enabled=True with no GPT
+  call and no NAICS-2 branching. R&D becomes a normal driver."""
+  for naics in (
+    "511210",  # Information (was: required)
+    "455211",  # Retail (was: not_applicable)
+    "332999",  # Manufacturing (was: optional)
+    "722511",  # Accommodation/Food (was: not_applicable)
+    "513210",  # NexGen — Software (was: required)
+    "488510",  # Express — Freight brokerage (was: not_applicable)
+  ):
+    result = _estimate_r_and_d_applicability_with_gpt(
+      business_facts={},
+      ops_json={"business_naics_6": naics},
+      financials_json={},
+      financials_year1_json={},
+      model_input_json={},
+    )
+    assert isinstance(result, dict)
+    assert result.get("r_and_d_enabled") is True, (
+      f"NAICS {naics!r} should be universally enabled, got {result}"
+    )
+    assert result.get("decision_source") == "universal_post_phase_9_p3_10"
+    assert "rationale" in result and result["rationale"]
+    # No naics_provenance — the lookup table is gone.
+    assert "naics_provenance" not in result
 
 
-def test_r_and_d_deterministic_returns_none_for_optional_falls_through_to_gpt() -> None:
-  # Manufacturing (NAICS 33) is `optional` — the deterministic function
-  # returns None so the caller falls through to GPT for the tiebreaker.
-  result = _derive_r_and_d_applicability_from_naics(
-    business_facts={},
-    ops_json={"business_naics_6": "332999"},
-    financials_json={},
-    financials_year1_json={},
-    model_input_json={},
-  )
-  assert result is None, f"optional sector should defer to GPT tiebreaker, got: {result}"
-
-
-def test_r_and_d_deterministic_returns_none_for_missing_naics() -> None:
-  result = _derive_r_and_d_applicability_from_naics(
-    business_facts={},
-    ops_json={},
-    financials_json={},
-    financials_year1_json={},
-    model_input_json={},
-  )
-  assert result is None
+def test_r_and_d_estimator_does_not_call_openai() -> None:
+  """The universal estimator is a constant — no OPENAI_API_KEY required,
+  no network call. Smoke-test by calling without OPENAI_API_KEY in env."""
+  import os
+  saved = os.environ.pop("OPENAI_API_KEY", None)
+  try:
+    result = _estimate_r_and_d_applicability_with_gpt(
+      business_facts={},
+      ops_json={"business_naics_6": "513210"},
+      financials_json={},
+      financials_year1_json={},
+      model_input_json={},
+    )
+    assert result.get("r_and_d_enabled") is True
+  finally:
+    if saved is not None:
+      os.environ["OPENAI_API_KEY"] = saved
 
 
 # --------------------------------------------------------------------------
@@ -559,12 +553,10 @@ def main() -> int:
     ("maintenance_capex_deterministic_for_retail", test_maintenance_capex_deterministic_returns_naics_value_for_retail),
     ("maintenance_capex_differs_by_naics", test_maintenance_capex_deterministic_differs_by_naics),
     ("maintenance_capex_raises_on_missing_naics", test_maintenance_capex_deterministic_raises_on_missing_naics),
-    ("r_and_d_table_three_categories", test_r_and_d_applicability_table_seeded_with_three_categories),
-    ("r_and_d_for_naics2_returns_row", test_r_and_d_applicability_for_naics2_returns_row),
-    ("r_and_d_deterministic_required_decision", test_r_and_d_deterministic_returns_decision_for_required),
-    ("r_and_d_deterministic_not_applicable_decision", test_r_and_d_deterministic_returns_decision_for_not_applicable),
-    ("r_and_d_optional_falls_through_to_gpt", test_r_and_d_deterministic_returns_none_for_optional_falls_through_to_gpt),
-    ("r_and_d_missing_naics_returns_none", test_r_and_d_deterministic_returns_none_for_missing_naics),
+    ("r_and_d_naics2_lookup_machinery_deleted", test_r_and_d_naics2_lookup_machinery_deleted),
+    ("r_and_d_deterministic_naics_wrapper_always_returns_none", test_r_and_d_deterministic_naics_wrapper_always_returns_none),
+    ("r_and_d_estimator_returns_universal_enabled_regardless_of_naics", test_r_and_d_estimator_returns_universal_enabled_regardless_of_naics),
+    ("r_and_d_estimator_does_not_call_openai", test_r_and_d_estimator_does_not_call_openai),
     ("balance_sheet_proposer_uses_naics_for_q1_trajectory", test_balance_sheet_proposer_uses_naics_for_q1_trajectory_with_tier_a_traceability),
     ("balance_sheet_proposer_gates_inventory_for_software", test_balance_sheet_proposer_gates_inventory_for_software),
     ("balance_sheet_safety_floor_when_no_critic", test_balance_sheet_finalize_safety_floor_when_no_critic),

@@ -26,7 +26,6 @@ _GPT_CONTEXT_TABLE_NAME = "post_intake_gpt_context_lookup"
 _PROCESS_SEQUENCE_TABLE_NAME = "post_intake_process_sequence_lookup"
 _PROCESS_CONTEXT_TABLE_NAME = "post_intake_process_context_lookup"
 _PLANNING_MODE_POLICY_TABLE_NAME = "post_intake_planning_mode_policy_lookup"
-_R_AND_D_APPLICABILITY_TABLE_NAME = "post_intake_r_and_d_applicability_lookup"
 _LOOKUP_SNAPSHOT_TABLE_NAME = "post_intake_lookup_table_snapshot"
 _GOLDEN_BASELINE_NAME = "post_intake_golden_f949316"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
@@ -38,7 +37,6 @@ _ENSURE_GPT_CONTEXT_TABLE_READY = False
 _ENSURE_PROCESS_SEQUENCE_TABLE_READY = False
 _ENSURE_PROCESS_CONTEXT_TABLE_READY = False
 _ENSURE_PLANNING_MODE_POLICY_TABLE_READY = False
-_ENSURE_R_AND_D_APPLICABILITY_TABLE_READY = False
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
@@ -47,7 +45,6 @@ _ENSURE_GPT_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_SEQUENCE_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_PLANNING_MODE_POLICY_TABLE_LOCK = threading.Lock()
-_ENSURE_R_AND_D_APPLICABILITY_TABLE_LOCK = threading.Lock()
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
@@ -5370,161 +5367,13 @@ def post_intake_planning_mode_policy_for(planning_mode: Any) -> Optional[Dict[st
   return None
 
 
-# --------------------------------------------------------------------------
-# Module 5 Task 5.2 — R&D applicability NAICS-2 lookup.
-#
-# Replaces the GPT call `_estimate_r_and_d_applicability_with_gpt` for ~80%
-# of businesses where the NAICS-2 sector unambiguously implies R&D
-# applicability or non-applicability. Manufacturing (33) and other
-# ambiguous sectors fall through to GPT as a tiebreaker — much smaller
-# decision surface than today.
-#
-# Defaults below are master-diagnostic Part 7.2 #4 / Part 12.5 derived:
-# Information (51) and Professional/Scientific/Technical (54) → required;
-# Retail (44/45), Accommodation/Food (72), Other Services (81) →
-# not_applicable; rest → optional (defer to GPT tiebreaker).
-# --------------------------------------------------------------------------
-
-
-_DEFAULT_R_AND_D_APPLICABILITY_ROWS: List[Dict[str, Any]] = [
-  # Required — sectors with material R&D as a recurring distinct function.
-  {"naics_2": "51", "applicability_default": "required", "notes": "Information (publishers, software, broadcasting, telecom) — software/product engineering is core."},
-  {"naics_2": "54", "applicability_default": "required", "notes": "Professional/Scientific/Technical — R&D services, engineering, computer systems design."},
-  # Not applicable — consumer-facing or routine-operations sectors.
-  {"naics_2": "44", "applicability_default": "not_applicable", "notes": "Retail trade — no separate R&D function in the operating model."},
-  {"naics_2": "45", "applicability_default": "not_applicable", "notes": "Retail trade — same as 44."},
-  {"naics_2": "72", "applicability_default": "not_applicable", "notes": "Accommodation and Food Services — no separate R&D function."},
-  {"naics_2": "81", "applicability_default": "not_applicable", "notes": "Other Services (Except Public Administration) — routine personal/repair services."},
-  {"naics_2": "53", "applicability_default": "not_applicable", "notes": "Real Estate and Rental and Leasing — no separate R&D function."},
-  {"naics_2": "61", "applicability_default": "not_applicable", "notes": "Educational Services — curriculum development is not R&D in the cost-structure sense."},
-  # Optional — sectors where R&D applicability depends on sub-industry; GPT
-  # remains the tiebreaker.
-  {"naics_2": "31", "applicability_default": "optional", "notes": "Manufacturing (food, textiles) — depends on whether the firm has a product-development function."},
-  {"naics_2": "32", "applicability_default": "optional", "notes": "Manufacturing (chemicals, plastics) — pharma/chemicals subsectors typically have R&D; routine fabrication does not."},
-  {"naics_2": "33", "applicability_default": "optional", "notes": "Manufacturing (computers, transportation, machinery) — depends on subsector."},
-  {"naics_2": "21", "applicability_default": "optional", "notes": "Mining/Quarrying/Oil — exploration-as-R&D treatment varies by sub-industry."},
-  {"naics_2": "23", "applicability_default": "optional", "notes": "Construction — most firms no; specialized construction R&D yes."},
-  {"naics_2": "42", "applicability_default": "optional", "notes": "Wholesale Trade — depends on whether the firm has product-development capacity."},
-  {"naics_2": "48", "applicability_default": "not_applicable", "notes": "Transportation."},
-  {"naics_2": "49", "applicability_default": "not_applicable", "notes": "Warehousing."},
-  {"naics_2": "52", "applicability_default": "optional", "notes": "Finance and Insurance — fintech sub-industry yes; traditional banks no."},
-  {"naics_2": "55", "applicability_default": "not_applicable", "notes": "Management of Companies and Enterprises — holding-company structures."},
-  {"naics_2": "56", "applicability_default": "not_applicable", "notes": "Administrative and Support Services — operational services without R&D."},
-  {"naics_2": "62", "applicability_default": "optional", "notes": "Health Care — biotech / device development yes; routine clinical services no."},
-  {"naics_2": "71", "applicability_default": "not_applicable", "notes": "Arts, Entertainment, Recreation."},
-  {"naics_2": "11", "applicability_default": "optional", "notes": "Agriculture/Forestry/Fishing — varietal R&D in some cases."},
-  {"naics_2": "22", "applicability_default": "not_applicable", "notes": "Utilities — operational services without R&D."},
-]
-
-
-def _ensure_r_and_d_applicability_lookup_table(conn) -> None:
-  global _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY
-  if _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY:
-    return
-  with _ENSURE_R_AND_D_APPLICABILITY_TABLE_LOCK:
-    if _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY:
-      return
-    cur = conn.cursor()
-    try:
-      cur.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {_R_AND_D_APPLICABILITY_TABLE_NAME} (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-          naics_2 VARCHAR(2) NOT NULL,
-          applicability_default VARCHAR(32) NOT NULL,
-          notes LONGTEXT NULL,
-          active TINYINT(1) NOT NULL DEFAULT 1,
-          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-          UNIQUE KEY uniq_r_and_d_naics_2 (naics_2),
-          KEY idx_r_and_d_active (active)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """
-      )
-      for row in _DEFAULT_R_AND_D_APPLICABILITY_ROWS:
-        applicability = _clean_text(row.get("applicability_default")).lower()
-        if applicability not in {"required", "optional", "not_applicable"}:
-          raise RuntimeError(
-            f"r_and_d_applicability_default_invalid: naics_2={row.get('naics_2')} applicability={applicability}"
-          )
-        cur.execute(
-          f"""
-          INSERT INTO {_R_AND_D_APPLICABILITY_TABLE_NAME} (
-            naics_2,
-            applicability_default,
-            notes,
-            active
-          ) VALUES (%s, %s, %s, 1)
-          ON DUPLICATE KEY UPDATE
-            applicability_default = VALUES(applicability_default),
-            notes = VALUES(notes),
-            active = VALUES(active)
-          """,
-          (
-            _clean_text(row.get("naics_2")),
-            applicability,
-            _clean_text(row.get("notes")),
-          ),
-        )
-      conn.commit()
-      _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY = True
-    finally:
-      try:
-        cur.close()
-      except Exception:
-        pass
-
-
-@lru_cache(maxsize=1)
-def load_post_intake_r_and_d_applicability_rows() -> List[Dict[str, Any]]:
-  rows: List[Dict[str, Any]] = []
-  _ensure_env_loaded()
-  conn = get_mysql_connection()
-  try:
-    _ensure_r_and_d_applicability_lookup_table(conn)
-    cur = conn.cursor(dictionary=True)
-    try:
-      cur.execute(
-        f"""
-        SELECT
-          naics_2,
-          applicability_default,
-          notes,
-          active
-        FROM {_R_AND_D_APPLICABILITY_TABLE_NAME}
-        WHERE active = 1
-        """
-      )
-      raw_rows = cur.fetchall() or []
-    finally:
-      cur.close()
-  finally:
-    conn.close()
-  for raw in raw_rows:
-    if not isinstance(raw, dict):
-      continue
-    naics_2 = _clean_text(raw.get("naics_2"))
-    if not naics_2:
-      continue
-    rows.append(
-      {
-        "naics_2": naics_2,
-        "applicability_default": _clean_text(raw.get("applicability_default")).lower(),
-        "notes": _clean_text(raw.get("notes")),
-        "active": bool(raw.get("active") or 0),
-      }
-    )
-  return rows
-
-
-def post_intake_r_and_d_applicability_for_naics2(naics_2: Any) -> Optional[Dict[str, Any]]:
-  digits = "".join(ch for ch in str(naics_2 or "") if ch.isdigit())[:2]
-  if not digits:
-    return None
-  for row in load_post_intake_r_and_d_applicability_rows():
-    if row.get("naics_2") == digits:
-      return dict(row)
-  return None
+# Phase 9 P3.10 NexGen iter 2 fix — the NAICS-2 R&D applicability lookup
+# table (_DEFAULT_R_AND_D_APPLICABILITY_ROWS, _ensure_r_and_d_applicability_lookup_table,
+# load_post_intake_r_and_d_applicability_rows, post_intake_r_and_d_applicability_for_naics2)
+# was deleted as a hardcoded archetype-branching mechanism. R&D is now a
+# universal driver: intake/cohort baselines drive the value, and the
+# realism band + GPT exhaustion handler handle out-of-band cases the same
+# way they handle every other expense lever.
 
 
 def _post_intake_snapshot_source_tables() -> List[str]:
@@ -5537,7 +5386,6 @@ def _post_intake_snapshot_source_tables() -> List[str]:
     _PROCESS_SEQUENCE_TABLE_NAME,
     _PROCESS_CONTEXT_TABLE_NAME,
     _PLANNING_MODE_POLICY_TABLE_NAME,
-    _R_AND_D_APPLICABILITY_TABLE_NAME,
   ]
 
 

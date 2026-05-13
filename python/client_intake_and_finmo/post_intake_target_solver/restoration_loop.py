@@ -154,6 +154,7 @@ _GPT_AUTHORED_PNL_LEVER_IDS: frozenset = frozenset({
   "expenses::Cost of Goods Sold",
   "expenses::Marketing",
   "expenses::General & Administrative",
+  "expenses::Research & Development",
 })
 _GPT_AUTHORED_WC_LEVER_IDS: frozenset = frozenset({
   "balance_sheet::Accounts Receivable Days",

@@ -166,6 +166,7 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
         "cogs_percent_of_revenue",
         "marketing_percent_of_revenue",
         "sga_percent_of_revenue",
+        "r_and_d_percent_of_revenue",
         "working_capital_drivers",
       ],
       "properties": {
@@ -176,6 +177,7 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
         "cogs_percent_of_revenue": _three_anchor_schema(),
         "marketing_percent_of_revenue": _three_anchor_schema(),
         "sga_percent_of_revenue": _three_anchor_schema(),
+        "r_and_d_percent_of_revenue": _three_anchor_schema(),
         "working_capital_drivers": _working_capital_schema(all_required=True),
       },
     }

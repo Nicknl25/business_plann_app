@@ -55,6 +55,7 @@ GPT_AUTHORED_LEVER_IDS: Tuple[str, ...] = (
   "expenses::Cost of Goods Sold",
   "expenses::Marketing",
   "expenses::General & Administrative",
+  "expenses::Research & Development",
 )
 
 # Map GPT driver-anchor key -> lever_id for the model_input write.
@@ -66,6 +67,7 @@ _DRIVER_KEY_TO_LEVER_ID: Dict[str, str] = {
   "cogs_percent_of_revenue": "expenses::Cost of Goods Sold",
   "marketing_percent_of_revenue": "expenses::Marketing",
   "sga_percent_of_revenue": "expenses::General & Administrative",
+  "r_and_d_percent_of_revenue": "expenses::Research & Development",
 }
 
 

@@ -177,18 +177,12 @@ def _applicability_skip(
       return f"skip_inventory_not_applicable_naics2_{naics_2 or 'unknown'}"
     return None
   if rule == "r_and_d_when_applicable":
-    # Skip when r_and_d is zero across the entire forecast horizon —
-    # that is the deterministic signal that the r_and_d_applicability
-    # decision disabled the lever upstream. Any nonzero R&D anywhere
-    # triggers the band check.
-    #
-    # Phase 9 audit fix #9 — for NAICS-2 sectors where R&D is
-    # universally expected (51 Information / 54 Professional Scientific
-    # Technical), do NOT skip on horizon-wide zero. Zero R&D in those
-    # sectors is itself a model defect — let the band check fire so the
-    # mismatch surfaces as an actionable out-of-band result. Pre-fix
-    # the silent skip masked "we forgot to schedule any R&D" for
-    # software / research businesses.
+    # Phase 9 P3.10 NexGen iter 2 fix — universal-app: no NAICS-2
+    # branching. R&D applicability is implicit: if R&D is positive
+    # anywhere in the forecast, the band check applies; if R&D is
+    # zero across the entire 20-quarter horizon, skip. Same code path
+    # for every business — the cohort baseline drives the band, and
+    # zero R&D against a zero band is in-band by construction.
     nonzero = False
     for row in (finmo_json or {}).get("quarter_rows") or []:
       if not isinstance(row, dict):
@@ -201,13 +195,7 @@ def _applicability_skip(
         nonzero = True
         break
     if not nonzero:
-      naics_2 = _naics_2(business_naics_6)
-      r_and_d_expected_naics_2 = {"51", "54"}
-      if naics_2 in r_and_d_expected_naics_2:
-        # Don't skip — the band check will fire and produce a visible
-        # out-of-band hit instead of a silent skip.
-        return None
-      return "skip_r_and_d_not_applicable_to_business"
+      return "skip_r_and_d_zero_across_forecast"
     return None
   if rule == "deferred_revenue_when_business_has_recurring":
     naics_2 = _naics_2(business_naics_6)

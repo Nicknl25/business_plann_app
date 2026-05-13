@@ -1833,41 +1833,14 @@ def apply_derived_driver_policies_to_model_input(
   next_payload.setdefault("derived_driver_policies", {})
   next_payload.setdefault("derived_driver_runtime", {})
 
+  # Phase 9 P3.10 NexGen iter 2 fix — R&D is a universal driver. The
+  # applicability policy is always r_and_d_enabled=True post-fix; the
+  # disable branch (which used to zero R&D when the NAICS-2 lookup said
+  # not_applicable) is gone. R&D flows through finmo like every other
+  # expense lever; the realism band + GPT exhaustion handler engage on
+  # out-of-band values.
   r_and_d_policy = _normalized_r_and_d_applicability_policy(next_payload)
-  r_and_d_row = next((
-    row for row in expense_rows
-    if str(row.get("label") or "").strip() == "Research & Development"
-  ), None)
-  if isinstance(r_and_d_row, dict) and not bool(r_and_d_policy.get("r_and_d_enabled")):
-    stub_value, _existing_live_values = _row_stub_and_live_values(
-      r_and_d_row.get("values") or [],
-      live_count=live_count,
-    )
-    r_and_d_row["controller_write"] = False
-    r_and_d_row["derived_driver"] = "r_and_d_disabled_by_business_applicability"
-    r_and_d_row["r_and_d_applicability"] = deepcopy(r_and_d_policy)
-    r_and_d_row["values"] = _compose_period_values(
-      stub_value=stub_value,
-      live_values=[0.0 for _ in range(live_count)],
-    )
-    if isinstance(next_payload.get("controller_write_levers"), list):
-      next_payload["controller_write_levers"] = [
-        deepcopy(item)
-        for item in (next_payload.get("controller_write_levers") or [])
-        if isinstance(item, dict)
-        and str(item.get("lever_id") or "").strip() != R_AND_D_APPLICABILITY_LEVER_ID
-      ]
-    if isinstance(next_payload.get("lever_catalog"), dict):
-      lever_catalog = deepcopy(next_payload.get("lever_catalog") or {})
-      lever_catalog.pop(R_AND_D_APPLICABILITY_LEVER_ID, None)
-      next_payload["lever_catalog"] = lever_catalog
-    if isinstance(next_payload.get("derived_driver_runtime"), dict):
-      next_payload["derived_driver_runtime"][R_AND_D_APPLICABILITY_LEVER_ID] = {
-        **deepcopy(r_and_d_policy),
-        "forecast_live_values_forced_zero": True,
-        "controller_write_removed": True,
-      }
-  elif isinstance(next_payload.get("derived_driver_runtime"), dict):
+  if isinstance(next_payload.get("derived_driver_runtime"), dict):
     next_payload["derived_driver_runtime"][R_AND_D_APPLICABILITY_LEVER_ID] = {
       **deepcopy(r_and_d_policy),
       "forecast_live_values_forced_zero": False,
