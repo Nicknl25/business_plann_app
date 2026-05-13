@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging as _logging
 from dataclasses import dataclass, field, fields
 from datetime import date, datetime
 from typing import Any, Dict, List
 
 from .model_inputs import FinancialModelInputs, QUARTER_COUNT, _safe_float
+
+_logger = _logging.getLogger(__name__)
 
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
 DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
@@ -396,6 +399,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     short_term_debt = sum(
       max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, q))
       for q in range(quarter.quarter_index + 1, quarter.quarter_index + 5)
+    )
+    _logger.warning(
+      "finmo_std_layer1_trace q=%s window=%s value=%s",
+      quarter.quarter_index,
+      list(range(quarter.quarter_index + 1, quarter.quarter_index + 5)),
+      short_term_debt,
     )
     current_liabilities = accounts_payable + short_term_debt + deferred_revenue
     long_term_debt = debt_closing
