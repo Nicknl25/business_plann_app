@@ -6,6 +6,7 @@ from .data import DraftWorkbookData
 from .excel_utils import (
   ANNUAL_START_COL,
   CURRENCY_FORMAT,
+  DEBT_SHEET,
   FILL_BLUE,
   FILL_GREEN,
   FILL_LIGHT,
@@ -22,6 +23,7 @@ from .excel_utils import (
   apply_base_style,
   create_sheet,
   local_ref,
+  range_ref,
   ref,
   set_formula_style,
   set_title,
@@ -104,6 +106,22 @@ def _days_in_quarter_formula(col: int) -> str:
   return local_ref(6, col)
 
 
+def _short_term_debt_formula(ctx: WorkbookBuildContext, col: int) -> str:
+  """Phase 9 P3.10 STD canonical-source layer 2 — FINMO sheet STD cell
+  references the Debt Schedule sheet's `Actual Debt Repayment` row at
+  cells col+1..col+4 (exclusive of the current quarter), clipped to
+  the live-period range. Q20's window is entirely beyond the horizon
+  so the cell is literal "=0".
+  """
+  start_col = col + 1
+  end_col = col + 4
+  if start_col > LAST_LIVE_COL:
+    return "=0"
+  end_col = min(end_col, LAST_LIVE_COL)
+  actual_repay_row = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
+  return f"=SUM({range_ref(DEBT_SHEET, actual_repay_row, start_col, end_col)})"
+
+
 def _write_statement_rows(ws, ctx: WorkbookBuildContext, *, statement: str, lines: List[str], start_row: int) -> int:
   write_section_header(ws, start_row, statement)
   row = start_row + 1
@@ -181,7 +199,13 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Deferred Revenue"), col, "=0")
     else:
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Accounts Payable"), col, f"=({_mi(ctx, 'bs::Accounts Payable Days', col)}/{_days_in_quarter_formula(col)})*{operating_expense_sum}")
-      _set_formula(ws, ctx.finmo_row("Balance Sheet", "Short Term Debt"), col, f"={_mi(ctx, 'bs::Short Term Debt (% of LTD)', col)}*{_fr(ctx, 'Balance Sheet', 'Long Term Debt', col)}")
+      # Phase 9 P3.10 STD canonical-source layer 2 — workbook FINMO STD
+      # references the Debt Schedule sheet's Actual Debt Repayment row
+      # for the next 4 quarters (q+1..q+4), exclusive of the current
+      # quarter. Out-of-horizon columns naturally drop out by clipping
+      # the SUM range to PERIOD_END_COL; the last live column (Q20) has
+      # no quarters after it, so its formula is the literal "=0".
+      _set_formula(ws, ctx.finmo_row("Balance Sheet", "Short Term Debt"), col, _short_term_debt_formula(ctx, col))
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Deferred Revenue"), col, f"={_mi(ctx, 'bs::Deferred Revenue (% of Revenue)', col)}*{_fr(ctx, 'Income Statement', 'Revenue', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Current Liabilities"), col, f"=SUM({_fr(ctx, 'Balance Sheet', 'Accounts Payable', col)}:{_fr(ctx, 'Balance Sheet', 'Deferred Revenue', col)})")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Long Term Debt"), col, f"={_mi(ctx, 'cash::Debt Opening Balance', col) if q0 else _mi(ctx, 'cash::Debt Closing Balance', col)}")
