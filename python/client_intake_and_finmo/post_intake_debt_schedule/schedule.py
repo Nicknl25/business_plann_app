@@ -1,6 +1,6 @@
 import copy
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_cash_debt_schedule_policy,
@@ -192,45 +192,6 @@ def debt_opening_seed(
   return int(round(max(0.0, float(_safe_float(financials.get("total_debt_outstanding")) or 0.0))))
 
 
-def _annual_principal_from_financials(
-  *,
-  financials_json: Optional[Dict[str, Any]],
-  policy: Optional[Dict[str, Any]],
-  opening_debt: int,
-) -> Tuple[int, str]:
-  if int(opening_debt or 0) <= 0:
-    return 0, "no_opening_debt"
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  payload = policy if isinstance(policy, dict) else {}
-  source_priority = [
-    str(item or "").strip()
-    for item in (payload.get("debt_min_principal_source_priority") or [])
-    if str(item or "").strip()
-  ] or ["financials.annual_principal_payment"]
-  for source in source_priority:
-    if source == "financials.annual_principal_payment":
-      value = int(round(max(0.0, float(_safe_float(financials.get("annual_principal_payment")) or 0.0))))
-      if value > 0:
-        return value, source
-    if source == "financials.other_monthly_debt_payments_minus_annual_interest_payment":
-      monthly_payment = max(0.0, float(_safe_float(financials.get("other_monthly_debt_payments")) or 0.0))
-      annual_interest = max(0.0, float(_safe_float(financials.get("annual_interest_payment")) or 0.0))
-      value = int(round(max(0.0, monthly_payment * 12.0 - annual_interest)))
-      if value > 0:
-        return value, source
-    if source == "policy.amortizing_remaining_balance_over_contract_horizon":
-      horizon_quarters = int(_safe_float(payload.get("debt_schedule_horizon_quarters")) or 0)
-      if horizon_quarters > 0:
-        value = int(round(float(opening_debt) / (horizon_quarters / 4.0)))
-        if value > 0:
-          return value, source
-  raise RuntimeError(
-    "debt_schedule_minimum_principal_missing: "
-    "opening debt exists, but no positive annual principal source was available. "
-    f"opening_debt={int(opening_debt)} source_priority={source_priority}"
-  )
-
-
 def _assert_policy_valid(policy: Dict[str, Any], *, horizon_count: int) -> None:
   if str(policy.get("debt_schedule_method") or "").strip().lower() != "amortizing_remaining_balance":
     raise RuntimeError("debt_schedule_policy_invalid: debt_schedule_method must be amortizing_remaining_balance")
@@ -298,20 +259,10 @@ def build_debt_schedule_plan(
       "schedule_method": "amortizing_remaining_balance",
       "horizon_quarters": horizon_count,
       "opening_debt_seed": 0,
-      "annual_principal_payment": 0,
-      "quarterly_minimum_principal": 0,
       "model_input_rows_written": [INTEREST_RATE_LEVER_ID],
       "rows": rows,
       "exact_updates": exact_updates,
     }
-  annual_principal, annual_principal_source = _annual_principal_from_financials(
-    financials_json=financials_json,
-    policy=policy,
-    opening_debt=opening_debt_seed,
-  )
-  contractual_quarterly_floor = int(round(max(0.0, float(annual_principal)) / 4.0))
-  if contractual_quarterly_floor <= 0 and opening_debt_seed > 0:
-    raise RuntimeError("debt_schedule_quarterly_minimum_zero: opening debt exists but computed quarterly principal is zero")
   opening_debt = int(opening_debt_seed)
   for quarter_index in range(1, horizon_count + 1):
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
@@ -319,7 +270,7 @@ def build_debt_schedule_plan(
     available_debt = int(max(0, opening_debt + current_issuance))
     remaining_quarters = max(1, horizon_count - quarter_index + 1)
     amortizing_minimum = int(math.ceil(float(available_debt) / float(remaining_quarters))) if available_debt > 0 else 0
-    minimum_principal = int(min(available_debt, max(contractual_quarterly_floor if available_debt > 0 else 0, amortizing_minimum)))
+    minimum_principal = int(min(available_debt, amortizing_minimum))
     scheduled_principal = int(min(available_debt, max(current_repayment, minimum_principal)))
     closing_debt = int(max(0, available_debt - scheduled_principal))
     interest_rate = forecast_interest_rate
@@ -355,7 +306,6 @@ def build_debt_schedule_plan(
       "minimum_principal_payment": minimum_principal,
       "scheduled_principal_payment": minimum_principal,
       "amortizing_minimum_principal": amortizing_minimum,
-      "contractual_quarterly_floor": contractual_quarterly_floor,
       "remaining_amortization_quarters": remaining_quarters,
       "extra_principal_payment": int(max(0, scheduled_principal - minimum_principal)),
       "total_principal_payment": scheduled_principal,
@@ -367,7 +317,6 @@ def build_debt_schedule_plan(
       "estimated_interest_expense": interest_expense,
       "interest_expense": interest_expense,
       "total_debt_service": int(scheduled_principal + interest_expense),
-      "principal_source": annual_principal_source,
     }
     rows.append(row)
     opening_debt = closing_debt
@@ -381,9 +330,6 @@ def build_debt_schedule_plan(
     "schedule_method": "amortizing_remaining_balance",
     "horizon_quarters": horizon_count,
     "opening_debt_seed": int(opening_debt_seed),
-    "annual_principal_payment": int(annual_principal),
-    "annual_principal_source": annual_principal_source,
-    "quarterly_minimum_principal": int(contractual_quarterly_floor),
     "model_input_rows_written": [DEBT_REPAYMENT_LEVER_ID, INTEREST_RATE_LEVER_ID],
     "rows": rows,
     "exact_updates": exact_updates,
