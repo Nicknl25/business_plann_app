@@ -393,18 +393,22 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     # derived classification sliced from the debt schedule's per-quarter
     # principal repayment, NOT a driver. Standard accounting "current
     # portion of long-term debt": sum of the NEXT 4 quarters' scheduled
-    # principal repayment, exclusive of the current quarter. _row_value
-    # returns 0 for out-of-horizon indices, so Q19 sums Q20+0+0+0 and
-    # Q20 sums 0+0+0+0.
+    # principal repayment, exclusive of the current quarter. The
+    # `if q <= QUARTER_COUNT` guard is the live-horizon clip that
+    # implements "Q19 sums Q20+0+0+0; Q20 sums 0+0+0+0" — without it,
+    # ControllerWriteRow._storage_index clamps OOB indices to QUARTER_COUNT
+    # and silently returns the LAST quarter's value (iter 8 root cause).
+    windowed = [
+      q for q in range(quarter.quarter_index + 1, quarter.quarter_index + 5)
+      if q <= QUARTER_COUNT
+    ]
     short_term_debt = sum(
       max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, q))
-      for q in range(quarter.quarter_index + 1, quarter.quarter_index + 5)
+      for q in windowed
     )
     _logger.warning(
       "finmo_std_layer1_trace q=%s window=%s value=%s",
-      quarter.quarter_index,
-      list(range(quarter.quarter_index + 1, quarter.quarter_index + 5)),
-      short_term_debt,
+      quarter.quarter_index, windowed, short_term_debt,
     )
     current_liabilities = accounts_payable + short_term_debt + deferred_revenue
     long_term_debt = debt_closing
