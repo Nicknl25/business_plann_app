@@ -547,24 +547,50 @@ def balance_sheet_driver_finalize_errors(
           )
           break
       elif validation_key == "finmo_short_term_debt_percent_of_ltd":
+        # Phase 9 P3.10 Bug B fix — expected = sum of next 4 quarters'
+        # principal repayment from the rebuilt debt schedule. The
+        # amortization schedule is the rigorous math; intake's STD% was
+        # an operator estimate. Per intake-is-noise-by-design: the app
+        # exists to correct operator estimates with the table-backed
+        # amortization. The previous derivation (value × closing_debt
+        # where value was the intake-stated STD%) compared the operator
+        # estimate against itself filtered through different math —
+        # any small ratio mismatch (5-8% common) raised. With debt
+        # schedule rebuilt post-cash-pass (Bug A fix), the schedule's
+        # 4-quarter rolling principal payment IS the canonical STD.
         schedule = debt_schedule if isinstance(debt_schedule, dict) else {}
         schedule_rows = [
           item for item in (schedule.get("rows") or schedule.get("debt_schedule_rows") or [])
           if isinstance(item, dict)
         ]
-        schedule_row = next(
+        schedule_row_current = next(
           (item for item in schedule_rows if int(_safe_float(item.get("quarter_index")) or 0) == quarter_index),
           {},
         )
-        closing_debt = float(_safe_float(schedule_row.get("closing_debt")) or 0.0)
+        closing_debt = float(_safe_float(schedule_row_current.get("closing_debt")) or 0.0)
         if closing_debt <= 0.0 and not applicable:
           continue
-        expected = int(round(value * closing_debt))
+        next_four_repayments = 0
+        for next_q in range(quarter_index, quarter_index + 4):
+          next_row = next(
+            (item for item in schedule_rows if int(_safe_float(item.get("quarter_index")) or 0) == next_q),
+            {},
+          )
+          repayment = float(
+            _safe_float(
+              next_row.get("total_principal_payment")
+              if next_row.get("total_principal_payment") is not None
+              else next_row.get("actual_debt_repayment")
+            ) or 0.0
+          )
+          next_four_repayments += int(round(repayment))
+        expected = next_four_repayments
         actual = int(round(float(_safe_float(finmo_row.get("short_term_debt")) or 0.0)))
         if expected != actual:
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
-            f"field=short_term_debt actual={actual} expected={expected}"
+            f"field=short_term_debt actual={actual} expected={expected} "
+            f"derivation=sum_next_4_quarters_principal_repayment_from_schedule"
           )
           break
   return errors
