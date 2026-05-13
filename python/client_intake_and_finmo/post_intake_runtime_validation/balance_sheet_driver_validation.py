@@ -510,7 +510,16 @@ def balance_sheet_driver_finalize_errors(
       # gate in orchestrator.py via balance_sheet_driver_zero_but_applicable_errors().
       # Skipped at finalize so the gate is the single source of truth.
       continue
-    if not applicable and not _any_positive(values):
+    # Phase 9 P3.10 STD canonical-source layer 3 — STD is now derived
+    # from the schedule's per-quarter principal repayment and the STD%
+    # lever sits at zero in model_input (no one writes to it). Don't
+    # skip the STD validator branch on the "all-zero lever" early gate;
+    # the branch gates internally on closing_debt > 0.
+    if (
+      not applicable
+      and not _any_positive(values)
+      and validation_key != "finmo_short_term_debt_percent_of_ltd"
+    ):
       continue
     for quarter_index, finmo_row in enumerate(finmo_rows, start=1):
       value = float(numeric_values[quarter_index - 1] or 0.0)

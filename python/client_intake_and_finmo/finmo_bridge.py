@@ -3473,8 +3473,15 @@ def _build_model_input_overlay(
           # assembler tags applicability_gate_not_applicable with min=max=default=0).
           values.append(round(float(envelope_value), 6))
       elif label == "Short Term Debt (% of LTD)":
-        short_term_ratio = _ratio((financials_json or {}).get("short_term_debt"), (financials_json or {}).get("total_debt_outstanding"))
-        values.append(round(short_term_ratio, 6))
+        # Phase 9 P3.10 STD canonical-source layer 3 — STD is now derived
+        # from the debt schedule's per-quarter principal repayment
+        # (FINMO Python and the workbook both compute it as
+        # sum(DEBT_REPAYMENT[q+1..q+4])). The intake-derived seed is
+        # obsolete; the lever exists in model_input as an inert row
+        # (controller_write=False, value=0). Anything that still reads
+        # this lever's value gets 0; STD itself is computed from the
+        # schedule.
+        values.append(0.0)
       elif label == "Owner's Capital":
         opening_equity = round(_safe_float((financials_json or {}).get("initial_equity")) or base_stub_value or 0.0, 6)
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or opening_equity, 6) if base_values else opening_equity)

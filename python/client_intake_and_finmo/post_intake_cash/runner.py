@@ -30,7 +30,6 @@ from client_intake_and_finmo.post_intake_cash.planning_envelope import build_cas
 from client_intake_and_finmo.post_intake_cash.validation_envelope import build_cash_validation_envelope  # type: ignore
 from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
   apply_minimum_debt_schedule as _debt_schedule_apply_minimum,
-  apply_short_term_debt_current_portion as _debt_schedule_apply_short_term_current_portion,
   build_debt_schedule_plan as _debt_schedule_build_plan,
   build_debt_schedule_snapshot as _debt_schedule_build_snapshot,
   cash_debt_schedule_policy_for_state as _debt_schedule_policy_for_state,
@@ -45,9 +44,6 @@ from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runti
 
 _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance")
 _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_repayment")
-_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver(
-  "short_term_debt_percent_of_ltd"
-)
 _CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("owners_capital")
 _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("other_equity")
 _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("distributions")
@@ -196,7 +192,6 @@ __all__ = [
   "_preferred_exact_from_band_control",
   "_apply_followup_exact_updates",
   "_apply_cash_strategy_exact_updates",
-  "_apply_cash_pass_short_term_debt_current_portion",
   "_apply_cash_policy_surplus_cleanup",
   "_validate_cash_strategy_post_pass",
   "_raise_cash_pass_unresolved_liquidity_if_needed",
@@ -3523,13 +3518,11 @@ def _apply_cash_strategy_exact_updates(
     "updated_finmo_json": updated_finmo_json if isinstance(updated_finmo_json, dict) else {},
   }
 
-def _apply_cash_pass_short_term_debt_current_portion(
-  *,
-  cash_strategy_result: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  return _debt_schedule_apply_short_term_current_portion(
-    cash_strategy_result=copy.deepcopy(cash_strategy_result or {})
-  )
+# Phase 9 P3.10 STD canonical-source layer 3 — _apply_cash_pass_short_term_debt_current_portion
+# was deleted; FINMO now derives short_term_debt directly from the
+# debt schedule's per-quarter principal repayment, so the cash pass
+# no longer needs to write a STD% ratio.
+
 
 def _apply_cash_policy_surplus_cleanup(
   *,
@@ -4018,45 +4011,12 @@ def _validate_cash_strategy_post_pass(
     max(0.0, float(_safe_float(item) or 0.0))
     for item in (lever_values.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
   ]
-  short_term_ratio_values = [
-    max(0.0, float(_safe_float(item) or 0.0))
-    for item in (lever_values.get(_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID) or [])
-  ]
-  missing_short_term_current_portion_rows: List[Dict[str, Any]] = []
-  for item in debt_schedule_rows:
-    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
-    if quarter_index < 1:
-      continue
-    closing_debt = max(0.0, float(_safe_float(item.get("closing_debt")) or 0.0))
-    next_four_repayments = sum(
-      debt_repayment_values[idx]
-      for idx in range(quarter_index - 1, min(len(debt_repayment_values), quarter_index + 3))
-    )
-    ratio = (
-      float(short_term_ratio_values[quarter_index - 1])
-      if quarter_index - 1 < len(short_term_ratio_values)
-      else 0.0
-    )
-    if closing_debt > 1.0 and next_four_repayments > 1.0 and round(ratio, 2) <= 0.0:
-      missing_short_term_current_portion_rows.append(
-        {
-          "quarter_index": quarter_index,
-          "closing_debt": int(round(closing_debt)),
-          "next_four_quarters_debt_repayment": int(round(next_four_repayments)),
-          "short_term_debt_percent_of_ltd": round(ratio, 2),
-        }
-      )
-  if missing_short_term_current_portion_rows:
-    cash_contract_failures.append(
-      {
-        "error": "cash_debt_schedule_short_term_current_portion_missing",
-        "reason": (
-          "Any quarter with debt outstanding and scheduled repayment in the next four quarters must set "
-          "Short Term Debt (% of LTD) from the current debt schedule."
-        ),
-        "violating_quarters": copy.deepcopy(missing_short_term_current_portion_rows),
-      }
-    )
+  # Phase 9 P3.10 STD canonical-source layer 3 — the cash-pass post-pass
+  # check `cash_debt_schedule_short_term_current_portion_missing` was
+  # removed. STD is now derived directly from the schedule's per-quarter
+  # principal repayment by FINMO; the STD% lever is no longer written
+  # by anyone, so checking that it's set would be a guaranteed false
+  # alarm on every business with debt.
   minimum_repayment_rows = {
     int(_safe_float(item.get("quarter_index")) or 0): int(round(float(_safe_float(item.get("minimum_principal_payment")) or 0.0)))
     for item in (minimum_debt_schedule_plan.get("rows") or [])

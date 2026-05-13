@@ -24,10 +24,13 @@ def _lookup_lever_id(target_driver: str, fallback: str) -> str:
 DEBT_ISSUANCE_LEVER_ID = _lookup_lever_id("debt_issuance", "schedules::Debt Issuance (New Borrowing)")
 DEBT_REPAYMENT_LEVER_ID = _lookup_lever_id("debt_repayment", "schedules::Debt Repayment (Scheduled)")
 INTEREST_RATE_LEVER_ID = _lookup_lever_id("interest_rate", "expenses::Interest Rate")
-SHORT_TERM_DEBT_RATIO_LEVER_ID = _lookup_lever_id(
-  "short_term_debt_percent_of_ltd",
-  "balance_sheet::Short Term Debt (% of LTD)",
-)
+# Phase 9 P3.10 STD canonical-source layer 3 — SHORT_TERM_DEBT_RATIO_LEVER_ID
+# is removed. The lever it pointed at
+# (`balance_sheet::Short Term Debt (% of LTD)`) is no longer written by
+# the cash pass; FINMO computes short_term_debt directly from
+# schedules::Debt Repayment for q+1..q+4. The lever may still appear as
+# an inert row in model_input / Model Inputs sheet — value is always 0
+# and no consumer reads it for STD computation.
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -396,58 +399,8 @@ def build_debt_schedule_snapshot(
     "source_stage": str(source_stage or "").strip(),
     "finmo_formula_unchanged": True,
     "horizon_quarters": horizon_count,
-    "model_input_drivers": [INTEREST_RATE_LEVER_ID, DEBT_ISSUANCE_LEVER_ID, DEBT_REPAYMENT_LEVER_ID, SHORT_TERM_DEBT_RATIO_LEVER_ID],
+    "model_input_drivers": [INTEREST_RATE_LEVER_ID, DEBT_ISSUANCE_LEVER_ID, DEBT_REPAYMENT_LEVER_ID],
     "rows": schedule_rows,
-  }
-
-
-def build_short_term_debt_current_portion_plan(
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  finmo_payload: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  horizon_count = _horizon_count()
-  lever_values = _lever_value_map(model_input_json, horizon=horizon_count)
-  repayment_values = [max(0.0, float(_safe_float(item) or 0.0)) for item in (lever_values.get(DEBT_REPAYMENT_LEVER_ID) or [])]
-  rows = _live_quarter_rows(finmo_payload)
-  exact_updates: List[Dict[str, Any]] = []
-  ratio_series: List[Dict[str, Any]] = []
-  for row in rows[:horizon_count]:
-    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-    if quarter_index < 1:
-      continue
-    long_term_debt = max(0.0, float(_safe_float(row.get("long_term_debt")) or 0.0))
-    next_four_repayments = sum(repayment_values[idx] for idx in range(quarter_index - 1, min(len(repayment_values), quarter_index + 3)))
-    ratio = 0.0
-    if long_term_debt > 1.0 and next_four_repayments > 1.0:
-      ratio = min(1.0, max(0.0, next_four_repayments / long_term_debt))
-    ratio = round(float(ratio), 2)
-    exact_updates.append(
-      {
-        "lever_id": SHORT_TERM_DEBT_RATIO_LEVER_ID,
-        "quarter_index": quarter_index,
-        "exact_value": ratio,
-        "issue_codes": ["funding_structure_mismatch"],
-        "rationale": "Set current-portion short-term debt from next four quarters of scheduled debt repayment divided by long-term debt.",
-      }
-    )
-    ratio_series.append(
-      {
-        "quarter_index": quarter_index,
-        "long_term_debt": int(round(long_term_debt)),
-        "next_four_quarters_debt_repayment": int(round(next_four_repayments)),
-        "short_term_debt_percent_of_ltd": ratio,
-      }
-    )
-  return {
-    "contract_version": "post_intake_short_term_debt_current_portion_v1",
-    "source_of_truth": DEBT_SCHEDULE_SOURCE_OF_TRUTH,
-    "lookup_function": DEBT_SCHEDULE_LOOKUP_FUNCTION,
-    "status": "ready" if exact_updates else "skipped_no_rows",
-    "lever_id": SHORT_TERM_DEBT_RATIO_LEVER_ID,
-    "basis": "next_four_quarters_scheduled_debt_repayment_divided_by_long_term_debt",
-    "rows": copy.deepcopy(ratio_series),
-    "exact_updates": copy.deepcopy(exact_updates),
   }
 
 
@@ -500,52 +453,14 @@ def apply_minimum_debt_schedule(
   return result
 
 
-def apply_short_term_debt_current_portion(
-  *,
-  cash_strategy_result: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  result = copy.deepcopy(cash_strategy_result if isinstance(cash_strategy_result, dict) else {})
-  model_input_json = result.get("updated_model_input_json") if isinstance(result.get("updated_model_input_json"), dict) else {}
-  finmo_json = result.get("updated_finmo_json") if isinstance(result.get("updated_finmo_json"), dict) else {}
-  if not model_input_json or not finmo_json:
-    return result
-  from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
-
-  plan = build_short_term_debt_current_portion_plan(
-    model_input_json=copy.deepcopy(model_input_json),
-    finmo_payload=copy.deepcopy(finmo_json),
-  )
-  exact_updates = [copy.deepcopy(item) for item in (plan.get("exact_updates") or []) if isinstance(item, dict)]
-  if not exact_updates:
-    return result
-  execution_result = execute_numeric_plan(
-    model_input_json=copy.deepcopy(model_input_json),
-    exact_updates=copy.deepcopy(exact_updates),
-    numeric_solver_contract={
-      "pass_name": "cash_strategy_review",
-      "contract_scope": "cash_pass_debt_schedule_semantics",
-      "solver_phase_status": "phase_6_cash_strategy_solver_live",
-      "solver_settings": {"max_solver_attempts_per_pass": 1},
-    },
-    review_plan=None,
-    phase_status="phase_6_cash_strategy_solver_live",
-    executor_context={
-      "source": "post_intake_debt_schedule.apply_short_term_debt_current_portion",
-      "execution_mode": "deterministic_table_backed_debt_schedule_semantics",
-    },
-  )
-  result["updated_model_input_json"] = execution_result.get("updated_model_input_json") or model_input_json
-  result["updated_finmo_json"] = execution_result.get("updated_finmo_json") or finmo_json
-  result["short_term_debt_current_portion_policy"] = {
-    key: copy.deepcopy(value)
-    for key, value in plan.items()
-    if key != "exact_updates"
-  }
-  applied_updates = [copy.deepcopy(item) for item in (result.get("applied_updates") or []) if isinstance(item, dict)]
-  result["applied_updates"] = applied_updates + copy.deepcopy(exact_updates)
-  result["applied_update_count"] = len(result["applied_updates"])
-  result["applied_control_count"] = len(result["applied_updates"])
-  return result
+# Phase 9 P3.10 STD canonical-source layer 3 — apply_short_term_debt_current_portion
+# and build_short_term_debt_current_portion_plan were deleted. Their job
+# (compute STD% as ratio of next-4-quarters principal repayment over LTD,
+# write the ratio into the STD% lever, downstream FINMO multiplied that
+# ratio by LTD to produce short_term_debt) is now done directly in
+# financial_model_engine.finmo_model.calculate_finmo_model: STD =
+# sum(DEBT_REPAYMENT[q+1..q+4]) read directly from the schedule, no
+# intermediate ratio, no rounding round-trip.
 
 
 def validate_debt_schedule_payload(

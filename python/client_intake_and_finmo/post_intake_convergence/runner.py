@@ -2625,44 +2625,10 @@ def _run_unified_post_grid_system_run(
     finmo_json=copy.deepcopy(pre_cash_finmo_json),
     detail="Applied SQL cash-policy minimum debt schedule before cash review context.",
   )
-  pre_cash_debt_semantics_seed = _execute_sequence_step(
-    "cash_short_term_debt_seed",
-    _apply_cash_pass_short_term_debt_current_portion,
-    runtime_context=_runtime_context(
-      current_model_input_json=pre_cash_model_input_json,
-      current_finmo_json=pre_cash_finmo_json,
-      extra={"debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {})},
-    ),
-    handler_kwargs={
-      "cash_strategy_result": {
-        "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
-        "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
-        "applied_updates": copy.deepcopy(pre_cash_debt_schedule_seed.get("applied_updates") or []),
-      }
-    },
-    expected_phase="cash_pass",
-    expected_handler_key="seed_cash_short_term_debt_current_portion",
-    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
-    required_horizon_rule="short_term_debt_current_portion_before_cash_review",
-  )
-  pre_cash_model_input_json = copy.deepcopy(
-    pre_cash_debt_semantics_seed.get("updated_model_input_json")
-    if isinstance(pre_cash_debt_semantics_seed.get("updated_model_input_json"), dict)
-    else pre_cash_model_input_json
-  )
-  pre_cash_finmo_json = copy.deepcopy(
-    pre_cash_debt_semantics_seed.get("updated_finmo_json")
-    if isinstance(pre_cash_debt_semantics_seed.get("updated_finmo_json"), dict)
-    else pre_cash_finmo_json
-  )
-  cash_pass_phase_trace = _record_cash_pass_phase(
-    cash_pass_phase_trace,
-    cash_pass_phase_contract,
-    "cash_short_term_debt_seed",
-    model_input_json=copy.deepcopy(pre_cash_model_input_json),
-    finmo_json=copy.deepcopy(pre_cash_finmo_json),
-    detail="Applied current portion debt seed before cash review context.",
-  )
+  # Phase 9 P3.10 STD canonical-source layer 3 — the
+  # cash_short_term_debt_seed pipeline stage was removed. STD is now
+  # derived directly from the schedule's per-quarter principal
+  # repayment by FINMO; no upstream seed of the STD% lever is needed.
 
   def _persist_cash_pass_stage(
     *,
@@ -3015,34 +2981,11 @@ def _run_unified_post_grid_system_run(
     detail="Reapplied SQL cash-policy minimum debt schedule floor after cash strategy updates.",
   )
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
-  cash_strategy_second_pass_result = _execute_sequence_step(
-    "cash_short_term_debt_current_portion",
-    _apply_cash_pass_short_term_debt_current_portion,
-    runtime_context=_runtime_context(
-      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
-      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
-      extra={
-        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
-        "debt_schedule": copy.deepcopy(cash_strategy_second_pass_result or {}),
-      },
-    ),
-    handler_kwargs={
-      "cash_strategy_result": copy.deepcopy(cash_strategy_second_pass_result),
-    },
-    expected_phase="cash_pass",
-    expected_handler_key="apply_cash_short_term_debt_current_portion",
-    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
-    required_horizon_rule="short_term_debt_current_portion_applied_after_cash_updates",
-  )
-  cash_pass_phase_trace = _record_cash_pass_phase(
-    cash_pass_phase_trace,
-    cash_pass_phase_contract,
-    "cash_short_term_debt_current_portion",
-    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
-    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
-    detail="Applied post-cash current portion debt semantics and rebuilt FINMO.",
-  )
-  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  # Phase 9 P3.10 STD canonical-source layer 3 — the
+  # cash_short_term_debt_current_portion pipeline stage was removed.
+  # FINMO derives short_term_debt directly from the schedule's per-
+  # quarter principal repayment, so no STD% lever needs to be written
+  # after the cash strategy updates.
   cash_strategy_second_pass_result = _execute_sequence_step(
     "cash_surplus_cleanup",
     _apply_cash_policy_surplus_cleanup,
