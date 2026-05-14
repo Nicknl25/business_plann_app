@@ -2055,6 +2055,67 @@ def _run_cash_strategy_review_openai(
     debt_issuance_lever_id=_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID,
   )
   proposer_diagnostics = proposal.pop("proposer_diagnostics", {})
+  # Phase 9 P3.10 cash-strategy diagnostic — single line capturing what the
+  # proposer saw (mode, allowed funding sources, required funding quarters
+  # with gap amounts, lever_bounds for the violating quarters) and what
+  # it decided (per-quarter selection or "no source had enough headroom").
+  # Same shape as the Layer 1 trace: additive, no logic change.
+  try:
+    _funding_policy = (context_payload.get("funding_source_policy") or {}) if isinstance(context_payload, dict) else {}
+    _required_quarters = (context_payload.get("required_funding_quarters") or []) if isinstance(context_payload, dict) else []
+    _violation_envelope = (context_payload.get("cash_violation_envelope") or {}) if isinstance(context_payload, dict) else {}
+    _lever_bounds_raw = ((context_payload.get("lever_bounds") or {}) if isinstance(context_payload, dict) else {}).get("lever_bounds") or {}
+    _quarter_funding_plan = (proposal.get("quarter_funding_plan") or []) if isinstance(proposal, dict) else []
+    logger.warning(
+      "cash_proposer_trace mode=%s allowed_sources=%s excluded_sources=%s "
+      "required_funding_quarters=%s violation_quarters=%s residual_gap_quarters=%s "
+      "lever_bounds_violating_quarters=%s proposer_quarter_funding_plan=%s "
+      "proposer_recommendation_mode=%s",
+      selected_cash_strategy,
+      list(_funding_policy.get("allowed_funding_source_lever_ids") or []),
+      list(_funding_policy.get("excluded_funding_source_lever_ids") or []),
+      [
+        {
+          "q": int(_safe_float(rq.get("quarter_index")) or 0),
+          "gap": int(round(float(_safe_float(rq.get("required_funding_gap")) or 0.0))),
+        }
+        for rq in _required_quarters if isinstance(rq, dict)
+      ],
+      list(_violation_envelope.get("violation_quarters") or []),
+      list(_violation_envelope.get("residual_gap_quarters") or []),
+      {
+        lever_id: [
+          {
+            "q": int(_safe_float(row.get("quarter_index")) or 0),
+            "current": int(round(float(_safe_float(row.get("current_value")) or 0.0))),
+            "max": int(round(float(_safe_float(row.get("max_value")) or 0.0))),
+            "headroom": int(round(float(_safe_float(row.get("max_value")) or 0.0)) - float(_safe_float(row.get("current_value")) or 0.0)),
+          }
+          for row in (rows or [])
+          if isinstance(row, dict)
+          and int(_safe_float(row.get("quarter_index")) or 0)
+          in {int(_safe_float(rq.get("quarter_index")) or 0) for rq in _required_quarters if isinstance(rq, dict)}
+        ]
+        for lever_id, rows in _lever_bounds_raw.items()
+      },
+      [
+        {
+          "q": int(_safe_float(qp.get("quarter_index")) or 0),
+          "sources": [
+            {
+              "lever": str(s.get("lever_id") or ""),
+              "amount": int(round(float(_safe_float(s.get("amount")) or 0.0))),
+              "exact": int(round(float(_safe_float(s.get("exact_value")) or 0.0))),
+            }
+            for s in (qp.get("funding_sources") or []) if isinstance(s, dict)
+          ],
+        }
+        for qp in _quarter_funding_plan if isinstance(qp, dict)
+      ],
+      proposal.get("recommendation_mode"),
+    )
+  except Exception as _exc:  # diagnostic-only; never block the run
+    logger.warning("cash_proposer_trace_emit_failed: %s", _exc)
   contract_proposal = _normalize_post_intake_contract_payload(
     contract_name="cash_strategy_review",
     payload=proposal,
@@ -4078,6 +4139,39 @@ def _validate_cash_strategy_post_pass(
     and not cash_surplus_ceiling_violations
     and not cash_contract_failures
   )
+  # Phase 9 P3.10 cash-strategy diagnostic — capture the keep_changes
+  # verdict and the reasons it went the way it did. If keep_changes is
+  # False, the entire cash strategy gets reverted to pre-cash state by
+  # orchestrator_invocation.py:437-451 — this is the "all-or-nothing"
+  # gate that traps NexGen when the proposer can only partially close
+  # the cash buffer gap.
+  try:
+    logger.warning(
+      "cash_post_pass_trace keep_changes=%s "
+      "all_hard_rules_cleared=%s "
+      "cash_buffer_violations=%s "
+      "cash_distribution_violations=%s "
+      "cash_surplus_ceiling_violations=%s "
+      "cash_contract_failures_count=%s "
+      "failed_rule_codes=%s",
+      keep_changes,
+      bool(hard_rule_assessment.get("all_hard_rules_cleared")),
+      [
+        {
+          "q": int(_safe_float(v.get("quarter_index")) or 0),
+          "ending_cash": int(round(float(_safe_float(v.get("ending_cash")) or 0.0))),
+          "buffer": int(round(float(_safe_float(v.get("buffer")) or 0.0))),
+          "shortfall": int(round(float(_safe_float(v.get("buffer")) or 0.0)) - float(_safe_float(v.get("ending_cash")) or 0.0)),
+        }
+        for v in (cash_buffer_violations or []) if isinstance(v, dict)
+      ],
+      [int(_safe_float(v.get("quarter_index")) or 0) for v in (cash_distribution_violations or []) if isinstance(v, dict)],
+      [int(_safe_float(v.get("quarter_index")) or 0) for v in (cash_surplus_ceiling_violations or []) if isinstance(v, dict)],
+      len(cash_contract_failures or []),
+      list(failed_rule_codes or []),
+    )
+  except Exception as _exc:
+    logger.warning("cash_post_pass_trace_emit_failed: %s", _exc)
   detail_parts: List[str] = []
   if remaining_issue_codes:
     detail_parts.append(f"reopened_issues={remaining_issue_codes}")
