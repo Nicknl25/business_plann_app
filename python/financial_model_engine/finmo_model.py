@@ -72,7 +72,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Total Assets": "Current Assets + PPE",
   "Accounts Payable": "(balance_sheet::Accounts Payable Days / days_in_quarter) * SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
   "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses (% of Revenue)",
-  "Short Term Debt": f"SUM(schedules::{DEBT_REPAYMENT_LABEL} for q+1..q+4)",
+  "Short Term Debt": f"SUM(schedules::{DEBT_REPAYMENT_LABEL} for q+1..q+4, each clipped to min(requested, simulated_balance + schedules::{DEBT_ISSUANCE_LABEL}))",
   "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
   "Current Liabilities": "SUM(Accounts Payable, Short Term Debt, Deferred Revenue)",
   "Long Term Debt": "Debt Schedule Closing Balance",
@@ -389,26 +389,44 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     accumulated_depreciation = previous_accumulated_depreciation - depreciation
 
     accounts_payable = (_row_value(model_inputs, "balance_sheet", "Accounts Payable Days", quarter.quarter_index) / max(1, days_in_quarter)) * (marketing + r_and_d + lease_rent + payroll + g_and_a)
-    # Phase 9 P3.10 STD canonical-source layer 1 — short_term_debt is a
-    # derived classification sliced from the debt schedule's per-quarter
-    # principal repayment, NOT a driver. Standard accounting "current
-    # portion of long-term debt": sum of the NEXT 4 quarters' scheduled
-    # principal repayment, exclusive of the current quarter. The
-    # `if q <= QUARTER_COUNT` guard is the live-horizon clip that
-    # implements "Q19 sums Q20+0+0+0; Q20 sums 0+0+0+0" — without it,
-    # ControllerWriteRow._storage_index clamps OOB indices to QUARTER_COUNT
-    # and silently returns the LAST quarter's value (iter 8 root cause).
-    windowed = [
-      q for q in range(quarter.quarter_index + 1, quarter.quarter_index + 5)
-      if q <= QUARTER_COUNT
-    ]
-    short_term_debt = sum(
-      max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, q))
-      for q in windowed
-    )
+    # Phase 9 P3.10 STD canonical-source layer 1 (iter 14 fix) —
+    # short_term_debt is the standard-accounting "current portion of
+    # long-term debt": sum of the NEXT 4 quarters' ACTUAL principal
+    # repayment, exclusive of the current quarter. Actual principal
+    # repayment per quarter is `min(requested_repayment,
+    # opening_balance + requested_issuance)` — the same clipping
+    # applied to the live quarter at line 366. Forward-simulating the
+    # next 4 quarters from the current quarter's closing balance
+    # mirrors what build_debt_schedule_snapshot's
+    # total_principal_payment produces and what FINMO's per-quarter
+    # debt_repayment field will be once those quarters are reached.
+    # Iter 13's floor-based distribution cap unmasked an asymmetry
+    # in the prior implementation: it summed RAW lever values for the
+    # projection but the live quarter clipped, so when the cash pass
+    # authored repayments exceeding the remaining balance, FINMO STD
+    # diverged from the rebuilt-schedule total_principal_payment that
+    # the validator uses as canonical (iter 14 root cause).
+    # Horizon clip (`if next_q > QUARTER_COUNT: break`) is the iter 8
+    # fix — without it, ControllerWriteRow._storage_index clamps OOB
+    # indices to QUARTER_COUNT and silently returns the LAST quarter.
+    _simulated_closing = debt_closing
+    _short_term_debt_components = []
+    short_term_debt = 0.0
+    for next_q in range(quarter.quarter_index + 1, quarter.quarter_index + 5):
+      if next_q > QUARTER_COUNT:
+        break
+      _requested_repayment = max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, next_q))
+      _requested_issuance = max(0.0, _row_value(model_inputs, "schedules", DEBT_ISSUANCE_LABEL, next_q))
+      _available = max(0.0, _simulated_closing + _requested_issuance)
+      _actual_clipped = min(_requested_repayment, _available)
+      short_term_debt += _actual_clipped
+      _short_term_debt_components.append((next_q, _actual_clipped))
+      _simulated_closing = max(0.0, _available - _actual_clipped)
     _logger.warning(
       "finmo_std_layer1_trace q=%s window=%s value=%s",
-      quarter.quarter_index, windowed, short_term_debt,
+      quarter.quarter_index,
+      [q for q, _ in _short_term_debt_components],
+      short_term_debt,
     )
     current_liabilities = accounts_payable + short_term_debt + deferred_revenue
     long_term_debt = debt_closing
