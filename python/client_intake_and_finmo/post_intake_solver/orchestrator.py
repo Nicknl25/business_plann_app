@@ -2425,6 +2425,66 @@ def _run_post_cascade_completion(
     except Exception as exc:
       diagnostics["debt_schedule_persist_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
 
+  # Phase 9 P3.10 iter 11 diagnostic — persist the in-memory model_input
+  # and FINMO state IMMEDIATELY before finalize runs. Pre-fix, the only
+  # SQL persist on this path was at line 2501, AFTER finalize succeeded.
+  # When finalize raised (NexGen iter 4 / 7 / 8 / 9 / 10 / 11), the
+  # `_persist_failed_system_run_snapshot` helper read SQL — which still
+  # held the pre-cascade post-grid checkpoint, NOT what finalize actually
+  # validated. That made every failure post-mortem read a stale snapshot
+  # and miss the real cause (e.g., iter 11's apparent buffer violation
+  # that didn't match the persisted FINMO).
+  #
+  # This persist is unconditional. If finalize succeeds, the regular
+  # post-finalize persist at line 2501 overwrites with the final state.
+  # If finalize fails, this snapshot stays as the failure-time state.
+  # No invisible failure states.
+  try:
+    _persist_unified_convergence_state(
+      conn=conn,
+      draft_id=str(draft_id or "").strip(),
+      stage="pre_finalize_validation",
+      status="running",
+      planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+      controller_resolution_state=build_controller_resolution_state(
+        realism_gate_payload=realism_gate_payload,
+        cascade_diagnostics=cascade_diagnostics,
+      ),
+      resolution_summary=build_resolution_summary(
+        realism_gate_payload=realism_gate_payload,
+        cascade_diagnostics=cascade_diagnostics,
+      ),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file="",
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution={},
+      realism_memo_json=copy.deepcopy(realism_memo_json),
+      unified_convergence_context=_build_minimal_convergence_context(
+        stage_ramp_contract=stage_ramp_contract,
+        adaptive_policy_dict=adaptive_policy_dict,
+        planning_context_summary_json=planning_context_summary_json,
+      ),
+      unified_convergence_decision={},
+      unified_convergence_plan={},
+      unified_convergence_result={},
+      unified_convergence_iterations=[],
+      unified_convergence_cycle_count=0,
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      finmo_json=copy.deepcopy(final_finmo_json or {}),
+      cash_strategy_review_context={},
+      cash_strategy_review_decision={},
+      cash_strategy_second_pass_plan={},
+      cash_strategy_second_pass_result={"pre_finalize_snapshot": True},
+      cash_strategy_effect_summary={},
+    )
+    completion_trace["persist_pre_finalize_state"] = {"status": "completed"}
+  except Exception as _pre_finalize_persist_exc:
+    completion_trace["persist_pre_finalize_state"] = {
+      "status": "failed",
+      "error": f"{type(_pre_finalize_persist_exc).__name__}: {str(_pre_finalize_persist_exc)[:300]}",
+    }
+
   try:
     from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore
       run_finalize_post_intake_validation,
