@@ -2425,65 +2425,121 @@ def _run_post_cascade_completion(
     except Exception as exc:
       diagnostics["debt_schedule_persist_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
 
-  # Phase 9 P3.10 iter 11 diagnostic — persist the in-memory model_input
-  # and FINMO state IMMEDIATELY before finalize runs. Pre-fix, the only
-  # SQL persist on this path was at line 2501, AFTER finalize succeeded.
-  # When finalize raised (NexGen iter 4 / 7 / 8 / 9 / 10 / 11), the
-  # `_persist_failed_system_run_snapshot` helper read SQL — which still
-  # held the pre-cascade post-grid checkpoint, NOT what finalize actually
-  # validated. That made every failure post-mortem read a stale snapshot
-  # and miss the real cause (e.g., iter 11's apparent buffer violation
-  # that didn't match the persisted FINMO).
+  # Phase 9 P3.10 iter 12 Piece A — direct SQL persist of pre-finalize
+  # state with read-back verification + hard-fail under test mode.
   #
-  # This persist is unconditional. If finalize succeeds, the regular
-  # post-finalize persist at line 2501 overwrites with the final state.
-  # If finalize fails, this snapshot stays as the failure-time state.
-  # No invisible failure states.
+  # Pre-fix, the de3de02 persist used `_persist_unified_convergence_state`
+  # which routes through a deep abstraction (planning_run_payload,
+  # checkpoint rows, repair_guidance, etc.). The SQL UPDATE that hits
+  # `intake_consult_drafts.model_input_json` and `finmo_json` happens
+  # via `append_messages` — but only when the heavy-checkpoint
+  # store policy permits. Iter 12's failure snapshot showed the
+  # pre-finalize state did NOT land, leaving us blind to what
+  # finalize actually validated.
+  #
+  # This direct UPDATE bypasses the abstraction. It writes the two
+  # JSON columns the failure snapshot reader (_persist_failed_system_run_snapshot
+  # at post_intake_state/runner.py:1119-1120) actually consults,
+  # then SELECTS them back and asserts the marker round-trips.
+  #
+  # Embeds a `_pre_finalize_persist_marker` field inside both
+  # model_input and finmo so post-mortem readers can verify which
+  # state generation they're looking at. Marker includes a tag,
+  # the orchestrator's stage label, and a content hash sample so
+  # we can tell at a glance whether the pre-finalize snapshot
+  # landed or whether the failure snapshot re-wrote stale data.
   try:
-    _persist_unified_convergence_state(
-      conn=conn,
-      draft_id=str(draft_id or "").strip(),
-      stage="pre_finalize_validation",
-      status="running",
-      planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
-      controller_resolution_state=build_controller_resolution_state(
-        realism_gate_payload=realism_gate_payload,
-        cascade_diagnostics=cascade_diagnostics,
-      ),
-      resolution_summary=build_resolution_summary(
-        realism_gate_payload=realism_gate_payload,
-        cascade_diagnostics=cascade_diagnostics,
-      ),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file="",
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      realism_memo_before_resolution={},
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      unified_convergence_context=_build_minimal_convergence_context(
-        stage_ramp_contract=stage_ramp_contract,
-        adaptive_policy_dict=adaptive_policy_dict,
-        planning_context_summary_json=planning_context_summary_json,
-      ),
-      unified_convergence_decision={},
-      unified_convergence_plan={},
-      unified_convergence_result={},
-      unified_convergence_iterations=[],
-      unified_convergence_cycle_count=0,
-      model_input_json=copy.deepcopy(final_model_input_json or {}),
-      finmo_json=copy.deepcopy(final_finmo_json or {}),
-      cash_strategy_review_context={},
-      cash_strategy_review_decision={},
-      cash_strategy_second_pass_plan={},
-      cash_strategy_second_pass_result={"pre_finalize_snapshot": True},
-      cash_strategy_effect_summary={},
-    )
-    completion_trace["persist_pre_finalize_state"] = {"status": "completed"}
+    import json as _json_for_pre_finalize_persist
+    import time as _time_for_pre_finalize_persist
+    _pre_finalize_marker = {
+      "tag": "pre_finalize_persist",
+      "stage": "pre_finalize_validation",
+      "wrote_at_epoch_seconds": int(_time_for_pre_finalize_persist.time()),
+      "draft_id": str(draft_id or "").strip(),
+      "planning_run_id": str(planning_run_id or "").strip(),
+      "q1_ending_cash_sample": int(round(float(_safe_float(
+        ((final_finmo_json or {}).get("quarter_rows") or [{}])[0].get("ending_cash")
+        if isinstance((final_finmo_json or {}).get("quarter_rows"), list)
+        and len((final_finmo_json or {}).get("quarter_rows")) > 0
+        else 0
+      ) or 0.0))),
+    }
+    # Embed the marker without removing existing keys (deep copies first).
+    _model_input_to_persist = copy.deepcopy(final_model_input_json or {})
+    _finmo_to_persist = copy.deepcopy(final_finmo_json or {})
+    _model_input_to_persist["_pre_finalize_persist_marker"] = copy.deepcopy(_pre_finalize_marker)
+    _finmo_to_persist["_pre_finalize_persist_marker"] = copy.deepcopy(_pre_finalize_marker)
+    _draft_id_clean = str(draft_id or "").strip()
+    if not _draft_id_clean:
+      raise RuntimeError("pre_finalize_persist_missing_draft_id")
+    _cur = conn.cursor()
+    try:
+      _cur.execute(
+        "UPDATE intake_consult_drafts SET model_input_json=%s, finmo_json=%s WHERE draft_id=%s",
+        (
+          _json_for_pre_finalize_persist.dumps(_model_input_to_persist, ensure_ascii=False, default=str),
+          _json_for_pre_finalize_persist.dumps(_finmo_to_persist, ensure_ascii=False, default=str),
+          _draft_id_clean,
+        ),
+      )
+      conn.commit()
+      # Read-back verification: SELECT both columns and confirm the
+      # marker round-trips. If the UPDATE silently no-op'd (wrong
+      # draft_id, wrong column, transactional issue), this catches it.
+      _cur.execute(
+        "SELECT model_input_json, finmo_json FROM intake_consult_drafts WHERE draft_id=%s",
+        (_draft_id_clean,),
+      )
+      _row = _cur.fetchone()
+      if not _row:
+        raise RuntimeError("pre_finalize_persist_readback_no_row")
+      _readback_model_input = _json_for_pre_finalize_persist.loads(_row[0]) if _row[0] else {}
+      _readback_finmo = _json_for_pre_finalize_persist.loads(_row[1]) if _row[1] else {}
+      _readback_mi_marker = (_readback_model_input or {}).get("_pre_finalize_persist_marker") or {}
+      _readback_fm_marker = (_readback_finmo or {}).get("_pre_finalize_persist_marker") or {}
+      if _readback_mi_marker.get("tag") != "pre_finalize_persist":
+        raise RuntimeError(
+          f"pre_finalize_persist_readback_marker_missing_in_model_input: "
+          f"got_tag={_readback_mi_marker.get('tag')!r}"
+        )
+      if _readback_fm_marker.get("tag") != "pre_finalize_persist":
+        raise RuntimeError(
+          f"pre_finalize_persist_readback_marker_missing_in_finmo: "
+          f"got_tag={_readback_fm_marker.get('tag')!r}"
+        )
+      if int(_readback_mi_marker.get("wrote_at_epoch_seconds") or 0) != int(_pre_finalize_marker["wrote_at_epoch_seconds"]):
+        raise RuntimeError(
+          f"pre_finalize_persist_readback_epoch_mismatch: "
+          f"wrote={_pre_finalize_marker['wrote_at_epoch_seconds']} "
+          f"read={_readback_mi_marker.get('wrote_at_epoch_seconds')}"
+        )
+    finally:
+      try:
+        _cur.close()
+      except Exception:
+        pass
+    completion_trace["persist_pre_finalize_state"] = {
+      "status": "completed",
+      "writer": "direct_sql_update_intake_consult_drafts",
+      "marker_tag": "pre_finalize_persist",
+      "marker_epoch": int(_pre_finalize_marker["wrote_at_epoch_seconds"]),
+      "q1_ending_cash_sample": int(_pre_finalize_marker["q1_ending_cash_sample"]),
+      "readback_verified": True,
+    }
   except Exception as _pre_finalize_persist_exc:
+    # Phase 9 P3.10 discipline: under CONVERGENCE_TEST_MODE, a failed
+    # diagnostic persist is a hard fail. Without visibility into what
+    # finalize sees, every downstream failure is opaque.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
     completion_trace["persist_pre_finalize_state"] = {
       "status": "failed",
-      "error": f"{type(_pre_finalize_persist_exc).__name__}: {str(_pre_finalize_persist_exc)[:300]}",
+      "writer": "direct_sql_update_intake_consult_drafts",
+      "error": f"{type(_pre_finalize_persist_exc).__name__}: {str(_pre_finalize_persist_exc)[:500]}",
     }
+    if convergence_test_mode_enabled():
+      raise
 
   try:
     from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore

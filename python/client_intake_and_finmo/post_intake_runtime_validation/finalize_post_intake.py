@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import copy
+import logging as _logging
 from typing import Any, Dict, List, Optional
+
+_logger = _logging.getLogger(__name__)
 
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   assert_post_intake_cash_buffer_integrity,
@@ -409,6 +412,76 @@ def run_finalize_post_intake_validation(
   contract_name: str = "unified_convergence_decision",
 ) -> Dict[str, Any]:
   """Validate that the completed post-intake state obeys table authority."""
+  # Phase 9 P3.10 iter 12 Piece B — finalize input trace.
+  # Emits one logger.warning line per live quarter Q1-Q20 capturing the
+  # exact FINMO state finalize is about to validate. This is what closes
+  # the iter 11 mystery: persisted FINMO showed no buffer violations
+  # but finalize fired one — the two were different states. With this
+  # trace we can read the actual finalize-input state directly from
+  # the log instead of inferring it from a stale persisted snapshot.
+  try:
+    from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+      buffer_components as _common_buffer_components,
+      operating_expense_from_row as _common_operating_expense_from_row,
+    )
+    _finmo_quarter_rows = (finmo_json or {}).get("quarter_rows") or []
+    _live_rows_by_q = {}
+    for _row in _finmo_quarter_rows:
+      if not isinstance(_row, dict):
+        continue
+      try:
+        _qi = int(float(_row.get("quarter_index") or 0))
+      except Exception:
+        continue
+      if _qi >= 1 and _qi <= 20:
+        _live_rows_by_q[_qi] = _row
+    for _q in range(1, 21):
+      _row = _live_rows_by_q.get(_q)
+      if _row is None:
+        _logger.warning(
+          "finalize_input_trace q=%s ending_cash=MISSING_ROW operating_expense_quarter=MISSING_ROW "
+          "cash_buffer_required=MISSING_ROW cash_ceiling=MISSING_ROW "
+          "buffer_violation=MISSING_ROW surplus_violation=MISSING_ROW",
+          _q,
+        )
+        # Hard-fail under test mode if the quarter row is missing
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise RuntimeError(
+            f"finalize_input_trace_missing_quarter_row: q={_q} "
+            f"finmo_json.quarter_rows length={len(_finmo_quarter_rows)}"
+          )
+        continue
+      _ending_cash = _row.get("ending_cash")
+      _opex_quarter = _common_operating_expense_from_row(_row)
+      _components = _common_buffer_components(
+        _row,
+        cash_floor_months=1.5,
+        cash_ceiling_months=2.0,
+        default_buffer_months=1.0,
+        months_per_quarter=3.0,
+      )
+      _buffer_required = _components.get("cash_buffer_required") or 0
+      _ceiling = _components.get("cash_ceiling") or 0
+      _ec_int = int(round(float(_ending_cash or 0.0)))
+      _logger.warning(
+        "finalize_input_trace q=%s ending_cash=%s operating_expense_quarter=%s "
+        "cash_buffer_required=%s cash_ceiling=%s "
+        "buffer_violation=%s surplus_violation=%s",
+        _q, _ec_int, int(round(_opex_quarter)),
+        int(_buffer_required), int(_ceiling),
+        _ec_int < int(_buffer_required),
+        _ec_int > int(_ceiling),
+      )
+  except Exception as _finalize_input_trace_exc:
+    _logger.error(
+      "finalize_input_trace_emit_failed: %s: %s",
+      type(_finalize_input_trace_exc).__name__,
+      str(_finalize_input_trace_exc)[:300],
+    )
+
   errors: List[str] = []
   runtime_table_integrity: Dict[str, Any] = {}
   required_process_sequence: Dict[str, Any] = {}

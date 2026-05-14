@@ -2038,6 +2038,65 @@ def _run_cash_strategy_review_openai(
   contract translator) are unchanged.
   """
   prompt_file = "client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md"
+  # Phase 9 P3.10 iter 12 Piece C — cash strategy input trace.
+  # Captures the FINMO state the cash strategy is about to operate on,
+  # one log line per live quarter Q1-Q20. Lets us compare what cash
+  # strategy sees vs what finalize sees (Piece B) — these may diverge
+  # if intermediate steps mutate FINMO between cash strategy and finalize.
+  try:
+    from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+      buffer_components as _csi_buffer_components,
+      operating_expense_from_row as _csi_operating_expense_from_row,
+    )
+    _csi_quarter_rows = (solved_finmo_json or {}).get("quarter_rows") or []
+    _csi_lever_map = _solved_lever_value_map(solved_model_input_json) if isinstance(solved_model_input_json, dict) else {}
+    _csi_debt_repay_series = [int(round(float(_safe_float(v) or 0.0))) for v in (_csi_lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])]
+    _csi_rows_by_q = {}
+    for _csi_row in _csi_quarter_rows:
+      if not isinstance(_csi_row, dict):
+        continue
+      try:
+        _csi_qi = int(float(_csi_row.get("quarter_index") or 0))
+      except Exception:
+        continue
+      if 1 <= _csi_qi <= 20:
+        _csi_rows_by_q[_csi_qi] = _csi_row
+    for _csi_q in range(1, 21):
+      _csi_row = _csi_rows_by_q.get(_csi_q)
+      if _csi_row is None:
+        logger.warning(
+          "cash_strategy_input_trace q=%s ending_cash=MISSING_ROW operating_expense_quarter=MISSING_ROW "
+          "cash_buffer_required=MISSING_ROW cash_ceiling=MISSING_ROW debt_repayment=MISSING_ROW",
+          _csi_q,
+        )
+        continue
+      _csi_ec = int(round(float(_safe_float(_csi_row.get("ending_cash")) or 0.0)))
+      _csi_opex = _csi_operating_expense_from_row(_csi_row)
+      _csi_components = _csi_buffer_components(
+        _csi_row,
+        cash_floor_months=1.5,
+        cash_ceiling_months=2.0,
+        default_buffer_months=1.0,
+        months_per_quarter=3.0,
+      )
+      _csi_debt_repay = (
+        _csi_debt_repay_series[_csi_q - 1]
+        if _csi_q - 1 < len(_csi_debt_repay_series)
+        else 0
+      )
+      logger.warning(
+        "cash_strategy_input_trace q=%s ending_cash=%s operating_expense_quarter=%s "
+        "cash_buffer_required=%s cash_ceiling=%s debt_repayment=%s",
+        _csi_q, _csi_ec, int(round(_csi_opex)),
+        int(_csi_components.get("cash_buffer_required") or 0),
+        int(_csi_components.get("cash_ceiling") or 0),
+        int(_csi_debt_repay),
+      )
+  except Exception as _csi_exc:
+    logger.error(
+      "cash_strategy_input_trace_emit_failed: %s: %s",
+      type(_csi_exc).__name__, str(_csi_exc)[:300],
+    )
   del first_pass_handoff, solved_finmo_json, prior_numeric_feedback, controller_retry_context
   del draft_id, business_facts, ops_json, planning_mode, planning_mode_reason, planning_mode_prompt_file
   selected_cash_strategy = _resolved_cash_strategy(financials_json)
@@ -2120,8 +2179,40 @@ def _run_cash_strategy_review_openai(
       ],
       proposal.get("recommendation_mode"),
     )
+    # Phase 9 P3.10 iter 12 Piece E — extended lever_bound trace for
+    # Distributions and Debt Repayment, ALL Q1-Q20. Surplus cleanup
+    # (Piece D) needs to know the lever caps for surplus quarters
+    # (Q10-Q20 in iter 12) which the existing trace above only emits
+    # for funded quarters (Q1-Q3 / Q1-Q9 in prior iters). One log line
+    # per (lever, quarter) so the post-mortem can read surplus-quarter
+    # caps directly.
+    for _lever_id_for_full_trace in (
+      _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID,
+      _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
+    ):
+      _full_rows = _lever_bounds_raw.get(_lever_id_for_full_trace) or []
+      _by_q = {
+        int(_safe_float(r.get("quarter_index")) or 0): r
+        for r in _full_rows if isinstance(r, dict)
+      }
+      for _full_q in range(1, 21):
+        _full_row = _by_q.get(_full_q)
+        if _full_row is None:
+          logger.warning(
+            "cash_proposer_lever_bounds_full_horizon lever=%s q=%s "
+            "current=MISSING max=MISSING headroom=MISSING",
+            _lever_id_for_full_trace, _full_q,
+          )
+          continue
+        _cur = int(round(float(_safe_float(_full_row.get("current_value")) or 0.0)))
+        _mx = int(round(float(_safe_float(_full_row.get("max_value")) or 0.0)))
+        logger.warning(
+          "cash_proposer_lever_bounds_full_horizon lever=%s q=%s "
+          "current=%s max=%s headroom=%s",
+          _lever_id_for_full_trace, _full_q, _cur, _mx, max(0, _mx - _cur),
+        )
   except Exception as _exc:  # diagnostic-only; never block the run
-    logger.warning("cash_proposer_trace_emit_failed: %s", _exc)
+    logger.error("cash_proposer_trace_emit_failed: %s", _exc)
   contract_proposal = _normalize_post_intake_contract_payload(
     contract_name="cash_strategy_review",
     payload=proposal,
@@ -3658,8 +3749,10 @@ def _apply_cash_policy_surplus_cleanup(
       debt_paydown_weight = debt_paydown_weight / weight_total
       max_debt_add = int(round(float(_safe_float(quarter_payload.get("max_additional_debt_paydown")) or 0.0)))
       max_distribution_add = int(round(float(_safe_float(quarter_payload.get("max_additional_distribution")) or residual_surplus)))
-      debt_add = int(min(max_debt_add, max(0, round(residual_surplus * debt_paydown_weight))))
-      distribution_add = int(min(max_distribution_add, max(0, residual_surplus - debt_add)))
+      _surplus_attempted_initial_debt = int(min(max_debt_add, max(0, round(residual_surplus * debt_paydown_weight))))
+      _surplus_attempted_initial_distribution = int(min(max_distribution_add, max(0, residual_surplus - _surplus_attempted_initial_debt)))
+      debt_add = _surplus_attempted_initial_debt
+      distribution_add = _surplus_attempted_initial_distribution
       remaining_surplus = int(max(0, residual_surplus - debt_add - distribution_add))
       if remaining_surplus > 0 and max_debt_add > debt_add:
         extra_debt = int(min(max_debt_add - debt_add, remaining_surplus))
@@ -3667,6 +3760,43 @@ def _apply_cash_policy_surplus_cleanup(
         remaining_surplus -= extra_debt
       if remaining_surplus > 0 and max_distribution_add > distribution_add:
         distribution_add += int(min(max_distribution_add - distribution_add, remaining_surplus))
+        remaining_surplus = int(max(0, residual_surplus - debt_add - distribution_add))
+      # Phase 9 P3.10 iter 12 Piece D — surplus cleanup per-quarter trace.
+      # Captures what surplus cleanup tried to deploy and why it stopped
+      # short. The reason_stopped field is the load-bearing one.
+      try:
+        if remaining_surplus > 0:
+          if max_debt_add <= debt_add and max_distribution_add <= distribution_add:
+            _reason_stopped = "all_levers_at_max_residual_surplus_remains"
+          elif max_debt_add <= debt_add:
+            _reason_stopped = "debt_paydown_max_exhausted_distributions_capped"
+          elif max_distribution_add <= distribution_add:
+            _reason_stopped = "distributions_max_exhausted_debt_paydown_capped"
+          else:
+            _reason_stopped = "lever_caps_below_surplus_logic_unexpected"
+        else:
+          _reason_stopped = "fully_deployed"
+        logger.warning(
+          "surplus_cleanup_trace pass=%s q=%s surplus_amount=%s "
+          "distributions_attempted=%s distributions_applied=%s "
+          "debt_paydown_attempted=%s debt_paydown_applied=%s "
+          "distributions_lever_max=%s debt_repayment_lever_max=%s "
+          "remaining_surplus=%s reason_stopped=%s "
+          "current_distribution=%s current_debt_repayment=%s "
+          "distribution_weight=%.4f debt_paydown_weight=%.4f",
+          pass_index, quarter_index, residual_surplus,
+          _surplus_attempted_initial_distribution, distribution_add,
+          _surplus_attempted_initial_debt, debt_add,
+          max_distribution_add, max_debt_add,
+          remaining_surplus, _reason_stopped,
+          current_distribution, current_debt_repayment,
+          distribution_weight, debt_paydown_weight,
+        )
+      except Exception as _surplus_trace_exc:
+        logger.error(
+          "surplus_cleanup_trace_emit_failed: %s: %s",
+          type(_surplus_trace_exc).__name__, str(_surplus_trace_exc)[:300],
+        )
       if debt_add > 0:
         current_value_by_update_key[(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID, quarter_index)] = int(current_debt_repayment)
         exact_updates.append(
