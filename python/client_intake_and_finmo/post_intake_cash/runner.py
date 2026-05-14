@@ -4264,15 +4264,12 @@ def _validate_cash_strategy_post_pass(
     cash_failed_rule_codes.append("liquidity_failure")
   if cash_distribution_violations:
     cash_failed_rule_codes.append("funding_structure_mismatch")
-  if cash_surplus_ceiling_violations:
-    cash_failed_rule_codes.append("funding_structure_mismatch")
   if cash_contract_failures:
     cash_failed_rule_codes.append("funding_structure_mismatch")
   keep_changes = bool(
     hard_rule_assessment.get("all_hard_rules_cleared")
     and not cash_buffer_violations
     and not cash_distribution_violations
-    and not cash_surplus_ceiling_violations
     and not cash_contract_failures
   )
   # Phase 9 P3.10 cash-strategy diagnostic — capture the keep_changes

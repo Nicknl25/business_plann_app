@@ -122,6 +122,11 @@ def build_cash_planning_envelope(
       if deploy_above_ceiling_required and residual_funding_gap <= 0
       else 0
     )
+    max_additional_distribution = int(
+      max(0, effective_ending_cash - buffer_required)
+      if residual_funding_gap <= 0
+      else 0
+    )
     current_debt_level = int(round(float(safe_float(capital_structure.get("debt_level")) or 0.0)))
     hard_rule_actions: List[Dict[str, Any]] = []
     if hard_rule_distribution_removed > 0:
@@ -171,7 +176,6 @@ def build_cash_planning_envelope(
       residual_gap_quarters.append(quarter_index)
     if deployable_surplus > 0:
       surplus_deployment_quarters.append(quarter_index)
-      violation_quarters.append(quarter_index)
       cumulative_prior_surplus_deployment = int(cumulative_prior_surplus_deployment + deployable_surplus)
 
     quarter_envelopes.append(
@@ -187,7 +191,7 @@ def build_cash_planning_envelope(
         "operating_expense_quarter": int(components.get("operating_expense_quarter") or 0),
         "deploy_above_ceiling_required": deploy_above_ceiling_required,
         "deployable_surplus_above_ceiling": deployable_surplus,
-        "max_additional_distribution": deployable_surplus,
+        "max_additional_distribution": max_additional_distribution,
         "max_additional_debt_paydown": int(min(max(0, current_debt_level), deployable_surplus)),
         "distribution_current_value": current_distribution,
         "debt_repayment_current_value": current_debt_repayment,
@@ -248,6 +252,11 @@ def build_cash_planning_envelope(
       if bool(quarter_payload.get("deploy_above_ceiling_required", True)) and residual_funding_gap <= 0
       else 0
     )
+    max_additional_distribution = int(
+      max(0, effective_ending_cash - buffer_required)
+      if residual_funding_gap <= 0
+      else 0
+    )
     if deployable_surplus > 0:
       surplus_deployment_quarters.append(int(quarter_payload.get("quarter_index") or 0))
       cumulative_prior_surplus_deployment = int(cumulative_prior_surplus_deployment + deployable_surplus)
@@ -255,8 +264,6 @@ def build_cash_planning_envelope(
       violation_quarters.append(int(quarter_payload.get("quarter_index") or 0))
     if residual_funding_gap > 0:
       residual_gap_quarters.append(int(quarter_payload.get("quarter_index") or 0))
-      violation_quarters.append(int(quarter_payload.get("quarter_index") or 0))
-    if deployable_surplus > 0:
       violation_quarters.append(int(quarter_payload.get("quarter_index") or 0))
     quarter_payload["ending_cash_after_hard_rules"] = int(effective_ending_cash)
     quarter_payload["prior_surplus_deployment_carryforward"] = int(cumulative_prior_surplus_deployment - deployable_surplus)
@@ -267,7 +274,7 @@ def build_cash_planning_envelope(
       and effective_ending_cash <= buffer_required
     )
     quarter_payload["deployable_surplus_above_ceiling"] = int(deployable_surplus)
-    quarter_payload["max_additional_distribution"] = int(deployable_surplus)
+    quarter_payload["max_additional_distribution"] = int(max_additional_distribution)
     quarter_payload["max_additional_debt_paydown"] = int(
       min(
         int(round(float(safe_float((quarter_payload.get("capital_structure") or {}).get("debt_level")) or 0.0))),
