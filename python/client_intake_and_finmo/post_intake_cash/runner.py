@@ -25,7 +25,10 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_issue_codes_for_phase,
   post_intake_issue_has_phase,
 )
-from client_intake_and_finmo.post_intake_cash.common import assert_cash_envelope_lifecycle  # type: ignore
+from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+  assert_cash_envelope_lifecycle,
+  buffer_components as _common_buffer_components,
+)
 from client_intake_and_finmo.post_intake_cash.planning_envelope import build_cash_planning_envelope  # type: ignore
 from client_intake_and_finmo.post_intake_cash.validation_envelope import build_cash_validation_envelope  # type: ignore
 from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
@@ -861,19 +864,22 @@ def _cash_strategy_buffer_components(
   cash_floor_months: Optional[float] = None,
   cash_ceiling_months: Optional[float] = None,
 ) -> Dict[str, Any]:
-  opex_quarter = int(round(max(0.0, _cash_strategy_operating_expense_from_row(row))))
-  monthly_opex = int(round(max(0.0, float(opex_quarter) / max(_CASH_STRATEGY_MONTHS_PER_QUARTER, 1.0))))
-  floor_months = float(cash_floor_months if cash_floor_months is not None else _CASH_STRATEGY_BUFFER_MONTHS)
-  ceiling_months = float(cash_ceiling_months if cash_ceiling_months is not None else max(floor_months, _CASH_STRATEGY_BUFFER_MONTHS))
-  return {
-    "operating_expense_quarter": opex_quarter,
-    "buffer_months": round(float(floor_months), 2),
-    "cash_floor_months": round(float(floor_months), 2),
-    "cash_ceiling_months": round(float(ceiling_months), 2),
-    "monthly_opex": monthly_opex,
-    "cash_buffer_required": int(round(max(float(monthly_opex) * floor_months, 0.0))),
-    "cash_ceiling": int(round(max(float(monthly_opex) * ceiling_months, 0.0))),
-  }
+  """Phase 9 P3.10 iter 10 fix — single source of truth.
+
+  Collapsed to delegate to common.buffer_components. Pre-fix this
+  function was a parallel implementation that disagreed with
+  common.py by a factor of 3 (units bug there). Both are now the
+  canonical common.py version. Keeps the runner-local default
+  constants applied here at the call site so behavior for callers
+  who don't pass explicit floor/ceiling months is preserved.
+  """
+  return _common_buffer_components(
+    row,
+    cash_floor_months=cash_floor_months,
+    cash_ceiling_months=cash_ceiling_months,
+    default_buffer_months=_CASH_STRATEGY_BUFFER_MONTHS,
+    months_per_quarter=_CASH_STRATEGY_MONTHS_PER_QUARTER,
+  )
 
 def _cash_strategy_debt_cash_support_multiplier(
   *,

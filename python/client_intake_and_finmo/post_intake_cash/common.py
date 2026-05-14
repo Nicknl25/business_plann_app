@@ -221,8 +221,23 @@ def buffer_components(
   default_buffer_months: float,
   months_per_quarter: float,
 ) -> Dict[str, Any]:
+  """Phase 9 P3.10 iter 10 fix — units correction.
+
+  cash_floor_months / cash_ceiling_months from the SQL cash policy
+  table are MONTHS, so the base for `cash_buffer_required` and
+  `cash_ceiling` must be MONTHLY operating expense, not quarterly.
+  Pre-fix this function multiplied opex_quarter * floor_months,
+  producing buffer thresholds 3x too large (since the FINMO
+  quarter row's opex line items are quarterly amounts and
+  months_per_quarter = 3). The 3x inflation cascaded into the
+  validation envelope, the planning envelope, the cash strategy
+  proposer's required_funding_gap, the lever_bound max sizing,
+  and the finalize cash-buffer validator — manifesting as
+  NexGen iter 10's `cash_buffer_invalid` despite ending_cash
+  comfortably above the (correct) floor.
+  """
   opex_quarter = int(round(max(0.0, operating_expense_from_row(row))))
-  cash_buffer_base_opex = opex_quarter
+  monthly_opex = int(round(max(0.0, float(opex_quarter) / max(float(months_per_quarter), 1.0))))
   floor_months = float(cash_floor_months if cash_floor_months is not None else default_buffer_months)
   ceiling_months = float(cash_ceiling_months if cash_ceiling_months is not None else max(floor_months, default_buffer_months))
   return {
@@ -230,10 +245,10 @@ def buffer_components(
     "buffer_months": round(float(floor_months), 2),
     "cash_floor_months": round(float(floor_months), 2),
     "cash_ceiling_months": round(float(ceiling_months), 2),
-    "monthly_opex": cash_buffer_base_opex,
-    "cash_buffer_base_opex": cash_buffer_base_opex,
-    "cash_buffer_required": int(round(max(float(cash_buffer_base_opex) * floor_months, 0.0))),
-    "cash_ceiling": int(round(max(float(cash_buffer_base_opex) * ceiling_months, 0.0))),
+    "monthly_opex": monthly_opex,
+    "cash_buffer_base_opex": monthly_opex,
+    "cash_buffer_required": int(round(max(float(monthly_opex) * floor_months, 0.0))),
+    "cash_ceiling": int(round(max(float(monthly_opex) * ceiling_months, 0.0))),
   }
 
 
