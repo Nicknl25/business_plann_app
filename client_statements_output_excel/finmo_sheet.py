@@ -208,7 +208,18 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Short Term Debt"), col, _short_term_debt_formula(ctx, col))
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Deferred Revenue"), col, f"={_mi(ctx, 'bs::Deferred Revenue (% of Revenue)', col)}*{_fr(ctx, 'Income Statement', 'Revenue', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Current Liabilities"), col, f"=SUM({_fr(ctx, 'Balance Sheet', 'Accounts Payable', col)}:{_fr(ctx, 'Balance Sheet', 'Deferred Revenue', col)})")
-    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Long Term Debt"), col, f"={_mi(ctx, 'cash::Debt Opening Balance', col) if q0 else _mi(ctx, 'cash::Debt Closing Balance', col)}")
+    # Phase 9 P3.10 iter 15 — workbook LTD is the NON-CURRENT portion
+    # of the debt closing balance: closing - STD. STD + LTD = closing
+    # by construction; pre-iter-15 the workbook displayed full closing
+    # in LTD AND added STD separately to Current Liabilities, so Total
+    # Liabilities double-counted current-portion debt every quarter
+    # where STD > 0. Mirrors the Layer 1 fix in finmo_model.py.
+    _set_formula(
+      ws,
+      ctx.finmo_row("Balance Sheet", "Long Term Debt"),
+      col,
+      f"=MAX(0,{_mi(ctx, 'cash::Debt Opening Balance', col) if q0 else _mi(ctx, 'cash::Debt Closing Balance', col)}-{_fr(ctx, 'Balance Sheet', 'Short Term Debt', col)})",
+    )
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Total Liabilities"), col, f"={_fr(ctx, 'Balance Sheet', 'Current Liabilities', col)}+{_fr(ctx, 'Balance Sheet', 'Long Term Debt', col)}+{_mi(ctx, 'cash::Lease Closing Balance', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Owner's Capital"), col, f"={owner_capital_input_ref}")
     if q0:

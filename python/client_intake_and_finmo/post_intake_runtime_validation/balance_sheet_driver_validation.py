@@ -659,3 +659,81 @@ def balance_sheet_driver_zero_but_applicable_errors(
       "zero_allowed_reason_key": _clean(mapping_row.get("zero_allowed_reason_key")),
     })
   return out
+
+
+def balance_sheet_std_ltd_coherence_errors(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+  debt_schedule: Optional[Dict[str, Any]],
+) -> List[str]:
+  """Phase 9 P3.10 iter 15 — STD/LTD coherence on the balance sheet.
+
+  For every live quarter where debt exists (closing_debt > 0):
+    - short_term_debt must be in [0, closing_debt]
+    - long_term_debt must equal closing_debt - short_term_debt
+      (within 1-unit integer-rounding tolerance)
+
+  When closing_debt == 0 the check is N/A (STD == 0 and LTD == 0 by
+  construction; nothing to validate). Universal — no archetype
+  branching, no business-type guards.
+
+  closing_debt is read from the rebuilt debt_schedule's per-quarter
+  `closing_debt` when available, falling back to FINMO's
+  `debt_closing_balance`. The two are the same value by construction
+  post-iter-13 (cash pass + schedule rebuild) — preferring the
+  schedule keeps this validator independent of FINMO if FINMO ever
+  diverges, surfacing rather than masking a divergence.
+  """
+  errors: List[str] = []
+  finmo_rows = _live_finmo_rows(finmo_json)
+  if not finmo_rows:
+    return errors
+  schedule_rows_by_q: Dict[int, Dict[str, Any]] = {}
+  if isinstance(debt_schedule, dict):
+    for item in (debt_schedule.get("rows") or debt_schedule.get("debt_schedule_rows") or []):
+      if not isinstance(item, dict):
+        continue
+      qi = _safe_float(item.get("quarter_index"))
+      if qi is None:
+        continue
+      schedule_rows_by_q[int(qi)] = item
+  for finmo_row in finmo_rows:
+    quarter_index_raw = _safe_float(finmo_row.get("quarter_index"))
+    if quarter_index_raw is None:
+      continue
+    quarter_index = int(quarter_index_raw)
+    short_term_debt = int(round(_safe_float(finmo_row.get("short_term_debt")) or 0.0))
+    long_term_debt = int(round(_safe_float(finmo_row.get("long_term_debt")) or 0.0))
+    schedule_row = schedule_rows_by_q.get(quarter_index, {})
+    schedule_closing = _safe_float(schedule_row.get("closing_debt"))
+    finmo_closing = _safe_float(finmo_row.get("debt_closing_balance"))
+    closing_debt_raw = (
+      schedule_closing
+      if schedule_closing is not None
+      else finmo_closing
+      if finmo_closing is not None
+      else 0.0
+    )
+    closing_debt = int(round(closing_debt_raw))
+    if closing_debt <= 0:
+      continue
+    if short_term_debt < 0:
+      errors.append(
+        f"balance_sheet_std_ltd_coherence_failed: q={quarter_index} "
+        f"field=short_term_debt actual={short_term_debt} expected>=0"
+      )
+      continue
+    if short_term_debt > closing_debt:
+      errors.append(
+        f"balance_sheet_std_ltd_coherence_failed: q={quarter_index} "
+        f"field=short_term_debt actual={short_term_debt} expected<=closing_debt={closing_debt}"
+      )
+      continue
+    expected_ltd = closing_debt - short_term_debt
+    if abs(long_term_debt - expected_ltd) > 1:
+      errors.append(
+        f"balance_sheet_std_ltd_coherence_failed: q={quarter_index} "
+        f"field=long_term_debt actual={long_term_debt} expected={expected_ltd} "
+        f"derivation=closing_debt({closing_debt})_minus_short_term_debt({short_term_debt})"
+      )
+  return errors

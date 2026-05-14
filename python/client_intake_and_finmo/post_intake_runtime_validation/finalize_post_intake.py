@@ -28,6 +28,7 @@ from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
 )
 from client_intake_and_finmo.post_intake_runtime_validation.balance_sheet_driver_validation import (  # type: ignore
   balance_sheet_driver_finalize_errors,
+  balance_sheet_std_ltd_coherence_errors,
 )
 
 
@@ -671,6 +672,17 @@ def run_finalize_post_intake_validation(
     )
   except Exception as exc:
     errors.append(f"balance_sheet_driver_validation_unavailable: {exc}")
+  # Phase 9 P3.10 iter 15 — STD/LTD coherence hard gate. Fires only
+  # when debt exists for the relevant quarter; N/A when closing_debt=0.
+  try:
+    errors.extend(
+      balance_sheet_std_ltd_coherence_errors(
+        finmo_json=copy.deepcopy(finmo_json or {}),
+        debt_schedule=copy.deepcopy(debt_schedule or {}),
+      )
+    )
+  except Exception as exc:
+    errors.append(f"balance_sheet_std_ltd_coherence_unavailable: {exc}")
   try:
     sequence_controller.execute_registered_step(
       "finalize_cash_phase_trace",

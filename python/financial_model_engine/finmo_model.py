@@ -75,7 +75,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Short Term Debt": f"SUM(schedules::{DEBT_REPAYMENT_LABEL} for q+1..q+4, each clipped to min(requested, simulated_balance + schedules::{DEBT_ISSUANCE_LABEL}))",
   "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
   "Current Liabilities": "SUM(Accounts Payable, Short Term Debt, Deferred Revenue)",
-  "Long Term Debt": "Debt Schedule Closing Balance",
+  "Long Term Debt": "max(0, Debt Schedule Closing Balance - Short Term Debt)  # non-current portion only; STD + LTD = closing_debt",
   "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Closing Balance (Total)",
   "Owner's Capital": "balance_sheet::Owner's Capital",
   "Distributions": "balance_sheet::Distributions",
@@ -220,7 +220,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   )
   opening_short_term_debt = max(0.0, model_inputs.short_term_debt_opening_balance_seed)
   opening_total_debt = max(0.0, model_inputs.debt_opening_balance_seed)
-  opening_long_term_debt = opening_total_debt
+  # Phase 9 P3.10 iter 15 — balance-sheet LTD is the NON-CURRENT
+  # portion of the debt closing balance: total - STD. STD + LTD =
+  # opening_total_debt by construction; this prevents the historical
+  # double-counting where LTD displayed full closing AND STD was
+  # added separately to current liabilities.
+  opening_long_term_debt = max(0.0, opening_total_debt - opening_short_term_debt)
   opening_owner_capital = _row_value(model_inputs, "balance_sheet", "Owner's Capital", 0)
   opening_other_equity = _row_value(model_inputs, "balance_sheet", "Other Equity", 0)
   opening_total_assets = (
@@ -429,7 +434,14 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       short_term_debt,
     )
     current_liabilities = accounts_payable + short_term_debt + deferred_revenue
-    long_term_debt = debt_closing
+    # Phase 9 P3.10 iter 15 — balance-sheet LTD is the NON-CURRENT
+    # portion of the debt closing balance: debt_closing - short_term_debt.
+    # STD + LTD = debt_closing by construction. Pre-iter-15 displayed
+    # LTD = debt_closing AND added STD to current liabilities, so the
+    # balance sheet double-counted current-portion debt as both STD
+    # and within LTD. Total Liabilities therefore overstated debt by
+    # short_term_debt every quarter where STD > 0.
+    long_term_debt = max(0.0, debt_closing - short_term_debt)
     total_liabilities = current_liabilities + long_term_debt + lease_closing
 
     owners_capital = max(0.0, _row_value(model_inputs, "balance_sheet", "Owner's Capital", quarter.quarter_index))
