@@ -737,3 +737,59 @@ def balance_sheet_std_ltd_coherence_errors(
         f"derivation=closing_debt({closing_debt})_minus_short_term_debt({short_term_debt})"
       )
   return errors
+
+
+def balance_sheet_reconciliation_errors(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+) -> List[str]:
+  """Phase 9 P3.10 iter 16 — balance-sheet reconciliation hard gate.
+
+  For every live quarter Q1-Q20:
+    total_assets must equal total_liabilities + total_equity
+    (within 1-dollar integer-rounding tolerance)
+
+  No applicability gating — a balance sheet that doesn't reconcile is
+  always wrong, regardless of business shape, debt level, or cash
+  strategy. Universal — no archetype branches.
+
+  When the equation fails the diagnostic surfaces the per-component
+  breakdown so a post-mortem can immediately see which line is off
+  (cash, AR, inventory, prepaid, PPE, AP, STD, LTD, equity sections).
+  """
+  errors: List[str] = []
+  finmo_rows = _live_finmo_rows(finmo_json)
+  if not finmo_rows:
+    return errors
+  for finmo_row in finmo_rows:
+    quarter_index_raw = _safe_float(finmo_row.get("quarter_index"))
+    if quarter_index_raw is None:
+      continue
+    quarter_index = int(quarter_index_raw)
+    total_assets = int(round(_safe_float(finmo_row.get("total_assets")) or 0.0))
+    total_liabilities = int(round(_safe_float(finmo_row.get("total_liabilities")) or 0.0))
+    total_equity = int(round(_safe_float(finmo_row.get("total_equity")) or 0.0))
+    rhs = total_liabilities + total_equity
+    diff = total_assets - rhs
+    if abs(diff) > 1:
+      cash = int(round(_safe_float(finmo_row.get("cash")) or 0.0))
+      ar = int(round(_safe_float(finmo_row.get("accounts_receivable")) or 0.0))
+      inventory = int(round(_safe_float(finmo_row.get("inventory")) or 0.0))
+      prepaid = int(round(_safe_float(finmo_row.get("prepaid_expenses")) or 0.0))
+      ppe = int(round(_safe_float(finmo_row.get("ppe")) or 0.0))
+      ap = int(round(_safe_float(finmo_row.get("accounts_payable")) or 0.0))
+      std = int(round(_safe_float(finmo_row.get("short_term_debt")) or 0.0))
+      ltd = int(round(_safe_float(finmo_row.get("long_term_debt")) or 0.0))
+      dr = int(round(_safe_float(finmo_row.get("deferred_revenue")) or 0.0))
+      oc = int(round(_safe_float(finmo_row.get("owners_capital")) or 0.0))
+      re_ = int(round(_safe_float(finmo_row.get("retained_earnings")) or 0.0))
+      oe = int(round(_safe_float(finmo_row.get("other_equity")) or 0.0))
+      errors.append(
+        f"balance_sheet_reconciliation_failed: q={quarter_index} "
+        f"total_assets={total_assets} total_liabilities_plus_equity={rhs} "
+        f"diff={diff} "
+        f"assets[cash={cash} ar={ar} inv={inventory} prepaid={prepaid} ppe={ppe}] "
+        f"liab[ap={ap} std={std} dr={dr} ltd={ltd}] "
+        f"equity[oc={oc} re={re_} oe={oe}]"
+      )
+  return errors

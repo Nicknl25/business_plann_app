@@ -340,6 +340,19 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   previous_inventory = model_inputs.inventory_opening_balance_seed
   previous_prepaid_expenses = 0.0
   previous_current_liabilities = opening_current_liabilities
+  # Phase 9 P3.10 iter 16 — operating cash flow's
+  # changes_in_current_liabilities uses the OPERATIONAL subset only
+  # (AP + Deferred Revenue), not the full balance-sheet
+  # current_liabilities (which also includes STD). STD reclassification
+  # is a balance-sheet presentation change, not an operating cash
+  # event; including ΔSTD in OCF inflates cash by accumulated ΔSTD
+  # and breaks balance-sheet reconciliation (iter 16 root cause).
+  previous_operational_current_liabilities = (
+    model_inputs.accounts_payable_opening_balance_seed
+    # Deferred Revenue at Q0 is 0.0 — the FinmoQuarterResult Q0 row
+    # confirms this (deferred_revenue=0.0 at the stub).
+    + 0.0
+  )
   previous_ppe = forecast_opening_ppe
   previous_owners_capital = opening_owner_capital
   previous_other_equity = opening_other_equity
@@ -456,7 +469,15 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       (accounts_receivable + inventory + prepaid_expenses)
       - (previous_accounts_receivable + previous_inventory + previous_prepaid_expenses)
     )
-    changes_in_current_liabilities = current_liabilities - previous_current_liabilities
+    # Phase 9 P3.10 iter 16 — operational subset for OCF delta:
+    # ΔSTD is excluded because STD reclassification is not an
+    # operating cash event. The displayed `current_liabilities`
+    # row (AP + STD + DR) stays unchanged; only the cash-flow
+    # delta uses the operational subset.
+    operational_current_liabilities = accounts_payable + deferred_revenue
+    changes_in_current_liabilities = (
+      operational_current_liabilities - previous_operational_current_liabilities
+    )
     operating_cash_flow = net_income + depreciation + changes_in_current_assets + changes_in_current_liabilities
     capital_expenditures = capex
     investing_cash_flow = -capex
@@ -545,6 +566,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     previous_inventory = inventory
     previous_prepaid_expenses = prepaid_expenses
     previous_current_liabilities = current_liabilities
+    previous_operational_current_liabilities = operational_current_liabilities
     previous_ppe = ppe
     previous_owners_capital = owners_capital
     previous_other_equity = other_equity

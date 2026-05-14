@@ -241,7 +241,17 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       begin_cash_formula = f"={_prior(ctx, 'Cash Flow', 'Ending Cash', col)}"
       equity_formula = f"=({owner_capital_ref}-{prior_owner_capital_ref})+({_fr(ctx, 'Balance Sheet', 'Other Equity', col)}-{_prior(ctx, 'Balance Sheet', 'Other Equity', col)})"
       current_asset_change = f"=-(({_fr(ctx, 'Balance Sheet', 'Accounts Receivable', col)}+{_fr(ctx, 'Balance Sheet', 'Inventory', col)}+{_fr(ctx, 'Balance Sheet', 'Prepaid Expenses', col)})-({_prior(ctx, 'Balance Sheet', 'Accounts Receivable', col)}+{_prior(ctx, 'Balance Sheet', 'Inventory', col)}+{_prior(ctx, 'Balance Sheet', 'Prepaid Expenses', col)}))"
-      current_liability_change = f"={_fr(ctx, 'Balance Sheet', 'Current Liabilities', col)}-{_prior(ctx, 'Balance Sheet', 'Current Liabilities', col)}"
+      # Phase 9 P3.10 iter 16 — operational subset (AP + DR) only.
+      # STD reclassification is a balance-sheet presentation change,
+      # not an operating cash event. Pre-iter-16 this referenced
+      # the full Current Liabilities cell (AP + STD + DR), so ΔSTD
+      # was inflating OCF by accumulated ΔSTD and the balance sheet
+      # did not reconcile once iter 15 corrected LTD double-counting.
+      # The displayed Current Liabilities row remains AP + STD + DR.
+      current_liability_change = (
+        f"=({_fr(ctx, 'Balance Sheet', 'Accounts Payable', col)}+{_fr(ctx, 'Balance Sheet', 'Deferred Revenue', col)})"
+        f"-({_prior(ctx, 'Balance Sheet', 'Accounts Payable', col)}+{_prior(ctx, 'Balance Sheet', 'Deferred Revenue', col)})"
+      )
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Beginning Cash"), col, begin_cash_formula)
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Net Income"), col, "=0" if q0 else f"={_fr(ctx, 'Income Statement', 'Net Income', col)}")
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Depreciation"), col, "=0" if q0 else f"={_fr(ctx, 'Income Statement', 'Depreciation', col)}")
