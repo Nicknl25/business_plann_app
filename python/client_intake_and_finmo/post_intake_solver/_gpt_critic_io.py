@@ -109,14 +109,35 @@ def get_gpt_call_log() -> List[Dict[str, Any]]:
     return [dict(entry) for entry in _gpt_call_log]
 
 
-def _record_gpt_call(consultant_name: str, decision_source: str) -> None:
+def _record_gpt_call(
+  consultant_name: str,
+  decision_source: str,
+  *,
+  counted_against_run_budget: bool = True,
+) -> None:
+  """Record a GPT call. Always logs; only increments the run-wide
+  counter when counted_against_run_budget=True.
+
+  Phase 9 P3.10 iter 17 (Batch A) — the GPT-exhaustion handler's
+  tool-calling session passes counted_against_run_budget=False so its
+  internal tool rounds (constrained by the handler's own
+  HARD_CAP_TOOL_CALLS=10 budget) do not consume the run-wide
+  _GPT_CALL_BUDGET_PER_RUN=8 budget reserved for regular critique
+  calls. Visibility into actual handler usage is preserved via the
+  log entry's counted_against_run_budget flag.
+  """
   global _gpt_call_count, _gpt_call_log
   with _gpt_call_state_lock:
-    _gpt_call_count += 1
+    if counted_against_run_budget:
+      _gpt_call_count += 1
+      call_index = _gpt_call_count
+    else:
+      call_index = None
     _gpt_call_log.append({
       "consultant_name": str(consultant_name or ""),
-      "call_index": _gpt_call_count,
+      "call_index": call_index,
       "decision_source": str(decision_source or ""),
+      "counted_against_run_budget": bool(counted_against_run_budget),
     })
 
 
@@ -408,6 +429,7 @@ def call_gpt_responses_api_turn(
   response_schema: Optional[Dict[str, Any]],
   schema_name: Optional[str],
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+  counts_against_run_budget: bool = True,
 ) -> Dict[str, Any]:
   """Issue one OpenAI Responses API turn.
 
@@ -450,8 +472,17 @@ def call_gpt_responses_api_turn(
     - "raw_openai_response", "decision_source", "detail", "model_used"
         as in call_gpt_with_schema_or_fallback.
   """
-  if _budget_exhausted():
-    _record_gpt_call(consultant_name, "python_proposer_only_budget_exhausted")
+  # Phase 9 P3.10 iter 17 (Batch A) — when counts_against_run_budget
+  # is False, the run-wide _GPT_CALL_BUDGET_PER_RUN cap is bypassed.
+  # The handler's tool-calling session passes False because its rounds
+  # are bounded by HARD_CAP_TOOL_CALLS=10 inside the session itself —
+  # the run-wide 8-call budget covers regular critique calls only.
+  if counts_against_run_budget and _budget_exhausted():
+    _record_gpt_call(
+      consultant_name,
+      "python_proposer_only_budget_exhausted",
+      counted_against_run_budget=True,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
@@ -467,7 +498,11 @@ def call_gpt_responses_api_turn(
     }
   api_key = _resolve_api_key()
   if not api_key:
-    _record_gpt_call(consultant_name, "python_proposer_only_no_api_key")
+    _record_gpt_call(
+      consultant_name,
+      "python_proposer_only_no_api_key",
+      counted_against_run_budget=counts_against_run_budget,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
@@ -555,7 +590,11 @@ def call_gpt_responses_api_turn(
       "post_intake_solver:%s_critic_http_error: status=%s body=%s",
       consultant_name, exc.status_code, exc.body_text[:200],
     )
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
+    _record_gpt_call(
+      consultant_name,
+      "python_proposer_only_critic_http_error",
+      counted_against_run_budget=counts_against_run_budget,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
@@ -573,7 +612,11 @@ def call_gpt_responses_api_turn(
       "post_intake_solver:%s_critic_http_error: status=%s body=%s",
       consultant_name, status, body_text[:200],
     )
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
+    _record_gpt_call(
+      consultant_name,
+      "python_proposer_only_critic_http_error",
+      counted_against_run_budget=counts_against_run_budget,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
@@ -588,7 +631,11 @@ def call_gpt_responses_api_turn(
     raw = resp.json() if isinstance(resp.json(), dict) else {"response": body_text}
   except Exception as exc:
     logger.warning("post_intake_solver:%s_critic_invalid_json: %s", consultant_name, exc)
-    _record_gpt_call(consultant_name, "python_proposer_only_critic_invalid_json")
+    _record_gpt_call(
+      consultant_name,
+      "python_proposer_only_critic_invalid_json",
+      counted_against_run_budget=counts_against_run_budget,
+    )
     return {
       "tool_calls": [],
       "assistant_message_text": None,
@@ -640,7 +687,11 @@ def call_gpt_responses_api_turn(
     except Exception:
       parsed_assistant_json = None
 
-  _record_gpt_call(consultant_name, "python_proposer_plus_gpt_critic")
+  _record_gpt_call(
+    consultant_name,
+    "python_proposer_plus_gpt_critic",
+    counted_against_run_budget=counts_against_run_budget,
+  )
   return {
     "tool_calls": tool_calls,
     "assistant_message_text": assistant_text,

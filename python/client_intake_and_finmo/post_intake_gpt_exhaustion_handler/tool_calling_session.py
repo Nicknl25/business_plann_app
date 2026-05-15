@@ -521,6 +521,12 @@ def run_tool_calling_session(
       detail = "hard_cap_tool_calls_reached"
       break
 
+    # Phase 9 P3.10 iter 17 (Batch A) — handler tool-call rounds are
+    # bounded by HARD_CAP_TOOL_CALLS=10 (this loop's own cap). They
+    # must NOT consume the run-wide _GPT_CALL_BUDGET_PER_RUN=8 budget,
+    # which is reserved for regular critique calls. The chokepoint
+    # still logs every round to _gpt_call_log with
+    # counted_against_run_budget=False so visibility is preserved.
     turn_resp = call_gpt_responses_api_turn(
       consultant_name=(
         "post_intake_gpt_exhaustion_handler_tool_call_turn_"
@@ -530,6 +536,7 @@ def run_tool_calling_session(
       tools=[tool_def],
       response_schema=None,
       schema_name=None,
+      counts_against_run_budget=False,
     )
     gpt_calls_made += 1
     decision_sources.append(str(turn_resp.get("decision_source") or ""))
