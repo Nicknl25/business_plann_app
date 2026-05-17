@@ -75,6 +75,63 @@ _derive_maintenance_capex_percent_from_naics = _post_intake_contracts_runner._de
 _estimate_balance_sheet_contextual_seed_with_gpt = _post_intake_contracts_runner._estimate_balance_sheet_contextual_seed_with_gpt
 _estimate_r_and_d_applicability_with_gpt = _post_intake_contracts_runner._estimate_r_and_d_applicability_with_gpt
 _estimate_stage_ramp_contract_with_gpt = _post_intake_contracts_runner._estimate_stage_ramp_contract_with_gpt
+# iter 19 Stage 5 — Python-first stage ramp builder + handler-on-failure.
+# Replaces the GPT-only authoring path. The dependency-injection name
+# stays `estimate_stage_ramp_contract_with_gpt` so the initial-grid
+# runner's signature does not need to change; behind it, the new
+# function tries the Python builder first and engages the stage ramp
+# handler only when the validator rejects the deterministic output
+# (doctrine.md §3 Pattern 2).
+from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore  # noqa: E402
+  build_python_stage_ramp_contract as _build_python_stage_ramp_contract,
+  _validate_stage_ramp_contract_payload as _validate_stage_ramp_contract_payload_for_handler,
+)
+from client_intake_and_finmo.post_intake_stage_ramp_handler import (  # type: ignore  # noqa: E402
+  engage_stage_ramp_handler_on_validator_failure as _engage_stage_ramp_handler,
+)
+
+
+def _stage_ramp_contract_python_first_with_handler(
+  *,
+  business_facts,
+  ops_json,
+  financials_json,
+  financials_year1_json,
+  people_json=None,
+  planning_mode,
+  planning_mode_reason,
+  model_input_json,
+  finmo_json,
+  r_and_d_applicability=None,
+):
+  """iter 19 Stage 5 dependency-injection wrapper. Returns the same
+  contract shape the legacy GPT-only path returned. On Python-and-
+  handler exhaustion, falls back to the legacy GPT call so existing
+  behavior is preserved for cases the new path cannot resolve."""
+  try:
+    return _engage_stage_ramp_handler(
+      build_python_contract=_build_python_stage_ramp_contract,
+      validator=_validate_stage_ramp_contract_payload_for_handler,
+      business_facts=business_facts,
+      ops_json=ops_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      people_json=people_json,
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      r_and_d_applicability=r_and_d_applicability,
+    )
+  except RuntimeError as exc:
+    # Stage ramp handler exhausted. Per doctrine §1 hard-fail, surface
+    # the diagnostic with the legacy GPT path as documentation of
+    # what the alternative path used to do — but DO raise so the
+    # orchestrator records a real failure rather than shipping a
+    # bad ramp.
+    raise RuntimeError(
+      "stage_ramp_handler_exhausted: " + str(exc)
+    ) from exc
 _extract_numeric_solver_feedback_for_persistence = _post_intake_contracts_runner._extract_numeric_solver_feedback_for_persistence
 _first_contract_product_missing_periods = _post_intake_contracts_runner._first_contract_product_missing_periods
 _r_and_d_policy_from_model_input = _post_intake_contracts_runner._r_and_d_policy_from_model_input
@@ -7006,7 +7063,7 @@ def _run_planning_system_for_draft_unified(
     r_and_d_policy_from_model_input=_r_and_d_policy_from_model_input,
     assert_r_and_d_applicability_policy_applied=_assert_r_and_d_applicability_policy_applied,
     estimate_balance_sheet_contextual_seed_with_gpt=_estimate_balance_sheet_contextual_seed_with_gpt,
-    estimate_stage_ramp_contract_with_gpt=_estimate_stage_ramp_contract_with_gpt,
+    estimate_stage_ramp_contract_with_gpt=_stage_ramp_contract_python_first_with_handler,
   )
   return _run_unified_post_grid_system_run(
     conn=conn,

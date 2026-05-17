@@ -389,6 +389,7 @@ __all__ = [
   "_estimate_r_and_d_applicability_with_gpt",
   "_estimate_balance_sheet_contextual_seed_with_gpt",
   "_estimate_stage_ramp_contract_with_gpt",
+  "build_python_stage_ramp_contract",
   "_solver_quarter_target_metrics_schema",
   "_unified_targets_by_quarter_schema",
   "_solver_target_contract_spec_payload",
@@ -1719,6 +1720,309 @@ def _finalize_balance_sheet_seed_with_critique(
   decision["raw_openai_response"] = raw_openai_response
   decision["decision_source"] = "python_proposer_plus_gpt_critic"
   return decision
+
+# ---------------------------------------------------------------------------
+# iter 19 Stage 5 — deterministic Python stage ramp builder.
+#
+# Per docs/architecture/doctrine.md §3 Pattern 2: GPT was previously the
+# only authoring source for the stage ramp contract. The Python builder
+# below uses NAICS cohort bands + stage policy + standard ramp
+# templates to produce a complete, validator-compliant contract as the
+# first-pass default. The stage ramp handler (post_intake_stage_ramp_
+# handler) engages only when the validator rejects the Python output.
+# ---------------------------------------------------------------------------
+
+
+# Per-stage-family revenue QoQ growth target fallback when the NAICS
+# cohort has no qoq_growth_band coverage. Conservative midpoints.
+_STAGE_FAMILY_FALLBACK_QOQ_TARGET: Dict[str, float] = {
+  "startup": 0.18,      # pre-revenue/early launch
+  "early": 0.10,        # early stage
+  "operational": 0.04,  # mature operating business
+}
+
+
+# Per-stage-family Q1 utilization start point.
+_STAGE_FAMILY_Q1_UTILIZATION: Dict[str, float] = {
+  "startup": 0.25,
+  "early": 0.45,
+  "operational": 0.65,
+}
+
+
+# Mature utilization cap (Q11 onward) — same for every family; the
+# operator's stage policy already constrains the ramp shape.
+_MATURE_UTILIZATION_CAP: float = 0.85
+
+
+def _stage_family_q_postures(
+  *,
+  stage_family: str,
+  validator_rules: Dict[str, Any],
+  r_and_d_enabled: bool,
+) -> List[str]:
+  """Return the per-quarter (Q1..Q20) profitability_posture sequence
+  the validator will accept for this stage family + policy."""
+  if str(stage_family).lower() == "operational":
+    if bool(validator_rules.get("operational_requires_positive_from_q5")):
+      # First four quarters can be near_breakeven; Q5+ must be positive.
+      return ["near_breakeven"] * 4 + ["positive"] * 16
+    return ["positive"] * 20
+  if str(stage_family).lower() == "early":
+    return (
+      ["improving_losses"] * 4
+      + ["near_breakeven"] * 6
+      + ["positive"] * 10
+    )
+  # startup default — loss_allowed early then improvement.
+  return (
+    ["loss_allowed"] * 4
+    + ["improving_losses"] * 4
+    + ["near_breakeven"] * 2
+    + ["positive"] * 10
+  )
+
+
+def _stage_family_ni_floors(
+  *,
+  stage_family: str,
+  validator_rules: Dict[str, Any],
+) -> List[float]:
+  """Per-quarter (Q1..Q20) net_income_margin_floor sequence honoring
+  validator_rules.q10_min and q11_to_q20_min thresholds."""
+  q10_min = float(_safe_float(validator_rules.get("q10_min_net_income_margin_floor")) or -0.02)
+  q11_min = float(_safe_float(validator_rules.get("q11_to_q20_min_net_income_margin_floor")) or 0.0)
+  q5_floor = _safe_float(validator_rules.get("q5_to_q20_min_net_income_margin_floor"))
+  if str(stage_family).lower() == "operational":
+    # Operational stage: validator requires ni_floor >= 0 from Q1
+    # when validator_rules.operational_requires_nonnegative_from_q1 is
+    # True. Default to non-negative throughout.
+    base = [0.0] * 4 + [0.02] * 16
+    if bool(validator_rules.get("operational_requires_nonnegative_from_q1")):
+      base = [max(0.0, v) for v in base]
+    return base
+  # Glide from negative floor up to positive by Q11.
+  floors: List[float] = []
+  for q in range(1, 21):
+    if q <= 4:
+      floors.append(-0.10)
+    elif q <= 9:
+      # Linear from -0.10 to q10_min over Q5..Q10.
+      progress = (q - 4) / 6.0
+      floors.append(-0.10 + (q10_min - (-0.10)) * progress)
+    elif q == 10:
+      floors.append(q10_min)
+    else:
+      # Linear from q11_min to q11_min+0.05 over Q11..Q20.
+      progress = (q - 11) / 9.0
+      floors.append(q11_min + 0.05 * progress)
+  if q5_floor is not None:
+    floors = [
+      max(v, float(q5_floor)) if q >= 5 else v
+      for q, v in zip(range(1, 21), floors)
+    ]
+  return floors
+
+
+def _cohort_band_target_and_max(
+  *,
+  metric_key: str,
+  business_naics_6: str,
+  default_target: float,
+  default_max: float,
+) -> Tuple[float, float]:
+  """Resolve (target, max) from the NAICS cohort band with conservative
+  defaults when coverage is missing."""
+  if not business_naics_6:
+    return float(default_target), float(default_max)
+  try:
+    from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+      post_intake_industry_baseline_for_naics,
+    )
+    band = post_intake_industry_baseline_for_naics(
+      metric_key=metric_key, naics_6=business_naics_6
+    )
+  except Exception:
+    return float(default_target), float(default_max)
+  if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
+    return float(default_target), float(default_max)
+  target = band.get("benchmark_target")
+  if target is None:
+    target = band.get("benchmark_min") or band.get("benchmark_max")
+  if target is None:
+    return float(default_target), float(default_max)
+  max_value = band.get("benchmark_max")
+  if max_value is None or float(max_value) < float(target):
+    max_value = float(target) * 1.2
+  return float(target), float(max_value)
+
+
+def build_python_stage_ramp_contract(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]] = None,
+  planning_mode: str = "",
+  planning_mode_reason: str = "",
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  r_and_d_applicability: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """Iter 19 Stage 5 — deterministic stage ramp builder. Returns a
+  contract matching ``_validate_stage_ramp_contract_payload``'s shape.
+
+  Uses:
+    - NAICS cohort bands for cost ratio caps (cogs/marketing/r&d/g&a/
+      lease) via ``post_intake_industry_baseline_for_naics``.
+    - Stage planning policy for postures, ni_floor thresholds,
+      validator rules.
+    - Standard linear-to-mature template for utilization ramp.
+    - QoQ growth band (when available) for revenue target/max.
+
+  Conservative-default fallbacks when cohort coverage is missing keep
+  the function total — it never raises on a cohort miss. The handler
+  (post_intake_stage_ramp_handler) refines the ramp if the validator
+  rejects it.
+  """
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  start_date = (
+    _parse_date(facts.get("start_date"))
+    or _parse_date(facts.get("business_start_date"))
+    or _parse_date(ops.get("business_start_date"))
+    or _parse_date(ops.get("start_date"))
+  )
+  today = datetime.utcnow().date()
+  explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
+  inferred_stage = _infer_business_stage(start_date, today) if start_date is not None else None
+  stage = explicit_stage or str(inferred_stage or "").strip().lower() or "operational"
+  expected_family = _business_stage_family(stage)
+  business_naics_6 = "".join(
+    ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit()
+  )
+
+  stage_policy = stage_planning_ramp_policy(
+    stage_family=expected_family,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    business_stage=stage,
+    business_naics=business_naics_6 or None,
+  )
+  validator_rules = stage_policy.get("validator_rules") if isinstance(stage_policy.get("validator_rules"), dict) else {}
+
+  # Revenue QoQ growth.
+  qoq_band = stage_policy.get("qoq_growth_band") if isinstance(stage_policy.get("qoq_growth_band"), dict) else None
+  if qoq_band and qoq_band.get("trust_flag") != "no_coverage":
+    qoq_target = float(_safe_float(qoq_band.get("benchmark_target")) or _STAGE_FAMILY_FALLBACK_QOQ_TARGET.get(expected_family, 0.05))
+    qoq_max = float(_safe_float(qoq_band.get("benchmark_max")) or qoq_target * 1.5)
+  else:
+    qoq_target = _STAGE_FAMILY_FALLBACK_QOQ_TARGET.get(expected_family, 0.05)
+    qoq_max = qoq_target * 1.5
+  qoq_spike_max = qoq_max * 1.3
+
+  # Cost ratio targets + maxes from NAICS cohort with conservative
+  # defaults that produce a validator-acceptable envelope when cohort
+  # coverage is missing.
+  cogs_target, cogs_max = _cohort_band_target_and_max(
+    metric_key="cogs_percent_of_revenue",
+    business_naics_6=business_naics_6,
+    default_target=0.45,
+    default_max=0.65,
+  )
+  _, marketing_max = _cohort_band_target_and_max(
+    metric_key="marketing_percent_of_revenue",
+    business_naics_6=business_naics_6,
+    default_target=0.08,
+    default_max=0.18,
+  )
+  _, ga_max = _cohort_band_target_and_max(
+    metric_key="sga_percent_of_revenue",
+    business_naics_6=business_naics_6,
+    default_target=0.12,
+    default_max=0.25,
+  )
+  _, lease_max = _cohort_band_target_and_max(
+    metric_key="rent_percent_of_revenue",
+    business_naics_6=business_naics_6,
+    default_target=0.05,
+    default_max=0.12,
+  )
+  rd_enabled = (
+    bool(r_and_d_applicability.get("r_and_d_enabled"))
+    if isinstance(r_and_d_applicability, dict) and isinstance(r_and_d_applicability.get("r_and_d_enabled"), bool)
+    else True
+  )
+  if rd_enabled:
+    _, rd_max = _cohort_band_target_and_max(
+      metric_key="r_and_d_percent_of_revenue",
+      business_naics_6=business_naics_6,
+      default_target=0.04,
+      default_max=0.10,
+    )
+  else:
+    rd_max = 0.0
+
+  # Utilization ramp: linear-to-mature from Q1 start to mature cap by
+  # Q11. Mature cap holds Q11..Q20 (validator enforces non-decreasing).
+  q1_util = _STAGE_FAMILY_Q1_UTILIZATION.get(expected_family, 0.5)
+  utilization_curve = [
+    round(min(_MATURE_UTILIZATION_CAP, q1_util + (_MATURE_UTILIZATION_CAP - q1_util) * (q - 1) / 10.0), 2)
+    if q <= 11
+    else _MATURE_UTILIZATION_CAP
+    for q in range(1, 21)
+  ]
+
+  postures = _stage_family_q_postures(
+    stage_family=expected_family,
+    validator_rules=validator_rules,
+    r_and_d_enabled=rd_enabled,
+  )
+  ni_floors = _stage_family_ni_floors(
+    stage_family=expected_family,
+    validator_rules=validator_rules,
+  )
+
+  quarter_ramp_grid: List[Dict[str, Any]] = []
+  for q in range(1, 21):
+    quarter_ramp_grid.append({
+      "q": q,
+      "rev_target": round(qoq_target, 2),
+      "rev_max": round(qoq_max, 2),
+      "rev_spike": False,
+      "rev_spike_max": round(qoq_max, 2),
+      "max_util": utilization_curve[q - 1],
+      "cogs_target": round(cogs_target, 2),
+      "cogs_max": round(cogs_max, 2),
+      "marketing_max": round(marketing_max, 2),
+      "rd_max": round(rd_max, 2),
+      "ga_max": round(ga_max, 2),
+      "lease_max": round(lease_max, 2),
+      "ni_floor": round(ni_floors[q - 1], 2),
+      "posture": postures[q - 1],
+    })
+
+  # The validator's table schema accepts ONLY the contract-declared
+  # fields (stage_family, utilization_high_watermark, quarter_ramp_
+  # grid, rationale). Provenance fields (business_stage, planning_mode,
+  # decision_source, r_and_d_applicability) are added by callers AFTER
+  # validation accepts — see engage_stage_ramp_handler_on_validator_
+  # failure in post_intake_stage_ramp_handler/handler.py.
+  return {
+    "stage_family": expected_family,
+    "utilization_high_watermark": _MATURE_UTILIZATION_CAP,
+    "quarter_ramp_grid": quarter_ramp_grid,
+    "rationale": (
+      f"Python-deterministic stage ramp for {expected_family} stage. "
+      f"Revenue QoQ target {qoq_target:.2f}/max {qoq_max:.2f} from "
+      "NAICS cohort with conservative-default fallback. Cost ratio "
+      "envelopes from NAICS cohort midpoints. Utilization ramps from "
+      f"{q1_util:.2f} (Q1) to {_MATURE_UTILIZATION_CAP:.2f} (Q11+). "
+      "Stage ramp handler engages if this default fails realism."
+    ),
+  }
+
 
 def _estimate_stage_ramp_contract_with_gpt(
   *,
