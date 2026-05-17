@@ -2165,7 +2165,19 @@ def _build_balance_sheet_intake_stub_metrics(
 
   ppe = max(0.0, _seed_value("ppe_opening_balance_seed"))
   accumulated_depreciation = round(float(_safe_float(schedule_seed_map.get("accumulated_depreciation_opening_seed")) or 0.0), 6)
-  total_assets = round(current_assets + ppe + accumulated_depreciation, 6)
+  # Phase 9 P3.17 — capital lease at Q0. Pre-iter this stub overwrote
+  # FINMO's Q0 total_assets and total_liabilities without including
+  # ROU asset / capital lease obligation, so the persisted Q0 stored
+  # totals lost the lease balance from both sides. The equation
+  # appeared to balance because both sides dropped the same amount,
+  # but the Q0 row values (right_of_use_asset, capital_lease_obligation
+  # set by FINMO) were inconsistent with the stored totals. Adding
+  # ROU and lease obligation here aligns this helper with
+  # calculate_finmo_model's Q0 stub (doctrine Pattern 1, Mirror
+  # Flavor 1 collapse).
+  capital_lease_obligation = max(0.0, _seed_value("lease_opening_balance_seed"))
+  right_of_use_asset = capital_lease_obligation
+  total_assets = round(current_assets + ppe + accumulated_depreciation + right_of_use_asset, 6)
 
   accounts_payable = max(0.0, _seed_value("accounts_payable_opening_balance_seed"))
   short_term_debt = max(0.0, _seed_value("short_term_debt_opening_balance_seed"))
@@ -2174,7 +2186,7 @@ def _build_balance_sheet_intake_stub_metrics(
 
   total_debt_opening = max(0.0, _seed_value("debt_opening_balance_seed"))
   long_term_debt = round(max(0.0, total_debt_opening - short_term_debt), 6)
-  total_liabilities = round(current_liabilities + long_term_debt, 6)
+  total_liabilities = round(current_liabilities + long_term_debt + capital_lease_obligation, 6)
 
   owners_capital = round(float(balance_stub_by_label.get("Owner's Capital") or 0.0), 6)
   other_equity = round(float(balance_stub_by_label.get("Other Equity") or 0.0), 6)
@@ -2189,6 +2201,7 @@ def _build_balance_sheet_intake_stub_metrics(
     "prepaid_expenses": round(prepaid_expenses, 6),
     "current_assets": current_assets,
     "ppe": round(ppe, 6),
+    "right_of_use_asset": round(right_of_use_asset, 6),
     "accumulated_depreciation": accumulated_depreciation,
     "total_assets": total_assets,
     "accounts_payable": round(accounts_payable, 6),
@@ -2196,6 +2209,7 @@ def _build_balance_sheet_intake_stub_metrics(
     "deferred_revenue": round(deferred_revenue, 6),
     "current_liabilities": current_liabilities,
     "long_term_debt": long_term_debt,
+    "capital_lease_obligation": round(capital_lease_obligation, 6),
     "total_liabilities": total_liabilities,
     "owners_capital": owners_capital,
     "retained_earnings": retained_earnings,
