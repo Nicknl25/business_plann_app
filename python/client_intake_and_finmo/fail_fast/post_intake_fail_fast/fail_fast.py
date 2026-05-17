@@ -1593,6 +1593,81 @@ def assert_post_intake_accounting_equation(
     )
 
 
+# Phase 9 P3.17 Phase 3b — companion to assert_post_intake_accounting_
+# equation above. The equation check verifies A == L+E from component
+# sums. This check verifies that the *stored aggregate totals*
+# (total_assets, total_liabilities, total_equity) match the sum of
+# their component rows. Pre-iter P3.17 Phase 3 fix, Q0 stored
+# total_assets and total_liabilities each lost the $54K capital
+# lease entry while the row-level right_of_use_asset and
+# capital_lease_obligation fields kept it; both stored totals
+# dropping equally meant the equation appeared to balance at the
+# stored level. This check catches that bug class by surfacing
+# any drift between displayed row values and the stored aggregates.
+#
+# Runs over Q0 through Q20 (Q0 INCLUDED here — that is where the
+# bug class lives).
+
+
+def assert_post_intake_stored_totals_match_components(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+  contract_name: str = "unified_convergence_decision",
+  tolerance: int = ACCOUNTING_EQUATION_TOLERANCE,
+) -> None:
+  """Hard fail-fast: stored aggregate totals must match the sum of
+  their displayed component rows at every quarter Q0-Q20.
+
+  Type 2 machinery fail-fast per doctrine §5b. Reports ALL
+  violating quarter/total triples (up to 60 = 20q × 3 totals) with
+  the per-quarter diagnostic and a single ``largest`` entry naming
+  the worst drift.
+  """
+  horizon = _expected_horizon(contract_name)
+  payload = finmo_json if isinstance(finmo_json, dict) else {}
+  rows = [row for row in (payload.get("quarter_rows") or []) if isinstance(row, dict)]
+  violations: List[Dict[str, Any]] = []
+  for row in rows:
+    quarter = int(_safe_float(row.get("quarter_index")) or 0)
+    if quarter < 0 or quarter > horizon:
+      continue
+    asset_components = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_ASSET_FIELDS)
+    liability_components = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_LIABILITY_FIELDS)
+    equity_components = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_EQUITY_FIELDS)
+    checks = (
+      ("assets", "total_assets", asset_components),
+      ("liabilities", "total_liabilities", liability_components),
+      ("equity", "total_equity", equity_components),
+    )
+    for label, stored_field, component_sum in checks:
+      stored = float(_safe_float(row.get(stored_field)) or 0.0)
+      diff = stored - component_sum
+      if abs(diff) > float(tolerance):
+        violations.append(
+          {
+            "quarter_index": quarter,
+            "total": label,
+            "stored_field": stored_field,
+            "stored_value": round(stored, 6),
+            "component_sum": round(component_sum, 6),
+            "diff": round(diff, 6),
+            "reason": "stored_total_does_not_match_components",
+          }
+        )
+  if violations:
+    largest = max(violations, key=lambda v: abs(v["diff"]))
+    post_intake_fail_fast_raise(
+      "stored_totals_match_components_violation",
+      (
+        f"Stored aggregate total(s) do not match component sums at {len(violations)} location(s); "
+        f"largest |diff|={abs(largest['diff']):.2f} at Q{largest['quarter_index']} {largest['total']}"
+      ),
+      stage=stage,
+      details={"violations": violations[:60], "largest": largest, "tolerance": int(tolerance)},
+    )
+
+
 def assert_post_intake_schedule_markers_integrity(
   *,
   model_input_json: Optional[Dict[str, Any]],
@@ -1949,6 +2024,16 @@ def assert_post_intake_global_invariants(
   # stored L+E share the same omission and appear to balance while
   # the displayed row values do not).
   assert_post_intake_accounting_equation(
+    finmo_json=finmo_json,
+    stage=stage,
+    contract_name=contract_name,
+  )
+  # Phase 9 P3.17 Phase 3b — companion check verifying that stored
+  # aggregate totals match the sum of their displayed component
+  # rows at every quarter Q0-Q20. Catches the bug class Phase 3
+  # repaired (Q0 stub overwrite stripping ROU/lease from totals
+  # while leaving row-level fields intact).
+  assert_post_intake_stored_totals_match_components(
     finmo_json=finmo_json,
     stage=stage,
     contract_name=contract_name,

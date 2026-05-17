@@ -166,5 +166,167 @@ class AccountingEquationFailFastTests(unittest.TestCase):
     self.assertEqual(err.details["largest"]["quarter_index"], 8)
 
 
+class StoredTotalsMatchComponentsTests(unittest.TestCase):
+  """Phase 9 P3.17 Phase 3b — companion fail-fast verifying that
+  stored aggregate totals (total_assets, total_liabilities,
+  total_equity) match the sum of their displayed component rows
+  at every quarter Q0-Q20. Q0 is INCLUDED here because that is
+  where the lease-stub-overwrite bug class lives.
+  """
+
+  def setUp(self) -> None:
+    _enable_test_mode()
+
+  def tearDown(self) -> None:
+    _disable_test_mode()
+
+  def _stage(self) -> str:
+    return "post_intake_finalize_validation_stored_totals_match_components"
+
+  def _balanced_row_with_stored(self, q: int, *, lease: float = 0.0) -> dict:
+    row = _balanced_row(q, lease=lease)
+    # Ensure stored totals reflect the component sums by construction.
+    asset_sum = (
+      row["cash"] + row["accounts_receivable"] + row["inventory"]
+      + row["prepaid_expenses"] + row["ppe"] + row["right_of_use_asset"]
+    )
+    liab_sum = (
+      row["accounts_payable"] + row["short_term_debt"]
+      + row["deferred_revenue"] + row["long_term_debt"]
+      + row["capital_lease_obligation"]
+    )
+    eq_sum = row["owners_capital"] + row["retained_earnings"] + row["other_equity"]
+    row["total_assets"] = asset_sum
+    row["total_liabilities"] = liab_sum
+    row["total_equity"] = eq_sum
+    row["total_liabilities_and_equity"] = liab_sum + eq_sum
+    return row
+
+  def test_balanced_synthetic_with_consistent_stored_totals_passes(self) -> None:
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    finmo = {"quarter_rows": rows}
+    assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+
+  def test_lease_present_with_consistent_stored_totals_passes(self) -> None:
+    """The Q0 case that Phase 3 fixed — ROU on assets, lease on
+    liabilities, stored totals reflect both."""
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q, lease=54000.0) for q in range(0, 21)]
+    finmo = {"quarter_rows": rows}
+    assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+
+  def test_q0_stored_assets_missing_lease_fires(self) -> None:
+    """Reproduces the exact pre-Phase-3 Q0 bug: stored total_assets
+    drops the $54K ROU while the row-level right_of_use_asset
+    field has it. New fail-fast catches it."""
+    from client_intake_and_finmo.fail_fast.common import FailFastError
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q, lease=54000.0) for q in range(0, 21)]
+    # Pre-Phase-3 Q0 behavior: subtract lease from stored totals only
+    rows[0]["total_assets"] -= 54000.0
+    rows[0]["total_liabilities"] -= 54000.0
+    rows[0]["total_liabilities_and_equity"] -= 54000.0
+    finmo = {"quarter_rows": rows}
+    with self.assertRaises(FailFastError) as ctx:
+      assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+    err = ctx.exception
+    self.assertEqual(err.code, "stored_totals_match_components_violation")
+    violations = err.details.get("violations", [])
+    affected_pairs = {(v["quarter_index"], v["total"]) for v in violations}
+    self.assertIn((0, "assets"), affected_pairs)
+    self.assertIn((0, "liabilities"), affected_pairs)
+    largest = err.details["largest"]
+    self.assertEqual(largest["quarter_index"], 0)
+    self.assertAlmostEqual(abs(largest["diff"]), 54000.0, places=2)
+
+  def test_stored_total_assets_off_at_quarter_fires(self) -> None:
+    from client_intake_and_finmo.fail_fast.common import FailFastError
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    rows[5]["total_assets"] += 5.0  # Q5 stored asset off by $5
+    finmo = {"quarter_rows": rows}
+    with self.assertRaises(FailFastError) as ctx:
+      assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+    err = ctx.exception
+    violations = err.details.get("violations", [])
+    affected = {(v["quarter_index"], v["total"]) for v in violations}
+    self.assertIn((5, "assets"), affected)
+
+  def test_stored_total_liabilities_off_at_quarter_fires(self) -> None:
+    from client_intake_and_finmo.fail_fast.common import FailFastError
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    rows[3]["total_liabilities"] += 5.0  # Q3
+    finmo = {"quarter_rows": rows}
+    with self.assertRaises(FailFastError) as ctx:
+      assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+    err = ctx.exception
+    affected = {(v["quarter_index"], v["total"]) for v in err.details["violations"]}
+    self.assertIn((3, "liabilities"), affected)
+
+  def test_stored_total_equity_off_at_quarter_fires(self) -> None:
+    from client_intake_and_finmo.fail_fast.common import FailFastError
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    rows[10]["total_equity"] += 5.0  # Q10
+    finmo = {"quarter_rows": rows}
+    with self.assertRaises(FailFastError) as ctx:
+      assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+    err = ctx.exception
+    affected = {(v["quarter_index"], v["total"]) for v in err.details["violations"]}
+    self.assertIn((10, "equity"), affected)
+
+  def test_drift_within_tolerance_passes(self) -> None:
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    rows[2]["total_assets"] += 0.50  # $0.50 drift
+    finmo = {"quarter_rows": rows}
+    assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+
+  def test_multi_quarter_violations_reported_with_largest(self) -> None:
+    """All violating quarter/total triples are reported; ``largest``
+    names the one with the biggest absolute diff."""
+    from client_intake_and_finmo.fail_fast.common import FailFastError
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
+      assert_post_intake_stored_totals_match_components,
+    )
+
+    rows = [self._balanced_row_with_stored(q) for q in range(0, 21)]
+    rows[2]["total_assets"] += 5.0    # Q2 assets +5
+    rows[7]["total_liabilities"] += 75.0  # Q7 liab +75 (largest)
+    rows[14]["total_equity"] += 20.0  # Q14 equity +20
+    finmo = {"quarter_rows": rows}
+    with self.assertRaises(FailFastError) as ctx:
+      assert_post_intake_stored_totals_match_components(finmo_json=finmo, stage=self._stage())
+    err = ctx.exception
+    violations = err.details.get("violations", [])
+    affected = {(v["quarter_index"], v["total"]) for v in violations}
+    self.assertEqual(affected, {(2, "assets"), (7, "liabilities"), (14, "equity")})
+    self.assertEqual(err.details["largest"]["quarter_index"], 7)
+    self.assertEqual(err.details["largest"]["total"], "liabilities")
+
+
 if __name__ == "__main__":
   unittest.main()
