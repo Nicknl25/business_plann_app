@@ -542,20 +542,41 @@ def run_mode_based_cash_strategy(
         cash_post_validation = post_handler_post_validation
         keep_changes = True
 
-  if keep_changes:
-    final_model_input_json = (
-      cash_strategy_second_pass_result.get("updated_model_input_json")
-      if isinstance(cash_strategy_second_pass_result.get("updated_model_input_json"), dict)
-      else copy.deepcopy(pre_cash_model_input_json)
-    )
-    final_finmo_json = (
-      cash_strategy_second_pass_result.get("updated_finmo_json")
-      if isinstance(cash_strategy_second_pass_result.get("updated_finmo_json"), dict)
-      else copy.deepcopy(pre_cash_finmo_json)
-    )
-  else:
-    final_model_input_json = copy.deepcopy(pre_cash_model_input_json)
-    final_finmo_json = copy.deepcopy(pre_cash_finmo_json)
+  # Phase 9 P3.20 Part 3 Stage 1 -- NEVER revert. The cash strategy
+  # proposer + (optional) funding handler outputs ALWAYS become the
+  # final state. Pre-iter, when `keep_changes` was False the
+  # orchestrator's else branch discarded `cash_strategy_second_pass_
+  # result.updated_model_input_json` and reverted to the pre-cash
+  # state. That atomic revert was the root cause of the P3.19 Phase
+  # 3a lease-bearing ExpressLogix FAIL run: the proposer had closed
+  # all 20-quarter cash buffer violations by injecting $4.28M Owner's
+  # Capital Q1, but a peripheral cash_contract_failure flipped
+  # keep_changes to False and the revert threw away the equity
+  # injection along with the contract failure metadata. The pre-cash
+  # state (still buffer-violating) then carried through to finalize
+  # and hard-failed.
+  #
+  # With the revert removed: the proposer's good work persists, and
+  # any cash_contract_failure metadata stays visible in
+  # cash_strategy_second_pass_result for downstream inspection.
+  # `keep_changes` is still computed and consulted by the handler
+  # trigger (line 449-453) -- Stage 1 leaves the trigger logic
+  # unchanged. Stage 2 will relax that trigger to engage on ANY
+  # validator failure.
+  #
+  # The pre_cash_* fallback is preserved for the (rare) case where
+  # the proposer didn't produce an updated_model_input_json or
+  # updated_finmo_json at all (e.g. it errored before completing).
+  final_model_input_json = (
+    cash_strategy_second_pass_result.get("updated_model_input_json")
+    if isinstance(cash_strategy_second_pass_result.get("updated_model_input_json"), dict)
+    else copy.deepcopy(pre_cash_model_input_json)
+  )
+  final_finmo_json = (
+    cash_strategy_second_pass_result.get("updated_finmo_json")
+    if isinstance(cash_strategy_second_pass_result.get("updated_finmo_json"), dict)
+    else copy.deepcopy(pre_cash_finmo_json)
+  )
 
   # Final FINMO rebuild — guarantees cash, interest, debt balance,
   # short_term/long_term split reflect every applied update from the

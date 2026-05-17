@@ -3127,27 +3127,35 @@ def _run_unified_post_grid_system_run(
         ]
       )
     )
-  if bool(cash_post_validation.get("keep_changes")):
-    final_model_input_json = _model_input_with_controller_catalog(
-      model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
-      catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
-    )
-    final_finmo_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {})
-    realism_issue_ledger = copy.deepcopy(cash_post_validation.get("issue_ledger") or [])
-    resolution_summary = copy.deepcopy(cash_post_validation.get("resolution_summary") or {})
-    realism_memo_json = copy.deepcopy(cash_post_validation.get("realism_memo_json") or {})
-    controller_resolution_state = copy.deepcopy(cash_post_validation.get("controller_resolution_state") or {})
-    hard_rule_assessment = copy.deepcopy(cash_post_validation.get("hard_rule_assessment") or {})
-  else:
-    final_model_input_json = copy.deepcopy(pre_cash_model_input_json)
-    final_finmo_json = copy.deepcopy(pre_cash_finmo_json)
-    realism_issue_ledger = copy.deepcopy(pre_cash_issue_ledger)
-    resolution_summary = copy.deepcopy(pre_cash_resolution_summary)
-    realism_memo_json = copy.deepcopy(pre_cash_realism_memo_json)
-    controller_resolution_state = copy.deepcopy(pre_cash_controller_resolution_state)
-    hard_rule_assessment = copy.deepcopy(pre_cash_hard_rule_assessment)
-    cash_strategy_second_pass_result["status"] = "reverted_post_validation"
-    cash_strategy_second_pass_result["final_model_source"] = "converged_model_reverted"
+  # Phase 9 P3.20 Part 3 Stage 1 -- NEVER revert. Pre-iter, when
+  # cash_post_validation reported keep_changes=False, this branch
+  # discarded the cash strategy proposer's outputs and reverted the
+  # full ledger / resolution_summary / realism_memo / controller
+  # state / hard_rule_assessment back to pre_cash versions. That
+  # atomic revert was the root cause of the P3.19 Phase 3a lease-
+  # bearing ExpressLogix FAIL run (Part 2b memo): the proposer had
+  # closed the cash buffer gap via a $4.28M equity injection, but
+  # a peripheral cash_contract_failure flipped keep_changes to
+  # False and the revert threw away the equity work along with
+  # the contract failure metadata.
+  #
+  # With the revert removed: the proposer's good work persists,
+  # cash_post_validation's full envelope (including any contract
+  # failure details and per-quarter validator state) carries
+  # forward. keep_changes is still computed by the validator and
+  # remains available for any downstream handler-trigger logic --
+  # Stage 1 leaves that logic unchanged. Stage 2 will relax the
+  # handler trigger.
+  final_model_input_json = _model_input_with_controller_catalog(
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
+  )
+  final_finmo_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {})
+  realism_issue_ledger = copy.deepcopy(cash_post_validation.get("issue_ledger") or [])
+  resolution_summary = copy.deepcopy(cash_post_validation.get("resolution_summary") or {})
+  realism_memo_json = copy.deepcopy(cash_post_validation.get("realism_memo_json") or {})
+  controller_resolution_state = copy.deepcopy(cash_post_validation.get("controller_resolution_state") or {})
+  hard_rule_assessment = copy.deepcopy(cash_post_validation.get("hard_rule_assessment") or {})
   cash_strategy_result_fail_flags = [
     str(item).strip()
     for item in (cash_strategy_second_pass_result.get("fail_flags") or [])
