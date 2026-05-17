@@ -7,8 +7,11 @@ runtime helpers once and then calls this module as the convergence phase owner.
 from __future__ import annotations
 
 import copy
+import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_assert_required_process_sequence,
@@ -652,7 +655,26 @@ def _run_unified_post_grid_system_run(
     process_step_key: str = "payroll_headcount_schedule",
   ) -> None:
     nonlocal final_model_input_json, final_finmo_json
+    # iter 19 Stage 3 (F6-Pinnacle) — when the caller did not provide a
+    # payroll_headcount payload, this branch is a legitimate skip
+    # (businesses with no employees, repair flows that pass payroll
+    # through unchanged). Per doctrine.md §7 anti-pattern "silent
+    # fall-through", the skip is logged as a structured trace event so
+    # downstream surfaces can distinguish "intentionally no payroll"
+    # from "payload dropped en route". The pre-cash gate's defensive
+    # check (_assert_pre_cash_gate_contract_levers_written in
+    # post_intake_solver/orchestrator.py) raises the specific
+    # diagnostic when the payload existed upstream but the lever did
+    # not get written.
     if not isinstance(final_payroll_headcount_payload, dict) or not final_payroll_headcount_payload:
+      _logger.info(
+        "convergence_apply_payroll_authority_skipped: "
+        "payroll_headcount payload is empty; treating as no-payroll "
+        "business. If payroll was authored upstream, the pre-cash "
+        "gate's lever-written assertion will surface the bug. "
+        "step_key=%s",
+        process_step_key,
+      )
       return
     from client_intake_and_finmo.finmo_bridge import (  # type: ignore
       apply_derived_driver_policies_to_model_input,

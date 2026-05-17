@@ -179,6 +179,87 @@ def _decide_handler_scope_from_failing_metrics(failing_metrics: List[Dict[str, A
   return HandlerScope.PNL_PATH if has_pnl else HandlerScope.BS_ONLY_PATH
 
 
+# iter 19 Stage 3 (F6-Pinnacle) — pre-gate sanity check.
+#
+# The motivating case from iter 18: pre-cash gate's stage-ramp
+# profitability check listed `expenses::Payroll` as a primary_lever.
+# The payroll_headcount payload had positive quarter_totals but the
+# model_input's expenses::Payroll values were all zero (the upstream
+# writeback was skipped). The gate handler does not own the payroll
+# lever, so handler invocation reported "unfixed_after_handler" — a
+# misleading diagnostic that blamed the handler instead of the
+# upstream contract owner.
+#
+# Per doctrine.md §3 Pattern 3 ("Diagnostic blames the wrong layer"):
+# this helper asserts that, when a contract has authored values, the
+# matching model_input lever is non-zero before the gate runs. On
+# violation it raises a specific diagnostic naming the upstream step
+# that was skipped, not the handler that can't fix what it doesn't
+# own.
+
+_PAYROLL_LEVER_ID: str = "expenses::Payroll"
+
+
+def _assert_pre_cash_gate_contract_levers_written(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  payroll_headcount: Optional[Dict[str, Any]],
+) -> None:
+  schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
+  quarter_totals = schedule.get("quarter_totals") if isinstance(schedule, dict) else None
+  if not isinstance(quarter_totals, list) or not quarter_totals:
+    return  # no contract authored payroll; nothing to assert
+  schedule_quarters_with_payroll = sum(
+    1 for item in quarter_totals
+    if isinstance(item, dict) and float(_safe_float(item.get("payroll")) or 0.0) > 0.0
+  )
+  if schedule_quarters_with_payroll <= 0:
+    return  # contract authored zero payroll across the horizon; lever zero is correct
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  expense_rows = [
+    row for row in (sections.get("expenses") or [])
+    if isinstance(row, dict) and str(row.get("label") or "").strip() == "Payroll"
+  ]
+  if not expense_rows:
+    return  # different problem; let downstream surface it
+  payroll_row = expense_rows[0]
+  values = list(payroll_row.get("values") or [])
+  # values may include a stub-0 slot; live quarters are the trailing
+  # positions. Treat the full series as the lever's writeback signal.
+  live_nonzero = sum(1 for v in values if abs(float(_safe_float(v) or 0.0)) > 0.0)
+  if live_nonzero > 0:
+    return  # lever is written; gate can proceed
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+  )
+  raise PostIntakePreconditionFailed(
+    operation="payroll_lever_not_applied_before_gate",
+    pipeline_stage="post_intake_pre_cash_gpt_authorable_gate",
+    expected=(
+      "model_input.sections.expenses::Payroll has non-zero values for "
+      "quarters where payroll_headcount.quarter_totals.payroll > 0."
+    ),
+    actual=(
+      "All Payroll lever values are zero despite the payroll_headcount "
+      f"contract authoring positive totals across {schedule_quarters_with_payroll} quarter(s)."
+    ),
+    details={
+      "upstream_skipped_step": "apply_payroll_headcount_payload_to_model_input",
+      "upstream_contract_owner": "payroll_headcount_schedule",
+      "remediation": (
+        "Trace payroll_headcount_schedule construction and orchestration "
+        "to identify where the writeback was dropped. The pre-cash gate "
+        "handler does NOT have payroll lever authority and cannot fix "
+        "this; the upstream writeback must run."
+      ),
+      "doctrine_reference": "docs/architecture/doctrine.md §3 Pattern 3",
+      "schedule_quarters_with_payroll": schedule_quarters_with_payroll,
+      "live_value_count": len(values),
+    },
+  )
+
+
 def _evaluate_gpt_authorable_pre_cash_checks(
   *,
   stage_ramp_contract: Optional[Dict[str, Any]],
@@ -2019,6 +2100,23 @@ def _run_post_cascade_completion(
         build_python_finmo_json,
       )
       return build_python_finmo_json(model_input_json=copy.deepcopy(mi or {}))
+
+    # iter 19 Stage 3 (F6-Pinnacle) — defensive pre-gate sanity check.
+    # Before the GPT-authorable pre-cash gate runs, assert that any
+    # contract-derived lever the gate's checks reference is actually
+    # WRITTEN in model_input. The motivating case: the gate's stage-ramp
+    # profitability check has `expenses::Payroll` in primary_levers; if
+    # the payroll_headcount has positive quarter_totals but
+    # model_input expenses::Payroll values are all zero, the writeback
+    # was skipped upstream. The generic "unfixed_after_handler"
+    # diagnostic that the cascade would raise is misleading — the
+    # handler does not have payroll lever authority (F6 pattern from
+    # iter 18 investigation). Instead raise a specific diagnostic
+    # naming the upstream contract owner.
+    _assert_pre_cash_gate_contract_levers_written(
+      model_input_json=final_model_input_json or {},
+      payroll_headcount=payroll_headcount or {},
+    )
 
     gate_violations, gate_scope = _evaluate_gpt_authorable_pre_cash_checks(
       stage_ramp_contract=stage_ramp_contract or {},
