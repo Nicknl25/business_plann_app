@@ -2460,20 +2460,24 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_tier", "wage_positioning_tier", "enum", validation_kind="enum", enum_values=["floor", "market", "premium", "specialized"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one wage positioning tier from post_intake_headcount_policy_lookup. OEWS is the wage floor; GPT must also provide the exact wage_positioning_multiplier inside this tier's table-backed bounds."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_multiplier", "wage_positioning_multiplier", "number", min_value=1.0, max_value=3.0, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment wage multiplier applied to OEWS wages. Must be inside post_intake_headcount_policy_lookup.wage_positioning_multiplier bounds for the selected wage_positioning_tier. Python applies this exact multiplier; Python does not choose a default."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_units_per_supporting_fte", "capacity_units_per_supporting_fte", "number", min_value=0.0001, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-specific productivity judgment: how many structural capacity units one supporting FTE can support per quarter. Python multiplies this by payroll FTE to derive supported Capacity. Python does not reject it using fake universal capacity-per-FTE reasonableness bounds. Do not use revenue-per-employee."),
-  # Module 3 v3 Task 3.3 — target_payroll_percent_of_revenue is NAICS-bound.
-  # The mapping outer envelope (0.01-0.90) covers all labor-intensity
-  # classes; NAICS narrows to the industry-typical band. Crucially, this
-  # remains a REASONABLENESS TARGET only — Python does NOT clip payroll to
-  # match revenue (Golden Rule preservation). The realism gate at finalize
-  # checks the produced payroll/revenue ratio independently.
+  # iter 19 Stage 2 (F2/F3) — tightened static envelope from (0.01, 0.90)
+  # to (0.06, 0.80) per doctrine.md §3 Pattern 3 ("specific diagnostics
+  # over generic ones"): the new envelope is the union of the tier
+  # bounds in post_intake_headcount_policy_lookup.payroll_revenue_sanity_
+  # bounds_json (low=[0.06,0.45] up through expert=[0.18,0.80]). NAICS
+  # still narrows within. Tier-specific bounds are applied via the
+  # allOf/if-then augmentation at the contract root schema layer (see
+  # _augment_root_schema_for_contract). A strict-mode parser now
+  # rejects 0.045 (the 10×-shifted scale error from the 27-draft sweep)
+  # because 0.045 < 0.06.
   _gpt_contract_row(
     "payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp",
-    min_value=0.01, max_value=0.90,
+    min_value=0.06, max_value=0.80,
     naics_baseline_metric_key="payroll_percent_of_revenue",
     naics_baseline_band_kind="min_target_max",
     normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math or force FTE. Python uses it as reasonableness context for GPT's own contract assumptions.",
+    prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. Express as a decimal in [0.06, 0.80] (e.g., 0.45 means 45 percent of revenue, NOT 45 or 0.045). The selected labor_intensity_class narrows this further via the tier bounds in post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json. This does not drive payroll math or force FTE.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
@@ -2929,6 +2933,66 @@ def _json_list(value: Any) -> List[str]:
 
 def _json_dumps_list(value: Any) -> str:
   return json.dumps(_json_list(value), ensure_ascii=True, separators=(",", ":"))
+
+
+# iter 19 Stage 2 (F2/F3) — tier-conditional bounds for
+# payroll_headcount_schedule.target_payroll_percent_of_revenue.
+#
+# These mirror the policy table's payroll_revenue_sanity_bounds_json
+# (post_intake_headcount_policy_lookup). The mirror is intentional: the
+# JSON schema is the first line of defense (strict-mode parser rejects
+# bad responses in the same turn); the policy table is the runtime
+# floor (validated post-parse in
+# post_intake_headcount/lookup.py:1044). Both must agree.
+# Per doctrine.md §4 Flavor 4 (invariant check): if these ever
+# diverge, the strict-parser path produces the same diagnostic as the
+# runtime validator and the divergence becomes visible.
+_PAYROLL_INTENSITY_TIER_BOUNDS: Dict[str, Tuple[float, float]] = {
+  "low": (0.06, 0.45),
+  "medium": (0.10, 0.55),
+  "high": (0.16, 0.70),
+  "expert": (0.18, 0.80),
+}
+
+
+def _augment_root_schema_for_contract(
+  *,
+  contract_name: str,
+  schema: Dict[str, Any],
+) -> Dict[str, Any]:
+  """iter 19 Stage 2 (F2/F3) — contract-specific root-schema augmentation.
+
+  Injects allOf/if-then conditionals when the contract benefits from
+  cross-field constraints that ``_field_schema`` (per-field) cannot
+  express. Today this only fires for ``payroll_headcount_schedule``
+  to bind ``target_payroll_percent_of_revenue`` to the
+  ``labor_intensity_class`` tier.
+  """
+  if contract_name != "payroll_headcount_schedule":
+    return schema
+  if not isinstance(schema, dict) or schema.get("type") != "object":
+    return schema
+  properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else None
+  if not properties or "labor_intensity_class" not in properties or "target_payroll_percent_of_revenue" not in properties:
+    return schema
+  all_of_branches: List[Dict[str, Any]] = list(schema.get("allOf") or [])
+  for tier, (min_pct, max_pct) in _PAYROLL_INTENSITY_TIER_BOUNDS.items():
+    all_of_branches.append({
+      "if": {
+        "properties": {"labor_intensity_class": {"const": tier}},
+        "required": ["labor_intensity_class"],
+      },
+      "then": {
+        "properties": {
+          "target_payroll_percent_of_revenue": {
+            "minimum": float(min_pct),
+            "maximum": float(max_pct),
+          }
+        }
+      },
+    })
+  schema["allOf"] = all_of_branches
+  return schema
 
 
 def stage_planning_ramp_policy(
@@ -7457,12 +7521,21 @@ class PostIntakeGptContractLookup:
     array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     business_naics: Optional[str] = None,
   ) -> Dict[str, Any]:
-    return self.object_schema_for_grid(
+    schema = self.object_schema_for_grid(
       contract_name=contract_name,
       grid_name="root",
       field_schema_overrides=field_schema_overrides,
       array_item_schema_overrides=array_item_schema_overrides,
       business_naics=business_naics,
+    )
+    # iter 19 Stage 2 (F2/F3) — apply contract-specific augmentations
+    # to the root schema. Currently injects tier-conditional bounds for
+    # `payroll_headcount_schedule.target_payroll_percent_of_revenue`
+    # so the strict-mode parser rejects the 10×-shifted scale error
+    # before the response leaves GPT's turn (doctrine.md §3 Pattern 3).
+    return _augment_root_schema_for_contract(
+      contract_name=_clean_text(contract_name).lower(),
+      schema=schema,
     )
 
   def prompt_field_spec(self, contract_name: Any) -> Dict[str, Any]:

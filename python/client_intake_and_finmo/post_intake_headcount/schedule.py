@@ -2228,6 +2228,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "then revenue will be constrained by that supported Capacity. "
         "For title continuity, Qn starting_fte must equal that same title's Q(n-1) ending_fte; increases belong in hires, not starting_fte jumps. "
         "Your business decision is the exact OEWS title set and each title's Q1-Q20 starting_fte, hires, and ending_fte schedule. "
+        "target_payroll_percent_of_revenue is a decimal in [min_pct, max_pct] for the chosen labor_intensity_class (e.g., for medium intensity the band is 0.10..0.55). Example: 0.45 means 45 percent of revenue. Do NOT emit 45 (which would be 4500 percent) and do NOT emit 0.045 (which would be 4.5 percent). "
         "target_payroll_percent_of_revenue is context, but payroll_revenue_sanity_bounds from the headcount policy table are a real feasibility check; do not staff by clipping payroll to a percentage. "
         "Payroll FTE creates supported capacity, and supported capacity constrains revenue. "
         "If a prior failure is provided, fix that exact table-backed validation failure."

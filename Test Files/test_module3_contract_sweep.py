@@ -135,11 +135,11 @@ def test_payroll_target_payroll_pct_naics_bound() -> None:
   field = schema["properties"]["target_payroll_percent_of_revenue"]
   band = field.get("_naics_band") or {}
   assert band.get("metric_key") == "payroll_percent_of_revenue", band
-  # Mapping outer envelope is 0.01-0.90; NAICS narrows. Result must be
-  # inside the envelope and tighter.
-  assert 0.01 <= float(field["minimum"])
-  assert float(field["maximum"]) <= 0.90
-  assert float(field["maximum"]) - float(field["minimum"]) < 0.89, (
+  # iter 19 Stage 2 — mapping outer envelope tightened to [0.06, 0.80]
+  # (union of tier sanity bounds). NAICS narrows within.
+  assert 0.06 <= float(field["minimum"])
+  assert float(field["maximum"]) <= 0.80
+  assert float(field["maximum"]) - float(field["minimum"]) < 0.74, (
     f"NAICS should narrow the payroll band: {field}"
   )
 
