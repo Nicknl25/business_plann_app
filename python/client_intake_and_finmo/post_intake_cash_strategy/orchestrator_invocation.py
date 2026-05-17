@@ -437,10 +437,35 @@ def run_mode_based_cash_strategy(
   keep_changes = bool(cash_post_validation.get("keep_changes", True))
 
   # iter 19 Stage 4 correction — funding handler engagement.
-  # When post-pass detects cash_buffer_violations the Python proposer +
-  # second-pass plan could not resolve, escalate to the funding
-  # handler. The handler runs Python deterministic allocator first;
-  # GPT tool-calling session escalates only on residual.
+  # Phase 9 P3.20 Part 3 Stage 2 — trigger condition relaxed.
+  # Pre-Stage-2 the handler was invoked ONLY when
+  # `cash_buffer_violations_for_handler` was non-empty. That gate
+  # was wrong: the P3.19 Phase 3a FAIL run had keep_changes=False
+  # from a peripheral cash_contract_failure with empty buffer
+  # violations -- so the handler never engaged, the orchestrator
+  # reverted (pre-Stage-1) or kept the proposer outputs (post-
+  # Stage-1) but never gave the handler a chance to refine the
+  # state when other validators popped. The Part 2b memo
+  # confirmed this gap definitively.
+  #
+  # Stage 2 fix: engage the handler on ANY validator failure.
+  # `not keep_changes` is the canonical "ANY validator popped"
+  # signal -- it captures buffer violations OR distribution
+  # violations OR contract failures OR hard rule failures, all
+  # in one boolean. The handler's authority is the five funding
+  # levers (Owner's Capital, Other Equity, Debt Issuance/Repayment,
+  # Distributions); for non-buffer validator failures the handler
+  # may or may not have a lever that fixes the specific issue,
+  # but it gets a chance to react rather than being skipped
+  # entirely. Future stages can broaden the handler's input
+  # payload to include the other violation categories so it has
+  # full visibility (currently the handler's
+  # engage_funding_handler_on_violations API takes only
+  # cash_buffer_violations as the violations input).
+  #
+  # The doctrine principle (per Part 3 directive): severity does
+  # not matter -- hard rule vs soft rule does not matter. If the
+  # validator pops, the handler runs.
   cash_funding_handler_result: Optional[Dict[str, Any]] = None
   post_handler_post_validation: Optional[Dict[str, Any]] = None
   cash_buffer_violations_for_handler = list(
@@ -448,7 +473,6 @@ def run_mode_based_cash_strategy(
   )
   if (
     not keep_changes
-    and cash_buffer_violations_for_handler
     and isinstance(cash_strategy_second_pass_result, dict)
   ):
     from client_intake_and_finmo.post_intake_funding_handler import (  # type: ignore
