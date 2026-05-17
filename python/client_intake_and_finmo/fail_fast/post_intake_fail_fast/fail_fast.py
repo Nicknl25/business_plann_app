@@ -1500,6 +1500,99 @@ def assert_post_intake_finmo_statement_integrity(
   )
 
 
+# Phase 9 P3.17 — accounting equation invariant check. The
+# fundamental accounting equation (Total Assets = Total Liabilities
+# + Total Equity) is the most basic invariant of double-entry
+# bookkeeping; it MUST hold at every live quarter. Pre-iter, only
+# the stored totals were compared (see
+# assert_post_intake_finmo_statement_integrity at the "balance_sheet"
+# math check above). That stored-total comparison passes when both
+# sides have the SAME drift relative to their component sums — e.g.
+# at Q0 in the P3.16b lease-injected ExpressLogix run, stored
+# total_assets and total_liabilities both lost the $54K capital
+# lease entry, so stored A and stored L+E matched at $1,150K
+# despite the component sum being $1,204K on both sides. This
+# component-level check detects when the displayed BS row values
+# do not sum to a balanced equation, catching the case where a
+# downstream stub or rollup loses a row.
+ACCOUNTING_EQUATION_TOLERANCE = 1  # whole-dollar tolerance per iter P3.17 spec
+
+ACCOUNTING_EQUATION_ASSET_FIELDS = (
+  "cash",
+  "accounts_receivable",
+  "inventory",
+  "prepaid_expenses",
+  "ppe",
+  "right_of_use_asset",
+)
+
+ACCOUNTING_EQUATION_LIABILITY_FIELDS = (
+  "accounts_payable",
+  "short_term_debt",
+  "deferred_revenue",
+  "long_term_debt",
+  "capital_lease_obligation",
+)
+
+ACCOUNTING_EQUATION_EQUITY_FIELDS = (
+  "owners_capital",
+  "retained_earnings",
+  "other_equity",
+)
+
+
+def assert_post_intake_accounting_equation(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+  contract_name: str = "unified_convergence_decision",
+  tolerance: int = ACCOUNTING_EQUATION_TOLERANCE,
+) -> None:
+  """Hard fail-fast: A == L + E at every live quarter Q1-Q20.
+
+  Type 2 machinery fail-fast per doctrine §5b: catches when the
+  post-intake machinery produces internally inconsistent balance
+  sheet output. There is no recovery; no handler can "fix" a broken
+  accounting equation by retrying. If it fires, an upstream
+  computation has a bug that must be fixed at source.
+
+  The check runs unconditionally. Healthy runs pass silently.
+  Component-level sum (not stored totals) — see iter P3.17 §"PHASE 2"
+  for the rationale.
+  """
+  horizon = _expected_horizon(contract_name)
+  live_rows = _live_quarter_rows(finmo_json)
+  violations: List[Dict[str, Any]] = []
+  for row in live_rows:
+    quarter = int(_safe_float(row.get("quarter_index")) or 0)
+    if quarter < 1 or quarter > horizon:
+      continue
+    assets = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_ASSET_FIELDS)
+    liabilities = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_LIABILITY_FIELDS)
+    equity = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_EQUITY_FIELDS)
+    diff = assets - (liabilities + equity)
+    if abs(diff) > float(tolerance):
+      violations.append(
+        {
+          "quarter_index": quarter,
+          "total_assets_component_sum": round(assets, 6),
+          "total_liabilities_component_sum": round(liabilities, 6),
+          "total_equity_component_sum": round(equity, 6),
+          "total_liabilities_and_equity_component_sum": round(liabilities + equity, 6),
+          "diff": round(diff, 6),
+          "reason": "accounting_equation_violation",
+        }
+      )
+  if violations:
+    largest = max(violations, key=lambda v: abs(v["diff"]))
+    post_intake_fail_fast_raise(
+      "accounting_equation_violation",
+      f"Accounting equation A != L+E at {len(violations)} quarter(s); largest |diff|={abs(largest['diff']):.2f} at Q{largest['quarter_index']}",
+      stage=stage,
+      details={"violations": violations[:20], "largest": largest, "tolerance": int(tolerance)},
+    )
+
+
 def assert_post_intake_schedule_markers_integrity(
   *,
   model_input_json: Optional[Dict[str, Any]],
@@ -1846,6 +1939,16 @@ def assert_post_intake_global_invariants(
       details={"exception": str(exc)},
     )
   assert_post_intake_finmo_statement_integrity(
+    finmo_json=finmo_json,
+    stage=stage,
+    contract_name=contract_name,
+  )
+  # Phase 9 P3.17 — accounting equation invariant (component-level).
+  # Runs after the FINMO statement integrity check; catches drift
+  # the stored-totals comparison can miss (e.g. when stored A and
+  # stored L+E share the same omission and appear to balance while
+  # the displayed row values do not).
+  assert_post_intake_accounting_equation(
     finmo_json=finmo_json,
     stage=stage,
     contract_name=contract_name,
