@@ -655,27 +655,24 @@ def _run_unified_post_grid_system_run(
     process_step_key: str = "payroll_headcount_schedule",
   ) -> None:
     nonlocal final_model_input_json, final_finmo_json
-    # iter 19 Stage 3 (F6-Pinnacle) — when the caller did not provide a
-    # payroll_headcount payload, this branch is a legitimate skip
-    # (businesses with no employees, repair flows that pass payroll
-    # through unchanged). Per doctrine.md §7 anti-pattern "silent
-    # fall-through", the skip is logged as a structured trace event so
-    # downstream surfaces can distinguish "intentionally no payroll"
-    # from "payload dropped en route". The pre-cash gate's defensive
-    # check (_assert_pre_cash_gate_contract_levers_written in
-    # post_intake_solver/orchestrator.py) raises the specific
-    # diagnostic when the payload existed upstream but the lever did
-    # not get written.
-    if not isinstance(final_payroll_headcount_payload, dict) or not final_payroll_headcount_payload:
-      _logger.info(
-        "convergence_apply_payroll_authority_skipped: "
-        "payroll_headcount payload is empty; treating as no-payroll "
-        "business. If payroll was authored upstream, the pre-cash "
-        "gate's lever-written assertion will surface the bug. "
-        "step_key=%s",
-        process_step_key,
-      )
-      return
+    # iter 19 Stage 3 correction — payroll writeback is UNCONDITIONAL
+    # per the directive's prevention half. The Stage 3 silent-skip was
+    # converted to a structured log, but skipping still left Pinnacle-
+    # class bugs latent: any flow that built payroll upstream but
+    # presented an empty payload here would silently lose the
+    # writeback. The unconditional approach is safe because both
+    # apply_payroll_supported_capacity_to_model_input and
+    # apply_payroll_headcount_payload_to_model_input now no-op on
+    # empty payload (Stage 3 correction in
+    # post_intake_headcount/schedule.py). No-payroll businesses
+    # produce a no-op writeback (Payroll lever stays zero); real-
+    # payroll businesses always reach the writeback path.
+    #
+    # The pre-cash gate's
+    # _assert_pre_cash_gate_contract_levers_written stays in place as
+    # belt-and-suspenders: if any future change reintroduces a skip
+    # path between authoring and writeback, the gate's diagnostic
+    # names the upstream owner (doctrine.md §3 Pattern 3).
     from client_intake_and_finmo.finmo_bridge import (  # type: ignore
       apply_derived_driver_policies_to_model_input,
       build_python_finmo_json,

@@ -2509,10 +2509,19 @@ def apply_payroll_headcount_payload_to_model_input(
   next_payload = deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
   schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
   if not schedule:
-    _payroll_fail_fast(
-      "payroll_headcount_schedule_missing_at_application",
-      "apply_payroll_headcount_payload_to_model_input requires the table-backed payroll_headcount payload.",
-      stage="payroll_headcount_model_input_application",
+    # iter 19 Stage 3 correction — when no payroll schedule was
+    # authored upstream (truly no-payroll business), the writeback is
+    # a no-op. The Payroll expense lever in model_input is already
+    # zero by default; writing zeros to a zero lever produces no
+    # change. The pre-cash gate's
+    # _assert_pre_cash_gate_contract_levers_written (added in Stage 3)
+    # catches the bug case where a schedule WAS authored upstream but
+    # the writeback was skipped; the diagnostic surfaces there, not
+    # here. Logged at INFO for orchestration traceability.
+    import logging as _logging
+    _logging.getLogger(__name__).info(
+      "apply_payroll_headcount_payload_to_model_input no-op: empty "
+      "payload (no payroll contract authored upstream)."
     )
     return next_payload
   validation_errors = validate_payroll_headcount_payload(schedule)
@@ -2632,11 +2641,16 @@ def apply_payroll_supported_capacity_to_model_input(
   next_payload = deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
   schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
   if not schedule:
-    _payroll_fail_fast(
-      "payroll_supported_capacity_schedule_missing",
-      "Payroll-supported capacity requires a payroll_headcount schedule before revenue capacity can be accepted.",
-      stage="payroll_supported_capacity_application",
+    # iter 19 Stage 3 correction — no payroll schedule authored = no
+    # payroll-supported capacity envelope to derive. Revenue capacity
+    # rows remain at their existing values. See sibling no-op in
+    # apply_payroll_headcount_payload_to_model_input above.
+    import logging as _logging
+    _logging.getLogger(__name__).info(
+      "apply_payroll_supported_capacity_to_model_input no-op: empty "
+      "payload (no payroll contract authored upstream)."
     )
+    return next_payload
   productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
   if productivity <= 0.0:
     _payroll_fail_fast(

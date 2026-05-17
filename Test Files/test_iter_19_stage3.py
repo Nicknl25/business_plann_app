@@ -206,20 +206,25 @@ def test_gate_helper_diagnostic_message_names_upstream_owner() -> None:
 
 
 def test_convergence_runner_imports_logger() -> None:
-  # The silent fall-through was replaced with a structured logger.info
-  # call; the module must therefore import logging.
+  # _logger remains in use elsewhere in the runner; module-level
+  # import survives the Stage 3 correction.
   assert hasattr(_conv_runner, "_logger")
   assert isinstance(_conv_runner._logger, logging.Logger)
 
 
-def test_convergence_runner_skip_message_is_traceable() -> None:
-  # Source-inspect the runner to confirm the new log message that
-  # replaced the silent return is present and references the pre-cash
-  # gate's lever-written assertion.
+def test_convergence_runner_payroll_writeback_is_unconditional() -> None:
+  # iter 19 Stage 3 correction — the legacy conditional skip on
+  # empty payroll_headcount payload was removed. Both writeback
+  # helpers (apply_payroll_supported_capacity_to_model_input and
+  # apply_payroll_headcount_payload_to_model_input) now no-op on
+  # empty payload, so the runner can call them unconditionally.
   src = open(_conv_runner.__file__, encoding="utf-8").read()
-  assert "convergence_apply_payroll_authority_skipped" in src
-  assert "pre-cash gate" in src.lower() or "pre_cash" in src.lower() or "pre cash" in src.lower()
-  assert "lever-written" in src.lower() or "lever_written" in src.lower() or "lever written" in src.lower()
+  # The old skip marker must be gone.
+  assert "convergence_apply_payroll_authority_skipped" not in src
+  # The new unconditional comment must be present and reference the
+  # writeback functions' no-op behavior.
+  assert "payroll writeback is UNCONDITIONAL" in src
+  assert "no-op on" in src and "empty payload" in src
 
 
 # --------------------------------------------------------------------------
@@ -256,7 +261,7 @@ def main() -> int:
     ("gate_helper_raises_specific_diagnostic", test_gate_helper_raises_specific_diagnostic_when_lever_zero),
     ("gate_helper_diagnostic_names_upstream", test_gate_helper_diagnostic_message_names_upstream_owner),
     ("convergence_runner_imports_logger", test_convergence_runner_imports_logger),
-    ("convergence_runner_skip_traceable", test_convergence_runner_skip_message_is_traceable),
+    ("convergence_runner_payroll_writeback_unconditional", test_convergence_runner_payroll_writeback_is_unconditional),
     ("orchestrator_calls_pre_gate_helper_first", test_orchestrator_calls_pre_gate_helper_before_evaluating_checks),
   ]
   for name, fn in tests:
