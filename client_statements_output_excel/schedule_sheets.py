@@ -93,12 +93,14 @@ def _add_annual_ratio_formulas(
 
 
 def _stage_ramp_values(data: DraftWorkbookData, field: str) -> List[float]:
+  # Contract carries short-form keys (q, rev_target, max_util, ...); see
+  # post_intake_contracts/runner.py:710 ramp_field_aliases for the full map.
   values = [0.0 for _ in range(PERIOD_COUNT)]
   ramp_rows = data.stage_ramp_contract.get("quarter_ramp_grid") if isinstance(data.stage_ramp_contract, dict) else []
   for item in ramp_rows or []:
     if not isinstance(item, dict):
       continue
-    quarter_index = int(number(item.get("quarter_index")))
+    quarter_index = int(number(item.get("q")))
     if 1 <= quarter_index < PERIOD_COUNT:
       values[quarter_index] = number(item.get(field))
   return values
@@ -205,17 +207,17 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
   row += 1
 
   ramp_definitions = [
-    ("Stage Ramp Revenue QoQ Target", "revenue_qoq_target", PERCENT_FORMAT),
-    ("Stage Ramp Revenue QoQ Max", "revenue_qoq_max", PERCENT_FORMAT),
-    ("Stage Ramp Revenue QoQ Spike Max", "revenue_qoq_spike_max", PERCENT_FORMAT),
-    ("Stage Ramp Utilization Cap", "utilization_cap", PERCENT_FORMAT),
-    ("Stage Ramp COGS % Revenue Target", "cogs_percent_of_revenue_target", PERCENT_FORMAT),
-    ("Stage Ramp COGS % Revenue Max", "cogs_percent_of_revenue_max", PERCENT_FORMAT),
-    ("Stage Ramp Marketing % Revenue Max", "marketing_percent_of_revenue_max", PERCENT_FORMAT),
-    ("Stage Ramp R&D % Revenue Max", "rd_percent_of_revenue_max", PERCENT_FORMAT),
-    ("Stage Ramp G&A % Revenue Max", "g_and_a_percent_of_revenue_max", PERCENT_FORMAT),
-    ("Stage Ramp Lease % Revenue Max", "lease_percent_of_revenue_max", PERCENT_FORMAT),
-    ("Stage Ramp Net Income Margin Floor", "net_income_margin_floor", PERCENT_FORMAT),
+    ("Stage Ramp Revenue QoQ Target", "rev_target", PERCENT_FORMAT),
+    ("Stage Ramp Revenue QoQ Max", "rev_max", PERCENT_FORMAT),
+    ("Stage Ramp Revenue QoQ Spike Max", "rev_spike_max", PERCENT_FORMAT),
+    ("Stage Ramp Utilization Cap", "max_util", PERCENT_FORMAT),
+    ("Stage Ramp COGS % Revenue Target", "cogs_target", PERCENT_FORMAT),
+    ("Stage Ramp COGS % Revenue Max", "cogs_max", PERCENT_FORMAT),
+    ("Stage Ramp Marketing % Revenue Max", "marketing_max", PERCENT_FORMAT),
+    ("Stage Ramp R&D % Revenue Max", "rd_max", PERCENT_FORMAT),
+    ("Stage Ramp G&A % Revenue Max", "ga_max", PERCENT_FORMAT),
+    ("Stage Ramp Lease % Revenue Max", "lease_max", PERCENT_FORMAT),
+    ("Stage Ramp Net Income Margin Floor", "ni_floor", PERCENT_FORMAT),
   ]
   for label, field, fmt in ramp_definitions:
     write_values_row(
