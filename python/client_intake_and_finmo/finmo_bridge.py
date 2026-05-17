@@ -1170,8 +1170,14 @@ def _default_capex_depreciation_policy(
   forecast_ppe = float(max(0.0, _safe_float(forecast_starting_ppe) or 0.0))
   normalized_maintenance_rate = _safe_ratio(maintenance_rate)
   if normalized_maintenance_rate is None or normalized_maintenance_rate < 0.02 or normalized_maintenance_rate > 0.15:
+    # iter 19 Stage 1 (F1) — maintenance_rate is now Python-derived
+    # from the NAICS cohort with a conservative-default fallback (see
+    # _derive_maintenance_capex_percent_from_naics). Reaching this
+    # branch indicates a downstream data-handling bug (contract
+    # payload dropped or corrupted en route to FINMO), not a missing
+    # GPT call.
     raise ValueError(
-      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+      "capex_depreciation_maintenance_rate_invalid: Python-derived annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
     )
   client_reported_ppe = float(max(0.0, _safe_float(financials.get("initial_assets")) or 0.0))
   normalized_overrides = {
@@ -1183,7 +1189,7 @@ def _default_capex_depreciation_policy(
     "policy_version": _CAPEX_DEPRECIATION_POLICY_VERSION,
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
     "maintenance_rate": float(normalized_maintenance_rate),
-    "maintenance_rate_source": "gpt_maintenance_capex_percent",
+    "maintenance_rate_source": "naics_cascade_with_conservative_default",
     "useful_life_years": float(_CAPEX_USEFUL_LIFE_YEARS),
     "capacity_utilization_ceiling": float(_CAPACITY_UTILIZATION_CEILING),
     "capacity_post_expansion_utilization": float(_CAPACITY_POST_EXPANSION_UTILIZATION),
@@ -1229,8 +1235,11 @@ def _normalized_capex_depreciation_policy(
   }
   maintenance_rate = _safe_ratio(raw_policy.get("maintenance_rate"))
   if maintenance_rate is None or maintenance_rate < 0.02 or maintenance_rate > 0.15:
+    # iter 19 Stage 1 (F1) — see _default_capex_depreciation_policy
+    # for the doctrine pointer; defensive guard for downstream data
+    # corruption only.
     raise ValueError(
-      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+      "capex_depreciation_maintenance_rate_invalid: Python-derived annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
     )
   return {
     "policy_version": str(raw_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip() or _CAPEX_DEPRECIATION_POLICY_VERSION,
@@ -1590,8 +1599,10 @@ def _derived_capex_and_depreciation_runtime(
   capital_per_capacity_unit = round(initial_assets / initial_capacity, 6) if initial_assets > 0.0 else 0.0
   maintenance_rate = float(_safe_ratio(policy.get("maintenance_rate")) or 0.0)
   if maintenance_rate < 0.02 or maintenance_rate > 0.15:
+    # iter 19 Stage 1 (F1) — defensive guard; see
+    # _default_capex_depreciation_policy.
     raise ValueError(
-      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+      "capex_depreciation_maintenance_rate_invalid: Python-derived annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
     )
   useful_life_years = float(policy.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS)
   if useful_life_years <= 0.0:

@@ -9,6 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_driver_formula_contract_rows,
 )
+# iter 19 Stage 1 (F7) — canonical mapping-formula helpers; single
+# source of truth per doctrine.md §4 Flavor 1.
+from financial_model_engine.finmo_model import (  # type: ignore
+  MAPPING_FORMULA_INT_TOLERANCE,
+  compute_model_input_value,
+  compute_revenue_times_ratio,
+  compute_working_capital_days_formula,
+)
 
 
 HORIZON = 20
@@ -537,9 +545,9 @@ def balance_sheet_driver_finalize_errors(
             float(_safe_float(finmo_row.get(field)) or 0.0)
             for field in ("marketing", "research_and_development", "lease_rent", "payroll", "general_and_administrative")
           )
-        expected = int(round((value / days_in_quarter) * base))
-        actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
-        if expected != actual:
+        expected = compute_working_capital_days_formula(value, days_in_quarter, base)
+        actual = compute_model_input_value(_safe_float(finmo_row.get(target_field)) or 0.0)
+        if abs(expected - actual) > MAPPING_FORMULA_INT_TOLERANCE:
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
             f"field={target_field} actual={actual} expected={expected}"
@@ -547,9 +555,9 @@ def balance_sheet_driver_finalize_errors(
           break
       elif validation_key == "finmo_equals_revenue_times_model_input_ratio":
         target = "prepaid_expenses" if "Prepaid" in lever_id else "deferred_revenue"
-        expected = int(round(float(_safe_float(finmo_row.get("revenue")) or 0.0) * value))
-        actual = int(round(float(_safe_float(finmo_row.get(target)) or 0.0)))
-        if expected != actual:
+        expected = compute_revenue_times_ratio(_safe_float(finmo_row.get("revenue")) or 0.0, value)
+        actual = compute_model_input_value(_safe_float(finmo_row.get(target)) or 0.0)
+        if abs(expected - actual) > MAPPING_FORMULA_INT_TOLERANCE:
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
             f"field={target} actual={actual} expected={expected}"

@@ -14,6 +14,13 @@ from client_intake_and_finmo.fail_fast.common import (  # type: ignore
   fail_fast_raise,
   fail_fast_result,
 )
+# iter 19 Stage 1 (F7) — canonical mapping-formula helpers; single
+# source of truth per doctrine.md §4 Flavor 1.
+from financial_model_engine.finmo_model import (  # type: ignore
+  MAPPING_FORMULA_INT_TOLERANCE,
+  compute_model_input_value,
+  compute_revenue_times_ratio,
+)
 
 
 POST_INTAKE_FAIL_FAST_ENV = "POST_INTAKE_FAIL_FAST_ENABLED"
@@ -1118,9 +1125,9 @@ def assert_post_intake_mapping_formula_application_integrity(
         break
       if validation_key == "finmo_equals_revenue_times_model_input_ratio":
         revenue = float(_safe_float(finmo_row.get("revenue")) or 0.0)
-        actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
-        expected = int(round(revenue * value))
-        if actual != expected:
+        actual = compute_model_input_value(_safe_float(finmo_row.get(target_field)) or 0.0)
+        expected = compute_revenue_times_ratio(revenue, value)
+        if abs(actual - expected) > MAPPING_FORMULA_INT_TOLERANCE:
           violations.append(
             {
               "lever_id": lever_id,
@@ -1133,9 +1140,9 @@ def assert_post_intake_mapping_formula_application_integrity(
           )
           break
       elif validation_key == "finmo_equals_model_input_value":
-        actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
-        expected = int(round(value))
-        if actual != expected:
+        actual = compute_model_input_value(_safe_float(finmo_row.get(target_field)) or 0.0)
+        expected = compute_model_input_value(value)
+        if abs(actual - expected) > MAPPING_FORMULA_INT_TOLERANCE:
           violations.append(
             {
               "lever_id": lever_id,

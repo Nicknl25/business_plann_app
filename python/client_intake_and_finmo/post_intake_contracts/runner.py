@@ -1056,6 +1056,19 @@ def _payroll_people_staffing_context(people_json: Optional[Dict[str, Any]]) -> D
   }
 
 
+# iter 19 Stage 1 (F1) — conservative fallback per doctrine.md §2.
+# When the NAICS cascade has no coverage for the business, fall back to
+# this value instead of raising. 0.05 (= 5% of PPE annually) is a
+# defensible mid-band default across light-industrial / professional-
+# services NAICS codes. The previous behavior (RuntimeError) failed two
+# of the 27-draft sweep cases (Anderson & Blake, CareFirst) on a
+# cohort-coverage miss that has no judgment content GPT could have
+# resolved.
+_MAINTENANCE_RATE_CONSERVATIVE_DEFAULT: float = 0.05
+_MAINTENANCE_RATE_MIN: float = 0.02
+_MAINTENANCE_RATE_MAX: float = 0.15
+
+
 def _derive_maintenance_capex_percent_from_naics(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -1063,15 +1076,13 @@ def _derive_maintenance_capex_percent_from_naics(
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  """Module 5 Task 5.1 — replaces the legacy GPT call.
+  """Pure-Python maintenance_rate resolver. Per doctrine.md §3 Pattern 2
+  (Python proposes structure), GPT was dropped for this field in
+  Module 5 Task 5.1; iter 19 Stage 1 (F1) adds a conservative-default
+  fallback so cohort-coverage misses do not hard-fail the run.
 
-  The Module 1 NAICS resolver already supplies the industry-typical
-  maintenance capex percent. The Module 3 contract row already filters by
-  the same NAICS metric. The legacy GPT call did nothing the table cannot
-  do deterministically: it picked a value within a NAICS-bound range. This
-  function replaces it with a one-call resolver lookup, returning the same
-  payload shape the legacy call returned (with `decision_source = "naics_cascade"`
-  in place of `"gpt"`) so downstream consumers are unchanged.
+  Returns the same payload shape the legacy call returned (with
+  ``decision_source`` annotating which path produced the value).
   """
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
@@ -1080,52 +1091,60 @@ def _derive_maintenance_capex_percent_from_naics(
   business_naics_6 = "".join(
     ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit()
   )
-  if not business_naics_6:
-    raise RuntimeError(
-      "maintenance_capex_percent_naics_missing: ops_json.business_naics_6 is required to "
-      "derive the maintenance capex band from the post_intake_industry_baseline_lookup cascade."
-    )
 
-  from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
-    post_intake_industry_baseline_for_naics,
-  )
-  band = post_intake_industry_baseline_for_naics(
-    metric_key="maintenance_capex_percent_of_revenue",
-    naics_6=business_naics_6,
-  )
-  if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
-    raise RuntimeError(
-      f"maintenance_capex_percent_no_naics_coverage: naics_6={business_naics_6} cascade returned no_coverage"
+  band: Optional[Dict[str, Any]] = None
+  decision_source = "naics_cascade"
+  fallback_reason: Optional[str] = None
+
+  if not business_naics_6:
+    fallback_reason = "naics_missing"
+  else:
+    from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+      post_intake_industry_baseline_for_naics,
     )
-  target = band.get("benchmark_target")
-  if target is None:
-    target = band.get("benchmark_min") or band.get("benchmark_max")
-  if target is None:
-    raise RuntimeError(
-      f"maintenance_capex_percent_band_missing_target: naics_6={business_naics_6} band={band}"
+    band_candidate = post_intake_industry_baseline_for_naics(
+      metric_key="maintenance_capex_percent_of_revenue",
+      naics_6=business_naics_6,
     )
-  # The resolver returns ratios; convert to percentage points to match the
-  # legacy GPT call's `maintenance_capex_percent` units.
-  maintenance_capex_percent = round(float(target) * 100.0, 2)
-  if maintenance_capex_percent <= 0.0:
-    raise RuntimeError(
-      f"maintenance_capex_percent_naics_band_nonpositive: naics_6={business_naics_6} target={target}"
-    )
+    if not isinstance(band_candidate, dict) or band_candidate.get("trust_flag") == "no_coverage":
+      fallback_reason = "naics_no_coverage"
+    else:
+      band = band_candidate
+
+  if band is not None:
+    target = band.get("benchmark_target")
+    if target is None:
+      target = band.get("benchmark_min") or band.get("benchmark_max")
+    if target is None:
+      fallback_reason = "band_missing_target"
+    elif float(target) <= 0.0:
+      fallback_reason = "band_nonpositive"
+
+  if fallback_reason is not None:
+    target = _MAINTENANCE_RATE_CONSERVATIVE_DEFAULT
+    decision_source = "conservative_default"
+    band = band or {}
+
+  raw_rate = float(target)
+  clamped_rate = min(_MAINTENANCE_RATE_MAX, max(_MAINTENANCE_RATE_MIN, raw_rate))
+  maintenance_capex_percent = round(clamped_rate * 100.0, 2)
+
   return {
     "contract_version": "maintenance_capex_percent_decision_v2",
-    "decision_source": "naics_cascade",
+    "decision_source": decision_source,
     "starting_ppe": client_reported_ppe,
     "starting_ppe_source": "authoritative_client_balance_sheet",
     "maintenance_capex_percent": maintenance_capex_percent,
-    "maintenance_rate": round(float(target), 6),
+    "maintenance_rate": round(clamped_rate, 6),
+    "fallback_reason": fallback_reason,
     "naics_provenance": {
-      "metric_key": band.get("metric_key"),
-      "naics_code_used": band.get("naics_code_used"),
-      "naics_level_used": band.get("naics_level_used"),
-      "data_source": band.get("data_source"),
-      "confidence_tier": band.get("confidence_tier"),
-      "trust_flag": band.get("trust_flag"),
-      "sample_size": band.get("sample_size"),
+      "metric_key": band.get("metric_key") if isinstance(band, dict) else None,
+      "naics_code_used": band.get("naics_code_used") if isinstance(band, dict) else None,
+      "naics_level_used": band.get("naics_level_used") if isinstance(band, dict) else None,
+      "data_source": band.get("data_source") if isinstance(band, dict) else None,
+      "confidence_tier": band.get("confidence_tier") if isinstance(band, dict) else None,
+      "trust_flag": band.get("trust_flag") if isinstance(band, dict) else None,
+      "sample_size": band.get("sample_size") if isinstance(band, dict) else None,
     },
   }
 

@@ -141,19 +141,24 @@ def test_maintenance_capex_deterministic_differs_by_naics() -> None:
   )
 
 
-def test_maintenance_capex_deterministic_raises_on_missing_naics() -> None:
-  raised = False
-  try:
-    _derive_maintenance_capex_percent_from_naics(
-      business_facts={},
-      ops_json={},
-      financials_json={"initial_assets": 100_000},
-      financials_year1_json={"company_revenue_total_year1": 1_000_000},
-    )
-  except RuntimeError as exc:
-    raised = True
-    assert "naics_missing" in str(exc), str(exc)
-  assert raised, "expected RuntimeError on missing NAICS"
+def test_maintenance_capex_deterministic_falls_back_on_missing_naics() -> None:
+  # iter 19 Stage 1 (F1) — per doctrine.md §3 Pattern 2 (Python proposes
+  # structure), the resolver no longer hard-fails when the NAICS cascade
+  # cannot supply a value. It returns the conservative default (0.05)
+  # and annotates ``decision_source`` and ``fallback_reason``. The
+  # previous RuntimeError-on-miss behavior caused two of the 27-draft
+  # sweep cases (Anderson & Blake, CareFirst) to fail on a coverage
+  # miss that contained no judgment content.
+  result = _derive_maintenance_capex_percent_from_naics(
+    business_facts={},
+    ops_json={},
+    financials_json={"initial_assets": 100_000},
+    financials_year1_json={"company_revenue_total_year1": 1_000_000},
+  )
+  assert result["decision_source"] == "conservative_default", result
+  assert result["fallback_reason"] == "naics_missing", result
+  assert result["maintenance_rate"] == 0.05, result
+  assert result["maintenance_capex_percent"] == 5.0, result
 
 
 # --------------------------------------------------------------------------
@@ -552,7 +557,7 @@ def main() -> int:
     ("maintenance_capex_legacy_gpt_deleted", test_maintenance_capex_gpt_function_deleted_from_module),
     ("maintenance_capex_deterministic_for_retail", test_maintenance_capex_deterministic_returns_naics_value_for_retail),
     ("maintenance_capex_differs_by_naics", test_maintenance_capex_deterministic_differs_by_naics),
-    ("maintenance_capex_raises_on_missing_naics", test_maintenance_capex_deterministic_raises_on_missing_naics),
+    ("maintenance_capex_falls_back_on_missing_naics", test_maintenance_capex_deterministic_falls_back_on_missing_naics),
     ("r_and_d_naics2_lookup_machinery_deleted", test_r_and_d_naics2_lookup_machinery_deleted),
     ("r_and_d_deterministic_naics_wrapper_always_returns_none", test_r_and_d_deterministic_naics_wrapper_always_returns_none),
     ("r_and_d_estimator_returns_universal_enabled_regardless_of_naics", test_r_and_d_estimator_returns_universal_enabled_regardless_of_naics),

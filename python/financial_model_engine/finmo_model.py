@@ -108,6 +108,32 @@ FORMULA_REGISTRY: Dict[str, str] = {
 }
 
 
+# Mapping-formula canonical helpers (iter 19 Stage 1 — F7). Per
+# docs/architecture/doctrine.md §4 Mirror Flavor 1: validators call
+# these instead of re-implementing the formula inline so "expected"
+# comes from one canonical algorithm. A $1 tolerance is still applied
+# at each call site to absorb the rare rounding-boundary case (iter 18
+# F7 worked example).
+
+
+def compute_revenue_times_ratio(revenue: Any, ratio: Any) -> int:
+  return int(round(float(revenue) * float(ratio)))
+
+
+def compute_model_input_value(value: Any) -> int:
+  return int(round(float(value)))
+
+
+def compute_working_capital_days_formula(days_value: Any, days_in_quarter: Any, base: Any) -> int:
+  divisor = float(days_in_quarter)
+  if divisor == 0.0:
+    divisor = 1.0
+  return int(round((float(days_value) / divisor) * float(base)))
+
+
+MAPPING_FORMULA_INT_TOLERANCE: int = 1
+
+
 @dataclass(slots=True)
 class FinmoQuarterResult:
   quarter_index: int
