@@ -117,23 +117,27 @@ def test_static_envelope_rejects_decimal_shift_scale_error() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_root_schema_includes_tier_conditional_all_of_branches() -> None:
+def test_root_schema_omits_all_of_branches_per_openai_strict_mode() -> None:
+  # P3.13 fix #2 — OpenAI strict-mode JSON schema does not permit
+  # `allOf`. Tier-conditional bounds are enforced post-parse by the
+  # runtime validator only. The static envelope on the contract row
+  # remains tight enough to reject the original Stage 2 target (the
+  # 10×-shifted 0.045 scale error) at parse time.
   schema = post_intake_gpt_contract_openai_schema(
     contract_name="payroll_headcount_schedule",
     business_naics=None,
   )
-  all_of = schema.get("allOf")
-  assert isinstance(all_of, list), schema
-  assert len(all_of) == 4, f"expected 4 tier branches, got {len(all_of)}"
-  observed_tiers = set()
-  for branch in all_of:
-    tier = branch["if"]["properties"]["labor_intensity_class"]["const"]
-    observed_tiers.add(tier)
-    bounds = branch["then"]["properties"]["target_payroll_percent_of_revenue"]
-    expected_min, expected_max = _PAYROLL_INTENSITY_TIER_BOUNDS[tier]
-    assert float(bounds["minimum"]) == expected_min, branch
-    assert float(bounds["maximum"]) == expected_max, branch
-  assert observed_tiers == {"low", "medium", "high", "expert"}
+  assert "allOf" not in schema, (
+    "schema must not contain allOf (rejected by OpenAI strict mode)"
+  )
+
+
+def test_tier_bound_constants_remain_for_mirror_invariant() -> None:
+  # The Python constants still drive the policy-mirror drift check
+  # (_assert_payroll_tier_bounds_mirror_consistent in P3.12) even
+  # though they no longer add allOf to the schema.
+  assert set(_PAYROLL_INTENSITY_TIER_BOUNDS.keys()) == {"low", "medium", "high", "expert"}
+  assert _PAYROLL_INTENSITY_TIER_BOUNDS["low"] == (0.06, 0.45)
 
 
 def test_augmentation_is_idempotent_on_non_payroll_contracts() -> None:
@@ -207,7 +211,8 @@ def main() -> int:
     ("tier_bounds_lowest_min_is_six_percent", test_tier_bounds_have_low_min_of_six_percent),
     ("static_envelope_tightened", test_static_envelope_tightened_below_lowest_tier_min),
     ("static_envelope_rejects_decimal_shift", test_static_envelope_rejects_decimal_shift_scale_error),
-    ("root_schema_all_of_branches_per_tier", test_root_schema_includes_tier_conditional_all_of_branches),
+    ("root_schema_omits_all_of_per_openai_strict_mode", test_root_schema_omits_all_of_branches_per_openai_strict_mode),
+    ("tier_bound_constants_kept_for_mirror_invariant", test_tier_bound_constants_remain_for_mirror_invariant),
     ("augmenter_no_op_other_contracts", test_augmentation_is_idempotent_on_non_payroll_contracts),
     ("augmenter_no_op_missing_fields", test_augmentation_no_op_when_required_fields_missing),
     ("prompt_anti_confusion_example", test_prompt_includes_anti_confusion_example_for_target_payroll),

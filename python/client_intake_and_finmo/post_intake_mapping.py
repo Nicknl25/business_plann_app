@@ -3062,25 +3062,20 @@ def _augment_root_schema_for_contract(
   if not properties or "labor_intensity_class" not in properties or "target_payroll_percent_of_revenue" not in properties:
     return schema
   # Phase 9 P3.12 — machinery fail-fast: Python mirror vs SQL policy
-  # drift check before the schema is built from the mirror.
+  # drift check. The check still fires whenever this augmenter runs;
+  # the constants must agree even though they no longer drive the
+  # schema's tier-conditional bounds directly.
   _assert_payroll_tier_bounds_mirror_consistent()
-  all_of_branches: List[Dict[str, Any]] = list(schema.get("allOf") or [])
-  for tier, (min_pct, max_pct) in _PAYROLL_INTENSITY_TIER_BOUNDS.items():
-    all_of_branches.append({
-      "if": {
-        "properties": {"labor_intensity_class": {"const": tier}},
-        "required": ["labor_intensity_class"],
-      },
-      "then": {
-        "properties": {
-          "target_payroll_percent_of_revenue": {
-            "minimum": float(min_pct),
-            "maximum": float(max_pct),
-          }
-        }
-      },
-    })
-  schema["allOf"] = all_of_branches
+  # Phase 9 P3.13 Sunny fix #2 — OpenAI strict-mode JSON schema does
+  # NOT permit `allOf` (rejected with `invalid_json_schema`). The
+  # tier-conditional bounds previously added here as if/then
+  # branches are now enforced post-parse by the runtime validator
+  # `headcount_payroll_revenue_sanity_bounds`
+  # (post_intake_headcount/lookup.py). The static envelope on the
+  # contract row (0.06, 0.80 — union of tier bounds) still rejects
+  # the original Stage 2 target (the 10×-shifted 0.045 scale error)
+  # at parse time. Doctrine §3 Pattern 3: fix the upstream cause
+  # (allOf in the wrong schema mode), not soften the runtime check.
   return schema
 
 
