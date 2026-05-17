@@ -398,8 +398,81 @@ def run_mode_based_cash_strategy(
     financials_json=copy.deepcopy(financials_for_runner),
   )
 
+  # Phase 9 P3.20 Part 3 Stage 3 — Mirror Flavor 1 single source of
+  # truth for FINMO. Rebuild FINMO ONCE from the cash strategy's
+  # updated_model_input_json BEFORE the post-pass validator runs.
+  # Store the rebuilt FINMO back into cash_strategy_second_pass_result
+  # so the validator, the handler trigger, the handler itself, and
+  # the downstream final state ALL see the same FINMO.
+  #
+  # Pre-Stage-3 flow:
+  #   1. Cash sub-steps produce cash_strategy_second_pass_result with
+  #      updated_finmo_json (sub-step's internal rebuild).
+  #   2. Validator validates that FINMO.
+  #   3. Handler (if invoked) operates on that FINMO; handler's
+  #      internal rebuild via build_finmo callback produces its own
+  #      updated_finmo_json.
+  #   4. Final state inherits whichever FINMO won.
+  #   5. OUTER REBUILD at end of function: build_python_finmo_json
+  #      from final_model_input_json OVERWRITES final_finmo_json.
+  #      If this rebuild produces a different result than steps 1-4
+  #      saw, the validator/handler made decisions on a stale view
+  #      and downstream sees a different state.
+  #
+  # Post-Stage-3 flow:
+  #   1. Cash sub-steps produce cash_strategy_second_pass_result.
+  #   2. [NEW] Rebuild FINMO ONCE from updated_model_input_json.
+  #      Store in cash_strategy_second_pass_result. This is the
+  #      canonical FINMO for everything that follows.
+  #   3. Validator validates that canonical FINMO.
+  #   4. Handler operates on the canonical FINMO; handler's internal
+  #      rebuild is consistent by construction.
+  #   5. Final state reads cash_strategy_second_pass_result
+  #      (already canonical).
+  #   6. Outer rebuild REMOVED -- redundant.
+  #
+  # If the rebuild itself fails, raise under test mode so machinery
+  # divergence is surfaced loudly; under production fall through and
+  # let the validator observe whatever broken state the cash sub-steps
+  # emitted. This preserves the Phase 9 P3.10 Commit 4 intent (final
+  # FINMO rebuild failure raises under test mode) the previous outer
+  # rebuild encoded -- now applied at the hoisted pre-validator site.
+  try:
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json as _build_python_finmo_json,
+    )
+    _rebuilt_pre_validation = _build_python_finmo_json(
+      model_input_json=copy.deepcopy(
+        cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+      )
+    )
+    if isinstance(_rebuilt_pre_validation, dict) and _rebuilt_pre_validation:
+      cash_strategy_second_pass_result["updated_finmo_json"] = _rebuilt_pre_validation
+  except Exception as _stage3_rebuild_exc:
+    # Phase 9 P3.10 Commit 4 — final FINMO rebuild failure raises
+    # under test mode. The "second guard" justification is correct for
+    # production but masks a state divergence when test mode is on.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed as _Stage3PostIntakePreconditionFailed,
+      convergence_test_mode_enabled as _stage3_convergence_test_mode_enabled,
+    )
+    if _stage3_convergence_test_mode_enabled():
+      raise _Stage3PostIntakePreconditionFailed(
+        operation="cash_strategy_final_finmo_rebuild_failed",
+        pipeline_stage="post_intake_cash_strategy",
+        expected="build_python_finmo_json rebuilds successfully before post-pass validation",
+        actual=f"{type(_stage3_rebuild_exc).__name__}: {str(_stage3_rebuild_exc)[:200]}",
+        details={"cash_strategy_mode": cash_strategy_mode},
+        cause=_stage3_rebuild_exc,
+      ) from _stage3_rebuild_exc
+    # Production-mode legacy path: fall through; the validator will
+    # see whatever broken state the cash sub-steps emitted and
+    # surface it through normal error paths.
+
   # Step 10 — post-pass validation (buffer, surplus ceiling, debt
-  # schedule). On hard-failure we revert to the pre-cash state.
+  # schedule). Phase 9 P3.20 Part 3 Stage 1 -- never revert on
+  # validation failure. Stage 3 -- validator sees the canonical
+  # rebuilt FINMO from above; same FINMO that downstream consumes.
   try:
     cash_post_validation = _cash_runner._validate_cash_strategy_post_pass(
       ops_json=ops_json_dict,
@@ -602,34 +675,24 @@ def run_mode_based_cash_strategy(
     else copy.deepcopy(pre_cash_finmo_json)
   )
 
-  # Final FINMO rebuild — guarantees cash, interest, debt balance,
+  # Phase 9 P3.20 Part 3 Stage 3 -- outer FINMO rebuild REMOVED.
+  # Pre-Stage-3 this site rebuilt FINMO from final_model_input_json
+  # ("Final FINMO rebuild -- guarantees cash, interest, debt balance,
   # short_term/long_term split reflect every applied update from the
-  # cash sequence above, regardless of which sub-step rebuilt last.
-  try:
-    rebuilt_finmo = build_python_finmo_json(
-      model_input_json=copy.deepcopy(final_model_input_json or {})
-    )
-    if isinstance(rebuilt_finmo, dict) and rebuilt_finmo:
-      final_finmo_json = rebuilt_finmo
-  except Exception as exc:
-    # Phase 9 P3.10 Commit 4 — final FINMO rebuild failure raises
-    # under test mode. The "second guard" justification is correct for
-    # production but masks a state divergence when test mode is on.
-    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-      PostIntakePreconditionFailed,
-      convergence_test_mode_enabled,
-    )
-    if convergence_test_mode_enabled():
-      raise PostIntakePreconditionFailed(
-        operation="cash_strategy_final_finmo_rebuild_failed",
-        pipeline_stage="post_intake_cash_strategy",
-        expected="build_python_finmo_json rebuilds successfully after cash sequence",
-        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
-        details={"cash_strategy_mode": cash_strategy_mode},
-        cause=exc,
-      ) from exc
-    # Production-mode legacy path: leave the runner-supplied state in
-    # place; the orchestrator's outer rebuild is a second guard.
+  # cash sequence above, regardless of which sub-step rebuilt last").
+  # That outer rebuild ran AFTER the validator and handler had already
+  # made decisions on the pre-rebuild FINMO; if the outer rebuild
+  # produced different numbers than the validator saw, the system had
+  # silent state drift between "what was validated" and "what
+  # persists". Stage 3 hoists the rebuild to BEFORE the validator
+  # (single source of truth -- Mirror Flavor 1 per doctrine §3
+  # Pattern 1). The validator, handler trigger, handler invocation,
+  # and downstream consumers all see the same FINMO. The outer
+  # rebuild is now redundant -- removed entirely.
+  #
+  # If FINMO needs another rebuild for any reason, the right place
+  # is the SINGLE pre-validator rebuild above; do not re-introduce
+  # an after-the-fact rebuild here.
 
   # Mutate caller-supplied dicts in place (matches the prior contract).
   if isinstance(model_input_json, dict):
