@@ -33,11 +33,15 @@ the next-iter follow-up; see Stage 8 documentation.
 from client_intake_and_finmo.post_intake_funding_handler.handler import (
   FundingHandlerResult,
   FundingHandlerStatus,
+  apply_authored_lever_changes_to_model_input,
+  engage_funding_handler_on_violations,
   run_funding_handler,
 )
 
 __all__ = [
   "FundingHandlerResult",
   "FundingHandlerStatus",
+  "apply_authored_lever_changes_to_model_input",
+  "engage_funding_handler_on_violations",
   "run_funding_handler",
 ]

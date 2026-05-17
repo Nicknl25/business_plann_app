@@ -116,20 +116,26 @@ def test_funding_handler_authority_is_explicit() -> None:
     assert forbidden not in authority, f"out-of-scope lever in authority: {forbidden}"
 
 
-def test_funding_handler_gpt_session_raises_until_wired() -> None:
-  # The GPT-driven variant is scaffolded but not wired in iter 19; it
-  # must hard-fail with NotImplementedError (doctrine §1 prefers
-  # hard-fail with diagnostic over silent recovery).
-  raised = False
-  try:
-    _fh_session.run_funding_tool_calling_session(
-      cash_buffer_violations=[],
-    )
-  except NotImplementedError as exc:
-    raised = True
-    assert "iter 19" in str(exc)
-    assert "deterministic" in str(exc).lower()
-  assert raised
+def test_funding_handler_session_is_runnable_with_mocked_seam() -> None:
+  # Stage 4 correction — the session is no longer a NotImplementedError
+  # stub. Calling it with a mock _call_gpt_turn seam exercises the loop
+  # without touching OpenAI; the function returns a structured result.
+  def _mock_turn(**kwargs):
+    return {
+      "tool_calls": [],
+      "raw_assistant_items": [],
+      "decision_source": "python_proposer_plus_gpt_critic",
+      "detail": "",
+    }
+  result = _fh_session.run_funding_tool_calling_session(
+    cash_buffer_violations=[],
+    _call_gpt_turn=_mock_turn,
+    _projector=lambda **k: {"projected_quarter_rows": [], "total_cash_delta": 0.0},
+    _residual_checker=lambda **k: [],
+  )
+  # No violations to chew on AND GPT stopped immediately ->
+  # failed_precondition (no tool calls completed).
+  assert result.status == "failed_precondition"
 
 
 def test_funding_handler_prompts_carry_authority_list() -> None:
@@ -210,16 +216,21 @@ def test_funding_handler_falls_through_priority_when_debt_capped() -> None:
 
 
 def test_funding_handler_exhausts_with_specific_residual_diagnostic() -> None:
-  # $100k shortfall, but cumulative funding headroom only $40k.
-  # Handler authors all $40k, hard-fails with residual = $60k.
+  # $100k shortfall, but cumulative funding headroom only $40k. With
+  # GPT escalation disabled the handler returns the Python residual
+  # immediately (Stage 4 correction shape).
   violation = _violation(quarter=7, ending_cash=0.0, buffer=100_000.0)
   bounds = {
     "schedules::Debt Issuance (New Borrowing)": [_bounds_row(7, current=0, max_value=20_000)],
     "balance_sheet::Owner's Capital": [_bounds_row(7, current=0, max_value=20_000)],
   }
-  result = run_funding_handler(cash_buffer_violations=[violation], lever_bounds=bounds)
+  result = run_funding_handler(
+    cash_buffer_violations=[violation],
+    lever_bounds=bounds,
+    enable_gpt_session=False,
+  )
   assert result.status == FundingHandlerStatus.EXHAUSTED
-  assert "funding_handler_residual_buffer_violations" in result.diagnostic
+  assert "gpt_disabled" in result.diagnostic
   assert len(result.residual_violations) == 1
   residual = result.residual_violations[0]
   assert residual["quarter_index"] == 7
@@ -228,7 +239,8 @@ def test_funding_handler_exhausts_with_specific_residual_diagnostic() -> None:
 
 
 def test_funding_handler_respects_tool_call_budget() -> None:
-  # Many violations, tight budget: handler stops after the budget.
+  # Many violations, tight budget: deterministic allocator stops after
+  # the budget. With GPT disabled, residual is surfaced immediately.
   violations = [_violation(quarter=q, ending_cash=0.0, buffer=10_000.0) for q in range(1, 16)]
   bounds = {
     "schedules::Debt Issuance (New Borrowing)": [
@@ -239,12 +251,12 @@ def test_funding_handler_respects_tool_call_budget() -> None:
     cash_buffer_violations=violations,
     lever_bounds=bounds,
     tool_call_budget=10,
+    enable_gpt_session=False,
   )
   assert result.status == FundingHandlerStatus.EXHAUSTED
   assert result.tool_calls_used == 10
-  assert "tool_call_budget_exhausted" in result.diagnostic
-  # 5 quarters past the budget — each must surface in residuals with
-  # the budget reason.
+  # 5 quarters past the budget — each surfaces in residuals with the
+  # budget-exhausted reason from the Python allocator.
   budget_residuals = [
     r for r in result.residual_violations
     if r.get("reason") == "tool_call_budget_exhausted"
@@ -335,7 +347,7 @@ def main() -> int:
     ("funding_handler_files_present", test_funding_handler_module_has_required_files),
     ("funding_handler_session_constants", test_funding_handler_session_carries_doctrine_constants),
     ("funding_handler_explicit_authority", test_funding_handler_authority_is_explicit),
-    ("funding_handler_gpt_scaffold_hard_fails", test_funding_handler_gpt_session_raises_until_wired),
+    ("funding_handler_session_runnable_with_mock", test_funding_handler_session_is_runnable_with_mocked_seam),
     ("funding_handler_prompt_carries_authority", test_funding_handler_prompts_carry_authority_list),
     ("handler_no_op_no_violations", test_funding_handler_no_op_when_no_violations),
     ("handler_resolves_within_debt_headroom", test_funding_handler_resolves_violation_within_debt_issuance_headroom),

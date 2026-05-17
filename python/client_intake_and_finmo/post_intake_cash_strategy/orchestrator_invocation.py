@@ -435,6 +435,113 @@ def run_mode_based_cash_strategy(
     }
 
   keep_changes = bool(cash_post_validation.get("keep_changes", True))
+
+  # iter 19 Stage 4 correction — funding handler engagement.
+  # When post-pass detects cash_buffer_violations the Python proposer +
+  # second-pass plan could not resolve, escalate to the funding
+  # handler. The handler runs Python deterministic allocator first;
+  # GPT tool-calling session escalates only on residual.
+  cash_funding_handler_result: Optional[Dict[str, Any]] = None
+  post_handler_post_validation: Optional[Dict[str, Any]] = None
+  cash_buffer_violations_for_handler = list(
+    cash_post_validation.get("cash_buffer_violations") or []
+  )
+  if (
+    not keep_changes
+    and cash_buffer_violations_for_handler
+    and isinstance(cash_strategy_second_pass_result, dict)
+  ):
+    from client_intake_and_finmo.post_intake_funding_handler import (  # type: ignore
+      engage_funding_handler_on_violations,
+    )
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json,
+    )
+    lever_bounds_payload = (
+      (cash_strategy_review_context.get("lever_bounds") or {}).get("lever_bounds")
+      if isinstance(cash_strategy_review_context, dict)
+      else {}
+    )
+    if not isinstance(lever_bounds_payload, dict):
+      lever_bounds_payload = {}
+    buffer_by_q: Dict[int, float] = {}
+    cve = (
+      cash_post_validation.get("cash_validation_envelope") or {}
+      if isinstance(cash_post_validation, dict)
+      else {}
+    )
+    for envelope_row in (cve.get("quarter_envelopes") or []):
+      if not isinstance(envelope_row, dict):
+        continue
+      try:
+        qi = int(float(envelope_row.get("quarter_index") or 0))
+      except Exception:
+        continue
+      if qi < 1:
+        continue
+      try:
+        buffer_val = float(envelope_row.get("buffer") or 0.0)
+      except Exception:
+        buffer_val = 0.0
+      buffer_by_q[qi] = buffer_val
+    pre_handler_mi = (
+      cash_strategy_second_pass_result.get("updated_model_input_json")
+      if isinstance(cash_strategy_second_pass_result.get("updated_model_input_json"), dict)
+      else copy.deepcopy(pre_cash_model_input_json)
+    )
+    pre_handler_finmo = (
+      cash_strategy_second_pass_result.get("updated_finmo_json")
+      if isinstance(cash_strategy_second_pass_result.get("updated_finmo_json"), dict)
+      else copy.deepcopy(pre_cash_finmo_json)
+    )
+    cash_funding_handler_result = engage_funding_handler_on_violations(
+      cash_buffer_violations=cash_buffer_violations_for_handler,
+      pre_handler_model_input_json=pre_handler_mi,
+      pre_handler_finmo_json=pre_handler_finmo,
+      lever_bounds=lever_bounds_payload,
+      buffer_by_quarter=buffer_by_q,
+      cash_strategy_mode=cash_strategy_mode,
+      build_finmo=lambda mi: build_python_finmo_json(model_input_json=mi),
+    )
+    if (
+      cash_funding_handler_result.get("status") == "resolved"
+      and isinstance(cash_funding_handler_result.get("updated_model_input_json"), dict)
+      and isinstance(cash_funding_handler_result.get("updated_finmo_json"), dict)
+    ):
+      # Re-validate the post-handler state.
+      try:
+        post_handler_post_validation = _cash_runner._validate_cash_strategy_post_pass(
+          ops_json=ops_json_dict,
+          financials_json=copy.deepcopy(financials_for_runner),
+          baseline_issue_ledger=[],
+          candidate_model_input_json=copy.deepcopy(
+            cash_funding_handler_result["updated_model_input_json"]
+          ),
+          candidate_finmo_json=copy.deepcopy(
+            cash_funding_handler_result["updated_finmo_json"]
+          ),
+          iteration=2,
+          planning_mode=planning_mode_str or None,
+        )
+      except Exception:
+        post_handler_post_validation = None
+      if post_handler_post_validation and bool(
+        post_handler_post_validation.get("keep_changes")
+      ):
+        # Handler resolved violations AND post-pass agrees.
+        cash_strategy_second_pass_result = dict(cash_strategy_second_pass_result)
+        cash_strategy_second_pass_result["updated_model_input_json"] = (
+          cash_funding_handler_result["updated_model_input_json"]
+        )
+        cash_strategy_second_pass_result["updated_finmo_json"] = (
+          cash_funding_handler_result["updated_finmo_json"]
+        )
+        cash_strategy_second_pass_result["funding_handler_engagement"] = (
+          cash_funding_handler_result
+        )
+        cash_post_validation = post_handler_post_validation
+        keep_changes = True
+
   if keep_changes:
     final_model_input_json = (
       cash_strategy_second_pass_result.get("updated_model_input_json")
