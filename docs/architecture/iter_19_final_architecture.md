@@ -243,3 +243,116 @@ this iter surfaced as worthwhile:
 5. **Doctrine §4 Flavor 1 sweep.** The mapping-formula helpers
    were one Mirror Flavor 1 conversion; iter 18 noted there are
    other "two paths compute same value" candidates worth a sweep.
+
+---
+
+## 9. Follow-up iters — P3.11 and P3.12
+
+After iter 19 shipped, two follow-up iters landed in quick succession.
+Both are recorded here so the architectural state captured by this
+document remains current.
+
+### Iter P3.11 — Payroll iterative refinement
+
+Commit: `0379a4b` (phase_9_p3_11_payroll_iterative_refinement).
+
+Per the iter 19 doctrine §1 (GPT-as-authoring-source for
+judgment-heavy operations), payroll authoring stays as GPT-as-source
+rather than being refactored into a handler-on-failure pattern.
+P3.11 adds **iterative refinement** around the existing GPT call:
+when validators reject GPT's proposal, GPT sees structured failure
+feedback and retries up to 10 rounds before hard-failing with a
+residual diagnostic.
+
+New module: [post_intake_headcount/payroll_validator_translator.py](../../python/client_intake_and_finmo/post_intake_headcount/payroll_validator_translator.py)
+— pattern-based translator for the Layer A.2 token-format validator
+codes. Six patterns (out-of-range numeric, missing, invalid enum,
+per-row field, title lifecycle, structural). Fail-fast on unmatched
+codes per doctrine §5b.
+
+Three-path dispatch in the iterative loop:
+- Layer A.1 (contract-table prose errors): pass verbatim into
+  `contract_table_errors`.
+- Layer A.2 (token codes): translator (strict fail-fast).
+- Layer A.3 (economic feasibility): existing
+  `_compact_payroll_failure_for_gpt`.
+
+Seven machinery fail-fast invariants on the iteration mechanics:
+- `payroll_iterative_refinement_round_count_drift`
+- `payroll_iterative_refinement_budget_decoupling_violation`
+- `payroll_iterative_refinement_state_corruption`
+- `payroll_validator_translator_unmatched_code`
+- `payroll_validator_translator_malformed_output`
+- (parse failure preserved as existing `payroll_headcount_contract_parse_failed`)
+- Plus the planned exhaustion hard-fail:
+  `payroll_iterative_refinement_exhausted`.
+
+Removed the outer `payroll_grid_rebuild_limit` retry in
+[post_intake_initial_grid/runner.py](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py).
+Post-quarter-grid feasibility violations now hard-fail rather than
+retry-eligible (intentional behavior change).
+
+Tests: 30/30 PASS in
+[Test Files/test_payroll_iterative_refinement.py](../../Test Files/test_payroll_iterative_refinement.py).
+
+### Iter P3.12 — Machinery Fail-Fast Consistency Backfill
+
+Three-phase iter:
+- Phase 1 (`f7461e6`): read-only inventory memo
+  ([iter_19_machinery_fail_fast_inventory.md](iter_19_machinery_fail_fast_inventory.md))
+  identifying 11 missing machinery fail-fasts across iter 19 stages.
+- Phase 2 (`fb9d0b1`): implementation of all 11 checks.
+- Phase 3 (this commit): doctrine documentation updates.
+
+Brought every iter 19 stage to the same machinery fail-fast bar
+that iter P3.11 set for payroll. Closes the asymmetry where iter 19
+handlers had exhaustion fail-fasts (planned business-logic hard-
+fails) but lacked machinery fail-fasts (infrastructure
+malfunctioning hard-fails).
+
+**Funding handler (Stage 4) — 6 new fail-fasts:**
+
+| # | Operation code | What it catches |
+|---|---|---|
+| 1 | `funding_handler_round_count_drift` | Loop counter diverges from actual GPT call count |
+| 2 | `funding_handler_budget_decoupling_violation` | A GPT call inside the session passed `counts_against_run_budget=True` |
+| 3 | `funding_handler_state_corruption_between_rounds` | `input_items` / `history` / `verified_commit_candidate` malformed at round entry |
+| 4 | `funding_handler_authority_violation` | `apply_authored_lever_changes_to_model_input` saw a lever_id outside `FUNDING_LEVER_AUTHORITY` (replaces the previous silent skip) |
+| 5 | `funding_handler_output_malformed` | RESOLVED status with empty authored changes, or EXHAUSTED with no diagnostic |
+| 6 | `funding_handler_best_effort_selection_drift` | Best-effort record at hard cap is actually all-resolved (should have been verified commit candidate) |
+
+**Stage ramp handler (Stage 5) — 4 new fail-fasts:**
+
+| # | Operation code | What it catches |
+|---|---|---|
+| 7 | `stage_ramp_handler_round_count_drift` | Same shape as funding handler |
+| 8 | `stage_ramp_handler_budget_decoupling_violation` | Same shape |
+| 9 | `stage_ramp_handler_state_corruption_between_rounds` | Same shape |
+| 10 | `stage_ramp_handler_authority_violation` | Refined contract contains root field outside the handler's declared authority |
+
+Invariants 5 and 6 (output malformation, best-effort selection
+drift) were **already covered** by Stage 5's post-session canonical
+validator re-check shipped with the original Stage 5 commit; no new
+checks needed for those categories.
+
+**Stage 2 — 1 new fail-fast:**
+
+| # | Operation code | What it catches |
+|---|---|---|
+| 11 | `payroll_tier_bounds_mirror_drift` | Python-side `_PAYROLL_INTENSITY_TIER_BOUNDS` mirror diverged from SQL `post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds` |
+
+Per doctrine §4 Flavor 4 (invariant check): the JSON schema uses
+the Python mirror; the runtime validator uses the SQL policy. If
+they diverge, the strict-mode parser enforces one set of bounds
+while the runtime validator enforces another — silently
+inconsistent. The check fires at schema-construction time,
+catching drift before any contract is built with the wrong bounds.
+
+Tests: 28/28 PASS in
+[Test Files/test_p3_12_machinery_fail_fasts.py](../../Test Files/test_p3_12_machinery_fail_fasts.py).
+
+After P3.12 the system's machinery fail-fast inventory is uniform
+across all iter 19 stages, P3.11 payroll, and Stage 3's prototype
+pre-gate diagnostic. Every iteration-bearing component has guards
+on round count, budget decoupling, state, authority, output shape,
+and best-effort selection where applicable.

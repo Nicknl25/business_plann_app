@@ -203,8 +203,121 @@ Every handler in the system has the same shape:
    wrapper raises an error that names the unfixable lever/field and references
    the validator that tripped. Never "unfixed after handler" without naming
    what's unfixed.
+7. **Machinery fail-fasts.** Every handler has the following six machinery
+   invariants that hard-stop with a named diagnostic if the iteration
+   infrastructure itself malfunctions (added in iter P3.12):
+   - **Round count drift** — loop's local round counter disagrees with
+     actual number of GPT calls made.
+   - **Budget decoupling violation** — a GPT call inside the session is
+     issued without `counts_against_run_budget=False` (iter 17 contract).
+   - **State corruption between rounds** — `input_items` / `history` /
+     `verified_commit_candidate` shape malformed at round entry.
+   - **Authority violation** — handler authored a lever outside its
+     declared lever set (e.g., funding handler writes to `expenses::
+     Payroll`). Silent skip of out-of-authority IDs is the Pattern 3
+     anti-pattern; this guard converts it to a loud diagnostic.
+   - **Output malformation** — handler returns RESOLVED with empty
+     authored changes, or EXHAUSTED with no diagnostic.
+   - **Best-effort selection drift** — best-effort record selected at
+     hard cap is actually all-resolved (should have been picked up as
+     the verified commit candidate).
+   These are distinct from the handler's `EXHAUSTED` status (which is
+   the planned hard-fail when the handler can't resolve the business
+   problem within its budget). See §5b for the conceptual distinction
+   between validators and machinery fail-fasts.
 
-A handler that lacks any of these six properties is mis-shaped.
+A handler that lacks any of these seven properties is mis-shaped.
+
+---
+
+## 5b. Two Fail Types: Validators vs Machinery Fail-Fasts
+
+Two distinct fail mechanisms exist in this system. Both are required;
+both serve different purposes. Conflating them is an architectural
+error.
+
+### Type 1 — Validators (Checks)
+
+**Purpose:** detect when **business-logic output** doesn't satisfy
+contractual requirements. Examples: payroll/revenue ratio out of
+band, balance sheet doesn't reconcile, mapping-formula mismatch,
+stage-ramp profitability path violated.
+
+**Behavior:** produce structured violations. Trigger adaptation —
+either handler engagement (Python-first + handler-on-failure) or
+GPT iteration (iterative authoring with feedback loop).
+
+**Recovery:** **expected.** The system tries again with corrections.
+Validators firing during normal operation is fine; that's the
+adaptation loop working. They may fire dozens of times per run
+across all iterative processes.
+
+**Location:** anywhere in the codebase — validators live near the
+operations they check.
+
+### Type 2 — Machinery Fail-Fasts
+
+**Purpose:** detect when the **iteration/handler infrastructure itself**
+has broken. Examples: round counter drift, state corruption between
+rounds, budget commingling violations, handler authoring levers
+outside its declared authority, translator unmatched code,
+session-internal-state malformed, policy-mirror drift between
+Python and SQL.
+
+**Behavior:** hard-stop the run with a named operation code and
+specific diagnostic. NO retry. NO recovery. NO silent fallback.
+
+**Recovery:** **none.** The machinery is broken; surface it loudly
+so an engineer can fix it. If machinery fail-fasts silently
+recovered, the iteration system would rot invisibly while
+appearing to work — runs would complete but adaptation would be
+silently degraded.
+
+**Location:** alongside the machinery they protect, but raising
+through the centralized `PostIntakePreconditionFailed` machinery in
+[fail_fast/common.py](../../python/client_intake_and_finmo/fail_fast/common.py)
+so the named operations form a discoverable inventory of "things
+that should never happen but if they do, here's exactly what broke."
+
+### The key principle
+
+Validators are about being **wrong** about business logic.
+Machinery fail-fasts are about being **broken** in the infrastructure.
+
+Both must exist. Validators without machinery fail-fasts =
+adaptation works until the day the machinery silently rots and no
+one notices. Machinery fail-fasts without validators = system
+can't adapt to business edge cases; just hard-fails.
+
+### Examples from iter 19 + P3.11 + P3.12
+
+**Validators (Type 1):**
+- `payroll_headcount_target_payroll_percent_of_revenue_out_of_policy_range`
+- `cash_buffer_violations` (post-pass cash strategy validation)
+- `stage_ramp_contract_invalid` (realism rejection)
+- `balance_sheet_driver_formula_failed`
+
+**Machinery fail-fasts (Type 2):**
+- `payroll_lever_not_applied_before_gate` (iter 19 Stage 3 — gate
+  contract-lever invariant)
+- `payroll_validator_translator_unmatched_code` (iter P3.11)
+- `payroll_iterative_refinement_round_count_drift` (iter P3.11)
+- `funding_handler_authority_violation` (iter P3.12)
+- `funding_handler_round_count_drift` (iter P3.12)
+- `stage_ramp_handler_budget_decoupling_violation` (iter P3.12)
+- `payroll_tier_bounds_mirror_drift` (iter P3.12 — Python↔SQL drift)
+
+The seven required machinery fail-fast categories every handler
+should have:
+
+1. **Round count drift**
+2. **Budget decoupling violation**
+3. **State corruption between rounds**
+4. **Authority violation**
+5. **Output malformation**
+6. **Best-effort selection drift**
+7. **Pre-gate contract-lever invariant** (extends to gates that
+   reference contract-authored levers)
 
 ---
 
@@ -255,6 +368,14 @@ math); GPT provides the judgment.
   handler-on-failure. (Distinct from GPT-as-authoring-source — see §6
   table — which is the correct pattern when Python has no rule-set to
   apply.)
+- **Silent machinery degradation.** Handler accepts internal state
+  drift without raising. The iteration system appears to work but is
+  actually broken — runs complete while adaptation is silently
+  degraded. Every machinery invariant (§5 invariant #7, expanded in
+  §5b) must fail fast. Silent skip of out-of-authority lever IDs,
+  silent fallback when a translator can't match a code, silent
+  acceptance of state corruption — these are all instances. The
+  cure is named diagnostics + hard-stop, no recovery.
 - **Two parallel implementations** of the same conceptual value. Pick a Mirror
   Flavor from §4.
 - **Magic numbers / arbitrary thresholds** to mask a divergence (e.g., bumping
