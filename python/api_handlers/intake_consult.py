@@ -7624,6 +7624,40 @@ def post_intake_consult_system_run_handler(*, app, request):
         result_draft_id, workbook_export_error,
       )
 
+    # Phase 9 P3.20 Part 1 — post-run workbook Model Status fail-fast.
+    # Recalculates the generated workbook (Excel COM on Windows; skips
+    # with a warning if recalc is unavailable on dev machines without
+    # Excel) and reads Checks!B2. If the value is anything other than
+    # "OK", raises PostIntakePreconditionFailed with a diagnostic that
+    # explicitly directs the operator to verify APP state first via
+    # existing post-intake fail-fasts -- the workbook is a reflection
+    # of the app, and Model Status != "OK" should not be assumed to be
+    # a workbook bug. See post_intake_runtime_validation/
+    # workbook_model_status.py for the doctrine note.
+    if client_workbook_path:
+      try:
+        from client_intake_and_finmo.post_intake_runtime_validation.workbook_model_status import (  # type: ignore
+          assert_workbook_model_status_ok,
+        )
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          convergence_test_mode_enabled as _cms_test_mode_enabled,
+        )
+
+        assert_workbook_model_status_ok(client_workbook_path)
+      except Exception as model_status_exc:
+        app.logger.exception(
+          "Workbook Model Status fail-fast tripped for draft %s: %s",
+          result_draft_id, str(model_status_exc)[:500],
+        )
+        try:
+          if _cms_test_mode_enabled():
+            raise
+        except NameError:
+          # Import above failed; default to production-mode behavior
+          # (log only, don't re-raise) so an environmental issue with
+          # the fail-fast module itself doesn't kill every run.
+          pass
+
     # Auto-email the workbook (if export succeeded). Never block the
     # response on email outcome -- log warnings only.
     if client_workbook_path:

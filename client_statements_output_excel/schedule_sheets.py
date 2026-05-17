@@ -488,7 +488,12 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   ]
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
-  interest_rate_values_lease = values_21((expense_by_label.get("Interest Rate") or {}).get("values"))
+  # Phase 9 P3.20 Part 1 — `interest_rate_values_lease` was a
+  # Python-side list of the Interest Rate row values used to
+  # interpolate literals into the lease interest formula. After
+  # the cell-reference fix the formula references `interest_rate`
+  # directly (the row variable on this sheet), so no Python-side
+  # list is needed for that path.
   for label, fmt in lease_rows:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value="Capital leases")
@@ -503,21 +508,28 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   rou_open = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Opening")
   lease_dep = ctx.schedule_row(DEBT_SHEET, "Lease Asset Depreciation")
   rou_close = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Closing")
-  lease_seed_value = number(schedules.get("lease_opening_balance_seed")) or 0
-  # Per-quarter straight-line depreciation amount = seed / 20
-  # (iter spec §"DESIGN — DEPRECIATION"). Excel formula uses the
-  # seed value directly so the formula stays static at any column.
-  per_quarter_dep_formula = f"({lease_seed_value if lease_seed_value else 0}/20)"
+  # Phase 9 P3.20 Part 1 — lease asset depreciation now references
+  # the Lease Opening Balance Q0 cell (column PERIOD_START_COL of
+  # the lease_open row) instead of interpolating the Python literal
+  # `lease_seed_value`. The Q0 cell is written at line 513 below
+  # with `schedules.get("lease_opening_balance_seed")`; referencing
+  # it keeps the formula edit-live in Excel (mirrors the
+  # cell-reference pattern the debt schedule uses throughout).
+  per_quarter_dep_formula = f"({local_ref(lease_open, PERIOD_START_COL)}/20)"
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(lease_close, col - 1)}")
     ws.cell(lease_requested_principal, col, value=0 if idx == 0 else lease_principal_values[idx])
     ws.cell(lease_add, col, value=0 if idx == 0 else lease_add_values[idx])
     ws.cell(lease_principal, col, value=f"=MIN({local_ref(lease_requested_principal, col)},{local_ref(lease_open, col)}+{local_ref(lease_add, col)})")
-    # Lease interest = opening * interest_rate (declining balance,
-    # iter spec §"DESIGN — INTEREST EXPENSE")
-    rate_cell_value = interest_rate_values_lease[idx] if idx < len(interest_rate_values_lease) else 0
-    ws.cell(lease_interest, col, value=0 if idx == 0 else f"={local_ref(lease_open, col)}*{rate_cell_value}")
+    # Phase 9 P3.20 Part 1 — Lease Interest = Lease Opening *
+    # Interest Rate cell (declining balance). Pre-iter this
+    # interpolated `rate_cell_value` as a Python literal; now
+    # references the Interest Rate row (row variable `interest_rate`
+    # from line 435, written into cells at line 453) the same way
+    # the debt Interest Expense formula does at line 454. Mirror
+    # Flavor 1 — single cell-reference pattern across debt + lease.
+    ws.cell(lease_interest, col, value=0 if idx == 0 else f"={local_ref(lease_open, col)}*{local_ref(interest_rate, col)}")
     ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
     ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(rou_close, col - 1)}")
     ws.cell(lease_dep, col, value=0 if idx == 0 else f"=MIN({per_quarter_dep_formula},{local_ref(rou_open, col)})")
