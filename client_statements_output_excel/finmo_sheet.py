@@ -56,6 +56,10 @@ BS_LINES = [
   "Prepaid Expenses",
   "Current Assets",
   "PPE",
+  # Phase 9 P3.16 — Right-of-Use Asset (Capital Lease) is a separate
+  # asset line parallel to PPE. Q0 seeded from capital lease balance,
+  # depreciates straight-line over CAPITAL_LEASE_DEPRECIATION_QUARTERS.
+  "Right-of-Use Asset (Capital Lease)",
   "Accumulated Depreciation",
   "Total Assets",
   "Accounts Payable",
@@ -63,6 +67,11 @@ BS_LINES = [
   "Deferred Revenue",
   "Current Liabilities",
   "Long Term Debt",
+  # Phase 9 P3.16 — Capital Lease Obligation surfaces the lease
+  # liability as its own line so the balance sheet shows the offset
+  # to the new ROU asset (was previously folded into Total Liabilities
+  # with no asset-side counterpart).
+  "Capital Lease Obligation",
   "Total Liabilities",
   "Owner's Capital",
   "Retained Earnings",
@@ -84,6 +93,10 @@ CF_LINES = [
   "Debt Repayment",
   "Equity",
   "Distributions",
+  # Phase 9 P3.16 — Capital Lease Principal Payments shown as its
+  # own financing line (was folded into Financing Cash Flow with no
+  # display row).
+  "Capital Lease Principal Payments",
   "Financing Cash Flow",
   "Net Cash Flow",
   "Ending Cash",
@@ -190,8 +203,11 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Prepaid Expenses"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'bs::Prepaid Expenses (% of Revenue)', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Current Assets"), col, f"=SUM({_fr(ctx, 'Balance Sheet', 'Cash', col)}:{_fr(ctx, 'Balance Sheet', 'Prepaid Expenses', col)})")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "PPE"), col, f"={_mi(ctx, 'cash::PPE Closing Balance', col)}")
+    # Phase 9 P3.16 — Right-of-Use Asset references the Debt Schedule
+    # sheet's ROU Asset Closing row (via cash::Right-of-Use Asset).
+    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Right-of-Use Asset (Capital Lease)"), col, f"={_mi(ctx, 'cash::Right-of-Use Asset', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Accumulated Depreciation"), col, f"={_mi(ctx, 'cash::Accumulated Depreciation', col)}")
-    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Total Assets"), col, f"={_fr(ctx, 'Balance Sheet', 'Current Assets', col)}+{_fr(ctx, 'Balance Sheet', 'PPE', col)}")
+    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Total Assets"), col, f"={_fr(ctx, 'Balance Sheet', 'Current Assets', col)}+{_fr(ctx, 'Balance Sheet', 'PPE', col)}+{_fr(ctx, 'Balance Sheet', 'Right-of-Use Asset (Capital Lease)', col)}")
     operating_expense_sum = f"SUM({_fr(ctx, 'Income Statement', 'Marketing', col)}:{_fr(ctx, 'Income Statement', 'General & Administrative', col)})"
     if q0:
       _set_formula(ws, ctx.finmo_row("Balance Sheet", "Accounts Payable"), col, f"={_mi(ctx, 'cash::Accounts Payable Opening Balance', col)}")
@@ -220,7 +236,11 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       col,
       f"=MAX(0,{_mi(ctx, 'cash::Debt Opening Balance', col) if q0 else _mi(ctx, 'cash::Debt Closing Balance', col)}-{_fr(ctx, 'Balance Sheet', 'Short Term Debt', col)})",
     )
-    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Total Liabilities"), col, f"={_fr(ctx, 'Balance Sheet', 'Current Liabilities', col)}+{_fr(ctx, 'Balance Sheet', 'Long Term Debt', col)}+{_mi(ctx, 'cash::Lease Closing Balance', col)}")
+    # Phase 9 P3.16 — Capital Lease Obligation displays the lease
+    # closing balance as its own line so the BS shows it explicitly
+    # (rather than folding into the Total Liabilities formula).
+    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Capital Lease Obligation"), col, f"={_mi(ctx, 'cash::Lease Closing Balance', col)}")
+    _set_formula(ws, ctx.finmo_row("Balance Sheet", "Total Liabilities"), col, f"={_fr(ctx, 'Balance Sheet', 'Current Liabilities', col)}+{_fr(ctx, 'Balance Sheet', 'Long Term Debt', col)}+{_fr(ctx, 'Balance Sheet', 'Capital Lease Obligation', col)}")
     _set_formula(ws, ctx.finmo_row("Balance Sheet", "Owner's Capital"), col, f"={owner_capital_input_ref}")
     if q0:
       retained_formula = f"={_fr(ctx, 'Balance Sheet', 'Total Assets', col)}-{_fr(ctx, 'Balance Sheet', 'Total Liabilities', col)}-{owner_capital_ref}-{_fr(ctx, 'Balance Sheet', 'Other Equity', col)}"
@@ -264,7 +284,11 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Debt Repayment"), col, f"={_mi(ctx, 'cash::Debt Repayment', col)}")
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Equity"), col, equity_formula)
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Distributions"), col, f"={_mi(ctx, 'bs::Distributions', col)}")
-    _set_formula(ws, ctx.finmo_row("Cash Flow", "Financing Cash Flow"), col, "=0" if q0 else f"={_fr(ctx, 'Cash Flow', 'Debt Issuance (New Borrowing)', col)}-{_fr(ctx, 'Cash Flow', 'Debt Repayment', col)}+{_fr(ctx, 'Cash Flow', 'Equity', col)}-{_fr(ctx, 'Cash Flow', 'Distributions', col)}-{_mi(ctx, 'cash::Lease Principal Repayments', col)}")
+    # Phase 9 P3.16 — Capital Lease Principal Payments shown as
+    # its own financing-section line. Financing Cash Flow now
+    # references this cell rather than folding the model input.
+    _set_formula(ws, ctx.finmo_row("Cash Flow", "Capital Lease Principal Payments"), col, f"={_mi(ctx, 'cash::Lease Principal Repayments', col)}")
+    _set_formula(ws, ctx.finmo_row("Cash Flow", "Financing Cash Flow"), col, "=0" if q0 else f"={_fr(ctx, 'Cash Flow', 'Debt Issuance (New Borrowing)', col)}-{_fr(ctx, 'Cash Flow', 'Debt Repayment', col)}+{_fr(ctx, 'Cash Flow', 'Equity', col)}-{_fr(ctx, 'Cash Flow', 'Distributions', col)}-{_fr(ctx, 'Cash Flow', 'Capital Lease Principal Payments', col)}")
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Net Cash Flow"), col, "=0" if q0 else f"={_fr(ctx, 'Cash Flow', 'Operating Cash Flow', col)}+{_fr(ctx, 'Cash Flow', 'Investing Cash Flow', col)}+{_fr(ctx, 'Cash Flow', 'Financing Cash Flow', col)}")
     _set_formula(ws, ctx.finmo_row("Cash Flow", "Ending Cash"), col, f"={_fr(ctx, 'Cash Flow', 'Beginning Cash', col)}+{_fr(ctx, 'Cash Flow', 'Net Cash Flow', col)}")
 

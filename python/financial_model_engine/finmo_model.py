@@ -13,6 +13,12 @@ DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
 DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
 LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
 
+# Phase 9 P3.16 — capital lease integration. Lease asset depreciates
+# straight-line over a fixed term (default 20 quarters = 5 years) per
+# iter spec §"DESIGN — DEPRECIATION". When intake captures actual
+# lease term, replace with intake-driven value (deferred future iter).
+CAPITAL_LEASE_DEPRECIATION_QUARTERS = 20
+
 
 def _parse_start_date(value: str) -> date:
   cleaned = str(value or "").strip()
@@ -59,24 +65,26 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Payroll": "expenses::Payroll",
   "General & Administrative": "Revenue * expenses::General & Administrative",
   "EBITDA": "Gross Profit - SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
-  "Interest": "Debt Schedule Interest Expense = AVERAGE(Debt Opening Balance, Debt Closing Balance) * expenses::Interest Rate",
-  "Depreciation": "min(previous PPE * expenses::Depreciation, previous PPE)",
+  "Interest": "Debt Interest Expense + Lease Interest Expense (P&L combined; debt = AVERAGE(Debt Opening, Debt Closing) * expenses::Interest Rate; lease = Lease Opening Balance * expenses::Interest Rate)",
+  "Depreciation": "PPE Depreciation Expense + Lease Asset Depreciation Expense (P&L combined; PPE = min(previous PPE * expenses::Depreciation, previous PPE); lease = lease_opening_balance_seed / CAPITAL_LEASE_DEPRECIATION_QUARTERS, clipped to remaining ROU)",
   "Taxes": "max(0, Pre-Tax Income) * expenses::Taxes where Pre-Tax Income = EBITDA - Interest - Depreciation",
   "Net Income": "EBITDA - SUM(Interest, Depreciation, Taxes)",
   "Cash": "Ending Cash",
   "Accounts Receivable": "(balance_sheet::Accounts Receivable Days / days_in_quarter) * Revenue",
   "Inventory": "(balance_sheet::Inventory Days / days_in_quarter) * Cost of Goods Sold",
   "Current Assets": "Cash + Accounts Receivable + Inventory + Prepaid Expenses",
-  "PPE": "previous PPE + schedules::Capital Expenditures + Capital Lease Additions - Depreciation",
-  "Accumulated Depreciation": "previous Accumulated Depreciation - Depreciation",
-  "Total Assets": "Current Assets + PPE",
+  "PPE": "previous PPE + schedules::Capital Expenditures + Capital Lease Additions - PPE Depreciation",
+  "Right-of-Use Asset (Capital Lease)": "previous Right-of-Use Asset - Lease Asset Depreciation (straight-line over CAPITAL_LEASE_DEPRECIATION_QUARTERS, seeded from schedules.lease_opening_balance_seed)",
+  "Accumulated Depreciation": "previous Accumulated Depreciation - PPE Depreciation",
+  "Total Assets": "Current Assets + PPE + Right-of-Use Asset (Capital Lease)",
   "Accounts Payable": "(balance_sheet::Accounts Payable Days / days_in_quarter) * SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
   "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses (% of Revenue)",
   "Short Term Debt": f"SUM(schedules::{DEBT_REPAYMENT_LABEL} for q+1..q+4, each clipped to min(requested, simulated_balance + schedules::{DEBT_ISSUANCE_LABEL}))",
   "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
   "Current Liabilities": "SUM(Accounts Payable, Short Term Debt, Deferred Revenue)",
   "Long Term Debt": "max(0, Debt Schedule Closing Balance - Short Term Debt)  # non-current portion only; STD + LTD = closing_debt",
-  "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Closing Balance (Total)",
+  "Capital Lease Obligation": "Capital Lease Closing Balance (Total) — separate line per iter P3.16",
+  "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Obligation",
   "Owner's Capital": "balance_sheet::Owner's Capital",
   "Distributions": "balance_sheet::Distributions",
   "Retained Earnings": "previous Retained Earnings + Net Income - Distributions",
@@ -200,6 +208,16 @@ class FinmoQuarterResult:
   lease_principal_repayments: float
   lease_net_additions: float
   lease_closing_balance_total: float
+  # Phase 9 P3.16 — capital lease integration. Internal split for the
+  # combined `interest` and `depreciation` P&L lines, plus the new
+  # ROU asset and capital lease obligation balance-sheet lines.
+  debt_interest_expense_only: float
+  lease_interest_expense: float
+  ppe_depreciation_expense: float
+  lease_asset_depreciation_expense: float
+  right_of_use_asset_opening: float
+  right_of_use_asset: float
+  capital_lease_obligation: float
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -270,19 +288,28 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     model_inputs.accounts_payable_opening_balance_seed
     + opening_short_term_debt
   )
+  # Phase 9 P3.16 — capital lease integration. The lease opening
+  # balance is recognized as BOTH a liability (lease obligation) and
+  # an asset (right-of-use asset) at Q0; pre-iter the lease balance
+  # was recognized only as a liability, so opening_retained_earnings
+  # absorbed the shortfall and equity was artificially depressed.
+  opening_capital_lease_obligation = max(0.0, model_inputs.lease_opening_balance_seed)
+  opening_right_of_use_asset = opening_capital_lease_obligation
+  opening_total_assets_with_rou = opening_total_assets + opening_right_of_use_asset
+  forecast_opening_total_assets_with_rou = forecast_opening_total_assets + opening_right_of_use_asset
   opening_total_liabilities = (
     opening_current_liabilities
     + opening_long_term_debt
-    + model_inputs.lease_opening_balance_seed
+    + opening_capital_lease_obligation
   )
   opening_retained_earnings = (
-    opening_total_assets
+    opening_total_assets_with_rou
     - opening_total_liabilities
     - opening_owner_capital
     - opening_other_equity
   )
   forecast_opening_retained_earnings = (
-    forecast_opening_total_assets
+    forecast_opening_total_assets_with_rou
     - opening_total_liabilities
     - opening_owner_capital
     - opening_other_equity
@@ -319,7 +346,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       ),
       ppe=client_stub_ppe,
       accumulated_depreciation=model_inputs.accumulated_depreciation_opening_seed,
-      total_assets=opening_total_assets,
+      total_assets=opening_total_assets + opening_right_of_use_asset,
       accounts_payable=model_inputs.accounts_payable_opening_balance_seed,
       prepaid_expenses=0.0,
       short_term_debt=opening_short_term_debt,
@@ -358,6 +385,13 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       lease_principal_repayments=0.0,
       lease_net_additions=0.0,
       lease_closing_balance_total=model_inputs.lease_opening_balance_seed,
+      debt_interest_expense_only=0.0,
+      lease_interest_expense=0.0,
+      ppe_depreciation_expense=0.0,
+      lease_asset_depreciation_expense=0.0,
+      right_of_use_asset_opening=opening_right_of_use_asset,
+      right_of_use_asset=opening_right_of_use_asset,
+      capital_lease_obligation=opening_capital_lease_obligation,
     )
   ]
 
@@ -386,6 +420,20 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   previous_accumulated_depreciation = model_inputs.accumulated_depreciation_opening_seed
   previous_debt_closing_balance = opening_total_debt
   previous_lease_closing_balance = model_inputs.lease_opening_balance_seed
+  previous_right_of_use_asset = opening_right_of_use_asset
+  # Phase 9 P3.16 — per-quarter ROU asset depreciation is straight-
+  # line from the Q0 lease balance over CAPITAL_LEASE_DEPRECIATION_
+  # QUARTERS. INDEPENDENT of the principal payment schedule: the
+  # lease obligation can pay off faster than the asset depreciates,
+  # and after payoff the business owns the equipment outright and
+  # the ROU asset continues to depreciate over the remaining useful
+  # life.
+  capital_lease_seed_amount = max(0.0, model_inputs.lease_opening_balance_seed)
+  per_quarter_lease_depreciation = (
+    capital_lease_seed_amount / float(CAPITAL_LEASE_DEPRECIATION_QUARTERS)
+    if capital_lease_seed_amount > 0
+    else 0.0
+  )
 
   for quarter in model_inputs.quarters:
     quarter_end = _quarter_end_for(start, quarter.quarter_index)
@@ -410,9 +458,32 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     debt_repayment = min(requested_debt_repayment, available_debt_balance)
     debt_closing = max(0.0, available_debt_balance - debt_repayment)
     interest_rate = quarter.expenses.interest_rate
-    interest = ((debt_opening + debt_closing) / 2.0) * interest_rate
 
-    depreciation = quarter.expenses.depreciation_percent * max(0.0, previous_ppe)
+    # Phase 9 P3.16 — capital lease integration. Lease schedule
+    # computed BEFORE interest/depreciation so the combined P&L
+    # values include lease components. The internal split fields
+    # (debt_interest_expense_only, lease_interest_expense,
+    # ppe_depreciation_expense, lease_asset_depreciation_expense)
+    # are emitted for validation; only the COMBINED `interest` and
+    # `depreciation` show on the P&L per iter spec.
+    lease_opening = previous_lease_closing_balance
+    requested_lease_principal = _row_value(model_inputs, "schedules", "Less: Principal Repayments", quarter.quarter_index)
+    lease_additions = _row_value(model_inputs, "schedules", "Plus: Net Additions", quarter.quarter_index)
+    lease_principal = min(max(0.0, requested_lease_principal), max(0.0, lease_opening + lease_additions))
+    lease_closing = max(0.0, lease_opening + lease_additions - lease_principal)
+    capital_lease_obligation = lease_closing
+
+    debt_interest_expense_only = ((debt_opening + debt_closing) / 2.0) * interest_rate
+    lease_interest_expense = max(0.0, lease_opening) * interest_rate
+    interest = debt_interest_expense_only + lease_interest_expense
+
+    ppe_depreciation_uncapped = quarter.expenses.depreciation_percent * max(0.0, previous_ppe)
+    ppe_depreciation_expense = min(ppe_depreciation_uncapped, max(0.0, previous_ppe))
+    rou_opening = previous_right_of_use_asset
+    lease_asset_depreciation_expense = min(per_quarter_lease_depreciation, max(0.0, rou_opening))
+    right_of_use_asset = max(0.0, rou_opening - lease_asset_depreciation_expense)
+    depreciation = ppe_depreciation_expense + lease_asset_depreciation_expense
+
     pre_tax_income = ebitda - interest - depreciation
     taxes = max(0.0, pre_tax_income) * quarter.expenses.tax_percent
     net_income = ebitda - (interest + depreciation + taxes)
@@ -422,15 +493,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     prepaid_expenses = revenue * _row_value(model_inputs, "balance_sheet", "Prepaid Expenses (% of Revenue)", quarter.quarter_index)
     deferred_revenue = revenue * _row_value(model_inputs, "balance_sheet", "Deferred Revenue (% of Revenue)", quarter.quarter_index)
 
-    lease_opening = previous_lease_closing_balance
-    requested_lease_principal = _row_value(model_inputs, "schedules", "Less: Principal Repayments", quarter.quarter_index)
-    lease_additions = _row_value(model_inputs, "schedules", "Plus: Net Additions", quarter.quarter_index)
-    lease_principal = min(max(0.0, requested_lease_principal), max(0.0, lease_opening + lease_additions))
-    lease_closing = max(0.0, lease_opening + lease_additions - lease_principal)
     capex = _row_value(model_inputs, "schedules", "Capital Expenditures", quarter.quarter_index)
-    depreciation = min(depreciation, max(0.0, previous_ppe))
-    ppe = max(0.0, previous_ppe + capex + lease_additions - depreciation)
-    accumulated_depreciation = previous_accumulated_depreciation - depreciation
+    # PPE rolls forward using PPE-only depreciation (lease asset
+    # depreciation reduces right_of_use_asset, not PPE — distinct
+    # accounts per iter P3.16).
+    ppe = max(0.0, previous_ppe + capex + lease_additions - ppe_depreciation_expense)
+    accumulated_depreciation = previous_accumulated_depreciation - ppe_depreciation_expense
 
     accounts_payable = (_row_value(model_inputs, "balance_sheet", "Accounts Payable Days", quarter.quarter_index) / max(1, days_in_quarter)) * (marketing + r_and_d + lease_rent + payroll + g_and_a)
     # Phase 9 P3.10 STD canonical-source layer 1 (iter 14 fix) —
@@ -516,7 +584,11 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     cash = ending_cash
 
     current_assets = cash + accounts_receivable + inventory + prepaid_expenses
-    total_assets = current_assets + ppe
+    # Phase 9 P3.16 — right_of_use_asset is a separate BS asset line
+    # parallel to PPE; balance sheet reconciles by construction
+    # because capital_lease_obligation on the liabilities side
+    # offsets the asset.
+    total_assets = current_assets + ppe + right_of_use_asset
 
     quarter_results.append(
       FinmoQuarterResult(
@@ -578,12 +650,26 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         debt_requested_repayment=requested_debt_repayment,
         debt_additions_repayments_net=debt_receive_repay,
         debt_closing_balance=debt_closing,
-        debt_interest_expense=interest,
+        # Phase 9 P3.16 — debt_interest_expense is now the DEBT-ONLY
+        # portion (was previously assigned `interest`, which was the
+        # debt-only total pre-iter). The combined P&L `interest`
+        # field above includes lease interest. Consumers reading
+        # debt_interest_expense for debt-schedule reconciliation
+        # (e.g. post_intake_debt_schedule.assert_finmo_matches_
+        # debt_schedule) now see the right value.
+        debt_interest_expense=debt_interest_expense_only,
         debt_interest_rate=interest_rate,
         lease_opening_balance_total=lease_opening,
         lease_principal_repayments=lease_principal,
         lease_net_additions=lease_additions,
         lease_closing_balance_total=lease_closing,
+        debt_interest_expense_only=debt_interest_expense_only,
+        lease_interest_expense=lease_interest_expense,
+        ppe_depreciation_expense=ppe_depreciation_expense,
+        lease_asset_depreciation_expense=lease_asset_depreciation_expense,
+        right_of_use_asset_opening=rou_opening,
+        right_of_use_asset=right_of_use_asset,
+        capital_lease_obligation=capital_lease_obligation,
       )
     )
 
@@ -600,5 +686,6 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     previous_accumulated_depreciation = accumulated_depreciation
     previous_debt_closing_balance = debt_closing
     previous_lease_closing_balance = lease_closing
+    previous_right_of_use_asset = right_of_use_asset
 
   return FinmoModelResult(quarter_results=quarter_results)

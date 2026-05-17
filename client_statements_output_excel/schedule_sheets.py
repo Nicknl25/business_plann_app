@@ -467,15 +467,28 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   row += 2
   write_section_header(ws, row, "Capital Lease Schedule")
   row += 1
+  # Phase 9 P3.16 — capital lease integration. Adds ROU asset and
+  # lease asset depreciation rows so the Debt Schedule sheet's
+  # Capital Lease section is the canonical display for the new
+  # right-of-use asset and the straight-line depreciation. Pre-iter
+  # this section existed but its principal/closing rows were
+  # populated from intake-leak values; this iter wires the same
+  # rows to the Python-builder-produced (clipped) schedule and adds
+  # the two new lines.
   lease_rows = [
     ("Lease Opening Balance", CURRENCY_FORMAT),
     ("Requested Lease Principal Repayments", CURRENCY_FORMAT),
     ("Lease Principal Repayments", CURRENCY_FORMAT),
     ("Lease Net Additions", CURRENCY_FORMAT),
+    ("Lease Interest Expense", CURRENCY_FORMAT),
     ("Lease Closing Balance", CURRENCY_FORMAT),
+    ("Right-of-Use Asset Opening", CURRENCY_FORMAT),
+    ("Lease Asset Depreciation", CURRENCY_FORMAT),
+    ("Right-of-Use Asset Closing", CURRENCY_FORMAT),
   ]
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
+  interest_rate_values_lease = values_21((expense_by_label.get("Interest Rate") or {}).get("values"))
   for label, fmt in lease_rows:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value="Capital leases")
@@ -485,23 +498,40 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   lease_requested_principal = ctx.schedule_row(DEBT_SHEET, "Requested Lease Principal Repayments")
   lease_principal = ctx.schedule_row(DEBT_SHEET, "Lease Principal Repayments")
   lease_add = ctx.schedule_row(DEBT_SHEET, "Lease Net Additions")
+  lease_interest = ctx.schedule_row(DEBT_SHEET, "Lease Interest Expense")
   lease_close = ctx.schedule_row(DEBT_SHEET, "Lease Closing Balance")
+  rou_open = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Opening")
+  lease_dep = ctx.schedule_row(DEBT_SHEET, "Lease Asset Depreciation")
+  rou_close = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Closing")
+  lease_seed_value = number(schedules.get("lease_opening_balance_seed")) or 0
+  # Per-quarter straight-line depreciation amount = seed / 20
+  # (iter spec §"DESIGN — DEPRECIATION"). Excel formula uses the
+  # seed value directly so the formula stays static at any column.
+  per_quarter_dep_formula = f"({lease_seed_value if lease_seed_value else 0}/20)"
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(lease_close, col - 1)}")
     ws.cell(lease_requested_principal, col, value=0 if idx == 0 else lease_principal_values[idx])
     ws.cell(lease_add, col, value=0 if idx == 0 else lease_add_values[idx])
     ws.cell(lease_principal, col, value=f"=MIN({local_ref(lease_requested_principal, col)},{local_ref(lease_open, col)}+{local_ref(lease_add, col)})")
+    # Lease interest = opening * interest_rate (declining balance,
+    # iter spec §"DESIGN — INTEREST EXPENSE")
+    rate_cell_value = interest_rate_values_lease[idx] if idx < len(interest_rate_values_lease) else 0
+    ws.cell(lease_interest, col, value=0 if idx == 0 else f"={local_ref(lease_open, col)}*{rate_cell_value}")
     ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
+    ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(rou_close, col - 1)}")
+    ws.cell(lease_dep, col, value=0 if idx == 0 else f"=MIN({per_quarter_dep_formula},{local_ref(rou_open, col)})")
+    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}-{local_ref(lease_dep, col)})")
+  input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions"}
   for label, fmt in lease_rows:
     r = ctx.schedule_row(DEBT_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
       set_formula_style(
         ws.cell(r, col),
         number_format=fmt,
-        internal_link=label not in {"Requested Lease Principal Repayments", "Lease Net Additions"},
+        internal_link=label not in input_rows,
       )
-    add_annual_formulas(ws, r, use_year_end=label.endswith("Balance"), number_format=fmt)
+    add_annual_formulas(ws, r, use_year_end=label.endswith("Balance") or label.endswith("Opening") or label.endswith("Closing"), number_format=fmt)
     style_row(ws, r, fill=FILL_LIGHT, number_format=fmt)
 
 

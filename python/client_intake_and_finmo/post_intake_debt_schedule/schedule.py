@@ -583,11 +583,17 @@ def assert_finmo_matches_debt_schedule(
   for row in rows:
     quarter = int(_safe_float(row.get("quarter_index")) or 0)
     finmo_row = finmo_by_quarter.get(quarter) or {}
+    # Phase 9 P3.16 — `interest` in FINMO is now the COMBINED P&L
+    # line (debt + lease); the debt-only portion lives in
+    # `debt_interest_expense`. The schedule snapshot's
+    # `interest_expense` is computed from FINMO's `debt_interest_expense`
+    # (see build_debt_schedule_snapshot line ~370), so compare against
+    # that same field, not the combined `interest` total.
     comparisons = [
       ("actual_debt_issuance", "debt_issuance"),
       ("actual_debt_repayment", "debt_repayment"),
       ("closing_debt", "debt_closing_balance"),
-      ("interest_expense", "interest"),
+      ("interest_expense", "debt_interest_expense"),
     ]
     for schedule_field, finmo_field in comparisons:
       expected = _safe_int(row.get(schedule_field))

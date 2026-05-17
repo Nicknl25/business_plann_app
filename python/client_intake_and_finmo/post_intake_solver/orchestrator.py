@@ -2502,6 +2502,28 @@ def _run_post_cascade_completion(
   except Exception as exc:
     diagnostics["debt_schedule_build_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
 
+  # Phase 9 P3.16 — build the capital lease schedule snapshot here
+  # against the post-cash-pass FINMO + model_input. Capital lease has
+  # NO dedicated handler; the snapshot is pure deterministic Python
+  # math, mirroring how the debt schedule snapshot is computed (Mirror
+  # Flavor 2). Validators (Type 1) and machinery fail-fasts (Type 2)
+  # fire at finalize against this snapshot to catch builder drift.
+  capital_lease_schedule_payload: Optional[Dict[str, Any]] = None
+  try:
+    from client_intake_and_finmo.post_intake_capital_lease import (  # type: ignore
+      build_capital_lease_schedule_snapshot,
+    )
+    capital_lease_schedule_payload = build_capital_lease_schedule_snapshot(
+      finmo_payload=copy.deepcopy(final_finmo_json or {}),
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      source_stage="post_intake_finalize_validation",
+    )
+    if isinstance(capital_lease_schedule_payload, dict):
+      next_result["capital_lease_schedule"] = capital_lease_schedule_payload
+  except Exception as exc:
+    diagnostics["capital_lease_schedule_build_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+
   if isinstance(debt_schedule_payload, dict) and debt_schedule_payload and conn is not None:
     try:
       import json as _json
@@ -2651,6 +2673,7 @@ def _run_post_cascade_completion(
       finmo_json=copy.deepcopy(final_finmo_json or {}),
       payroll_headcount=copy.deepcopy(payroll_headcount or {}),
       debt_schedule=copy.deepcopy(debt_schedule_payload or {}),
+      capital_lease_schedule=copy.deepcopy(capital_lease_schedule_payload or {}),
       financials_json=copy.deepcopy(financials_json or {}),
       ops_json=copy.deepcopy(ops_json or {}),
       cash_strategy_second_pass_result={"post_intake_finalize_validation": {}},

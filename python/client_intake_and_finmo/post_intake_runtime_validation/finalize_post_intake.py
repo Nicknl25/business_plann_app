@@ -380,6 +380,59 @@ def _assert_debt_schedule_reconciles(
     errors.append(f"debt_schedule_reconciliation_failed: {exc}")
 
 
+def _assert_capital_lease_schedule_reconciles(
+  *,
+  capital_lease_schedule: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  errors: List[str],
+) -> None:
+  """Phase 9 P3.16 — capital lease finalize reconciliation.
+
+  Runs three groups of checks:
+    1. Payload structural validators (Type 1) — 9 validators per
+       iter spec §"VALIDATORS".
+    2. FINMO reconciliation (Type 2 machinery) — snapshot agrees
+       with FINMO state.
+    3. Internal split invariants (Type 2 machinery) — interest and
+       depreciation P&L lines equal the sum of their components;
+       financing cash flow uses lease principal exactly once.
+  """
+  try:
+    from client_intake_and_finmo.post_intake_capital_lease import (  # type: ignore
+      assert_capital_lease_schedule_payload_ready,
+      assert_finmo_matches_capital_lease_schedule,
+      fail_fast_capital_lease_routing_double_count,
+      fail_fast_lease_depreciation_components_misaligned,
+      fail_fast_lease_interest_components_misaligned,
+    )
+
+    assert_capital_lease_schedule_payload_ready(
+      copy.deepcopy(capital_lease_schedule or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      stage="post_intake_finalize_validation_capital_lease_payload",
+    )
+    assert_finmo_matches_capital_lease_schedule(
+      capital_lease_schedule=copy.deepcopy(capital_lease_schedule or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      stage="post_intake_finalize_validation_capital_lease_finmo",
+    )
+    fail_fast_lease_interest_components_misaligned(
+      finmo_payload=copy.deepcopy(finmo_json or {}),
+      stage="post_intake_finalize_validation_capital_lease_interest_split",
+    )
+    fail_fast_lease_depreciation_components_misaligned(
+      finmo_payload=copy.deepcopy(finmo_json or {}),
+      stage="post_intake_finalize_validation_capital_lease_depreciation_split",
+    )
+    fail_fast_capital_lease_routing_double_count(
+      finmo_payload=copy.deepcopy(finmo_json or {}),
+      stage="post_intake_finalize_validation_capital_lease_financing_cf",
+    )
+  except Exception as exc:
+    errors.append(f"capital_lease_schedule_reconciliation_failed: {exc}")
+
+
 def _assert_cash_phase_trace_complete(payload: Optional[Dict[str, Any]], errors: List[str]) -> None:
   trace = payload if isinstance(payload, dict) else {}
   contract = trace.get("cash_pass_phase_contract") if isinstance(trace.get("cash_pass_phase_contract"), dict) else {}
@@ -408,6 +461,7 @@ def run_finalize_post_intake_validation(
   finmo_json: Optional[Dict[str, Any]],
   payroll_headcount: Optional[Dict[str, Any]] = None,
   debt_schedule: Optional[Dict[str, Any]] = None,
+  capital_lease_schedule: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
   cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
@@ -660,6 +714,19 @@ def run_finalize_post_intake_validation(
     )
   except Exception as exc:
     errors.append(f"debt_reconciliation_sequence_failed: {exc}")
+  # Phase 9 P3.16 — capital lease reconciliation. Runs the 9 payload
+  # validators (Type 1), the snapshot-vs-FINMO mirror check (Type 2),
+  # and the internal interest/depreciation/financing-CF split
+  # invariants (Type 2 machinery fail-fasts).
+  try:
+    _assert_capital_lease_schedule_reconciles(
+      capital_lease_schedule=copy.deepcopy(capital_lease_schedule or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      errors=errors,
+    )
+  except Exception as exc:
+    errors.append(f"capital_lease_reconciliation_sequence_failed: {exc}")
   try:
     errors.extend(
       balance_sheet_driver_finalize_errors(
