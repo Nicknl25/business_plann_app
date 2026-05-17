@@ -2234,21 +2234,28 @@ def _run_cash_strategy_review_openai(
       decision_source="python_proposer",
     )
 
-  api_key = _openai_key()
-  if not api_key:
-    return _wrap_cash_strategy_review_decision(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      context_payload=context_payload,
-      decision=contract_proposal,
-      prompt_trace={"proposer_diagnostics": proposer_diagnostics},
-      raw_openai_response=None,
-      decision_source="python_proposer_only",
-      detail="OPENAI_API_KEY is not configured; Python proposal stands as the safety floor.",
-      critique_summary="no_critic_invoked",
-      proposer_diagnostics=proposer_diagnostics,
-    )
-  # ----- Step 2: invoke the GPT critic with the proposal as input. -----
+  # iter 19 Stage 4 — drop the routine GPT critic per doctrine.md §3
+  # Pattern 2. The Python proposer's output stands as the cash strategy
+  # decision. Cash-buffer violations downstream are now the trigger for
+  # the funding handler (post_intake_funding_handler), not a routine
+  # critic-pass amendment. This preserves Python-determinism on the
+  # happy path; the handler engages only on validator failure.
+  return _wrap_cash_strategy_review_decision(
+    selected_cash_strategy=selected_cash_strategy,
+    prompt_file=prompt_file,
+    context_payload=context_payload,
+    decision=contract_proposal,
+    prompt_trace={"proposer_diagnostics": proposer_diagnostics},
+    raw_openai_response=None,
+    decision_source="python_proposer_only",
+    detail=(
+      "iter 19 Stage 4 — Python proposer is the authoring source; "
+      "routine GPT critic disabled per doctrine.md §3 Pattern 2."
+    ),
+    critique_summary="critic_disabled_iter_19",
+    proposer_diagnostics=proposer_diagnostics,
+  )
+  # ----- Legacy GPT critic path (kept for reference; unreachable). -----
   business_summary = {
     "selected_cash_strategy": selected_cash_strategy,
     "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
