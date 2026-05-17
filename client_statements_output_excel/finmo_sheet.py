@@ -186,8 +186,20 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
     _set_formula(ws, ctx.finmo_row("Income Statement", "Payroll"), col, f"={_mi(ctx, 'is::Payroll', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "General & Administrative"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'is::General & Administrative', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "EBITDA"), col, f"={_fr(ctx, 'Income Statement', 'Gross Profit', col)}-SUM({_fr(ctx, 'Income Statement', 'Marketing', col)}:{_fr(ctx, 'Income Statement', 'General & Administrative', col)})")
-    _set_formula(ws, ctx.finmo_row("Income Statement", "Interest"), col, f"={_mi(ctx, 'is::Interest Expense', col)}")
-    _set_formula(ws, ctx.finmo_row("Income Statement", "Depreciation"), col, f"={_mi(ctx, 'is::Depreciation Expense', col)}")
+    # Phase 9 P3.17 Phase 3c — P&L Interest and Depreciation are
+    # COMBINED totals per FORMULA_REGISTRY (debt+lease for Interest,
+    # PPE+lease for Depreciation). Pre-iter the workbook P&L cells
+    # read only the legacy `is::Interest Expense` / `is::Depreciation
+    # Expense` Model Inputs cells, which point at the debt-only /
+    # PPE-only source rows on the Debt Schedule and CapEx sheets.
+    # The lease components (cash::Lease Interest Expense, cash::Lease
+    # Asset Depreciation) were exposed on Model Inputs but never read
+    # by the P&L, so the workbook P&L silently dropped them while the
+    # persisted FINMO `interest` and `depreciation` fields correctly
+    # included them. Doctrine Pattern 1 / Mirror Flavor 1 — the
+    # workbook P&L formulas now reference both components directly.
+    _set_formula(ws, ctx.finmo_row("Income Statement", "Interest"), col, f"={_mi(ctx, 'is::Interest Expense', col)}+{_mi(ctx, 'cash::Lease Interest Expense', col)}")
+    _set_formula(ws, ctx.finmo_row("Income Statement", "Depreciation"), col, f"={_mi(ctx, 'is::Depreciation Expense', col)}+{_mi(ctx, 'cash::Lease Asset Depreciation', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "Taxes"), col, f"=MAX(0,{_fr(ctx, 'Income Statement', 'EBITDA', col)}-{_fr(ctx, 'Income Statement', 'Interest', col)}-{_fr(ctx, 'Income Statement', 'Depreciation', col)})*{_mi(ctx, 'is::Taxes', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "Net Income"), col, f"={_fr(ctx, 'Income Statement', 'EBITDA', col)}-SUM({_fr(ctx, 'Income Statement', 'Interest', col)}:{_fr(ctx, 'Income Statement', 'Taxes', col)})")
 
