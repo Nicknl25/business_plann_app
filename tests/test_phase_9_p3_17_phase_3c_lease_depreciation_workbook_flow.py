@@ -125,12 +125,17 @@ class WorkbookPnlFormulaOutputTests(unittest.TestCase):
     wb = openpyxl.load_workbook(str(self._workbook_path), data_only=False)
     finmo = wb["FINMO"]
     mi = wb["Model Inputs"]
+    # The FINMO sheet has multiple rows labeled "Depreciation":
+    # the P&L row (between Interest and Taxes) and the Cash Flow
+    # row (between Net Income and Operating Cash Flow). The P&L
+    # one is the FIRST occurrence; keep just the first match for
+    # each label.
     interest_row = depreciation_row = None
     for r in range(1, 100):
       label = finmo.cell(row=r, column=1).value
-      if label == "Interest":
+      if label == "Interest" and interest_row is None:
         interest_row = r
-      elif label == "Depreciation":
+      elif label == "Depreciation" and depreciation_row is None:
         depreciation_row = r
     self.assertIsNotNone(interest_row, "FINMO sheet must have Interest row")
     self.assertIsNotNone(depreciation_row, "FINMO sheet must have Depreciation row")

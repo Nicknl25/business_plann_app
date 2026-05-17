@@ -3270,7 +3270,15 @@ def _build_model_input_overlay(
     elif label == "General & Administrative":
       intake_stub_value = round(_coerce_ratio_stub(max(0.0, g_and_a_ratio_baseline), revenue_year1=revenue_total_year1), 6)
     elif label == "Interest Rate":
-      intake_stub_value = round(intake_interest_rate_stub, 6)
+      # Phase 9 P3.19 — the `expenses::Interest Rate` row is consumed
+      # by every downstream formula (FINMO, debt schedule, workbook)
+      # as a PER-QUARTER rate (= avg_debt * Interest Rate per quarter).
+      # `intake_interest_rate_stub` is an annual rate (annual interest
+      # payment / total debt outstanding). Convert annual -> quarterly
+      # so the formula contract holds. Pre-iter, the annual value was
+      # written into the per-quarter slot, producing ~4x inflated
+      # interest expense on every plan with non-zero debt.
+      intake_stub_value = round(intake_interest_rate_stub / 4.0, 6)
     elif label == "Taxes":
       # Stub period uses the same doctrinal effective_tax_rate as live
       # quarters; tax_rate_forecast already cascades intake → envelope →
@@ -3298,7 +3306,9 @@ def _build_model_input_overlay(
       elif seed_slots and label == "General & Administrative":
         values.append(round(_safe_float(slot.get("g_and_a_percent")) or 0.0, 6))
       elif seed_slots and label == "Interest Rate":
-        values.append(round(interest_rate_baseline, 6))
+        # Phase 9 P3.19 — see note at intake_stub_value above.
+        # Annual SBA rate -> per-quarter (annual / 4).
+        values.append(round(interest_rate_baseline / 4.0, 6))
       elif seed_slots and label == "Depreciation":
         values.append(0.0)
       elif seed_slots and label == "Taxes":
@@ -3331,7 +3341,9 @@ def _build_model_input_overlay(
       elif label == "General & Administrative":
         values.append(round(max(0.0, g_and_a_ratio_baseline if not projection_mode else _ratio((_safe_float(slot.get("opex")) or 0.0) - lease_amount, revenue)), 6))
       elif label == "Interest Rate":
-        values.append(round(interest_rate_baseline, 6))
+        # Phase 9 P3.19 — see note at intake_stub_value above.
+        # Annual SBA rate -> per-quarter (annual / 4).
+        values.append(round(interest_rate_baseline / 4.0, 6))
       elif label == "Depreciation":
         # Phase 2: depreciation expense row is a placeholder seeded from
         # the driver-movement envelope (NAICS depreciation_percent_of_revenue
@@ -3628,14 +3640,22 @@ def _build_model_input_overlay(
       maintenance_rate=maintenance_rate,
       explicit_capex_overrides=explicit_capex_overrides,
     )
+    # Phase 9 P3.19 — policy storage holds the ANNUAL rate (clearly
+    # named); the `expenses::Interest Rate` row stores the PER-QUARTER
+    # equivalent (annual / 4) so the FINMO/debt-schedule/workbook
+    # formulas (which apply `rate * balance` once per quarter)
+    # produce correct quarterly interest. Pre-P3.19, the annual
+    # value was written into the per-quarter slot, producing ~4x
+    # inflated interest expense on every plan with non-zero debt.
     next_payload["derived_driver_policies"]["debt_interest_rate_policy"] = {
       "policy_version": "sba_7a_business_loan_interest_rate_v1",
       "driver_source": "sba_loan_7a_raw",
       "lever_id": "expenses::Interest Rate",
       "annual_rate_decimal": round(float(interest_rate_baseline), 6),
+      "quarterly_rate_decimal": round(float(interest_rate_baseline) / 4.0, 6),
       "source_detail": deepcopy(interest_rate_source),
       "finmo_formula_unchanged": True,
-      "finmo_formula": "interest = ((debt_opening + debt_closing) / 2) * expenses::Interest Rate",
+      "finmo_formula": "interest = ((debt_opening + debt_closing) / 2) * expenses::Interest Rate  # Interest Rate row holds the PER-QUARTER value (annual_rate_decimal / 4)",
     }
   return apply_derived_driver_policies_to_model_input(next_payload)
 
