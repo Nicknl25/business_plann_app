@@ -4091,14 +4091,26 @@ def _validate_cash_strategy_post_pass(
       }
     )
   else:
-    expected_sba_rate = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
+    # Phase 9 P3.19 — the `expenses::Interest Rate` row stores the
+    # PER-QUARTER rate (annual_rate_decimal / 4) so FINMO / debt
+    # schedule / workbook formulas applying `rate * balance` per
+    # quarter produce correct quarterly interest. Compare row
+    # values against the per-quarter expected, not the annual.
+    expected_sba_rate = _safe_float(debt_rate_policy.get("quarterly_rate_decimal"))
     if expected_sba_rate is None:
-      expected_sba_rate = _safe_float(debt_rate_source.get("annual_rate_decimal"))
+      # Fallback: derive per-quarter from the annual value the
+      # policy still exposes for documentation. Annual / 4 is the
+      # canonical conversion the bridge applies at the writer.
+      annual_value = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
+      if annual_value is None:
+        annual_value = _safe_float(debt_rate_source.get("annual_rate_decimal"))
+      if annual_value is not None:
+        expected_sba_rate = round(float(annual_value) / 4.0, 6)
     if expected_sba_rate is None or float(expected_sba_rate) <= 0.0:
       cash_contract_failures.append(
         {
           "error": "cash_debt_interest_rate_policy_rate_missing",
-          "reason": "SBA-backed debt_interest_rate_policy must provide a positive annual_rate_decimal.",
+          "reason": "SBA-backed debt_interest_rate_policy must provide a positive annual_rate_decimal (and per-quarter equivalent).",
           "source_detail": copy.deepcopy(debt_rate_source),
         }
       )
@@ -4131,7 +4143,7 @@ def _validate_cash_strategy_post_pass(
         cash_contract_failures.append(
           {
             "error": "cash_debt_interest_rate_forecast_mismatch",
-            "reason": f"Stub Q0 may reflect intake, but every forecast quarter Q1-Q{horizon_count} must equal the SBA-backed interest-rate policy.",
+            "reason": f"Stub Q0 may reflect intake, but every forecast quarter Q1-Q{horizon_count} must equal the SBA-backed PER-QUARTER interest-rate policy (= annual_rate_decimal / 4).",
             "violating_quarters": copy.deepcopy(mismatched_forecast_rates[:horizon_count]),
             "source_detail": copy.deepcopy(debt_rate_source),
           }

@@ -171,6 +171,14 @@ def sba_forecast_interest_rate_policy(model_input_json: Optional[Dict[str, Any]]
     "policy": copy.deepcopy(debt_rate_policy),
     "source_detail": copy.deepcopy(debt_rate_source),
     "annual_rate_decimal": round(float(annual_rate), 6),
+    # Phase 9 P3.19 — the `expenses::Interest Rate` row is consumed
+    # per-quarter by FINMO / debt-schedule / workbook formulas, so
+    # the per-quarter equivalent is what downstream code should
+    # apply. Pre-iter, callers used annual_rate_decimal directly
+    # (the per-quarter consumers then applied annual rate as if it
+    # were quarterly, producing ~4x inflated interest). Callers
+    # should consume quarterly_rate_decimal from here forward.
+    "quarterly_rate_decimal": round(float(annual_rate) / 4.0, 6),
   }
 
 
@@ -238,7 +246,12 @@ def build_debt_schedule_plan(
     for value in (lever_map.get(DEBT_REPAYMENT_LEVER_ID) or [])
   ]
   interest_rate_policy = sba_forecast_interest_rate_policy(model_input_json)
-  forecast_interest_rate = round(float(interest_rate_policy.get("annual_rate_decimal") or 0.0), 6)
+  # Phase 9 P3.19 — the per-quarter rate is what we want to write
+  # into the per-quarter `expenses::Interest Rate` row AND what the
+  # FINMO formula `((opening + closing)/2) * rate` applies per
+  # quarter. The annual rate (`annual_rate_decimal`) stays as
+  # documentation of the policy basis.
+  forecast_interest_rate = round(float(interest_rate_policy.get("quarterly_rate_decimal") or 0.0), 6)
   exact_updates: List[Dict[str, Any]] = []
   rows: List[Dict[str, Any]] = []
   if opening_debt_seed <= 0 and not any(debt_issuance_series):
