@@ -2366,7 +2366,11 @@ def estimate_payroll_headcount_schedule_with_gpt(
     object_name="payroll_headcount",
     action="build",
     owner="gpt",
-    trigger="initial_payroll_authoring",
+    # Phase 9 P3.13 Sunny fix #1 — trigger must be from the SQL
+    # post_intake_process_sequence_lookup allowed_triggers list. The
+    # original P3.11 rewrite used "initial_payroll_authoring" which
+    # is not a registered trigger; sequence-controller rejected it.
+    trigger="initial_build",
   )
 
   # ---- Phase 9 P3.11 — iterative refinement loop ---------------------------
