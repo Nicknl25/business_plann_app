@@ -875,20 +875,19 @@ def prepare_initial_grid_for_draft(
     current_model_input_json: Dict[str, Any],
     current_finmo_json: Dict[str, Any],
     stage_prefix: str,
-    previous_contract_failure: Optional[Dict[str, Any]] = None,
   ) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-    payroll_control_step_key = (
-      "payroll_feasibility_repair"
-      if isinstance(previous_contract_failure, dict) and previous_contract_failure
-      else "payroll_headcount_schedule"
-    )
+    # Phase 9 P3.11 — outer retry removed; inner GPT call now runs the
+    # iterative refinement loop internally. The step_key is fixed at
+    # "payroll_headcount_schedule" and the previous_contract_failure
+    # parameter to the inner function was dropped (all feedback is
+    # handled inside the loop).
+    payroll_control_step_key = "payroll_headcount_schedule"
     payroll_runtime_context = _runtime_context(
       current_model_input_json=current_model_input_json,
       current_finmo_json=current_finmo_json,
       extra={
         "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
         "planning_mode_decision": copy.deepcopy(planning_choice or {}),
-        "previous_contract_failure": copy.deepcopy(previous_contract_failure or {}),
         "payroll_headcount": copy.deepcopy(payroll_headcount_payload or {}),
         "payroll_context_payload": {
           "business_facts": copy.deepcopy(business_facts or {}),
@@ -912,11 +911,7 @@ def prepare_initial_grid_for_draft(
       },
       runtime_context=payroll_runtime_context,
       expected_phase="initial_grid",
-      expected_handler_key=(
-        "retry_payroll_headcount_schedule_from_feasibility_failure"
-        if payroll_control_step_key == "payroll_feasibility_repair"
-        else "estimate_payroll_headcount_schedule_with_gpt"
-      ),
+      expected_handler_key="estimate_payroll_headcount_schedule_with_gpt",
       required_contract_name="payroll_headcount_schedule",
       required_context_contract_name="payroll_headcount_schedule",
       required_context_include_phase="pre_convergence",
@@ -987,7 +982,6 @@ def prepare_initial_grid_for_draft(
         "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
         "draft_id": normalized_draft_id,
         "client_id": str(draft.get("client_id") or "").strip(),
-        "previous_contract_failure": copy.deepcopy(previous_contract_failure or {}),
       },
       expected_phase="initial_grid",
       expected_handler_key="estimate_payroll_headcount_schedule_with_gpt",
@@ -1248,16 +1242,19 @@ def prepare_initial_grid_for_draft(
       payroll_headcount_payload=payroll_headcount_payload,
     )
   else:
-    payroll_feasibility_failure: Dict[str, Any] = {}
-    payroll_sequence_row = post_intake_process_sequence_step("payroll_headcount_schedule", required=True) or {}
-    payroll_grid_rebuild_limit = max(1, int(payroll_sequence_row.get("max_attempts") or 1))
-    for payroll_grid_attempt in range(1, payroll_grid_rebuild_limit + 1):
-      payroll_headcount_payload, model_input_json, finmo_json = _build_and_apply_payroll_schedule(
-        current_model_input_json=copy.deepcopy(model_input_json),
-        current_finmo_json=copy.deepcopy(finmo_json),
-        stage_prefix="pre_quarter_grid",
-        previous_contract_failure=copy.deepcopy(payroll_feasibility_failure),
-      )
+    # Phase 9 P3.11 — outer payroll_grid_rebuild_limit retry removed.
+    # The inner estimate_payroll_headcount_schedule_with_gpt now runs
+    # an iterative refinement loop (10 rounds) internally; one outer
+    # invocation is all that's needed. Post-quarter-grid feasibility
+    # violations are now hard-fail rather than retry-eligible
+    # (intentional per the directive — quarter-grid disturbing payroll
+    # feasibility surfaces a deeper issue that retrying papered over).
+    payroll_headcount_payload, model_input_json, finmo_json = _build_and_apply_payroll_schedule(
+      current_model_input_json=copy.deepcopy(model_input_json),
+      current_finmo_json=copy.deepcopy(finmo_json),
+      stage_prefix="pre_quarter_grid",
+    )
+    if True:
       _assert_global_invariants_via_sequence(
         "pre_quarter_grid_global_validation",
         model_input_payload=copy.deepcopy(model_input_json),
@@ -1460,42 +1457,22 @@ def prepare_initial_grid_for_draft(
         finmo_json=applied_finmo_json,
         stage="quarter_grid_applied",
       )
-      try:
-        _assert_global_invariants_via_sequence(
-          "quarter_grid_global_validation",
-          model_input_payload=copy.deepcopy(applied_model_input_json),
-          finmo_payload=copy.deepcopy(applied_finmo_json),
-          payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
-          stage="quarter_grid_applied",
-        )
-        break
-      except Exception as exc:
-        failure_text = str(exc)
-        if (
-          payroll_grid_attempt < payroll_grid_rebuild_limit
-          and (
-            "payroll_revenue_economic_feasibility_failed" in failure_text
-            or "payroll_stage_profitability_feasibility_failed" in failure_text
-          )
-        ):
-          payroll_violation_rows = payroll_revenue_feasibility_violations(
-            payroll_headcount=copy.deepcopy(payroll_headcount_payload),
-            finmo_json=copy.deepcopy(applied_finmo_json),
-          )
-          payroll_feasibility_failure = {
-            "error": failure_text[:6000],
-            "attempt": payroll_grid_attempt,
-            "failed_state_source": "quarter_grid_applied_model_input_and_finmo",
-            "payroll_revenue_feasibility_violations": copy.deepcopy(payroll_violation_rows[:20]),
-            "required_rebuild": (
-              "Rebuild payroll_headcount_schedule from GPT's OEWS role/FTE/productivity contract, "
-              "then rederive payroll-supported Capacity, rerun quarter-grid revenue drivers, and rebuild FINMO."
-            ),
-          }
-          model_input_json = copy.deepcopy(applied_model_input_json)
-          finmo_json = copy.deepcopy(applied_finmo_json)
-          continue
-        raise
+      # Phase 9 P3.11 — post-quarter-grid invariant check. Previously
+      # wrapped in a try/except that caught
+      # payroll_revenue_economic_feasibility_failed /
+      # payroll_stage_profitability_feasibility_failed and rebuilt
+      # payroll via the outer retry loop. With the outer loop removed
+      # and the inner iterative refinement covering up to 10 rounds
+      # against the same feasibility validators, post-quarter-grid
+      # feasibility violations now hard-fail directly — surfacing the
+      # deeper issue rather than papering over with another rebuild.
+      _assert_global_invariants_via_sequence(
+        "quarter_grid_global_validation",
+        model_input_payload=copy.deepcopy(applied_model_input_json),
+        finmo_payload=copy.deepcopy(applied_finmo_json),
+        payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
+        stage="quarter_grid_applied",
+      )
 
   return {
     "planning_run_id": active_planning_run_id,
