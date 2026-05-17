@@ -485,6 +485,19 @@ def run_funding_handler(
   buffer_by_quarter: Optional[Dict[int, float]] = None,
   cash_strategy_mode: str = "",
   enable_gpt_session: bool = True,
+  # Phase 9 P3.20 Part 3 Stage 3b — broaden the handler's failure
+  # input beyond cash_buffer_violations. The Python deterministic
+  # allocator still only fills buffer shortfalls (it has no lever
+  # primitive for distribution / surplus / contract / hard-rule
+  # categories). But the GPT session sees ALL categories as context
+  # so it can reason about combined fixes -- e.g., pulling back
+  # Distributions to satisfy a cash_distribution_violation while
+  # also closing a buffer gap. Lever authority is UNCHANGED (the
+  # five funding levers).
+  cash_distribution_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_surplus_ceiling_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_contract_failures: Optional[List[Dict[str, Any]]] = None,
+  hard_rule_assessment: Optional[Dict[str, Any]] = None,
   # Test seam: callers (and tests) can inject the session implementation
   # to mock the GPT loop without monkey-patching.
   _run_gpt_session: Optional[Any] = None,
@@ -573,6 +586,13 @@ def run_funding_handler(
     python_allocator_authored=python_authored,
     python_allocator_residual=python_residual,
     cash_strategy_mode=cash_strategy_mode,
+    # Stage 3b — broaden the GPT session's context with the other
+    # validator failure categories so it can reason about combined
+    # fixes within its existing 5-lever authority.
+    cash_distribution_violations=cash_distribution_violations,
+    cash_surplus_ceiling_violations=cash_surplus_ceiling_violations,
+    cash_contract_failures=cash_contract_failures,
+    hard_rule_assessment=hard_rule_assessment,
   )
 
   combined_tool_calls = python_tool_calls + int(
@@ -756,23 +776,43 @@ def engage_funding_handler_on_violations(
   buffer_by_quarter: Dict[int, float],
   cash_strategy_mode: str = "",
   build_finmo: Optional[Any] = None,
+  # Phase 9 P3.20 Part 3 Stage 3b — broaden the handler's failure
+  # input beyond cash_buffer_violations. The orchestrator passes
+  # every validator failure category from cash_post_validation so
+  # the handler has full visibility into ANY cash problem (not just
+  # buffer shortfalls). The deterministic Python allocator still
+  # only fills buffer shortfalls (other categories lack a per-
+  # quarter "shortfall in dollars" primitive the priority-order
+  # walk can fill). But the GPT session sees ALL categories and
+  # can reason about combined fixes within its existing 5-lever
+  # authority -- e.g. negative Distributions adjustment to satisfy
+  # a cash_distribution_violation while still closing buffer gaps.
+  cash_distribution_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_surplus_ceiling_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_contract_failures: Optional[List[Dict[str, Any]]] = None,
+  hard_rule_assessment: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Production-wired entry point. Called from the cash orchestrator
-  AFTER cash strategy post-pass detects buffer violations.
+  AFTER cash strategy post-pass detects ANY validator failure
+  (Phase 9 P3.20 Part 3 Stage 2 relaxed trigger; Stage 3b broadened
+  input payload).
 
   Pipeline:
     1. Invoke :func:`run_funding_handler` (Python allocator + GPT
-       session escalation).
+       session escalation). The Python allocator only operates on
+       cash_buffer_violations; the GPT session sees ALL categories.
     2. If handler returns RESOLVED, apply the authored lever changes
        to a copy of model_input_json and rebuild FINMO via
        ``build_finmo``.
     3. Return a structured result dict carrying:
          status, authored_lever_changes, residual_violations,
          tool_calls_used, diagnostic, updated_model_input_json,
-         updated_finmo_json.
+         updated_finmo_json, failures_input_summary.
 
-  When handler returns EXHAUSTED, the orchestrator should hard-fail
-  with the specific residual diagnostic (doctrine §1).
+  When handler returns EXHAUSTED, the orchestrator preserves the
+  proposer's outputs in downstream state (Stage 1's never-revert)
+  with the residual failures still visible for finalize-stage
+  diagnostics.
   """
   pre_rows = (pre_handler_finmo_json or {}).get("quarter_rows") or []
   if not isinstance(pre_rows, list):
@@ -784,12 +824,31 @@ def engage_funding_handler_on_violations(
     buffer_by_quarter=buffer_by_quarter,
     cash_strategy_mode=cash_strategy_mode,
     enable_gpt_session=True,
+    cash_distribution_violations=cash_distribution_violations,
+    cash_surplus_ceiling_violations=cash_surplus_ceiling_violations,
+    cash_contract_failures=cash_contract_failures,
+    hard_rule_assessment=hard_rule_assessment,
   )
 
   # Machinery invariant #5 — output malformation. RESOLVED must
   # carry authored changes; EXHAUSTED must carry residual_violations
   # or a diagnostic. Fires on logic-drift in run_funding_handler.
   _assert_funding_handler_output_well_formed(result=result)
+
+  # Stage 3b — per-category input summary so the orchestrator and
+  # downstream diagnostics can see which validator categories the
+  # handler was engaged against. Resolution per category is
+  # determined by the orchestrator's post-handler re-validation
+  # (the handler itself cannot re-run the validator).
+  failures_input_summary = {
+    "cash_buffer_violations": len(cash_buffer_violations or []),
+    "cash_distribution_violations": len(cash_distribution_violations or []),
+    "cash_surplus_ceiling_violations": len(cash_surplus_ceiling_violations or []),
+    "cash_contract_failures": len(cash_contract_failures or []),
+    "all_hard_rules_cleared": bool(
+      (hard_rule_assessment or {}).get("all_hard_rules_cleared")
+    ) if isinstance(hard_rule_assessment, dict) else None,
+  }
 
   if result.status != FundingHandlerStatus.RESOLVED:
     return {
@@ -800,6 +859,7 @@ def engage_funding_handler_on_violations(
       "diagnostic": result.diagnostic,
       "updated_model_input_json": None,
       "updated_finmo_json": None,
+      "failures_input_summary": failures_input_summary,
     }
 
   # RESOLVED — apply authored changes and rebuild FINMO.
@@ -827,4 +887,5 @@ def engage_funding_handler_on_violations(
     "diagnostic": result.diagnostic,
     "updated_model_input_json": updated_model_input,
     "updated_finmo_json": updated_finmo,
+    "failures_input_summary": failures_input_summary,
   }

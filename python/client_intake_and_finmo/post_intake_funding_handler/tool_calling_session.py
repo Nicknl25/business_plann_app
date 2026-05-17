@@ -128,27 +128,69 @@ def _build_tool_definition() -> Dict[str, Any]:
 
 # Universal system prompt mirroring the exhaustion handler's prompt
 # style. Universal across NAICS / stage / archetype per doctrine.md §1.
+#
+# Phase 9 P3.20 Part 3 Stage 3b — prompt scope broadened. Pre-Stage-3b
+# this prompt described the task as resolving cash_buffer_violations
+# only. Stage 3b broadens the handler's input payload to include ALL
+# validator failure categories (distribution / surplus ceiling /
+# contract / hard-rule), so the prompt must describe them too.
+# Lever authority is UNCHANGED (the five funding levers).
 SYSTEM_PROMPT: str = (
   "You are advising on funding adjustments for a 20-quarter financial "
   "plan. The Python cash-strategy proposer has produced a funding plan "
-  "that trips one or more cash_buffer_violations: ending cash falls "
-  "below the per-quarter buffer requirement in those quarters. The "
-  "deterministic Python allocator has already attempted a first-pass "
-  "correction and could not close every violation within the funding "
-  "levers' per-quarter bounds.\n"
+  "that trips one or more validator failures at post-pass:\n"
+  "  - cash_buffer_violations: ending cash falls below the per-quarter "
+  "buffer requirement.\n"
+  "  - cash_distribution_violations: planned distributions in a quarter "
+  "exceed what the ending cash + buffer headroom can support.\n"
+  "  - cash_surplus_ceiling_violations: ending cash exceeds the cash "
+  "ceiling and the deployable surplus must be put to work (debt repay, "
+  "distributions, or other deployments).\n"
+  "  - cash_contract_failures: structural contract failures detected by "
+  "the cash pass (e.g. missing debt schedule, mis-matched interest "
+  "rate, under-scheduled principal repayments, invalid strategy).\n"
+  "  - hard_rule_assessment failures: convergence-owned hard rules that "
+  "the cash pass surfaces but does not own resolving.\n"
+  "\n"
+  "The deterministic Python allocator has already attempted a "
+  "first-pass correction targeted at cash_buffer_violations and could "
+  "not close every violation within the funding levers' per-quarter "
+  "bounds.\n"
   "\n"
   "Your authority is strictly limited to:\n"
   "  - schedules::Debt Issuance (New Borrowing)\n"
   "  - schedules::Debt Repayment (Scheduled)\n"
   "  - balance_sheet::Owner's Capital\n"
   "  - balance_sheet::Other Equity\n"
-  "  - balance_sheet::Distributions (negative adjustments only — pulling "
-  "back planned distributions to retain cash)\n"
+  "  - balance_sheet::Distributions (negative adjustments pull back "
+  "planned distributions to retain cash; positive adjustments deploy "
+  "surplus above the ceiling)\n"
+  "\n"
+  "Lever-to-failure-category mapping (suggested defaults):\n"
+  "  - cash_buffer_violations: increase Debt Issuance / Owner's Capital "
+  "/ Other Equity, OR decrease Distributions.\n"
+  "  - cash_distribution_violations: decrease Distributions in the "
+  "violating quarter (negative adjustment).\n"
+  "  - cash_surplus_ceiling_violations: increase Debt Repayment OR "
+  "increase Distributions in the violating quarter to deploy the "
+  "surplus above the ceiling.\n"
+  "  - cash_contract_failures: typically NOT addressable by the funding "
+  "levers (debt-schedule mis-matches, interest-rate policy mis-match, "
+  "etc.). If the failure category is outside your lever authority, "
+  "leave it alone and the orchestrator will surface it downstream.\n"
+  "  - hard_rule_assessment: same -- outside the funding lever scope. "
+  "Address only if a funding-lever change incidentally also fixes the "
+  "rule (rare).\n"
   "\n"
   "You have a tool: compute_cash_trajectory(lever_adjustments). Call it "
   "with proposed per-quarter signed amounts. The tool runs the cash "
   "projection mirror and returns the resulting ending_cash + buffer "
-  "residual per quarter, plus all_violations_resolved.\n"
+  "residual per quarter, plus all_violations_resolved (buffer-only).\n"
+  "\n"
+  "NOTE: the tool only re-checks buffer residual; the orchestrator "
+  "re-runs the FULL post-pass validator after the handler commits, so "
+  "distribution / surplus / contract / hard-rule resolution is "
+  "confirmed downstream of this session, not inside the tool.\n"
   "\n"
   "Iterate. The system uses your most recent tool call where "
   "all_violations_resolved == True as the committed plan; you do not "
@@ -157,9 +199,11 @@ SYSTEM_PROMPT: str = (
   "Reason from this specific business's funding posture, cash strategy "
   "mode, and per-quarter lever bounds. The deterministic allocator's "
   "priority order (debt issuance → owner's capital → other equity → "
-  "distributions pulldown) is a sound default; your job is to find "
-  "non-default allocations that satisfy buffer when the default order "
-  "leaves residual gaps."
+  "distributions pulldown) is a sound default for buffer fills; your "
+  "job is to find non-default allocations that satisfy buffer when the "
+  "default order leaves residual gaps AND, where a lever can also "
+  "address an adjacent failure category (distribution / surplus), to "
+  "combine fixes in the same tool call."
 )
 
 
@@ -285,6 +329,11 @@ def _build_initial_user_prompt(
   python_allocator_authored: Dict[str, Dict[int, float]],
   python_allocator_residual: List[Dict[str, Any]],
   cash_strategy_mode: str,
+  # Phase 9 P3.20 Part 3 Stage 3b — broadened input categories.
+  cash_distribution_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_surplus_ceiling_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_contract_failures: Optional[List[Dict[str, Any]]] = None,
+  hard_rule_assessment: Optional[Dict[str, Any]] = None,
 ) -> str:
   violations_block = json.dumps(
     cash_buffer_violations or [],
@@ -310,21 +359,53 @@ def _build_initial_user_prompt(
     indent=2,
     default=str,
   )
+  # Stage 3b — include the additional failure categories so the GPT
+  # session has full visibility into ANY cash problem, not just
+  # buffer shortfalls. Each category is rendered separately so the
+  # prompt is greppable / readable for diagnostics.
+  distribution_block = json.dumps(
+    cash_distribution_violations or [], ensure_ascii=False, indent=2, default=str,
+  )
+  surplus_block = json.dumps(
+    cash_surplus_ceiling_violations or [], ensure_ascii=False, indent=2, default=str,
+  )
+  contract_block = json.dumps(
+    cash_contract_failures or [], ensure_ascii=False, indent=2, default=str,
+  )
+  hard_rule_block = json.dumps(
+    hard_rule_assessment or {}, ensure_ascii=False, indent=2, default=str,
+  )
   return (
     "CASH_STRATEGY_MODE:\n"
     f"{cash_strategy_mode or '(unset)'}\n\n"
     "CASH_BUFFER_VIOLATIONS (per-quarter ending_cash vs buffer):\n"
     f"{violations_block}\n\n"
+    "CASH_DISTRIBUTION_VIOLATIONS (planned distributions exceed ending_cash + buffer headroom):\n"
+    f"{distribution_block}\n\n"
+    "CASH_SURPLUS_CEILING_VIOLATIONS (ending cash above the deployable ceiling -- deploy surplus):\n"
+    f"{surplus_block}\n\n"
+    "CASH_CONTRACT_FAILURES (structural cash-pass contract failures -- typically not lever-addressable):\n"
+    f"{contract_block}\n\n"
+    "HARD_RULE_ASSESSMENT (convergence-owned rule status; the cash pass surfaces but does not own resolving):\n"
+    f"{hard_rule_block}\n\n"
     "PER-QUARTER LEVER_BOUNDS (current / max / min for each funding lever):\n"
     f"{bounds_block}\n\n"
-    "PYTHON DETERMINISTIC ALLOCATOR FIRST-PASS RESULT:\n"
+    "PYTHON DETERMINISTIC ALLOCATOR FIRST-PASS RESULT (buffer-only):\n"
     f"{python_block}\n\n"
     "TASK:\n"
-    "Author additional funding adjustments so every violation resolves. "
+    "Author additional funding adjustments so every BUFFER violation "
+    "resolves. Where a lever change can also address an adjacent "
+    "category (distribution / surplus ceiling) in the same quarter, "
+    "combine fixes in one tool call. Contract failures and hard-rule "
+    "failures are typically NOT addressable by the five funding "
+    "levers -- leave them alone unless a lever change incidentally "
+    "fixes one. "
     f"Use the {_TOOL_NAME} tool to verify each proposal. The most "
-    "recent tool call where all_violations_resolved == True becomes "
-    "the committed plan automatically; you do not produce a separate "
-    "final answer."
+    "recent tool call where all_violations_resolved == True (BUFFER-"
+    "ONLY check) becomes the committed plan automatically; the "
+    "orchestrator re-runs the FULL post-pass validator downstream of "
+    "this session, so distribution / surplus / contract / hard-rule "
+    "resolution is confirmed there, not inside the tool."
   )
 
 
@@ -337,6 +418,11 @@ def run_funding_tool_calling_session(
   python_allocator_authored: Optional[Dict[str, Dict[int, float]]] = None,
   python_allocator_residual: Optional[List[Dict[str, Any]]] = None,
   cash_strategy_mode: str = "",
+  # Phase 9 P3.20 Part 3 Stage 3b — broadened failure-category input.
+  cash_distribution_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_surplus_ceiling_violations: Optional[List[Dict[str, Any]]] = None,
+  cash_contract_failures: Optional[List[Dict[str, Any]]] = None,
+  hard_rule_assessment: Optional[Dict[str, Any]] = None,
   _call_gpt_turn: Optional[Callable[..., Dict[str, Any]]] = None,
   _projector: Optional[Callable[..., Dict[str, Any]]] = None,
   _residual_checker: Optional[Callable[..., List[Dict[str, Any]]]] = None,
@@ -393,6 +479,10 @@ def run_funding_tool_calling_session(
     python_allocator_authored=python_allocator_authored or {},
     python_allocator_residual=python_allocator_residual or [],
     cash_strategy_mode=cash_strategy_mode,
+    cash_distribution_violations=cash_distribution_violations,
+    cash_surplus_ceiling_violations=cash_surplus_ceiling_violations,
+    cash_contract_failures=cash_contract_failures,
+    hard_rule_assessment=hard_rule_assessment,
   )
 
   input_items: List[Dict[str, Any]] = [

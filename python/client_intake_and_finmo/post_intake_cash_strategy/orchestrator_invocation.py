@@ -525,24 +525,48 @@ def run_mode_based_cash_strategy(
   # `not keep_changes` is the canonical "ANY validator popped"
   # signal -- it captures buffer violations OR distribution
   # violations OR contract failures OR hard rule failures, all
-  # in one boolean. The handler's authority is the five funding
-  # levers (Owner's Capital, Other Equity, Debt Issuance/Repayment,
-  # Distributions); for non-buffer validator failures the handler
-  # may or may not have a lever that fixes the specific issue,
-  # but it gets a chance to react rather than being skipped
-  # entirely. Future stages can broaden the handler's input
-  # payload to include the other violation categories so it has
-  # full visibility (currently the handler's
-  # engage_funding_handler_on_violations API takes only
-  # cash_buffer_violations as the violations input).
+  # in one boolean.
+  #
+  # Stage 3b -- broaden the handler's INPUT PAYLOAD. Pre-Stage-3b
+  # the orchestrator passed only `cash_buffer_violations` to
+  # engage_funding_handler_on_violations even though the trigger
+  # fired on ANY validator failure. The handler had a blind spot:
+  # invoked but unaware of WHY (which non-buffer category tripped
+  # keep_changes). Stage 3b passes every category from
+  # cash_post_validation (distribution / surplus ceiling /
+  # contract / hard-rule). The handler's lever authority is
+  # UNCHANGED (five funding levers); the GPT session now sees the
+  # full failure picture and can reason about combined fixes within
+  # those levers (e.g. negative Distributions adjustment to satisfy
+  # a cash_distribution_violation while also closing a buffer gap).
+  # The deterministic Python allocator still only fills buffer
+  # shortfalls -- it has no per-quarter "shortfall in dollars"
+  # primitive for the other categories the priority-order walk
+  # could fill.
   #
   # The doctrine principle (per Part 3 directive): severity does
   # not matter -- hard rule vs soft rule does not matter. If the
-  # validator pops, the handler runs.
+  # validator pops, the handler runs WITH FULL VISIBILITY.
   cash_funding_handler_result: Optional[Dict[str, Any]] = None
   post_handler_post_validation: Optional[Dict[str, Any]] = None
   cash_buffer_violations_for_handler = list(
     cash_post_validation.get("cash_buffer_violations") or []
+  )
+  # Stage 3b -- collect every validator failure category from
+  # cash_post_validation so the handler sees the full picture.
+  cash_distribution_violations_for_handler = list(
+    cash_post_validation.get("cash_distribution_violations") or []
+  )
+  cash_surplus_ceiling_violations_for_handler = list(
+    cash_post_validation.get("cash_surplus_ceiling_violations") or []
+  )
+  cash_contract_failures_for_handler = list(
+    cash_post_validation.get("cash_contract_failures") or []
+  )
+  hard_rule_assessment_for_handler = (
+    cash_post_validation.get("hard_rule_assessment")
+    if isinstance(cash_post_validation.get("hard_rule_assessment"), dict)
+    else None
   )
   if (
     not keep_changes
@@ -599,6 +623,11 @@ def run_mode_based_cash_strategy(
       buffer_by_quarter=buffer_by_q,
       cash_strategy_mode=cash_strategy_mode,
       build_finmo=lambda mi: build_python_finmo_json(model_input_json=mi),
+      # Stage 3b -- broadened input payload.
+      cash_distribution_violations=cash_distribution_violations_for_handler,
+      cash_surplus_ceiling_violations=cash_surplus_ceiling_violations_for_handler,
+      cash_contract_failures=cash_contract_failures_for_handler,
+      hard_rule_assessment=hard_rule_assessment_for_handler,
     )
     if (
       cash_funding_handler_result.get("status") == "resolved"
