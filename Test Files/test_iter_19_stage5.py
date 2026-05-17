@@ -390,14 +390,17 @@ def test_engage_returns_python_contract_when_validator_accepts() -> None:
 
 def test_engage_invokes_handler_when_validator_rejects_python() -> None:
   # Python rejected once → handler runs → handler returns refined.
+  # The P3.12 authority-violation check rejects out-of-authority root
+  # fields, so the test uses an in-authority field (rationale) as the
+  # python-vs-refined marker.
   def _build(**kwargs):
-    return {"stage_family": "operational"}
+    return {"stage_family": "operational", "rationale": "python_build"}
 
   def _rejecting_validator(**kwargs):
     # First call (on python_contract) rejects; subsequent calls accept
-    # the refined contract (carries marker).
+    # the refined contract distinguished by rationale content.
     payload = kwargs.get("payload") or {}
-    if payload.get("refined_by_handler"):
+    if str(payload.get("rationale") or "").startswith("handler_refined"):
       return {}
     raise RuntimeError("python_contract_rejected")
 
@@ -406,7 +409,7 @@ def test_engage_invokes_handler_when_validator_rejects_python() -> None:
       status="verified",
       refined_contract={
         "stage_family": "operational",
-        "refined_by_handler": True,
+        "rationale": "handler_refined: synthetic test refinement",
       },
       tool_calls_used=2,
       verified_commit_call_n=2,
@@ -431,7 +434,7 @@ def test_engage_invokes_handler_when_validator_rejects_python() -> None:
     )
   finally:
     _h.run_stage_ramp_handler = orig
-  assert out["refined_by_handler"] is True
+  assert str(out.get("rationale") or "").startswith("handler_refined")
   assert out.get("decision_source") == "stage_ramp_handler_refined"
   assert "python_proposal_diagnostic" in out
 

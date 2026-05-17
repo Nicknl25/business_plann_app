@@ -25,6 +25,7 @@ Doctrine §5 invariants:
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import logging
 from dataclasses import dataclass, field
@@ -33,6 +34,171 @@ from typing import Any, Callable, Dict, List, Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 P3.12 — machinery fail-fast helpers for the stage ramp handler.
+#
+# Mirror of the funding handler's machinery helpers
+# (post_intake_funding_handler/handler.py). Per doctrine §5b machinery
+# fail-fasts protect the iteration/handler infrastructure itself from
+# silent degradation, distinct from validators.
+# ---------------------------------------------------------------------------
+
+
+_STAGE_RAMP_HANDLER_GPT_CALL_COUNT: "contextvars.ContextVar[Optional[int]]" = (
+  contextvars.ContextVar(
+    "stage_ramp_handler_gpt_call_count",
+    default=None,
+  )
+)
+
+
+def _stage_ramp_handler_machinery_fail_fast(
+  operation: str,
+  message: str,
+  details: Optional[Dict[str, Any]] = None,
+) -> None:
+  """Hard-stop on a stage-ramp-handler machinery malfunction."""
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+  )
+  raise PostIntakePreconditionFailed(
+    operation=str(operation or "").strip() or "stage_ramp_handler_machinery_violation",
+    pipeline_stage="stage_ramp_handler",
+    expected="stage ramp handler iteration/handler machinery intact",
+    actual=str(message or "").strip()[:600],
+    details=details or {},
+  )
+
+
+def _assert_stage_ramp_handler_state_intact(
+  *,
+  round_n: int,
+  input_items: Any,
+  history: Any,
+  verified_commit_candidate: Any,
+) -> None:
+  """Machinery invariant #3 — state corruption between rounds."""
+  if not isinstance(input_items, list) or not input_items:
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_state_corruption_between_rounds",
+      f"round {round_n} entered with malformed input_items",
+      details={"round_n": int(round_n), "input_items_type": type(input_items).__name__},
+    )
+  for idx, item in enumerate(input_items):
+    if not isinstance(item, dict):
+      _stage_ramp_handler_machinery_fail_fast(
+        "stage_ramp_handler_state_corruption_between_rounds",
+        f"round {round_n} input_items[{idx}] is not a dict (got {type(item).__name__})",
+        details={"round_n": int(round_n), "bad_index": idx},
+      )
+  if not isinstance(history, list):
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_state_corruption_between_rounds",
+      f"round {round_n} history is not a list",
+      details={"round_n": int(round_n), "history_type": type(history).__name__},
+    )
+  if verified_commit_candidate is not None and not hasattr(verified_commit_candidate, "arguments"):
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_state_corruption_between_rounds",
+      f"round {round_n} verified_commit_candidate set but lacks 'arguments' attr",
+      details={"round_n": int(round_n)},
+    )
+
+
+def _assert_stage_ramp_handler_budget_decoupled(
+  *,
+  round_n: int,
+  counts_against_run_budget_arg: bool,
+) -> None:
+  """Machinery invariant #2 — budget decoupling violation."""
+  if counts_against_run_budget_arg is not False:
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_budget_decoupling_violation",
+      (
+        f"round {round_n} GPT call site passed counts_against_run_budget="
+        f"{counts_against_run_budget_arg!r}; the stage ramp handler's "
+        "session must always pass False to bound calls by the handler's "
+        "HARD_CAP_TOOL_CALLS=10 rather than the run-wide budget."
+      ),
+      details={"round_n": int(round_n), "passed_value": counts_against_run_budget_arg},
+    )
+
+
+def _assert_stage_ramp_handler_round_count_consistent(
+  *,
+  loop_round_index: int,
+  gpt_calls_made: int,
+) -> None:
+  """Machinery invariant #1 — round count drift (post-call)."""
+  expected = _STAGE_RAMP_HANDLER_GPT_CALL_COUNT.get()
+  if expected is None:
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_round_count_drift",
+      f"contextvar not initialized at loop round {loop_round_index}",
+      details={"loop_round_index": int(loop_round_index)},
+    )
+  if int(expected) != int(gpt_calls_made):
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_round_count_drift",
+      (
+        f"loop round {loop_round_index}: contextvar gpt_call_count="
+        f"{expected} but gpt_calls_made={gpt_calls_made}; counter divergence"
+      ),
+      details={
+        "loop_round_index": int(loop_round_index),
+        "contextvar_count": int(expected),
+        "gpt_calls_made": int(gpt_calls_made),
+      },
+    )
+
+
+def _assert_stage_ramp_handler_authority_respected(
+  *,
+  refined_contract: Any,
+) -> None:
+  """Machinery invariant #4 — authority violation. The refined
+  contract must only contain fields declared in
+  STAGE_RAMP_FIELD_AUTHORITY. The strict-mode JSON schema already
+  enforces this at parse time; this guard catches any post-parse
+  mutation (e.g., handler-side post-processing that adds fields).
+  """
+  if not isinstance(refined_contract, dict):
+    return
+  declared_root_fields = {
+    "stage_family",
+    "utilization_high_watermark",
+    "quarter_ramp_grid",
+    "rationale",
+  }
+  # Also allow provenance fields the engage helper adds.
+  declared_root_fields |= {
+    "business_stage",
+    "business_stage_source",
+    "planning_mode",
+    "planning_mode_reason",
+    "decision_source",
+    "contract_version",
+    "r_and_d_applicability",
+    "python_proposal_diagnostic",
+  }
+  out_of_authority = [
+    str(key) for key in refined_contract.keys()
+    if str(key) not in declared_root_fields
+  ]
+  if out_of_authority:
+    _stage_ramp_handler_machinery_fail_fast(
+      "stage_ramp_handler_authority_violation",
+      (
+        f"refined_contract includes {len(out_of_authority)} root field(s) "
+        "outside the stage ramp handler's declared authority"
+      ),
+      details={
+        "out_of_authority_fields": out_of_authority[:10],
+        "declared_root_fields": sorted(declared_root_fields),
+      },
+    )
 
 
 STAGE_RAMP_FIELD_AUTHORITY: List[str] = [
@@ -284,6 +450,8 @@ def engage_stage_ramp_handler_on_validator_failure(
     if handler_result.status != StageRampHandlerStatus.RESOLVED:
       raise RuntimeError(handler_result.diagnostic) from exc
     refined = handler_result.refined_contract or {}
+    # Phase 9 P3.12 — machinery invariant #4: authority violation.
+    _assert_stage_ramp_handler_authority_respected(refined_contract=refined)
     annotated = _annotate_provenance(refined, decision_source="stage_ramp_handler_refined")
     annotated["python_proposal_diagnostic"] = {
       "validator_error_text": handler_result.validator_error_text,

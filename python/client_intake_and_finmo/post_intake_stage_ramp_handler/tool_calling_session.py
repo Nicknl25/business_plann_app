@@ -318,121 +318,152 @@ def run_stage_ramp_tool_calling_session(
   verified_commit_candidate: Optional[StageRampToolCallRecord] = None
   detail = ""
 
-  while True:
-    if (
-      tool_calls_used >= INITIAL_TOOL_CALL_BUDGET
-      and not budget_extension_triggered
-      and verified_commit_candidate is None
-    ):
-      input_items.append({
-        "role": "user",
-        "content": [{"type": "input_text", "text": EXTENSION_PROMPT_TEXT}],
-      })
-      budget_extension_triggered = True
-    if tool_calls_used >= HARD_CAP_TOOL_CALLS:
-      detail = "hard_cap_tool_calls_reached"
-      break
-
-    turn_resp = call_gpt_turn(
-      consultant_name=f"post_intake_stage_ramp_handler_tool_call_turn_{tool_calls_used + 1}",
-      input_items=input_items,
-      tools=[tool_def],
-      response_schema=None,
-      schema_name=None,
-      counts_against_run_budget=COUNTS_AGAINST_RUN_BUDGET,
-    )
-    gpt_calls_made += 1
-    decision_sources.append(str(turn_resp.get("decision_source") or ""))
-    decision_source = str(turn_resp.get("decision_source") or "")
-    if decision_source != "python_proposer_plus_gpt_critic":
-      from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-        PostIntakePreconditionFailed,
-        convergence_test_mode_enabled,
+  # Phase 9 P3.12 — machinery fail-fast contextvar setup.
+  from client_intake_and_finmo.post_intake_stage_ramp_handler.handler import (  # type: ignore
+    _STAGE_RAMP_HANDLER_GPT_CALL_COUNT,
+    _assert_stage_ramp_handler_budget_decoupled,
+    _assert_stage_ramp_handler_round_count_consistent,
+    _assert_stage_ramp_handler_state_intact,
+  )
+  _stage_ramp_iter_token = _STAGE_RAMP_HANDLER_GPT_CALL_COUNT.set(0)
+  loop_round_index = 0
+  try:
+    while True:
+      loop_round_index += 1
+      _assert_stage_ramp_handler_state_intact(
+        round_n=loop_round_index,
+        input_items=input_items,
+        history=history,
+        verified_commit_candidate=verified_commit_candidate,
       )
-      if convergence_test_mode_enabled():
-        raise PostIntakePreconditionFailed(
-          operation="stage_ramp_handler_tool_calling_session_turn_failed",
-          pipeline_stage="iter_19_stage_5_stage_ramp_handler",
-          expected="decision_source=python_proposer_plus_gpt_critic",
-          actual=decision_source,
-          details={
-            "tool_calls_used_before_failure": int(tool_calls_used),
-            "gpt_calls_made_before_failure": int(gpt_calls_made),
-            "budget_extension_triggered": bool(budget_extension_triggered),
-            "turn_detail": str(turn_resp.get("detail") or "")[:500],
-          },
-        )
-      detail = f"gpt_turn_failed: {turn_resp.get('detail') or decision_source}"
-      break
 
-    raw_assistant_items = turn_resp.get("raw_assistant_items") or []
-    tool_calls = turn_resp.get("tool_calls") or []
-    for item in raw_assistant_items:
-      input_items.append(item)
-    if not tool_calls:
-      detail = "gpt_stopped_calling_tool"
-      break
-
-    for call in tool_calls:
-      if str(call.get("name") or "").strip() != _TOOL_NAME:
+      if (
+        tool_calls_used >= INITIAL_TOOL_CALL_BUDGET
+        and not budget_extension_triggered
+        and verified_commit_candidate is None
+      ):
         input_items.append({
-          "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
-          "output": json.dumps({"error": f"unknown_tool_{call.get('name')}"}, ensure_ascii=False),
+          "role": "user",
+          "content": [{"type": "input_text", "text": EXTENSION_PROMPT_TEXT}],
         })
-        continue
-      try:
-        args = json.loads(call.get("arguments") or "{}")
-        if not isinstance(args, dict):
-          args = {}
-      except Exception as exc:
-        input_items.append({
-          "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
-          "output": json.dumps(
-            {"error": f"arguments_not_json: {type(exc).__name__}"},
-            ensure_ascii=False,
-          ),
-        })
-        continue
-
-      try:
-        validator(
-          payload=args,
-          expected_stage_family=expected_family,
-          business_stage=business_stage,
-          planning_mode=planning_mode,
-          planning_mode_reason=planning_mode_reason,
-          r_and_d_enabled=r_and_d_enabled,
-        )
-        tool_result = {
-          "validator_accepted": True,
-          "validator_error_text": None,
-        }
-      except RuntimeError as exc:
-        tool_result = {
-          "validator_accepted": False,
-          "validator_error_text": str(exc),
-        }
-
-      tool_calls_used += 1
-      rec = StageRampToolCallRecord(
-        call_n=tool_calls_used,
-        arguments=args,
-        result=tool_result,
-        call_id=str(call.get("call_id") or ""),
-      )
-      history.append(rec)
-      if tool_result["validator_accepted"]:
-        verified_commit_candidate = rec
-
-      input_items.append({
-        "type": "function_call_output",
-        "call_id": call.get("call_id") or "",
-        "output": json.dumps(tool_result, ensure_ascii=False, default=str),
-      })
+        budget_extension_triggered = True
       if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+        detail = "hard_cap_tool_calls_reached"
         break
+
+      _assert_stage_ramp_handler_budget_decoupled(
+        round_n=loop_round_index,
+        counts_against_run_budget_arg=COUNTS_AGAINST_RUN_BUDGET,
+      )
+      turn_resp = call_gpt_turn(
+        consultant_name=f"post_intake_stage_ramp_handler_tool_call_turn_{tool_calls_used + 1}",
+        input_items=input_items,
+        tools=[tool_def],
+        response_schema=None,
+        schema_name=None,
+        counts_against_run_budget=COUNTS_AGAINST_RUN_BUDGET,
+      )
+      _STAGE_RAMP_HANDLER_GPT_CALL_COUNT.set(
+        _STAGE_RAMP_HANDLER_GPT_CALL_COUNT.get() + 1
+      )
+      gpt_calls_made += 1
+      _assert_stage_ramp_handler_round_count_consistent(
+        loop_round_index=loop_round_index,
+        gpt_calls_made=gpt_calls_made,
+      )
+      decision_sources.append(str(turn_resp.get("decision_source") or ""))
+      decision_source = str(turn_resp.get("decision_source") or "")
+      if decision_source != "python_proposer_plus_gpt_critic":
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="stage_ramp_handler_tool_calling_session_turn_failed",
+            pipeline_stage="iter_19_stage_5_stage_ramp_handler",
+            expected="decision_source=python_proposer_plus_gpt_critic",
+            actual=decision_source,
+            details={
+              "tool_calls_used_before_failure": int(tool_calls_used),
+              "gpt_calls_made_before_failure": int(gpt_calls_made),
+              "budget_extension_triggered": bool(budget_extension_triggered),
+              "turn_detail": str(turn_resp.get("detail") or "")[:500],
+            },
+          )
+        detail = f"gpt_turn_failed: {turn_resp.get('detail') or decision_source}"
+        break
+
+      raw_assistant_items = turn_resp.get("raw_assistant_items") or []
+      tool_calls = turn_resp.get("tool_calls") or []
+      for item in raw_assistant_items:
+        input_items.append(item)
+      if not tool_calls:
+        detail = "gpt_stopped_calling_tool"
+        break
+
+      for call in tool_calls:
+        if str(call.get("name") or "").strip() != _TOOL_NAME:
+          input_items.append({
+            "type": "function_call_output",
+            "call_id": call.get("call_id") or "",
+            "output": json.dumps({"error": f"unknown_tool_{call.get('name')}"}, ensure_ascii=False),
+          })
+          continue
+        try:
+          args = json.loads(call.get("arguments") or "{}")
+          if not isinstance(args, dict):
+            args = {}
+        except Exception as exc:
+          input_items.append({
+            "type": "function_call_output",
+            "call_id": call.get("call_id") or "",
+            "output": json.dumps(
+              {"error": f"arguments_not_json: {type(exc).__name__}"},
+              ensure_ascii=False,
+            ),
+          })
+          continue
+
+        try:
+          validator(
+            payload=args,
+            expected_stage_family=expected_family,
+            business_stage=business_stage,
+            planning_mode=planning_mode,
+            planning_mode_reason=planning_mode_reason,
+            r_and_d_enabled=r_and_d_enabled,
+          )
+          tool_result = {
+            "validator_accepted": True,
+            "validator_error_text": None,
+          }
+        except RuntimeError as exc:
+          tool_result = {
+            "validator_accepted": False,
+            "validator_error_text": str(exc),
+          }
+
+        tool_calls_used += 1
+        rec = StageRampToolCallRecord(
+          call_n=tool_calls_used,
+          arguments=args,
+          result=tool_result,
+          call_id=str(call.get("call_id") or ""),
+        )
+        history.append(rec)
+        if tool_result["validator_accepted"]:
+          verified_commit_candidate = rec
+
+        input_items.append({
+          "type": "function_call_output",
+          "call_id": call.get("call_id") or "",
+          "output": json.dumps(tool_result, ensure_ascii=False, default=str),
+        })
+        if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+          break
+  finally:
+    _STAGE_RAMP_HANDLER_GPT_CALL_COUNT.reset(_stage_ramp_iter_token)
 
   last_validator_error: Optional[str] = None
   if history:

@@ -47,6 +47,7 @@ Live API integration is unverified pending end-of-iter E2E sweep.
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import logging
 from dataclasses import dataclass, field
@@ -55,6 +56,207 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 P3.12 — machinery fail-fast helpers for the funding handler.
+#
+# Distinct from FundingHandlerStatus.EXHAUSTED (a planned hard-fail
+# when the handler can't resolve the business problem within its
+# budget): these fail-fasts fire when the iteration/handler
+# infrastructure itself malfunctions. Per doctrine.md §5b, both
+# kinds are required.
+# ---------------------------------------------------------------------------
+
+
+# Tracks GPT calls inside the session scope (round-count-drift invariant).
+_FUNDING_HANDLER_GPT_CALL_COUNT: "contextvars.ContextVar[Optional[int]]" = (
+  contextvars.ContextVar(
+    "funding_handler_gpt_call_count",
+    default=None,
+  )
+)
+
+
+def _funding_handler_machinery_fail_fast(
+  operation: str,
+  message: str,
+  details: Optional[Dict[str, Any]] = None,
+) -> None:
+  """Hard-stop on a funding-handler machinery malfunction."""
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+  )
+  raise PostIntakePreconditionFailed(
+    operation=str(operation or "").strip() or "funding_handler_machinery_violation",
+    pipeline_stage="funding_handler",
+    expected="funding handler iteration/handler machinery intact",
+    actual=str(message or "").strip()[:600],
+    details=details or {},
+  )
+
+
+def _assert_funding_handler_state_intact(
+  *,
+  round_n: int,
+  input_items: Any,
+  history: Any,
+  verified_commit_candidate: Any,
+) -> None:
+  """Machinery invariant #3 — state corruption between rounds."""
+  if not isinstance(input_items, list) or not input_items:
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_state_corruption_between_rounds",
+      f"round {round_n} entered with malformed input_items",
+      details={"round_n": int(round_n), "input_items_type": type(input_items).__name__},
+    )
+  for idx, item in enumerate(input_items):
+    if not isinstance(item, dict):
+      _funding_handler_machinery_fail_fast(
+        "funding_handler_state_corruption_between_rounds",
+        f"round {round_n} input_items[{idx}] is not a dict (got {type(item).__name__})",
+        details={"round_n": int(round_n), "bad_index": idx},
+      )
+  if not isinstance(history, list):
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_state_corruption_between_rounds",
+      f"round {round_n} history is not a list",
+      details={"round_n": int(round_n), "history_type": type(history).__name__},
+    )
+  if verified_commit_candidate is not None and not hasattr(verified_commit_candidate, "arguments"):
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_state_corruption_between_rounds",
+      f"round {round_n} verified_commit_candidate set but lacks 'arguments' attr",
+      details={"round_n": int(round_n)},
+    )
+
+
+def _assert_funding_handler_budget_decoupled(
+  *,
+  round_n: int,
+  counts_against_run_budget_arg: bool,
+) -> None:
+  """Machinery invariant #2 — budget decoupling violation. Every GPT
+  call inside the session must pass ``counts_against_run_budget=
+  False`` (iter 17 fix). Runtime guard against future refactors that
+  reintroduce budget commingling."""
+  if counts_against_run_budget_arg is not False:
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_budget_decoupling_violation",
+      (
+        f"round {round_n} GPT call site passed counts_against_run_budget="
+        f"{counts_against_run_budget_arg!r}; the funding handler's "
+        "session must always pass False to bound calls by the "
+        "handler's HARD_CAP_TOOL_CALLS=10 rather than the run-wide budget."
+      ),
+      details={"round_n": int(round_n), "passed_value": counts_against_run_budget_arg},
+    )
+
+
+def _assert_funding_handler_round_count_consistent(
+  *,
+  loop_round_index: int,
+  tool_calls_used: int,
+) -> None:
+  """Machinery invariant #1 — round count drift."""
+  expected = _FUNDING_HANDLER_GPT_CALL_COUNT.get()
+  if expected is None:
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_round_count_drift",
+      f"contextvar not initialized at loop round {loop_round_index}",
+      details={"loop_round_index": int(loop_round_index)},
+    )
+  if int(expected) != int(tool_calls_used):
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_round_count_drift",
+      (
+        f"loop round {loop_round_index}: contextvar gpt_call_count="
+        f"{expected} but tool_calls_used={tool_calls_used}; counter divergence"
+      ),
+      details={
+        "loop_round_index": int(loop_round_index),
+        "contextvar_count": int(expected),
+        "tool_calls_used": int(tool_calls_used),
+      },
+    )
+
+
+def _assert_funding_handler_authority_respected(
+  *,
+  authored_lever_changes: Dict[str, Dict[int, float]],
+) -> None:
+  """Machinery invariant #4 — authority violation. Every authored
+  lever_id must be in ``FUNDING_LEVER_AUTHORITY``. Previously the
+  lever-write helper silently skipped out-of-authority ids; this
+  guard raises instead, enforcing doctrine §3 Pattern 3 at runtime."""
+  authority = set(FUNDING_LEVER_AUTHORITY)
+  out_of_authority = [
+    str(lever_id) for lever_id in (authored_lever_changes or {}).keys()
+    if str(lever_id) not in authority
+  ]
+  if out_of_authority:
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_authority_violation",
+      (
+        f"authored_lever_changes includes {len(out_of_authority)} "
+        "lever_id(s) outside the funding handler's declared authority"
+      ),
+      details={
+        "out_of_authority_lever_ids": out_of_authority[:10],
+        "authority": sorted(authority),
+      },
+    )
+
+
+def _assert_funding_handler_output_well_formed(
+  *,
+  result: "FundingHandlerResult",
+) -> None:
+  """Machinery invariant #5 — output malformation."""
+  if result.status == FundingHandlerStatus.RESOLVED:
+    if not result.authored_lever_changes:
+      _funding_handler_machinery_fail_fast(
+        "funding_handler_output_malformed",
+        "RESOLVED status with empty authored_lever_changes",
+        details={"status": result.status.value, "diagnostic": result.diagnostic},
+      )
+  if result.status == FundingHandlerStatus.EXHAUSTED:
+    if not result.residual_violations and not result.diagnostic:
+      _funding_handler_machinery_fail_fast(
+        "funding_handler_output_malformed",
+        "EXHAUSTED status with no residual_violations and no diagnostic",
+        details={"status": result.status.value},
+      )
+
+
+def _assert_funding_handler_best_effort_selection_consistent(
+  *,
+  best_effort_record: Any,
+  history: List[Any],
+) -> None:
+  """Machinery invariant #6 — best-effort selection drift. The best-
+  effort record on hard cap must NOT be a record the commit-verifier
+  would have accepted (otherwise it should have been the verified
+  commit candidate). If it IS all-resolved, the session loop has a
+  logic bug."""
+  if best_effort_record is None:
+    return
+  result = getattr(best_effort_record, "result", None)
+  if not isinstance(result, dict):
+    return
+  if bool(result.get("all_violations_resolved")):
+    _funding_handler_machinery_fail_fast(
+      "funding_handler_best_effort_selection_drift",
+      (
+        "best-effort record reports all_violations_resolved=True; "
+        "this record should have been picked up as the verified "
+        "commit candidate"
+      ),
+      details={
+        "best_effort_call_n": getattr(best_effort_record, "call_n", None),
+        "history_length": len(history) if isinstance(history, list) else None,
+      },
+    )
 
 
 HORIZON_QUARTERS = 20
@@ -503,6 +705,13 @@ def apply_authored_lever_changes_to_model_input(
   next_payload = _copy.deepcopy(model_input_json or {})
   if not isinstance(authored_lever_changes, dict) or not authored_lever_changes:
     return next_payload
+  # Phase 9 P3.12 — machinery invariant #4: authority violation.
+  # Previously this loop silently skipped lever_ids outside
+  # _LEVER_SECTION_MAP; per doctrine §3 Pattern 3 the silent skip is
+  # a machinery bug. Fail-fast instead.
+  _assert_funding_handler_authority_respected(
+    authored_lever_changes=authored_lever_changes,
+  )
   sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
   for lever_id, per_q in authored_lever_changes.items():
     if lever_id not in _LEVER_SECTION_MAP or not isinstance(per_q, dict):
@@ -576,6 +785,11 @@ def engage_funding_handler_on_violations(
     cash_strategy_mode=cash_strategy_mode,
     enable_gpt_session=True,
   )
+
+  # Machinery invariant #5 — output malformation. RESOLVED must
+  # carry authored changes; EXHAUSTED must carry residual_violations
+  # or a diagnostic. Fires on logic-drift in run_funding_handler.
+  _assert_funding_handler_output_well_formed(result=result)
 
   if result.status != FundingHandlerStatus.RESOLVED:
     return {

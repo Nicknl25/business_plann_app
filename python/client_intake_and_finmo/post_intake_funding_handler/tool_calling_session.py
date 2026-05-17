@@ -414,130 +414,169 @@ def run_funding_tool_calling_session(
   verified_commit_candidate: Optional[FundingToolCallRecord] = None
   detail = ""
 
-  while True:
-    if (
-      tool_calls_used >= INITIAL_TOOL_CALL_BUDGET
-      and not budget_extension_triggered
-      and verified_commit_candidate is None
-    ):
-      input_items.append({
-        "role": "user",
-        "content": [{"type": "input_text", "text": EXTENSION_PROMPT_TEXT}],
-      })
-      budget_extension_triggered = True
-
-    if tool_calls_used >= HARD_CAP_TOOL_CALLS:
-      detail = "hard_cap_tool_calls_reached"
-      break
-
-    turn_resp = call_gpt_turn(
-      consultant_name=(
-        f"post_intake_funding_handler_tool_call_turn_{tool_calls_used + 1}"
-      ),
-      input_items=input_items,
-      tools=[tool_def],
-      response_schema=None,
-      schema_name=None,
-      counts_against_run_budget=COUNTS_AGAINST_RUN_BUDGET,
-    )
-    gpt_calls_made += 1
-    decision_sources.append(str(turn_resp.get("decision_source") or ""))
-
-    decision_source = str(turn_resp.get("decision_source") or "")
-    if decision_source != "python_proposer_plus_gpt_critic":
-      from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-        PostIntakePreconditionFailed,
-        convergence_test_mode_enabled,
+  # Phase 9 P3.12 — initialize the round-count-drift contextvar.
+  from client_intake_and_finmo.post_intake_funding_handler.handler import (  # type: ignore
+    _FUNDING_HANDLER_GPT_CALL_COUNT,
+    _assert_funding_handler_budget_decoupled,
+    _assert_funding_handler_round_count_consistent,
+    _assert_funding_handler_state_intact,
+    _assert_funding_handler_best_effort_selection_consistent,
+  )
+  _funding_iter_token = _FUNDING_HANDLER_GPT_CALL_COUNT.set(0)
+  try:
+    loop_round_index = 0
+    while True:
+      loop_round_index += 1
+      # Machinery invariant #3 — state corruption between rounds.
+      _assert_funding_handler_state_intact(
+        round_n=loop_round_index,
+        input_items=input_items,
+        history=history,
+        verified_commit_candidate=verified_commit_candidate,
       )
-      if convergence_test_mode_enabled():
-        raise PostIntakePreconditionFailed(
-          operation="funding_handler_tool_calling_session_turn_failed",
-          pipeline_stage="iter_19_stage_4_funding_handler",
-          expected="decision_source=python_proposer_plus_gpt_critic",
-          actual=decision_source,
-          details={
-            "tool_calls_used_before_failure": int(tool_calls_used),
-            "gpt_calls_made_before_failure": int(gpt_calls_made),
-            "budget_extension_triggered": bool(budget_extension_triggered),
-            "turn_detail": str(turn_resp.get("detail") or "")[:500],
-            "network_retry_exhausted": turn_resp.get("network_retry_exhausted"),
-          },
-        )
-      detail = (
-        f"gpt_turn_failed: {turn_resp.get('detail') or decision_source}"
-      )
-      break
 
-    raw_assistant_items = turn_resp.get("raw_assistant_items") or []
-    tool_calls = turn_resp.get("tool_calls") or []
-    for item in raw_assistant_items:
-      input_items.append(item)
-
-    if not tool_calls:
-      detail = "gpt_stopped_calling_tool"
-      break
-
-    for call in tool_calls:
-      if str(call.get("name") or "").strip() != _TOOL_NAME:
+      if (
+        tool_calls_used >= INITIAL_TOOL_CALL_BUDGET
+        and not budget_extension_triggered
+        and verified_commit_candidate is None
+      ):
         input_items.append({
-          "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
-          "output": json.dumps(
-            {"error": f"unknown_tool_{call.get('name')}"},
-            ensure_ascii=False,
-          ),
+          "role": "user",
+          "content": [{"type": "input_text", "text": EXTENSION_PROMPT_TEXT}],
         })
-        continue
-      try:
-        args = json.loads(call.get("arguments") or "{}")
-        if not isinstance(args, dict):
-          args = {}
-      except Exception as exc:
-        input_items.append({
-          "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
-          "output": json.dumps(
-            {"error": f"arguments_not_json: {type(exc).__name__}"},
-            ensure_ascii=False,
-          ),
-        })
-        continue
+        budget_extension_triggered = True
 
-      lever_adjustments_raw = args.get("lever_adjustments") if isinstance(args, dict) else {}
-      lever_adjustments = _coerce_lever_adjustments(lever_adjustments_raw)
-      projection = projector(
-        pre_handler_finmo_quarter_rows=pre_rows,
-        lever_adjustments=lever_adjustments,
-      )
-      residual = residual_checker(
-        pre_handler_finmo_quarter_rows=pre_rows,
-        lever_adjustments=lever_adjustments,
-        buffer_by_quarter=buffer_map,
-      )
-      tool_result = {
-        "projected_quarter_rows": projection.get("projected_quarter_rows") if isinstance(projection, dict) else [],
-        "total_cash_delta": projection.get("total_cash_delta") if isinstance(projection, dict) else 0.0,
-        "buffer_residual_violations": residual,
-        "all_violations_resolved": len(residual) == 0,
-      }
-      tool_calls_used += 1
-      rec = FundingToolCallRecord(
-        call_n=tool_calls_used,
-        arguments=args,
-        result=tool_result,
-        call_id=str(call.get("call_id") or ""),
-      )
-      history.append(rec)
-      if tool_result["all_violations_resolved"]:
-        verified_commit_candidate = rec
-
-      input_items.append({
-        "type": "function_call_output",
-        "call_id": call.get("call_id") or "",
-        "output": json.dumps(tool_result, ensure_ascii=False, default=str),
-      })
       if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+        detail = "hard_cap_tool_calls_reached"
         break
+
+      # Machinery invariant #2 — budget decoupling violation.
+      _assert_funding_handler_budget_decoupled(
+        round_n=loop_round_index,
+        counts_against_run_budget_arg=COUNTS_AGAINST_RUN_BUDGET,
+      )
+
+      turn_resp = call_gpt_turn(
+        consultant_name=(
+          f"post_intake_funding_handler_tool_call_turn_{tool_calls_used + 1}"
+        ),
+        input_items=input_items,
+        tools=[tool_def],
+        response_schema=None,
+        schema_name=None,
+        counts_against_run_budget=COUNTS_AGAINST_RUN_BUDGET,
+      )
+      _FUNDING_HANDLER_GPT_CALL_COUNT.set(
+        _FUNDING_HANDLER_GPT_CALL_COUNT.get() + 1
+      )
+      gpt_calls_made += 1
+      # Machinery invariant #1 — round count drift (post-call). The
+      # contextvar should now equal loop_round_index (one GPT call
+      # per loop iteration). If they diverge, an inner code path
+      # made an extra GPT call the loop didn't account for.
+      _assert_funding_handler_round_count_consistent(
+        loop_round_index=loop_round_index,
+        tool_calls_used=gpt_calls_made,
+      )
+      decision_sources.append(str(turn_resp.get("decision_source") or ""))
+
+      decision_source = str(turn_resp.get("decision_source") or "")
+      if decision_source != "python_proposer_plus_gpt_critic":
+        from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+          PostIntakePreconditionFailed,
+          convergence_test_mode_enabled,
+        )
+        if convergence_test_mode_enabled():
+          raise PostIntakePreconditionFailed(
+            operation="funding_handler_tool_calling_session_turn_failed",
+            pipeline_stage="iter_19_stage_4_funding_handler",
+            expected="decision_source=python_proposer_plus_gpt_critic",
+            actual=decision_source,
+            details={
+              "tool_calls_used_before_failure": int(tool_calls_used),
+              "gpt_calls_made_before_failure": int(gpt_calls_made),
+              "budget_extension_triggered": bool(budget_extension_triggered),
+              "turn_detail": str(turn_resp.get("detail") or "")[:500],
+              "network_retry_exhausted": turn_resp.get("network_retry_exhausted"),
+            },
+          )
+        detail = (
+          f"gpt_turn_failed: {turn_resp.get('detail') or decision_source}"
+        )
+        break
+
+      raw_assistant_items = turn_resp.get("raw_assistant_items") or []
+      tool_calls = turn_resp.get("tool_calls") or []
+      for item in raw_assistant_items:
+        input_items.append(item)
+
+      if not tool_calls:
+        detail = "gpt_stopped_calling_tool"
+        break
+
+      for call in tool_calls:
+        if str(call.get("name") or "").strip() != _TOOL_NAME:
+          input_items.append({
+            "type": "function_call_output",
+            "call_id": call.get("call_id") or "",
+            "output": json.dumps(
+              {"error": f"unknown_tool_{call.get('name')}"},
+              ensure_ascii=False,
+            ),
+          })
+          continue
+        try:
+          args = json.loads(call.get("arguments") or "{}")
+          if not isinstance(args, dict):
+            args = {}
+        except Exception as exc:
+          input_items.append({
+            "type": "function_call_output",
+            "call_id": call.get("call_id") or "",
+            "output": json.dumps(
+              {"error": f"arguments_not_json: {type(exc).__name__}"},
+              ensure_ascii=False,
+            ),
+          })
+          continue
+
+        lever_adjustments_raw = args.get("lever_adjustments") if isinstance(args, dict) else {}
+        lever_adjustments = _coerce_lever_adjustments(lever_adjustments_raw)
+        projection = projector(
+          pre_handler_finmo_quarter_rows=pre_rows,
+          lever_adjustments=lever_adjustments,
+        )
+        residual = residual_checker(
+          pre_handler_finmo_quarter_rows=pre_rows,
+          lever_adjustments=lever_adjustments,
+          buffer_by_quarter=buffer_map,
+        )
+        tool_result = {
+          "projected_quarter_rows": projection.get("projected_quarter_rows") if isinstance(projection, dict) else [],
+          "total_cash_delta": projection.get("total_cash_delta") if isinstance(projection, dict) else 0.0,
+          "buffer_residual_violations": residual,
+          "all_violations_resolved": len(residual) == 0,
+        }
+        tool_calls_used += 1
+        rec = FundingToolCallRecord(
+          call_n=tool_calls_used,
+          arguments=args,
+          result=tool_result,
+          call_id=str(call.get("call_id") or ""),
+        )
+        history.append(rec)
+        if tool_result["all_violations_resolved"]:
+          verified_commit_candidate = rec
+
+        input_items.append({
+          "type": "function_call_output",
+          "call_id": call.get("call_id") or "",
+          "output": json.dumps(tool_result, ensure_ascii=False, default=str),
+        })
+        if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+          break
+  finally:
+    _FUNDING_HANDLER_GPT_CALL_COUNT.reset(_funding_iter_token)
 
   last_residual_count: Optional[int] = None
   if history:
@@ -558,6 +597,13 @@ def run_funding_tool_calling_session(
     )
 
   best_effort = _best_effort_record(history)
+  # Machinery invariant #6 — best-effort selection drift. If the
+  # best-effort record is actually all-resolved, the session loop
+  # should have picked it up as the verified commit candidate.
+  _assert_funding_handler_best_effort_selection_consistent(
+    best_effort_record=best_effort,
+    history=history,
+  )
   if best_effort is not None:
     return FundingToolCallSessionResult(
       status="best_effort_no_all_resolved",

@@ -2955,6 +2955,92 @@ _PAYROLL_INTENSITY_TIER_BOUNDS: Dict[str, Tuple[float, float]] = {
 }
 
 
+def _assert_payroll_tier_bounds_mirror_consistent() -> None:
+  """Phase 9 P3.12 — machinery fail-fast for the Stage 2 policy-
+  mirror drift invariant.
+
+  ``_PAYROLL_INTENSITY_TIER_BOUNDS`` (Python-side) and
+  ``post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds``
+  (SQL-side) are two sources of truth for the same tier bounds. The
+  JSON schema uses the Python mirror; the runtime validator uses the
+  SQL policy. Per doctrine §4 Flavor 4 (invariant check): if they
+  diverge, the strict-mode parser enforces one set of bounds while
+  the runtime validator enforces another — silently inconsistent.
+
+  This check is called from _augment_root_schema_for_contract before
+  the schema is built, so any drift fails at schema-construction
+  time rather than producing a silently-inconsistent contract.
+  """
+  try:
+    from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
+      post_intake_headcount_policy_for,
+    )
+    policy = post_intake_headcount_policy_for("default")
+  except Exception:
+    # Policy lookup unavailable (e.g., table-init context). Skip the
+    # drift check — the schema augmenter is doing its best with the
+    # mirror; runtime validator will fire if a violation lands.
+    return
+  if not isinstance(policy, dict):
+    return
+  sql_bounds_raw = policy.get("payroll_revenue_sanity_bounds")
+  if not isinstance(sql_bounds_raw, dict) or not sql_bounds_raw:
+    return
+  mismatches: List[Dict[str, Any]] = []
+  for tier, (py_min, py_max) in _PAYROLL_INTENSITY_TIER_BOUNDS.items():
+    sql_row = sql_bounds_raw.get(tier)
+    if not isinstance(sql_row, dict):
+      mismatches.append({
+        "tier": tier,
+        "issue": "sql_row_missing",
+        "python_mirror": [py_min, py_max],
+      })
+      continue
+    try:
+      sql_min = float(sql_row.get("min_pct"))
+      sql_max = float(sql_row.get("max_pct"))
+    except Exception:
+      mismatches.append({
+        "tier": tier,
+        "issue": "sql_row_nonnumeric",
+        "sql_row": sql_row,
+      })
+      continue
+    if abs(sql_min - py_min) > 1e-6 or abs(sql_max - py_max) > 1e-6:
+      mismatches.append({
+        "tier": tier,
+        "issue": "bounds_mismatch",
+        "python_mirror": [py_min, py_max],
+        "sql_policy": [sql_min, sql_max],
+      })
+  if mismatches:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed,
+    )
+    raise PostIntakePreconditionFailed(
+      operation="payroll_tier_bounds_mirror_drift",
+      pipeline_stage="post_intake_mapping_schema_augmentation",
+      expected=(
+        "_PAYROLL_INTENSITY_TIER_BOUNDS in post_intake_mapping.py "
+        "matches post_intake_headcount_policy_lookup's "
+        "payroll_revenue_sanity_bounds for every tier"
+      ),
+      actual=f"{len(mismatches)} tier(s) diverged between Python mirror and SQL policy",
+      details={
+        "mismatches": mismatches,
+        "remediation": (
+          "Update _PAYROLL_INTENSITY_TIER_BOUNDS in "
+          "post_intake_mapping.py to match the SQL policy table. If "
+          "the SQL is the new source of truth, the Python mirror is "
+          "stale; vice versa, the SQL was changed without updating "
+          "the Python mirror. Either way the JSON schema would "
+          "enforce one set of bounds while the runtime validator "
+          "enforced another."
+        ),
+      },
+    )
+
+
 def _augment_root_schema_for_contract(
   *,
   contract_name: str,
@@ -2975,6 +3061,9 @@ def _augment_root_schema_for_contract(
   properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else None
   if not properties or "labor_intensity_class" not in properties or "target_payroll_percent_of_revenue" not in properties:
     return schema
+  # Phase 9 P3.12 — machinery fail-fast: Python mirror vs SQL policy
+  # drift check before the schema is built from the mirror.
+  _assert_payroll_tier_bounds_mirror_consistent()
   all_of_branches: List[Dict[str, Any]] = list(schema.get("allOf") or [])
   for tier, (min_pct, max_pct) in _PAYROLL_INTENSITY_TIER_BOUNDS.items():
     all_of_branches.append({
