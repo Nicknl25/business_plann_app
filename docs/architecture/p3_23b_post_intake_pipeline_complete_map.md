@@ -265,6 +265,66 @@ the table is **half-applied as source-of-truth**. Either it should be
 the canonical sequence (and the orchestrator should read from it), or
 the doctrine should be updated to say it's a step-name registry only.
 
+### 0.7 Orchestrator pattern classification
+
+**Classification: PARTIAL CONTROLLER.**
+
+The current orchestrator is neither a pure SCRIPT (hardcoded
+sequence with no registry) nor a FULL CONTROLLER / GOVERNOR
+(state machine + registry where handler engagement is declarative
+based on check failures and authority mapping). It sits between
+the two with concrete characteristics of each:
+
+**SCRIPT-side evidence (hardcoded sequence):**
+- Top-level call order in [`run_target_seeking_orchestrated_system_run`](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L1024) is a straight-line procedural function. The sequence pre-flight → bypass → post-flight assertion → cascade → restoration loop → exhaustion handler → pre-cash gate → cash strategy → realism gate → solver-target assertion → debt-snapshot → capital-lease snapshot → pre-finalize persist → finalize → persist is encoded as ~1850 lines of Python control flow ([orchestrator.py:1024-2879](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L1024-L2879)). No driver reads this sequence from a table.
+- The cascade tier walk at [adaptation_cascade.py:382-820](../../python/client_intake_and_finmo/post_intake_solver/adaptation_cascade.py#L382) is straight-line: `if starting_tier > 2 ... else: ... ; if starting_tier > 3 ... else: ...`. Tiers 1–7 are hard-coded as code blocks.
+- The pre-cash gate handler engagement at [orchestrator.py:2130-2200](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L2130-L2200) is hard-coded with a single trigger boolean (`gate_violations and not _gate_handler_already_ran`).
+- Phase A's `prepare_initial_grid_for_draft` is a 1500-line procedural function calling each step in order ([initial_grid/runner.py:30-1496](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L30-L1496)).
+
+**REGISTRY-side evidence (controller machinery already exists):**
+- `PostIntakeSequenceController.execute_registered_step` at [post_intake_sequence.py:461](../../python/client_intake_and_finmo/post_intake_sequence.py#L461) — registry-driven step dispatch by `step_key`. Every wrapper function in Phase A's runner uses this.
+- Registered-handler shim at [post_intake_sequence.py:448](../../python/client_intake_and_finmo/post_intake_sequence.py#L448) (`_registered_handler_wrapper`) — handler lookup by name from a `handler_registry` dict.
+- `assert_post_intake_sequence_controller_active` at [post_intake_sequence.py:73-100](../../python/client_intake_and_finmo/post_intake_sequence.py#L73-L100) — fails closed unless a step is running inside a registered scope. Already enforces controller participation per step.
+- `post_intake_sequence_step_scope` at [post_intake_sequence.py:80+](../../python/client_intake_and_finmo/post_intake_sequence.py#L80) — context manager wrappers that stamp the `step_key`/`executor_function` for the orchestrator's substeps (used at [orchestrator.py:1929-1932, 1982-1985, 2142-2145, 2277-2280](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L1929-L2280)).
+- `_GPT_AUTHORABLE_PRE_CASH_CHECK_NAMES` tuple at [orchestrator.py:57-61](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L57-L61) — declarative list of which checks are eligible for handler routing at the pre-cash gate.
+- Map `_STAGE_RAMP_EXPENSE_FINMO_FIELD_TO_METRIC_LEVER` at [orchestrator.py:68-75](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L68-L75) — declarative violation → (metric, lever) routing.
+- Funding handler trigger uses a registry-style consolidated boolean `not keep_changes` at [orchestrator_invocation.py:571-573](../../python/client_intake_and_finmo/post_intake_cash_strategy/orchestrator_invocation.py#L571-L573) rather than a check-category switch.
+- The SQL table itself is a registry of executor_function values that *could* drive dispatch but currently only validates step participation.
+
+**What's missing for FULL CONTROLLER / GOVERNOR:**
+1. A top-level driver that reads `post_intake_process_sequence_lookup` ordered by `phase + step_order`, resolves each row's `executor_function` against a registered-handler dict, and dispatches. Today this is replaced by ~1850 lines of hard-coded Python.
+2. A declarative **check → handler-authority** map. Today the orchestrator implements three separate trigger expressions (Site 1 `EXHAUSTED`-only at [orchestrator.py:1977](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L1977); Site 2 `gate_violations and not _gate_handler_already_ran` at [orchestrator.py:2130](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L2130); funding `not keep_changes` at [orchestrator_invocation.py:571](../../python/client_intake_and_finmo/post_intake_cash_strategy/orchestrator_invocation.py#L571)) — each hand-coded with different conditions and granularity. A governor would express these as data: `for each handler: trigger = [check_name1, check_name2, ...]; authority = [lever_set]; engages_when = check.failed and check.metric in authority.metrics`.
+3. State-machine semantics for the iteration loops. Currently:
+   - Restoration loop iterates outer passes internally and returns LANDED / EXHAUSTED / FAILED / ITERATING_STILL. The orchestrator handles only EXHAUSTED.
+   - Cascade walks tiers 1–7 internally and either lands or raises.
+   - Pre-flight + post-flight target-seeking passes are independent function calls.
+   A governor would model each as a state in a single state machine with declarative transition conditions.
+4. **Realism-band-failure → handler-engagement** binding. Today no such binding exists; the realism gate runs at [orchestrator.py:2355](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L2355) and produces a memo; the only adaptation path that addresses realism bands is the restoration loop UPSTREAM, with the Site 1 trigger gap. A governor would bind realism-gate failures whose metric_keys overlap the GPT exhaustion handler's authority directly to handler engagement at that fail site.
+
+### 0.8 Refactor estimate to FULL CONTROLLER / GOVERNOR
+
+**Structural distance: half-built.** The step-level scaffolding (sequence controller, sequence_step_scope, executor_function field, registered_handler dispatch) is already in place and load-bearing. The top-level driver, the declarative check↔handler binding, and the state machine for iteration loops are the missing pieces.
+
+| Component | New LOC | Touches | Risk |
+|---|---|---|---|
+| Top-level sequence-driven dispatcher (reads SQL table, dispatches per row) | 100–200 | new module + ~30 line replacement in `_run_planning_system_for_draft` | Low-medium — preserves per-step behavior; changes only top-level ordering source |
+| Declarative check↔handler binding registry | 50–150 | new module + replace Site 1/Site 2 trigger conditions at orchestrator.py:1977/2130 and the funding trigger at orchestrator_invocation.py:571 | Medium — changes engagement semantics; needs test coverage |
+| State machine for iteration loops (cascade tier walk, restoration outer pass, target-seeking passes) | 200–400 | refactor of [adaptation_cascade.py:382-820](../../python/client_intake_and_finmo/post_intake_solver/adaptation_cascade.py#L382-L820) and [restoration_loop.py:900-1275](../../python/client_intake_and_finmo/post_intake_target_solver/restoration_loop.py#L900-L1275) | High — load-bearing math; behavior-preserving refactor with extensive test coverage required |
+| Add missing rows to SQL table (cascade, restoration, exhaustion handler, pre-cash gate, realism gate, solver target assertion, acceptance gate) | n/a | ~8 row INSERTs | Trivial |
+| Update stale rows (`cash_strategy_review` → `run_mode_based_cash_strategy`; `cash_minimum_debt_schedule` position; `realism_memo_review` position) | n/a | ~3 row UPDATEs | Trivial |
+| Remove or re-wire `payroll_feasibility_repair` and `unified_convergence_decision` (table vs code divergence) | per Section 0.6 | per Section 0.6 | Architectural decisions |
+| **Subtotal (governor refactor only, not table-fix decisions)** | **~350–750 LOC** | 2 new modules, 3 refactors | Medium → High |
+
+**Could it be done incrementally?** Yes. Suggested staging:
+1. **Stage A (low risk):** Add a thin top-level driver that walks the SQL table and confirms its order matches the current hard-coded order; raise on mismatch. No behavior change. ~100 LOC. This makes the table effectively load-bearing — anything that subsequently changes the code's order must also update the table.
+2. **Stage B (medium risk):** Build the declarative check↔handler registry, but route trigger evaluation through the registry while keeping current hard-coded engagement sites as a fallback. Validate equivalence on the 28-draft sweep. ~150 LOC.
+3. **Stage C (medium-high risk):** Switch hard-coded sites to consume the registry; remove fallback. ~50 LOC delta but high-risk.
+4. **Stage D (high risk):** Refactor cascade and restoration loop into the state-machine governor. The biggest single chunk; isolated to two modules. ~300 LOC.
+
+**Structurally close to a governor?** Yes — the step-level scaffolding is already there. The dispatcher + check↔handler registry are the missing top-level layers. **Not a ground-up rewrite.** A ground-up rewrite would be necessary if the sequence-controller scaffolding didn't exist; it does, and it's actively load-bearing (e.g. the Skyward fail-fast diagnostic correctly cites `source_table: post_intake_process_sequence_lookup` because the sequence-controller scope at [orchestrator.py:1982-1985](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L1982-L1985) stamps that field — that's the registry already speaking).
+
+The reason the current orchestrator is PARTIAL rather than FULL is historical layering: each Phase 9 P3 iter added handlers and gates as Python control-flow blocks (necessary at the time to address concrete failure modes) rather than as new rows in the SQL table backed by a sequence-driven dispatcher. The seams left behind (stale table rows, code-only steps, divergent trigger semantics across the three handler sites) are the natural drift signature of a partial-controller that wasn't promoted to FULL each time it grew.
+
 ---
 
 ## 1. Pipeline diagram (top-level call order)
