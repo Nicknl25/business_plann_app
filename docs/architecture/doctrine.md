@@ -376,6 +376,24 @@ math); GPT provides the judgment.
   silent fallback when a translator can't match a code, silent
   acceptance of state corruption — these are all instances. The
   cure is named diagnostics + hard-stop, no recovery.
+- **Cleared fail-fast diagnostics.** A fail-fast that raises with a
+  rich `details=` payload, then has that payload swallowed by an
+  upstream `try: ... except: ...` without re-raise, transformed into
+  a generic status string that loses the structured fields, or
+  cleared by a downstream revert that overwrites validator-populated
+  state with a pre-pass deepcopy. Every fail-fast must produce
+  diagnostic state that **survives** downstream cleanup paths.
+  Anti-example: Phase 9 P3.20 Part 3 Stage 1 (commit `ee291e4`) — the
+  cash post-pass orchestrator atomic-reverted
+  `cash_strategy_second_pass_result` on validator failure, clearing
+  the `cash_contract_failures` metadata the validator had just
+  populated. Operators saw a generic "liquidity failure" at finalize
+  with no record of which contract failure actually tripped the
+  revert. Fix: never overwrite validator-populated state with
+  pre-pass state; let the failures live alongside the proposer's
+  output for downstream inspection. Related: Stage 4 audit
+  (`docs/architecture/p3_20_part3_stage4_diagnostic_preservation_audit.md`)
+  confirms no other instances of this pattern exist as of HEAD.
 - **Two parallel implementations** of the same conceptual value. Pick a Mirror
   Flavor from §4.
 - **Magic numbers / arbitrary thresholds** to mask a divergence (e.g., bumping
