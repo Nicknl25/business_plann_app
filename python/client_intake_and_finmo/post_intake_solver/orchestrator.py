@@ -2158,15 +2158,26 @@ def _run_post_cascade_completion(
           },
           finmo_json=final_finmo_json,
         )
+        # P3.21 Part 2 housekeeping -- mirror Site 1's pattern at
+        # orchestrator.py:2002-2010: capture the FINMO rebuild
+        # exception into a structured field so the diagnostic is
+        # preserved rather than silently swallowed. The exception
+        # still does NOT re-raise (the cash strategy's Stage 3 P3.20
+        # pre-validator rebuild closes the divergence window
+        # downstream), but the diagnostic now survives for debugging
+        # if a future change breaks that downstream rebuild.
+        gate_rebuild_error: Optional[str] = None
         try:
           rebuilt = _build_finmo_for_gate(final_model_input_json or {})
           if isinstance(rebuilt, dict) and rebuilt:
             final_finmo_json = rebuilt
             next_result["finmo_json"] = final_finmo_json
             next_result["model_input_json"] = final_model_input_json
-        except Exception:
-          pass
+        except Exception as gate_rebuild_exc:
+          gate_rebuild_error = f"{type(gate_rebuild_exc).__name__}: {str(gate_rebuild_exc)[:500]}"
       completion_trace["pre_cash_gate_handler"] = gate_handler_result.to_dict()
+      if gate_rebuild_error:
+        completion_trace["pre_cash_gate_handler"]["post_handler_finmo_rebuild_error"] = gate_rebuild_error
       muted = list(gate_handler_result.realism_flags_to_mute or [])
       if muted and isinstance(final_model_input_json, dict):
         existing = final_model_input_json.get("_muted_realism_metrics")

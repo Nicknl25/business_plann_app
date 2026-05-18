@@ -2220,6 +2220,13 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "retry_payroll_headcount_schedule_from_feasibility_failure",
     ],
   )
+  # P3.21 Part 2 housekeeping -- import the structured machinery
+  # exception in function scope so the iteration loop's
+  # `except PostIntakePreconditionFailed: raise` can route machinery
+  # violations past the GPT-retry catch.
+  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+    PostIntakePreconditionFailed,
+  )
   api_key = _openai_key()
   if not api_key:
     _payroll_fail_fast(
@@ -2592,6 +2599,17 @@ def estimate_payroll_headcount_schedule_with_gpt(
           stage="payroll_headcount_contract_economic_feasibility",
         )
         return schedule_payload
+      except PostIntakePreconditionFailed:
+        # P3.21 Part 2 housekeeping -- machinery violations (e.g., the
+        # validator-translator's `payroll_validator_translator_
+        # unmatched_code` raised from validate_payroll_headcount_
+        # contract_payload's translation layer) are NOT GPT-fixable
+        # and must NOT be routed through GPT retry. Re-raise
+        # immediately so the diagnostic propagates with its
+        # PostIntakePreconditionFailed structure intact, instead of
+        # being coalesced into the iteration's residual
+        # last_exc_message text.
+        raise
       except RuntimeError as exc:
         last_exc_code = str(getattr(exc, "code", "") or "")
         last_exc_message = str(exc) or ""

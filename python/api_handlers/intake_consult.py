@@ -106,8 +106,12 @@ def _stage_ramp_contract_python_first_with_handler(
 ):
   """iter 19 Stage 5 dependency-injection wrapper. Returns the same
   contract shape the legacy GPT-only path returned. On Python-and-
-  handler exhaustion, falls back to the legacy GPT call so existing
-  behavior is preserved for cases the new path cannot resolve."""
+  handler exhaustion the wrapper RE-RAISES a prefixed RuntimeError
+  (stage_ramp_handler_exhausted: ...). The orchestrator records the
+  failure rather than shipping a bad ramp; no legacy-GPT fallback is
+  taken (doctrine §1 hard-fail with diagnostic). P3.21 Part 2
+  housekeeping: pre-housekeeping docstring referenced a 'falls back
+  to legacy GPT call' behavior that the code never implemented."""
   try:
     return _engage_stage_ramp_handler(
       build_python_contract=_build_python_stage_ramp_contract,
