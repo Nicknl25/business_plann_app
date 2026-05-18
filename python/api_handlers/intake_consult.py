@@ -6982,10 +6982,12 @@ def _run_unified_post_grid_system_run(
   _bind_post_intake_runtime_dependencies()
   # Phase 2.5: the target-seeking orchestrator is the authoritative top-
   # level convergence path. The existing scipy/issue-code solver in
-  # numeric_solver.py and post_intake_convergence/runtime.py is repositioned
-  # as an inner tool the outer loop calls when single-driver bisection
-  # cannot close a numeric gap. The orchestrator's signature mirrors
-  # run_unified_post_grid_system_run so this swap is a drop-in.
+  # numeric_solver.py and post_intake_convergence/runtime.py utility
+  # helpers remain as inner tools the outer loop calls when single-
+  # driver bisection cannot close a numeric gap. Phase 9 P3.24 deleted
+  # the legacy convergence runner (post_intake_convergence/runner.py:
+  # _run_unified_post_grid_system_run); the orchestrator's signature
+  # preserves backward compat with the now-deleted entry point.
   from client_intake_and_finmo.post_intake_solver import (  # type: ignore
     run_target_seeking_orchestrated_system_run,
   )

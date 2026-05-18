@@ -1,9 +1,13 @@
-"""Top-level target-seeking orchestrator — Phase 2.5.
+"""Top-level target-seeking orchestrator — Phase 2.5 + Phase 9 P3.24.
 
 Makes the target-seeking outer loop the authoritative entry point of the
-post-intake convergence pipeline. The existing scipy/issue-code solver
-(numeric_solver.py + post_intake_convergence/runtime.py) is repositioned
-as an inner tool the outer loop calls when single-driver bisection cannot
+post-intake convergence pipeline. The legacy convergence runner
+(`_run_unified_post_grid_system_run` in
+`post_intake_convergence/runner.py`) was bypassed on 2026-05-08
+(Phase 8 step 4) and DELETED on 2026-05-18 (Phase 9 P3.24 Commit 3).
+The existing scipy/issue-code solver (numeric_solver.py +
+`post_intake_convergence/runtime.py` utility helpers) remains as an
+inner tool the outer loop calls when single-driver bisection cannot
 close a numeric gap.
 
 Shape:
@@ -12,11 +16,10 @@ Shape:
         |- pre-flight target-seeking pass on applied_model_input_json
         |   bisects single drivers within their envelopes to land FINMO
         |   outputs in target ranges as a starting point
-        |- inner: post_intake_convergence.runner.run_unified_post_grid_system_run
-        |   (the existing 3451-line orchestrator handles payroll headcount,
-        |   convergence cycles, cash pass, finalize). The outer loop has
-        |   already pre-shaped the model so the inner sees envelope-respecting
-        |   inputs.
+        |- inner result: P3.24 — no inner runner. Pre-flight output is
+        |   used directly as the starting state for the post-flight
+        |   cascade. The `inner_result` dict at line ~1342 is a
+        |   passthrough so downstream cascade has the shape it expects.
         |- post-flight sanity assertion + repair pass
         |   If hard_fail residuals remain, runs the target-seeking loop one
         |   more time, this time with the inner-tool adapter available so
@@ -31,11 +34,14 @@ Shape:
         |   These are the band-respecting failure modes that prove the shift
         |   is real: the system fails when targets are unreachable, instead
         |   of producing implausible plans.
+        |- cascade -> restoration_loop -> GPT exhaustion handler (Site 1 + 2)
+        |   -> cash strategy with funding handler -> realism gate -> finalize.
 
-The existing issue-code infrastructure remains usable. It is invoked as
-the inner-tool adapter when the outer loop wants joint multi-lever
-fitting on a constrained scope. The outer loop is the gate; the inner
-runner is one of its tools.
+The existing issue-code infrastructure (numeric_solver) remains usable
+as an inner-tool adapter when the outer loop wants joint multi-lever
+fitting on a constrained scope. The outer loop is the gate. See
+docs/architecture/p3_23c_unified_convergence_status.md for the P3.24
+deletion rationale.
 """
 
 from __future__ import annotations
@@ -1047,10 +1053,12 @@ def run_target_seeking_orchestrated_system_run(
 ) -> Dict[str, Any]:
   """Top-level target-seeking orchestrator.
 
-  Same signature as post_intake_convergence.runner.run_unified_post_grid_system_run
-  so it can be slotted in as a drop-in replacement at the intake_consult
-  call site. Returns the same payload shape, with an additional
-  `target_seeking_diagnostics` section.
+  Phase 2.5 introduced this as a drop-in replacement at the
+  intake_consult call site for the legacy convergence runner. Phase 9
+  P3.24 deleted the legacy runner (post_intake_convergence/runner.py:
+  _run_unified_post_grid_system_run). The signature is preserved for
+  historical compatibility. Returns the post-cascade payload shape
+  plus a `target_seeking_diagnostics` section.
   """
   try:
     from financial_model_engine.model_inputs import QUARTER_COUNT  # type: ignore
@@ -1329,21 +1337,30 @@ def run_target_seeking_orchestrated_system_run(
   pre_shaped_model_input = pre_pass.get("final_model_input_json") or pre_input
   pre_shaped_finmo = pre_pass.get("final_finmo_json") or {}
 
-  # ---------- Inner runner — Phase 8 bypass ----------
-  # The legacy convergence runner is broken post-deletion of the issue
-  # machinery: every fail-fast the legacy GPT loop's authority-
-  # reapplication used to suppress now fires (revenue formula
-  # validators, payroll schedule rollups, etc.). The orchestrator-
-  # driven post-cascade tail (cash pass + realism gate + finalize +
-  # persist) is the new authoritative path. Skip the legacy inner
-  # runner and use a passthrough so the cascade has a starting state
-  # to work from. The acceptance gate's verdict is the authority on
-  # whether the resulting plan is sensible.
+  # ---------- Inner runner — Phase 9 P3.24 — no longer present ----------
+  # The Phase 8 bypass (commit b7f859c, 2026-05-08) cut off the legacy
+  # convergence runner because the runner was broken under current
+  # validator hardening (revenue formula validators, payroll schedule
+  # rollups, etc.). Phase 9 P3.24 completed the architectural move by
+  # DELETING the bypassed function — see
+  # docs/architecture/p3_23c_unified_convergence_status.md. The
+  # orchestrator-driven post-cascade tail (restoration loop + GPT
+  # exhaustion handler Site 1/Site 2 + cash strategy with funding
+  # handler + realism gate + finalize + persist) is the authoritative
+  # path. The acceptance gate's verdict at intake_consult.py:7424 is
+  # the authority on whether the resulting plan is sensible.
+  #
+  # `inner_result` is constructed here as a passthrough so the
+  # downstream cascade has a starting state to work from (the post-
+  # flight assertion + repair pass + cascade tier walk all consume
+  # the (model_input, finmo) pair from inner_result). The
+  # `abort_for_cascade` branch below remains as defense-in-depth in
+  # case a future inner runner is introduced.
   inner_result = {
-    "status": "phase_8_inner_runner_bypassed",
+    "status": "no_inner_runner_passthrough",
     "model_input_json": copy.deepcopy(pre_shaped_model_input or {}),
     "finmo_json": copy.deepcopy(pre_shaped_finmo or applied_finmo_json or {}),
-    "abort_reason": "phase_8_legacy_convergence_runner_skipped",
+    "abort_reason": "no_inner_runner_present_after_p3_24",
   }
 
   # Phase 6 Step 7 — band-respecting failures from the inner runner now

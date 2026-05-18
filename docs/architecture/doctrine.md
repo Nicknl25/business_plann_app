@@ -345,15 +345,19 @@ math); GPT provides the judgment.
 
 | Operation | Entry point | Why it stays GPT-authored |
 |---|---|---|
-| **Unified convergence decision** | `_run_unified_convergence_openai` ([runtime.py:2776](../../python/client_intake_and_finmo/post_intake_convergence/runtime.py#L2776)) | Which levers to move, which metrics to target, the per-quarter target_values to drive the numeric solver toward — the decision space is too large and the trade-offs too business-specific for a cohort default. Python wraps GPT with strict-mode schema bounds + post-parse contract validation. |
 | **Payroll headcount schedule** | `estimate_payroll_headcount_schedule_with_gpt` ([schedule.py:2241+](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2241)) | Selecting OEWS occupational titles from the NAICS catalog is judgment about the operator's business model. The catalog has hundreds of candidates; choosing among them is not table lookup. Python provides tier-bound schema (iter 19 Stage 2), title-catalog filtering, wage/FTE mechanical math, and post-parse policy validators. |
+
+### Retired (Phase 9 P3.24)
+
+| Adaptation | Status | Note |
+|---|---|---|
+| Unified convergence decision | RETIRED 2026-05-18 by P3.24 Commit 3 | The `_run_unified_convergence_openai` GPT planner and the `_run_unified_post_grid_system_run` outer cycle loop were bypassed on 2026-05-08 (Phase 8 step 4) and deleted on 2026-05-18 (P3.24 Commit 3). The bypass marker at orchestrator.py:1342 (pre-P3.24) noted the legacy convergence runner was broken under current validator hardening: every fail-fast the legacy GPT loop's authority-reapplication used to suppress now fires (revenue formula validators, payroll schedule rollups, etc.). The replacement architecture is the target-seeking orchestrator (`run_target_seeking_orchestrated_system_run` at post_intake_solver/orchestrator.py:1024) plus restoration loop (`run_restoration_loop` at post_intake_target_solver/restoration_loop.py) plus GPT exhaustion handler (Site 1 + Site 2 at orchestrator.py:1977 / :2130). The iter 19 §5 analysis preserved here for record only — the architecture moved past it. See [p3_23c_unified_convergence_status.md](p3_23c_unified_convergence_status.md). |
 
 ### Deferred / not built
 
 | Adaptation | Status | Note |
 |---|---|---|
-| Payroll adaptation | Deferred from iter 19 | Stage 6 was intentionally skipped per direction (payroll is fragile). The Stage 3 correction addressed the orchestration bug; payroll *authoring* stays GPT-as-source. |
-| "Convergence handler" | Intentionally NOT built | Original Stage 7 of the iter 19 directive proposed dropping `_run_unified_convergence_openai` and treating restoration_loop + cascade as the convergence engine. Investigation during iter 19 showed this was based on a misreading of the codebase: the cascade re-enters the same convergence runner, so removing the routine GPT call would break every plan with no recovery path. Convergence is correctly GPT-authored. |
+| Payroll adaptation | Deferred from iter 19 | Stage 6 was intentionally skipped per direction (payroll is fragile). The Stage 3 correction addressed the orchestration bug; payroll *authoring* stays GPT-as-source. Phase 9 P3.24 Commit 2 wired the `payroll_feasibility_repair` step from the SQL canonical sequence table into the initial-grid path — single-shot re-author on post-grid feasibility failure, no cycling. |
 
 ---
 

@@ -90,57 +90,46 @@ class OrchestratorInvocationNeverRevertTests(unittest.TestCase):
     )
 
 
-class ConvergenceRunnerNeverRevertTests(unittest.TestCase):
-  """Source-shape regression checks on the unified convergence
-  cash strategy path (post_intake_convergence/runner.py inside
-  _run_unified_post_grid_system_run)."""
+class ConvergenceRunnerDeletedTests(unittest.TestCase):
+  """Phase 9 P3.24 — the convergence runner's
+  `_run_unified_post_grid_system_run` was deleted as part of the
+  unified_convergence_decision cleanup (P3.24 Commit 3). The P3.20
+  Stage 1 source-shape regression tests this class replaced asserted
+  the absence of revert patterns IN that function; with the function
+  itself gone, the absence-of-revert property holds trivially. The
+  test now asserts the deletion itself, so a future re-introduction
+  of the function would surface as a test failure rather than a
+  silent re-architecture.
+  """
 
   def setUp(self) -> None:
     self._src = _CONVERGENCE_RUNNER.read_text(encoding="utf-8")
 
-  def test_convergence_runner_revert_else_branch_removed(self) -> None:
-    """The `else:` branch that set final_model_input_json from
-    pre_cash and mutated cash_strategy_second_pass_result["status"]
-    to "reverted_post_validation" must be gone."""
+  def test_convergence_runner_function_deleted(self) -> None:
+    """The legacy convergence cycle loop must remain DELETED.
+    Re-introducing it would re-open the P3.23a Anderson & Blake and
+    CareFirst gaps via the broken-validator-suppression path the
+    Phase 8 bypass marker warned about
+    (orchestrator.py:1342-1347, pre-P3.24)."""
     self.assertNotIn(
-      "reverted_post_validation",
+      "def _run_unified_post_grid_system_run(",
       self._src,
-      "convergence runner must no longer set cash_strategy_second_pass_result['status'] = 'reverted_post_validation'",
+      "convergence runner's _run_unified_post_grid_system_run must remain deleted post P3.24",
     )
     self.assertNotIn(
-      "converged_model_reverted",
+      "run_unified_post_grid_system_run = _run_unified_post_grid_system_run",
       self._src,
-      "convergence runner must no longer set cash_strategy_second_pass_result['final_model_source'] = 'converged_model_reverted'",
+      "the public alias must remain deleted",
     )
 
-  def test_convergence_runner_unconditional_proposer_outputs(self) -> None:
-    """After the revert removal, the final_model_input_json
-    assignment block runs unconditionally and reads from
-    cash_strategy_second_pass_result + cash_post_validation."""
-    # The Stage 1 fix replaces the if/else with the if-body alone.
-    # Look for the pattern signature of the new code.
-    self.assertIn(
-      "final_model_input_json = _model_input_with_controller_catalog(",
-      self._src,
-    )
-    self.assertIn(
-      "final_finmo_json = copy.deepcopy(cash_strategy_second_pass_result.get(\"updated_finmo_json\") or {})",
-      self._src,
-    )
-
-  def test_convergence_runner_pre_cash_revert_pattern_removed(self) -> None:
-    """The `else: final_model_input_json = copy.deepcopy(pre_cash_model_input_json)`
-    pattern in the cash post-validation block is gone."""
-    # The pre-iter pattern had `final_model_input_json = copy.deepcopy(pre_cash_model_input_json)`
-    # inside an else branch following the keep_changes check.
-    pattern = re.compile(
-      r"if bool\(cash_post_validation\.get\(\"keep_changes\"\)\):[^}]*?else:\s*\n\s*final_model_input_json\s*=\s*copy\.deepcopy\(pre_cash_model_input_json\)",
-      re.DOTALL,
-    )
-    self.assertIsNone(
-      pattern.search(self._src),
-      "convergence runner must no longer revert final_model_input_json to pre_cash on keep_changes=False",
-    )
+  def test_convergence_runner_revert_patterns_remain_absent(self) -> None:
+    """P3.20 Stage 1 regression — the never-revert intent of the
+    original tests held: 'reverted_post_validation' and
+    'converged_model_reverted' must not appear in the convergence
+    runner. With the function deleted, this holds trivially; the
+    assertion still encodes the architectural intent."""
+    self.assertNotIn("reverted_post_validation", self._src)
+    self.assertNotIn("converged_model_reverted", self._src)
 
 
 class CashContractFailureMetadataSurvivesTests(unittest.TestCase):
@@ -170,17 +159,25 @@ class CashContractFailureMetadataSurvivesTests(unittest.TestCase):
       "Orchestrator return must include second_pass_result with the proposer + handler outputs (and any contract_failure metadata)",
     )
 
-  def test_convergence_runner_persists_second_pass_result_in_application_stage(self) -> None:
-    """The convergence runner persists cash_strategy_second_pass_result
-    at the cash_pass_validation_running stage via
-    _persist_cash_pass_stage. With the revert removed, that
-    payload now contains the actual proposer outputs even when
-    keep_changes=False."""
+  def test_convergence_runner_persistence_call_no_longer_present(self) -> None:
+    """Phase 9 P3.24 — the convergence runner's
+    _run_unified_post_grid_system_run was deleted along with the
+    legacy convergence cycle loop. The cash_strategy_second_pass_result
+    persistence the original test asserted on lived inside that
+    deleted function. With the function gone, the assertion holds
+    trivially: no convergence-runner persistence call exists
+    anywhere in the codebase outside of the new path (which now
+    persists via the orchestrator's own _persist_unified_convergence_state
+    at orchestrator.py:2749). The new path is exercised by the
+    CashContractFailureMetadataSurvivesTests sibling test above
+    that inspects the orchestrator_invocation.py return shape."""
     src = _CONVERGENCE_RUNNER.read_text(encoding="utf-8")
-    self.assertIn(
-      "cash_strategy_second_pass_result_payload=copy.deepcopy(cash_strategy_second_pass_result)",
+    self.assertNotIn(
+      "cash_strategy_second_pass_result_payload=copy.deepcopy(",
       src,
-      "convergence runner must persist cash_strategy_second_pass_result with proposer outputs intact",
+      "P3.24 deletion: the convergence runner no longer carries the "
+      "second_pass_result persistence call (it lived inside the "
+      "deleted _run_unified_post_grid_system_run function)",
     )
 
 
