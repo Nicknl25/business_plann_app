@@ -1336,39 +1336,42 @@ def assert_post_intake_revenue_driver_integrity(
     violations=bundle_violations,
     extra_details={"horizon": horizon},
   )
+  # Phase 9 P3.22 Part 2 -- single source. Consolidated with the
+  # FINMO bridge's _enforce_revenue_driver_formula_contract check
+  # at finmo_bridge.py:560 onto a single canonical helper +
+  # tolerance. The pre-consolidation inline accumulation (per-
+  # product capacity * price * utilization, summed per quarter)
+  # was a parallel implementation of the same arithmetic the helper
+  # already performs -- doctrine §7 anti-pattern. Now both check
+  # sites read from `revenue_live_series_from_model_input` and
+  # `REVENUE_DRIVER_FORMULA_TOLERANCE` exported from finmo_bridge.
+  from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+    revenue_live_series_from_model_input,
+    REVENUE_DRIVER_FORMULA_TOLERANCE,
+  )
   formula_violations: List[Dict[str, Any]] = []
-  computed_revenue_by_q = {quarter: 0.0 for quarter in range(1, horizon + 1)}
-  for drivers in bundle.values():
-    if not all(driver in drivers for driver in ("Capacity", "Unit Price", "Utilization")):
-      continue
-    capacity = _row_live_values(drivers["Capacity"], horizon=horizon)
-    price = _row_live_values(drivers["Unit Price"], horizon=horizon)
-    utilization = _row_live_values(drivers["Utilization"], horizon=horizon)
-    for quarter in range(1, horizon + 1):
-      computed_revenue_by_q[quarter] += (
-        max(0.0, float(_safe_float(capacity[quarter - 1]) or 0.0))
-        * max(0.0, float(_safe_float(price[quarter - 1]) or 0.0))
-        * max(0.0, float(_safe_float(utilization[quarter - 1]) or 0.0))
-      )
+  _driver_series = revenue_live_series_from_model_input(
+    model_input_json,
+    live_count=horizon,
+  )
+  computed_revenue_by_q = {
+    quarter: (
+      float(_driver_series[quarter - 1])
+      if quarter - 1 < len(_driver_series)
+      else 0.0
+    )
+    for quarter in range(1, horizon + 1)
+  }
   actual_revenue_by_q = {
     int(_safe_float(row.get("quarter_index")) or 0): float(_safe_float(row.get("revenue")) or 0.0)
     for row in _live_quarter_rows(finmo_json)
   }
-  # Compare with a 1.5-cent absolute tolerance on the unrounded values
-  # to neutralize floating-point rounding-mode disagreements. Values like
-  # 59695.725 (from sum(Capacity * Unit Price * Utilization) =
-  # 39797.15 * 2.0 * 0.75 = 59695.72500000001) round to 59695.73 in one
-  # path and 59695.72 in another (banker's rounding), false-flagging an
-  # off-by-$0.01. Comparing the raw FP values with a >$0.015 tolerance
-  # absorbs that drift while still catching real revenue formula
-  # violations (which are at least $1+ apart in practice).
-  _REVENUE_FORMULA_TOLERANCE = 0.015
   for quarter in range(1, horizon + 1):
     expected_raw = float(computed_revenue_by_q.get(quarter) or 0.0)
     actual_raw = float(actual_revenue_by_q.get(quarter) or 0.0)
     expected = round(expected_raw, 2)
     actual = round(actual_raw, 2)
-    if abs(expected_raw - actual_raw) > _REVENUE_FORMULA_TOLERANCE:
+    if abs(expected_raw - actual_raw) > REVENUE_DRIVER_FORMULA_TOLERANCE:
       formula_violations.append(
         {
           "quarter_index": quarter,

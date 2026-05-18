@@ -563,27 +563,30 @@ def _enforce_revenue_driver_formula_contract(
   quarter_rows_raw: Sequence[Dict[str, Any]],
 ) -> None:
   live_rows = [row for row in (quarter_rows_raw or []) if isinstance(row, dict)]
-  driver_revenue_series = _revenue_live_series_from_model_input(
+  driver_revenue_series = revenue_live_series_from_model_input(
     model_input_json,
     live_count=len(live_rows),
   )
   violations: List[Dict[str, Any]] = []
-  # Phase 9 P3.20 Part 3 Stage 5 — tolerance for float-rounding-boundary
-  # noise. Both paths compute sum(Capacity * Unit Price * Utilization),
-  # but float arithmetic non-associativity (different multiplication /
-  # accumulation order between FINMO's core engine and the driver-
-  # formula path) can produce a sub-cent difference (e.g. 1673073.4999
-  # vs 1673073.5001) that straddles a rounding boundary and trips
-  # int-equality. A larger divergence would indicate a real source bug
-  # (e.g., FINMO applying a stage-ramp modifier the driver formula
-  # doesn't) and still fires above $1. Tolerance matches the existing
-  # FINMO-coherence convention used by the accounting-equation check
-  # below (`tolerance = 1.0` at the build_python_finmo_json site).
+  # Phase 9 P3.22 Part 2 -- single source. The driver-formula revenue
+  # comes from `revenue_live_series_from_model_input` (public helper
+  # below). The same helper is used by
+  # `fail_fast.assert_post_intake_revenue_driver_integrity` -- one
+  # canonical accumulation path, no duplicate inline arithmetic.
+  # Tolerance is `REVENUE_DRIVER_FORMULA_TOLERANCE` (also defined
+  # below); both call sites import the same constant. The chosen
+  # value ($0.015 = 1.5 cents) absorbs float-rounding-mode boundary
+  # noise (e.g. 1673073.4999 vs 1673073.5001 -- a sub-cent
+  # difference that previously straddled an integer-rounding
+  # boundary and tripped int-equality at Stage 5 iter 1). A larger
+  # divergence still indicates a real source bug (e.g., FINMO
+  # applying a stage-ramp modifier the driver formula doesn't) and
+  # fires loudly.
   for idx, row in enumerate(live_rows, start=1):
     finmo_revenue = float(_safe_float(row.get("revenue")) or 0.0)
     driver_revenue = float(driver_revenue_series[idx - 1]) if idx - 1 < len(driver_revenue_series) else 0.0
     delta_float = finmo_revenue - driver_revenue
-    if abs(delta_float) > 1.0:
+    if abs(delta_float) > REVENUE_DRIVER_FORMULA_TOLERANCE:
       violations.append(
         {
           "quarter_index": idx,
@@ -1793,11 +1796,33 @@ def _revenue_driver_live_series(
   return out
 
 
-def _revenue_live_series_from_model_input(
+# Phase 9 P3.22 Part 2 -- single source for the revenue driver
+# formula. Both check sites (this module's
+# _enforce_revenue_driver_formula_contract and the post-intake
+# fail_fast assert_post_intake_revenue_driver_integrity) read from
+# this constant + helper pair; no parallel inline accumulation.
+# Tolerance is sub-cent ($0.015) so float-rounding-boundary noise
+# is absorbed but real source divergences (>$1) still fire.
+REVENUE_DRIVER_FORMULA_TOLERANCE: float = 0.015
+
+
+def revenue_live_series_from_model_input(
   model_input_json: Optional[Dict[str, Any]],
   *,
   live_count: int,
 ) -> List[float]:
+  """Per-quarter driver-formula revenue series. Canonical helper
+  for the "FINMO revenue must equal sum(Capacity * Unit Price *
+  Utilization) per quarter" contract. Both call sites
+  (`_enforce_revenue_driver_formula_contract` in this module and
+  `assert_post_intake_revenue_driver_integrity` in
+  post_intake_fail_fast) use this function as the single source of
+  truth for the expected revenue side.
+
+  Phase 9 P3.22 Part 2 -- renamed from `_revenue_live_series_from
+  _model_input` (dropped underscore) to mark it as a cross-module
+  public helper. fail_fast.py imports it directly.
+  """
   capacity_series = _revenue_driver_live_series(model_input_json, driver_name="Capacity", live_count=live_count)
   unit_price_series = _revenue_driver_live_series(model_input_json, driver_name="Unit Price", live_count=live_count)
   utilization_series = _revenue_driver_live_series(model_input_json, driver_name="Utilization", live_count=live_count)
