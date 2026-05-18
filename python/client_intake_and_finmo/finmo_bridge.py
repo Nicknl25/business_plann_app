@@ -568,16 +568,31 @@ def _enforce_revenue_driver_formula_contract(
     live_count=len(live_rows),
   )
   violations: List[Dict[str, Any]] = []
+  # Phase 9 P3.20 Part 3 Stage 5 — tolerance for float-rounding-boundary
+  # noise. Both paths compute sum(Capacity * Unit Price * Utilization),
+  # but float arithmetic non-associativity (different multiplication /
+  # accumulation order between FINMO's core engine and the driver-
+  # formula path) can produce a sub-cent difference (e.g. 1673073.4999
+  # vs 1673073.5001) that straddles a rounding boundary and trips
+  # int-equality. A larger divergence would indicate a real source bug
+  # (e.g., FINMO applying a stage-ramp modifier the driver formula
+  # doesn't) and still fires above $1. Tolerance matches the existing
+  # FINMO-coherence convention used by the accounting-equation check
+  # below (`tolerance = 1.0` at the build_python_finmo_json site).
   for idx, row in enumerate(live_rows, start=1):
     finmo_revenue = float(_safe_float(row.get("revenue")) or 0.0)
     driver_revenue = float(driver_revenue_series[idx - 1]) if idx - 1 < len(driver_revenue_series) else 0.0
-    if int(round(finmo_revenue)) != int(round(driver_revenue)):
+    delta_float = finmo_revenue - driver_revenue
+    if abs(delta_float) > 1.0:
       violations.append(
         {
           "quarter_index": idx,
           "finmo_revenue": int(round(finmo_revenue)),
           "driver_formula_revenue": int(round(driver_revenue)),
-          "delta": int(round(finmo_revenue - driver_revenue)),
+          # Stage 5 / Stage 4 diagnostic preservation -- report the true
+          # float delta so future diagnoses see the precise magnitude
+          # (the prior int(round(...)) reported 0 for sub-dollar deltas).
+          "delta": round(delta_float, 6),
           "formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
         }
       )
