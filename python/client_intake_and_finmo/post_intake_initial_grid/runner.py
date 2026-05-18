@@ -1457,22 +1457,163 @@ def prepare_initial_grid_for_draft(
         finmo_json=applied_finmo_json,
         stage="quarter_grid_applied",
       )
-      # Phase 9 P3.11 — post-quarter-grid invariant check. Previously
-      # wrapped in a try/except that caught
-      # payroll_revenue_economic_feasibility_failed /
-      # payroll_stage_profitability_feasibility_failed and rebuilt
-      # payroll via the outer retry loop. With the outer loop removed
-      # and the inner iterative refinement covering up to 10 rounds
-      # against the same feasibility validators, post-quarter-grid
-      # feasibility violations now hard-fail directly — surfacing the
-      # deeper issue rather than papering over with another rebuild.
-      _assert_global_invariants_via_sequence(
-        "quarter_grid_global_validation",
-        model_input_payload=copy.deepcopy(applied_model_input_json),
-        finmo_payload=copy.deepcopy(applied_finmo_json),
-        payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
-        stage="quarter_grid_applied",
+      # Phase 9 P3.24 Commit 2 — post-quarter-grid invariant check
+      # with single-shot payroll_feasibility_repair on the
+      # payroll/revenue feasibility failure. P3.11 removed an outer
+      # retry loop here; that was the right call structurally (no
+      # cycling), but it left CareFirst-class failures (P3.23a Draft
+      # 2) with no recovery path — the inner iterative refinement
+      # validated against the payroll-only projected FINMO and could
+      # not see the post-grid revenue gap (P3.23b §X4 Mirror Flavor 1
+      # divergence; P3.23b §0 SQL-table divergence: initial_grid:65
+      # `payroll_feasibility_repair` exists in the canonical table but
+      # was not invoked by code).
+      #
+      # The repair lifts the convergence runner's `_rebuild_payroll_
+      # authority` pattern (convergence/runner.py:780-826) into the
+      # initial-grid path at the table's canonical position. It is
+      # SINGLE-SHOT — at most one re-author attempt — so cycling is
+      # not reintroduced. If the re-authored schedule still fails the
+      # global invariants check, the hard-fail propagates with the
+      # repair-attempt diagnostic preserved.
+      from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+        FailFastError,
       )
+
+      _payroll_feasibility_repair_attempted = False
+      try:
+        _assert_global_invariants_via_sequence(
+          "quarter_grid_global_validation",
+          model_input_payload=copy.deepcopy(applied_model_input_json),
+          finmo_payload=copy.deepcopy(applied_finmo_json),
+          payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied",
+        )
+      except FailFastError as _first_invariant_exc:
+        _first_code = str(getattr(_first_invariant_exc, "code", "") or "")
+        # Doctrine §3 Property 2: trigger on ANY failure within
+        # authority. Authority here is the payroll handler's:
+        # capacity_labor_model, labor_intensity_class, wage
+        # positioning, target_payroll_percent_of_revenue,
+        # capacity_units_per_supporting_fte, per-quarter FTE schedule.
+        # The two feasibility codes both surface in the same
+        # validator path with the same repair direction (recompute
+        # the schedule under global-feasibility feedback). The other
+        # post_intake_schedule_marker_missing wrapper code carries
+        # the inner feasibility failure as its `exception` detail
+        # (initial_grid global-invariants wrapping); catch it too
+        # only when the wrapped failure is the feasibility kind.
+        _wrapped_inner = ""
+        if _first_code == "post_intake_schedule_marker_missing":
+          _inner_excerpt = str(
+            ((_first_invariant_exc.details or {}).get("exception")) or ""
+          ).strip()
+          _wrapped_inner = _inner_excerpt
+        _is_feasibility_failure = (
+          _first_code in {
+            "payroll_revenue_economic_feasibility_failed",
+            "payroll_stage_profitability_feasibility_failed",
+          }
+          or "payroll_revenue_economic_feasibility_failed" in _wrapped_inner
+          or "payroll_stage_profitability_feasibility_failed" in _wrapped_inner
+        )
+        if not _is_feasibility_failure:
+          raise
+
+        # Build the previous_contract_failure dict the payroll
+        # iterative refinement loop consumes via its
+        # `external_caller_seed` feedback packet
+        # (post_intake_headcount/schedule.py:2397-2404).
+        _repair_failure_payload: Dict[str, Any] = {
+          "error": str(_first_invariant_exc),
+          "error_code": _first_code,
+          "stage": str(getattr(_first_invariant_exc, "stage", "") or ""),
+          "details": copy.deepcopy(getattr(_first_invariant_exc, "details", {}) or {}),
+          "source": "initial_grid_quarter_grid_global_validation",
+          "wrapped_inner": _wrapped_inner,
+        }
+
+        # Re-author the payroll headcount schedule with the global-
+        # feasibility failure context attached. The handler's
+        # iterative refinement loop (10 rounds, 180s) handles the
+        # GPT-side repair; this call is one external invocation.
+        _repair_runtime_context = _runtime_context(
+          current_model_input_json=applied_model_input_json,
+          current_finmo_json=applied_finmo_json,
+          extra={
+            "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+            "previous_contract_failure": copy.deepcopy(_repair_failure_payload),
+            "payroll_headcount": copy.deepcopy(payroll_headcount_payload or {}),
+          },
+        )
+        _repaired_schedule_payload = _execute_sequence_step(
+          "payroll_feasibility_repair",
+          estimate_payroll_headcount_schedule_with_gpt,
+          runtime_context=_repair_runtime_context,
+          handler_kwargs={
+            "business_facts": copy.deepcopy(business_facts or {}),
+            "ops_json": copy.deepcopy(ops_json or {}),
+            "people_json": copy.deepcopy(people_json or {}),
+            "financials_json": copy.deepcopy(financials_json or {}),
+            "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
+            "planning_mode": planning_mode,
+            "planning_mode_reason": planning_mode_reason,
+            "model_input_json": copy.deepcopy(applied_model_input_json or {}),
+            "finmo_json": copy.deepcopy(applied_finmo_json or {}),
+            "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+            "draft_id": normalized_draft_id,
+            "client_id": str(draft.get("client_id") or "").strip(),
+            "previous_contract_failure": copy.deepcopy(_repair_failure_payload),
+          },
+          expected_phase="initial_grid",
+          expected_handler_key="retry_payroll_headcount_schedule_from_feasibility_failure",
+          required_contract_name="payroll_headcount_schedule",
+          required_context_contract_name="payroll_headcount_schedule",
+          required_context_include_phase="pre_convergence",
+          required_lookup_tables=[
+            "post_intak_mapping_lookup",
+            "post_intake_gpt_contract_lookup",
+            "post_intake_gpt_context_lookup",
+            "post_intake_headcount_policy_lookup",
+          ],
+          required_horizon_rule="q1_to_q20_at_least_once",
+        )
+        # Doctrine §3 Property 1: handler's authored output persists.
+        # Re-apply the new schedule through the same capacity →
+        # model_input → FINMO chain as the original payroll build
+        # (_apply_existing_payroll_authority is the existing wrapper).
+        payroll_headcount_payload = copy.deepcopy(_repaired_schedule_payload)
+        applied_model_input_json, applied_finmo_json = _apply_existing_payroll_authority(
+          schedule_payload=copy.deepcopy(payroll_headcount_payload),
+          current_model_input_json=copy.deepcopy(applied_model_input_json),
+          current_finmo_json=copy.deepcopy(applied_finmo_json),
+          stage_prefix="quarter_grid_applied_after_feasibility_repair",
+        )
+        assert_payroll_headcount_model_input_applied(
+          copy.deepcopy(applied_model_input_json),
+          copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied_after_feasibility_repair",
+        )
+        assert_finmo_payroll_matches_headcount_schedule(
+          copy.deepcopy(applied_finmo_json),
+          copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied_after_feasibility_repair",
+        )
+        _payroll_feasibility_repair_attempted = True
+
+        # Doctrine §3 Property 4: preserve the original diagnostic
+        # by re-running the same check. If it still fails, the
+        # original FailFastError reason resurfaces — operator sees
+        # both the repair attempt (via the persisted sequence step
+        # `payroll_feasibility_repair`) AND the post-repair failure
+        # diagnostic. No silent swallow.
+        _assert_global_invariants_via_sequence(
+          "quarter_grid_global_validation",
+          model_input_payload=copy.deepcopy(applied_model_input_json),
+          finmo_payload=copy.deepcopy(applied_finmo_json),
+          payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied_after_feasibility_repair",
+        )
 
   return {
     "planning_run_id": active_planning_run_id,
