@@ -1179,23 +1179,43 @@ def run_restoration_loop(
     )
 
     # Exhausted exit (semantic): every target the loop attempted in
-    # the latest pass returned bound_pinned. The inner solver returns
+    # the latest pass is stuck (bound_pinned, converged, or
+    # max_inner_iterations_reached). The inner solver returns
     # bound_pinned when "all drivers in the active set are pinned for
     # the residual's needed direction" — its own authoritative "no
-    # more authority" signal. When every target reports that, the
-    # deterministic algebra is exhausted in the sense the architecture
-    # cares about (no more progress possible), even if some drivers
-    # are at bound only in some quarters.
+    # more authority" signal. max_inner_iterations_reached means the
+    # target ate its inner-iteration budget without convergence and
+    # without pinning — also a "stuck" signal that further outer
+    # passes are not closing the gap. When every target reports one
+    # of these three stuck statuses, the deterministic algebra is
+    # exhausted in the sense the architecture cares about (no more
+    # progress possible), even if some drivers are at bound only in
+    # some quarters.
+    #
+    # Phase 9 P3.24 F-2 — max_inner_iterations_reached targets were
+    # previously counted in `attempted_count` but not in the stuck
+    # threshold, so semantic_exhaustion could not fire when a mix of
+    # bound_pinned and max_inner_iterations_reached targets exhausted
+    # the outer-pass budget (Anderson & Blake pattern, P3.23a).
     targets_attempted_count = len([
       t for t in (pass_diag.get("targets_attempted") or [])
       if t.get("status") in ("bound_pinned", "converged", "max_inner_iterations_reached")
     ])
     targets_bound_pinned = list(pass_diag.get("targets_bound_pinned") or [])
     targets_converged = list(pass_diag.get("targets_converged") or [])
+    targets_max_inner_iters: List[str] = [
+      str(t.get("target") or "").strip()
+      for t in (pass_diag.get("targets_attempted") or [])
+      if t.get("status") == "max_inner_iterations_reached" and str(t.get("target") or "").strip()
+    ]
     semantic_exhaustion = (
       bool(targets_attempted_count)
-      and len(targets_bound_pinned) + len(targets_converged) >= targets_attempted_count
-      and len(targets_bound_pinned) >= 1
+      and (
+        len(targets_bound_pinned)
+        + len(targets_converged)
+        + len(targets_max_inner_iters)
+      ) >= targets_attempted_count
+      and (len(targets_bound_pinned) + len(targets_max_inner_iters)) >= 1
       and not all(final_viability.get(m, False) for m in _VIABILITY_TRAJECTORY_METRICS)
     )
 
@@ -1251,9 +1271,18 @@ def run_restoration_loop(
       )
 
   # Hit max outer passes without landing or exhausting.
+  #
+  # Phase 9 P3.24 F-1 + F-3 — classify the forecast realism failures
+  # so the orchestrator's Site 1 handler trigger has a non-empty
+  # failing_metrics payload to route on. The orchestrator broadens
+  # its trigger to engage on ITERATING_STILL when failing_metrics is
+  # non-empty. ITERATING_STILL with no GPT-authorable forecast
+  # failures stays as "loop ran out of passes but downstream realism
+  # gate has nothing to flag" and the handler does not fire.
   from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
     evaluate_realism_formula,
   )
+  final_finmo: Dict[str, Any] = {}
   try:
     final_finmo = build_finmo(copy.deepcopy(model_input))
     q11_em = evaluate_realism_formula(
@@ -1262,6 +1291,22 @@ def run_restoration_loop(
     )
   except Exception:
     q11_em = None
+  forecast_scope, forecast_failures = _classify_forecast_exhaustion(
+    model_input=model_input,
+    post_finmo=final_finmo,
+    business_naics_6=business_naics_6,
+    ops_json=ops_json,
+    financials_json=financials_json,
+    planning_mode=planning_mode,
+    solver_targets_payload=solver_targets_payload,
+  )
+  # Default to PNL_PATH when forecast classifier returned no signal
+  # but failing_metrics IS populated (defensive — shouldn't happen
+  # given the classifier's contract but mirrors the EXHAUSTED-path
+  # default at restoration_loop.py:1239 for consistency).
+  effective_scope = forecast_scope if forecast_scope is not None else (
+    HandlerScope.PNL_PATH if forecast_failures else None
+  )
   return RestorationResult(
     status=RestorationStatus.ITERATING_STILL,
     outer_passes_used=outer_passes_used,
@@ -1271,4 +1316,6 @@ def run_restoration_loop(
     per_target_results=per_target_results,
     q11_ebitda_margin=float(q11_em) if q11_em is not None else None,
     reason="max_outer_passes_reached_without_landed_or_exhausted",
+    scope=effective_scope,
+    failing_metrics=forecast_failures,
   )

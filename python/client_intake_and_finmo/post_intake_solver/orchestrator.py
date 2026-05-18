@@ -1974,7 +1974,28 @@ def _run_post_cascade_completion(
     from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
       RestorationStatus,
     )
-    if restoration_result.status == RestorationStatus.EXHAUSTED:
+    # Phase 9 P3.24 F-1 — broaden Site 1 trigger to also engage on
+    # ITERATING_STILL when the restoration loop produced a non-empty
+    # failing_metrics payload via the forward-looking forecast
+    # classifier. Anderson & Blake exited ITERATING_STILL with three
+    # unresolved realism metrics (current_assets_minus_cash,
+    # current_liabilities_to_revenue, ebitda_margin) — all within the
+    # GPT exhaustion handler's 12 PNL + 5 WC lever authority. Without
+    # this broadening the handler never ran on that draft and the
+    # realism gate / acceptance gate caught the residuals post-hoc
+    # (P3.23a Draft 1; P3.23b §4 timing-mismatch pair F/I/O). When
+    # the loop ran out of outer passes with no forecast failures
+    # forecast (failing_metrics empty), the handler still does not
+    # fire — that path means the realism gate downstream has nothing
+    # to flag.
+    _should_engage_handler = (
+      restoration_result.status == RestorationStatus.EXHAUSTED
+      or (
+        restoration_result.status == RestorationStatus.ITERATING_STILL
+        and bool(getattr(restoration_result, "failing_metrics", None))
+      )
+    )
+    if _should_engage_handler:
       try:
         from client_intake_and_finmo.post_intake_gpt_exhaustion_handler import (  # type: ignore
           run_gpt_exhaustion_handler,
