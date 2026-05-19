@@ -158,10 +158,20 @@ def route_payroll_feasibility_to_handler_c(
 
 
 def is_payroll_feasibility_failure(failure: Any) -> bool:
-  """True when a FailFastError represents a payroll feasibility
-  violation routable to Handler C. Covers both the direct
-  feasibility codes AND the wrapping `post_intake_schedule_marker_missing`
-  whose `details.exception` string contains the inner code."""
+  """True when a failure represents a payroll feasibility
+  violation routable to Handler C.
+
+  Three exception shapes can carry the failure:
+    1. Direct FailFastError with the feasibility code (Site A
+       catches this from _assert_global_invariants_via_sequence).
+    2. FailFastError with `post_intake_schedule_marker_missing`
+       wrapper code carrying the inner code in `details.exception`.
+    3. RuntimeError raised by finalize's `_raise_if_errors`
+       (finalize_post_intake.py:39-44) which CONCATENATES the
+       FailFastError text into a "post_intake_finalize_validation_failed: ..."
+       message. Site B receives this shape; we detect it by
+       inspecting str(failure) for the inner feasibility code.
+  """
   code = str(getattr(failure, "code", "") or "")
   if code in {
     "payroll_revenue_economic_feasibility_failed",
@@ -175,4 +185,13 @@ def is_payroll_feasibility_failure(failure: Any) -> bool:
       or "payroll_stage_profitability_feasibility_failed" in inner
     ):
       return True
+  # Shape 3: finalize's _raise_if_errors wraps the FailFastError
+  # diagnostic text in a generic RuntimeError. Inspect str(failure)
+  # for the inner code.
+  msg = str(failure or "")
+  if (
+    "payroll_revenue_economic_feasibility_failed" in msg
+    or "payroll_stage_profitability_feasibility_failed" in msg
+  ):
+    return True
   return False

@@ -171,15 +171,37 @@ class TestIsPayrollFeasibilityFailureRecognition(unittest.TestCase):
         msg=f"code {code!r} should NOT route to Handler C",
       )
 
-  def test_non_failfast_exceptions_skip_route(self) -> None:
-    """A non-FailFastError exception (e.g., RuntimeError without
-    a `code` attribute) must NOT route. Routing requires the
-    structured failure context Handler C consumes."""
+  def test_non_payroll_runtime_errors_skip_route(self) -> None:
+    """A RuntimeError that does NOT carry the payroll feasibility
+    code in its message must NOT route."""
     from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # noqa: WPS433
       is_payroll_feasibility_failure,
     )
     self.assertFalse(is_payroll_feasibility_failure(RuntimeError("generic error")))
     self.assertFalse(is_payroll_feasibility_failure(ValueError("not a fail fast")))
+    self.assertFalse(is_payroll_feasibility_failure(
+      RuntimeError("post_intake_finalize_validation_failed: balance_sheet_reconciliation_invalid"),
+    ))
+
+  def test_runtime_error_wrap_with_inner_payroll_code_recognized(self) -> None:
+    """P3.26 fix1: finalize wraps FailFastError in RuntimeError via
+    _raise_if_errors at finalize_post_intake.py:41. The predicate
+    must detect the inner feasibility code in the concatenated
+    message string — this is Site B's actual failure shape."""
+    from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # noqa: WPS433
+      is_payroll_feasibility_failure,
+    )
+    # Exact text shape from Anderson & Blake's P3.26 verification run.
+    msg = (
+      "post_intake_finalize_validation_failed: global_invariants_invalid: "
+      "POST_INTAKE:post_intake_schedule_marker_missing@post_intake_finalize_validation_global: "
+      "Payroll schedule fail-fast failed; payroll must use the table-backed headcount schedule: "
+      "POST_INTAKE:payroll_revenue_economic_feasibility_failed@"
+      "post_intake_finalize_validation_global_global_payroll_revenue_feasibility: "
+      "Payroll/revenue economics are outside the table-backed headcount policy range; "
+      "recompute drivers instead of clipping outputs."
+    )
+    self.assertTrue(is_payroll_feasibility_failure(RuntimeError(msg)))
 
 
 class TestSiteAWiring(unittest.TestCase):

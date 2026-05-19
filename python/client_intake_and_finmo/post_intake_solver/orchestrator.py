@@ -2724,7 +2724,11 @@ def _run_post_cascade_completion(
       route_payroll_feasibility_to_handler_c,
     )
     _site_b_route_attempted = False
-    if isinstance(exc, FailFastError) and is_payroll_feasibility_failure(exc):
+    # P3.26 fix1: detect both FailFastError directly AND
+    # RuntimeError-wrapped feasibility failures (finalize wraps via
+    # _raise_if_errors at finalize_post_intake.py:39-44).
+    # is_payroll_feasibility_failure now handles all three shapes.
+    if is_payroll_feasibility_failure(exc):
       _site_b_route_attempted = True
       _live_count_b = max(
         0,
