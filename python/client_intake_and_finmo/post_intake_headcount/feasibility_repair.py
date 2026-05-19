@@ -38,6 +38,9 @@ from client_intake_and_finmo.post_intake_headcount.schedule import (
   assert_payroll_headcount_model_input_applied,
   estimate_payroll_headcount_schedule_with_gpt,
 )
+from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+  post_intake_sequence_step_scope,
+)
 
 
 def _previous_contract_failure_payload(
@@ -63,29 +66,41 @@ def apply_payroll_schedule_to_state(
   """Re-apply a payroll headcount schedule to model_input + rebuild
   finmo. Mirror Flavor 1 enforcement: assertions verify
   model_input.expenses.Payroll == headcount.quarter_totals and
-  finmo Payroll == headcount.quarter_totals before returning."""
-  capacity_mi = apply_payroll_supported_capacity_to_model_input(
-    copy.deepcopy(model_input_json or {}),
-    copy.deepcopy(schedule_payload or {}),
-    live_count=live_count,
-  )
-  next_mi = apply_payroll_headcount_payload_to_model_input(
-    copy.deepcopy(capacity_mi),
-    copy.deepcopy(schedule_payload or {}),
-    live_count=live_count,
-  )
-  next_mi = apply_derived_driver_policies_to_model_input(copy.deepcopy(next_mi))
-  assert_payroll_headcount_model_input_applied(
-    copy.deepcopy(next_mi),
-    copy.deepcopy(schedule_payload or {}),
-    stage=f"{stage_prefix}_model_input",
-  )
-  next_finmo = build_python_finmo_json(model_input_json=copy.deepcopy(next_mi))
-  assert_finmo_payroll_matches_headcount_schedule(
-    copy.deepcopy(next_finmo),
-    copy.deepcopy(schedule_payload or {}),
-    stage=f"{stage_prefix}_finmo",
-  )
+  finmo Payroll == headcount.quarter_totals before returning.
+
+  P3.26 fix2: wrapped in a sequence_step_scope so downstream
+  helpers (apply_payroll_supported_capacity_to_model_input,
+  apply_payroll_headcount_payload_to_model_input, etc.) that gate
+  on assert_post_intake_sequence_controller_active can run.
+  """
+  with post_intake_sequence_step_scope(
+    step_key="payroll_feasibility_repair_apply",
+    phase="post_intake_target_seeking",
+    executor_function="apply_payroll_headcount_payload_to_model_input",
+    step_kind="orchestration",
+  ):
+    capacity_mi = apply_payroll_supported_capacity_to_model_input(
+      copy.deepcopy(model_input_json or {}),
+      copy.deepcopy(schedule_payload or {}),
+      live_count=live_count,
+    )
+    next_mi = apply_payroll_headcount_payload_to_model_input(
+      copy.deepcopy(capacity_mi),
+      copy.deepcopy(schedule_payload or {}),
+      live_count=live_count,
+    )
+    next_mi = apply_derived_driver_policies_to_model_input(copy.deepcopy(next_mi))
+    assert_payroll_headcount_model_input_applied(
+      copy.deepcopy(next_mi),
+      copy.deepcopy(schedule_payload or {}),
+      stage=f"{stage_prefix}_model_input",
+    )
+    next_finmo = build_python_finmo_json(model_input_json=copy.deepcopy(next_mi))
+    assert_finmo_payroll_matches_headcount_schedule(
+      copy.deepcopy(next_finmo),
+      copy.deepcopy(schedule_payload or {}),
+      stage=f"{stage_prefix}_finmo",
+    )
   return next_mi, next_finmo
 
 
@@ -132,21 +147,36 @@ def route_payroll_feasibility_to_handler_c(
     details=failure_details,
     source="payroll_feasibility_repair",
   )
-  new_schedule = estimate_payroll_headcount_schedule_with_gpt(
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    people_json=copy.deepcopy(people_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    model_input_json=copy.deepcopy(model_input_json or {}),
-    finmo_json=copy.deepcopy(finmo_json or {}),
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
-    draft_id=str(draft_id or "").strip(),
-    client_id=str(client_id or "").strip(),
-    previous_contract_failure=previous_contract_failure,
-  )
+  # P3.26 fix2: Handler C's downstream helpers gate themselves on
+  # `assert_post_intake_sequence_controller_active`. Without a
+  # registered scope, the helpers raise
+  # `post_intake_sequence_controller_required`. The
+  # `payroll_feasibility_repair` scope identifies this routing as
+  # an orchestration-level Handler C re-author (the same step_key
+  # the SQL `post_intake_process_sequence_lookup` table reserves
+  # for the canonical feasibility-repair process at
+  # initial_grid:65).
+  with post_intake_sequence_step_scope(
+    step_key="payroll_feasibility_repair",
+    phase="post_intake_target_seeking",
+    executor_function="retry_payroll_headcount_schedule_from_feasibility_failure",
+    step_kind="orchestration",
+  ):
+    new_schedule = estimate_payroll_headcount_schedule_with_gpt(
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+      draft_id=str(draft_id or "").strip(),
+      client_id=str(client_id or "").strip(),
+      previous_contract_failure=previous_contract_failure,
+    )
   new_mi, new_finmo = apply_payroll_schedule_to_state(
     schedule_payload=new_schedule,
     model_input_json=model_input_json,
