@@ -1974,7 +1974,18 @@ def _run_post_cascade_completion(
     from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
       RestorationStatus,
     )
-    if restoration_result.status == RestorationStatus.EXHAUSTED:
+    # P3.26 F-1: broaden Site 1 trigger to also engage on
+    # ITERATING_STILL with non-empty failing_metrics (F-3 populates
+    # this when forward-looking forecast finds GPT-authorable
+    # realism failures). Empty failing_metrics correctly skips.
+    _should_engage_handler = (
+      restoration_result.status == RestorationStatus.EXHAUSTED
+      or (
+        restoration_result.status == RestorationStatus.ITERATING_STILL
+        and bool(getattr(restoration_result, "failing_metrics", None))
+      )
+    )
+    if _should_engage_handler:
       try:
         from client_intake_and_finmo.post_intake_gpt_exhaustion_handler import (  # type: ignore
           run_gpt_exhaustion_handler,
