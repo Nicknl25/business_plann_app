@@ -2713,28 +2713,142 @@ def _run_post_cascade_completion(
         solver_target_assertion = stax
         next_result["solver_target_assertion"] = copy.deepcopy(stax)
   except Exception as exc:
-    # Phase 9 P3.10 Commit 2 — the legacy Phase-8 finalize warning
-    # downgrade is removed. Under test mode the finalize fail-fast
-    # (which IS the existing fail-fast layer) must not be undone at
-    # the orchestrator level. The legacy Phase 8 note explained why
-    # this downgrade existed; with the acceptance gate in place,
-    # downgrading produces exactly the misleading 13/16 outcomes the
-    # P3.10 overhaul is fixing.
+    # P3.26 Site B: route payroll feasibility failures back to
+    # Handler C. Other failures still hard-fail under test mode.
     from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      FailFastError,
       convergence_test_mode_enabled,
     )
-    if convergence_test_mode_enabled():
+    from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore
+      is_payroll_feasibility_failure,
+      route_payroll_feasibility_to_handler_c,
+    )
+    _site_b_route_attempted = False
+    if isinstance(exc, FailFastError) and is_payroll_feasibility_failure(exc):
+      _site_b_route_attempted = True
+      _live_count_b = max(
+        0,
+        len([p for p in ((final_model_input_json or {}).get("periods") or [])
+             if isinstance(p, dict) and not bool(p.get("is_stub"))]),
+      )
+      try:
+        new_schedule, new_mi, new_finmo = route_payroll_feasibility_to_handler_c(
+          failure_code=str(getattr(exc, "code", "") or ""),
+          failure_message=str(exc),
+          failure_stage=str(getattr(exc, "stage", "") or ""),
+          failure_details=copy.deepcopy(getattr(exc, "details", {}) or {}),
+          business_facts=business_facts or {},
+          ops_json=ops_json or {},
+          people_json=people_json or {},
+          financials_json=financials_json or {},
+          financials_year1_json=financials_year1_json or {},
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
+          model_input_json=final_model_input_json or {},
+          finmo_json=final_finmo_json or {},
+          payroll_headcount=payroll_headcount or {},
+          stage_ramp_contract=stage_ramp_contract or {},
+          draft_id=str(draft_id or "").strip(),
+          client_id=str((business_facts or {}).get("client_id") or "").strip(),
+          live_count=_live_count_b,
+          stage_prefix="finalize_payroll_feasibility_repair",
+        )
+        payroll_headcount = new_schedule
+        final_model_input_json = new_mi
+        final_finmo_json = new_finmo
+        next_result["model_input_json"] = final_model_input_json
+        next_result["finmo_json"] = final_finmo_json
+        completion_trace["payroll_feasibility_repair_site_b"] = {
+          "status": "completed",
+          "triggered_by_code": str(getattr(exc, "code", "") or ""),
+        }
+        # Direct SQL UPDATE on the payroll_headcount column to keep
+        # the DB aligned with the repaired in-memory state. The
+        # orchestrator's downstream `_persist_unified_convergence_state`
+        # does NOT write payroll_headcount (it was set at initial-grid
+        # persist time); without this update, the workbook builder
+        # would re-render from the stale headcount and recreate the
+        # Mirror Flavor 1 divergence the P3.25 memo documented.
+        if conn is not None:
+          try:
+            import json as _json_payroll_persist
+            _cur_p = conn.cursor()
+            try:
+              _cur_p.execute(
+                "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                (
+                  _json_payroll_persist.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                  str(draft_id or "").strip(),
+                ),
+              )
+              conn.commit()
+            finally:
+              try:
+                _cur_p.close()
+              except Exception:
+                pass
+          except Exception as _persist_exc:
+            completion_trace.setdefault("payroll_feasibility_repair_site_b", {})[
+              "headcount_db_persist_error"
+            ] = f"{type(_persist_exc).__name__}: {str(_persist_exc)[:300]}"
+            if convergence_test_mode_enabled():
+              raise
+        # Re-run finalize with the repaired state. If it still
+        # fails, the new exception propagates with the full
+        # diagnostic chain.
+        from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore
+          run_finalize_post_intake_validation as _finalize_post_repair,
+        )
+        finalize_result = _finalize_post_repair(
+          draft_id=str(draft_id or "").strip(),
+          planning_run_id=str(planning_run_id or "").strip(),
+          stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+          model_input_json=copy.deepcopy(final_model_input_json or {}),
+          finmo_json=copy.deepcopy(final_finmo_json or {}),
+          payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+          debt_schedule=copy.deepcopy(debt_schedule_payload or {}),
+          capital_lease_schedule=copy.deepcopy(capital_lease_schedule_payload or {}),
+          financials_json=copy.deepcopy(financials_json or {}),
+          ops_json=copy.deepcopy(ops_json or {}),
+          cash_strategy_second_pass_result={"post_intake_finalize_validation": {}},
+        )
+        completion_trace["finalize_validation"] = {
+          "status": str(finalize_result.get("status") or "completed"),
+          "solver_target_assertion_checked": bool(solver_target_assertion.get("checked")),
+          "payroll_feasibility_repair_applied": True,
+        }
+        if isinstance(finalize_result.get("solver_target_assertion"), dict):
+          stax = finalize_result["solver_target_assertion"]
+          if stax.get("checked"):
+            solver_target_assertion = stax
+            next_result["solver_target_assertion"] = copy.deepcopy(stax)
+      except Exception:
+        # Repair attempted but the re-run finalize still failed (or
+        # Handler C itself raised). Propagate under test mode with
+        # the diagnostic chain preserved.
+        if convergence_test_mode_enabled():
+          raise
+        completion_trace.setdefault("payroll_feasibility_repair_site_b", {})[
+          "status"
+        ] = "failed_after_repair"
+        completion_trace["finalize_validation"] = {
+          "status": "failed",
+          "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+        finalize_result = {"solver_target_assertion": solver_target_assertion}
+    elif convergence_test_mode_enabled():
       raise
-    completion_trace["finalize_validation"] = {
-      "status": "failed",
-      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
-      "note": (
-        "Production-mode legacy path: finalize exception captured but "
-        "not raised. Test mode (CONVERGENCE_TEST_MODE=true) propagates "
-        "the exception to the API boundary."
-      ),
-    }
-    finalize_result = {"solver_target_assertion": solver_target_assertion}
+    else:
+      completion_trace["finalize_validation"] = {
+        "status": "failed",
+        "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        "note": (
+          "Production-mode legacy path: finalize exception captured but "
+          "not raised. Test mode (CONVERGENCE_TEST_MODE=true) propagates "
+          "the exception to the API boundary."
+        ),
+      }
+      finalize_result = {"solver_target_assertion": solver_target_assertion}
 
   # 4. Persist with stage=post_intake_finalize_validation_completed,
   # status=completed. Without this, planning_runs.current_stage stays at

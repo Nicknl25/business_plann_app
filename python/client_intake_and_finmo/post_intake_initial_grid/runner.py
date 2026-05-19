@@ -1457,22 +1457,66 @@ def prepare_initial_grid_for_draft(
         finmo_json=applied_finmo_json,
         stage="quarter_grid_applied",
       )
-      # Phase 9 P3.11 — post-quarter-grid invariant check. Previously
-      # wrapped in a try/except that caught
-      # payroll_revenue_economic_feasibility_failed /
-      # payroll_stage_profitability_feasibility_failed and rebuilt
-      # payroll via the outer retry loop. With the outer loop removed
-      # and the inner iterative refinement covering up to 10 rounds
-      # against the same feasibility validators, post-quarter-grid
-      # feasibility violations now hard-fail directly — surfacing the
-      # deeper issue rather than papering over with another rebuild.
-      _assert_global_invariants_via_sequence(
-        "quarter_grid_global_validation",
-        model_input_payload=copy.deepcopy(applied_model_input_json),
-        finmo_payload=copy.deepcopy(applied_finmo_json),
-        payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
-        stage="quarter_grid_applied",
+      # P3.26 Site A: route payroll feasibility failures back to
+      # Handler C (single-shot; Handler C's internal 10-round loop
+      # IS the retry). Doctrine §6: Handler C is canonical for
+      # payroll dollars; re-authoring through it preserves Mirror
+      # Flavor 1 alignment across all four payroll surfaces. After
+      # repair, re-run the same check; if still failing, hard-fail
+      # propagates with full diagnostic.
+      from client_intake_and_finmo.fail_fast.common import FailFastError  # type: ignore
+      from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore
+        is_payroll_feasibility_failure,
+        route_payroll_feasibility_to_handler_c,
       )
+      _live_count_for_repair = max(
+        0,
+        len([p for p in (applied_model_input_json.get("periods") or [])
+             if isinstance(p, dict) and not bool(p.get("is_stub"))]),
+      )
+      try:
+        _assert_global_invariants_via_sequence(
+          "quarter_grid_global_validation",
+          model_input_payload=copy.deepcopy(applied_model_input_json),
+          finmo_payload=copy.deepcopy(applied_finmo_json),
+          payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied",
+        )
+      except FailFastError as _site_a_exc:
+        if not is_payroll_feasibility_failure(_site_a_exc):
+          raise
+        payroll_headcount_payload, applied_model_input_json, applied_finmo_json = (
+          route_payroll_feasibility_to_handler_c(
+            failure_code=str(getattr(_site_a_exc, "code", "") or ""),
+            failure_message=str(_site_a_exc),
+            failure_stage=str(getattr(_site_a_exc, "stage", "") or ""),
+            failure_details=copy.deepcopy(getattr(_site_a_exc, "details", {}) or {}),
+            business_facts=business_facts or {},
+            ops_json=ops_json or {},
+            people_json=people_json or {},
+            financials_json=financials_json or {},
+            financials_year1_json=financials_year1_json or {},
+            planning_mode=planning_mode,
+            planning_mode_reason=planning_mode_reason,
+            model_input_json=applied_model_input_json,
+            finmo_json=applied_finmo_json,
+            payroll_headcount=payroll_headcount_payload or {},
+            stage_ramp_contract=stage_ramp_contract or {},
+            draft_id=normalized_draft_id,
+            client_id=str(draft.get("client_id") or "").strip(),
+            live_count=_live_count_for_repair,
+            stage_prefix="quarter_grid_payroll_feasibility_repair",
+          )
+        )
+        # Re-run the same check; persists hard-fail propagation if
+        # Handler C's re-author still can't satisfy the policy.
+        _assert_global_invariants_via_sequence(
+          "quarter_grid_global_validation",
+          model_input_payload=copy.deepcopy(applied_model_input_json),
+          finmo_payload=copy.deepcopy(applied_finmo_json),
+          payroll_headcount_payload=copy.deepcopy(payroll_headcount_payload),
+          stage="quarter_grid_applied_after_feasibility_repair",
+        )
 
   return {
     "planning_run_id": active_planning_run_id,
