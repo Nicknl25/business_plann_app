@@ -1,29 +1,29 @@
 draft_id,business_name,naics,planning_mode,cash_strategy,business_stage,outcome,fail_category,fail_op_code,wall_clock_s,handler_fired,handler_scope,handler_tool_calls,v1_score_16,v2_model_status,v3_pass,v4_pass,v4_max_abs_delta,v4_max_pct_delta,ebitda_q1,ebitda_q11,ebitda_q20,cash_q1,cash_q11,cash_q20,total_equity_q20,notes
-25f746500d1d456da638ee216669b78e,Anderson & Blake Legal Associates,,,,,FAIL,cash_buffer,,334.73,,,,,,,,,,,,,,,,,
-201d0ad18ae243dba933703d19cda4df,CareFirst Home Health Services,621610,turnaround,balanced,pre-revenue,FAIL,acceptance_gate,acceptance_gate_failed,152.95,Yes,pnl_path,,13/16,OK,Y,N,48235.49,27.156503,-192132.19,-3098.66,10567.87,235095.94,218203.99,243507.33,379569.34,
-41f014a5567041d99b2572a67fe6b03d,Skyward Express Airlines,481111,rebalance,balanced,operating,FAIL,,,205.56,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-6d37c6b98ace41ee9c91dd5fbf68b83e,Sunny Glaze Donuts,311811,turnaround,balanced,operating,FAIL,,,209.05,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-4aaa94e10efc4968866844197f96f24c,Sweet Crumbs Bakery,311811,rebalance,balanced,operating,FAIL,,,272.52,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-290547bbe8cf48899d897cc5ce865111,Anderson & Clark Law Group,541110,turnaround,balanced,operating,FAIL,,,389.97,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-52ba2e2c1f4f439c9868541606f3affd,Harrison & Greene Law Firm,541110,turnaround,balanced,operating,FAIL,,,345.14,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-4207488106054d72afbe16480e1de100,Caring Hands Home Health Services,621610,turnaround,balanced,pre-revenue,FAIL,,,184.31,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-25b8e17eda804fa7a46adf72a3503900,Luna Boutique,458110,rebalance,balanced,operating,FAIL,,,140.55,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-5dcd919aae314bd5af67849172aa52bb,Elegant Threads Boutique,458110,turnaround,balanced,operating,FAIL,acceptance_gate,acceptance_gate_failed,198.8,Yes,pnl_path,,13/16,,Y,Y,0.0,0.0,,,,,,,,
-5af71d361b324f62a3598e8da40c98c7,Revitalize Mobile IV Therapy,621999,turnaround,balanced,operating,FAIL,,,309.54,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-2aeae92f95f44fbd9a38b6e319c1bcc7,Luminous Glow Med Spa,,,,,FAIL,other,,76.42,,,,,,,,,,,,,,,,,
-d345194155584588a77cfb0c8dbedc8c,ExpressLogix Shipping Services,488999,rebalance,balanced,operating,FAIL,,,326.9,Yes,bs_only_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-28af3a88a2294237a1aa6294bf02e078,Precision Aesthetics Lab,,,,,FAIL,cash_buffer,,261.66,,,,,,,,,,,,,,,,,
-0459723bad0e461f95dbfe5fbf14631f,Harborview Kitchen & Co.,722511,rebalance,balanced,operating,FAIL,acceptance_gate,acceptance_gate_failed,243.93,Yes,pnl_path,,14/16,,Y,Y,0.0,0.0,,,,,,,,
-1bef9076e6504af9a9fe223af128110b,North Ridge Auto Care,811111,normalize,balanced,operating,FAIL,,,164.89,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-0bda87acc8a945cb81c63a8940ef5044,ValueMart Superstores,,,,,FAIL,cash_buffer,,260.61,,,,,,,,,,,,,,,,,
-077e83b679eb4be7be5febabf05f6379,Evergreen Superstores Inc.,455211,rebalance,balanced,operating,FAIL,,,236.75,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-194c29fed27c4fa39498ed95f8d45343,North Ridge Auto Care,811111,rebalance,balanced,operating,FAIL,,,193.29,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-0d0fb60aca754e00954f402a4fdec0ab,ValueMart Superstores,,,,,FAIL,stage_ramp,,197.26,,,,,,,,,,,,,,,,,
-0fe6f320519f412eb113f413d803d338,SwiftLogix Shipping Solutions,,,,,FAIL,stage_ramp,,537.92,,,,,,,,,,,,,,,,,
-56b8623063a34e6d9c1803568a730825,Freedom Freight Logistics,488999,rebalance,balanced,operating,FAIL,,,289.25,Yes,bs_only_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-11d6cd0c19c3430e8aaf8916b550ea7f,Pinnacle Logistics Inc.,,,,,FAIL,other,,196.5,,,,,,,,,,,,,,,,,
-26fc7c5b8d1349048a538f65b4f85beb,SwiftCargo Logistics,,,,,FAIL,stage_ramp,,381.88,,,,,,,,,,,,,,,,,
-0e1d881125b543aea68c603782e00da9,Arrowline Freight Services,,,,,FAIL,stage_ramp,,390.77,,,,,,,,,,,,,,,,,
-03516b40b43d4592b8d7681a4f57dc67,Express Global Shipping Inc.,488999,rebalance,balanced,operating,FAIL,,,326.29,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-4c6ff03a7e474f57a3a1ff412860cc2f,NexGen Software Solutions Inc.,513210,normalize,balanced,operating,FAIL,,,273.0,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
-1aa5d27085e44aee98d401a5cd56bad0,ExpressLogix Shipping Services,488999,rebalance,balanced,operating,FAIL,,,282.71,Yes,bs_only_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
+25f746500d1d456da638ee216669b78e,Anderson & Blake Legal Associates,,,,,FAIL,cash_buffer,post_intake_cash_buffer_violation,334.7260221999604,,,,,,,,,,,,,,,,,no_workbook_produced
+201d0ad18ae243dba933703d19cda4df,CareFirst Home Health Services,621610,turnaround,balanced,pre-revenue,FAIL,acceptance_gate,acceptance_gate_failed,152.9535039999755,Yes,pnl_path,4,13/16,OK,N,N,48235.49,27.156503,-192132.19,-3098.66,10567.87,235095.94,218203.99,243507.33,379569.34,
+41f014a5567041d99b2572a67fe6b03d,Skyward Express Airlines,481111,rebalance,balanced,operating,GENUINE_PASS,,,205.55924510001205,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+6d37c6b98ace41ee9c91dd5fbf68b83e,Sunny Glaze Donuts,311811,turnaround,balanced,operating,GENUINE_PASS,,,209.05258959997445,Yes,pnl_path,2,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+4aaa94e10efc4968866844197f96f24c,Sweet Crumbs Bakery,311811,rebalance,balanced,operating,GENUINE_PASS,,,272.51565999991726,Yes,pnl_path,3,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+290547bbe8cf48899d897cc5ce865111,Anderson & Clark Law Group,541110,turnaround,balanced,operating,GENUINE_PASS,,,389.96958939998876,Yes,pnl_path,3,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+52ba2e2c1f4f439c9868541606f3affd,Harrison & Greene Law Firm,541110,turnaround,balanced,operating,GENUINE_PASS,,,345.13564100000076,Yes,pnl_path,6,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+4207488106054d72afbe16480e1de100,Caring Hands Home Health Services,621610,turnaround,balanced,pre-revenue,GENUINE_PASS,,,184.31260699999984,Yes,pnl_path,6,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+25b8e17eda804fa7a46adf72a3503900,Luna Boutique,458110,rebalance,balanced,operating,GENUINE_PASS,,,140.5511140000308,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+5dcd919aae314bd5af67849172aa52bb,Elegant Threads Boutique,458110,turnaround,balanced,operating,FAIL,acceptance_gate,acceptance_gate_failed,198.79817610001191,Yes,pnl_path,4,13/16,uncached,N,N,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+5af71d361b324f62a3598e8da40c98c7,Revitalize Mobile IV Therapy,621999,turnaround,balanced,operating,GENUINE_PASS,,,309.53771229996346,Yes,pnl_path,2,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+2aeae92f95f44fbd9a38b6e319c1bcc7,Luminous Glow Med Spa,,,,,FAIL,intake_preflight,payroll_headcount_key_person_oews_catalog_empty,76.41758609993849,,,,,,,,,,,,,,,,,no_workbook_produced
+d345194155584588a77cfb0c8dbedc8c,ExpressLogix Shipping Services,488999,rebalance,balanced,operating,GENUINE_PASS,,,326.90323469997384,Yes,bs_only_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+28af3a88a2294237a1aa6294bf02e078,Precision Aesthetics Lab,,,,,FAIL,cash_buffer,post_intake_cash_buffer_violation,261.6555171000073,,,,,,,,,,,,,,,,,no_workbook_produced
+0459723bad0e461f95dbfe5fbf14631f,Harborview Kitchen & Co.,722511,rebalance,balanced,operating,FAIL,acceptance_gate,acceptance_gate_failed,243.9335833999794,Yes,pnl_path,2,14/16,uncached,N,N,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+1bef9076e6504af9a9fe223af128110b,North Ridge Auto Care,811111,normalize,balanced,operating,GENUINE_PASS,,,164.89153949997853,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+0bda87acc8a945cb81c63a8940ef5044,ValueMart Superstores,,,,,FAIL,cash_buffer,post_intake_cash_buffer_violation,260.60847430001013,,,,,,,,,,,,,,,,,no_workbook_produced
+077e83b679eb4be7be5febabf05f6379,Evergreen Superstores Inc.,455211,rebalance,balanced,operating,GENUINE_PASS,,,236.75066319992766,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+194c29fed27c4fa39498ed95f8d45343,North Ridge Auto Care,811111,rebalance,balanced,operating,GENUINE_PASS,,,193.28770979994442,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+0d0fb60aca754e00954f402a4fdec0ab,ValueMart Superstores,,,,,FAIL,stage_ramp,stage_ramp_handler_exhausted,197.26206639991142,,,,,,,,,,,,,,,,,no_workbook_produced
+0fe6f320519f412eb113f413d803d338,SwiftLogix Shipping Solutions,,,,,FAIL,stage_ramp,stage_ramp_contract_invalid,537.9168645000318,,,,,,,,,,,,,,,,,no_workbook_produced
+56b8623063a34e6d9c1803568a730825,Freedom Freight Logistics,488999,rebalance,balanced,operating,GENUINE_PASS,,,289.25126219994854,Yes,bs_only_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+11d6cd0c19c3430e8aaf8916b550ea7f,Pinnacle Logistics Inc.,,,,,FAIL,revenue_driver_contract,revenue_driver_formula_contract_failed,196.50092870008666,,,,,,,,,,,,,,,,,no_workbook_produced
+26fc7c5b8d1349048a538f65b4f85beb,SwiftCargo Logistics,,,,,FAIL,stage_ramp,stage_ramp_contract_invalid,381.8762359999819,,,,,,,,,,,,,,,,,no_workbook_produced
+0e1d881125b543aea68c603782e00da9,Arrowline Freight Services,,,,,FAIL,stage_ramp,stage_ramp_contract_invalid,390.7659158000024,,,,,,,,,,,,,,,,,no_workbook_produced
+03516b40b43d4592b8d7681a4f57dc67,Express Global Shipping Inc.,488999,rebalance,balanced,operating,GENUINE_PASS,,,326.28973710001446,Yes,pnl_path,4,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+4c6ff03a7e474f57a3a1ff412860cc2f,NexGen Software Solutions Inc.,513210,normalize,balanced,operating,GENUINE_PASS,,,272.9980010999134,Yes,pnl_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
+1aa5d27085e44aee98d401a5cd56bad0,ExpressLogix Shipping Services,488999,rebalance,balanced,operating,GENUINE_PASS,,,282.7129601999186,Yes,bs_only_path,1,16/16,OK_inferred,Y,Y,0.0,0.0,,,,,,,,v2/v4 cached values absent (workbook not opened in Excel)
