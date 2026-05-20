@@ -26,3 +26,4 @@ d345194155584588a77cfb0c8dbedc8c,ExpressLogix Shipping Services,488999,rebalance
 0e1d881125b543aea68c603782e00da9,Arrowline Freight Services,,,,,FAIL,stage_ramp,,390.77,,,,,,,,,,,,,,,,,
 03516b40b43d4592b8d7681a4f57dc67,Express Global Shipping Inc.,488999,rebalance,balanced,operating,FAIL,,,326.29,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
 4c6ff03a7e474f57a3a1ff412860cc2f,NexGen Software Solutions Inc.,513210,normalize,balanced,operating,FAIL,,,273.0,Yes,pnl_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
+1aa5d27085e44aee98d401a5cd56bad0,ExpressLogix Shipping Services,488999,rebalance,balanced,operating,FAIL,,,282.71,Yes,bs_only_path,,16/16,,Y,Y,0.0,0.0,,,,,,,,
