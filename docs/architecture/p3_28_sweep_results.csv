@@ -1,2 +1,3 @@
 draft_id,business_name,naics,planning_mode,cash_strategy,business_stage,outcome,fail_category,fail_op_code,wall_clock_s,handler_fired,handler_scope,handler_tool_calls,v1_score_16,v2_model_status,v3_pass,v4_pass,v4_max_abs_delta,v4_max_pct_delta,ebitda_q1,ebitda_q11,ebitda_q20,cash_q1,cash_q11,cash_q20,total_equity_q20,notes
 25f746500d1d456da638ee216669b78e,Anderson & Blake Legal Associates,,,,,FAIL,cash_buffer,,334.73,,,,,,,,,,,,,,,,,
+201d0ad18ae243dba933703d19cda4df,CareFirst Home Health Services,621610,turnaround,balanced,pre-revenue,FAIL,acceptance_gate,acceptance_gate_failed,152.95,Yes,pnl_path,,13/16,OK,Y,N,48235.49,27.156503,-192132.19,-3098.66,10567.87,235095.94,218203.99,243507.33,379569.34,
