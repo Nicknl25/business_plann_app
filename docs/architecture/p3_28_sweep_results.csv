@@ -1,0 +1,2 @@
+draft_id,business_name,naics,planning_mode,cash_strategy,business_stage,outcome,fail_category,fail_op_code,wall_clock_s,handler_fired,handler_scope,handler_tool_calls,v1_score_16,v2_model_status,v3_pass,v4_pass,v4_max_abs_delta,v4_max_pct_delta,ebitda_q1,ebitda_q11,ebitda_q20,cash_q1,cash_q11,cash_q20,total_equity_q20,notes
+25f746500d1d456da638ee216669b78e,Anderson & Blake Legal Associates,,,,,FAIL,cash_buffer,,334.73,,,,,,,,,,,,,,,,,
