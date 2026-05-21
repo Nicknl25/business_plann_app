@@ -63,20 +63,28 @@ Reason from THIS specific business -- its operating model, scale,
 geography, capacity driver, and stage. Do not anchor to industry
 averages or external benchmarks. The system MUST produce a viable plan;
 if conservative changes don't reach viability, make more aggressive
-structural recommendations (higher pricing, deeper payroll changes,
-larger capacity expansion) until the math lands. The operator will
+structural recommendations (higher pricing, larger capacity expansion,
+deeper cost ratio improvements) until the math lands. The operator will
 review the recommendations and decide which to accept.
+
+Payroll dollars are authored by the headcount-schedule subsystem and
+are NOT in your authority on this handler. Do not propose payroll
+adjustments; tune the revenue triple (unit_price, capacity,
+utilization) and the percent-of-revenue expense ratios. The system
+already holds payroll at the headcount-schedule values for this run.
 """
 
 
 # Phase 9 P3.9 — extension prompt appended when the initial tool-call
 # budget is exhausted without achieving viability. Universal language;
 # no NAICS / archetype / business-type branching.
+# Phase 9 P3.32 K1: payroll-reduction language removed; payroll is
+# outside this handler's authority (Handler C is canonical writer).
 EXTENSION_PROMPT_TEXT = (
   "You have used several tool calls without achieving viability "
   "(viability_checks.all_pass = False on all checks so far). Be more "
   "aggressive in your driver moves. Consider larger price increases, "
-  "deeper payroll reductions, more dramatic cost ratio improvements. "
+  "larger capacity expansion, more dramatic cost ratio improvements. "
   "The plan must achieve viability. Iterate with stronger structural "
   "changes until viability is reached."
 )

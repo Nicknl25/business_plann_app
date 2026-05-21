@@ -155,6 +155,14 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
       "on each viability check plus an all_pass aggregate."
     )
   else:
+    # Phase 9 P3.32 K1 (F1+F2): payroll_dollars_per_quarter removed
+    # from the PNL-path tool schema. GPT no longer proposes payroll
+    # anchors — Handler C is the canonical payroll writer and the
+    # exhaustion handler authors only its remaining 7 P&L drivers
+    # (revenue triple + COGS + Marketing + G&A + R&D). Mini-FINMO
+    # consumes payroll from the existing FINMO row (Handler-C-
+    # authored values), preserving the fixed_cost_burden viability
+    # check on the system-decided payroll trajectory.
     parameters = {
       "type": "object",
       "additionalProperties": False,
@@ -162,7 +170,6 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
         "unit_price",
         "units_per_period_capacity",
         "utilization_rate",
-        "payroll_dollars_per_quarter",
         "cogs_percent_of_revenue",
         "marketing_percent_of_revenue",
         "sga_percent_of_revenue",
@@ -173,7 +180,6 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
         "unit_price": _three_anchor_schema(),
         "units_per_period_capacity": _three_anchor_schema(),
         "utilization_rate": _three_anchor_schema(),
-        "payroll_dollars_per_quarter": _three_anchor_schema(),
         "cogs_percent_of_revenue": _three_anchor_schema(),
         "marketing_percent_of_revenue": _three_anchor_schema(),
         "sga_percent_of_revenue": _three_anchor_schema(),
@@ -191,7 +197,9 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
       "ebitda_margin_q20_holds_or_improves_vs_q11, "
       "gross_margin_supports_ebitda_recovery, "
       "fixed_cost_burden_reduced_or_scaled_by_q11) plus an all_pass "
-      "aggregate. Iterate until all_pass is True."
+      "aggregate. Iterate until all_pass is True. Payroll dollars are "
+      "held at the headcount-schedule values for this run; do not "
+      "propose payroll anchors."
     )
   return {
     "type": "function",

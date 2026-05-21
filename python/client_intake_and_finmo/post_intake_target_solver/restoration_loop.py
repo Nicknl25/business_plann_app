@@ -146,11 +146,16 @@ class HandlerScope(str, Enum):
 # restoration_loop via the orchestrator); the trigger logic is
 # universal across NAICS / stage so the constants stay synchronised by
 # convention.
+#
+# Phase 9 P3.32 K1 (F1+F2): "expenses::Payroll" removed in lockstep
+# with handler.py GPT_AUTHORED_LEVER_IDS. Handler C is the canonical
+# Payroll writer; the trigger classifier must agree so that
+# payroll-touching realism failures do not route to the exhaustion
+# handler. P3.31 Leak A closure.
 _GPT_AUTHORED_PNL_LEVER_IDS: frozenset = frozenset({
   "revenue::Unit Price",
   "revenue::Capacity",
   "revenue::Utilization",
-  "expenses::Payroll",
   "expenses::Cost of Goods Sold",
   "expenses::Marketing",
   "expenses::General & Administrative",

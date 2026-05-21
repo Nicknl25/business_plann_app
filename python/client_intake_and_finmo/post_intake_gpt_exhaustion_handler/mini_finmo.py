@@ -198,14 +198,16 @@ def compute_trajectory_from_anchors(
   Parameters
   ----------
   anchors
-    GPT's proposed driver anchors. Shape:
+    GPT's proposed driver anchors. Shape (Phase 9 P3.32 K1 — no
+    payroll_dollars_per_quarter; Handler C is canonical Payroll
+    writer):
       {"unit_price": {"q1": ..., "q11": ..., "q20": ...},
        "units_per_period_capacity": {...},
        "utilization_rate": {...},
-       "payroll_dollars_per_quarter": {...},
        "cogs_percent_of_revenue": {...},
        "marketing_percent_of_revenue": {...},
        "sga_percent_of_revenue": {...},
+       "r_and_d_percent_of_revenue": {...},
        "working_capital_drivers": {                  # Phase 9 P3.6
          "accounts_receivable_days": <number>,
          "accounts_payable_days": <number>,

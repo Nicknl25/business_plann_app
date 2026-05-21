@@ -47,11 +47,23 @@ HORIZON_QUARTERS = 20
 # Lever IDs the handler authors. These are the "drivers" GPT returns
 # anchors for; the path engine interpolates each driver's 3 anchors into
 # a 20-quarter trajectory. Universal across NAICS.
+#
+# Phase 9 P3.32 K1 (F1+F2): "expenses::Payroll" removed from the
+# catalog. Handler C (payroll_headcount.schedule.estimate_payroll_
+# headcount_schedule_with_gpt) is the canonical writer for payroll
+# dollars via its apply chain. Pre-P3.32 the handler had latent
+# authority to write Payroll out-of-band, which produced the P3.25
+# CareFirst Mirror Flavor 1 divergence and the Caring Hands latent
+# FALSE_PASS surfaced by P3.32's V-4 verifier
+# (Cash Q20 = $44,929 off in workbook
+# 4207488106054d72afbe16480e1de100.xlsx). Removing the lever from
+# the catalog structurally closes Leak A (P3.31 audit) — the path
+# engine can no longer write Payroll because no driver key maps to
+# it.
 GPT_AUTHORED_LEVER_IDS: Tuple[str, ...] = (
   "revenue::Unit Price",
   "revenue::Capacity",
   "revenue::Utilization",
-  "expenses::Payroll",
   "expenses::Cost of Goods Sold",
   "expenses::Marketing",
   "expenses::General & Administrative",
@@ -59,11 +71,12 @@ GPT_AUTHORED_LEVER_IDS: Tuple[str, ...] = (
 )
 
 # Map GPT driver-anchor key -> lever_id for the model_input write.
+# Phase 9 P3.32 K1: payroll_dollars_per_quarter dropped — see
+# GPT_AUTHORED_LEVER_IDS comment above.
 _DRIVER_KEY_TO_LEVER_ID: Dict[str, str] = {
   "unit_price": "revenue::Unit Price",
   "units_per_period_capacity": "revenue::Capacity",
   "utilization_rate": "revenue::Utilization",
-  "payroll_dollars_per_quarter": "expenses::Payroll",
   "cogs_percent_of_revenue": "expenses::Cost of Goods Sold",
   "marketing_percent_of_revenue": "expenses::Marketing",
   "sga_percent_of_revenue": "expenses::General & Administrative",
@@ -594,10 +607,6 @@ def _write_gpt_authored_per_quarter_values(
     elif lever_id == "revenue::Unit Price" or lever_id == "revenue::Utilization":
       write_value_per_row = [
         [round(v, 6) for v in per_q_values] for _ in range(n_rows)
-      ]
-    elif lever_id == "expenses::Payroll":
-      write_value_per_row = [
-        [v / float(n_rows) for v in per_q_values] for _ in range(n_rows)
       ]
     else:
       write_value_per_row = [list(per_q_values) for _ in range(n_rows)]

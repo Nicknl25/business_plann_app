@@ -305,19 +305,29 @@ class TestSiteBWiring(unittest.TestCase):
 
 
 class TestDoctrineR6HandlerLeverSetUnchanged(unittest.TestCase):
-  """R-6 verification: the GPT exhaustion handler's
-  writable_lever_catalog is NOT modified by this commit. The
-  pre-existing inclusion of expenses::Payroll is documented in
-  the P3.25 memo as a separate doctrine concern; this commit
-  does not address that. The verification confirms we did not
-  ADD or REMOVE lever IDs (preserving the architectural
-  invariant that authority changes happen explicitly, not as a
-  side-effect of feasibility routing work)."""
+  """R-6 verification: GPT exhaustion handler lever set.
+
+  Original P3.26 Commit 2 doctrine: the writable_lever_catalog is
+  NOT modified by that commit. The pre-existing inclusion of
+  expenses::Payroll was documented in the P3.25 memo as a separate
+  doctrine concern; P3.26 did not address it.
+
+  Phase 9 P3.32 K1 (F1+F2) doctrine evolution (L-3 latitude):
+  expenses::Payroll IS now removed from the set. Handler C is
+  canonical Payroll writer; the exhaustion handler must not have
+  latent authority over Payroll because that authority was the
+  vector for the P3.25 CareFirst and P3.32 Caring Hands Mirror
+  Flavor 1 divergences (latent FALSE_PASS surfaced by P3.32's
+  V-4 verifier).
+
+  This test now pins the POST-K1 set as the authoritative
+  invariant. Any future addition of Payroll back to this set must
+  be a deliberate doctrine reversion, not an accidental
+  re-inclusion."""
 
   def test_handler_pnl_lever_set_unchanged(self) -> None:
-    """The set of GPT-authored PNL lever IDs in the restoration
-    handler's authority is preserved verbatim. P3.26 Commit 2
-    must NOT change this set."""
+    """Phase 9 P3.32 K1: Payroll removed from the canonical set.
+    Other 7 PNL drivers preserved."""
     from client_intake_and_finmo.post_intake_target_solver.restoration_loop import (  # noqa: WPS433
       _GPT_AUTHORED_PNL_LEVER_IDS,
     )
@@ -325,13 +335,23 @@ class TestDoctrineR6HandlerLeverSetUnchanged(unittest.TestCase):
       "revenue::Unit Price",
       "revenue::Capacity",
       "revenue::Utilization",
-      "expenses::Payroll",
       "expenses::Cost of Goods Sold",
       "expenses::Marketing",
       "expenses::General & Administrative",
       "expenses::Research & Development",
     })
     self.assertEqual(_GPT_AUTHORED_PNL_LEVER_IDS, expected_pnl_set)
+    self.assertNotIn(
+      "expenses::Payroll", _GPT_AUTHORED_PNL_LEVER_IDS,
+      msg=(
+        "Phase 9 P3.32 K1 doctrine: expenses::Payroll MUST NOT be "
+        "in the exhaustion handler's PNL lever set. Handler C "
+        "(post_intake_headcount.schedule) is the canonical Payroll "
+        "writer. Re-adding payroll here re-introduces Leak A "
+        "(P3.31 audit) and re-opens the P3.25 CareFirst / P3.32 "
+        "Caring Hands Mirror Flavor 1 divergence vector."
+      ),
+    )
 
   def test_handler_wc_lever_set_unchanged(self) -> None:
     """The set of GPT-authored working-capital lever IDs in the
