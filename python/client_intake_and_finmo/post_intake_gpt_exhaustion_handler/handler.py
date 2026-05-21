@@ -761,6 +761,7 @@ def run_gpt_exhaustion_handler(
   build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
   intake_context: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
 ) -> HandlerResult:
   """Run the GPT exhaustion handler. Mutates ``model_input`` in place
   with GPT-authored per-quarter driver values; rebuilds FINMO. Returns
@@ -873,4 +874,5 @@ def run_gpt_exhaustion_handler(
     operating_model=operating_model or {},
     build_finmo=build_finmo,
     intake_context=intake_context or {},
+    stage_ramp_contract=stage_ramp_contract or {},
   )

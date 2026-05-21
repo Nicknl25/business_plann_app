@@ -72,6 +72,32 @@ are NOT in your authority on this handler. Do not propose payroll
 adjustments; tune the revenue triple (unit_price, capacity,
 utilization) and the percent-of-revenue expense ratios. The system
 already holds payroll at the headcount-schedule values for this run.
+
+STAGE RAMP CONTRACT (Phase 9 P3.32 K11.1):
+The stage_ramp_handler (H4) has authored per-quarter bounds the
+downstream validator enforces: rev_target / rev_max for revenue
+QoQ growth; cogs_target / cogs_max; marketing_max; rd_max; ga_max;
+ni_floor (net income margin floor); max_util (utilization cap).
+Your anchors must produce a trajectory that respects these bounds
+per quarter.
+
+You have a second tool: get_stage_ramp_bounds_per_quarter(). Call
+it (optionally) to inspect the per-quarter bounds for this
+business. The compute_full_trajectory tool's viability_checks
+aggregate now ALSO enforces these bounds and surfaces
+stage_ramp_* PASS/FAIL entries alongside the universal viability
+checks. The result includes a stage_ramp_violations list naming
+the specific quarter + field on any FAIL, so you can adjust the
+exact anchor that breaches the constraint. all_pass requires both
+universal viability AND stage_ramp coherence.
+
+The stage_ramp bounds are UNIVERSAL across NAICS / stage / archetype
+(H4 derived them from the business's stage and planning_mode); they
+are not policy ceilings to maximize against, they are the actual
+shape the validator demands. If a bound seems too tight, the
+correct path is operating-model adjustment (different capacity /
+unit_price / utilization trajectory), not pushing values toward
+the bound.
 """
 
 

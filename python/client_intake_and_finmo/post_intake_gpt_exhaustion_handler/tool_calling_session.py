@@ -210,6 +210,111 @@ def _build_tool_definition(scope: str = SCOPE_PNL_PATH) -> Dict[str, Any]:
   }
 
 
+# Phase 9 P3.32 K11.1 — stage_ramp_contract awareness tool. Per
+# doctrine §10.5, H2 must consult the canonical stage_ramp_contract
+# bounds H4 authored (rev_max, cogs_max, marketing_max, rd_max,
+# ga_max, ni_floor, max_util per quarter). This consultation tool
+# is the explicit-visibility half of the K9 prototype pattern;
+# mini_finmo's per-call viability_checks enforce the bounds as the
+# coherence half. See:
+# docs/architecture/p3_32_k11_handler_contract_awareness_audit.md
+_STAGE_RAMP_BOUNDS_TOOL_NAME = "get_stage_ramp_bounds_per_quarter"
+
+
+def _build_stage_ramp_bounds_tool_definition() -> Dict[str, Any]:
+  """Tool 2 — GPT calls this to inspect the per-quarter
+  stage_ramp_contract bounds H4 authored. Returns the per-quarter
+  bounds for every quarter in 1..20. Calling with quarter=0 (or
+  omitting) returns the full grid. GPT uses this to check, before
+  committing anchors, whether the proposed revenue / COGS / SGA /
+  marketing / R&D trajectories will fit the stage policy."""
+  return {
+    "type": "function",
+    "name": _STAGE_RAMP_BOUNDS_TOOL_NAME,
+    "description": (
+      "Look up the canonical per-quarter stage_ramp_contract bounds "
+      "(rev_target, rev_max, cogs_target, cogs_max, marketing_max, "
+      "rd_max, ga_max, lease_max, ni_floor, max_util, posture) "
+      "authored by the stage_ramp_handler (H4) for this business. "
+      "These are the constraints downstream validators enforce. "
+      "Your anchors must produce a 20-quarter trajectory that "
+      "satisfies them per quarter (revenue QoQ growth at most "
+      "rev_max, COGS ratio at most cogs_max, etc.). The "
+      "compute_full_trajectory viability_checks aggregate also "
+      "enforces these post-anchor, so call this BEFORE proposing "
+      "to avoid wasting tool calls on out-of-bounds anchors."
+    ),
+    "strict": True,
+    "parameters": {
+      "type": "object",
+      "additionalProperties": False,
+      "required": [],
+      "properties": {},
+    },
+  }
+
+
+def _dispatch_stage_ramp_bounds(
+  *,
+  stage_ramp_contract: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Return the full per-quarter bound grid from the stage_ramp_
+  contract. Universal across NAICS / stage / archetype."""
+  contract = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
+  if not contract:
+    return {
+      "error": "stage_ramp_contract_missing",
+      "detail": (
+        "No stage_ramp_contract was threaded into the session. The "
+        "downstream validator will not enforce per-quarter stage "
+        "bounds; proceed using universal viability_checks alone."
+      ),
+    }
+  rows_out: List[Dict[str, Any]] = []
+  for row in contract.get("quarter_ramp_grid") or []:
+    if not isinstance(row, dict):
+      continue
+    quarter_index = row.get("quarter_index")
+    if quarter_index is None:
+      quarter_index = row.get("q")
+    try:
+      quarter_index = int(quarter_index)
+    except (TypeError, ValueError):
+      continue
+    rows_out.append(
+      {
+        "quarter_index": quarter_index,
+        "rev_target": row.get("revenue_qoq_target") or row.get("rev_target"),
+        "rev_max": row.get("revenue_qoq_max") or row.get("rev_max"),
+        "rev_spike_max": row.get("revenue_qoq_spike_max") or row.get("rev_spike_max"),
+        "max_util": row.get("utilization_cap") or row.get("max_util"),
+        "cogs_target": row.get("cogs_percent_of_revenue_target") or row.get("cogs_target"),
+        "cogs_max": row.get("cogs_percent_of_revenue_max") or row.get("cogs_max"),
+        "marketing_max": row.get("marketing_percent_of_revenue_max") or row.get("marketing_max"),
+        "rd_max": row.get("rd_percent_of_revenue_max") or row.get("rd_max"),
+        "ga_max": row.get("g_and_a_percent_of_revenue_max") or row.get("ga_max"),
+        "lease_max": row.get("lease_percent_of_revenue_max") or row.get("lease_max"),
+        "ni_floor": row.get("net_income_margin_floor") or row.get("ni_floor"),
+        "posture": row.get("profitability_posture") or row.get("posture"),
+      }
+    )
+  rows_out.sort(key=lambda r: int(r.get("quarter_index") or 0))
+  return {
+    "stage_family": contract.get("stage_family"),
+    "business_stage": contract.get("business_stage"),
+    "planning_mode": contract.get("planning_mode"),
+    "utilization_high_watermark": contract.get("utilization_high_watermark"),
+    "quarter_ramp_grid": rows_out,
+    "source_table": "stage_ramp_contract (H4-authored)",
+    "rule": (
+      "The compute_full_trajectory tool's viability_checks aggregate "
+      "enforces these bounds per quarter. Coherence violations "
+      "produce stage_ramp_* FAIL entries in the viability_checks "
+      "result alongside the universal viability metrics."
+    ),
+  }
+
+
 def _format_q1_state(q1_state: Dict[str, Any]) -> str:
   if not isinstance(q1_state, dict) or not q1_state:
     return "(no Q1 actuals available)"
@@ -270,16 +375,44 @@ def _build_initial_user_prompt(
   exhaustion_diagnostic: Dict[str, Any],
   scope: str = SCOPE_PNL_PATH,
   failing_metrics: Optional[List[Dict[str, Any]]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
 ) -> str:
   """Phase 9 P3.9 — describes the tool exploration only. No final-commit
   JSON language. GPT iterates with the tool; the system handles commit
   on the backend from the most recent all_pass tool call.
+
+  Phase 9 P3.32 K11.1 — when ``stage_ramp_contract`` is provided, a
+  STAGE RAMP CONTRACT block is added to the prompt noting that
+  viability_checks now enforces its per-quarter bounds and that GPT
+  can inspect the bounds via the get_stage_ramp_bounds_per_quarter
+  tool.
   """
   ops_block = json.dumps(
     operating_model or {}, ensure_ascii=False, indent=2, default=str
   )
   q1_block = _format_q1_state(q1_state)
   diag_block = _format_exhaustion_diagnostic(exhaustion_diagnostic)
+  stage_ramp_block = ""
+  if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
+    stage_ramp_block = (
+      "STAGE RAMP CONTRACT IN EFFECT:\n"
+      "The stage_ramp_handler (H4) has authored per-quarter bounds "
+      "for revenue QoQ growth (rev_target / rev_max), cost-ratio "
+      "ceilings (cogs_target / cogs_max / marketing_max / rd_max / "
+      "ga_max / lease_max), utilization (max_util), and net-income "
+      "margin floor (ni_floor). These are CONSTRAINTS on the "
+      "trajectory your anchors produce — the finalize validator "
+      "WILL reject the plan if the post-FINMO trajectory violates "
+      "them. The compute_full_trajectory viability_checks aggregate "
+      "now enforces them per quarter and surfaces stage_ramp_* PASS/"
+      "FAIL entries alongside the universal viability checks.\n"
+      "Call get_stage_ramp_bounds_per_quarter to see the per-quarter "
+      "values before authoring anchors. If a violation surfaces in "
+      "viability_checks, the corresponding stage_ramp_violations "
+      "list names the quarter and the breached field; adjust the "
+      "specific anchor that drives that field.\n"
+      "Universal across NAICS / stage / archetype.\n\n"
+    )
 
   if scope == SCOPE_BS_ONLY_PATH:
     failing_block = _format_failing_metrics(failing_metrics)
@@ -289,6 +422,7 @@ def _build_initial_user_prompt(
       f"{ops_block}\n\n"
       "CURRENT Q1 STATE FROM INTAKE:\n"
       f"{q1_block}\n\n"
+      f"{stage_ramp_block}"
       "RESTORATION-LOOP DIAGNOSTIC:\n"
       f"{diag_block}\n\n"
       "The deterministic solver produced a plan that satisfies "
@@ -319,6 +453,7 @@ def _build_initial_user_prompt(
     f"{ops_block}\n\n"
     "CURRENT Q1 STATE FROM INTAKE:\n"
     f"{q1_block}\n\n"
+    f"{stage_ramp_block}"
     "EXHAUSTION DIAGNOSTIC (deterministic solver could not bridge to "
     "viability at conservative bounds):\n"
     f"{diag_block}\n\n"
@@ -447,6 +582,7 @@ def run_tool_calling_session(
   intake_context: Optional[Dict[str, Any]] = None,
   scope: str = SCOPE_PNL_PATH,
   failing_metrics: Optional[List[Dict[str, Any]]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
 ) -> ToolCallSessionResult:
   """Run the tool-calling session.
 
@@ -480,12 +616,21 @@ def run_tool_calling_session(
   if scope not in _VALID_SCOPES:
     scope = SCOPE_PNL_PATH
   tool_def = _build_tool_definition(scope=scope)
+  # Phase 9 P3.32 K11.1 — get_stage_ramp_bounds_per_quarter tool is
+  # always exposed alongside compute_full_trajectory. GPT may call
+  # it any number of times to inspect H4's per-quarter bounds. The
+  # session's verified-commit-candidate selection still keys off
+  # compute_full_trajectory tool calls only (the consultation tool
+  # doesn't produce candidate anchors).
+  stage_ramp_bounds_tool_def = _build_stage_ramp_bounds_tool_definition()
+  tools_list = [tool_def, stage_ramp_bounds_tool_def]
   initial_user_prompt = _build_initial_user_prompt(
     operating_model=operating_model,
     q1_state=q1_state,
     exhaustion_diagnostic=exhaustion_diagnostic,
     scope=scope,
     failing_metrics=failing_metrics,
+    stage_ramp_contract=stage_ramp_contract,
   )
 
   # Responses API input items — the caller appends to this list each
@@ -541,7 +686,7 @@ def run_tool_calling_session(
         f"{tool_calls_used + 1}"
       ),
       input_items=input_items,
-      tools=[tool_def],
+      tools=tools_list,
       response_schema=None,
       schema_name=None,
       counts_against_run_budget=False,
@@ -602,16 +747,8 @@ def run_tool_calling_session(
     # Process each tool call (Responses API supports parallel calls;
     # typically one per turn, but the loop handles either).
     for call in tool_calls:
-      if str(call.get("name") or "").strip() != _TOOL_NAME:
-        input_items.append({
-          "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
-          "output": json.dumps(
-            {"error": f"unknown_tool_{call.get('name')}"},
-            ensure_ascii=False,
-          ),
-        })
-        continue
+      tool_name = str(call.get("name") or "").strip()
+      call_id = call.get("call_id") or ""
       try:
         args = json.loads(call.get("arguments") or "{}")
         if not isinstance(args, dict):
@@ -619,9 +756,42 @@ def run_tool_calling_session(
       except Exception as exc:
         input_items.append({
           "type": "function_call_output",
-          "call_id": call.get("call_id") or "",
+          "call_id": call_id,
           "output": json.dumps(
             {"error": f"arguments_not_json: {type(exc).__name__}"},
+            ensure_ascii=False,
+          ),
+        })
+        continue
+
+      # Phase 9 P3.32 K11.1 — stage_ramp_contract consultation tool
+      # branch. Returns the per-quarter bounds H4 authored. Does NOT
+      # count toward tool_calls_used (only compute_full_trajectory
+      # rounds count against the candidate-selection budget), but is
+      # still bounded by HARD_CAP_TOOL_CALLS via the consultation_count
+      # below.
+      if tool_name == _STAGE_RAMP_BOUNDS_TOOL_NAME:
+        consult_result = _dispatch_stage_ramp_bounds(
+          stage_ramp_contract=stage_ramp_contract,
+        )
+        input_items.append({
+          "type": "function_call_output",
+          "call_id": call_id,
+          "output": json.dumps(consult_result, ensure_ascii=False, default=str),
+        })
+        # Count consultation tool calls toward the hard cap so GPT
+        # cannot infinite-loop on consultation alone.
+        tool_calls_used += 1
+        if tool_calls_used >= HARD_CAP_TOOL_CALLS:
+          break
+        continue
+
+      if tool_name != _TOOL_NAME:
+        input_items.append({
+          "type": "function_call_output",
+          "call_id": call_id,
+          "output": json.dumps(
+            {"error": f"unknown_tool_{tool_name}"},
             ensure_ascii=False,
           ),
         })
@@ -633,7 +803,7 @@ def run_tool_calling_session(
         call_n=tool_calls_used,
         arguments=args,
         result=result,
-        call_id=str(call.get("call_id") or ""),
+        call_id=str(call_id),
       )
       history.append(rec)
 
@@ -644,7 +814,7 @@ def run_tool_calling_session(
 
       input_items.append({
         "type": "function_call_output",
-        "call_id": call.get("call_id") or "",
+        "call_id": call_id,
         "output": json.dumps(result, ensure_ascii=False, default=str),
       })
       if tool_calls_used >= HARD_CAP_TOOL_CALLS:
@@ -712,6 +882,7 @@ def execute_tool_calling_session_and_commit(
   operating_model: Dict[str, Any],
   build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
   intake_context: Dict[str, Any],
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
 ):
   """Run the tool-calling session, write the committed anchors into
   model_input, rebuild FINMO, and return a HandlerResult.
@@ -752,11 +923,18 @@ def execute_tool_calling_session_and_commit(
       dict(item) for item in fm_raw if isinstance(item, dict)
     ]
 
+  # Phase 9 P3.32 K11.1 — surface stage_ramp_contract to mini_finmo so
+  # the per-quarter rev_max / cogs_max / marketing_max / rd_max / ga_max /
+  # ni_floor / max_util bounds H4 authored are enforced during H2's
+  # iteration. Per doctrine §10.5: handlers consuming canonical contracts
+  # must consult them at invocation time. See:
+  # docs/architecture/p3_32_k11_handler_contract_awareness_audit.md
   operating_context = {
     "model_input_template": copy.deepcopy(model_input or {}),
     "build_finmo": build_finmo,
     "operating_model": operating_model or {},
     "q1_state": q1_state,
+    "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
   }
 
   session_result = run_tool_calling_session(
@@ -767,6 +945,7 @@ def execute_tool_calling_session_and_commit(
     intake_context=intake_context or {},
     scope=scope_value,
     failing_metrics=failing_metrics,
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
   )
 
   provenance: Dict[str, Any] = {

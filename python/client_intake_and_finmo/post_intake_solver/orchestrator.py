@@ -2139,6 +2139,12 @@ def _run_post_cascade_completion(
               "financials_json": financials_json,
             },
             finmo_json=final_finmo_json,
+            # Phase 9 P3.32 K11.1 — H2 consults stage_ramp_contract
+            # for per-quarter rev_max / cogs_max / marketing_max /
+            # rd_max / ga_max / ni_floor / max_util enforcement via
+            # mini_finmo viability_checks. Universal across NAICS.
+            # Doctrine §10.5.
+            stage_ramp_contract=stage_ramp_contract,
           )
           # Rebuild FINMO so the rest of the post-cascade tail sees the
           # GPT-authored operating model. Wrapped in its own try so a
@@ -2302,6 +2308,10 @@ def _run_post_cascade_completion(
             "financials_json": financials_json,
           },
           finmo_json=final_finmo_json,
+          # Phase 9 P3.32 K11.1 — pre-cash gate Handler-engagement
+          # site receives stage_ramp_contract for the same
+          # coherence enforcement. Doctrine §10.5.
+          stage_ramp_contract=stage_ramp_contract,
         )
         # P3.21 Part 2 housekeeping -- mirror Site 1's pattern at
         # orchestrator.py:2002-2010: capture the FINMO rebuild

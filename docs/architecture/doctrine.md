@@ -621,3 +621,90 @@ buried 5 levels deep in user-message JSON.
 
 This correction was authored in commit
 `phase_9_p3_32_k9_handler_c_tool_calling_migration_stage_b`.
+
+### 10.5 CORRECTION 4 — Universal handler-contract awareness
+
+Discovered during P3.32 K11 (after the K10 Sunny class-selection
+fix surfaced a different latent issue at finalize validation:
+H2 GPT exhaustion handler authored revenue anchors that violated
+H4-authored `stage_ramp_contract` per-quarter bounds, because H2
+had zero references to `stage_ramp_contract` anywhere in its
+source). See:
+[p3_32_k11_handler_contract_awareness_audit.md](./p3_32_k11_handler_contract_awareness_audit.md).
+
+**Rule (universal):**
+
+Every handler that AUTHORS values constrained by canonical
+contracts must CONSULT those contracts at invocation time.
+Contract data must be:
+
+  - Read from the canonical source (SQL table or persisted
+    state — never paraphrased into prompts).
+  - Passed into the handler's tool schema or decision logic
+    as bounds / constraints (visible to the iterative author).
+  - Enforced by the handler's validator (the handler must be
+    able to detect violations of contract bounds inside its
+    own iteration loop, not only at downstream finalize).
+  - Surfaced in failure feedback so iterative refinement can
+    adapt (specific quarter / field / actual / bound, not
+    summary verdicts).
+
+**Handlers that don't consult applicable contracts are
+architecturally incomplete and must be brought into compliance.**
+
+**Carve-out for contract AUTHORS:**
+
+This rule applies to handlers that CONSUME contracts. Handlers
+that AUTHOR a contract (e.g., H4 authors `stage_ramp_contract`)
+are exempt for that contract specifically but must consult all
+OTHER contracts that constrain their authority. Reasoning: H4
+authoring its own contract shouldn't require consulting itself.
+H4 still consults `post_intake_planning_mode_policy_lookup`
+(which bounds H4's posture choices) and the deterministic
+Python builder output (its own seed).
+
+**Sites instantiated by K11:**
+
+| K11 sub-commit | Site | Contract |
+|----------------|------|----------|
+| K11.1 | H2 (GPT exhaustion handler) | `stage_ramp_contract` per-quarter bounds (rev_max, cogs_max, marketing_max, rd_max, ga_max, ni_floor, max_util) |
+| K11.2 | H3 (funding handler) | `stage_ramp_contract.ni_floor` (indirect via interest expense from debt issuance) |
+| K11.3 | CS / CR (cash strategy proposer / critic) | `stage_ramp_contract.ni_floor` (same indirect shape as K11.2) |
+
+**Sites NOT in scope (already aware or not-applicable):**
+
+- HC (Handler C / payroll) — reads `stage_ramp_contract` as
+  read-only context (K9) and `payroll_revenue_sanity_bounds_json`
+  via Tool 1/Tool 2/validator (K9 + K10).
+- H4 (stage_ramp_handler) — AUTHORS `stage_ramp_contract`
+  (carve-out applies; H4 still consults
+  `planning_mode_policy_lookup`).
+- H5 (single-shot estimator) — validates against policy.
+- UC (unified convergence GPT) — reads `stage_ramp_contract`
+  per-quarter bounds at
+  [convergence/runtime.py:1937-1942](../../python/client_intake_and_finmo/post_intake_convergence/runtime.py#L1937-L1942).
+
+**Implementation patterns** vary by handler shape (the K9 Handler
+C migration is the canonical prototype):
+- **Math-heavy handlers** (H2 with mini_finmo): the validator
+  enforcement half is integrated into the in-loop probe (
+  `mini_finmo._eval_viability_checks` adds per-quarter contract
+  coherence). Plus a consultation tool surfaces bounds explicitly.
+- **Class-and-target handlers** (HC): a queryable lookup tool
+  (Tool 1) is the canonical pattern; the propose tool runs the
+  validator chain and surfaces failures IN-LINE.
+- **Hybrid Python+GPT handlers** (H3): the deterministic Python
+  proposer reads contract bounds first; the GPT critic sees the
+  bounds in its session input.
+
+**Future GPT loops:** any new GPT iterative loop over policy-
+bounded structured outputs MUST be instantiated under §10.4
+(tool-calling canonical) AND §10.5 (consult applicable contracts).
+Architecturally incomplete handlers that ship without contract
+awareness are deferred technical debt and will surface as
+finalize-validator failures on edge-case drafts.
+
+This correction was authored across commits
+`phase_9_p3_32_k11_h2_stage_ramp_awareness` (K11.1),
+`phase_9_p3_32_k11_h3_funding_ni_floor_awareness` (K11.2),
+`phase_9_p3_32_k11_cs_cr_ni_floor_awareness` (K11.3).
