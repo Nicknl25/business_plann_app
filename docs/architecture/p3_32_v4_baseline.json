@@ -1,0 +1,1541 @@
+[
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\03516b40b43d4592b8d7681a4f57dc67.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 511560.0,
+        "expected": 511560.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 181735.775,
+        "expected": 181736.0,
+        "difference": -0.22500000000582077,
+        "status": "MATCH",
+        "abs_delta": 0.22500000000582077,
+        "rel_delta": 1.2380596029725578e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 32714.781611159997,
+        "expected": 32714.598006,
+        "difference": 0.1836051599966595,
+        "status": "MATCH",
+        "abs_delta": 0.1836051599966595,
+        "rel_delta": 5.6122997297963395e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 314317.93621730484,
+        "expected": 314313.587244,
+        "difference": 4.348973304848187,
+        "status": "CHANGED",
+        "abs_delta": 4.348973304848187,
+        "rel_delta": 1.383622378406528e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 506686.982371151,
+        "expected": 506682.633398,
+        "difference": 4.348973151005339,
+        "status": "CHANGED",
+        "abs_delta": 4.348973151005339,
+        "rel_delta": 8.583155483200656e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 506686.98237115087,
+        "expected": 506682.633398,
+        "difference": 4.3489731508889236,
+        "status": "CHANGED",
+        "abs_delta": 4.3489731508889236,
+        "rel_delta": 8.5831554829709e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 314317.93621730484,
+        "expected": 314313.587244,
+        "difference": 4.348973304848187,
+        "status": "CHANGED",
+        "abs_delta": 4.348973304848187,
+        "rel_delta": 1.383622378406528e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 4.348973304848187,
+    "max_rel_delta": 1.383622378406528e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\0459723bad0e461f95dbfe5fbf14631f.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 302579.99999999994,
+        "expected": 302580.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 161649.19874999998,
+        "expected": 161646.0,
+        "difference": 3.1987499999813735,
+        "status": "CHANGED",
+        "abs_delta": 3.1987499999813735,
+        "rel_delta": 1.9788220570944055e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 27850.896833147795,
+        "expected": 27853.39046,
+        "difference": -2.493626852203306,
+        "status": "CHANGED",
+        "abs_delta": 2.493626852203306,
+        "rel_delta": 8.952686947696299e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 177233.02387635075,
+        "expected": 177237.701343,
+        "difference": -4.677466649241978,
+        "status": "CHANGED",
+        "abs_delta": 4.677466649241978,
+        "rel_delta": 2.6390923679324254e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 336145.72661531495,
+        "expected": 336150.404082,
+        "difference": -4.677466685068794,
+        "status": "CHANGED",
+        "abs_delta": 4.677466685068794,
+        "rel_delta": 1.3914803100839883e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 336145.72661531484,
+        "expected": 336150.404082,
+        "difference": -4.677466685185209,
+        "status": "CHANGED",
+        "abs_delta": 4.677466685185209,
+        "rel_delta": 1.3914803101186203e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 177233.02387635075,
+        "expected": 177237.701343,
+        "difference": -4.677466649241978,
+        "status": "CHANGED",
+        "abs_delta": 4.677466649241978,
+        "rel_delta": 2.6390923679324254e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 4.677466685185209,
+    "max_rel_delta": 8.952686947696299e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\077e83b679eb4be7be5febabf05f6379.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 6115200.0,
+        "expected": 6115200.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 813316.965,
+        "expected": 813316.0,
+        "difference": 0.9649999999674037,
+        "status": "MATCH",
+        "abs_delta": 0.9649999999674037,
+        "rel_delta": 1.1864992880941612e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 275135.3693711313,
+        "expected": 275136.205775,
+        "difference": -0.8364038686850108,
+        "status": "MATCH",
+        "abs_delta": 0.8364038686850108,
+        "rel_delta": 3.039962938825298e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 3863651.1832128856,
+        "expected": 3863649.551595,
+        "difference": 1.6316178855486214,
+        "status": "CHANGED",
+        "abs_delta": 1.6316178855486214,
+        "rel_delta": 4.2229947999390087e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 5507926.373234663,
+        "expected": 5507924.741616,
+        "difference": 1.63161866273731,
+        "status": "CHANGED",
+        "abs_delta": 1.63161866273731,
+        "rel_delta": 2.962310227431567e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 5507926.373234664,
+        "expected": 5507924.741616,
+        "difference": 1.6316186636686325,
+        "status": "CHANGED",
+        "abs_delta": 1.6316186636686325,
+        "rel_delta": 2.962310229122443e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 3863651.1832128856,
+        "expected": 3863649.551595,
+        "difference": 1.6316178855486214,
+        "status": "CHANGED",
+        "abs_delta": 1.6316178855486214,
+        "rel_delta": 4.2229947999390087e-07,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 1.6316186636686325,
+    "max_rel_delta": 3.039962938825298e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\194c29fed27c4fa39498ed95f8d45343.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 1134000.0,
+        "expected": 1134000.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 173779.24,
+        "expected": 173780.0,
+        "difference": -0.7600000000093132,
+        "status": "MATCH",
+        "abs_delta": 0.7600000000093132,
+        "rel_delta": 4.373345609444776e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 156597.78142908285,
+        "expected": 156597.226192,
+        "difference": 0.5552370828518178,
+        "status": "MATCH",
+        "abs_delta": 0.5552370828518178,
+        "rel_delta": 3.5456254730100597e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 605458.6940052247,
+        "expected": 605454.352421,
+        "difference": 4.341584224719554,
+        "status": "CHANGED",
+        "abs_delta": 4.341584224719554,
+        "rel_delta": 7.170735621944986e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 2176445.860601645,
+        "expected": 2176441.519017,
+        "difference": 4.341584644746035,
+        "status": "CHANGED",
+        "abs_delta": 4.341584644746035,
+        "rel_delta": 1.9948047977383966e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 2176445.8606016454,
+        "expected": 2176441.519017,
+        "difference": 4.341584645211697,
+        "status": "CHANGED",
+        "abs_delta": 4.341584645211697,
+        "rel_delta": 1.994804797952351e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 605458.6940052247,
+        "expected": 605454.352421,
+        "difference": 4.341584224719554,
+        "status": "CHANGED",
+        "abs_delta": 4.341584224719554,
+        "rel_delta": 7.170735621944986e-06,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 4.341584645211697,
+    "max_rel_delta": 7.170735621944986e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\1aa5d27085e44aee98d401a5cd56bad0.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 9220857.2860824,
+        "expected": 9220857.286082,
+        "difference": 4.0046870708465576e-07,
+        "status": "MATCH",
+        "abs_delta": 4.0046870708465576e-07,
+        "rel_delta": 4.3430745608557187e-14,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 797991.02,
+        "expected": 797992.0,
+        "difference": -0.9799999999813735,
+        "status": "MATCH",
+        "abs_delta": 0.9799999999813735,
+        "rel_delta": 1.228082487019135e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 298508.57608733105,
+        "expected": 298507.776384,
+        "difference": 0.7997033310239203,
+        "status": "MATCH",
+        "abs_delta": 0.7997033310239203,
+        "rel_delta": 2.678996166562266e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 5900090.598699521,
+        "expected": 5900087.686989,
+        "difference": 2.9117105212062597,
+        "status": "CHANGED",
+        "abs_delta": 2.9117105212062597,
+        "rel_delta": 4.93502679746655e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 12484972.68547349,
+        "expected": 12484969.773763,
+        "difference": 2.9117104914039373,
+        "status": "CHANGED",
+        "abs_delta": 2.9117104914039373,
+        "rel_delta": 2.3321720958122475e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 12484972.685473496,
+        "expected": 12484969.773763,
+        "difference": 2.911710496991873,
+        "status": "CHANGED",
+        "abs_delta": 2.911710496991873,
+        "rel_delta": 2.3321721002879754e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 5900090.598699521,
+        "expected": 5900087.686989,
+        "difference": 2.9117105212062597,
+        "status": "CHANGED",
+        "abs_delta": 2.9117105212062597,
+        "rel_delta": 4.93502679746655e-07,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 2.9117105212062597,
+    "max_rel_delta": 2.678996166562266e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\1bef9076e6504af9a9fe223af128110b.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 882000.0,
+        "expected": 882000.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 105378.575,
+        "expected": 105378.0,
+        "difference": 0.5749999999970896,
+        "status": "MATCH",
+        "abs_delta": 0.5749999999970896,
+        "rel_delta": 5.456517133554801e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 119777.28726145782,
+        "expected": 119777.707342,
+        "difference": -0.4200805421714904,
+        "status": "MATCH",
+        "abs_delta": 0.4200805421714904,
+        "rel_delta": 3.5071679989001536e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 471047.71827145235,
+        "expected": 471052.467292,
+        "difference": -4.749020547664259,
+        "status": "CHANGED",
+        "abs_delta": 4.749020547664259,
+        "rel_delta": 1.0081723114551474e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 1995982.577175565,
+        "expected": 1995987.326196,
+        "difference": -4.749020434916019,
+        "status": "CHANGED",
+        "abs_delta": 4.749020434916019,
+        "rel_delta": 2.37928386247162e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 1995982.5771755655,
+        "expected": 1995987.326196,
+        "difference": -4.749020434450358,
+        "status": "CHANGED",
+        "abs_delta": 4.749020434450358,
+        "rel_delta": 2.379283862238321e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 471047.71827145235,
+        "expected": 471052.467292,
+        "difference": -4.749020547664259,
+        "status": "CHANGED",
+        "abs_delta": 4.749020547664259,
+        "rel_delta": 1.0081723114551474e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 4.749020547664259,
+    "max_rel_delta": 1.0081723114551474e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\201d0ad18ae243dba933703d19cda4df.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 386166.564,
+        "expected": 386166.564,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 119521.26500000001,
+        "expected": 122330.0,
+        "difference": -2808.734999999986,
+        "status": "CHANGED",
+        "abs_delta": 2808.734999999986,
+        "rel_delta": 0.02296031227008899,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 7882.908599274057,
+        "expected": 5742.186279,
+        "difference": 2140.722320274058,
+        "status": "CHANGED",
+        "abs_delta": 2140.722320274058,
+        "rel_delta": 0.27156503127173115,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 243507.334212705,
+        "expected": 195271.848334,
+        "difference": 48235.48587870499,
+        "status": "CHANGED",
+        "abs_delta": 48235.48587870499,
+        "rel_delta": 0.19808637811529334,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 432100.80135414994,
+        "expected": 383865.315475,
+        "difference": 48235.48587914993,
+        "status": "CHANGED",
+        "abs_delta": 48235.48587914993,
+        "rel_delta": 0.11163016992328165,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 432100.80135415064,
+        "expected": 383865.315475,
+        "difference": 48235.48587915063,
+        "status": "CHANGED",
+        "abs_delta": 48235.48587915063,
+        "rel_delta": 0.11163016992328309,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 243507.334212705,
+        "expected": 195271.848334,
+        "difference": 48235.48587870499,
+        "status": "CHANGED",
+        "abs_delta": 48235.48587870499,
+        "rel_delta": 0.19808637811529334,
+        "within_tolerance": false
+      }
+    ],
+    "max_abs_delta": 48235.48587915063,
+    "max_rel_delta": 0.27156503127173115,
+    "v4_pass": false,
+    "reason": "baseline_rows_exceed_tolerance: Payroll Q20=delta_abs=2808.73/rel=0.022960, Net Income Q20=delta_abs=2140.72/rel=0.271565, Cash Q20=delta_abs=48235.49/rel=0.198086, Total Assets Q20=delta_abs=48235.49/rel=0.111630, Total Liabilities & Equity Q20=delta_abs=48235.49/rel=0.111630, Ending Cash Q20=delta_abs=48235.49/rel=0.198086"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\25b8e17eda804fa7a46adf72a3503900.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 321300.0,
+        "expected": 321300.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 42626.005,
+        "expected": 42625.0,
+        "difference": 1.0049999999973807,
+        "status": "CHANGED",
+        "abs_delta": 1.0049999999973807,
+        "rel_delta": 2.357715671448405e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 45245.74945390344,
+        "expected": 45246.558525,
+        "difference": -0.8090710965625476,
+        "status": "MATCH",
+        "abs_delta": 0.8090710965625476,
+        "rel_delta": 1.7881384196667973e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 176640.04632056132,
+        "expected": 176645.902894,
+        "difference": -5.856573438679334,
+        "status": "CHANGED",
+        "abs_delta": 5.856573438679334,
+        "rel_delta": 3.3154312343115545e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 261406.72669486876,
+        "expected": 261412.583268,
+        "difference": -5.856573131226469,
+        "status": "CHANGED",
+        "abs_delta": 5.856573131226469,
+        "rel_delta": 2.2403562437628774e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 261406.72669486882,
+        "expected": 261412.583268,
+        "difference": -5.856573131168261,
+        "status": "CHANGED",
+        "abs_delta": 5.856573131168261,
+        "rel_delta": 2.240356243740611e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 176640.04632056132,
+        "expected": 176645.902894,
+        "difference": -5.856573438679334,
+        "status": "CHANGED",
+        "abs_delta": 5.856573438679334,
+        "rel_delta": 3.3154312343115545e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 5.856573438679334,
+    "max_rel_delta": 3.3154312343115545e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\290547bbe8cf48899d897cc5ce865111.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 351086.39999999997,
+        "expected": 351086.4,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 149014.765,
+        "expected": 149014.0,
+        "difference": 0.7650000000139698,
+        "status": "MATCH",
+        "abs_delta": 0.7650000000139698,
+        "rel_delta": 5.133719467423042e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 44536.42880468581,
+        "expected": 44537.036998,
+        "difference": -0.6081933141904301,
+        "status": "MATCH",
+        "abs_delta": 0.6081933141904301,
+        "rel_delta": 1.3655899790049837e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 196643.6854767,
+        "expected": 196625.749729,
+        "difference": 17.935747699986678,
+        "status": "CHANGED",
+        "abs_delta": 17.935747699986678,
+        "rel_delta": 9.120937525406509e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 338622.3800060756,
+        "expected": 338604.444259,
+        "difference": 17.9357470755931,
+        "status": "CHANGED",
+        "abs_delta": 17.9357470755931,
+        "rel_delta": 5.2966809444996796e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 338622.38000607555,
+        "expected": 338604.444259,
+        "difference": 17.93574707553489,
+        "status": "CHANGED",
+        "abs_delta": 17.93574707553489,
+        "rel_delta": 5.296680944482491e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 196643.6854767,
+        "expected": 196625.749729,
+        "difference": 17.935747699986678,
+        "status": "CHANGED",
+        "abs_delta": 17.935747699986678,
+        "rel_delta": 9.120937525406509e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 17.935747699986678,
+    "max_rel_delta": 9.120937525406509e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\41f014a5567041d99b2572a67fe6b03d.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 3547593.0,
+        "expected": 3547593.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 254646.635,
+        "expected": 254646.0,
+        "difference": 0.6350000000093132,
+        "status": "MATCH",
+        "abs_delta": 0.6350000000093132,
+        "rel_delta": 2.4936516440097988e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 417446.2599029098,
+        "expected": 417446.764526,
+        "difference": -0.5046230902080424,
+        "status": "MATCH",
+        "abs_delta": 0.5046230902080424,
+        "rel_delta": 1.2088321987140777e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 2014855.4324572533,
+        "expected": 2014862.407042,
+        "difference": -6.974584746640176,
+        "status": "CHANGED",
+        "abs_delta": 6.974584746640176,
+        "rel_delta": 3.461568751426305e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 2670575.36938033,
+        "expected": 2670582.343965,
+        "difference": -6.974584669806063,
+        "status": "CHANGED",
+        "abs_delta": 6.974584669806063,
+        "rel_delta": 2.611634382129155e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 2670575.369380331,
+        "expected": 2670582.343965,
+        "difference": -6.974584668874741,
+        "status": "CHANGED",
+        "abs_delta": 6.974584668874741,
+        "rel_delta": 2.6116343817804212e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 2014855.4324572533,
+        "expected": 2014862.407042,
+        "difference": -6.974584746640176,
+        "status": "CHANGED",
+        "abs_delta": 6.974584746640176,
+        "rel_delta": 3.461568751426305e-06,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 6.974584746640176,
+    "max_rel_delta": 3.461568751426305e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\4207488106054d72afbe16480e1de100.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 698205.312,
+        "expected": 698205.312,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 136216.66,
+        "expected": 139026.0,
+        "difference": -2809.3399999999965,
+        "status": "CHANGED",
+        "abs_delta": 2809.3399999999965,
+        "rel_delta": 0.02020729935407763,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 106378.87605230784,
+        "expected": 104237.692622,
+        "difference": 2141.183430307836,
+        "status": "CHANGED",
+        "abs_delta": 2141.183430307836,
+        "rel_delta": 0.02012790047955563,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 419223.1357092589,
+        "expected": 374294.080912,
+        "difference": 44929.05479725893,
+        "status": "CHANGED",
+        "abs_delta": 44929.05479725893,
+        "rel_delta": 0.10717217388598105,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 2045811.3350938745,
+        "expected": 2000882.280296,
+        "difference": 44929.05479787453,
+        "status": "CHANGED",
+        "abs_delta": 44929.05479787453,
+        "rel_delta": 0.02196148492637661,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 2045811.3350938743,
+        "expected": 2000882.280296,
+        "difference": 44929.0547978743,
+        "status": "CHANGED",
+        "abs_delta": 44929.0547978743,
+        "rel_delta": 0.0219614849263765,
+        "within_tolerance": false
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 419223.1357092589,
+        "expected": 374294.080912,
+        "difference": 44929.05479725893,
+        "status": "CHANGED",
+        "abs_delta": 44929.05479725893,
+        "rel_delta": 0.10717217388598105,
+        "within_tolerance": false
+      }
+    ],
+    "max_abs_delta": 44929.05479787453,
+    "max_rel_delta": 0.10717217388598105,
+    "v4_pass": false,
+    "reason": "baseline_rows_exceed_tolerance: Payroll Q20=delta_abs=2809.34/rel=0.020207, Net Income Q20=delta_abs=2141.18/rel=0.020128, Cash Q20=delta_abs=44929.05/rel=0.107172, Total Assets Q20=delta_abs=44929.05/rel=0.021961, Total Liabilities & Equity Q20=delta_abs=44929.05/rel=0.021961, Ending Cash Q20=delta_abs=44929.05/rel=0.107172"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\4aaa94e10efc4968866844197f96f24c.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 190512.0,
+        "expected": 190512.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 61714.165,
+        "expected": 61713.0,
+        "difference": 1.1650000000008731,
+        "status": "CHANGED",
+        "abs_delta": 1.1650000000008731,
+        "rel_delta": 1.8877351739278545e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 12970.342810312552,
+        "expected": 12971.272014,
+        "difference": -0.9292036874485348,
+        "status": "MATCH",
+        "abs_delta": 0.9292036874485348,
+        "rel_delta": 7.163551010615132e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 115496.93850236354,
+        "expected": 115492.17502,
+        "difference": 4.763482363545336,
+        "status": "CHANGED",
+        "abs_delta": 4.763482363545336,
+        "rel_delta": 4.1243364761983325e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 281859.7221878857,
+        "expected": 281854.958706,
+        "difference": 4.763481885718647,
+        "status": "CHANGED",
+        "abs_delta": 4.763481885718647,
+        "rel_delta": 1.6900186549333727e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 281859.72218788567,
+        "expected": 281854.958706,
+        "difference": 4.76348188566044,
+        "status": "CHANGED",
+        "abs_delta": 4.76348188566044,
+        "rel_delta": 1.6900186549127217e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 115496.93850236354,
+        "expected": 115492.17502,
+        "difference": 4.763482363545336,
+        "status": "CHANGED",
+        "abs_delta": 4.763482363545336,
+        "rel_delta": 4.1243364761983325e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 4.763482363545336,
+    "max_rel_delta": 7.163551010615132e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\4c6ff03a7e474f57a3a1ff412860cc2f.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 1612800.0,
+        "expected": 1612800.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 445311.7425,
+        "expected": 445311.0,
+        "difference": 0.7424999999930151,
+        "status": "MATCH",
+        "abs_delta": 0.7424999999930151,
+        "rel_delta": 1.6673712573232112e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 376678.27667800564,
+        "expected": 376678.899367,
+        "difference": -0.6226889943354763,
+        "status": "MATCH",
+        "abs_delta": 0.6226889943354763,
+        "rel_delta": 1.6531029356353396e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 775202.8581118113,
+        "expected": 775209.943533,
+        "difference": -7.0854211886180565,
+        "status": "CHANGED",
+        "abs_delta": 7.0854211886180565,
+        "rel_delta": 9.140002973035184e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 1545495.4546680346,
+        "expected": 1545502.54009,
+        "difference": -7.085421965457499,
+        "status": "CHANGED",
+        "abs_delta": 7.085421965457499,
+        "rel_delta": 4.584542426597946e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 1545495.4546680346,
+        "expected": 1545502.54009,
+        "difference": -7.085421965457499,
+        "status": "CHANGED",
+        "abs_delta": 7.085421965457499,
+        "rel_delta": 4.584542426597946e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 775202.8581118113,
+        "expected": 775209.943533,
+        "difference": -7.0854211886180565,
+        "status": "CHANGED",
+        "abs_delta": 7.0854211886180565,
+        "rel_delta": 9.140002973035184e-06,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 7.085421965457499,
+    "max_rel_delta": 9.140002973035184e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\52ba2e2c1f4f439c9868541606f3affd.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 327600.0,
+        "expected": 327600.0,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 123134.905,
+        "expected": 123134.0,
+        "difference": 0.9049999999988358,
+        "status": "MATCH",
+        "abs_delta": 0.9049999999988358,
+        "rel_delta": 7.349662550995072e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 62797.21754299964,
+        "expected": 62797.93704,
+        "difference": -0.7194970003547496,
+        "status": "MATCH",
+        "abs_delta": 0.7194970003547496,
+        "rel_delta": 1.1457334974180063e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 165728.4549499784,
+        "expected": 165714.143825,
+        "difference": 14.311124978383305,
+        "status": "CHANGED",
+        "abs_delta": 14.311124978383305,
+        "rel_delta": 8.635285342340767e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 246123.95104808797,
+        "expected": 246109.639923,
+        "difference": 14.311125087959226,
+        "status": "CHANGED",
+        "abs_delta": 14.311125087959226,
+        "rel_delta": 5.814600743656639e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 246123.95104808797,
+        "expected": 246109.639923,
+        "difference": 14.311125087959226,
+        "status": "CHANGED",
+        "abs_delta": 14.311125087959226,
+        "rel_delta": 5.814600743656639e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 165728.4549499784,
+        "expected": 165714.143825,
+        "difference": 14.311124978383305,
+        "status": "CHANGED",
+        "abs_delta": 14.311124978383305,
+        "rel_delta": 8.635285342340767e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 14.311125087959226,
+    "max_rel_delta": 8.635285342340767e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\56b8623063a34e6d9c1803568a730825.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 3537949.89366,
+        "expected": 3537949.89366,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 544478.375,
+        "expected": 544478.0,
+        "difference": 0.375,
+        "status": "MATCH",
+        "abs_delta": 0.375,
+        "rel_delta": 6.887325874053308e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 104816.66489293039,
+        "expected": 104816.970902,
+        "difference": -0.3060090696089901,
+        "status": "MATCH",
+        "abs_delta": 0.3060090696089901,
+        "rel_delta": 2.919461104205132e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 1799759.3284254537,
+        "expected": 1799760.589185,
+        "difference": -1.2607595461886376,
+        "status": "CHANGED",
+        "abs_delta": 1.2607595461886376,
+        "rel_delta": 7.005151428277232e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 5366165.274805301,
+        "expected": 5366166.535565,
+        "difference": -1.2607596991583705,
+        "status": "CHANGED",
+        "abs_delta": 1.2607596991583705,
+        "rel_delta": 2.3494606266922835e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 5366165.274805302,
+        "expected": 5366166.535565,
+        "difference": -1.260759698227048,
+        "status": "CHANGED",
+        "abs_delta": 1.260759698227048,
+        "rel_delta": 2.349460624956738e-07,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 1799759.3284254537,
+        "expected": 1799760.589185,
+        "difference": -1.2607595461886376,
+        "status": "CHANGED",
+        "abs_delta": 1.2607595461886376,
+        "rel_delta": 7.005151428277232e-07,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 1.2607596991583705,
+    "max_rel_delta": 2.919461104205132e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\5af71d361b324f62a3598e8da40c98c7.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 121265.38620000001,
+        "expected": 121265.3862,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 34687.765,
+        "expected": 34688.0,
+        "difference": -0.23500000000058208,
+        "status": "MATCH",
+        "abs_delta": 0.23500000000058208,
+        "rel_delta": 6.774677121787998e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 12134.447249149038,
+        "expected": 12134.256703,
+        "difference": 0.1905461490387097,
+        "status": "MATCH",
+        "abs_delta": 0.1905461490387097,
+        "rel_delta": 1.5702911317371484e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 70796.24245307827,
+        "expected": 70798.082681,
+        "difference": -1.840227921726182,
+        "status": "CHANGED",
+        "abs_delta": 1.840227921726182,
+        "rel_delta": 2.5992623698834178e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 115455.67318117672,
+        "expected": 115457.513409,
+        "difference": -1.8402278232824756,
+        "status": "CHANGED",
+        "abs_delta": 1.8402278232824756,
+        "rel_delta": 1.593857141859274e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 115455.67318117678,
+        "expected": 115457.513409,
+        "difference": -1.840227823224268,
+        "status": "CHANGED",
+        "abs_delta": 1.840227823224268,
+        "rel_delta": 1.5938571418088592e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 70796.24245307827,
+        "expected": 70798.082681,
+        "difference": -1.840227921726182,
+        "status": "CHANGED",
+        "abs_delta": 1.840227921726182,
+        "rel_delta": 2.5992623698834178e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 1.840227921726182,
+    "max_rel_delta": 2.5992623698834178e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\5dcd919aae314bd5af67849172aa52bb.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 157657.5,
+        "expected": 157657.5,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 55582.075000000004,
+        "expected": 55581.0,
+        "difference": 1.0750000000043656,
+        "status": "CHANGED",
+        "abs_delta": 1.0750000000043656,
+        "rel_delta": 1.9340767684624323e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 3931.884602770936,
+        "expected": 3932.750027,
+        "difference": -0.8654242290640468,
+        "status": "MATCH",
+        "abs_delta": 0.8654242290640468,
+        "rel_delta": 0.0002200557429591359,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 83015.07213463222,
+        "expected": 83013.909012,
+        "difference": 1.1631226322206203,
+        "status": "CHANGED",
+        "abs_delta": 1.1631226322206203,
+        "rel_delta": 1.4010981407500204e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 164553.5563550935,
+        "expected": 164552.393233,
+        "difference": 1.1631220934796147,
+        "status": "CHANGED",
+        "abs_delta": 1.1631220934796147,
+        "rel_delta": 7.068349777683867e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 164553.5563550935,
+        "expected": 164552.393233,
+        "difference": 1.1631220934796147,
+        "status": "CHANGED",
+        "abs_delta": 1.1631220934796147,
+        "rel_delta": 7.068349777683867e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 83015.07213463222,
+        "expected": 83013.909012,
+        "difference": 1.1631226322206203,
+        "status": "CHANGED",
+        "abs_delta": 1.1631226322206203,
+        "rel_delta": 1.4010981407500204e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 1.1631226322206203,
+    "max_rel_delta": 0.0002200557429591359,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\6d37c6b98ace41ee9c91dd5fbf68b83e.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 233473.20149999997,
+        "expected": 233473.2015,
+        "difference": 0.0,
+        "status": "MATCH",
+        "abs_delta": 0.0,
+        "rel_delta": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 44591.5275,
+        "expected": 44590.0,
+        "difference": 1.5274999999965075,
+        "status": "CHANGED",
+        "abs_delta": 1.5274999999965075,
+        "rel_delta": 3.425538629499758e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 21019.478907048484,
+        "expected": 21020.697241,
+        "difference": -1.2183339515177067,
+        "status": "CHANGED",
+        "abs_delta": 1.2183339515177067,
+        "rel_delta": 5.795877927119357e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 138020.11515398487,
+        "expected": 138011.738516,
+        "difference": 8.376637984853005,
+        "status": "CHANGED",
+        "abs_delta": 8.376637984853005,
+        "rel_delta": 6.069142874940688e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 158226.04713152366,
+        "expected": 158217.670494,
+        "difference": 8.376637523673708,
+        "status": "CHANGED",
+        "abs_delta": 8.376637523673708,
+        "rel_delta": 5.294095173034766e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 158226.04713152366,
+        "expected": 158217.670494,
+        "difference": 8.376637523673708,
+        "status": "CHANGED",
+        "abs_delta": 8.376637523673708,
+        "rel_delta": 5.294095173034766e-05,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 138020.11515398487,
+        "expected": 138011.738516,
+        "difference": 8.376637984853005,
+        "status": "CHANGED",
+        "abs_delta": 8.376637984853005,
+        "rel_delta": 6.069142874940688e-05,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 8.376637984853005,
+    "max_rel_delta": 6.069142874940688e-05,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  },
+  {
+    "workbook_path": "C:\\dev\\business_plann_app\\docs\\architecture\\p3_28_sweep_workbooks\\d345194155584588a77cfb0c8dbedc8c.xlsx",
+    "recalc_status": "ok",
+    "recalc_error": null,
+    "baseline_rows": [
+      {
+        "line_item": "Revenue Q20",
+        "actual": 3376835.0782835763,
+        "expected": 3376835.078284,
+        "difference": -4.237517714500427e-07,
+        "status": "MATCH",
+        "abs_delta": 4.237517714500427e-07,
+        "rel_delta": 1.2548784931047917e-13,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Payroll Q20",
+        "actual": 527529.22,
+        "expected": 527530.0,
+        "difference": -0.7800000000279397,
+        "status": "MATCH",
+        "abs_delta": 0.7800000000279397,
+        "rel_delta": 1.4785888954712332e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Net Income Q20",
+        "actual": 104573.03617056501,
+        "expected": 104572.399672,
+        "difference": 0.6364985650143353,
+        "status": "MATCH",
+        "abs_delta": 0.6364985650143353,
+        "rel_delta": 6.086641340088541e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Cash Q20",
+        "actual": 2160717.4129898776,
+        "expected": 2160712.204128,
+        "difference": 5.2088618776760995,
+        "status": "CHANGED",
+        "abs_delta": 5.2088618776760995,
+        "rel_delta": 2.410709446020696e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Assets Q20",
+        "actual": 4981854.491090272,
+        "expected": 4981849.282229,
+        "difference": 5.208861271850765,
+        "status": "CHANGED",
+        "abs_delta": 5.208861271850765,
+        "rel_delta": 1.045566722425651e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Total Liabilities & Equity Q20",
+        "actual": 4981854.491090273,
+        "expected": 4981849.282229,
+        "difference": 5.208861272782087,
+        "status": "CHANGED",
+        "abs_delta": 5.208861272782087,
+        "rel_delta": 1.0455667226125937e-06,
+        "within_tolerance": true
+      },
+      {
+        "line_item": "Ending Cash Q20",
+        "actual": 2160717.4129898776,
+        "expected": 2160712.204128,
+        "difference": 5.2088618776760995,
+        "status": "CHANGED",
+        "abs_delta": 5.2088618776760995,
+        "rel_delta": 2.410709446020696e-06,
+        "within_tolerance": true
+      }
+    ],
+    "max_abs_delta": 5.2088618776760995,
+    "max_rel_delta": 6.086641340088541e-06,
+    "v4_pass": true,
+    "reason": "all_baseline_rows_within_tolerance"
+  }
+]

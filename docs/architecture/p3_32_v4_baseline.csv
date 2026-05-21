@@ -1,0 +1,20 @@
+workbook_name,v4_pass,recalc_status,max_abs_delta,max_rel_delta,row_count,first_failing_row,first_failing_abs_delta,reason
+03516b40b43d4592b8d7681a4f57dc67.xlsx,PASS,ok,4.3490,0.00001384,7,,,all_baseline_rows_within_tolerance
+0459723bad0e461f95dbfe5fbf14631f.xlsx,PASS,ok,4.6775,0.00008953,7,,,all_baseline_rows_within_tolerance
+077e83b679eb4be7be5febabf05f6379.xlsx,PASS,ok,1.6316,0.00000304,7,,,all_baseline_rows_within_tolerance
+194c29fed27c4fa39498ed95f8d45343.xlsx,PASS,ok,4.3416,0.00000717,7,,,all_baseline_rows_within_tolerance
+1aa5d27085e44aee98d401a5cd56bad0.xlsx,PASS,ok,2.9117,0.00000268,7,,,all_baseline_rows_within_tolerance
+1bef9076e6504af9a9fe223af128110b.xlsx,PASS,ok,4.7490,0.00001008,7,,,all_baseline_rows_within_tolerance
+201d0ad18ae243dba933703d19cda4df.xlsx,FAIL,ok,48235.4859,0.27156503,7,Payroll Q20,2808.7350,"baseline_rows_exceed_tolerance: Payroll Q20=delta_abs=2808.73/rel=0.022960, Net Income Q20=delta_abs=2140.72/rel=0.271565, Cash Q20=delta_abs=48235.49/rel=0.198086, Total Assets Q20=delta_abs=48235.49/rel=0.111630, Total Liabilities & Equity Q20=delta_abs=48235.49/rel=0.111630, Ending Cash Q20=delta_abs=48235.49/rel=0.198086"
+25b8e17eda804fa7a46adf72a3503900.xlsx,PASS,ok,5.8566,0.00003315,7,,,all_baseline_rows_within_tolerance
+290547bbe8cf48899d897cc5ce865111.xlsx,PASS,ok,17.9357,0.00009121,7,,,all_baseline_rows_within_tolerance
+41f014a5567041d99b2572a67fe6b03d.xlsx,PASS,ok,6.9746,0.00000346,7,,,all_baseline_rows_within_tolerance
+4207488106054d72afbe16480e1de100.xlsx,FAIL,ok,44929.0548,0.10717217,7,Payroll Q20,2809.3400,"baseline_rows_exceed_tolerance: Payroll Q20=delta_abs=2809.34/rel=0.020207, Net Income Q20=delta_abs=2141.18/rel=0.020128, Cash Q20=delta_abs=44929.05/rel=0.107172, Total Assets Q20=delta_abs=44929.05/rel=0.021961, Total Liabilities & Equity Q20=delta_abs=44929.05/rel=0.021961, Ending Cash Q20=delta_abs=44929.05/rel=0.107172"
+4aaa94e10efc4968866844197f96f24c.xlsx,PASS,ok,4.7635,0.00007164,7,,,all_baseline_rows_within_tolerance
+4c6ff03a7e474f57a3a1ff412860cc2f.xlsx,PASS,ok,7.0854,0.00000914,7,,,all_baseline_rows_within_tolerance
+52ba2e2c1f4f439c9868541606f3affd.xlsx,PASS,ok,14.3111,0.00008635,7,,,all_baseline_rows_within_tolerance
+56b8623063a34e6d9c1803568a730825.xlsx,PASS,ok,1.2608,0.00000292,7,,,all_baseline_rows_within_tolerance
+5af71d361b324f62a3598e8da40c98c7.xlsx,PASS,ok,1.8402,0.00002599,7,,,all_baseline_rows_within_tolerance
+5dcd919aae314bd5af67849172aa52bb.xlsx,PASS,ok,1.1631,0.00022006,7,,,all_baseline_rows_within_tolerance
+6d37c6b98ace41ee9c91dd5fbf68b83e.xlsx,PASS,ok,8.3766,0.00006069,7,,,all_baseline_rows_within_tolerance
+d345194155584588a77cfb0c8dbedc8c.xlsx,PASS,ok,5.2089,0.00000609,7,,,all_baseline_rows_within_tolerance
