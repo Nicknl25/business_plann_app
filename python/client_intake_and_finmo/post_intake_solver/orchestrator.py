@@ -1074,6 +1074,20 @@ def run_target_seeking_orchestrated_system_run(
   except Exception:
     pass
 
+  # ---------- Phase 9 P3.32 K11 L-4: open the handler trace run ----------
+  # Run-scoped, mirroring reset_gpt_call_budget above. Stamps the active
+  # (draft_id, planning_run_id) so every Handler C probe, H2 probe, and
+  # OpenAI turn persists its own durable row INCREMENTALLY (not buffered
+  # to completion). A crash mid-run thus leaves all completed-call traces
+  # on disk — eliminating the truncated-failure-report blind spot (P1.3).
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      begin_trace_run,
+    )
+    begin_trace_run(draft_id, planning_run_id)
+  except Exception:
+    pass
+
   # ---------- Phase 9 Phase B Step 0: adaptive policy contract -----------
   # Single source of truth for stage profile, planning mode, loss-tolerance
   # window, viability deadlines, allowed adaptation families, and per-driver
@@ -1578,6 +1592,24 @@ def run_target_seeking_orchestrated_system_run(
       "budget": 4,
       "log": get_gpt_call_log(),
     }
+  except Exception:
+    pass
+
+  # Phase 9 P3.32 K11 L-4 — fold the run's handler-trace buffer into the
+  # completion report too (the incremental SQL rows are the durable copy;
+  # this inline copy keeps a self-contained record for completed runs)
+  # and close the trace run.
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      get_trace_buffer,
+      get_runtime_status,
+      end_trace_run,
+    )
+    next_result["handler_trace_diagnostic"] = {
+      "traces": get_trace_buffer(),
+      "runtime_status": get_runtime_status(),
+    }
+    end_trace_run()
   except Exception:
     pass
 

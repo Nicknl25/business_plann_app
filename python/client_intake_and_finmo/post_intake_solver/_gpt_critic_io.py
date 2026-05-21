@@ -34,10 +34,25 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_gpt_io_trace(**kwargs: Any) -> None:
+  """Best-effort bridge to the L-4 handler-trace sink. Captures OpenAI
+  turn telemetry (latency, token usage, error context) per call so a
+  mid-run crash still leaves the per-call trace durable. Never raises —
+  instrumentation must not break the GPT chokepoint."""
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      record_gpt_io,
+    )
+    record_gpt_io(**kwargs)
+  except Exception:
+    pass
 
 
 _DEFAULT_OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -564,6 +579,17 @@ def call_gpt_responses_api_turn(
         timeout=resolved_timeout,
       )
 
+  _io_t0 = time.monotonic()
+  _io_request_summary = {
+    "input_item_count": len(input_items or []),
+    "input_chars": sum(
+      len(json.dumps(it, default=str)) for it in (input_items or [])
+    ),
+    "tool_count": len(tools or []),
+    "tool_names": [
+      str((t or {}).get("name") or "") for t in (tools or [])
+    ],
+  }
   try:
     resp = call_with_retries(
       _do_request,
@@ -573,6 +599,15 @@ def call_gpt_responses_api_turn(
     logger.error(
       "post_intake_solver:%s_critic_network_retry_exhausted: %s",
       consultant_name, exc,
+    )
+    _emit_gpt_io_trace(
+      consultant_name=consultant_name,
+      decision_source="python_proposer_only_critic_network_retry_exhausted",
+      model=model,
+      elapsed_ms=int((time.monotonic() - _io_t0) * 1000.0),
+      error=exc.to_dict() if hasattr(exc, "to_dict") else {"detail": str(exc)[:500]},
+      request_summary=_io_request_summary,
+      raw_request=payload,
     )
     return {
       "tool_calls": [],
@@ -691,6 +726,17 @@ def call_gpt_responses_api_turn(
     consultant_name,
     "python_proposer_plus_gpt_critic",
     counted_against_run_budget=counts_against_run_budget,
+  )
+  _emit_gpt_io_trace(
+    consultant_name=consultant_name,
+    decision_source="python_proposer_plus_gpt_critic",
+    model=model,
+    elapsed_ms=int((time.monotonic() - _io_t0) * 1000.0),
+    usage=(raw.get("usage") if isinstance(raw, dict) else None) or {},
+    tool_call_names=[str(tc.get("name") or "") for tc in tool_calls],
+    request_summary=_io_request_summary,
+    raw_request=payload,
+    raw_response=raw,
   )
   return {
     "tool_calls": tool_calls,

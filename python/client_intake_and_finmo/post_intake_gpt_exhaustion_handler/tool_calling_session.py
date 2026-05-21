@@ -46,6 +46,64 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def _emit_h2_trace(
+  *,
+  call_n: int,
+  scope: str,
+  rec: Any,
+  result: Dict[str, Any],
+  became_verified_candidate: bool,
+  tool_calls_used: int,
+  budget_extension_triggered: bool,
+  verified_candidate_present: bool,
+) -> None:
+  """Phase 9 P3.32 K11 L-4 — durable per-probe trace + runtime status
+  for H2. Best-effort: never raises, so a trace-sink import or DB error
+  cannot perturb the exploration loop."""
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      HANDLER_H2,
+      record_handler_call,
+      record_runtime_status,
+    )
+    checks = (result or {}).get("viability_checks") or {}
+    failing = sorted(
+      str(k) for k, v in checks.items()
+      if k != "all_pass" and str(v).upper() == "FAIL"
+    )
+    record_handler_call(
+      handler=HANDLER_H2,
+      call_n=int(call_n),
+      payload={
+        "scope": scope,
+        "arguments": getattr(rec, "arguments", None),
+        "viability_checks": checks,
+        "stage_ramp_violations": (result or {}).get("stage_ramp_violations"),
+        "ebitda_margins": (result or {}).get("ebitda_margins"),
+        "gross_margin_percents": (result or {}).get("gross_margin_percents"),
+        "revenues": (result or {}).get("revenues"),
+        "ebitda_dollars": (result or {}).get("ebitda_dollars"),
+        "error": (result or {}).get("error"),
+        "all_pass": checks.get("all_pass"),
+        "became_verified_candidate": bool(became_verified_candidate),
+      },
+    )
+    record_runtime_status(
+      handler=HANDLER_H2,
+      status={
+        "tool_calls_used": int(tool_calls_used),
+        "hard_cap": int(HARD_CAP_TOOL_CALLS),
+        "budget_remaining": int(HARD_CAP_TOOL_CALLS - tool_calls_used),
+        "budget_extension_triggered": bool(budget_extension_triggered),
+        "verified_candidate_present": bool(verified_candidate_present),
+        "failing_checks": failing,
+        "distance_to_feasibility": len(failing),
+      },
+    )
+  except Exception:
+    pass
+
+
 # Phase 9 P3.9 — two-phase budget.
 INITIAL_TOOL_CALL_BUDGET = 5
 EXTENSION_TOOL_CALLS = 5
@@ -811,6 +869,22 @@ def run_tool_calling_session(
       checks = (result or {}).get("viability_checks") or {}
       if checks.get("all_pass") is True:
         verified_commit_candidate = rec
+
+      # Phase 9 P3.32 K11 L-4 — durable per-probe trace. Captures the
+      # full cost-ratio exploration call-by-call (anchors, all 12
+      # viability_checks, stage_ramp_violations, EBITDA margins) so the
+      # equal-depth four-draft analysis no longer depends on the
+      # completion-time report surviving. Best-effort; never raises.
+      _emit_h2_trace(
+        call_n=tool_calls_used,
+        scope=scope,
+        rec=rec,
+        result=result,
+        became_verified_candidate=(verified_commit_candidate is rec),
+        tool_calls_used=tool_calls_used,
+        budget_extension_triggered=budget_extension_triggered,
+        verified_candidate_present=(verified_commit_candidate is not None),
+      )
 
       input_items.append({
         "type": "function_call_output",

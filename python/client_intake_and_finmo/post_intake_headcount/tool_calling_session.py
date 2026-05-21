@@ -55,6 +55,58 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _emit_handler_c_trace(
+  *,
+  call_n: int,
+  tool_name: str,
+  args: Dict[str, Any],
+  tool_result: Dict[str, Any],
+  became_verified_candidate: bool,
+  tool_calls_used: int,
+  verified_candidate_present: bool,
+) -> None:
+  """Phase 9 P3.32 K11 L-4 — durable per-call trace + runtime status for
+  Handler C. Captures the tool-call sequence (which tools GPT called, in
+  what order, with what arguments) and per-propose validator outcomes,
+  so the equal-depth four-draft analysis and the Skyward call-#2 timeout
+  diagnosis no longer depend on a completion-time report. Best-effort;
+  never raises."""
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      HANDLER_C,
+      record_handler_call,
+      record_runtime_status,
+    )
+    res = tool_result or {}
+    record_handler_call(
+      handler=HANDLER_C,
+      call_n=int(call_n),
+      payload={
+        "tool_name": tool_name,
+        "arguments": args,
+        "validator_accepted": res.get("validator_accepted"),
+        "validator_error_code": res.get("validator_error_code"),
+        "validator_error_text": str(res.get("validator_error_text") or "")[:3000],
+        "structured_failures": res.get("structured_failures"),
+        "tool_result_keys": sorted(str(k) for k in res.keys()),
+        "became_verified_candidate": bool(became_verified_candidate),
+      },
+    )
+    record_runtime_status(
+      handler=HANDLER_C,
+      status={
+        "tool_calls_used": int(tool_calls_used),
+        "hard_cap": int(HARD_CAP_TOOL_CALLS),
+        "budget_remaining": int(HARD_CAP_TOOL_CALLS - tool_calls_used),
+        "last_tool_name": tool_name,
+        "verified_candidate_present": bool(verified_candidate_present),
+        "last_validator_accepted": res.get("validator_accepted"),
+      },
+    )
+  except Exception:
+    pass
+
+
 HARD_CAP_TOOL_CALLS: int = 10
 MAX_TOOL_CALLS: int = HARD_CAP_TOOL_CALLS
 COUNTS_AGAINST_RUN_BUDGET: bool = False
@@ -825,6 +877,16 @@ def run_payroll_tool_calling_session(
           and schedule_payload_for_record is not None
         ):
           verified_commit_candidate = rec
+
+        _emit_handler_c_trace(
+          call_n=tool_calls_used,
+          tool_name=tool_name,
+          args=args,
+          tool_result=tool_result,
+          became_verified_candidate=(verified_commit_candidate is rec),
+          tool_calls_used=tool_calls_used,
+          verified_candidate_present=(verified_commit_candidate is not None),
+        )
 
         input_items.append({
           "type": "function_call_output",
