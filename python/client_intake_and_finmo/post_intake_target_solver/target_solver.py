@@ -7,11 +7,16 @@ keeping each driver's value within its bound. The solver writes path-
 shaped per-quarter values (NOT flat-stamped) to `model_input`.
 
 Authority boundary: the solver writes operating-side levers ONLY. Any
-lever in `_CASH_PASS_OWNED_LEVER_IDS` (Owner's Capital, Other Equity,
-Distributions, Short Term Debt %, Debt Issuance, Debt Repayment) in
-the input driver_lever_ids raises `CashPassLeverViolation` immediately.
-Cash strategy owns those end-to-end and runs after the restoration
-loop.
+lever in `_ALL_HANDLER_OWNED_LEVER_IDS` (union of `_CASH_PASS_OWNED_
+LEVER_IDS` for cash strategy + `_HANDLER_C_OWNED_LEVER_IDS` for
+Handler C payroll authority per Phase 9 P3.32 K1 F3) in the input
+driver_lever_ids raises `CashPassLeverViolation` immediately. Cash
+strategy owns the cash-pass set end-to-end and runs after the
+restoration loop. Handler C (post_intake_headcount.schedule)
+authors Payroll via its apply chain that keeps all four Payroll
+surfaces aligned with zero tolerance; a solver write to Payroll
+would only update model_input, re-introducing the P3.25 CareFirst /
+P3.32 Caring Hands Mirror Flavor 1 divergence.
 
 Algorithm — deterministic algebra:
 
@@ -71,6 +76,36 @@ _CASH_PASS_OWNED_LEVER_IDS = frozenset({
   "schedules::Debt Issuance (New Borrowing)",
   "schedules::Debt Repayment (Scheduled)",
 })
+
+# Phase 9 P3.32 K1 (F3+F4): closes Leak B (P3.31 audit). The
+# restoration target-solver previously wrote whatever lever_id
+# appeared in a failing realism row's primary_levers; multiple
+# realism rows listed "expenses::Payroll" (see lookup.py:544, 605,
+# 1005, 1116 pre-K1), so the solver wrote Payroll directly,
+# bypassing Handler C's canonical authority.
+#
+# Handler C (post_intake_headcount.schedule.estimate_payroll_
+# headcount_schedule_with_gpt) owns Payroll end-to-end via its
+# apply chain. The solver must NOT touch Payroll for the same
+# reason it must not touch cash-pass-owned levers: those domains
+# have a dedicated writer that keeps the four Payroll surfaces
+# (payroll_headcount.quarter_totals, model_input.expenses::Payroll,
+# finmo.pl.Payroll, finmo.quarter_rows.payroll) aligned. A solver
+# write to model_input only would re-introduce the P3.25 CareFirst /
+# P3.32 Caring Hands Mirror Flavor 1 divergence (V-4 verifier:
+# $44,929 Cash Q20 drift on Caring Hands workbook).
+#
+# Convention: any future "lever owned by a non-solver writer" goes
+# in this set. Currently only Payroll.
+_HANDLER_C_OWNED_LEVER_IDS = frozenset({
+  "expenses::Payroll",
+})
+
+# Union used by entry-validation and driver-kind dispatch. Every
+# lever in this union is OFF-LIMITS to the target-solver.
+_ALL_HANDLER_OWNED_LEVER_IDS = (
+  _CASH_PASS_OWNED_LEVER_IDS | _HANDLER_C_OWNED_LEVER_IDS
+)
 
 
 HORIZON_QUARTERS_DEFAULT = 20
@@ -366,6 +401,14 @@ def _driver_kind_for_lever(lever_id: str) -> str:
   lid = str(lever_id or "").strip()
   if lid in _CASH_PASS_OWNED_LEVER_IDS:
     return "cash_pass_owned"
+  # Phase 9 P3.32 K1 (F3): Payroll routes to Handler C; solver
+  # treats it as off-limits, same dispatch shape as cash-pass-owned.
+  # Callers that resolve driver bounds (e.g.
+  # restoration_loop._resolve_driver_bounds_from_primary_levers)
+  # check this kind and skip; solver entry validation rejects it
+  # if it leaks into a driver list.
+  if lid in _HANDLER_C_OWNED_LEVER_IDS:
+    return "handler_c_owned"
   if lid.startswith("balance_sheet::") and "Days" in lid:
     return "days"
   if lid.startswith("balance_sheet::") and "%" in lid:
@@ -378,8 +421,6 @@ def _driver_kind_for_lever(lever_id: str) -> str:
     return "percent_of_revenue"
   if lid.startswith("expenses::General & Administrative"):
     return "percent_of_revenue"
-  if lid.startswith("expenses::Payroll"):
-    return "quarter_currency"
   if lid.startswith("expenses::Lease"):
     return "quarter_currency"
   if lid.startswith("revenue::"):
@@ -662,20 +703,39 @@ def solve_for_target(
   with status, residuals, and per-driver bound diagnostics.
 
   Raises ``CashPassLeverViolation`` on entry if any lever in the
-  driver list is in ``_CASH_PASS_OWNED_LEVER_IDS``. Cash strategy owns
-  those end-to-end and the operating-side solver MUST NOT touch them.
+  driver list is in ``_ALL_HANDLER_OWNED_LEVER_IDS``. Cash strategy
+  owns the cash-pass set end-to-end; Handler C owns Payroll
+  end-to-end (P3.32 K1 F3); the operating-side target-solver MUST
+  NOT touch either. The exception type is shared because the
+  doctrinal violation is identical (solver crossed a handler-owned
+  boundary); the message distinguishes which boundary was crossed.
   """
-  # Authority check — hard error on cash-pass-owned lever in the driver
-  # list. Per directive: "Validate this at the entry to
-  # solve_for_target".
+  # Authority check — hard error on handler-owned lever in the driver
+  # list. Covers both _CASH_PASS_OWNED_LEVER_IDS (cash strategy) and
+  # _HANDLER_C_OWNED_LEVER_IDS (Handler C payroll authority). Per
+  # directive: "Validate this at the entry to solve_for_target".
   cash_pass_violations = [
     lid for lid in driver_lever_ids if str(lid).strip() in _CASH_PASS_OWNED_LEVER_IDS
+  ]
+  handler_c_violations = [
+    lid for lid in driver_lever_ids if str(lid).strip() in _HANDLER_C_OWNED_LEVER_IDS
   ]
   if cash_pass_violations:
     raise CashPassLeverViolation(
       "target_solver_cash_pass_lever_in_driver_list: "
       f"target={target_metric} cash_pass_levers={cash_pass_violations} "
       "(cash strategy owns these end-to-end; solver authority is operating-side only)"
+    )
+  if handler_c_violations:
+    raise CashPassLeverViolation(
+      "target_solver_handler_c_owned_lever_in_driver_list: "
+      f"target={target_metric} handler_c_owned_levers={handler_c_violations} "
+      "(Handler C — post_intake_headcount.schedule — owns these end-to-end; "
+      "P3.32 K1 F3 closure of Leak B. The realism row's primary_levers / "
+      "secondary_levers must not include Payroll, OR the upstream caller "
+      "must filter handler-c-owned levers before passing to solve_for_target. "
+      "See restoration_loop._resolve_driver_bounds_from_primary_levers for "
+      "the canonical filter pattern.)"
     )
   if len(target_ramp) != horizon:
     raise ValueError(

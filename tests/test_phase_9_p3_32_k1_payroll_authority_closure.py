@@ -47,7 +47,15 @@ reversion of P3.32 K1).
 
 from __future__ import annotations
 
+import os
+import sys
 import unittest
+
+
+HERE = os.path.abspath(os.path.dirname(__file__))
+PYTHON_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, "python"))
+if PYTHON_ROOT not in sys.path:
+  sys.path.insert(0, PYTHON_ROOT)
 
 
 _PAYROLL_LEVER_ID = "expenses::Payroll"

@@ -649,6 +649,7 @@ def _driver_bounds_for_target(
   )
   from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
     _driver_kind_for_lever,
+    _HANDLER_C_OWNED_LEVER_IDS,
   )
 
   realism_row = post_intake_finalize_realism_check_for_metric(target_metric) or {}
@@ -718,6 +719,17 @@ def _driver_bounds_for_target(
       continue
     if lid in _CASH_PASS_OWNED_LEVER_IDS:
       # Cash strategy owns these end-to-end; solver MUST NOT touch.
+      continue
+    # Phase 9 P3.32 K1 (F3): Handler C owns Payroll end-to-end via
+    # its apply chain. Skip the same way cash-pass-owned levers are
+    # skipped — the solver has no authority to write Payroll. If a
+    # realism row's primary_levers still lists Payroll, this filter
+    # makes the listing a no-op for the solver (Handler C's
+    # canonical path is the only writer). F4 also removes Payroll
+    # from the realism config in-code (lookup.py), but this filter
+    # is the structural safeguard: any future re-introduction in
+    # SQL data still cannot reach the solver.
+    if lid in _HANDLER_C_OWNED_LEVER_IDS:
       continue
 
     driver_kind = _driver_kind_for_lever(lid)

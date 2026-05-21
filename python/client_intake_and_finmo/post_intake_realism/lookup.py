@@ -541,11 +541,20 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     governs_model_input_lever_id="expenses::Payroll",
     issue_family="payroll_ratio_excess",
     remediation_family="payroll_ratio_excess",
-    primary_levers=["expenses::Payroll"],
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" from
+    # primary_levers. Handler C (post_intake_headcount.schedule) is
+    # the canonical Payroll writer; remediation routes through
+    # route_payroll_feasibility_to_handler_c (P3.26 Commit 2), not
+    # via the target-solver. The skip gate already meant this row
+    # didn't drive solver writes in practice, but listing Payroll
+    # here was misleading. Capacity/Utilization remain as
+    # secondary signals (the ratio can improve via revenue growth
+    # without touching payroll, which is solver-authored).
+    primary_levers=[],
     secondary_levers=["revenue::Capacity", "revenue::Utilization"],
     stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
     deadline_quarter=11,
-    notes="Reasonableness signal only — payroll is NOT clipped to fit revenue (Golden Rule preservation). Stays at warn because payroll/revenue NAICS coverage is uneven; out-of-band surfaces likely wage_positioning / labor_intensity_class mismatch.",
+    notes="Reasonableness signal only — payroll is NOT clipped to fit revenue (Golden Rule preservation). Stays at warn because payroll/revenue NAICS coverage is uneven; out-of-band surfaces likely wage_positioning / labor_intensity_class mismatch. Phase 9 P3.32 K1 F4: Handler C canonical Payroll writer; remediation routes via route_payroll_feasibility_to_handler_c, not target-solver primary_levers.",
   ),
   _row(
     metric_key="depreciation_percent_of_revenue",
@@ -598,11 +607,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" — Handler C
+    # canonical writer. Solver runs on the remaining 5 levers.
     primary_levers=[
       "expenses::Cost of Goods Sold",
       "expenses::Marketing",
       "expenses::General & Administrative",
-      "expenses::Payroll",
       "revenue::Unit Price",
       "revenue::Utilization",
     ],
@@ -998,11 +1008,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     gate_kind="hard_fail",
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" — Handler C
+    # canonical writer.
     primary_levers=[
       "expenses::Cost of Goods Sold",
       "expenses::Marketing",
       "expenses::General & Administrative",
-      "expenses::Payroll",
       "revenue::Unit Price",
       "revenue::Utilization",
     ],
@@ -1030,7 +1041,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
       "revenue::Unit Price",
       "revenue::Utilization",
     ],
-    secondary_levers=["expenses::Payroll"],
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" from
+    # secondary_levers. Handler C is the canonical Payroll writer.
+    secondary_levers=[],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=11,
     notes="Universal viability rule: Q5-Q11 must show EBITDA recovery (improvement quarter-over-quarter or material upward trend). Pure flat or declining trajectory in this window fails.",
@@ -1074,7 +1087,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
       "expenses::Marketing",
       "expenses::General & Administrative",
     ],
-    secondary_levers=["revenue::Unit Price", "expenses::Payroll"],
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" from
+    # secondary_levers. Handler C is the canonical Payroll writer.
+    secondary_levers=["revenue::Unit Price"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
     notes="Universal viability rule (Phase 9 P3.8): Q20 EBITDA margin must hold or improve relative to Q11. Formula returns (Q20_margin - Q11_margin) + 0.01 so the validator's >= 0 trajectory check translates to Q20 >= Q11 - 0.01. The 0.01 is a math-noise buffer, NOT a doctrinal allowance for decline. A plan that peaks at Q11 and declines back toward an industry-average that is structurally loss-making (some NAICS cohort medians) is not a viable plan.",
@@ -1109,16 +1124,25 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     gate_kind="hard_fail",
     issue_family="operating_scale_adaptation",
     remediation_family="operating_scale_adaptation",
+    # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" from
+    # primary_levers. The metric still computes (Payroll + Rent +
+    # G&A)/Revenue and still hard-fails when over the industry
+    # floor — Payroll is in the NUMERATOR but the solver cannot
+    # reduce it (Handler C is canonical writer). The remaining
+    # levers are how the solver can move this metric: revenue
+    # growth (denominator) or G&A/Lease compression. If revenue
+    # growth + G&A/Lease compression cannot bring the ratio in
+    # band, the violation surfaces as a hard fail and the operator
+    # / Handler C re-author path is the remediation route.
     primary_levers=[
       "revenue::Capacity",
       "revenue::Unit Price",
       "revenue::Utilization",
-      "expenses::Payroll",
     ],
     secondary_levers=["expenses::Lease", "expenses::General & Administrative"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=11,
-    notes="(Payroll + Rent + G&A) / Revenue at Q11 must be at industry-floor or below so the operating margin can land positive. Either revenue scaled into the cost base or the cost base trimmed to fit revenue.",
+    notes="(Payroll + Rent + G&A) / Revenue at Q11 must be at industry-floor or below so the operating margin can land positive. Either revenue scaled into the cost base or the cost base trimmed to fit revenue. Phase 9 P3.32 K1 F4: Payroll removed from primary_levers (Handler C is canonical writer); solver moves this metric via revenue growth and G&A/Lease compression.",
   ),
 ]
 
