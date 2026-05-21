@@ -2368,19 +2368,71 @@ def _run_post_cascade_completion(
         from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore
           route_payroll_feasibility_to_handler_c,
         )
+        # Phase 9 P3.32 K1 F7 — recover the RICH original payroll
+        # feasibility violations for Handler C's compactor.
+        #
+        # The orchestrator's _evaluate_gpt_authorable_pre_cash_checks
+        # translates payroll feasibility violations from
+        # payroll_revenue_feasibility_violations() into the generic
+        # failing_metric shape (actual_value/effective_min/effective_max),
+        # but it reads keys "actual_ratio" and "stage_ramp_max_ratio"
+        # that only exist on stage_ramp_expense violations — NOT on
+        # payroll feasibility violations. Result: payroll-touching
+        # failing_metrics carry actual_value=0.0 / bounds=None.
+        #
+        # If F5 passes that translated form to Handler C as failure
+        # details, Handler C's compactor (_compact_payroll_failure_for_
+        # gpt at schedule.py:514) finds no usable failure context —
+        # it looks for "violations" or "payroll_revenue_feasibility_
+        # violations" keys with fields like payroll_percent_of_revenue,
+        # effective_min_pct_with_tolerance, effective_max_pct_with_
+        # tolerance, deterministic_driver_math.
+        #
+        # Without those rich fields, GPT iterates with no feedback
+        # about what's wrong — Skyward Express timed out at 180s on
+        # this exact issue (P3.32 draft 3 investigation).
+        #
+        # Fix: recompute the violations directly from the current
+        # payroll_headcount + finmo_json state and pass them under
+        # the canonical "violations" key. The compactor finds them
+        # and feeds GPT the precise repair direction
+        # (deterministic_driver_math.required_capacity_units_per_
+        # supporting_fte_direction, etc.). Mirrors the pattern used
+        # by P3.26 Commit 2 Site B at orchestrator.py:2716+.
+        try:
+          from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
+            payroll_revenue_feasibility_violations,
+          )
+          _rich_payroll_violations = payroll_revenue_feasibility_violations(
+            payroll_headcount=payroll_headcount or {},
+            finmo_json=final_finmo_json or {},
+          ) or []
+        except Exception:
+          _rich_payroll_violations = []
         _gate_handler_c_route_attempted = True
         # Synthesize a payroll-feasibility-style failure payload from
         # the gate violations. Handler C's previous_contract_failure
-        # consumer reads {error, error_code, stage, details}.
+        # consumer reads {error, error_code, stage, details} and the
+        # compactor extracts "violations" / "payroll_revenue_
+        # feasibility_violations" arrays from details.
         _failure_code = "pre_cash_gate_payroll_violation_routed_to_handler_c"
         _failure_stage = "post_intake_pre_cash_gpt_authorable_gate"
         _failure_message = (
           f"Pre-cash gate surfaced {len(_payroll_touching)} payroll-touching "
           f"violation(s) that GPT exhaustion handler cannot fix (P3.32 K1 "
           f"closed exhaustion handler's Payroll authority). Re-authoring "
-          f"via Handler C."
+          f"via Handler C with {len(_rich_payroll_violations)} rich "
+          f"payroll_revenue_feasibility_violations for guidance."
         )
         _failure_details = {
+          # Canonical "violations" key — _compact_payroll_failure_for_
+          # gpt reads from here (schedule.py:560-564). Each violation
+          # carries payroll_percent_of_revenue, policy bounds with
+          # tolerance, repair_rule_key, and deterministic_driver_math
+          # (precise quantitative repair direction). GPT sees the
+          # actual problem and the exact fix direction.
+          "violations": _rich_payroll_violations[:20],
+          # Diagnostic-only fields (NOT consumed by the compactor):
           "payroll_touching_violations_sample": _payroll_touching[:10],
           "source_checks": sorted({
             str(v.get("source_check") or "") for v in _payroll_touching
