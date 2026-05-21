@@ -850,6 +850,57 @@ def headcount_payroll_revenue_sanity_bounds(
   return {"min_pct": float(min_pct), "max_pct": float(max_pct)}
 
 
+def intensity_classes_accepting_target_payroll_pct(
+  target_payroll_pct: float,
+  *,
+  policy_code: Any = "default",
+) -> List[Dict[str, Any]]:
+  """Phase 9 P3.32 K1 K8 — return the list of labor_intensity_class
+  options whose payroll_revenue_sanity_bounds INCLUDE the given
+  target_payroll_pct value.
+
+  Doctrine context: when Handler C's GPT picks a labor_intensity_
+  class whose bounds reject the GPT-emitted target_payroll_percent_
+  of_revenue, the iterative refinement loop previously surfaced
+  only the rejection for the CURRENT class. GPT had no signal that
+  changing the class to one that accepts the value would clear the
+  validation. K8 surfaces alternative classes so GPT can switch
+  EITHER class OR value.
+
+  Returns a list sorted by class name (deterministic ordering for
+  prompt stability). Each entry: {labor_intensity_class, min_pct,
+  max_pct}. Empty list when no class accepts the value (legitimately
+  out-of-policy for every class in the policy).
+  """
+  try:
+    policy = post_intake_headcount_policy_for(policy_code=policy_code) or {}
+  except Exception:
+    return []
+  bounds_map = policy.get("payroll_revenue_sanity_bounds")
+  if not isinstance(bounds_map, dict):
+    return []
+  try:
+    value = float(target_payroll_pct)
+  except Exception:
+    return []
+  alternatives: List[Dict[str, Any]] = []
+  for class_name, bounds in bounds_map.items():
+    if not isinstance(bounds, dict):
+      continue
+    min_pct = _float_or_none(bounds.get("min_pct"))
+    max_pct = _float_or_none(bounds.get("max_pct"))
+    if min_pct is None or max_pct is None or min_pct <= 0.0 or max_pct < min_pct:
+      continue
+    if float(min_pct) <= value <= float(max_pct):
+      alternatives.append({
+        "labor_intensity_class": str(class_name).lower(),
+        "min_pct": round(float(min_pct), 6),
+        "max_pct": round(float(max_pct), 6),
+      })
+  alternatives.sort(key=lambda item: item.get("labor_intensity_class") or "")
+  return alternatives
+
+
 def build_empty_payroll_headcount_payload(
   *,
   draft_id: Any = "",

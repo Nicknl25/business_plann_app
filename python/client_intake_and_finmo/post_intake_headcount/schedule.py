@@ -1957,29 +1957,19 @@ def _assert_payroll_contract_economic_feasible_for_retry(
 
 
 # ---------------------------------------------------------------------------
-# Phase 9 P3.11 — Payroll iterative refinement constants + machinery
-# fail-fast helpers.
+# Phase 9 P3.32 K9 — Handler C tool-calling migration (Stage B).
 #
-# The 10-round hard cap on payroll GPT iterations. Sequential GPT
-# calls in a feedback loop until validators accept or the cap fires.
-# Equivalent in spirit to the funding / stage-ramp handler tool-call
-# budgets (HARD_CAP_TOOL_CALLS = 10) but the payroll pattern is
-# direct GPT iteration (no tool-calling session), matching the
-# convergence pattern documented in doctrine.md §6.
+# The pre-K9 iterative refinement loop (text.format.type=json_schema
+# strict, 10 rounds, per-round REPLACE-only feedback packet, K8
+# enrichment buried in user-message JSON) has been deleted. Handler
+# C now uses the canonical tool-calling session pattern shared with
+# H2 (exhaustion), H3 (funding), H4 (stage_ramp). See
+# tool_calling_session.py in this package and doctrine.md §10.4.
+#
+# The Layer dispatch codes below remain — the propose tool dispatcher
+# imports them when translating exceptions raised by the validator
+# chain into the structured tool result that goes back to GPT.
 # ---------------------------------------------------------------------------
-
-_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS: int = 10
-
-# Contextvar tracks the per-loop GPT call count for round-count-drift
-# detection (machinery fail-fast invariant #2).
-import contextvars as _payroll_contextvars  # noqa: E402
-
-_PAYROLL_ITER_GPT_CALL_COUNT: "_payroll_contextvars.ContextVar[Optional[int]]" = (
-  _payroll_contextvars.ContextVar(
-    "payroll_iterative_refinement_gpt_call_count",
-    default=None,
-  )
-)
 
 # Layer A.2 wrapper codes — those whose ``details["errors"]`` carry
 # Layer A.2 token-format codes from validate_payroll_headcount_payload.
@@ -1993,188 +1983,18 @@ _PAYROLL_LAYER_A2_WRAPPER_CODES = frozenset({
 _PAYROLL_LAYER_A3_CODE = "payroll_revenue_economic_feasibility_failed"
 
 
-def _payroll_iterative_machinery_fail_fast(
-  operation: str,
-  message: str,
-  details: Optional[Dict[str, Any]] = None,
-) -> None:
-  """Hard-stop on a payroll-iterative-refinement machinery
-  malfunction. Distinct from :func:`_payroll_fail_fast` (which fires
-  on validator/business-logic failures). Machinery fail-fasts name
-  the specific broken component so an engineer can fix the
-  iteration infrastructure itself.
-  """
-  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-    PostIntakePreconditionFailed,
-  )
-  raise PostIntakePreconditionFailed(
-    operation=str(operation or "").strip() or "payroll_iterative_refinement_machinery_violation",
-    pipeline_stage="payroll_iterative_refinement",
-    expected="payroll iterative-refinement machinery intact",
-    actual=str(message or "").strip()[:600],
-    details=details or {},
-  )
-
-
-def _assert_payroll_iterative_state_intact(
-  *,
-  round_n: int,
-  user_context: Any,
-  payload_base: Any,
-) -> None:
-  """Invariant #3: state corruption check between rounds. Every
-  retry round must enter with a well-formed context and payload base.
-  """
-  if not isinstance(user_context, dict) or not user_context:
-    _payroll_iterative_machinery_fail_fast(
-      "payroll_iterative_refinement_state_corruption",
-      f"round {round_n} entered with malformed user_context",
-      details={
-        "round_n": int(round_n),
-        "user_context_type": type(user_context).__name__,
-      },
-    )
-  if not isinstance(payload_base, dict) or "text" not in payload_base:
-    _payroll_iterative_machinery_fail_fast(
-      "payroll_iterative_refinement_state_corruption",
-      f"round {round_n} entered with malformed payload_base",
-      details={
-        "round_n": int(round_n),
-        "payload_base_type": type(payload_base).__name__,
-        "payload_base_keys": (
-          sorted(payload_base.keys()) if isinstance(payload_base, dict) else None
-        ),
-      },
-    )
-
-
-def _assert_payroll_iterative_budget_decoupled(*, round_n: int) -> None:
-  """Invariant #6: budget decoupling. The payroll iterative loop uses
-  ``_post_openai`` directly, which does not consume the run-wide GPT
-  call budget. If a future refactor routes the call through
-  ``call_gpt_responses_api_turn`` without ``counts_against_run_budget=
-  False``, the run-wide budget would be commingled. This guard fires
-  early on the unsupported configuration so the malfunction surfaces
-  at the iteration scope, not silently downstream.
-
-  The check is structural: there must be a non-None contextvar value
-  before the call (set by the loop entry), guaranteeing the call is
-  bounded by this loop's hard cap rather than the run-wide budget.
-  """
-  count = _PAYROLL_ITER_GPT_CALL_COUNT.get()
-  if count is None:
-    _payroll_iterative_machinery_fail_fast(
-      "payroll_iterative_refinement_budget_decoupling_violation",
-      (
-        f"round {round_n} reached the GPT call site without the "
-        "payroll iterative scope's contextvar set. The loop's "
-        "hard cap is the only bound on these calls; without the "
-        "contextvar, a refactor could leak the call onto the "
-        "run-wide GPT budget."
-      ),
-      details={"round_n": int(round_n)},
-    )
-
-
-def _build_payroll_iterative_feedback_packet(
-  *,
-  exc: BaseException,
-  parsed: Optional[Dict[str, Any]],
-  round_n: int,
-) -> Dict[str, Any]:
-  """Dispatch by exception code → one of three feedback paths.
-
-  Class A — Layer A.2 token codes via translator (raises on unmatched
-              per the translator's fail-fast invariant).
-  Class B — verbatim Layer A.1 contract-table prose errors.
-  Class C — Layer A.3 economic feasibility via the existing
-              ``_compact_payroll_failure_for_gpt`` mechanism.
-  """
-  details_raw = getattr(exc, "details", {})
-  details = details_raw if isinstance(details_raw, dict) else {}
-  exc_code = str(getattr(exc, "code", "") or "").strip()
-  exc_message = str(exc) or ""
-  # The parsed dict may have been mutated by the success path before
-  # the exception fired — it may now contain raw_openai_response /
-  # prompt_context which would introduce a circular reference (the
-  # raw_openai_response wraps the same parsed dict). Strip those
-  # before dumping; the excerpt is for GPT's prompt only, not for
-  # storage.
-  if isinstance(parsed, dict):
-    excerpt_source = {
-      k: v for k, v in parsed.items()
-      if k not in {"raw_openai_response", "prompt_context"}
-    }
-    try:
-      invalid_excerpt = json.dumps(excerpt_source, ensure_ascii=False, default=str)[:6000]
-    except Exception:
-      invalid_excerpt = ""
-  else:
-    invalid_excerpt = ""
-
-  if exc_code == _PAYROLL_LAYER_A3_CODE:
-    compact_source: Dict[str, Any] = {
-      "error": exc_message,
-      "violations": details.get("violations") or [],
-    }
-    for key, value in details.items():
-      if key != "violations":
-        compact_source[key] = value
-    return {
-      "feedback_class": "economic_feasibility",
-      "round_n": int(round_n),
-      "error": exc_message[:6000],
-      "compacted_violations": _compact_payroll_failure_for_gpt(compact_source),
-      "invalid_response_excerpt": invalid_excerpt,
-    }
-
-  if exc_code in _PAYROLL_LAYER_A2_WRAPPER_CODES:
-    from client_intake_and_finmo.post_intake_headcount.payroll_validator_translator import (  # type: ignore
-      translate_payroll_validator_codes,
-    )
-    codes = details.get("errors") or []
-    translated = translate_payroll_validator_codes(codes)
-    # Invariant #4: translator output well-formed. The translator
-    # itself raises on malformation; this is the post-call guard at
-    # the iteration boundary.
-    if not isinstance(translated, dict) or "structured_failures" not in translated:
-      _payroll_iterative_machinery_fail_fast(
-        "payroll_validator_translator_malformed_output",
-        "translator returned malformed result",
-        details={"translated_type": type(translated).__name__},
-      )
-    if codes and not translated.get("structured_failures"):
-      _payroll_iterative_machinery_fail_fast(
-        "payroll_validator_translator_malformed_output",
-        (
-          f"translator returned empty structured_failures despite "
-          f"{len(codes)} input code(s); iteration cannot refine"
-        ),
-        details={"input_codes": list(codes)[:10]},
-      )
-    return {
-      "feedback_class": "schedule_validation",
-      "round_n": int(round_n),
-      "error": exc_message[:6000],
-      "translated_failures": translated["structured_failures"],
-      "invalid_response_excerpt": invalid_excerpt,
-    }
-
-  # Class B — verbatim contract-table errors. Layer A.1 prose codes
-  # land here (and any other non-A.2/A.3 FailFastError raised by the
-  # validation chain). GPT sees the prose strings as-is.
-  raw_errors = details.get("errors") or []
-  contract_table_errors = [str(item)[:500] for item in raw_errors][:20] or [
-    exc_message[:500]
-  ]
-  return {
-    "feedback_class": "contract_table",
-    "round_n": int(round_n),
-    "error": exc_message[:6000],
-    "contract_table_errors": contract_table_errors,
-    "exc_code": exc_code,
-    "invalid_response_excerpt": invalid_excerpt,
-  }
+# Phase 9 P3.32 K9 — deleted pre-K9 iterative-refinement machinery:
+#   `_payroll_iterative_machinery_fail_fast`,
+#   `_assert_payroll_iterative_state_intact`,
+#   `_assert_payroll_iterative_budget_decoupled`,
+#   `_build_payroll_iterative_feedback_packet` (incl. its K8
+#     enrichment block),
+#   `_PAYROLL_ITER_GPT_CALL_COUNT` contextvar,
+#   `_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS` constant.
+# Their roles are now expressed against the tool-calling session
+# machinery in tool_calling_session.py (K8 enrichment lives in
+# Tool 3's structured_failures.alternatives.accepting_classes,
+# IN-LINE in the tool result). See doctrine.md §10.4.
 
 
 def estimate_payroll_headcount_schedule_with_gpt(
@@ -2193,25 +2013,33 @@ def estimate_payroll_headcount_schedule_with_gpt(
   client_id: Any = "",
   previous_contract_failure: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  """Phase 9 P3.11 — payroll iterative refinement.
+  """Phase 9 P3.32 K9 — payroll tool-calling session.
 
-  The function runs up to ``_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS = 10``
-  sequential GPT rounds. Each round validates the parsed contract
-  via Layers A.1 + A.2 + A.3; on failure, the structured feedback
-  packet is dispatched by exception class and threaded into the next
-  round's ``previous_contract_failure``. The outer
-  ``payroll_grid_rebuild_limit`` retry loop in initial_grid is
-  removed — initial_grid runs are pure new authoring.
+  Migrated from the pre-K9 strict-mode iterative-refinement loop
+  (10 rounds, per-round payload rebuild, REPLACE-only feedback
+  packet, K8 enrichment buried in user-message JSON) to a
+  tool-calling session matching H2/H3/H4. See
+  ``tool_calling_session.run_payroll_tool_calling_session`` and
+  doctrine.md §10.4.
+
+  GPT iterates by calling three tools:
+    1. ``get_payroll_revenue_sanity_bounds(class)`` — authoritative
+       per-class + all-class bounds.
+    2. ``find_classes_accepting_target_payroll_pct(target)`` —
+       accepting + rejecting class partition for a target value.
+    3. ``propose_payroll_headcount_schedule(<full contract>)`` —
+       runs Layers A.1 + A.2 + A.3 and returns the validator
+       outcome with K8 enrichment IN-LINE in structured_failures.
 
   When called from the convergence runner's payroll-repair path,
-  ``previous_contract_failure`` carries the downstream-detected
-  failure context (e.g., post-quarter-grid feasibility violation).
-  When set, the loop seeds Round 1 with that context before
-  invoking GPT.
+  ``previous_contract_failure`` is threaded into the initial user
+  prompt as a Round-1 seed (instead of the deleted per-round
+  ``previous_contract_failure`` JSON envelope).
 
-  Machinery fail-fasts (7 invariants) protect the iteration mechanics:
-  see ``_payroll_iterative_machinery_fail_fast`` and the
-  ``_assert_payroll_iterative_*`` helpers above.
+  Budget: HARD_CAP_TOOL_CALLS=10 (flat, no two-phase). On hard cap
+  without verified commit, hard-fails with
+  ``payroll_tool_calling_session_exhausted`` — payroll commits must
+  be validator-accepted (no best-effort fallback).
   """
   _assert_payroll_sequence_step(
     allowed_step_keys=["payroll_gpt_contract_request", "payroll_feasibility_repair"],
@@ -2219,13 +2047,6 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "estimate_payroll_headcount_schedule_with_gpt",
       "retry_payroll_headcount_schedule_from_feasibility_failure",
     ],
-  )
-  # P3.21 Part 2 housekeeping -- import the structured machinery
-  # exception in function scope so the iteration loop's
-  # `except PostIntakePreconditionFailed: raise` can route machinery
-  # violations past the GPT-retry catch.
-  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-    PostIntakePreconditionFailed,
   )
   api_key = _openai_key()
   if not api_key:
@@ -2349,25 +2170,9 @@ def estimate_payroll_headcount_schedule_with_gpt(
         f"chars={context_chars} budget={int(context_budget)}",
         stage="payroll_headcount_contract_request",
       )
-  payload_base = {
-    "model": _openai_model(),
-    "temperature": 0,
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": PAYROLL_HEADCOUNT_CONTRACT_NAME,
-        "schema": post_intake_gpt_contract_openai_schema(
-          contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
-          business_naics=str((ops_json or {}).get("business_naics_6") or "").strip() or None,
-        ),
-        "strict": True,
-      }
-    },
-  }
   sequence_settings = _payroll_process_sequence_settings(
     step_key="payroll_gpt_contract_request",
   )
-  timeout_seconds = float(sequence_settings.get("timeout_seconds") or 180.0)
   post_intake_assert_process_object_control(
     step_key="payroll_headcount_schedule",
     object_name="payroll_headcount",
@@ -2380,265 +2185,69 @@ def estimate_payroll_headcount_schedule_with_gpt(
     trigger="initial_build",
   )
 
-  # ---- Phase 9 P3.11 — iterative refinement loop ---------------------------
+  # ---- Phase 9 P3.32 K9 — tool-calling session delegation ----------------
   #
-  # Up to ``_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS`` (10) sequential GPT
-  # calls in a feedback loop. On each round we run the same three
-  # validators (A.1 contract → A.2 build/payload → A.3 economic
-  # feasibility); on failure the feedback packet is built per
-  # exception class and threaded into the next round.
-  total_start = time.perf_counter()
-  # Seed the loop's failure feedback from any externally-supplied
-  # previous_contract_failure (convergence-time payroll-repair calls
-  # pass a downstream-detected failure context that should seed
-  # Round 1's prompt). When called fresh from initial_grid, this is
-  # always None and Round 1 has no prior failure context.
-  last_failure_packet: Optional[Dict[str, Any]] = None
+  # GPT iterates by calling tools (get_payroll_revenue_sanity_bounds,
+  # find_classes_accepting_target_payroll_pct, propose_payroll_head
+  # count_schedule). The session module owns the conversation loop;
+  # this function delegates after building the operating-context
+  # payload that goes into the initial user prompt.
+  from client_intake_and_finmo.post_intake_headcount.tool_calling_session import (  # type: ignore
+    run_payroll_tool_calling_session,
+  )
+
+  external_seed_text: Optional[str] = None
   if isinstance(previous_contract_failure, dict) and previous_contract_failure:
-    last_failure_packet = {
-      "feedback_class": "external_caller_seed",
-      "round_n": 0,
-      "error": str(previous_contract_failure.get("error") or "")[:6000],
-      "compacted_violations": _compact_payroll_failure_for_gpt(previous_contract_failure),
-      "invalid_response_excerpt": "",
-    }
-  last_parsed: Dict[str, Any] = {}
-  last_exc_code: str = ""
-  last_exc_message: str = ""
-  raw_openai_response: Dict[str, Any] = {}
+    compacted = _compact_payroll_failure_for_gpt(previous_contract_failure)
+    external_seed_text = json.dumps(
+      {
+        "source": "convergence_runner_payroll_repair",
+        "error": str(previous_contract_failure.get("error") or "")[:3000],
+        "compacted_violations": compacted,
+      },
+      ensure_ascii=False,
+      default=str,
+    )[:8000]
 
-  iter_token = _PAYROLL_ITER_GPT_CALL_COUNT.set(0)
-  try:
-    for round_n in range(1, _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS + 1):
-      # Invariant #3: state corruption between rounds.
-      _assert_payroll_iterative_state_intact(
-        round_n=round_n,
-        user_context=user_context,
-        payload_base=payload_base,
-      )
+  business_naics = str((ops_json or {}).get("business_naics_6") or "").strip() or None
+  session_result = run_payroll_tool_calling_session(
+    request_context=user_context,
+    policy=policy or {},
+    business_naics=business_naics,
+    draft_id=draft_id,
+    client_id=client_id,
+    model_input_json=model_input_json,
+    business_facts=business_facts,
+    ops_json=ops_json,
+    resolved_people_json=resolved_people_json,
+    external_seed_text=external_seed_text,
+  )
 
-      # Total-budget cycle guard preserved from the prior implementation.
-      elapsed_before_attempt = time.perf_counter() - total_start
-      remaining_seconds = max(0.0, timeout_seconds - elapsed_before_attempt)
-      if remaining_seconds < 15.0:
-        _payroll_fail_fast(
-          "payroll_headcount_contract_timeout",
-          f"GPT headcount schedule exceeded total {timeout_seconds:.0f}s payroll cycle budget before convergence.",
-          stage="payroll_headcount_contract_request",
-          details={
-            "round_n": round_n,
-            "hard_cap_rounds": _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS,
-            "elapsed_seconds": round(float(elapsed_before_attempt), 2),
-            "timeout_seconds": timeout_seconds,
-            "source_table": sequence_settings.get("source_table"),
-            "step_key": sequence_settings.get("step_key"),
-          },
-        )
+  if session_result.status == "verified" and session_result.schedule_payload is not None:
+    return session_result.schedule_payload
 
-      # Build this round's request context. The base ``user_context``
-      # is unchanged across rounds; only ``previous_contract_failure``
-      # carries the feedback from the previous round.
-      request_context = deepcopy(user_context)
-      if last_failure_packet is not None:
-        request_context["previous_contract_failure"] = {
-          "source_of_truth": "post_intake_headcount_policy_lookup + payroll_headcount_schedule validators (A.1/A.2/A.3)",
-          "required_action": (
-            "Return a corrected full payroll_headcount_schedule. The "
-            "structured failures below name the specific fields and "
-            "constraints that tripped. Revise ONLY the fields named in "
-            "the failures; keep all other fields unchanged unless a "
-            "structural cascade is required. The iterative refinement "
-            f"system gives you up to {_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS} "
-            "total rounds; this is round "
-            f"{int(last_failure_packet.get('round_n') or (round_n - 1))} of "
-            f"{_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS}. Choose "
-            "capacity_labor_model/labor_intensity_class from "
-            "payroll_decision_options. For payroll/revenue feasibility "
-            "failures, read payroll_feasibility_mapping.rows[]."
-            "repair_direction_rules from sql.post_intak_mapping_lookup "
-            "and apply those directions exactly. Select every "
-            "oews_occ_title exactly from the full NAICS oews_title_"
-            "catalog.title_candidates."
-          ),
-          **last_failure_packet,
-        }
-
-      system_prompt = post_intake_build_prompt_from_contract(
-        PAYROLL_HEADCOUNT_CONTRACT_NAME,
-        context_payload=request_context,
-        include_phase="pre_convergence",
-        static_instruction=(
-          "Decide the payroll headcount schedule using business judgment inside the SQL-defined "
-          "payroll_headcount_schedule contract. GPT only supplies selected OEWS titles and FTE rows. "
-          "Python injects key people from intake, resolves wages from the selected OEWS catalog title, calculates payroll dollars, "
-          "applies table-backed wage positioning and 3 percent annual wage inflation, "
-          "and validates the final schedule against post_intake_headcount_policy_lookup."
-        ),
-        task_instruction=(
-          "Return only JSON matching payroll_headcount_schedule. Use the stage_ramp_contract as context, "
-          "but do not change ramp. First choose capacity_labor_model, labor_intensity_class, wage_positioning_tier, "
-          "wage_positioning_multiplier, target_payroll_percent_of_revenue, and capacity_units_per_supporting_fte "
-          "from payroll_decision_options where enumerated, with capacity_units_per_supporting_fte as GPT's positive business-specific productivity assumption. "
-          "Do not infer hidden defaults: every root payroll assumption is GPT business judgment selected inside the SQL-rendered option rows. "
-          "Then output supporting-staff oews_occ_title, starting_fte, hires, ending_fte, and benefits percent only. "
-          "Each oews_occ_title must be an exact occ_title from the full NAICS oews_title_catalog.title_candidates. "
-          "Do not invent abstract staffing families, staffing categories, aliases, or non-OEWS staffing buckets. "
-          "Only include OEWS titles that carry FTE at some point in the 20-quarter schedule; once a title starts, it must continue through Q20. "
-          "A payroll_headcount_grid row means the title is actually hired; do not include hypothetical, placeholder, unused, or zero-FTE roles. "
-          "For every oews_occ_title you include, at least one quarter must have starting_fte or ending_fte greater than 0. "
-          "If prior failure says a title had zero FTE in every quarter, fix it by assigning real FTE to that same selected business role or by choosing a different real hired title with positive FTE; never return another all-zero title. "
-          "If prior failure involves payroll/revenue feasibility, use payroll_feasibility_mapping from sql.post_intak_mapping_lookup "
-          "for the allowed direction of payroll, capacity, price, utilization, and productivity movements. "
-          "When previous_contract_failure includes gpt_repair_constraints, treat its capacity_units_per_supporting_fte "
-          "cap or floor as binding across all violating quarters and choose the recommended value or more conservative. "
-          "Use the OEWS titles needed to operate the business; one catch-all staffing bucket is invalid. "
-          "Do not provide wages and do not include key people; Python owns those. "
-          "Use payroll_capacity_grid as operating context only. Do not force FTE to a hard capacity demand floor; "
-          "Python will derive payroll-supported Capacity from average FTE and capacity_units_per_supporting_fte, "
-          "then revenue will be constrained by that supported Capacity. "
-          "For title continuity, Qn starting_fte must equal that same title's Q(n-1) ending_fte; increases belong in hires, not starting_fte jumps. "
-          "Your business decision is the exact OEWS title set and each title's Q1-Q20 starting_fte, hires, and ending_fte schedule. "
-          "target_payroll_percent_of_revenue is a decimal in [min_pct, max_pct] for the chosen labor_intensity_class (e.g., for medium intensity the band is 0.10..0.55). Example: 0.45 means 45 percent of revenue. Do NOT emit 45 (which would be 4500 percent) and do NOT emit 0.045 (which would be 4.5 percent). "
-          "target_payroll_percent_of_revenue is context, but payroll_revenue_sanity_bounds from the headcount policy table are a real feasibility check; do not staff by clipping payroll to a percentage. "
-          "Payroll FTE creates supported capacity, and supported capacity constrains revenue. "
-          "ITERATIVE REFINEMENT: If your initial plan fails validation, you will receive structured failures naming the field, the actual value, the required range, and the failure category. Revise ONLY the fields named in the failures; keep all other fields unchanged unless a cascade is required. You have up to "
-          f"{_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS} total rounds."
-        ),
-      )
-      payload = deepcopy(payload_base)
-      payload["input"] = [
-        {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-        {"role": "user", "content": [{"type": "input_text", "text": json.dumps(request_context, ensure_ascii=False)}]},
-      ]
-
-      # Invariant #6: budget decoupling guard. Fires if the contextvar
-      # is None (loop bypassed) — defensive against future refactors
-      # that bypass the iterative scope.
-      _assert_payroll_iterative_budget_decoupled(round_n=round_n)
-      # Invariant #2: round count drift. Increment counter, verify
-      # invariant holds (one GPT call per round, counter monotonic).
-      pre_call_count = _PAYROLL_ITER_GPT_CALL_COUNT.get()
-      if pre_call_count != round_n - 1:
-        _payroll_iterative_machinery_fail_fast(
-          "payroll_iterative_refinement_round_count_drift",
-          f"round_n={round_n} but gpt_call_count was {pre_call_count} pre-call",
-          details={"round_n": round_n, "gpt_call_count": pre_call_count},
-        )
-
-      resp = _post_openai(
-        url="https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        payload=payload,
-        timeout_seconds=remaining_seconds,
-      )
-      _PAYROLL_ITER_GPT_CALL_COUNT.set(pre_call_count + 1)
-
-      total_elapsed = time.perf_counter() - total_start
-      if total_elapsed > timeout_seconds:
-        _payroll_fail_fast(
-          "payroll_headcount_contract_timeout",
-          f"GPT headcount schedule exceeded total {timeout_seconds:.0f}s payroll cycle budget; elapsed={total_elapsed:.2f}s.",
-          stage="payroll_headcount_contract_request",
-          details={
-            "round_n": round_n,
-            "elapsed_seconds": round(float(total_elapsed), 2),
-            "timeout_seconds": timeout_seconds,
-            "source_table": sequence_settings.get("source_table"),
-            "step_key": sequence_settings.get("step_key"),
-          },
-        )
-      if resp.status_code >= 400:
-        _payroll_fail_fast(
-          "payroll_headcount_contract_openai_status",
-          resp.text[:1200],
-          stage="payroll_headcount_contract_request",
-        )
-      raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-      parsed = _parse_responses_json_dict(raw_openai_response)
-      if not isinstance(parsed, dict):
-        # Invariant #5: parse failure stays as the existing
-        # _payroll_fail_fast (preserved per directive). Build a
-        # parse-feedback packet so the next round sees the failure.
-        last_exc_code = "payroll_headcount_contract_parse_failed"
-        last_exc_message = "GPT did not return a JSON object."
-        last_failure_packet = {
-          "feedback_class": "parse_failure",
-          "round_n": round_n,
-          "error": last_exc_message,
-          "invalid_response_excerpt": str(raw_openai_response)[:6000],
-        }
-        if round_n < _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS:
-          continue
-        _payroll_fail_fast(
-          "payroll_headcount_contract_parse_failed",
-          "GPT did not return a JSON object across all iterative refinement rounds.",
-          stage="payroll_headcount_contract_response",
-          details={
-            "rounds_used": round_n,
-            "hard_cap_rounds": _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS,
-          },
-        )
-
-      last_parsed = deepcopy(parsed)
-      try:
-        contract = validate_payroll_headcount_contract_payload(parsed)
-        contract["prompt_context"] = request_context
-        contract["raw_openai_response"] = raw_openai_response
-        schedule_payload = build_payroll_headcount_payload_from_contract(
-          contract,
-          draft_id=draft_id,
-          client_id=client_id,
-          model_input_json=model_input_json,
-          business_facts=business_facts,
-          ops_json=ops_json,
-          people_json=resolved_people_json,
-        )
-        _assert_payroll_contract_economic_feasible_for_retry(
-          payroll_headcount=deepcopy(schedule_payload),
-          model_input_json=deepcopy(model_input_json),
-          stage="payroll_headcount_contract_economic_feasibility",
-        )
-        return schedule_payload
-      except PostIntakePreconditionFailed:
-        # P3.21 Part 2 housekeeping -- machinery violations (e.g., the
-        # validator-translator's `payroll_validator_translator_
-        # unmatched_code` raised from validate_payroll_headcount_
-        # contract_payload's translation layer) are NOT GPT-fixable
-        # and must NOT be routed through GPT retry. Re-raise
-        # immediately so the diagnostic propagates with its
-        # PostIntakePreconditionFailed structure intact, instead of
-        # being coalesced into the iteration's residual
-        # last_exc_message text.
-        raise
-      except RuntimeError as exc:
-        last_exc_code = str(getattr(exc, "code", "") or "")
-        last_exc_message = str(exc) or ""
-        last_failure_packet = _build_payroll_iterative_feedback_packet(
-          exc=exc,
-          parsed=parsed,
-          round_n=round_n,
-        )
-        # Continue to next round.
-  finally:
-    _PAYROLL_ITER_GPT_CALL_COUNT.reset(iter_token)
-
-  # Exhausted hard cap with residual failure. Hard-fail with the
-  # specific residual diagnostic per the directive.
+  # No verified-commit-candidate in the budget. Hard-fail per K9
+  # design memo Q2 (payroll commits must be validator-accepted; no
+  # best-effort fallback).
   _payroll_fail_fast(
-    "payroll_iterative_refinement_exhausted",
+    "payroll_tool_calling_session_exhausted",
     (
-      f"Payroll iterative refinement did not produce a validator-accepted "
-      f"schedule in {_PAYROLL_ITERATIVE_HARD_CAP_ROUNDS} rounds. "
-      f"Final round failure: {last_exc_code}: {last_exc_message[:1200]}"
+      f"Payroll tool-calling session did not produce a validator-accepted "
+      f"schedule within HARD_CAP_TOOL_CALLS tool calls. "
+      f"Final propose failure: "
+      f"{session_result.last_validator_error_code}: "
+      f"{(session_result.last_validator_error_text or '')[:1200]}"
     ),
-    stage="payroll_headcount_iterative_refinement",
+    stage="payroll_tool_calling_session",
     details={
-      "rounds_used": _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS,
-      "hard_cap_rounds": _PAYROLL_ITERATIVE_HARD_CAP_ROUNDS,
-      "final_failure_code": last_exc_code,
-      "final_failure_message": last_exc_message[:3000],
-      "final_failure_packet": last_failure_packet,
-      "raw_payroll_headcount_response": last_parsed,
+      "tool_calls_used": int(session_result.tool_calls_used),
+      "gpt_calls_made": int(session_result.gpt_calls_made),
+      "final_validator_error_code": session_result.last_validator_error_code,
+      "final_validator_error_text": (session_result.last_validator_error_text or "")[:3000],
+      "tool_call_history": [rec.to_dict() for rec in session_result.tool_call_history],
+      "session_detail": session_result.detail,
+      "source_table": sequence_settings.get("source_table"),
+      "step_key": sequence_settings.get("step_key"),
     },
   )
   return {}

@@ -163,7 +163,7 @@ class TestIsPayrollFeasibilityFailureRecognition(unittest.TestCase):
       "balance_sheet_reconciliation_failed",
       "payroll_finmo_rebuild_validation_failed",
       "payroll_headcount_contract_timeout",
-      "payroll_iterative_refinement_exhausted",
+      "payroll_tool_calling_session_exhausted",
     ):
       exc = self._make_fail_fast_error(code=code)
       self.assertFalse(

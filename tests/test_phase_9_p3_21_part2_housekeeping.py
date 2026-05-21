@@ -47,6 +47,10 @@ _PAYROLL_SCHEDULE = (
   _REPO_ROOT / "python" / "client_intake_and_finmo"
   / "post_intake_headcount" / "schedule.py"
 )
+_PAYROLL_TOOL_CALLING_SESSION = (
+  _REPO_ROOT / "python" / "client_intake_and_finmo"
+  / "post_intake_headcount" / "tool_calling_session.py"
+)
 
 
 class HandlerAStaleDocstringFixedTests(unittest.TestCase):
@@ -136,46 +140,58 @@ class HandlerBSite2RebuildErrorCapturedTests(unittest.TestCase):
 
 
 class HandlerCPostIntakePreconditionFailedReraisedTests(unittest.TestCase):
+  """P3.21 Part 2 housekeeping pin: machinery violations
+  (PostIntakePreconditionFailed) must propagate immediately,
+  NEVER be routed through the GPT retry path.
+
+  P3.32 K9 migration relocated the relevant try/except from
+  schedule.estimate_payroll_headcount_schedule_with_gpt (deleted
+  iterative refinement loop) to
+  tool_calling_session._dispatch_propose (the propose tool's
+  validator-chain dispatcher). The doctrine pin is unchanged;
+  the structural location moved.
+  """
 
   def setUp(self) -> None:
-    self._src = _PAYROLL_SCHEDULE.read_text(encoding="utf-8")
+    self._src = _PAYROLL_TOOL_CALLING_SESSION.read_text(encoding="utf-8")
 
-  def test_post_intake_precondition_failed_imported_in_function_scope(self) -> None:
-    """PostIntakePreconditionFailed must be imported within
-    estimate_payroll_headcount_schedule_with_gpt so the new
-    explicit re-raise in the iteration loop resolves the name."""
-    # Locate the function.
-    fn_idx = self._src.find(
-      "def estimate_payroll_headcount_schedule_with_gpt("
-    )
+  def test_post_intake_precondition_failed_imported_in_dispatch_scope(self) -> None:
+    """The propose dispatcher must import PostIntakePreconditionFailed
+    so its explicit re-raise resolves the name."""
+    fn_idx = self._src.find("def _dispatch_propose(")
     self.assertGreater(fn_idx, 0)
-    # Find the next top-level `def` to bound the function body.
     next_def_idx = self._src.find("\ndef ", fn_idx + 1)
     self.assertGreater(next_def_idx, fn_idx)
     fn_body = self._src[fn_idx:next_def_idx]
     self.assertIn(
       "from client_intake_and_finmo.fail_fast.common import",
       fn_body,
-      "fail_fast.common must be imported inside estimate_payroll_headcount_schedule_with_gpt",
+      "fail_fast.common must be imported inside _dispatch_propose",
     )
     self.assertIn(
       "PostIntakePreconditionFailed",
       fn_body,
-      "PostIntakePreconditionFailed must be imported into function scope",
+      "PostIntakePreconditionFailed must be imported into dispatch scope",
     )
 
   def test_explicit_reraise_precedes_runtime_error_catch(self) -> None:
-    """The validator/feasibility try-block at schedule.py:2576 must
-    catch PostIntakePreconditionFailed explicitly (re-raise) BEFORE
-    its `except RuntimeError`, so machinery violations propagate
-    immediately instead of being routed through GPT retry."""
-    # Anchor on the validator call site.
+    """The propose dispatcher's validator try-block must catch
+    PostIntakePreconditionFailed (re-raise) BEFORE its
+    `except RuntimeError`, so machinery violations propagate
+    immediately instead of being routed through the validator-
+    feedback path."""
+    try_idx = self._src.find("try:")
+    self.assertGreater(try_idx, 0)
+    # The validator try-block in _dispatch_propose is the first one
+    # after the function definition.
+    fn_idx = self._src.find("def _dispatch_propose(")
+    self.assertGreater(fn_idx, 0)
     validate_idx = self._src.find(
-      "contract = validate_payroll_headcount_contract_payload(parsed)"
+      "contract = validate_payroll_headcount_contract_payload(args)",
+      fn_idx,
     )
     self.assertGreater(validate_idx, 0)
-    # Slice a window covering the try-block + except handlers.
-    block = self._src[validate_idx:validate_idx + 2500]
+    block = self._src[validate_idx:validate_idx + 4000]
     pp_idx = block.find("except PostIntakePreconditionFailed:")
     rt_idx = block.find("except RuntimeError as exc:")
     self.assertGreater(pp_idx, 0, "explicit PostIntakePreconditionFailed except missing")
@@ -184,30 +200,28 @@ class HandlerCPostIntakePreconditionFailedReraisedTests(unittest.TestCase):
       pp_idx, rt_idx,
       "except PostIntakePreconditionFailed must precede except RuntimeError "
       "so machinery violations re-raise before the RuntimeError catch routes "
-      "them through GPT retry"
+      "them through the validator-feedback path",
     )
 
   def test_reraise_body_is_bare_raise(self) -> None:
     """The PostIntakePreconditionFailed handler body must be a
-    bare `raise` (re-raise the original exception, preserving its
-    structure and chain), NOT something like `raise e from None`
-    or `raise CustomError(...) from e` which would alter the
-    exception."""
+    bare `raise`."""
+    fn_idx = self._src.find("def _dispatch_propose(")
+    self.assertGreater(fn_idx, 0)
     validate_idx = self._src.find(
-      "contract = validate_payroll_headcount_contract_payload(parsed)"
+      "contract = validate_payroll_headcount_contract_payload(args)",
+      fn_idx,
     )
     self.assertGreater(validate_idx, 0)
-    block = self._src[validate_idx:validate_idx + 2500]
+    block = self._src[validate_idx:validate_idx + 4000]
     pp_idx = block.find("except PostIntakePreconditionFailed:")
     self.assertGreater(pp_idx, 0)
-    # Next ~600 chars should contain a bare `raise` before the next except.
-    handler_window = block[pp_idx:pp_idx + 700]
+    handler_window = block[pp_idx:pp_idx + 1500]
     rt_in_window = handler_window.find("except RuntimeError")
     self.assertGreater(rt_in_window, 0, "RuntimeError except should follow")
     handler_body = handler_window[:rt_in_window]
-    # Find the bare `raise` line.
     self.assertIn(
-      "\n        raise\n",
+      "\n    raise\n",
       handler_body,
       "PostIntakePreconditionFailed handler body must be a bare `raise`",
     )

@@ -346,7 +346,7 @@ math); GPT provides the judgment.
 | Operation | Entry point | Why it stays GPT-authored |
 |---|---|---|
 | **Unified convergence decision** | `_run_unified_convergence_openai` ([runtime.py:2776](../../python/client_intake_and_finmo/post_intake_convergence/runtime.py#L2776)) | Which levers to move, which metrics to target, the per-quarter target_values to drive the numeric solver toward — the decision space is too large and the trade-offs too business-specific for a cohort default. Python wraps GPT with strict-mode schema bounds + post-parse contract validation. |
-| **Payroll headcount schedule** | `estimate_payroll_headcount_schedule_with_gpt` ([schedule.py:2241+](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2241)) | Selecting OEWS occupational titles from the NAICS catalog is judgment about the operator's business model. The catalog has hundreds of candidates; choosing among them is not table lookup. Python provides tier-bound schema (iter 19 Stage 2), title-catalog filtering, wage/FTE mechanical math, and post-parse policy validators. |
+| **Payroll headcount schedule** | `estimate_payroll_headcount_schedule_with_gpt` ([schedule.py:2000+](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2000)) — delegates to [tool_calling_session.run_payroll_tool_calling_session](../../python/client_intake_and_finmo/post_intake_headcount/tool_calling_session.py) | Selecting OEWS occupational titles from the NAICS catalog is judgment about the operator's business model. The catalog has hundreds of candidates; choosing among them is not table lookup. Python provides tier-bound schema (iter 19 Stage 2), title-catalog filtering, wage/FTE mechanical math, and post-parse policy validators. Migrated to tool-calling at P3.32 K9 (see §10.4) — three tools surface canonical policy bounds + final-proposal validation. Matches H2/H3/H4 architecture. |
 
 ### Deferred / not built
 
@@ -559,3 +559,65 @@ to mark the divergence as "infeasible to align."
 
 This is the right shape for divergence vectors going forward: detect
 explicitly, name the gap, build the adaptation.
+
+### 10.4 CORRECTION 3 — Tool-calling is canonical for new GPT iterative loops
+
+Discovered during P3.32 K9. Handler C (the payroll headcount
+schedule author at
+[schedule.py:2000+](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2000))
+originally used strict-mode `text.format.type=json_schema`
+iterative refinement with per-round REPLACE-only feedback packets.
+The audits
+([p3_32_handler_c_prompt_and_lookup_audit.md](./p3_32_handler_c_prompt_and_lookup_audit.md),
+[p3_32_cross_handler_prompt_audit.md](./p3_32_cross_handler_prompt_audit.md))
+established that this pattern produces four pathologies that
+tool-calling avoids by construction:
+
+  - **P3** — Prompt directives that conflict with policy-data
+    enrichment (e.g. "revise only named fields" vs the K8
+    alternative-class enrichment).
+  - **P4** — JSON-burial of enrichment behind less-relevant prose
+    (K8 alternatives 5 levels deep in user-message JSON, below the
+    more-prominent `required_action` text).
+  - **P5** — Implicit field-immutability framing ("first choose ...
+    then revise only" pins class across rounds).
+  - **P7** — Replace-only feedback that obscures stuck-strategy
+    patterns (GPT can't see that rounds 3, 5, 7, 9 all produced the
+    same rejected pattern).
+
+H2 (exhaustion), H3 (funding), H4 (stage_ramp) already use
+tool-calling sessions and exhibit none of these pathologies because
+the tool result IS the feedback (first-class structured context,
+not buried JSON) and the message thread naturally accumulates
+across calls. The K9 migration retrospectively aligned Handler C
+with this canonical pattern.
+
+**Going-forward rule:** any new GPT iterative loop over
+policy-bounded structured outputs MUST use tool-calling. Strict-
+mode `text.format.type=json_schema` iterative refinement is
+forbidden for new sites unless an explicit doctrine exception is
+granted (and documented here with the load-bearing justification).
+
+**H2/H3/H4 are NOT being retroactively migrated** — they already
+use tool-calling, just with different tool surfaces. Retroactive
+refactor for shape-uniformity alone is forbidden; the existing
+implementations function correctly under the canonical pattern.
+
+**H5 (single-shot stage_ramp_contract estimator)** remains as-is.
+Its single-shot shape doesn't compound the iteration-drift
+pathologies that K9 fixed. If H5 produces structured outputs that
+downstream validation rejects, prefer migrating H5 to tool-calling
+before adding prompt-level discipline.
+
+The K9 implementation lives at
+[tool_calling_session.py](../../python/client_intake_and_finmo/post_intake_headcount/tool_calling_session.py)
+and exposes three tools:
+`get_payroll_revenue_sanity_bounds(class)` (Tool 1),
+`find_classes_accepting_target_payroll_pct(target)` (Tool 2),
+`propose_payroll_headcount_schedule(<full contract>)` (Tool 3).
+K8 alternative-class enrichment is IN-LINE in Tool 3's
+`structured_failures[i].alternatives.accepting_classes` rather than
+buried 5 levels deep in user-message JSON.
+
+This correction was authored in commit
+`phase_9_p3_32_k9_handler_c_tool_calling_migration_stage_b`.
