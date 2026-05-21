@@ -1706,6 +1706,7 @@ def _run_post_cascade_completion(
     "realism_gate": {"status": "not_run"},
     "finalize_validation": {"status": "not_run"},
     "persist_finalize_stage": {"status": "not_run"},
+    "payroll_state_resync": {"status": "not_run"},
   }
 
   # Resolve business_naics_6 if not passed in.
@@ -1713,6 +1714,139 @@ def _run_post_cascade_completion(
     business_naics_6 = "".join(
       ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
     )
+
+  # Phase 9 P3.32 K1 F6 — payroll state re-sync from canonical SQL
+  # column at the start of _run_post_cascade_completion.
+  #
+  # Doctrine background: the payroll schedule lives in two snapshots:
+  # the SQL `payroll_headcount` column (canonical, written by Handler
+  # C apply chain at every persist) AND `model_input.derived_driver_
+  # runtime[expenses::Payroll].payroll_headcount` (a snapshot updated
+  # only when apply_payroll_headcount_payload_to_model_input is
+  # called). These snapshots can drift apart when an upstream stage
+  # (e.g., the convergence runner) persists a NEW schedule to SQL
+  # but the orchestrator's local payroll_headcount + final_model_
+  # input_json variables retain the OLD schedule from before that
+  # convergence pass.
+  #
+  # Empirical case (P3.32 CareFirst investigation, draft
+  # 0caeb5ad5d0843a6b4f0e52ba0cf7d5f): convergence runner produced
+  # schedule_v2 with Registered Nurses benefits_pct=0.25 / Q1
+  # quarter_totals.payroll=106928. SQL column got schedule_v2. But
+  # the orchestrator continued with schedule_v1 (benefits_pct=0.22 /
+  # Q1=106192) in its local payroll_headcount variable. The pre-
+  # finalize persist then wrote model_input.expenses.Payroll.values
+  # derived from schedule_v1 (106192) while the payroll_headcount
+  # column kept schedule_v2 (106928). Result: $736 Cash Q20
+  # divergence on V-4 verifier.
+  #
+  # Fix shape: at the start of _run_post_cascade_completion, re-read
+  # the canonical payroll_headcount from SQL. If it differs from the
+  # local variable, replace the local variable AND re-apply through
+  # the canonical apply chain to update model_input + finmo. This
+  # makes the SQL column the source of truth and the orchestrator's
+  # local state derived from it. Mirror Flavor 1 is preserved across
+  # the full chain.
+  #
+  # No-op when conn is None (test environments) or when SQL column
+  # already matches local variable. The completion_trace records
+  # the outcome for debugging.
+  try:
+    if conn is not None and str(draft_id or "").strip():
+      from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore
+        apply_payroll_schedule_to_state,
+      )
+      _resync_cur = conn.cursor(dictionary=True)
+      try:
+        _resync_cur.execute(
+          "SELECT payroll_headcount FROM intake_consult_drafts WHERE draft_id = %s",
+          (str(draft_id).strip(),),
+        )
+        _resync_row = _resync_cur.fetchone() or {}
+      finally:
+        try:
+          _resync_cur.close()
+        except Exception:
+          pass
+      _resync_raw = _resync_row.get("payroll_headcount") if isinstance(_resync_row, dict) else None
+      _canonical_ph: Dict[str, Any] = {}
+      if _resync_raw:
+        try:
+          import json as _resync_json
+          _canonical_ph = _resync_json.loads(_resync_raw) if isinstance(_resync_raw, str) else dict(_resync_raw)
+        except Exception:
+          _canonical_ph = {}
+      def _qt_tuple(ph: Optional[Dict[str, Any]]):
+        return tuple(
+          (int(item.get("quarter_index") or 0), int(round(float(item.get("payroll") or 0))))
+          for item in ((ph or {}).get("quarter_totals") or [])
+          if isinstance(item, dict)
+        )
+      _local_qt = _qt_tuple(payroll_headcount)
+      _canonical_qt = _qt_tuple(_canonical_ph)
+      if _canonical_qt and _canonical_qt != _local_qt:
+        # Canonical SQL diverged from local. Re-sync.
+        _live_count_resync = max(
+          0,
+          len([
+            p for p in ((final_model_input_json or {}).get("periods") or [])
+            if isinstance(p, dict) and not bool(p.get("is_stub"))
+          ]),
+        )
+        try:
+          _resynced_mi, _resynced_finmo = apply_payroll_schedule_to_state(
+            schedule_payload=_canonical_ph,
+            model_input_json=final_model_input_json or {},
+            finmo_json=final_finmo_json or {},
+            live_count=_live_count_resync,
+            stage_prefix="post_cascade_completion_payroll_state_resync",
+          )
+          payroll_headcount = _canonical_ph
+          final_model_input_json = _resynced_mi
+          final_finmo_json = _resynced_finmo
+          next_result["model_input_json"] = final_model_input_json
+          next_result["finmo_json"] = final_finmo_json
+          if isinstance(next_result.get("payroll_headcount"), dict) or "payroll_headcount" in next_result:
+            next_result["payroll_headcount"] = payroll_headcount
+          completion_trace["payroll_state_resync"] = {
+            "status": "completed",
+            "local_q1_payroll_before": (_local_qt[0][1] if _local_qt else None),
+            "canonical_q1_payroll": (_canonical_qt[0][1] if _canonical_qt else None),
+            "quarter_totals_mismatch_count": sum(
+              1 for a, b in zip(_local_qt, _canonical_qt) if a != b
+            ) if _local_qt and _canonical_qt else None,
+            "applied_chain": "apply_payroll_schedule_to_state",
+          }
+        except Exception as _resync_apply_exc:
+          completion_trace["payroll_state_resync"] = {
+            "status": "apply_failed",
+            "error": f"{type(_resync_apply_exc).__name__}: {str(_resync_apply_exc)[:300]}",
+          }
+          raise
+      elif _canonical_qt and _canonical_qt == _local_qt:
+        completion_trace["payroll_state_resync"] = {
+          "status": "in_sync",
+          "q1_payroll": (_canonical_qt[0][1] if _canonical_qt else None),
+        }
+      else:
+        completion_trace["payroll_state_resync"] = {
+          "status": "canonical_empty",
+        }
+  except Exception as _resync_exc:
+    # The re-sync is structurally important but a non-fatal error
+    # here (e.g., apply chain raises on a no-payroll business)
+    # shouldn't block the completion. Record and continue; the
+    # pre-finalize persist invariant below catches any remaining
+    # drift.
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
+    completion_trace["payroll_state_resync"] = {
+      "status": "resync_lookup_failed",
+      "error": f"{type(_resync_exc).__name__}: {str(_resync_exc)[:300]}",
+    }
 
   # 1. Target-seeking solver pass — drives model_input toward the
   # cascade's final calibrated targets using single-driver bisection
@@ -2732,6 +2866,107 @@ def _run_post_cascade_completion(
   # the orchestrator's stage label, and a content hash sample so
   # we can tell at a glance whether the pre-finalize snapshot
   # landed or whether the failure snapshot re-wrote stale data.
+  # Phase 9 P3.32 K1 F6 — payroll three-surface invariant assertion
+  # BEFORE pre-finalize persist writes model_input + finmo to SQL.
+  #
+  # Lives OUTSIDE the persist try/except so it surfaces as the
+  # PostIntakePreconditionFailed it raises rather than getting
+  # wrapped into a persist failure trace. Doctrine: payroll dollars
+  # must agree across three surfaces with $1 tolerance (int
+  # rounding noise only): (a) payroll_headcount.quarter_totals.
+  # payroll (canonical Handler-C-authored schedule), (b)
+  # model_input.expenses.Payroll.values (derived via apply chain),
+  # and (c) model_input.derived_driver_runtime[expenses::Payroll].
+  # payroll_headcount.quarter_totals.payroll (snapshot used by
+  # apply_derived_driver_policies_to_model_input).
+  #
+  # The F6 re-sync at the top of _run_post_cascade_completion
+  # makes these agree at function entry; this invariant catches
+  # any new drift introduced by intervening stages (cash pass,
+  # realism gate, finalize validation, F5 pre-cash-gate handler
+  # routing, etc.). Hard-fail names the offending stage explicitly.
+  try:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      PostIntakePreconditionFailed as _MF1Failed,
+    )
+    def _qt_tuple_assert(ph_or_none):
+      return tuple(
+        (int(item.get("quarter_index") or 0), int(round(float(item.get("payroll") or 0))))
+        for item in ((ph_or_none or {}).get("quarter_totals") or [])
+        if isinstance(item, dict) and int(item.get("quarter_index") or 0) >= 1
+      )
+    _canonical_qt = _qt_tuple_assert(payroll_headcount)
+    _payroll_row = None
+    for _row in (
+      ((final_model_input_json or {}).get("sections", {}).get("expenses") or [])
+    ):
+      if isinstance(_row, dict) and str(_row.get("lever_id") or "").strip() == "expenses::Payroll":
+        _payroll_row = _row
+        break
+    _values_qt = tuple()
+    if isinstance(_payroll_row, dict):
+      _vals = _payroll_row.get("values") or []
+      # values[0] is the stub Q0; values[1..N] are Q1..QN live quarters.
+      _values_qt = tuple(
+        (q, int(round(float(_vals[q] if q < len(_vals) else 0))))
+        for q in range(1, len(_canonical_qt) + 1)
+      )
+    _runtime_embedded = (
+      ((final_model_input_json or {}).get("derived_driver_runtime") or {})
+      .get("expenses::Payroll") or {}
+    )
+    _runtime_ph = _runtime_embedded.get("payroll_headcount") if isinstance(_runtime_embedded, dict) else None
+    _runtime_qt = _qt_tuple_assert(_runtime_ph)
+    _surface_disagreements = []
+    for _q, _exp in _canonical_qt:
+      _v_match = next((v for (qi, v) in _values_qt if qi == _q), None)
+      if _v_match is not None and abs(_v_match - _exp) > 1:
+        _surface_disagreements.append({
+          "quarter": _q,
+          "canonical_payroll_headcount": _exp,
+          "model_input_values": _v_match,
+          "delta": _v_match - _exp,
+          "surface": "model_input.expenses.Payroll.values",
+        })
+      _r_match = next((v for (qi, v) in _runtime_qt if qi == _q), None)
+      if _r_match is not None and abs(_r_match - _exp) > 1:
+        _surface_disagreements.append({
+          "quarter": _q,
+          "canonical_payroll_headcount": _exp,
+          "model_input_derived_driver_runtime": _r_match,
+          "delta": _r_match - _exp,
+          "surface": "model_input.derived_driver_runtime[expenses::Payroll].payroll_headcount",
+        })
+    if _surface_disagreements and _canonical_qt:
+      raise _MF1Failed(
+        operation="pre_finalize_persist_payroll_three_surface_invariant_violation",
+        pipeline_stage="post_intake_pre_finalize_persist_payroll_invariant",
+        expected="payroll_headcount.quarter_totals == model_input.expenses.Payroll.values == model_input.derived_driver_runtime[expenses::Payroll].payroll_headcount.quarter_totals (per-quarter, $1 int-rounding tolerance)",
+        actual=f"{len(_surface_disagreements)} per-quarter disagreement(s) across the three payroll surfaces",
+        details={
+          "disagreements_sample": _surface_disagreements[:10],
+          "canonical_q1_through_q5": list(_canonical_qt[:5]),
+          "model_input_values_q1_through_q5": list(_values_qt[:5]),
+          "model_input_runtime_q1_through_q5": list(_runtime_qt[:5]),
+          "guidance": (
+            "K1 F6 doctrine: payroll surfaces must agree at pre-finalize. "
+            "The F6 re-sync at the top of _run_post_cascade_completion "
+            "establishes the invariant at function entry; an intervening "
+            "stage introduced drift. Find the stage that wrote to "
+            "payroll_headcount column OR model_input.expenses.Payroll "
+            "without using the apply_payroll_schedule_to_state chain."
+          ),
+        },
+      )
+  except _MF1Failed:
+    raise
+  except Exception as _mf1_check_exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled,
+    )
+    if convergence_test_mode_enabled():
+      raise
+
   try:
     import json as _json_for_pre_finalize_persist
     import time as _time_for_pre_finalize_persist

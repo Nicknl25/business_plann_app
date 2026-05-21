@@ -457,3 +457,105 @@ Default decisions, in priority order:
 
 If the doctrine is silent on a question, **stop and report** rather than
 guessing.
+
+---
+
+## 10. Phase 9 P3.32 K1 doctrine corrections (intake gaps, infeasibility)
+
+Two doctrine corrections landed during the P3.32 sweep work, both invoking
+L-3 (doctrine evolution permitted when implementation reveals need).
+
+### 10.1 CORRECTION 1 — Intake data gaps require adaptive handling, not crash
+
+**Previous doctrine (K7 as written in the P3.32 sweep directive):** intake
+data gap → document, don't code-fix. The system was expected to hard-fail
+with a diagnostic naming the missing intake field and the operator was
+expected to fill it.
+
+**Revised doctrine:** intake comes from humans; gaps will always exist. The
+system MUST adapt to whatever intake produces. The previous K7 framing
+treated gaps as terminal failures, which forces the operator to round-trip
+through intake before any post-intake work can complete — bad UX and
+fragile architecture.
+
+**The correct response to an intake gap, in priority order:**
+
+1. **Derive a reasonable fallback** from cohort norms (NAICS-level
+   estimates), sector defaults, business-stage-typical values, or
+   conservative envelopes. The fallback must be tagged with provenance
+   (`decision_source: "intake_gap_fallback"` or similar) so downstream
+   stages know the value was not operator-asserted.
+2. **Surface the gap to the user EARLY** — at intake-completion stage,
+   before post-intake processing begins — so the operator can fill the
+   gap if they choose. Post-intake processing then runs with operator
+   input rather than the fallback.
+3. **NEVER hard-fail post-intake with `intake_gap_*`** when a fallback
+   path exists. If no fallback exists yet for a class of intake gap,
+   build one under L-1/L-6 latitude before re-classifying the failure.
+
+**Surfaced examples:**
+- Luminous Glow Med Spa P3.28 failure
+  (`payroll_headcount_key_person_oews_catalog_empty`) — NAICS has no
+  OEWS title catalog coverage. Pre-K1 doctrine: K7, document for user.
+  Post-K1 doctrine: derive a NAICS-adjacent OEWS catalog fallback OR
+  surface the gap during intake so the operator selects titles. Code
+  the fallback path.
+
+### 10.2 CORRECTION 2 — K4(b) "genuinely infeasible" is NOT a valid classification
+
+**Previous doctrine (K4(b) in the P3.32 sweep directive):** multi-metric
+realism failures could be classified as "genuinely infeasible at given
+intake" and documented as K7-class for operator attention. The system was
+allowed to give up if no lever combination it tried produced a viable plan.
+
+**Revised doctrine:** there is no such thing as an infeasible plan from
+this system's perspective. If realism checks fail, the system hasn't
+found the path yet — not the path doesn't exist. The plan that ships
+MUST be viable BECAUSE the system made it so through adaptation.
+"Infeasible at intake" is shorthand for "we gave up"; that's not
+adaptation, that's surrender.
+
+**The correct response to a realism gate failure, in priority order:**
+
+1. **Handlers explore wider lever combinations.** If a handler exhausts
+   its 10-tool-call budget without all_pass, expand the search space
+   (relaxed bounds, additional levers, different anchor strategies).
+2. **Stage ramp contract may need adjustment.** If the contract is
+   over-constraining (e.g., `rev_max` too tight to allow the revenue
+   growth needed for viability), the stage_ramp handler re-authors with
+   the constraint failure as feedback. L-3 applies if the contract
+   schema itself is over-restrictive.
+3. **Cash strategy may need re-evaluation.** If cash-side levers
+   (funding, distributions) could enable viability but weren't tried,
+   re-invoke the cash strategy.
+4. **New handler authority may be needed.** If the existing handlers
+   don't have authority over the lever that would close the gap, build
+   a new handler or expand an existing one's authority. L-1/L-6.
+5. **Contracts themselves may need to evolve.** If a contract is
+   architecturally over-restrictive (not just data-driven), update it
+   under L-3 doctrine evolution.
+
+**Hard-fail only when:**
+- Doctrine non-negotiable is violated (e.g., single-source-of-truth
+  would have to be broken to land a "viable" plan), OR
+- The architectural surface to expand is genuinely outside the system's
+  scope (e.g., the operator has explicitly forbidden a category of
+  remediation in intake), AND
+- The diagnostic explicitly names the architectural gap so the next
+  iter can address it (L-1 / L-6 work item).
+
+K4(b) is therefore eliminated. Every acceptance gate failure must be
+investigated for the missing adaptation, and that adaptation must be
+built. The investigation, not the documentation, is the deliverable.
+
+### 10.3 Companion: P3.32 K1 F6 surfacing pattern
+
+K1 F6 (Payroll three-surface invariant at pre-finalize) embodies the
+spirit of both corrections: when the system detects a divergence it
+previously would have silently persisted (Cash Q20 off by $44,929 on
+CareFirst), it now hard-fails with a diagnostic that names the offending
+intervening stage. Operators then build the adaptation — they don't get
+to mark the divergence as "infeasible to align."
+
+This is the right shape for divergence vectors going forward: detect
+explicitly, name the gap, build the adaptation.
