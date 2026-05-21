@@ -1,0 +1,2 @@
+draft_idx,draft_id,business_name,outcome,fix_iterations,wall_clock_s,v1_score,v2_status,v3_pass,v4_max_abs,v4_max_rel,v4_pass,notes
+1,25f746500d1d456da638ee216669b78e,Anderson & Blake Legal Associates,GENUINE_PASS,K1_F1_through_F5_landed_before_run,335,16/16,OK,Y,12.74,0.000032,Y,"Previously FAIL cash_buffer K3 in P3.28; now passes after K1 F1-F5 closed Payroll authority leaks. F5 pre-cash gate Handler C route fired (gate generated payroll-touching violations after handler couldn't fix them; routed to Handler C; re-eval cleared)."

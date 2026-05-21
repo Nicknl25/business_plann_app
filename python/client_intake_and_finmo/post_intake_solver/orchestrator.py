@@ -2210,6 +2210,139 @@ def _run_post_cascade_completion(
         ops_json=ops_json or {},
       )
 
+    # Phase 9 P3.32 K1 F5 — pre-cash gate Handler C routing for
+    # payroll-touching violations. After K1 F1+F2 closed Leak A
+    # (exhaustion handler no longer owns Payroll), the GPT exhaustion
+    # handler invoked above cannot resolve violations whose
+    # primary_levers contain "expenses::Payroll". Handler C
+    # (post_intake_headcount.schedule.estimate_payroll_headcount_
+    # schedule_with_gpt) is the canonical Payroll writer; its apply
+    # chain keeps Mirror Flavor 1 alignment across all four payroll
+    # surfaces with zero-tolerance assertions. Route the residual
+    # payroll-touching violations to Handler C, re-apply via the
+    # canonical apply chain, persist payroll_headcount to SQL (same
+    # pattern as P3.26 Site B), then re-evaluate the gate. If
+    # violations still remain, the hard-fail below fires with the
+    # full diagnostic chain naming the Handler C re-author result.
+    _gate_handler_c_route_attempted = False
+    if gate_violations:
+      _payroll_touching = [
+        v for v in gate_violations
+        if "expenses::Payroll" in (v.get("primary_levers") or [])
+      ]
+      if _payroll_touching:
+        from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore
+          route_payroll_feasibility_to_handler_c,
+        )
+        _gate_handler_c_route_attempted = True
+        # Synthesize a payroll-feasibility-style failure payload from
+        # the gate violations. Handler C's previous_contract_failure
+        # consumer reads {error, error_code, stage, details}.
+        _failure_code = "pre_cash_gate_payroll_violation_routed_to_handler_c"
+        _failure_stage = "post_intake_pre_cash_gpt_authorable_gate"
+        _failure_message = (
+          f"Pre-cash gate surfaced {len(_payroll_touching)} payroll-touching "
+          f"violation(s) that GPT exhaustion handler cannot fix (P3.32 K1 "
+          f"closed exhaustion handler's Payroll authority). Re-authoring "
+          f"via Handler C."
+        )
+        _failure_details = {
+          "payroll_touching_violations_sample": _payroll_touching[:10],
+          "source_checks": sorted({
+            str(v.get("source_check") or "") for v in _payroll_touching
+            if v.get("source_check")
+          }),
+          "metric_keys": sorted({
+            str(v.get("metric_key") or "") for v in _payroll_touching
+            if v.get("metric_key")
+          }),
+          "handler_invoked_first": bool(_gate_handler_already_ran),
+        }
+        _live_count_gate = max(
+          0,
+          len([
+            p for p in ((final_model_input_json or {}).get("periods") or [])
+            if isinstance(p, dict) and not bool(p.get("is_stub"))
+          ]),
+        )
+        try:
+          _new_schedule, _new_mi, _new_finmo = route_payroll_feasibility_to_handler_c(
+            failure_code=_failure_code,
+            failure_message=_failure_message,
+            failure_stage=_failure_stage,
+            failure_details=_failure_details,
+            business_facts=business_facts or {},
+            ops_json=ops_json or {},
+            people_json=people_json or {},
+            financials_json=financials_json or {},
+            financials_year1_json=financials_year1_json or {},
+            planning_mode=planning_mode,
+            planning_mode_reason=planning_mode_reason,
+            model_input_json=final_model_input_json or {},
+            finmo_json=final_finmo_json or {},
+            payroll_headcount=payroll_headcount or {},
+            stage_ramp_contract=stage_ramp_contract or {},
+            draft_id=str(draft_id or "").strip(),
+            client_id=str((business_facts or {}).get("client_id") or "").strip(),
+            live_count=_live_count_gate,
+            stage_prefix="pre_cash_gate_payroll_repair",
+          )
+          payroll_headcount = _new_schedule
+          final_model_input_json = _new_mi
+          final_finmo_json = _new_finmo
+          next_result["model_input_json"] = final_model_input_json
+          next_result["finmo_json"] = final_finmo_json
+          completion_trace["pre_cash_gate_handler_c_route"] = {
+            "status": "completed",
+            "violations_routed": len(_payroll_touching),
+            "failure_code": _failure_code,
+            "metric_keys": _failure_details["metric_keys"],
+          }
+          # Persist payroll_headcount immediately (same pattern as
+          # Site B at orchestrator.py:2776-2796). Without this the
+          # workbook builder would re-render from the stale
+          # headcount and recreate the Mirror Flavor 1 divergence.
+          if conn is not None:
+            try:
+              import json as _json_pre_cash_persist
+              _cur_g = conn.cursor()
+              try:
+                _cur_g.execute(
+                  "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                  (
+                    _json_pre_cash_persist.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                    str(draft_id or "").strip(),
+                  ),
+                )
+                conn.commit()
+              finally:
+                try:
+                  _cur_g.close()
+                except Exception:
+                  pass
+            except Exception as _persist_exc:
+              completion_trace["pre_cash_gate_handler_c_route"]["persist_warning"] = (
+                f"{type(_persist_exc).__name__}: {str(_persist_exc)[:200]}"
+              )
+          # Re-evaluate the gate against the Handler-C-repaired state.
+          gate_violations, gate_scope = _evaluate_gpt_authorable_pre_cash_checks(
+            stage_ramp_contract=stage_ramp_contract or {},
+            model_input_json=final_model_input_json or {},
+            finmo_json=final_finmo_json or {},
+            payroll_headcount=payroll_headcount or {},
+            financials_json=financials_json or {},
+            ops_json=ops_json or {},
+          )
+        except Exception as _route_exc:
+          # Handler C routing failed — preserve the diagnostic and
+          # let the hard-fail below fire with both the original gate
+          # violation AND the routing failure context.
+          completion_trace["pre_cash_gate_handler_c_route"] = {
+            "status": "failed",
+            "error": f"{type(_route_exc).__name__}: {str(_route_exc)[:500]}",
+            "violations_attempted": len(_payroll_touching),
+          }
+
     if gate_violations:
       muted_metrics = set(
         (final_model_input_json or {}).get("_muted_realism_metrics") or []
@@ -2232,6 +2365,15 @@ def _run_post_cascade_completion(
             "violations_sample": unmuted[:10],
             "handler_invoked": bool(_gate_handler_already_ran),
             "muted_metric_count": len(muted_metrics),
+            # P3.32 K1 F5 — surface whether Handler C route was tried
+            # and what it produced, so the diagnostic distinguishes
+            # "handler couldn't fix payroll" (pre-F5 noise) from
+            # "Handler C re-authored payroll but a non-payroll
+            # violation remains" (genuine residual to investigate).
+            "handler_c_route_attempted": bool(_gate_handler_c_route_attempted),
+            "handler_c_route_trace": completion_trace.get(
+              "pre_cash_gate_handler_c_route", {}
+            ),
           },
         )
   except PostIntakePreconditionFailed:
