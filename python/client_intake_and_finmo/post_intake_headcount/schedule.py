@@ -1643,6 +1643,78 @@ def _payroll_capacity_guardrail_summary_for_gpt(guardrails: Dict[str, Any]) -> D
   }
 
 
+def _intake_implied_operating_intensity(
+  *,
+  financials: Dict[str, Any],
+  year1: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Phase 9 P3.32 K9 follow-up — surface an intake-implied
+  operating-intensity signal to Handler C for class-selection context.
+
+  Background: the K9 prompt restructure removed two pre-K9 anchoring
+  elements (the "first choose" pinning framing and the medium-class
+  example), making class choice equally mutable. For Skyward (which
+  was stuck on high pre-K9) this was the cure. For Sunny Glaze Donuts
+  (where pre-K9 GPT picked medium and converged) the open-ended
+  framing moved GPT to high — operationally heavier than Sunny needs,
+  pushing Q11 EBITDA below the universal-viability gate.
+
+  Root cause: GPT lacked an explicit operating-intensity signal in
+  the K9 context. The intake itself reports payroll_total_year1 and
+  revenue; their ratio is a first-order signal for what class fits
+  the operator's stated reality. Universal across all NAICS, every
+  intake (when payroll + revenue are both present).
+
+  Doctrine notes:
+    - Intake numbers are NOT BINDING (per intake_non_binding_policy
+      already in user_context).
+    - The ratio is INFORMATIONAL — Handler C may still choose any
+      class. Tool 2 surfaces which classes accept any specific
+      target value; Tool 1 surfaces all class bounds.
+    - Universal — no NAICS-specific hardcoding. Every intake that
+      reports both payroll and revenue yields a ratio.
+    - Returns ``None`` for the ratio when either input is
+      missing/zero/non-numeric. Handler C uses operating-model
+      judgment alone in that case (the pre-fix K9 behavior).
+
+  See:
+    docs/architecture/p3_32_k9_regression_sunny_glaze_donuts_
+      investigation.md
+  """
+  intake_payroll_y1 = financials.get("payroll_total_year1")
+  intake_revenue_y1 = (
+    year1.get("company_revenue_total_year1")
+    or year1.get("revenue_total_year1")
+    or financials.get("current_revenue")
+  )
+  implied_payroll_pct: Optional[float] = None
+  try:
+    payroll_value = float(intake_payroll_y1) if intake_payroll_y1 is not None else 0.0
+    revenue_value = float(intake_revenue_y1) if intake_revenue_y1 is not None else 0.0
+    if revenue_value > 0.0 and payroll_value > 0.0:
+      implied_payroll_pct = round(payroll_value / revenue_value, 4)
+  except (TypeError, ValueError):
+    implied_payroll_pct = None
+  return {
+    "intake_payroll_year1": intake_payroll_y1,
+    "intake_revenue_year1": intake_revenue_y1,
+    "implied_payroll_percent_of_revenue": implied_payroll_pct,
+    "note": (
+      "Computed from intake. Intake numbers are NOT BINDING (see "
+      "intake_non_binding_policy in OPERATING CONTEXT). This is one "
+      "signal for understanding the operator's stated operating "
+      "intensity. Call find_classes_accepting_target_payroll_pct "
+      "with the implied value to see which labor_intensity_class "
+      "options accept it, then choose the class whose bounds match "
+      "the operating model's actual labor intensity profile. For "
+      "scale-ups and turnarounds the implied ratio may understate "
+      "the steady-state intensity; for established operators it "
+      "indicates current intensity. Universal across NAICS — same "
+      "signal for every business."
+    ),
+  }
+
+
 def _compact_stage_ramp_contract_for_payroll(stage_ramp_contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   source = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
   compact: Dict[str, Any] = {}
@@ -2119,6 +2191,10 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "client_reported_owner_compensation": financials.get("owner_compensation"),
     },
     "stage_ramp_contract": _compact_stage_ramp_contract_for_payroll(stage_ramp_contract),
+    "intake_implied_operating_intensity": _intake_implied_operating_intensity(
+      financials=financials,
+      year1=year1,
+    ),
     "payroll_decision_options": payroll_decision_options,
     "payroll_feasibility_mapping": payroll_feasibility_mapping,
     "payroll_headcount_policy": {

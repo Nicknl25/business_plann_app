@@ -347,6 +347,140 @@ class TestM2Tool3Propose(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# K9 follow-up — intake-implied operating intensity (Sunny regression fix)
+# ---------------------------------------------------------------------------
+
+
+class TestK9SunnyFixIntakeImpliedOperatingIntensity(unittest.TestCase):
+  """The Sunny Glaze Donuts regression investigation
+  (docs/architecture/p3_32_k9_regression_sunny_glaze_donuts_
+  investigation.md) identified that K9's removal of pre-K9
+  class-selection anchoring (the "first choose" framing + the
+  medium-class example) left Handler C without an operating-
+  intensity signal for borderline businesses.
+
+  The fix: surface the intake-implied operating-intensity ratio
+  (intake_payroll_year1 / intake_revenue_year1) to Handler C as
+  one signal for class selection. Universal across NAICS. Intake
+  numbers are NOT binding (per intake_non_binding_policy already
+  in user_context); the ratio is informational.
+  """
+
+  def test_helper_returns_ratio_when_both_intake_fields_present(self) -> None:
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(
+      financials={"payroll_total_year1": 160000, "current_revenue": 487000},
+      year1={"company_revenue_total_year1": 487000},
+    )
+    self.assertAlmostEqual(out["implied_payroll_percent_of_revenue"], 0.3285, places=4)
+    self.assertEqual(out["intake_payroll_year1"], 160000)
+    self.assertEqual(out["intake_revenue_year1"], 487000)
+
+  def test_helper_handles_low_payroll_high_revenue_scaleup(self) -> None:
+    """Skyward-shape: very low intake payroll vs huge revenue. The
+    implied ratio is below all class bounds. The note must instruct
+    GPT to use operating-model judgment for scale-up cases."""
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(
+      financials={"payroll_total_year1": 637537, "current_revenue": 88452000},
+      year1={"company_revenue_total_year1": 88452000},
+    )
+    self.assertLess(out["implied_payroll_percent_of_revenue"], 0.05)
+    self.assertIn("scale-ups", out["note"])
+
+  def test_helper_returns_none_ratio_when_inputs_missing(self) -> None:
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(financials={}, year1={})
+    self.assertIsNone(out["implied_payroll_percent_of_revenue"])
+
+  def test_helper_returns_none_ratio_when_revenue_zero(self) -> None:
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(
+      financials={"payroll_total_year1": 50000, "current_revenue": 0},
+      year1={"company_revenue_total_year1": 0},
+    )
+    self.assertIsNone(out["implied_payroll_percent_of_revenue"])
+
+  def test_helper_safe_on_non_numeric_inputs(self) -> None:
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(
+      financials={"payroll_total_year1": "abc", "current_revenue": "xyz"},
+      year1={},
+    )
+    self.assertIsNone(out["implied_payroll_percent_of_revenue"])
+
+  def test_helper_uses_year1_company_revenue_first(self) -> None:
+    """Resolution order: year1.company_revenue_total_year1 >
+    year1.revenue_total_year1 > financials.current_revenue."""
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(
+      financials={"payroll_total_year1": 100000, "current_revenue": 999999},
+      year1={"company_revenue_total_year1": 500000, "revenue_total_year1": 200000},
+    )
+    self.assertAlmostEqual(out["implied_payroll_percent_of_revenue"], 0.20, places=4)
+
+  def test_helper_note_references_intake_non_binding(self) -> None:
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # noqa: WPS433
+      _intake_implied_operating_intensity,
+    )
+    out = _intake_implied_operating_intensity(financials={}, year1={})
+    self.assertIn("NOT BINDING", out["note"])
+    self.assertIn("intake_non_binding_policy", out["note"])
+    self.assertIn("find_classes_accepting_target_payroll_pct", out["note"])
+
+  def test_system_prompt_includes_class_selection_guidance(self) -> None:
+    """Verify the SYSTEM_PROMPT carries the operating-model-aware
+    class selection guidance added as part of the Sunny fix."""
+    from client_intake_and_finmo.post_intake_headcount.tool_calling_session import (  # noqa: WPS433
+      SYSTEM_PROMPT,
+    )
+    self.assertIn("intake_implied_operating_intensity", SYSTEM_PROMPT)
+    self.assertIn("match labor_intensity_class", SYSTEM_PROMPT)
+    self.assertIn("not to the highest", SYSTEM_PROMPT.replace("\n", " ").lower())
+
+  def test_system_prompt_does_not_re_introduce_pre_k9_pinning(self) -> None:
+    """Class-selection guidance must NOT re-introduce the pre-K9
+    'revise only named fields' rule or the 'first choose' pinning
+    framing. The fix is a class-selection signal, not a pinning
+    directive."""
+    from client_intake_and_finmo.post_intake_headcount.tool_calling_session import (  # noqa: WPS433
+      SYSTEM_PROMPT,
+    )
+    self.assertNotIn("revise only", SYSTEM_PROMPT.lower())
+    self.assertNotIn("revise ONLY", SYSTEM_PROMPT)
+    self.assertNotIn("first choose", SYSTEM_PROMPT.lower())
+
+  def test_schedule_user_context_includes_intake_implied_field(self) -> None:
+    """The estimate_payroll_headcount_schedule_with_gpt function must
+    surface intake_implied_operating_intensity into the user_context
+    block that gets passed into the tool-calling session."""
+    import os  # noqa: WPS433
+    here = os.path.abspath(os.path.dirname(__file__))
+    python_root = os.path.abspath(os.path.join(here, os.pardir, "python"))
+    src_path = os.path.join(
+      python_root,
+      "client_intake_and_finmo", "post_intake_headcount", "schedule.py",
+    )
+    with open(src_path, "r", encoding="utf-8") as fh:
+      src = fh.read()
+    # The user_context dict literal contains the new key.
+    self.assertIn('"intake_implied_operating_intensity":', src)
+    self.assertIn("_intake_implied_operating_intensity(", src)
+
+
+# ---------------------------------------------------------------------------
 # M3 — Session-loop integration (mocked LLM)
 # ---------------------------------------------------------------------------
 
