@@ -282,8 +282,6 @@ def apply_overrides(
       col = field[len("draft."):]
       new_val = None if (isinstance(raw, str) and raw.strip() == NULL_TOKEN) else _string(raw)
       old_val = flat.get(col)
-      if values_equal(new_val, old_val):
-        continue
       flat[col] = new_val
       audit.append({"field": field, "old": old_val, "new": new_val})
       continue
@@ -297,8 +295,9 @@ def apply_overrides(
     tokens = parse_path(field)
     baseline_value = get_by_path(structured, tokens)
     coerced = coerce_to_type(raw, baseline_value)
-    if baseline_value is not _MISSING and values_equal(coerced, baseline_value):
-      continue  # unedited pre-filled cell
+    # The sheet is the spec: every non-blank row applies, and every applied row
+    # is recorded in the audit -- even when the typed value equals the baseline.
+    # End state per path is exactly what the user wrote; blank cells inherit.
     set_by_path(structured, tokens, coerced)
     audit.append({
       "field": field,

@@ -271,12 +271,10 @@ def _run_scenario(
   audit = C.apply_overrides(flat=flat, structured=structured, overrides=overrides)
 
   print(f"\n=== Scenario: {scenario_name} (baseline={baseline_name}) ===")
-  if audit:
-    print(f"  Applied {len(audit)} override(s) vs baseline:")
-    for entry in audit:
-      print(f"    - {entry['field']}: {entry['old']!r} -> {entry['new']!r}")
-  else:
-    print("  No edits vs baseline (faithful reproduction).")
+  diffs = [e for e in audit if not C.values_equal(e.get("old"), e.get("new"))]
+  print(f"  Applied {len(audit)} row(s) from sheet ({len(diffs)} edits vs baseline).")
+  for entry in diffs:
+    print(f"    - {entry['field']}: {entry['old']!r} -> {entry['new']!r}")
 
   # 1. Mint a fresh draft. Dry-run inserts directly (fully offline); a real run
   #    uses the session endpoint so the row is initialized exactly as intake does.
