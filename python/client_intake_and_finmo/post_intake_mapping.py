@@ -2298,9 +2298,27 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
     is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
     validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"],
   ),
+  # Phase 9 P3.32 K13 (Fix 2 / G-B5) — cogs_max ceiling 0.95 -> 0.97.
+  # Principle: cogs_max is the maximum allowed COGS ratio in the stage
+  # ramp; (1 - cogs_max) is the minimum gross margin the plan may assume.
+  # 0.97 = a 3% minimum gross-margin floor. WHY this threshold and not
+  # others: genuine high-COGS sectors (general freight trucking 484110
+  # has a real cohort benchmark_max of 0.963) must be admitted, so 0.95
+  # and 0.96 are too tight (they would reject a real industry). >=0.98
+  # admits plans with <=2% gross margin, which cannot cover SG&A / debt /
+  # any operating expense and is therefore not a viable business as a
+  # SUSTAINED quarterly ceiling — admitting it would defeat the ceiling's
+  # purpose as a viability guardrail. 0.97 is the tightest ceiling that
+  # admits the highest genuine industry (~0.963) plus a rounding buffer
+  # while still rejecting the economically-impossible (1.0 = 0% gross
+  # margin, the distressed-firm cohort artifact that motivated this fix).
+  # This widening is LOCALIZED to cogs: marketing_max (0.40), rd_max
+  # (0.50), ga_max (0.60), lease_max (0.50) are economically sound caps —
+  # no real business sustains those ratios — so cohort values above them
+  # are artifacts handled by the builder robust-bound, not by widening.
   _gpt_contract_row(
     "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp",
-    min_value=0.20, max_value=0.95,
+    min_value=0.20, max_value=0.97,
     naics_baseline_metric_key="cogs_percent_of_revenue",
     naics_baseline_band_kind="min_target_max",
     is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",

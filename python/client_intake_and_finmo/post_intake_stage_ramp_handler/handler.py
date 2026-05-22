@@ -448,7 +448,38 @@ def engage_stage_ramp_handler_on_validator_failure(
                               # uses the caller's validator.
     )
     if handler_result.status != StageRampHandlerStatus.RESOLVED:
-      raise RuntimeError(handler_result.diagnostic) from exc
+      # Phase 9 P3.32 K13 (Fix 2 / G-B5, doctrine §10.6) — deterministic
+      # floor: GPT could not produce an accepted contract. Rather than
+      # fail the run (B5 stage_ramp_handler_exhausted), commit the
+      # robust-bounded Python builder contract IF it is validator-valid.
+      # The K13 builder robust-bound guarantees the cost-ratio ranges are
+      # in the canonical envelope, so the common range-violation cause of
+      # B5 lands here as a valid floor. Only a genuinely non-range
+      # (structural) residual still raises — that is a real bug to
+      # surface, not silently shipped (doctrine §1 / §10.2).
+      from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
+        robust_bound_stage_ramp_contract,
+      )
+      floor_contract = robust_bound_stage_ramp_contract(copy.deepcopy(python_contract))
+      try:
+        validator(
+          payload=floor_contract,
+          expected_stage_family=expected_family,
+          business_stage=business_stage,
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
+          r_and_d_enabled=r_and_d_enabled,
+        )
+      except RuntimeError:
+        raise RuntimeError(handler_result.diagnostic) from exc
+      annotated = _annotate_provenance(floor_contract, decision_source="python_deterministic_floor")
+      annotated["python_proposal_diagnostic"] = {
+        "validator_error_text": handler_result.validator_error_text,
+        "tool_calls_used": handler_result.tool_calls_used,
+        "diagnostic": handler_result.diagnostic,
+        "floor_committed": True,
+      }
+      return annotated
     refined = handler_result.refined_contract or {}
     # Phase 9 P3.12 — machinery invariant #4: authority violation.
     _assert_stage_ramp_handler_authority_respected(refined_contract=refined)

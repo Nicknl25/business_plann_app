@@ -1857,6 +1857,84 @@ def _cohort_band_target_and_max(
   return float(target), float(max_value)
 
 
+_STAGE_RAMP_SCHEMA_RANGES_CACHE: Dict[str, Any] = {}
+
+
+def _stage_ramp_schema_field_ranges() -> Dict[str, Any]:
+  """Canonical per-field (min,max) economic-envelope ranges for
+  stage_ramp_contract, read from the contract field registry
+  (post_intake_gpt_contract_rows) — the same source the validator
+  enforces. Cached for the process."""
+  if _STAGE_RAMP_SCHEMA_RANGES_CACHE:
+    return _STAGE_RAMP_SCHEMA_RANGES_CACHE
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_gpt_contract_rows,
+    )
+    for r in post_intake_gpt_contract_rows():
+      if str(r.get("contract_name")) != "stage_ramp_contract":
+        continue
+      fn = r.get("field_name")
+      mn, mx = r.get("min_value"), r.get("max_value")
+      if fn and (mn is not None or mx is not None):
+        _STAGE_RAMP_SCHEMA_RANGES_CACHE[str(fn)] = (mn, mx)
+  except Exception:
+    pass
+  return _STAGE_RAMP_SCHEMA_RANGES_CACHE
+
+
+def _robust_bound(value: Any, lo: Any, hi: Any) -> Any:
+  try:
+    v = float(value)
+  except (TypeError, ValueError):
+    return value
+  if lo is not None and v < float(lo):
+    v = float(lo)
+  if hi is not None and v > float(hi):
+    v = float(hi)
+  return round(v, 2)
+
+
+def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]:
+  """Phase 9 P3.32 K13 (Fix 2 / G-B5, doctrine §10.6) — bound every
+  cohort-derived stage_ramp field to the canonical economic envelope
+  (the contract-registry ranges the validator enforces).
+
+  Root cause (real data): the deterministic builder maps NAICS cohort
+  ``benchmark_max`` directly onto contract cost-ratio maxes, but the raw
+  cohort max encodes outliers/artifacts that exceed the economic
+  envelope — cogs_max 1.0 (a distressed freight firm with COGS >=
+  revenue, 4-firm cohort), marketing_max 0.53 and rd_max 0.64 (cohort
+  misclassification; no real business sustains those ratios). Those
+  produce a structurally invalid contract the GPT handler then cannot
+  repair → B5. Bounding each field to the registry envelope is the
+  robust upper bound: a distressed-firm / artifact value can never set a
+  planning ceiling. This is NOT masking a data bug behind an arbitrary
+  clamp — the envelope is the canonical economic range (cogs widened to
+  a principled 0.97 = 3% min gross margin in the same fix), so genuine
+  high-COGS sectors (trucking 0.963) are admitted while impossible
+  values are rejected. Systemic across cogs/marketing/rd/ga/lease."""
+  if not isinstance(contract, dict):
+    return contract
+  ranges = _stage_ramp_schema_field_ranges()
+  if not ranges:
+    return contract
+  uhw = ranges.get("utilization_high_watermark")
+  if uhw and "utilization_high_watermark" in contract:
+    contract["utilization_high_watermark"] = _robust_bound(
+      contract["utilization_high_watermark"], uhw[0], uhw[1]
+    )
+  grid = contract.get("quarter_ramp_grid")
+  if isinstance(grid, list):
+    for row in grid:
+      if not isinstance(row, dict):
+        continue
+      for fn, (lo, hi) in ranges.items():
+        if fn in row:
+          row[fn] = _robust_bound(row[fn], lo, hi)
+  return contract
+
+
 def build_python_stage_ramp_contract(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -2009,7 +2087,14 @@ def build_python_stage_ramp_contract(
   # decision_source, r_and_d_applicability) are added by callers AFTER
   # validation accepts — see engage_stage_ramp_handler_on_validator_
   # failure in post_intake_stage_ramp_handler/handler.py.
-  return {
+  #
+  # Phase 9 P3.32 K13 (Fix 2 / G-B5) — robust-bound the cohort-derived
+  # cost-ratio maxes to the canonical economic envelope before returning,
+  # so distressed-firm / cohort-artifact values (cogs 1.0, marketing
+  # 0.53, rd 0.64) can never set a planning ceiling above the envelope.
+  # Guarantees the deterministic builder always emits a validator-valid
+  # contract (the §10.6 floor for the common range-violation B5 cause).
+  return robust_bound_stage_ramp_contract({
     "stage_family": expected_family,
     "utilization_high_watermark": _MATURE_UTILIZATION_CAP,
     "quarter_ramp_grid": quarter_ramp_grid,
@@ -2017,11 +2102,12 @@ def build_python_stage_ramp_contract(
       f"Python-deterministic stage ramp for {expected_family} stage. "
       f"Revenue QoQ target {qoq_target:.2f}/max {qoq_max:.2f} from "
       "NAICS cohort with conservative-default fallback. Cost ratio "
-      "envelopes from NAICS cohort midpoints. Utilization ramps from "
+      "envelopes from NAICS cohort midpoints, robust-bounded to the "
+      "canonical economic envelope. Utilization ramps from "
       f"{q1_util:.2f} (Q1) to {_MATURE_UTILIZATION_CAP:.2f} (Q11+). "
       "Stage ramp handler engages if this default fails realism."
     ),
-  }
+  })
 
 
 def _estimate_stage_ramp_contract_with_gpt(
