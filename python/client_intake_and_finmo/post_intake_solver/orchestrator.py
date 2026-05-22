@@ -1074,17 +1074,20 @@ def run_target_seeking_orchestrated_system_run(
   except Exception:
     pass
 
-  # ---------- Phase 9 P3.32 K11 L-4: open the handler trace run ----------
-  # Run-scoped, mirroring reset_gpt_call_budget above. Stamps the active
-  # (draft_id, planning_run_id) so every Handler C probe, H2 probe, and
-  # OpenAI turn persists its own durable row INCREMENTALLY (not buffered
-  # to completion). A crash mid-run thus leaves all completed-call traces
-  # on disk — eliminating the truncated-failure-report blind spot (P1.3).
+  # ---------- Phase 9 P3.32 K11 L-4: handler trace run -------------------
+  # NOTE: begin_trace_run is intentionally NOT called here. The trace run
+  # is opened earlier, at the TRUE planning-system entry
+  # (_run_planning_system_for_draft_unified in api_handlers/intake_consult),
+  # because payroll Handler C runs during the initial-grid build BEFORE
+  # this orchestrator. Calling begin_trace_run here would clear the buffer
+  # and discard Handler C's traces. The active run context (set there) is
+  # already live; the orchestrator only needs to stamp the planning_run_id
+  # if it hasn't been set yet.
   try:
     from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
-      begin_trace_run,
+      set_planning_run_id,
     )
-    begin_trace_run(draft_id, planning_run_id)
+    set_planning_run_id(planning_run_id)
   except Exception:
     pass
 

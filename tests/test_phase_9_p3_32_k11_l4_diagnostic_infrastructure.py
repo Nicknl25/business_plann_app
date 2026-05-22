@@ -105,6 +105,27 @@ class HandlerTraceSinkTest(unittest.TestCase):
     self.assertEqual(len(self.mod.get_trace_buffer()), 0)
     self.assertEqual(self.mod.active_run()["draft_id"], "draft_xyz")
 
+  def test_draft_id_alone_suffices_and_run_id_stamps_later(self) -> None:
+    # Payroll Handler C runs before the planning_run_id exists: a trace
+    # recorded with only draft_id must still buffer (and would persist).
+    self.mod.begin_trace_run("draft_only", "")
+    self.mod.record_handler_call(
+      handler=self.mod.HANDLER_C, call_n=1, payload={"tool_name": "x"}
+    )
+    rows = self.mod.get_trace_buffer(handler=self.mod.HANDLER_C)
+    self.assertEqual(len(rows), 1)
+    self.assertEqual(rows[0]["draft_id"], "draft_only")
+    self.assertEqual(rows[0]["planning_run_id"], "")
+    # Once the grid build creates the planning_run_id, stamp it; later
+    # traces carry it, the buffer/seq are NOT reset.
+    self.mod.set_planning_run_id("run_late")
+    self.mod.record_handler_call(
+      handler=self.mod.HANDLER_H2, call_n=1, payload={}
+    )
+    h2 = self.mod.get_trace_buffer(handler=self.mod.HANDLER_H2)
+    self.assertEqual(h2[0]["planning_run_id"], "run_late")
+    self.assertEqual(self.mod.active_run()["trace_count"], 2)
+
   def test_seq_is_monotonic_across_kinds(self) -> None:
     self.mod.record_handler_call(handler=self.mod.HANDLER_H2, call_n=1, payload={})
     self.mod.record_gpt_io(

@@ -7040,6 +7040,21 @@ def _run_planning_system_for_draft_unified(
   planning_run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
   _bind_post_intake_runtime_dependencies()
+
+  # Phase 9 P3.32 K11 L-4 — open the handler trace run at the TRUE entry,
+  # BEFORE the initial-grid build (which runs payroll Handler C). draft_id
+  # keys the run; the planning_run_id is created inside the grid build and
+  # stamped immediately after via set_planning_run_id. This is the correct
+  # placement: the orchestrator runs only after the grid is built, so a
+  # begin there would miss Handler C entirely (and clear its buffer).
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      begin_trace_run as _begin_trace_run,
+    )
+    _begin_trace_run(str(draft_id).strip(), planning_run_id or "")
+  except Exception:
+    pass
+
   initial_grid_state = prepare_initial_grid_for_draft(
     conn=conn,
     draft_id=str(draft_id).strip(),
@@ -7069,6 +7084,18 @@ def _run_planning_system_for_draft_unified(
     estimate_balance_sheet_contextual_seed_with_gpt=_estimate_balance_sheet_contextual_seed_with_gpt,
     estimate_stage_ramp_contract_with_gpt=_stage_ramp_contract_python_first_with_handler,
   )
+
+  # Phase 9 P3.32 K11 L-4 — stamp the real planning_run_id now that the
+  # grid build created it, so post-grid traces (orchestrator, H2) carry
+  # it. Early Handler C traces stay keyed by draft_id (the run identifier).
+  try:
+    from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+      set_planning_run_id as _set_planning_run_id,
+    )
+    _set_planning_run_id(str(initial_grid_state.get("planning_run_id") or "").strip())
+  except Exception:
+    pass
+
   return _run_unified_post_grid_system_run(
     conn=conn,
     draft_id=str(draft_id).strip(),

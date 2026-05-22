@@ -112,14 +112,21 @@ def _now_iso() -> str:
   return datetime.now(timezone.utc).isoformat()
 
 
-def begin_trace_run(draft_id: Any, planning_run_id: Any) -> None:
+def begin_trace_run(draft_id: Any, planning_run_id: Any = "") -> None:
   """Open a trace run. Clears the in-memory buffer and stamps the active
-  (draft_id, planning_run_id) for all subsequent ``record_*`` calls.
+  draft_id (and planning_run_id if already known) for all subsequent
+  ``record_*`` calls.
 
-  Called by the orchestrator at the top of each planning run, alongside
-  ``reset_gpt_call_budget``. Safe to call repeatedly; re-arms
-  persistence (so a prior DB outage doesn't permanently silence a later
-  run in the same process).
+  MUST be called at the TRUE entry of the planning system run
+  (_run_planning_system_for_draft_unified), BEFORE the initial grid /
+  payroll Handler C runs — NOT at the orchestrator, which executes only
+  after the grid is built. draft_id is sufficient to key a run (the
+  runner clones each source into a fresh draft per execution);
+  planning_run_id is created later inside the initial-grid build and is
+  stamped via ``set_planning_run_id`` once known.
+
+  Safe to call repeatedly; re-arms persistence (so a prior DB outage
+  doesn't permanently silence a later run in the same process).
   """
   global _active_draft_id, _active_planning_run_id, _run_started_monotonic
   global _seq, _persistence_disabled
@@ -131,6 +138,20 @@ def begin_trace_run(draft_id: Any, planning_run_id: Any) -> None:
     _buffer.clear()
     _runtime_status.clear()
     _persistence_disabled = False
+
+
+def set_planning_run_id(planning_run_id: Any) -> None:
+  """Stamp the planning_run_id onto the active trace run once the
+  initial-grid build has created it. Does NOT clear the buffer or reset
+  the sequence — traces already recorded under the early (empty)
+  planning_run_id stay durable and queryable by draft_id; subsequent
+  traces carry the real id."""
+  global _active_planning_run_id
+  pid = str(planning_run_id or "").strip()
+  if not pid:
+    return
+  with _lock:
+    _active_planning_run_id = pid
 
 
 def end_trace_run() -> None:
@@ -212,9 +233,9 @@ def _persist_row(entry: Dict[str, Any], trace_json: str) -> None:
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
-          entry["draft_id"], entry["planning_run_id"], entry["handler"],
-          entry["trace_kind"], entry.get("call_n"), entry["seq"],
-          entry.get("elapsed_ms"), trace_json,
+          entry["draft_id"], entry["planning_run_id"] or "pending",
+          entry["handler"], entry["trace_kind"], entry.get("call_n"),
+          entry["seq"], entry.get("elapsed_ms"), trace_json,
         ),
       )
       try:
@@ -270,7 +291,11 @@ def _record(
       _buffer.append(entry)
       snapshot = dict(entry)
     trace_json = _bounded_json(snapshot)
-    if snapshot["draft_id"] and snapshot["planning_run_id"]:
+    # draft_id alone keys a run (fresh clone per execution). planning_run_id
+    # may not exist yet when payroll Handler C runs during the initial-grid
+    # build — persist anyway with a "pending" placeholder so that early
+    # trace is durable; set_planning_run_id stamps later traces.
+    if snapshot["draft_id"]:
       _persist_row(snapshot, trace_json)
   except Exception as exc:  # pragma: no cover - defensive
     logger.debug("handler_trace_record_swallowed: %s", type(exc).__name__)
