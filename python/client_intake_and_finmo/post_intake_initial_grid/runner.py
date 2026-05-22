@@ -500,6 +500,42 @@ def prepare_initial_grid_for_draft(
   if isinstance(financials_year1_json, dict) and financials_year1_json:
     shared_context["financials_year1_json"] = financials_year1_json
 
+  # Phase 9 P3.33 Phase 3 step 1 — Materialize cohort bands so the amalgamated
+  # GPT session (later commits this phase) can return constraint bands inline
+  # in tool responses, and so bands are auditable per run. Soft failure: this
+  # is a new audit sink that no caller consumes yet; a write issue here must
+  # not break a run. Later commits (when the amalgamated session reads bands)
+  # will promote failures to hard.
+  try:
+    from client_intake_and_finmo.post_intake_solver.cohort_bands_table import (  # type: ignore
+      populate_cohort_bands_for_run,
+    )
+    _bp_target_revenue = safe_float(
+      (financials_year1_json or {}).get("company_revenue_total_year1")
+    ) if isinstance(financials_year1_json, dict) else None
+    _bp_naics_6 = (
+      "".join(ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit())
+      if isinstance(ops_json, dict) else None
+    )
+    _bp_stage = (
+      (str((ops_json or {}).get("business_stage") or "").strip().lower() or None)
+      if isinstance(ops_json, dict) else None
+    )
+    _bands_summary = populate_cohort_bands_for_run(
+      conn,
+      draft_id=normalized_draft_id,
+      planning_run_id=active_planning_run_id,
+      business_profile={
+        "naics_6": _bp_naics_6,
+        "target_annual_revenue": _bp_target_revenue,
+        "stage": _bp_stage,
+        "business_model": None,
+      },
+    )
+    sequence_trace["cohort_bands_populated"] = _bands_summary
+  except Exception as _cohort_bands_exc:  # noqa: BLE001 — soft sink (see above)
+    sequence_trace["cohort_bands_populated"] = {"error": repr(_cohort_bands_exc)}
+
   try:
     marketing_model_json = _execute_sequence_step(
       "marketing_context_build",
