@@ -1,29 +1,32 @@
 """Shared helpers for the intake-bypass tooling.
 
 The intake-bypass runner lets the user exercise the *post-intake* pipeline
-without re-running the GPT intake conversation. It does this with the
-"baseline + overrides" model:
+without re-running the GPT intake conversation, via "baseline + overrides":
 
   - A baseline snapshot is the structured intake output (operating_model_json,
-    target_market_json, people_json, financials_json, ...) captured once from a
-    real, intake-complete draft. Post-intake consumes these structured JSON
-    payloads -- it never consumes raw intake answers -- so reusing a real
-    baseline guarantees the JSON is shaped exactly the way post-intake expects.
+    target_market_json, people_json, financials_json, financials_year1_json,
+    marketing_model_json, fulfillment_json) captured once from a real,
+    intake-complete draft. Post-intake consumes these structured JSON payloads,
+    so reusing a real baseline guarantees the JSON is shaped exactly as
+    post-intake expects.
 
-  - Overrides are scalar values (cash_on_hand, current_capex, payroll, price,
-    naics, ...) the user edits per scenario. The runner applies them onto a
-    copy of the baseline before writing the fresh draft, so the user can author
-    stress scenarios (e.g. "airline with $0 capex") by changing numbers only.
+  - Overrides are an EXHAUSTIVE, pre-filled spreadsheet. Every leaf of the
+    baseline is a row addressed by a dotted path; the cell is pre-filled with
+    the baseline value. The user edits any cell they want to change. A row takes
+    effect only when its cell differs from the baseline value at that path, so
+    an unedited sheet reproduces the baseline exactly.
 
 This module holds the pieces both ``capture_intake_baseline.py`` and
-``run_intake_bypass.py`` need: env/DB access, JSON helpers, and the
-override -> JSON-path mapping.
+``run_intake_bypass.py`` need: env/DB access, JSON helpers, and the generic
+dotted-path override engine.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,9 +35,9 @@ ROOT = THIS_DIR.parent
 DEFAULT_BASELINES_DIR = THIS_DIR / "intake_bypass_baselines"
 DEFAULT_SCENARIOS_XLSX = THIS_DIR / "intake_bypass_scenarios.xlsx"
 
-# Columns copied from the baseline draft into a fresh draft. This mirrors the
-# proven clone in run_persisted_system_run.py:_clone_source_into_target_draft.
-# Each entry is (sql_column, snapshot_key, is_json).
+# Columns copied from the baseline draft into a fresh draft. Mirrors the proven
+# clone in run_persisted_system_run.py:_clone_source_into_target_draft.
+# Each entry is (sql_column, snapshot_key).
 BASELINE_FLAT_COLUMNS: List[Tuple[str, str]] = [
   ("business_name", "business_name"),
   ("business_address", "business_address"),
@@ -58,6 +61,25 @@ BASELINE_JSON_COLUMNS: List[str] = [
   "pending_ops_milestone_json",
   "fulfillment_json",
 ]
+
+# The structured payloads post-intake consumes and the user may override.
+# (messages_json/realism_memo_json/pending_ops_milestone_json are conversation /
+# gate artifacts, not intake business inputs, so they are not exposed.)
+STRUCTURED_PAYLOADS: List[str] = [
+  "operating_model_json",
+  "target_market_json",
+  "people_json",
+  "financials_json",
+  "financials_year1_json",
+  "marketing_model_json",
+  "fulfillment_json",
+]
+
+RESERVED_FIELDS = {"baseline", "scenario_notes", "scenario_name"}
+NULL_TOKEN = "(null)"
+
+_MISSING = object()
+_PATH_TOKEN_RE = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +125,6 @@ def mysql_connect():
 # JSON helpers
 # ---------------------------------------------------------------------------
 def parse_json(value: Any) -> Any:
-  """Parse a DB JSON column (string) into a Python object, pass dicts through."""
   if value is None:
     return None
   if isinstance(value, (dict, list)):
@@ -120,128 +141,120 @@ def parse_json(value: Any) -> Any:
 
 
 def sql_json_value(value: Any) -> Any:
-  """Serialize dicts/lists for a MySQL JSON/LONGTEXT column; pass scalars through."""
   if isinstance(value, (dict, list)):
     return json.dumps(value, ensure_ascii=False)
   return value
 
 
 # ---------------------------------------------------------------------------
-# Override registry
+# Dotted-path engine
 # ---------------------------------------------------------------------------
-# "Numbers only" scalars that live exactly once, inside financials_json. These
-# are the safest, highest-value overrides for stress scenarios: the post-intake
-# solver reads them directly as opening balances / Year-1 totals.
-FINANCIALS_SCALAR_FIELDS: List[str] = [
-  "cash_on_hand",
-  "ar_balance",
-  "ap_balance",
-  "inventory_balance",
-  "current_capex",
-  "initial_assets",
-  "initial_lease",
-  "initial_equity",
-  "total_debt_outstanding",
-  "annual_interest_payment",
-  "annual_principal_payment",
-  "other_monthly_debt_payments",
-  "monthly_rent_expense",
-  "other_operating_expense",
-  "owner_compensation",
-  "current_payroll",
-  "payroll_total_year1",
-  "current_num_employees",
-  "current_cogs",
-  "current_revenue",
-]
-
-# Percent fields in financials_json: accept "29%" or 0.29 or 29 -> normalized to fraction.
-FINANCIALS_PERCENT_FIELDS: List[str] = [
-  "cogs_percent_of_revenue",
-]
-
-# Integer-valued financials fields.
-FINANCIALS_INT_FIELDS = {"current_num_employees"}
-
-# Fields denormalized across operating_model_json (top level + every
-# lob_models[*].products[*]) and financials_year1_json lobs[*].products[*].
-# The post-intake mapping re-derives revenue from these, so overriding them is
-# supported but flagged in the README as "shape-affecting".
-PRODUCT_NUMERIC_FIELDS: List[str] = [
-  "unit_price",
-  "units_per_week_capacity",
-  "utilization_rate",
-]
-
-# operating_model_json top-level descriptors.
-OPS_DESCRIPTOR_FIELDS = {
-  "naics": "business_naics_6",
-  "business_naics_6": "business_naics_6",
-  "business_stage": "business_stage",
-}
-
-# Flat draft columns that may be overridden directly.
-FLAT_OVERRIDE_FIELDS = {
-  "business_name",
-  "business_start_date",
-  "business_address",
-  "address_street",
-  "address_city",
-  "address_state",
-  "address_zip",
-  "address_country",
-}
-
-# Fields that are control/meta and must never be treated as overrides.
-RESERVED_FIELDS = {"baseline", "scenario_notes", "scenario_name"}
+def parse_path(path: str) -> List[Any]:
+  """'a.b[0].c' -> ['a', 'b', 0, 'c']."""
+  tokens: List[Any] = []
+  for m in _PATH_TOKEN_RE.finditer(path):
+    key, idx = m.group(1), m.group(2)
+    if idx is not None:
+      tokens.append(int(idx))
+    elif key is not None:
+      tokens.append(key)
+  return tokens
 
 
-def coerce_number(raw: Any, *, percent: bool = False, integer: bool = False) -> Optional[float]:
-  """Parse a spreadsheet cell into a number. Accepts $1,234.50, 29%, plain ints."""
-  if raw is None:
-    return None
-  if isinstance(raw, bool):
-    raise ValueError(f"expected a number, got boolean {raw!r}")
-  if isinstance(raw, (int, float)):
-    val = float(raw)
+def get_by_path(obj: Any, tokens: List[Any]) -> Any:
+  cur = obj
+  for tok in tokens:
+    if isinstance(tok, int):
+      if isinstance(cur, list) and 0 <= tok < len(cur):
+        cur = cur[tok]
+      else:
+        return _MISSING
+    else:
+      if isinstance(cur, dict) and tok in cur:
+        cur = cur[tok]
+      else:
+        return _MISSING
+  return cur
+
+
+def set_by_path(obj: Any, tokens: List[Any], value: Any) -> None:
+  cur = obj
+  for i, tok in enumerate(tokens[:-1]):
+    nxt = tokens[i + 1]
+    if isinstance(tok, int):
+      if not isinstance(cur, list):
+        raise ValueError(f"path index [{tok}] applied to non-list at token {i}")
+      while len(cur) <= tok:
+        cur.append([] if isinstance(nxt, int) else {})
+      cur = cur[tok]
+    else:
+      if not isinstance(cur, dict):
+        raise ValueError(f"path key {tok!r} applied to non-dict at token {i}")
+      if tok not in cur or cur[tok] is None:
+        cur[tok] = [] if isinstance(nxt, int) else {}
+      cur = cur[tok]
+  last = tokens[-1]
+  if isinstance(last, int):
+    if not isinstance(cur, list):
+      raise ValueError(f"path index [{last}] applied to non-list")
+    while len(cur) <= last:
+      cur.append(None)
+    cur[last] = value
   else:
-    text = str(raw).strip()
-    if not text:
-      return None
-    had_percent = text.endswith("%")
-    cleaned = text.replace("$", "").replace(",", "").replace("%", "").strip()
-    if cleaned == "":
-      return None
+    cur[last] = value
+
+
+def flatten_obj(prefix: str, obj: Any, out: List[Tuple[str, Any]]) -> None:
+  """Append (dotted_path, leaf_value) for every leaf of obj."""
+  if isinstance(obj, dict):
+    for k, v in obj.items():
+      flatten_obj(f"{prefix}.{k}", v, out)
+  elif isinstance(obj, list):
+    for i, v in enumerate(obj):
+      flatten_obj(f"{prefix}[{i}]", v, out)
+  else:
+    out.append((prefix, obj))
+
+
+def _to_number(raw: Any) -> float:
+  if isinstance(raw, bool):
+    raise ValueError(f"expected number, got bool {raw!r}")
+  if isinstance(raw, (int, float)):
+    return float(raw)
+  text = str(raw).strip()
+  had_percent = text.endswith("%")
+  cleaned = text.replace("$", "").replace(",", "").replace("%", "").strip()
+  val = float(cleaned)
+  return val / 100.0 if had_percent else val
+
+
+def coerce_to_type(raw: Any, baseline_value: Any) -> Any:
+  """Coerce a spreadsheet cell to the baseline value's type where possible."""
+  if isinstance(raw, str) and raw.strip() == NULL_TOKEN:
+    return None
+  if isinstance(baseline_value, bool):
+    if isinstance(raw, bool):
+      return raw
+    return str(raw).strip().lower() in ("true", "1", "yes", "y")
+  if isinstance(baseline_value, int) and not isinstance(baseline_value, bool):
+    return int(round(_to_number(raw)))
+  if isinstance(baseline_value, float):
+    return _to_number(raw)
+  if baseline_value is None or baseline_value is _MISSING:
+    # Unknown target type: try number, else string.
     try:
-      val = float(cleaned)
-    except Exception as exc:
-      raise ValueError(f"could not parse number from {raw!r}: {exc}") from exc
-    if percent and (had_percent or val > 1.0):
-      val = val / 100.0
-      return val
-  if percent and val > 1.0:
-    val = val / 100.0
-  if integer:
-    return float(int(round(val)))
-  return val
+      return _to_number(raw)
+    except Exception:
+      return str(raw)
+  return str(raw)
 
 
-def _set_product_field(structured: Dict[str, Any], field: str, value: float, audit: List[Dict[str, Any]]) -> None:
-  om = structured.get("operating_model_json")
-  if isinstance(om, dict):
-    if field in om:
-      audit.append({"field": field, "path": f"operating_model_json.{field}", "value": value})
-    om[field] = value
-    for lob in (om.get("lob_models") or []):
-      for product in (lob.get("products") or []) if isinstance(lob, dict) else []:
-        if isinstance(product, dict):
-          product[field] = value
-  fy1 = structured.get("financials_year1_json")
-  if isinstance(fy1, dict):
-    for lob in (fy1.get("lobs") or []):
-      for product in (lob.get("products") or []) if isinstance(lob, dict) else []:
-        if isinstance(product, dict) and field in product:
-          product[field] = value
+def values_equal(a: Any, b: Any) -> bool:
+  if isinstance(a, bool) or isinstance(b, bool):
+    return bool(a) == bool(b)
+  if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+    return math.isclose(float(a), float(b), rel_tol=1e-9, abs_tol=1e-9)
+  return a == b
 
 
 def apply_overrides(
@@ -250,73 +263,48 @@ def apply_overrides(
   structured: Dict[str, Any],
   overrides: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-  """Mutate ``flat`` and ``structured`` in place per ``overrides``.
+  """Apply dotted-path overrides onto ``flat`` and ``structured`` in place.
 
-  Returns an audit list (one entry per applied override) for reporting. Raises
-  ValueError on an unknown field so a typo in the spreadsheet fails loud rather
-  than silently doing nothing.
+  ``draft.<col>`` targets a flat draft column; ``<payload>.<path>`` targets a
+  leaf in a structured JSON column. A row is applied only when its (coerced)
+  cell value differs from the baseline value at that path. Blank cells inherit
+  the baseline. The literal "(null)" sets null. Returns an audit list.
   """
   audit: List[Dict[str, Any]] = []
-  financials = structured.get("financials_json")
-  if not isinstance(financials, dict):
-    financials = {}
-    structured["financials_json"] = financials
-
   for key, raw in overrides.items():
     field = _string(key)
     if not field or field.startswith("#") or field in RESERVED_FIELDS:
       continue
-    # Treat blank cells as "inherit baseline".
     if raw is None or (isinstance(raw, str) and raw.strip() == ""):
-      continue
+      continue  # inherit baseline
 
-    if field in FLAT_OVERRIDE_FIELDS:
-      flat[field] = _string(raw)
-      audit.append({"field": field, "path": f"draft.{field}", "value": flat[field]})
-      continue
-
-    if field in FINANCIALS_PERCENT_FIELDS:
-      val = coerce_number(raw, percent=True)
-      if val is None:
+    if field.startswith("draft."):
+      col = field[len("draft."):]
+      new_val = None if (isinstance(raw, str) and raw.strip() == NULL_TOKEN) else _string(raw)
+      old_val = flat.get(col)
+      if values_equal(new_val, old_val):
         continue
-      financials[field] = val
-      audit.append({"field": field, "path": f"financials_json.{field}", "value": val})
+      flat[col] = new_val
+      audit.append({"field": field, "old": old_val, "new": new_val})
       continue
 
-    if field in FINANCIALS_SCALAR_FIELDS:
-      val = coerce_number(raw, integer=(field in FINANCIALS_INT_FIELDS))
-      if val is None:
-        continue
-      if field in FINANCIALS_INT_FIELDS:
-        financials[field] = int(val)
-      else:
-        financials[field] = val
-      audit.append({"field": field, "path": f"financials_json.{field}", "value": financials[field]})
-      continue
-
-    if field in PRODUCT_NUMERIC_FIELDS:
-      val = coerce_number(raw, percent=(field == "utilization_rate"))
-      if val is None:
-        continue
-      _set_product_field(structured, field, val, audit)
-      audit.append({"field": field, "path": f"operating_model_json+financials_year1_json.{field}", "value": val})
-      continue
-
-    if field in OPS_DESCRIPTOR_FIELDS:
-      om = structured.get("operating_model_json")
-      if not isinstance(om, dict):
-        om = {}
-        structured["operating_model_json"] = om
-      target = OPS_DESCRIPTOR_FIELDS[field]
-      om[target] = _string(raw)
-      audit.append({"field": field, "path": f"operating_model_json.{target}", "value": om[target]})
-      continue
-
-    raise ValueError(
-      f"Unknown override field {field!r}. Supported: "
-      f"{sorted(set(FLAT_OVERRIDE_FIELDS) | set(FINANCIALS_SCALAR_FIELDS) | set(FINANCIALS_PERCENT_FIELDS) | set(PRODUCT_NUMERIC_FIELDS) | set(OPS_DESCRIPTOR_FIELDS))}"
-    )
-
+    head = re.split(r"[.\[]", field, 1)[0]
+    if head not in STRUCTURED_PAYLOADS:
+      raise ValueError(
+        f"Unknown override target {field!r}. Address either 'draft.<col>' or "
+        f"'<payload>.<path>' where <payload> in {STRUCTURED_PAYLOADS}."
+      )
+    tokens = parse_path(field)
+    baseline_value = get_by_path(structured, tokens)
+    coerced = coerce_to_type(raw, baseline_value)
+    if baseline_value is not _MISSING and values_equal(coerced, baseline_value):
+      continue  # unedited pre-filled cell
+    set_by_path(structured, tokens, coerced)
+    audit.append({
+      "field": field,
+      "old": (None if baseline_value is _MISSING else baseline_value),
+      "new": coerced,
+    })
   return audit
 
 

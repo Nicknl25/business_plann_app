@@ -1,96 +1,159 @@
-"""Generate the sample intake-bypass scenario workbook.
+"""Generate the EXHAUSTIVE, pre-filled intake-bypass scenario workbook.
 
-Kept in the repo so the .xlsx is reproducible and reviewable. Re-run to
-regenerate Test Files/intake_bypass_scenarios.xlsx.
+Flattens a captured baseline snapshot into one row per leaf, pre-filled with the
+baseline value, grouped by section. The user edits any cell to override that
+field for a scenario; unedited cells reproduce the baseline exactly.
 
   python "Test Files/make_intake_bypass_scenarios_xlsx.py"
+  python "Test Files/make_intake_bypass_scenarios_xlsx.py" --baseline sunny_glaze_donuts --sheet Sunny_Glaze_Donuts
 """
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 from pathlib import Path
+from typing import Any, List, Tuple
 
 import openpyxl
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill, Alignment
 
 THIS_DIR = Path(__file__).resolve().parent
-OUT_PATH = THIS_DIR / "intake_bypass_scenarios.xlsx"
 
-README_LINES = [
-  ("intake-bypass scenarios", ""),
+
+def _load_common():
+  spec = importlib.util.spec_from_file_location("intake_bypass_common", str(THIS_DIR / "intake_bypass_common.py"))
+  module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+  return module
+
+
+C = _load_common()
+
+README_LINES: List[Tuple[str, str]] = [
+  ("intake-bypass scenarios — exhaustive override sheet", ""),
   ("", ""),
-  ("Each non-underscore sheet is one scenario.", ""),
-  ("Column A = field name, Column B = value.", ""),
-  ("Rows whose field starts with '#' are comments and are ignored.", ""),
-  ("Sheets whose name starts with '_' (like this one) are ignored.", ""),
+  ("Each non-underscore sheet is ONE scenario. Sheets starting with '_' are ignored.", ""),
+  ("Column A = field path, Column B = value.", ""),
   ("", ""),
-  ("Required field:", ""),
-  ("baseline", "name of a captured baseline snapshot (file in intake_bypass_baselines/)"),
+  ("HOW IT WORKS", ""),
+  ("Every leaf of the baseline is listed and PRE-FILLED with the baseline value.", ""),
+  ("To build a scenario, edit only the cells you want to change.", ""),
+  ("A row is applied only when its value DIFFERS from the baseline at that path,", ""),
+  ("so an unedited sheet reproduces the baseline exactly.", ""),
   ("", ""),
-  ("Override fields (blank cell = inherit the baseline value):", ""),
-  ("Financial scalars (financials_json):", ""),
-  ("  cash_on_hand, ar_balance, ap_balance, inventory_balance", ""),
-  ("  current_capex, initial_assets, initial_lease, initial_equity", ""),
-  ("  total_debt_outstanding, annual_interest_payment, annual_principal_payment", ""),
-  ("  other_monthly_debt_payments, monthly_rent_expense, other_operating_expense", ""),
-  ("  owner_compensation, current_payroll, payroll_total_year1, current_num_employees", ""),
-  ("  current_cogs, current_revenue, cogs_percent_of_revenue (accepts 29% or 0.29)", ""),
-  ("Shape-affecting (operating_model_json + financials_year1_json; solver re-derives revenue):", ""),
-  ("  unit_price, units_per_week_capacity, utilization_rate", ""),
-  ("Descriptors (operating_model_json):", ""),
-  ("  naics, business_stage", ""),
-  ("Flat draft columns:", ""),
-  ("  business_name, business_start_date, business_address,", ""),
-  ("  address_street, address_city, address_state, address_zip, address_country", ""),
+  ("CONVENTIONS", ""),
+  ("baseline", "REQUIRED. Name of the baseline snapshot in intake_bypass_baselines/."),
+  ("blank cell", "inherit the baseline value (no change)."),
+  ("(null)", "explicitly set the field to null."),
+  ("rows starting with #", "comments / section headers — ignored."),
   ("", ""),
-  ("Numbers may be written plainly (20000), with separators ($20,000), or percents (29%).", ""),
-  ("An unknown field name fails loudly so typos are caught.", ""),
+  ("PATH SYNTAX", ""),
+  ("draft.<col>", "a flat draft column, e.g. draft.business_name, draft.address_city."),
+  ("<payload>.<path>", "a leaf inside a structured JSON column."),
+  ("list items use [i]", "e.g. operating_model_json.lob_models[0].products[0].unit_price"),
+  ("payloads exposed", ", ".join(C.STRUCTURED_PAYLOADS)),
+  ("", ""),
+  ("NUMBERS", "plain (20000), separated ($20,000), or percent (29%) all parse."),
+  ("", ""),
+  ("DENORMALIZATION — edit consistently", ""),
+  ("unit_price / units_per_week_capacity / utilization_rate appear in BOTH", ""),
+  ("operating_model_json (top-level AND each product) and financials_year1_json", ""),
+  ("products. To change price/capacity/util coherently, edit every occurrence.", ""),
+  ("", ""),
+  ("LIMITATION", ""),
+  ("Editing existing leaves is supported. To ADD a brand-new array element", ""),
+  ("(e.g. a 3rd product or an 8th person), edit the baseline JSON in", ""),
+  ("intake_bypass_baselines/ directly, or capture a baseline that already has it.", ""),
+  ("(For headcount scale, financials_json.current_num_employees / payroll_total_year1", ""),
+  (" are usually the right knobs — post-intake authors the full headcount grid.)", ""),
 ]
 
-# field, value, comment(prefix '#' on field => ignored example)
-SUNNY_ROWS = [
-  ("field", "value"),
-  ("baseline", "sunny_glaze_donuts"),
-  ("business_name", "Sunny Glaze Donuts"),
-  ("# --- financial overrides: fill a value to change it, leave blank to inherit ---", ""),
-  ("cash_on_hand", ""),
-  ("current_capex", ""),
-  ("total_debt_outstanding", ""),
-  ("payroll_total_year1", ""),
-  ("monthly_rent_expense", ""),
-  ("other_operating_expense", ""),
-  ("# --- shape-affecting overrides (optional) ---", ""),
-  ("unit_price", ""),
-  ("units_per_week_capacity", ""),
-  ("utilization_rate", ""),
-  ("# --- example stress edit: uncomment by removing the '#' and set a value ---", ""),
-  ("# cash_on_hand", "20000"),
-]
+SECTION_FILL = PatternFill(start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid")
+HEADER_FILL = PatternFill(start_color="FF4472C4", end_color="FF4472C4", fill_type="solid")
 
 
-def main() -> int:
-  wb = openpyxl.Workbook()
-  ws_readme = wb.active
-  ws_readme.title = "_README"
+def _build_rows(baseline: dict) -> List[Tuple[str, Any, bool]]:
+  """Return (path, value, is_section_header) rows for the scenario sheet."""
+  rows: List[Tuple[str, Any, bool]] = []
+  flat = baseline.get("flat") or {}
+  structured = baseline.get("structured") or {}
+
+  rows.append(("# ===== draft (business identity / address) =====", "", True))
+  for _sql_col, key in C.BASELINE_FLAT_COLUMNS:
+    rows.append((f"draft.{key}", flat.get(key), False))
+
+  for payload in C.STRUCTURED_PAYLOADS:
+    obj = structured.get(payload)
+    if obj is None:
+      continue
+    leaves: List[Tuple[str, Any]] = []
+    C.flatten_obj(payload, obj, leaves)
+    rows.append((f"# ===== {payload}  ({len(leaves)} fields) =====", "", True))
+    rows.extend((p, v, False) for p, v in leaves)
+  return rows
+
+
+def _write_readme(ws) -> None:
   bold = Font(bold=True)
   for i, (a, b) in enumerate(README_LINES, start=1):
-    ws_readme.cell(row=i, column=1, value=a)
-    ws_readme.cell(row=i, column=2, value=b)
-  ws_readme["A1"].font = bold
-  ws_readme.column_dimensions["A"].width = 60
-  ws_readme.column_dimensions["B"].width = 70
-
-  ws = wb.create_sheet("Sunny_Glaze_Donuts")
-  for i, (a, b) in enumerate(SUNNY_ROWS, start=1):
     ws.cell(row=i, column=1, value=a)
-    ws.cell(row=i, column=2, value=(b if b != "" else None))
-  ws["A1"].font = bold
-  ws["B1"].font = bold
-  ws.column_dimensions["A"].width = 58
-  ws.column_dimensions["B"].width = 24
+    ws.cell(row=i, column=2, value=b)
+  for r in (1, 6, 12, 18, 27, 32):
+    ws.cell(row=r, column=1).font = bold
+  ws.column_dimensions["A"].width = 42
+  ws.column_dimensions["B"].width = 78
 
-  wb.save(str(OUT_PATH))
-  print(f"Wrote {OUT_PATH}")
+
+def _write_scenario(ws, baseline_name: str, rows: List[Tuple[str, Any, bool]]) -> None:
+  bold = Font(bold=True)
+  white_bold = Font(bold=True, color="FFFFFFFF")
+  ws.cell(row=1, column=1, value="field").font = white_bold
+  ws.cell(row=1, column=2, value="value").font = white_bold
+  ws.cell(row=1, column=1).fill = HEADER_FILL
+  ws.cell(row=1, column=2).fill = HEADER_FILL
+  ws.cell(row=2, column=1, value="baseline").font = bold
+  ws.cell(row=2, column=2, value=baseline_name).font = bold
+
+  r = 3
+  for path, value, is_header in rows:
+    ca = ws.cell(row=r, column=1, value=path)
+    if is_header:
+      ca.font = bold
+      ca.fill = SECTION_FILL
+      ws.cell(row=r, column=2).fill = SECTION_FILL
+    else:
+      cb = ws.cell(row=r, column=2)
+      if value is not None:
+        cb.value = value  # native int/float/bool/str preserved
+    r += 1
+
+  ws.freeze_panes = "A2"
+  ws.column_dimensions["A"].width = 62
+  ws.column_dimensions["B"].width = 40
+  for row in ws.iter_rows(min_row=1, max_col=2):
+    row[1].alignment = Alignment(wrap_text=False, vertical="top")
+
+
+def main(argv=None) -> int:
+  parser = argparse.ArgumentParser(description="Generate the exhaustive pre-filled intake-bypass workbook.")
+  parser.add_argument("--baseline", default="sunny_glaze_donuts")
+  parser.add_argument("--sheet", default="Sunny_Glaze_Donuts")
+  parser.add_argument("--baselines-dir", default=str(C.DEFAULT_BASELINES_DIR))
+  parser.add_argument("--out", default=str(C.DEFAULT_SCENARIOS_XLSX))
+  args = parser.parse_args(argv)
+
+  baseline = C.load_baseline(Path(args.baselines_dir), args.baseline)
+  rows = _build_rows(baseline)
+  leaf_count = sum(1 for _, _, h in rows if not h)
+
+  wb = openpyxl.Workbook()
+  _write_readme(wb.active)
+  wb.active.title = "_README"
+  _write_scenario(wb.create_sheet(args.sheet), args.baseline, rows)
+  wb.save(args.out)
+  print(f"Wrote {args.out}")
+  print(f"  scenario sheet {args.sheet!r}: {leaf_count} editable fields (baseline={args.baseline})")
   return 0
 
 

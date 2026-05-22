@@ -272,11 +272,11 @@ def _run_scenario(
 
   print(f"\n=== Scenario: {scenario_name} (baseline={baseline_name}) ===")
   if audit:
-    print(f"  Applied {len(audit)} override(s):")
+    print(f"  Applied {len(audit)} override(s) vs baseline:")
     for entry in audit:
-      print(f"    - {entry['field']} -> {entry['path']} = {entry['value']}")
+      print(f"    - {entry['field']}: {entry['old']!r} -> {entry['new']!r}")
   else:
-    print("  No overrides (faithful reproduction of baseline).")
+    print("  No edits vs baseline (faithful reproduction).")
 
   # 1. Mint a fresh draft. Dry-run inserts directly (fully offline); a real run
   #    uses the session endpoint so the row is initialized exactly as intake does.

@@ -70,14 +70,23 @@ order but is not forced to one call per step — it may consult a `check_*` tool
 first.
 
 ### 1.3 Rounds 2+ — revision until coherent
-After round 1, GPT calls `evaluate_plan` (wraps the deterministic
-trajectory/viability check, `mini_finmo.compute_trajectory_from_anchors` + the
-16-check acceptance preview). The result is the mirror's validation state:
-which invariants pass/fail, per-quarter distance-to-feasibility, and which
-section each violation implicates. GPT then **revises** the implicated section(s)
-via revision tools (§3.3) and re-evaluates. This loop is the amalgamated
-replacement for both the H2 exhaustion handler and the `unified_convergence`
-GPT loop.
+GPT calls `evaluate_plan` to see the mirror's validation state: which invariants
+pass/fail, per-quarter distance-to-feasibility, and which section each violation
+implicates. GPT then **revises** the implicated section(s) via revision tools
+(§3.3) and re-evaluates. This loop is the amalgamated replacement for both the
+H2 exhaustion handler and the `unified_convergence` GPT loop.
+
+**evaluate_plan strictness switches at structural completion (approved Q4).**
+"Structurally complete" = every authoring section (stage_ramp, payroll, drivers,
+capex/R&D/balance-seed) has been authored at least once and accepted by its
+band/contract check. While the plan is still being assembled in round 1 (not all
+sections exist yet), `evaluate_plan` returns the lighter `mini_finmo` viability
+set (a full acceptance gate on a half-built plan would be noise). **The instant
+the plan becomes structurally complete, every subsequent `evaluate_plan` call
+runs the full 16-check acceptance gate** (`post_intake_acceptance/gate.py`
+preview) — so GPT makes every revision decision under the real finalize signal,
+never a misleading one. The switch is driven by Python tracking section-authored
+flags, not by GPT's say-so, and not deferred to `finalize_authoring`.
 
 ### 1.4 Completion
 GPT signals completion by calling `finalize_authoring` once `evaluate_plan`
@@ -322,9 +331,8 @@ Acceptance criterion: **no conflicting code paths, no dead code, no shims.**
   budget/extension, best-effort selection (H2 orchestration).
 - `post_intake_headcount/tool_calling_session.py` — Handler C session loop.
 - `post_intake_stage_ramp_handler/` session loop + validator-failure engagement.
-- `post_intake_funding_handler/` GPT session **iff** funding folds into the
-  amalgamated session — **Open question Q2 (§11)** (it is adjacent to cash pass,
-  which stays separate).
+- (`post_intake_funding_handler/` is **NOT** deleted in Phase 3 — Q2 resolved to
+  leave it with the untouched cash pass; revisit in Phase 5.)
 - The `unified_convergence_decision` GPT loop in `post_intake_convergence`.
 - Cross-handler reconciliation glue that existed only to make separate handlers
   agree.
@@ -382,26 +390,25 @@ exactly as today.
 
 ---
 
-## 11. Open questions for approval (HOLD)
+## 11. Open questions — resolution
 
-1. **Q1 — Sequence reuse vs. rebuild.** I propose **reusing** the existing
-   `post_intake_process_sequence_lookup` (add `authoring_owner` + `round`
-   columns) rather than authoring a new sequence table. Confirm? (Avoids a
-   second source of truth.)
-2. **Q2 — Funding handler.** Does `post_intake_funding_handler` fold into the
-   amalgamated session, or stay adjacent to the (untouched) cash pass? It sits on
-   the cash boundary the directive says not to touch. My lean: **leave it with
-   cash pass** for now, revisit in Phase 5. Confirm?
-3. **Q3 — Budget & mirror ceiling.** Target 25–40 tool calls (directive) with a
-   hard cap, and a mirror token ceiling I'll measure on Sunny Glaze/Skyward in
-   Phase 3 step 1. Any preferred hard caps?
-4. **Q4 — `evaluate_plan` strictness.** Should `evaluate_plan` expose the full
-   16-check acceptance gate every round (heavier, more honest) or the lighter
-   `mini_finmo` viability set in early rounds and the full gate near finalize? My
-   lean: **light early, full near finalize** to save tokens/latency. Confirm?
-
-These four are the only forks where the design genuinely branches; everything
-else follows from the directive + the code facts above.
+1. **Q1 — Sequence reuse vs. rebuild. RESOLVED: reuse.** Add `authoring_owner` +
+   `round` columns to the existing `post_intake_process_sequence_lookup`; no
+   second sequence table.
+2. **Q2 — Funding handler. RESOLVED: leave with cash pass.**
+   `post_intake_funding_handler` stays adjacent to the untouched cash pass for
+   now; revisit in Phase 5. (So §9 does **not** delete the funding session in
+   Phase 3.)
+3. **Q3 — Budget & mirror ceiling. OPEN (non-blocking).** Target 25–40 tool
+   calls with a hard cap; mirror token ceiling to be measured on Sunny
+   Glaze/Skyward during Phase 3 step 1, then proposed.
+4. **Q4 — `evaluate_plan` strictness. RESOLVED: switch at structural
+   completion.** Lighter `mini_finmo` viability set only while round-1 authoring
+   is incomplete (not all sections authored yet). The instant the plan is
+   structurally complete (every authoring section authored ≥ once and accepted),
+   **every** subsequent `evaluate_plan` runs the full 16-check acceptance gate —
+   GPT revises under the real signal at every decision, never deferred to
+   `finalize_authoring`. Python tracks the section-authored flags. (See §1.3.)
 
 ---
 

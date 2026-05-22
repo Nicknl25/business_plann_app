@@ -61,35 +61,55 @@ python context/run_api_5050_single.py        # in another terminal
 python "Test Files/run_intake_bypass.py" --scenario Sunny_Glaze_Donuts
 ```
 
-## Excel format
+## Excel format — EXHAUSTIVE, pre-filled
 
-- One **sheet per scenario**. Sheets whose name starts with `_` are ignored
-  (the `_README` sheet documents the format in-workbook).
-- **Column A** = field name, **Column B** = value.
-- Rows whose field starts with `#` are comments and ignored.
-- Required field: `baseline` (name of a snapshot in `intake_bypass_baselines/`).
-- Any other field is an **override**; a blank cell means "inherit the baseline".
-- An unknown field name fails loudly so typos are caught.
+Each non-underscore sheet is one scenario. **Every leaf of the baseline appears
+as a pre-filled row** addressed by a dotted path. To author a scenario you just
+edit the cells you want to change.
 
-### Supported override fields
+- **Column A** = field path; **Column B** = value.
+- A row takes effect only when its value **differs from the baseline** at that
+  path, so an unedited sheet reproduces the baseline exactly. Blank = inherit.
+  The literal `(null)` sets a field to null. Rows starting with `#` (the
+  per-section headers) are ignored.
+- Required field: `baseline` (snapshot in `intake_bypass_baselines/`).
+- Path syntax:
+  - `draft.<col>` — a flat draft column (e.g. `draft.business_name`,
+    `draft.address_city`).
+  - `<payload>.<dotted.path>` — a leaf inside one of the structured payloads:
+    `operating_model_json`, `target_market_json`, `people_json`,
+    `financials_json`, `financials_year1_json`, `marketing_model_json`,
+    `fulfillment_json`.
+  - List elements use `[i]`, e.g.
+    `operating_model_json.lob_models[0].products[0].unit_price`.
+- Numbers may be plain (`20000`), separated (`$20,000`), or percent (`29%`).
+- A target whose root isn't a known payload or `draft.` fails loudly so typos
+  surface immediately.
 
-- **Financial scalars** (`financials_json`): `cash_on_hand`, `ar_balance`,
-  `ap_balance`, `inventory_balance`, `current_capex`, `initial_assets`,
-  `initial_lease`, `initial_equity`, `total_debt_outstanding`,
-  `annual_interest_payment`, `annual_principal_payment`,
-  `other_monthly_debt_payments`, `monthly_rent_expense`,
-  `other_operating_expense`, `owner_compensation`, `current_payroll`,
-  `payroll_total_year1`, `current_num_employees`, `current_cogs`,
-  `current_revenue`, `cogs_percent_of_revenue` (accepts `29%` or `0.29`).
-- **Shape-affecting** (`operating_model_json` top-level + every product, and
-  `financials_year1_json` products): `unit_price`, `units_per_week_capacity`,
-  `utilization_rate`. The post-intake solver re-derives revenue from these.
-- **Descriptors** (`operating_model_json`): `naics`, `business_stage`.
-- **Flat draft columns**: `business_name`, `business_start_date`,
-  `business_address`, `address_street`, `address_city`, `address_state`,
-  `address_zip`, `address_country`.
+### Denormalization — edit consistently
 
-Numbers may be plain (`20000`), separated (`$20,000`), or percents (`29%`).
+`unit_price`, `units_per_week_capacity`, and `utilization_rate` appear in BOTH
+`operating_model_json` (top-level **and** each product) **and**
+`financials_year1_json` products. To change these coherently, edit every
+occurrence. Each appears on its own row; nothing is hidden.
+
+### Limitation — adding new array elements
+
+Editing existing leaves is fully supported. To add a **new** array element
+(e.g. a third product or an eighth person), either edit the baseline JSON in
+`intake_bypass_baselines/` directly or capture a baseline that already has the
+shape. For headcount scale, the right knobs are typically
+`financials_json.current_num_employees` / `payroll_total_year1` — post-intake
+authors the actual quarterly headcount grid.
+
+### Regenerating the sheet
+
+If you capture a new baseline, regenerate the workbook with:
+
+```bash
+python "Test Files/make_intake_bypass_scenarios_xlsx.py" \
+       --baseline <name> --sheet <Scenario_Name>
+```
 
 ## What the runner writes
 
