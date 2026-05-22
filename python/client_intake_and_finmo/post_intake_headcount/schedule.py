@@ -847,6 +847,70 @@ def _oews_rows_for_business(
   return rows, naics_6
 
 
+def _compact_payroll_gpt_context(user_context: Dict[str, Any]) -> Dict[str, Any]:
+  """Phase 9 P3.32 K12.1 (G-B2) — shrink Handler C's GPT context without
+  dropping any field GPT consults.
+
+  Three content compactions (compact JSON serialization is applied
+  separately at the prompt-build step):
+    1. oews_title_catalog[].wage_source removed — it is the constant
+       'oews_median' for GPT's purposes and Python re-derives the wage
+       from the exact selected title row, so GPT never needs it to pick
+       a title. occ_title / occ_code / annual_wage are preserved.
+    2. payroll_capacity_grid — the identical per-quarter 'rule' string is
+       hoisted to a single 'payroll_capacity_grid_note'; the per-row copy
+       is dropped (same text, stated once).
+    3. revenue_driver_context.quarter_rows[].product_rows removed — the
+       per-product capacity/unit_price/utilization decomposition is H2's
+       revenue-authoring surface, not Handler C's; the per-quarter
+       computed_revenue / finmo_revenue trajectory Handler C sizes
+       payroll against is preserved.
+
+  Returns the same dict (mutated in place and returned) so the caller's
+  downstream filter/budget steps see the compacted form. Defensive: any
+  shape mismatch leaves that field untouched.
+  """
+  if not isinstance(user_context, dict):
+    return user_context
+
+  catalog = user_context.get("oews_title_catalog")
+  if isinstance(catalog, dict):
+    cands = catalog.get("title_candidates")
+    if isinstance(cands, list):
+      catalog["title_candidates"] = [
+        {k: v for k, v in c.items() if k != "wage_source"}
+        if isinstance(c, dict) else c
+        for c in cands
+      ]
+
+  grid = user_context.get("payroll_capacity_grid")
+  if isinstance(grid, list) and grid:
+    hoisted_rule = None
+    for row in grid:
+      if isinstance(row, dict) and row.get("rule"):
+        hoisted_rule = row.get("rule")
+        break
+    if hoisted_rule is not None:
+      user_context["payroll_capacity_grid_note"] = hoisted_rule
+      user_context["payroll_capacity_grid"] = [
+        {k: v for k, v in row.items() if k != "rule"}
+        if isinstance(row, dict) else row
+        for row in grid
+      ]
+
+  rdc = user_context.get("revenue_driver_context")
+  if isinstance(rdc, dict):
+    qrows = rdc.get("quarter_rows")
+    if isinstance(qrows, list):
+      rdc["quarter_rows"] = [
+        {k: v for k, v in row.items() if k != "product_rows"}
+        if isinstance(row, dict) else row
+        for row in qrows
+      ]
+
+  return user_context
+
+
 def _oews_title_catalog_from_rows(
   rows: Sequence[Dict[str, Any]],
   *,
@@ -2225,6 +2289,23 @@ def estimate_payroll_headcount_schedule_with_gpt(
       ],
     },
   }
+  # Phase 9 P3.32 K12.1 (G-B2) — compact Handler C's GPT context.
+  # Forensic finding (deep memo C5): Handler C propose turns carry 24-35k
+  # input tokens and are the slowest GPT surface (29-148s), the dominant
+  # B2 stall source. This compaction removes whitespace/redundancy that
+  # GPT does not consult, preserving every load-bearing field verbatim:
+  #   - oews_title_catalog: drop the constant wage_source (GPT selects by
+  #     title; Python re-derives wage from the exact title row).
+  #   - payroll_capacity_grid: the identical per-row "rule" string (x20)
+  #     is hoisted to a single note (same text, said once).
+  #   - revenue_driver_context: drop the per-product capacity/price/util
+  #     decomposition (that is H2's revenue-authoring detail, not Handler
+  #     C's); keep the per-quarter revenue trajectory Handler C sizes
+  #     payroll against.
+  # feasibility_mapping + stage_ramp_contract are LOAD-BEARING (repair
+  # direction / ramp shape) and kept verbatim; compact JSON serialization
+  # (tool_calling_session._build_initial_user_prompt) shrinks them losslessly.
+  user_context = _compact_payroll_gpt_context(user_context)
   # Context filtering + budget guard run once. Per-round context is
   # rebuilt from the filtered base + the round's previous_contract_
   # failure feedback.

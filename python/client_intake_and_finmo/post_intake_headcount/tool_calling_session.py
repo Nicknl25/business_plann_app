@@ -611,8 +611,14 @@ def _build_initial_user_prompt(
   (now via Tool 1) and the "revise only named fields" framing
   (no longer applicable to tool-calling).
   """
+  # Phase 9 P3.32 K12.1 (G-B2) — compact serialization. The pre-K12
+  # indent=2 pretty-print added ~35% pure-whitespace tokens to a context
+  # that runs 20k+ input tokens on the largest drafts (OEWS catalog +
+  # capacity grid + feasibility mapping). Compact separators preserve the
+  # exact same JSON structure GPT parses while removing the indentation
+  # surface that inflates Handler C turn latency / stall probability.
   context_block = json.dumps(
-    request_context or {}, ensure_ascii=False, indent=2, default=str
+    request_context or {}, ensure_ascii=False, separators=(",", ":"), default=str
   )
   preamble: List[str] = []
   if external_seed_text:
