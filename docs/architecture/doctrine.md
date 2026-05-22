@@ -708,3 +708,89 @@ This correction was authored across commits
 `phase_9_p3_32_k11_h2_stage_ramp_awareness` (K11.1),
 `phase_9_p3_32_k11_h3_funding_ni_floor_awareness` (K11.2),
 `phase_9_p3_32_k11_cs_cr_ni_floor_awareness` (K11.3).
+
+### 10.6 CORRECTION 5 — Deterministic floor invariant
+
+**Every GPT authoring surface MUST have a Python deterministic floor.**
+No authoring handler may terminate in "exhausted without a
+validator-accepted output."
+
+Evidence (P3.32 K11 12×3 instrumented batch, 7/37 completed): the
+post-intake system has three GPT authoring surfaces — H4 (stage_ramp
+contract), Handler C (payroll schedule), H2 (P&L drivers). None had a
+deterministic floor, so a run landed only when all three stochastic GPT
+explorations *happened* to succeed. Identical inputs flipped pass/fail
+(CareFirst 2/3, Luna 2/3). The failure modes B3
+(`payroll_tool_calling_session_exhausted`) and B5
+(`stage_ramp_handler_exhausted`) are direct manifestations: a GPT
+session ran out of budget with no committed output and the run died.
+
+Rule: when a GPT authoring session exhausts its budget without producing
+a validator-accepted output, a Python deterministic proposer (doctrine
+§3 Pattern 2) MUST compute an in-bounds output that satisfies the
+handler's own validator, and the system MUST commit it (or, where a
+further GPT critique pass adds value, seed GPT with it and commit the
+Python floor if GPT still fails). This is NOT an infeasibility escape
+(§10.2 still holds): the floor is a *feasible* configuration the
+deterministic proposer constructs from the same bounds GPT was given.
+GPT remains the authoring source (§1); the floor is the guarantee that
+authoring always terminates in a valid state.
+
+### 10.7 CORRECTION 6 — Cross-surface reconciliation invariant
+
+**Where the finalize validator cross-checks the outputs of two GPT
+authoring surfaces, a Python step MUST deterministically reconcile them.
+Agreement between independent GPT surfaces may not be left to chance.**
+
+Evidence: the dominant batch fault B1
+(`stage_ramp_revenue_path_not_applied`, ~17/30 failures, every NAICS) is
+exactly this. H4 authors a per-quarter revenue ramp; H2 authors the P&L
+drivers (price, capacity, utilization) that *produce* revenue; the
+finalize validator demands the committed FINMO revenue match the H4
+ramp. Nothing bridged the two GPT surfaces, so finalize rejected the run
+whenever the two independent authoring steps disagreed. Anderson & Blake
+"passed" only because its two surfaces happened to agree — luck, not
+architecture.
+
+Rule: after the second of any two cross-checked GPT surfaces commits, a
+Python reconciliation step MUST bring the pair into validator-satisfying
+agreement, with explicit, documented priority (which surface yields, and
+within what bounds). The reconciliation operates within the bounds both
+surfaces were given; it does not invent values outside them.
+
+### 10.8 CORRECTION 7 — Preemptive fragility metrics
+
+**Authoring handlers MUST emit, during execution, the signals required
+to detect fragility before a terminal gate rejects the run:
+distance-to-feasibility (count + identity of failing checks),
+constraint margin (committed value vs each bound), and latency margin
+(turn duration vs read-timeout).**
+
+Evidence: the P3.32 K11 L-4 instrumentation
+(`post_intake_handler_traces`) made the batch diagnosable — it showed H2
+reaching a near-viable region then oscillating off it (distance metric),
+and Handler C turns running 84–94 s against a 45 s stall ceiling (latency
+margin). Fragility was visible per-probe, not only at terminal failure.
+These signals are the substrate for the deterministic floors (§10.6) and
+reconciliation (§10.7) to act on, and for future preemptive adaptation.
+A handler that cannot expose its distance-to-feasibility cannot be given
+a floor that knows when to fire.
+
+### 10.9 CORRECTION 8 — Consistency is an acceptance property
+
+**A draft is "passing" only if it passes deterministically — N/N under
+repeat. A 2/3 outcome is a FAILING draft with a latent fault, not a
+pass.**
+
+Evidence: pre-K12, CareFirst and Luna each passed 2/3 on identical input.
+Treating those as passes hid the architectural fault (no deterministic
+floor / no reconciliation) that the third run exposed. Acceptance
+verification MUST therefore treat any non-unanimous repeat outcome as a
+failure and investigate the run that diverged. The architectural target
+is that §10.6 + §10.7 make outcomes a deterministic function of intake,
+so repeats are unanimous by construction.
+
+These four corrections were authored under
+`phase_9_p3_32_k12_*` / `phase_9_p3_32_k13_*` as the deterministic-floor
+architecture (G-B5 §10.6, G-B1 §10.7, L-4 substrate §10.8, verification
+discipline §10.9).
