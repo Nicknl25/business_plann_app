@@ -352,7 +352,18 @@ doctrine §10.5 wording) and remove them in the same commit.
 
 ---
 
-## 10. Worked example — Sunny Glaze Donuts
+## 10. Worked example — illustrative only (NOT the verification bar)
+
+The example below traces the tools/flow on the Sunny Glaze inputs. It is
+**illustrative of the architecture, not the Phase 4 verification basis** — the
+K11 baselines (Sunny, Skyward, CareFirst, etc.) are explicitly **not** the
+quality bar (see §12). They serve only as **structural skeletons** for the
+intake-bypass runner: they provide the JSON shape so the user does not have to
+hand-author nested structures. The actual Phase 4 verification runs against
+**curated scenarios the user authors via the bypass runner's exhaustive Excel**,
+defined jointly after the Excel is signed off.
+
+### 10.1 Worked example — Sunny Glaze Donuts
 
 **Intake (Stub 0, immutable):** NAICS 311811, operating bakery, 1 product
 (donut), capacity 1200/wk, util 0.75, price ~$2, payroll ~$183k, the K9
@@ -426,5 +437,12 @@ exactly as today.
 7. Doctrine §10.5 reworded for the amalgamated architecture (no duplicate entry).
 
 Each commit ≤800 LOC, suite green, push + email. Total cap 4000 LOC; stop and
-email if exceeded. Phase 4 verifies via the Phase 1 bypass runner (3/3 per
-§10.9).
+email if exceeded.
+
+**Phase 4 verification scope (user direction).** K11 baselines (Sunny, Skyward,
+CareFirst, etc.) are **dropped from the verification set** — they are not the
+quality bar. Phase 4 verifies against **curated scenarios authored via the
+intake-bypass runner's exhaustive Excel**, defined jointly with the user after
+the Excel is signed off. The §10.9 consistency rule (3/3 per scenario) still
+applies. The captured baselines remain in use only as structural skeletons (JSON
+shape) for the bypass runner; their values do not constrain the verification.
