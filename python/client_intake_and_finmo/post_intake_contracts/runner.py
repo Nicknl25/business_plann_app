@@ -1935,6 +1935,44 @@ def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]
   return contract
 
 
+def _clamped_utilization_curve(
+  *,
+  q1_util: float,
+  mature_cap: float,
+  rev_growth_bound: float,
+) -> List[float]:
+  """Phase 9 P3.32 K13 (Fix 2 cont.) — 20-quarter linear-to-mature
+  utilization ramp whose per-quarter QoQ growth never exceeds
+  ``rev_growth_bound`` (the rounded grid rev_max).
+
+  The validator requires utilization_cap QoQ growth <= allowed revenue
+  growth; a plain linear ramp can breach this for tight-rev_max
+  (mature/operating) stages (e.g. SwiftCargo operating freight: linear
+  Q1->Q2 util growth 3.08% > rev_max 3.0%) -> a second B5 cause. This
+  builds the linear template but CLAMPS each step DOWN to the growth
+  bound (high-rev_max stages are unchanged; tight stages ramp slightly
+  slower, which is conservative). Rounding is floored when rounding up
+  would breach the bound."""
+  curve: List[float] = []
+  prev: Optional[float] = None
+  for q in range(1, 21):
+    if q == 1:
+      val = q1_util
+    else:
+      linear = (
+        q1_util + (mature_cap - q1_util) * (q - 1) / 10.0
+        if q <= 11 else mature_cap
+      )
+      target = min(mature_cap, linear)
+      val = max(min(target, prev * (1.0 + rev_growth_bound)), prev)
+    rounded = round(val, 2)
+    if prev is not None and prev > 0 and (rounded - prev) / prev > rev_growth_bound + 1e-9:
+      rounded = max(math.floor(prev * (1.0 + rev_growth_bound) * 100.0) / 100.0, prev)
+    curve.append(rounded)
+    prev = rounded
+  return curve
+
+
 def build_python_stage_ramp_contract(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -2043,14 +2081,28 @@ def build_python_stage_ramp_contract(
     rd_max = 0.0
 
   # Utilization ramp: linear-to-mature from Q1 start to mature cap by
-  # Q11. Mature cap holds Q11..Q20 (validator enforces non-decreasing).
+  # Q11, mature cap holds Q11..Q20 (validator enforces non-decreasing).
+  #
+  # Phase 9 P3.32 K13 (Fix 2 cont.) — the validator also requires each
+  # quarter's utilization_cap QoQ growth to not exceed the allowed
+  # revenue growth (rev_max); otherwise the util ramp implies revenue
+  # above the contract ceiling (a second B5 cause, e.g. SwiftCargo
+  # operating freight: linear Q1->Q2 util growth 3.08% > rev_max 3.0%).
+  # Build the linear-to-mature template but CLAMP each step's growth to
+  # qoq_max. This is clamp-DOWN-only: stages whose rev_max already
+  # accommodates the linear slope are unchanged; only tight-rev_max
+  # (mature/operating) stages ramp slightly slower, which is conservative
+  # (lower utilization -> lower implied revenue). Rounding is floored when
+  # rounding-up would breach the growth bound.
   q1_util = _STAGE_FAMILY_Q1_UTILIZATION.get(expected_family, 0.5)
-  utilization_curve = [
-    round(min(_MATURE_UTILIZATION_CAP, q1_util + (_MATURE_UTILIZATION_CAP - q1_util) * (q - 1) / 10.0), 2)
-    if q <= 11
-    else _MATURE_UTILIZATION_CAP
-    for q in range(1, 21)
-  ]
+  utilization_curve = _clamped_utilization_curve(
+    q1_util=q1_util,
+    mature_cap=_MATURE_UTILIZATION_CAP,
+    # The validator compares the ROUNDED grid utilization_cap QoQ growth
+    # to the ROUNDED grid rev_max (= round(qoq_max, 2)); clamp to that
+    # exact bound, not the unrounded qoq_max, or a 2dp round-up re-breaches.
+    rev_growth_bound=round(qoq_max, 2),
+  )
 
   postures = _stage_family_q_postures(
     stage_family=expected_family,

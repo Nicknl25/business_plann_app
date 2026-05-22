@@ -60,6 +60,24 @@ class StageRampRobustBoundTest(unittest.TestCase):
   def test_robust_bound_defensive_non_dict(self) -> None:
     self.assertEqual(self.R.robust_bound_stage_ramp_contract(None), None)
 
+  def test_util_curve_respects_tight_growth_bound(self) -> None:
+    # Tight rev_max (operating/mature freight) — the linear ramp would
+    # breach it; the clamped curve must keep every QoQ step <= bound.
+    curve = self.R._clamped_utilization_curve(q1_util=0.65, mature_cap=0.85, rev_growth_bound=0.03)
+    self.assertEqual(len(curve), 20)
+    for i in range(1, len(curve)):
+      self.assertGreaterEqual(curve[i], curve[i - 1])  # non-decreasing
+      if curve[i - 1] > 0:
+        growth = (curve[i] - curve[i - 1]) / curve[i - 1]
+        self.assertLessEqual(round(growth, 6), 0.03 + 1e-9)
+      self.assertLessEqual(curve[i], 0.85)  # never exceeds mature cap
+
+  def test_util_curve_high_growth_reaches_mature(self) -> None:
+    # Generous rev_max — the curve should ramp normally and reach mature.
+    curve = self.R._clamped_utilization_curve(q1_util=0.5, mature_cap=0.85, rev_growth_bound=0.15)
+    self.assertEqual(curve[0], 0.5)
+    self.assertEqual(curve[10], 0.85)  # mature by Q11 under the linear template
+
 
 if __name__ == "__main__":
   unittest.main()
