@@ -14,6 +14,16 @@ the restructure protocol consumes. Mode selection is the caller's job
 
 Section attribution and failure-mode classification live in this module so
 the registry is single-sourced; everyone reads from the same map.
+
+CASH SCOPE: cash is a separate downstream process (cash pass runs AFTER
+the amalgamated session). At session time the cash pass has not run, so
+cash state is meaningless and including cash-related checks would always
+show them failing and tempt the restructure protocol to act on them —
+exactly what we do NOT want. evaluate_plan therefore FILTERS OUT cash-
+related checks from its output (see ``_CASH_RELATED_CHECKS``). The
+standalone post-cash-pass acceptance gate continues to validate cash
+unchanged — verify_run_acceptance still runs all 16 checks; this module
+just drops the cash-related ones before surfacing the result to GPT.
 """
 
 from __future__ import annotations
@@ -33,10 +43,28 @@ from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (  
 
 
 # ---------------------------------------------------------------------------
+# Cash-related checks (filtered OUT of evaluate_plan output).
+# ---------------------------------------------------------------------------
+# The cash pass runs AFTER the amalgamated session, so cash state at session
+# time is meaningless. Including these checks would always show them failing
+# and tempt the restructure protocol to act on them. The standalone post-
+# cash-pass acceptance gate continues to run these checks unchanged; we
+# just don't surface them to the session's evaluate_plan caller.
+_CASH_RELATED_CHECKS: frozenset = frozenset({
+  "cash_legitimate_q1_q10",                  # Q1-Q10 cash >= 0 or interest > 0
+  "current_assets_positive_q1_q10",          # cash is a component of current_assets
+  "cash_health_operational_not_debt_funded", # interest/revenue ratio set by debt structure
+  "balance_sheet_growth_plausible",          # uses Q20 cash explicitly
+})
+
+
+# ---------------------------------------------------------------------------
 # Registry: check_name -> (FailureMode, implicated_sections)
 # ---------------------------------------------------------------------------
 # A check may implicate multiple sections; the protocol consumes all of them.
 # Keep this single-sourced; downstream tools must not redefine it.
+# Cash-related checks are NOT in this registry — they are filtered out of
+# the evaluator output before classification.
 _CHECK_REGISTRY: Dict[str, Tuple[FailureMode, Tuple[str, ...]]] = {
   # mini_finmo universal viability
   "ebitda_positive_by_q11":                     (FailureMode.VIABILITY_INVARIANT, ("drivers",)),
@@ -52,7 +80,7 @@ _CHECK_REGISTRY: Dict[str, Tuple[FailureMode, Tuple[str, ...]]] = {
   "stage_ramp_ga_max_respected":        (FailureMode.COHERENCE_INVARIANT, ("stage_ramp", "drivers")),
   "stage_ramp_ni_floor_respected":      (FailureMode.COHERENCE_INVARIANT, ("stage_ramp", "drivers")),
   "stage_ramp_max_util_respected":      (FailureMode.CAPACITY_INVARIANT,  ("stage_ramp", "drivers", "capex_rd")),
-  # 16-check acceptance gate
+  # 16-check acceptance gate (cash-related entries intentionally absent)
   "stage_reached_finalize":                  (FailureMode.META_INVARIANT,      ()),
   "cascade_landed_tier_set":                 (FailureMode.META_INVARIANT,      ()),
   "plan_confidence_recorded":                (FailureMode.META_INVARIANT,      ()),
@@ -61,13 +89,9 @@ _CHECK_REGISTRY: Dict[str, Tuple[FailureMode, Tuple[str, ...]]] = {
   "solver_target_assertion_checked":         (FailureMode.COHERENCE_INVARIANT, ()),
   "solver_target_assertion_no_hard_violations": (FailureMode.COHERENCE_INVARIANT, ("drivers",)),
   "revenue_not_flat_q1_q10":                 (FailureMode.GROWTH_INVARIANT,    ("stage_ramp", "drivers")),
-  "cash_legitimate_q1_q10":                  (FailureMode.CASH_INVARIANT,      ("capex_rd", "balance_sheet", "payroll")),
-  "current_assets_positive_q1_q10":          (FailureMode.CASH_INVARIANT,      ("balance_sheet",)),
   "net_income_trajectory_viable":            (FailureMode.VIABILITY_INVARIANT, ("drivers", "stage_ramp")),
-  "cash_health_operational_not_debt_funded": (FailureMode.CASH_INVARIANT,      ("drivers",)),
   "cascade_exercised_or_documented":         (FailureMode.META_INVARIANT,      ()),
   "phase_3_calibrated_bands_consulted":      (FailureMode.BAND_INVARIANT,      ()),
-  "balance_sheet_growth_plausible":          (FailureMode.GROWTH_INVARIANT,    ("balance_sheet", "drivers")),
   "viability_timeline_landed":               (FailureMode.VIABILITY_INVARIANT, ("drivers",)),
 }
 
@@ -132,22 +156,9 @@ def _stage_ramp_violation_distance(check_name: str, violations: List[Dict[str, A
 
 
 # Acceptance-gate detail keys we know how to read for distance.
+# Cash-related checks are filtered before classification (see
+# _CASH_RELATED_CHECKS); their distance handlers would be dead code here.
 def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
-  if check_name == "cash_legitimate_q1_q10":
-    # detail typically carries per-quarter cash + interest. Use the minimum cash if present.
-    rows = detail.get("rows") or detail.get("quarters") or []
-    if isinstance(rows, list) and rows:
-      cashes = [r.get("cash") for r in rows if isinstance(r, dict) and isinstance(r.get("cash"), (int, float))]
-      if cashes:
-        return float(min(cashes)), "dollars"
-    return None, "dollars"
-  if check_name == "current_assets_positive_q1_q10":
-    rows = detail.get("rows") or []
-    if isinstance(rows, list) and rows:
-      vals = [r.get("current_assets") for r in rows if isinstance(r, dict) and isinstance(r.get("current_assets"), (int, float))]
-      if vals:
-        return float(min(vals)), "dollars"
-    return None, "dollars"
   if check_name == "revenue_not_flat_q1_q10":
     cv = detail.get("coefficient_of_variation"); first = detail.get("q1_to_q10_pct_change")
     cv_margin = (float(cv) - 0.02) if isinstance(cv, (int, float)) else None
@@ -160,9 +171,6 @@ def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[fl
       # the check requires q11 >= 0 AND q11 > q5 + 2pp; distance is the worse of the two
       return float(min(q11, (q11 - q5) - 0.02)), "fraction"
     return None, "fraction"
-  if check_name == "cash_health_operational_not_debt_funded":
-    ratio = detail.get("q11_interest_to_revenue_ratio")
-    return (float(0.05 - ratio) if isinstance(ratio, (int, float)) else None), "fraction"
   # For meta and band-source checks, distance isn't meaningful as a scalar.
   return None, None
 
@@ -308,6 +316,8 @@ def _evaluate_mini_finmo(
   for name, verdict in checks_dict.items():
     if name == "all_pass":
       continue
+    if name in _CASH_RELATED_CHECKS:
+      continue  # cash is a separate downstream process — filtered from session output
     passed = str(verdict).upper() in {"PASS", "SKIPPED"}
     if name.startswith("stage_ramp_") and name.endswith("_respected"):
       distance, units = _stage_ramp_violation_distance(name, violations)
@@ -350,6 +360,8 @@ def _evaluate_full_acceptance_gate(
   results: List[CheckResult] = []
   for c in (verdict.get("checks") or []):
     name = str(c.get("name") or "")
+    if name in _CASH_RELATED_CHECKS:
+      continue  # cash is a separate downstream process — filtered from session output
     passed = bool(c.get("passed"))
     detail = c.get("detail") or {}
     distance, units = _gate_distance(name, detail) if not passed else (None, None)

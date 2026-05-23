@@ -18,10 +18,17 @@ class FailureMode(str, Enum):
   is classified as exactly one of these. The protocol's lever-priority and
   escalation tables key off this value, so it must remain stable across
   Phase 3 commits.
+
+  Cash scope: cash is a separate downstream process (the cash pass runs
+  AFTER the amalgamated session). At amalgamated-session time the cash
+  pass has not run, so cash state is meaningless and the session must not
+  act on cash failures. There is no CASH_INVARIANT here on purpose —
+  cash-related acceptance checks are filtered out of evaluate_plan's
+  output (see evaluate_plan._CASH_RELATED_CHECKS). The standalone post-
+  cash-pass acceptance gate continues to validate cash unchanged.
   """
-  CASH_INVARIANT       = "cash_invariant"        # cash balance / current assets / cash-health checks
   VIABILITY_INVARIANT  = "viability_invariant"   # EBITDA, NI trajectory, viability timeline
-  GROWTH_INVARIANT     = "growth_invariant"      # revenue not flat, BS growth plausibility
+  GROWTH_INVARIANT     = "growth_invariant"      # revenue not flat
   CAPACITY_INVARIANT   = "capacity_invariant"    # capacity / utilization ceilings
   BAND_INVARIANT       = "band_invariant"        # any lever outside its cohort band (realism)
   COHERENCE_INVARIANT  = "coherence_invariant"   # cross-section (stage_ramp ↔ drivers etc.)
