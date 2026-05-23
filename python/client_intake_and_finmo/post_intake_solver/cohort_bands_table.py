@@ -72,10 +72,13 @@ def ensure_cohort_bands_table(conn) -> None:
       pass
 
 
-# Section -> [(lever_id, metric_key)]. Step 1 covers only ``drivers`` (the
-# 7 ids cohort_band_resolver.LEVER_TO_METRIC_COLUMN maps natively). The
-# remaining sections wire in alongside their corresponding tools in later
-# Phase 3 commits.
+# Section -> [(lever_id, metric_key)]. Drivers (step 1) maps via
+# LEVER_TO_METRIC_COLUMN natively. Stage_ramp (step 3a) reuses the
+# FINMO Output Target Assembler's metric_key mappings — each ramp
+# ceiling (cogs_max, marketing_max, ...) resolves the cohort percentile
+# of the metric it caps, then the per-section robust clip (see
+# _robust_clip) pulls outliers back into the doctrine envelope. Payroll
+# / capex_rd / balance_sheet wire in alongside their tools in step 3b/c/d.
 _SECTION_LEVERS: Dict[str, List[Tuple[str, str]]] = {
   "drivers": [
     ("expenses::Cost of Goods Sold",          "expenses::Cost of Goods Sold"),
@@ -85,6 +88,18 @@ _SECTION_LEVERS: Dict[str, List[Tuple[str, str]]] = {
     ("balance_sheet::Accounts Receivable Days", "balance_sheet::Accounts Receivable Days"),
     ("balance_sheet::Accounts Payable Days",  "balance_sheet::Accounts Payable Days"),
     ("balance_sheet::Inventory Days",         "balance_sheet::Inventory Days"),
+  ],
+  "stage_ramp": [
+    # lever_id (stage_ramp::<contract_field>)        metric_key (cohort proxy)
+    ("stage_ramp::cogs_max",      "cogs_to_revenue_ratio"),
+    ("stage_ramp::marketing_max", "marketing_percent_of_revenue"),
+    ("stage_ramp::rd_max",        "r_and_d_percent_of_revenue"),
+    ("stage_ramp::ga_max",        "sga_percent_of_revenue"),
+    ("stage_ramp::ni_floor",      "net_income_margin"),
+    # max_util / lease_max / rev_max have no industry-cohort proxy
+    # (doctrine envelopes only). They are not resolved here; _robust_clip
+    # still applies the doctrine canonical envelope to any value derived
+    # downstream via robust_bound_stage_ramp_contract.
   ],
 }
 
@@ -97,12 +112,34 @@ def _robust_clip(
 ) -> Tuple[Optional[float], Optional[float]]:
   """Clip a cohort percentile band to a canonical economic envelope.
 
-  Phase 3 step 1: pass-through. The ``stage_ramp`` section will use
-  ``robust_bound_stage_ramp_contract`` (post_intake_contracts/runner.py)
-  when that tool is built. The driver levers have no canonical envelope
-  declared today, so we record the raw percentile bounds.
+  - ``drivers`` section: pass-through. The driver levers have no
+    canonical envelope declared; we record the raw percentile bounds.
+  - ``stage_ramp`` section: clip each bound to the doctrine envelope
+    via ``_robust_bound`` + ``_stage_ramp_schema_field_ranges`` (the
+    K13 Fix 2 helpers; lever_id 'stage_ramp::<field>' maps to a schema
+    field). This stops distressed/artifact cohort tails (e.g. freight
+    cogs 1.0, marketing 0.53) from sneaking into the band.
+  - Other sections: pass-through (will be wired as their tools land).
   """
-  return lo, hi
+  if section != "stage_ramp":
+    return lo, hi
+  try:
+    from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
+      _stage_ramp_schema_field_ranges,
+      _robust_bound,
+    )
+  except Exception:
+    return lo, hi
+  field_key = lever_id.split("::", 1)[1] if "::" in lever_id else lever_id
+  ranges = _stage_ramp_schema_field_ranges() or {}
+  rng = ranges.get(field_key) if isinstance(ranges, dict) else None
+  if not isinstance(rng, dict):
+    return lo, hi
+  canon_lo = rng.get("min")
+  canon_hi = rng.get("max")
+  new_lo = _robust_bound(lo, canon_lo, canon_hi) if lo is not None else None
+  new_hi = _robust_bound(hi, canon_lo, canon_hi) if hi is not None else None
+  return new_lo, new_hi
 
 
 def populate_cohort_bands_for_run(
