@@ -439,6 +439,14 @@ exactly as today.
 Each commit ≤800 LOC, suite green, push + email. Total cap 4000 LOC; stop and
 email if exceeded.
 
+> **Known pre-existing test failures (unrelated to this work):** as of Phase 3
+> step 1, three tests in `tests/test_financial_model_engine_*` fail identically
+> with this work stashed (`test_lease_balance_is_floored_at_zero`,
+> `test_ppe_is_derived_from_opening_balance_capex_and_depreciation`,
+> `test_model_input_json_round_trips_all_controller_write_sections`). They are
+> in `financial_model_engine`, out of P3.33 scope; "suite green per commit" is
+> measured net of these.
+
 **Phase 4 verification scope (user direction).** K11 baselines (Sunny, Skyward,
 CareFirst, etc.) are **dropped from the verification set** — they are not the
 quality bar. Phase 4 verifies against **curated scenarios authored via the
