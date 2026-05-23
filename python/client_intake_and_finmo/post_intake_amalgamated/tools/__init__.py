@@ -19,3 +19,6 @@ from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule 
 from client_intake_and_finmo.post_intake_amalgamated.tools.set_drivers import (  # noqa: F401
   set_drivers,
 )
+from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # noqa: F401
+  set_capex_rd_balance_seed,
+)

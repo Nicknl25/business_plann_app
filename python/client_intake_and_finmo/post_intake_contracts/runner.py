@@ -1473,178 +1473,31 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
   step. Latency drops because the prompt is much smaller; variance drops
   because GPT can only edit, not invent.
   """
-  facts = business_facts if isinstance(business_facts, dict) else {}
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  finmo_rows = [
-    row for row in ((finmo_json or {}).get("quarter_rows") or [])
-    if isinstance(row, dict)
-  ]
-  # ----- Step 1: build the Python proposal deterministically. -----
+  # P3.33 Phase 3 step 3d: GPT critic deleted. Per the directive's
+  # "delete the three pre_convergence scalar GPT executor functions"
+  # cleanup, this entry point is now proposer-only. The amalgamated
+  # session (step 5) authors balance-sheet seed amendments via
+  # post_intake_amalgamated.tools.set_capex_rd_balance_seed when it
+  # wants to revise the deterministic proposal; until then the
+  # proposer stands as the safety floor (it already has full data
+  # provenance per row).
   from client_intake_and_finmo.post_intake_balance_sheet.contextual_seed import (  # type: ignore
     propose_balance_sheet_contextual_seed_payload,
   )
   from client_intake_and_finmo.post_intake_critique import (  # type: ignore
-    CRITIQUE_CONTRACT_SCHEMA,
-    CritiqueResponse,
-    apply_corrections_to_proposal,
     proposal_only_response,
   )
   proposal = propose_balance_sheet_contextual_seed_payload(
-    business_facts=facts,
-    ops_json=ops,
-    financials_json=financials,
-    financials_year1_json=year1,
+    business_facts=business_facts if isinstance(business_facts, dict) else {},
+    ops_json=ops_json if isinstance(ops_json, dict) else {},
+    financials_json=financials_json if isinstance(financials_json, dict) else {},
+    financials_year1_json=financials_year1_json if isinstance(financials_year1_json, dict) else {},
     model_input_json=model_input_json,
   )
-
-  # ----- Step 2: invoke the GPT critic with the proposal as input. -----
-  api_key = _openai_key()
-  if not api_key:
-    response = proposal_only_response(reason="openai_key_missing_proposal_stands")
-    return _finalize_balance_sheet_seed_with_critique(
-      proposal=proposal, response=response, raw_openai_response=None,
-    )
-  business_summary = {
-    "business_identity": {
-      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
-      "business_type": ops.get("business_type"),
-      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
-      "business_naics_6": ops.get("business_naics_6"),
-    },
-    "business_context": {
-      "description": ops.get("business_description_summary") or ops.get("business_description"),
-      "products": ops.get("products") or ops.get("revenue_products") or ops.get("product_summary"),
-      "customer_type": ops.get("customer_type"),
-      "delivery_method": ops.get("delivery_method") or ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
-      "sales_channel": ops.get("sales_channel") or ops.get("sales_modality"),
-      "geography": ops.get("geography") or ops.get("geographic_scope"),
-      "growth_lever": ops.get("growth_lever"),
-      "competitive_advantage": ops.get("competitive_advantage"),
-    },
-    "financial_context": {
-      "cash_strategy": financials.get("cash_strategy"),
-      "annual_revenue": (
-        year1.get("company_revenue_total_year1")
-        or year1.get("revenue_total_year1")
-        or financials.get("current_revenue")
-      ),
-      "ar_balance": financials.get("ar_balance"),
-      "ap_balance": financials.get("ap_balance"),
-      "inventory_balance": financials.get("inventory_balance"),
-      "prepaid_expenses": financials.get("prepaid_expenses"),
-      "deferred_revenue": financials.get("deferred_revenue"),
-    },
-  }
-  proposal_for_critic = {
-    "balance_sheet_seed_grid": [
-      {
-        "lever_id": row.get("lever_id"),
-        "applicable": bool(row.get("applicable")),
-        "seed_value": row.get("seed_value"),
-        "value_kind": row.get("value_kind"),
-        "rationale": row.get("rationale"),
-        "naics_provenance": row.get("naics_provenance"),
-      }
-      for row in (proposal.get("balance_sheet_seed_grid") or [])
-    ],
-    "decision_source": proposal.get("decision_source"),
-    "naics_6": proposal.get("naics_6"),
-  }
-  critic_context = {
-    "proposal": proposal_for_critic,
-    "business_summary": business_summary,
-    "seed_candidates": _balance_sheet_seed_candidate_prompt_rows(),
-    "review_instructions": [
-      "You are reviewing a Python-built balance-sheet seed proposal that already has data provenance.",
-      "Accept the proposal when every row is reasonable for THIS business.",
-      "Amend ONLY rows where the business context contradicts the proposed applicability or value.",
-      "field_path uses bracket notation, e.g. balance_sheet_seed_grid[2].applicable or balance_sheet_seed_grid[0].seed_value.",
-      "Only edit fields that already exist in the proposal. Do not add new rows or fields.",
-      "If you flip applicable from false to true, also amend that row's seed_value to a value inside the seed_candidate min/max bounds.",
-      "If you flip applicable from true to false, also amend that row's seed_value to 0.",
-      "Reject only if the proposal is structurally unusable; Python's proposal will then stand as the safety floor.",
-    ],
-  }
-  critic_schema = _openai_strict_json_schema(CRITIQUE_CONTRACT_SCHEMA)
-  payload_base = {
-    "model": _openai_model(),
-    "temperature": 0,
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": "balance_sheet_contextual_seed_critique",
-        "schema": critic_schema,
-        "strict": True,
-      }
-    },
-  }
-  system_prompt = (
-    "You are reviewing a deterministic Python proposal for balance-sheet seed drivers. "
-    "Python is the engineer (it built the proposal from NAICS data and intake anchors); "
-    "you are the consultant. Return review_status=accepted when the proposal is correct. "
-    "Return review_status=amended with surgical corrections when the proposal misjudges "
-    "applicability or seed value for THIS business. Return review_status=rejected only "
-    "when the structure is unusable; in that case, Python falls back to the proposal as "
-    "the safety floor. Output only JSON conforming to the critique schema."
-  )
-  timeout_seconds = _balance_sheet_contextual_seed_timeout_seconds()
-  prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
-  raw_openai_response: Optional[Dict[str, Any]] = None
-  try:
-    payload = copy.deepcopy(payload_base)
-    payload["input"] = [
-      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(critic_context, ensure_ascii=False)}]},
-    ]
-    resp = _post_openai(
-      url="https://api.openai.com/v1/responses",
-      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-      payload=payload,
-    )
-    if resp.status_code >= 400:
-      logger.warning(
-        "balance_sheet_contextual_seed_critic_http_error: status=%s body=%s",
-        resp.status_code, resp.text[:500],
-      )
-      response = proposal_only_response(reason=f"critic_http_status_{resp.status_code}")
-      return _finalize_balance_sheet_seed_with_critique(
-        proposal=proposal, response=response, raw_openai_response=None,
-      )
-    raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-    parsed = _parse_responses_json_dict(raw_openai_response)
-    try:
-      response = CritiqueResponse.from_payload(parsed)
-    except RuntimeError as exc:
-      logger.warning("balance_sheet_contextual_seed_critic_invalid_payload: %s", exc)
-      response = proposal_only_response(reason=f"critic_invalid_payload: {exc}")
-  except TimeoutError:
-    logger.warning(
-      "balance_sheet_contextual_seed_critic_timeout: critic exceeded %.0fs; using proposal as safety floor.",
-      timeout_seconds,
-    )
-    response = proposal_only_response(reason="critic_timeout")
-  except Exception as exc:
-    logger.warning("balance_sheet_contextual_seed_critic_unexpected_error: %s", exc)
-    response = proposal_only_response(reason=f"critic_unexpected_error: {exc}")
-  finally:
-    _set_active_openai_deadline(prior_deadline)
+  response = proposal_only_response(reason="pre_convergence_gpt_critic_deleted_step_3d")
   return _finalize_balance_sheet_seed_with_critique(
-    proposal=proposal,
-    response=response,
-    raw_openai_response=raw_openai_response,
+    proposal=proposal, response=response, raw_openai_response=None,
   )
-
-
-_BALANCE_SHEET_SEED_CONTRACT_ROW_FIELDS = (
-  "lever_id",
-  "applicable",
-  "seed_value",
-  "value_kind",
-  "rationale",
-)
-
 
 def _slim_balance_sheet_seed_proposal_for_contract(proposal: Dict[str, Any]) -> Dict[str, Any]:
   """Project the rich proposer payload onto the strict GPT contract shape.
