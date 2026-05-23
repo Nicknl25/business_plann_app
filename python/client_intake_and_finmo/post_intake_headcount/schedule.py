@@ -2176,6 +2176,15 @@ def estimate_payroll_headcount_schedule_with_gpt(
   without verified commit, hard-fails with
   ``payroll_tool_calling_session_exhausted`` — payroll commits must
   be validator-accepted (no best-effort fallback).
+
+  P3.33 Phase 3 step 3b transitional shim:
+    The GPT iteration loop is GONE (tool_calling_session.py deleted).
+    Authoring authority belongs to the amalgamated GPT session via
+    ``post_intake_amalgamated.tools.set_payroll_schedule`` (the
+    canonical entry point). The amalgamated session is built in step
+    5; until then this orchestrator entry returns a structurally-
+    valid empty payroll payload so the pre-amalgamation pipeline
+    continues to make progress. Sequence-step gating is preserved.
   """
   _assert_payroll_sequence_step(
     allowed_step_keys=["payroll_gpt_contract_request", "payroll_feasibility_repair"],
@@ -2184,230 +2193,25 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "retry_payroll_headcount_schedule_from_feasibility_failure",
     ],
   )
-  api_key = _openai_key()
-  if not api_key:
-    _payroll_fail_fast(
-      "payroll_headcount_contract_openai_key_missing",
-      "OPENAI_API_KEY is not configured.",
-      stage="payroll_headcount_contract_request",
-    )
-  facts = business_facts if isinstance(business_facts, dict) else {}
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  policy = post_intake_headcount_policy_for("default")
-  resolved_people_json = _people_json_with_resolved_key_person_wages(
-    people_json,
-    policy=policy,
-    business_facts=business_facts,
-    ops_json=ops_json,
+  from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
+    build_empty_payroll_headcount_payload,
   )
-  finmo_rows = [
-    row for row in ((finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
-  ]
-  payroll_capacity_guardrails = _payroll_capacity_guardrails(
-    model_input_json=model_input_json,
-    policy=policy or {},
+  empty = build_empty_payroll_headcount_payload(
+    draft_id=str(draft_id or "").strip(),
+    client_id=str(client_id or "").strip(),
   )
-  payroll_supporting_staff_guardrails = _supporting_staff_guardrails_for_gpt(
-    payroll_capacity_guardrails,
-    people_json=resolved_people_json,
-  )
-  horizon = _contract_horizon_quarters()
-  payroll_capacity_grid = _payroll_capacity_grid_for_gpt(
-    payroll_supporting_staff_guardrails,
-    horizon=horizon,
-  )
-  oews_title_catalog = _oews_title_catalog_for_business(
-    business_facts=business_facts,
-    ops_json=ops_json,
-    people_json=resolved_people_json,
-  )
-  payroll_decision_options = _payroll_decision_options_from_policy(policy or {})
-  payroll_feasibility_mapping = post_intake_payroll_feasibility_mapping()
-  user_context = {
-    "business_identity": {
-      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
-      "business_type": ops.get("business_type"),
-      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
-      "planning_mode": str(planning_mode or "").strip().lower(),
-      "planning_mode_reason": str(planning_mode_reason or "").strip(),
-    },
-    "business_context": {
-      "description": ops.get("business_description_summary") or ops.get("business_description"),
-      "growth_lever": ops.get("growth_lever"),
-      "capacity_driver": ops.get("capacity_driver"),
-      "unit_name": ops.get("unit_name"),
-      "fulfillment_summary": ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
-      "sales_modality": ops.get("sales_modality"),
-      "geographic_scope": ops.get("geographic_scope"),
-    },
-    "people_staffing_context": _people_staffing_context(resolved_people_json),
-    "oews_title_catalog": oews_title_catalog,
-    "financial_context": {
-      "annual_revenue": (
-        year1.get("company_revenue_total_year1")
-        or year1.get("revenue_total_year1")
-        or financials.get("current_revenue")
+  if isinstance(empty, dict):
+    empty.setdefault("decision_source", "amalgamated_session_pending")
+    empty.setdefault("contract_version", "payroll_headcount_schedule_amalgamated_pending_v1")
+    empty.setdefault("python_proposal_diagnostic", {
+      "transition_note": (
+        "P3.33 Phase 3 step 3b: Handler C GPT session loop deleted; "
+        "amalgamated session (step 5) will author payroll. This empty "
+        "payload is a transitional placeholder."
       ),
-      "client_reported_current_num_employees": financials.get("current_num_employees"),
-      "client_reported_payroll_total_year1": financials.get("payroll_total_year1"),
-      "client_reported_owner_compensation": financials.get("owner_compensation"),
-    },
-    "stage_ramp_contract": _compact_stage_ramp_contract_for_payroll(stage_ramp_contract),
-    "intake_implied_operating_intensity": _intake_implied_operating_intensity(
-      financials=financials,
-      year1=year1,
-    ),
-    "payroll_decision_options": payroll_decision_options,
-    "payroll_feasibility_mapping": payroll_feasibility_mapping,
-    "payroll_headcount_policy": {
-      "source_table": "post_intake_headcount_policy_lookup",
-      "policy_code": (policy or {}).get("policy_code"),
-      "schedule_contract_version": (policy or {}).get("schedule_contract_version"),
-      "schedule_horizon_quarters": (policy or {}).get("schedule_horizon_quarters"),
-      "model_input_driver": (policy or {}).get("model_input_driver"),
-      "headcount_economic_basis": (policy or {}).get("headcount_economic_basis"),
-      "generic_oews_fallback_allowed": (policy or {}).get("generic_oews_fallback_allowed"),
-      "salary_basis": (policy or {}).get("salary_basis"),
-      "max_oews_title_rows_per_quarter": (policy or {}).get("max_oews_title_rows_per_quarter"),
-      "currency_rounding": (policy or {}).get("currency_rounding"),
-      "ratio_rounding": (policy or {}).get("ratio_rounding"),
-      "notes": (policy or {}).get("notes"),
-    },
-    "payroll_capacity_guardrails": _payroll_capacity_guardrail_summary_for_gpt(payroll_supporting_staff_guardrails),
-    "payroll_capacity_grid": payroll_capacity_grid,
-    "revenue_driver_context": _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json),
-    "current_model_snapshot": {
-      "finmo_revenue_and_payroll_first_4_quarters": [
-        {
-          "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
-          "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
-          "payroll": int(round(float(_safe_float(row.get("payroll")) or 0.0))),
-        }
-        for row in finmo_rows[:4]
-      ],
-    },
-  }
-  # Phase 9 P3.32 K12.1 (G-B2) — compact Handler C's GPT context.
-  # Forensic finding (deep memo C5): Handler C propose turns carry 24-35k
-  # input tokens and are the slowest GPT surface (29-148s), the dominant
-  # B2 stall source. This compaction removes whitespace/redundancy that
-  # GPT does not consult, preserving every load-bearing field verbatim:
-  #   - oews_title_catalog: drop the constant wage_source (GPT selects by
-  #     title; Python re-derives wage from the exact title row).
-  #   - payroll_capacity_grid: the identical per-row "rule" string (x20)
-  #     is hoisted to a single note (same text, said once).
-  #   - revenue_driver_context: drop the per-product capacity/price/util
-  #     decomposition (that is H2's revenue-authoring detail, not Handler
-  #     C's); keep the per-quarter revenue trajectory Handler C sizes
-  #     payroll against.
-  # feasibility_mapping + stage_ramp_contract are LOAD-BEARING (repair
-  # direction / ramp shape) and kept verbatim; compact JSON serialization
-  # (tool_calling_session._build_initial_user_prompt) shrinks them losslessly.
-  user_context = _compact_payroll_gpt_context(user_context)
-  # Context filtering + budget guard run once. Per-round context is
-  # rebuilt from the filtered base + the round's previous_contract_
-  # failure feedback.
-  user_context = post_intake_gpt_context_filter_payload(
-    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
-    payload=user_context,
-    include_phase="pre_convergence",
-  )
-  context_budget = post_intake_gpt_context_request_char_budget(
-    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
-    include_phase="pre_convergence",
-    default=None,
-  )
-  if context_budget is not None:
-    context_chars = len(json.dumps(user_context, ensure_ascii=False))
-    if context_chars > int(context_budget):
-      _payroll_fail_fast(
-        "payroll_headcount_gpt_context_payload_budget_exceeded",
-        f"chars={context_chars} budget={int(context_budget)}",
-        stage="payroll_headcount_contract_request",
-      )
-  sequence_settings = _payroll_process_sequence_settings(
-    step_key="payroll_gpt_contract_request",
-  )
-  post_intake_assert_process_object_control(
-    step_key="payroll_headcount_schedule",
-    object_name="payroll_headcount",
-    action="build",
-    owner="gpt",
-    # Phase 9 P3.13 Sunny fix #1 — trigger must be from the SQL
-    # post_intake_process_sequence_lookup allowed_triggers list. The
-    # original P3.11 rewrite used "initial_payroll_authoring" which
-    # is not a registered trigger; sequence-controller rejected it.
-    trigger="initial_build",
-  )
-
-  # ---- Phase 9 P3.32 K9 — tool-calling session delegation ----------------
-  #
-  # GPT iterates by calling tools (get_payroll_revenue_sanity_bounds,
-  # find_classes_accepting_target_payroll_pct, propose_payroll_head
-  # count_schedule). The session module owns the conversation loop;
-  # this function delegates after building the operating-context
-  # payload that goes into the initial user prompt.
-  from client_intake_and_finmo.post_intake_headcount.tool_calling_session import (  # type: ignore
-    run_payroll_tool_calling_session,
-  )
-
-  external_seed_text: Optional[str] = None
-  if isinstance(previous_contract_failure, dict) and previous_contract_failure:
-    compacted = _compact_payroll_failure_for_gpt(previous_contract_failure)
-    external_seed_text = json.dumps(
-      {
-        "source": "convergence_runner_payroll_repair",
-        "error": str(previous_contract_failure.get("error") or "")[:3000],
-        "compacted_violations": compacted,
-      },
-      ensure_ascii=False,
-      default=str,
-    )[:8000]
-
-  business_naics = str((ops_json or {}).get("business_naics_6") or "").strip() or None
-  session_result = run_payroll_tool_calling_session(
-    request_context=user_context,
-    policy=policy or {},
-    business_naics=business_naics,
-    draft_id=draft_id,
-    client_id=client_id,
-    model_input_json=model_input_json,
-    business_facts=business_facts,
-    ops_json=ops_json,
-    resolved_people_json=resolved_people_json,
-    external_seed_text=external_seed_text,
-  )
-
-  if session_result.status == "verified" and session_result.schedule_payload is not None:
-    return session_result.schedule_payload
-
-  # No verified-commit-candidate in the budget. Hard-fail per K9
-  # design memo Q2 (payroll commits must be validator-accepted; no
-  # best-effort fallback).
-  _payroll_fail_fast(
-    "payroll_tool_calling_session_exhausted",
-    (
-      f"Payroll tool-calling session did not produce a validator-accepted "
-      f"schedule within HARD_CAP_TOOL_CALLS tool calls. "
-      f"Final propose failure: "
-      f"{session_result.last_validator_error_code}: "
-      f"{(session_result.last_validator_error_text or '')[:1200]}"
-    ),
-    stage="payroll_tool_calling_session",
-    details={
-      "tool_calls_used": int(session_result.tool_calls_used),
-      "gpt_calls_made": int(session_result.gpt_calls_made),
-      "final_validator_error_code": session_result.last_validator_error_code,
-      "final_validator_error_text": (session_result.last_validator_error_text or "")[:3000],
-      "tool_call_history": [rec.to_dict() for rec in session_result.tool_call_history],
-      "session_detail": session_result.detail,
-      "source_table": sequence_settings.get("source_table"),
-      "step_key": sequence_settings.get("step_key"),
-    },
-  )
-  return {}
+      "previous_contract_failure": previous_contract_failure or None,
+    })
+  return empty if isinstance(empty, dict) else {}
 
 
 def _live_series(values: Any, *, horizon: int) -> List[float]:

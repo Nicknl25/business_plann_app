@@ -13,3 +13,6 @@ legacy GPT session loop in the same commit.
 from client_intake_and_finmo.post_intake_amalgamated.tools.set_stage_ramp_contract import (  # noqa: F401
   set_stage_ramp_contract,
 )
+from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule import (  # noqa: F401
+  set_payroll_schedule,
+)
