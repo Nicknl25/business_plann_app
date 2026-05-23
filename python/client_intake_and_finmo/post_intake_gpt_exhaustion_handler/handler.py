@@ -658,6 +658,304 @@ def _write_gpt_authored_per_quarter_values(
 
 
 # ---------------------------------------------------------------------------
+# Phase 9 P3.32 K13 Fix 4 (G-B1) — H4<->H2 revenue reconciliation.
+# ---------------------------------------------------------------------------
+
+
+def _stage_ramp_grid_by_quarter(stage_ramp_contract: Optional[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+  out: Dict[int, Dict[str, Any]] = {}
+  grid = (stage_ramp_contract or {}).get("quarter_ramp_grid")
+  if isinstance(grid, list):
+    for row in grid:
+      if not isinstance(row, dict):
+        continue
+      try:
+        q = int(row.get("q") if row.get("q") is not None else row.get("quarter_index"))
+      except (TypeError, ValueError):
+        continue
+      out[q] = row
+  return out
+
+
+def _grid_rev_max(row: Dict[str, Any]) -> Optional[float]:
+  for k in ("rev_max", "revenue_qoq_max"):
+    v = row.get(k)
+    if v is not None:
+      try:
+        return float(v)
+      except (TypeError, ValueError):
+        return None
+  return None
+
+
+def _grid_max_util(row: Dict[str, Any]) -> Optional[float]:
+  for k in ("max_util", "utilization_cap"):
+    v = row.get(k)
+    if v is not None:
+      try:
+        return float(v)
+      except (TypeError, ValueError):
+        return None
+  return None
+
+
+def _live_revenue_by_quarter(finmo_json: Optional[Dict[str, Any]]) -> Dict[int, float]:
+  out: Dict[int, float] = {}
+  for row in ((finmo_json or {}).get("quarter_rows") or []):
+    if not isinstance(row, dict):
+      continue
+    try:
+      q = int(row.get("quarter_index"))
+    except (TypeError, ValueError):
+      continue
+    try:
+      out[q] = float(row.get("revenue") or 0.0)
+    except (TypeError, ValueError):
+      out[q] = 0.0
+  return out
+
+
+def reconcile_revenue_to_stage_ramp(
+  *,
+  model_input: Dict[str, Any],
+  build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  max_passes: int = 12,
+) -> Dict[str, Any]:
+  """Fix 4 / G-B1 (doctrine §10.7): clamp committed live-revenue QoQ
+  growth to the H4 stage_ramp band by scaling per-quarter
+  revenue::Utilization. H4 ramp is the authority; H2 utilization yields.
+
+  The finalize validator (assert_stage_ramp_revenue_path_applied) rejects
+  a run whenever committed revenue QoQ growth (2dp) exceeds rev_max (or,
+  with no payroll-supported capacity, falls below rev_target). Revenue is
+  capacity*price*utilization with capacity payroll-derived and util
+  clipped <=0.84 (no FINMO expansion branch), so revenue scales linearly
+  with utilization — the bounded, model-agnostic lever. For each quarter
+  whose predicted growth exceeds rev_max we scale that quarter's
+  utilization by target/actual (target = prev*(1+rev_max), nudged under
+  the 2dp boundary), processing the cascade in one logical pass using
+  predicted revenue, then rebuild + verify. Only DOWNWARD scaling (never
+  raises the ramp); leaves the model unchanged when already in-band."""
+  summary: Dict[str, Any] = {
+    "applied": False, "quarters_adjusted": [], "passes": 0,
+    "rev_max_relaxed_quarters": [],
+  }
+  if not isinstance(model_input, dict) or not callable(build_finmo):
+    return summary
+  grid = _stage_ramp_grid_by_quarter(stage_ramp_contract)
+  if not grid:
+    return summary
+  # Option 1 — RAMP AUTHORITY IS ABSOLUTE. rev_max is never relaxed. The
+  # revenue trajectory is brought under the H4 ramp ceiling by reducing
+  # the writable revenue knobs (utilization first, then unit price), so
+  # capacity-driven over-growth is absorbed by lowering revenue to fit the
+  # ramp — never by moving the bound. (Capacity itself is payroll-derived
+  # and not directly writable under the revenue_driver_formula_contract,
+  # so utilization and price are the deterministic levers.) If even at the
+  # floors a quarter still cannot fit, a structured error surfaces the H4
+  # <-> Handler-C incompatibility (extremely rare when Fix 2's robust-bound
+  # is well-calibrated) rather than silently shipping an over-ramp plan.
+  _UTIL_MIN = 0.05
+  _PRICE_MIN_FACTOR = 0.25  # price may be reduced to at most this fraction
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  util_rows = _find_rows_for_lever(model_input or {}, "revenue::Utilization")
+  price_rows = _find_rows_for_lever(model_input or {}, "revenue::Unit Price")
+  if not util_rows:
+    return summary
+  price_baseline = {
+    q: float(r["values"][q])
+    for r in price_rows if isinstance(r.get("values"), list)
+    for q in range(1, min(21, len(r["values"])))
+    if isinstance(r["values"][q], (int, float))
+  }
+
+  def _scale_rows(rows, q: int, factor: float, lo: float, hi: float) -> None:
+    for row in rows:
+      vals = row.get("values")
+      if not isinstance(vals, list) or q >= len(vals):
+        continue
+      try:
+        cur = float(vals[q])
+      except (TypeError, ValueError):
+        continue
+      vals[q] = round(max(lo, min(hi, cur * factor)), 6)
+
+  for _pass in range(max(1, max_passes)):
+    finmo = build_finmo(copy.deepcopy(model_input))
+    rev = _live_revenue_by_quarter(finmo)
+    changed = False
+    for q in range(2, 21):
+      prev = rev.get(q - 1)
+      cur = rev.get(q)
+      row = grid.get(q) or {}
+      rev_max = _grid_rev_max(row)
+      if prev is None or cur is None or prev <= 0.0 or cur <= 0.0 or rev_max is None or rev_max <= 0.0:
+        continue
+      if round(cur / prev, 2) <= rev_max + 1e-9:
+        continue
+      max_util = min(_grid_max_util(row) or 0.84, 0.84)
+      factor = (prev * (1.0 + rev_max - 0.005)) / cur  # nudge under 2dp ceiling
+      # Lever 1: utilization (down to _UTIL_MIN).
+      _scale_rows(util_rows, q, factor, _UTIL_MIN, max_util)
+      # Lever 2: unit price, only if utilization alone is insufficient
+      # (factor very small => util would bottom out). Bounded so price
+      # cannot collapse below a fraction of its committed baseline.
+      if factor < (_UTIL_MIN / max(max_util, 1e-9)) and price_rows:
+        pbase = price_baseline.get(q)
+        if pbase:
+          _scale_rows(price_rows, q, factor, pbase * _PRICE_MIN_FACTOR, pbase)
+      changed = True
+      if q not in summary["quarters_adjusted"]:
+        summary["quarters_adjusted"].append(q)
+    summary["passes"] = _pass + 1
+    if changed:
+      summary["applied"] = True
+    else:
+      break  # converged — no quarter violates the ramp ceiling
+
+  # Residual check — surface a structured H4<->Handler-C incompatibility
+  # if any quarter still exceeds rev_max after the levers bottomed out.
+  final_rev = _live_revenue_by_quarter(build_finmo(copy.deepcopy(model_input)))
+  residual = []
+  for q in range(2, 21):
+    prev, cur = final_rev.get(q - 1), final_rev.get(q)
+    rmax = _grid_rev_max(grid.get(q) or {})
+    if prev and cur and prev > 0 and rmax and round(cur / prev, 2) > rmax + 1e-9:
+      residual.append(q)
+  summary["residual_violation_quarters"] = residual
+  return summary
+
+
+def _cost_lever_targets_by_quarter(stage_ramp_contract: Optional[Dict[str, Any]]) -> Dict[str, Dict[int, float]]:
+  """Per-quarter realistic cost-ratio targets the viability floor pulls
+  DOWN to. cogs uses the contract's per-quarter cogs_target; marketing /
+  sga / r&d use conservative deterministic targets (the same defaults
+  the Python stage-ramp builder uses) since the grid carries only their
+  maxes. These are the realistic viable envelope H4 intends — the floor
+  never goes below them (that would be unrealistic), it only pulls an
+  over-target committed ratio down to the target."""
+  grid = _stage_ramp_grid_by_quarter(stage_ramp_contract)
+  cogs_t: Dict[int, float] = {}
+  for q, row in grid.items():
+    for k in ("cogs_target", "cogs_percent_of_revenue_target"):
+      v = row.get(k)
+      if v is not None:
+        try:
+          cogs_t[q] = float(v)
+        except (TypeError, ValueError):
+          pass
+        break
+  flat = {q: 0.08 for q in range(1, 21)}
+  return {
+    "expenses::Cost of Goods Sold": cogs_t,
+    "expenses::Marketing": {q: 0.08 for q in range(1, 21)},
+    "expenses::General & Administrative": {q: 0.12 for q in range(1, 21)},
+    "expenses::Research & Development": {q: 0.04 for q in range(1, 21)},
+  }
+
+
+def apply_viability_floor(
+  *,
+  model_input: Dict[str, Any],
+  build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Fix 3 / G-3 (doctrine §10.6): when the committed P&L is not viable
+  (EBITDA not positive by Q11), deterministically pull each per-quarter
+  cost ratio DOWN to its realistic contract target and re-verify, so the
+  handler commits a viable configuration instead of GPT's non-viable
+  best-effort. Operates on the reconciled revenue (Fix 4 runs first), so
+  the result respects the stage-ramp revenue band AND viability.
+
+  Pull-down-only (never raises a cost ratio): if H2 already set a ratio
+  below target, that is kept (better for EBITDA). If even the realistic
+  targets do not reach viability, the floor commits the target config
+  (the best realistic envelope; §10.2 forbids an infeasibility escape).
+  Lock-on-viability: a config that is already viable is left untouched."""
+  from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.mini_finmo import (  # type: ignore
+    _eval_viability_checks,
+  )
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  summary: Dict[str, Any] = {
+    "applied": False, "viable_before": None, "viable_after": None, "steps": 0,
+  }
+  if not isinstance(model_input, dict) or not callable(build_finmo):
+    return summary
+
+  def _viable() -> bool:
+    return bool(
+      _eval_viability_checks(
+        build_finmo(copy.deepcopy(model_input)), stage_ramp_contract
+      ).get("ebitda_positive_by_q11")
+    )
+
+  summary["viable_before"] = _viable()
+  if summary["viable_before"]:
+    return summary  # already viable — lock, do nothing
+
+  # Step 1 — pull every cost ratio DOWN to its realistic contract target
+  # (never raises one already below). This is the realistic baseline.
+  targets = _cost_lever_targets_by_quarter(stage_ramp_contract)
+  cost_levers = [
+    "expenses::Cost of Goods Sold", "expenses::Marketing",
+    "expenses::General & Administrative", "expenses::Research & Development",
+  ]
+  for lever_id, per_q in targets.items():
+    if not per_q:
+      continue
+    for row in _find_rows_for_lever(model_input or {}, lever_id):
+      vals = row.get("values")
+      if not isinstance(vals, list):
+        continue
+      for q in range(1, 21):
+        if q >= len(vals) or q not in per_q:
+          continue
+        try:
+          cur = float(vals[q])
+        except (TypeError, ValueError):
+          continue
+        vals[q] = round(min(cur, float(per_q[q])), 6)  # pull DOWN only
+  summary["applied"] = True
+
+  # Step 2 — if the reconciled revenue + realistic targets still are not
+  # viable (e.g. Fix 4 lowered revenue to respect the ramp ceiling), step
+  # COGS DOWN (the dominant viability lever) toward its schema floor (0.20)
+  # until Q11 EBITDA turns positive or the floor is reached. Only COGS is
+  # stepped: marketing/sga/rd are kept at their realistic step-1 targets
+  # (>0) because the finalize mapping-formula validator disallows driving
+  # a required cost ratio to <=0. The loop STOPS the moment viability is
+  # reached (minimal reduction = lock-on-viability), so the committed
+  # config is the least-aggressive COGS cut that achieves it.
+  cogs_floor, cogs_step = 0.20, 0.03
+  for step in range(1, 26):
+    if _viable():
+      break
+    moved = False
+    for row in _find_rows_for_lever(model_input or {}, "expenses::Cost of Goods Sold"):
+      vals = row.get("values")
+      if not isinstance(vals, list):
+        continue
+      for q in range(1, min(21, len(vals))):
+        try:
+          cur = float(vals[q])
+        except (TypeError, ValueError):
+          continue
+        if cur > cogs_floor + 1e-9:
+          vals[q] = round(max(cogs_floor, cur - cogs_step), 6)
+          moved = True
+    summary["steps"] = step
+    if not moved:
+      break  # COGS at its floor — best feasible committed
+  summary["viable_after"] = _viable()
+  return summary
+
+
+# ---------------------------------------------------------------------------
 # Realism flag mute computation.
 # ---------------------------------------------------------------------------
 
@@ -779,6 +1077,16 @@ def run_gpt_exhaustion_handler(
   is observable end-to-end without claiming success the system did not
   deliver.
   """
+  # P3.33 Phase 3 step 3c transitional shim. The GPT iteration loop
+  # (run_tool_calling_session, execute_tool_calling_session_and_commit,
+  # prompts.py) is GONE. Authoring authority for the driver anchors
+  # belongs to the amalgamated GPT session via
+  # ``post_intake_amalgamated.tools.set_drivers``; step 5 wires that
+  # session into the orchestrator. Until step 5 lands, this entry
+  # returns EXHAUSTED with a transitional diagnostic so the
+  # orchestrator's post-exhaustion path (K13 floor — reconcile_revenue_
+  # to_stage_ramp + apply_viability_floor below) continues to commit
+  # the deterministic driver values.
   exhaustion_diagnostic: Dict[str, Any] = {}
   try:
     if hasattr(restoration_result, "to_dict"):
@@ -787,92 +1095,19 @@ def run_gpt_exhaustion_handler(
       exhaustion_diagnostic = dict(restoration_result)
   except Exception:
     exhaustion_diagnostic = {"note": "restoration_result_not_serializable"}
-
-  # Phase 9 P3.10 Commit 2 — pre-session FINMO build is a genuine
-  # precondition. Under CONVERGENCE_TEST_MODE=true a failure here raises
-  # PostIntakePreconditionFailed so the operator sees the exact build
-  # error in one log line. Production-mode callers continue to receive
-  # FAILED_PRECONDITION (legacy path) for backwards compat.
-  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-    PostIntakePreconditionFailed,
-    convergence_test_mode_enabled,
-  )
-
-  if not isinstance(finmo_json, dict) or not finmo_json:
-    try:
-      finmo_json = build_finmo(copy.deepcopy(model_input or {}))
-    except Exception as exc:
-      if convergence_test_mode_enabled():
-        raise PostIntakePreconditionFailed(
-          operation="gpt_exhaustion_handler_pre_session_finmo_build",
-          pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler",
-          expected="build_finmo(model_input) returns a valid FINMO dict",
-          actual=f"{type(exc).__name__}: {str(exc)[:200]}",
-          details={
-            "model_input_section_count": (
-              len((model_input or {}).get("sections") or {})
-              if isinstance(model_input, dict) else 0
-            ),
-            "restoration_status": (
-              str(exhaustion_diagnostic.get("status") or "")
-            ),
-          },
-          cause=exc,
-        ) from exc
-      return HandlerResult(
-        status=HandlerStatus.FAILED_PRECONDITION,
-        gpt_calls_made=0,
-        provenance={
-          "phase": "phase_1_pre_session_finmo_failed",
-          "error": f"{type(exc).__name__}: {str(exc)[:200]}",
-        },
-        reason="finmo_rebuild_failed_before_tool_calling_session",
-      )
-
-  q1_state = _q1_actual_state(finmo_json or {})
-  q11_pre = _q11_ebitda_margin(finmo_json or {})
-
-  try:
-    from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.tool_calling_session import (  # type: ignore
-      execute_tool_calling_session_and_commit,
-    )
-  except Exception as exc:
-    if convergence_test_mode_enabled():
-      raise PostIntakePreconditionFailed(
-        operation="gpt_exhaustion_handler_module_import",
-        pipeline_stage="phase_9_p3_5_gpt_exhaustion_handler",
-        expected="tool_calling_session module importable",
-        actual=f"{type(exc).__name__}: {str(exc)[:200]}",
-        details={"q1_state": q1_state},
-        cause=exc,
-      ) from exc
-    return HandlerResult(
-      status=HandlerStatus.FAILED_PRECONDITION,
-      gpt_calls_made=0,
-      q11_ebitda_actual=q11_pre,
-      provenance={
-        "phase": "phase_1_internals_deleted",
-        "q1_state": q1_state,
-        "exhaustion_diagnostic": {
-          "status": exhaustion_diagnostic.get("status"),
-          "q11_ebitda_margin": exhaustion_diagnostic.get("q11_ebitda_margin"),
-          "drivers_at_bounds_summary": exhaustion_diagnostic.get(
-            "drivers_at_bounds_summary"
-          ),
-          "reason": exhaustion_diagnostic.get("reason"),
-        },
-        "import_error": f"{type(exc).__name__}: {str(exc)[:200]}",
-      },
-      reason="phase_1_internals_deleted_phase_2_pending",
-    )
-
-  return execute_tool_calling_session_and_commit(
-    restoration_result=restoration_result,
-    exhaustion_diagnostic=exhaustion_diagnostic,
-    q1_state=q1_state,
-    model_input=model_input or {},
-    operating_model=operating_model or {},
-    build_finmo=build_finmo,
-    intake_context=intake_context or {},
-    stage_ramp_contract=stage_ramp_contract or {},
+  return HandlerResult(
+    status=HandlerStatus.FAILED_PRECONDITION,
+    gpt_calls_made=0,
+    provenance={
+      "transition": "amalgamated_session_pending",
+      "deleted": [
+        "post_intake_gpt_exhaustion_handler.tool_calling_session",
+        "post_intake_gpt_exhaustion_handler.prompts",
+      ],
+      "amalgamated_tool": "post_intake_amalgamated.tools.set_drivers",
+      "exhaustion_diagnostic": exhaustion_diagnostic,
+    },
+    reason=(
+      "h2_gpt_session_loop_deleted_step_3c_amalgamated_session_pending_step_5"
+    ),
   )

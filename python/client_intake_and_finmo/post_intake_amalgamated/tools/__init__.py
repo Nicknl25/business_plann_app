@@ -16,3 +16,6 @@ from client_intake_and_finmo.post_intake_amalgamated.tools.set_stage_ramp_contra
 from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule import (  # noqa: F401
   set_payroll_schedule,
 )
+from client_intake_and_finmo.post_intake_amalgamated.tools.set_drivers import (  # noqa: F401
+  set_drivers,
+)
