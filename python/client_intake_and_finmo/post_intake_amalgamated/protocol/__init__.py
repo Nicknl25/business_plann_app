@@ -33,3 +33,10 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.restructuring_log_
   log_restructure,
   fetch_restructuring_log,
 )
+from client_intake_and_finmo.post_intake_amalgamated.protocol.response_tools import (  # noqa: F401  # noqa: E501
+  ProposalResponse,
+  confirm_proposal,
+  veto_proposal,
+  choose_option,
+  other_proposal,
+)
