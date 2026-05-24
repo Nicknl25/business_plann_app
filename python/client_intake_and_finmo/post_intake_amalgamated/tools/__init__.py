@@ -26,8 +26,13 @@ from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_
   set_capex_rd_balance_seed,
 )
 
-# Step 4 — partial-patch (revise_*) variants. Stage_ramp and payroll
-# revise tools land in the next commit alongside their tests.
+# Step 4 — partial-patch (revise_*) variants.
+from client_intake_and_finmo.post_intake_amalgamated.tools.revise_stage_ramp_contract import (  # noqa: F401  # noqa: E501
+  revise_stage_ramp_contract,
+)
+from client_intake_and_finmo.post_intake_amalgamated.tools.revise_payroll_schedule import (  # noqa: F401
+  revise_payroll_schedule,
+)
 from client_intake_and_finmo.post_intake_amalgamated.tools.revise_drivers import (  # noqa: F401
   revise_drivers,
 )
