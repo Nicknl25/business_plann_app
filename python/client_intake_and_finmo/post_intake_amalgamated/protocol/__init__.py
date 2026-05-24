@@ -58,3 +58,7 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.cascades import ( 
   next_tier,
   coherence_anchor_order,
 )
+from client_intake_and_finmo.post_intake_amalgamated.protocol.restructure_proposer import (  # noqa: F401  # noqa: E501
+  Proposal,
+  propose_for_tier,
+)
