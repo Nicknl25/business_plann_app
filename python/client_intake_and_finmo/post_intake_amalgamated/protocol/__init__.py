@@ -79,4 +79,5 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.session_driver imp
   SessionState,
   SessionResult,
   SessionDriver,
+  finalize_authoring,
 )

@@ -55,6 +55,7 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.cascades import (
 from client_intake_and_finmo.post_intake_amalgamated.protocol.floor import (
   FloorResult,
   apply_floor_primitive,
+  floor_for_mode,
 )
 from client_intake_and_finmo.post_intake_amalgamated.protocol.reason_codes import (
   AppliedBy,
@@ -162,6 +163,7 @@ class SessionDriver:
     self._primitive_kwargs_for_mode = primitive_kwargs_for_mode or (lambda m: {})
     self._applied_steps = 0
     self._floor_invocations = 0
+    self._last_result: Optional[EvaluatePlanResult] = None
 
   # --- top-level entry --------------------------------------------------
 
@@ -256,6 +258,18 @@ class SessionDriver:
 
     Returns ``{"re_evaluate": bool, "applied": bool, "row_id": Optional[int]}``.
     """
+    # §8.7 budget-aware mode: skip the responder for Type A tiers and
+    # auto-confirm the Python proposal. Type B tiers still consult GPT
+    # because the choice is a real business judgment — that's why
+    # Type B exists.
+    if self.state.budget_aware and tier.step_type == StepType.TYPE_A:
+      chosen = _first(proposal_or_options)
+      self.state.consume_budget()
+      return self._commit_proposal(
+        mode, tier, chosen,
+        applied_by=AppliedBy.BUDGET_AWARE_AUTO_CONFIRM,
+      )
+
     response: ProposalResponse = self._responder(
       mode=mode, tier=tier, proposal_or_options=proposal_or_options,
       state=self.state,
@@ -348,12 +362,54 @@ class SessionDriver:
   # --- floor ------------------------------------------------------------
 
   def _invoke_floor_for_mode(self, mode: FailureMode) -> FloorResult:
-    res = apply_floor_primitive(
-      mode, **self._primitive_kwargs_for_mode(mode),
+    """Route through floor_for_mode so the §9.1 cascade-as-floor walker
+    runs before the §9.2 primitive (per spec §9: same machinery,
+    unattended; primitive only fires if the unattended walk doesn't
+    resolve the mode)."""
+    res = floor_for_mode(
+      mode,
+      cascade_walker=self._unattended_cascade_pass,
+      primitive_kwargs=self._primitive_kwargs_for_mode(mode),
     )
     for step in res.steps:
       self._log_floor_step(mode, step)
     return res
+
+  def _unattended_cascade_pass(self, *, mode: FailureMode) -> FloorResult:
+    """Walk the cascade unattended with Python defaults at every step.
+
+    Spec §9.1 step 1: Type A auto-confirmed, Type B picks option A
+    (the first option in priority order — least-disruptive per the
+    cascade tables). Each commit goes through the same revise_* tools
+    the GPT-driven cascade uses. After each commit re-evaluate; if the
+    mode now passes, return status='resolved' so floor_for_mode skips
+    the §9.2 primitive.
+    """
+    floor_steps: List[Any] = []
+    self.state.current_tier_by_mode.setdefault(mode, None)
+    current = next_tier(mode, None)
+    result = self._evaluate()
+    while current is not None and not current.is_floor:
+      proposal = propose_for_tier(mode, current, result)
+      if proposal is None:
+        current = next_tier(mode, current.tier_id)
+        continue
+      chosen = _first(proposal)
+      outcome = self._commit_proposal(
+        mode, current, chosen, applied_by=AppliedBy.DETERMINISTIC_FLOOR,
+      )
+      if outcome.get("re_evaluate"):
+        result = self._evaluate()
+        if not self._mode_failing(mode, result):
+          return FloorResult(
+            mode=mode, status="resolved", steps=floor_steps,
+            detail=f"cascade-as-floor resolved at {current.tier_id}",
+          )
+      current = next_tier(mode, current.tier_id)
+    return FloorResult(
+      mode=mode, status="exhausted", steps=floor_steps,
+      detail="cascade-as-floor exhausted; primitive will fire",
+    )
 
   def _floor_all(
     self, result: EvaluatePlanResult,
@@ -383,6 +439,7 @@ class SessionDriver:
     result = self._evaluate_plan_fn(round_number=self.state.evaluate_plan_round)
     self.state.last_worst_distance = result.worst_failing_distance
     self.state.last_failing_check_count = self._failing_count(result)
+    self._last_result = result
     self.state.consume_budget()
     return result
 
@@ -499,6 +556,27 @@ class SessionDriver:
       termination_detail=detail,
     )
 
+  # --- finalize_authoring ------------------------------------------------
+
+  def finalize_authoring(self) -> Dict[str, Any]:
+    """Spec §3.3 finalize_authoring — declare the session done.
+
+    Allowed only when the most recent ``evaluate_plan`` returned
+    ``all_pass=True`` OR the protocol terminated in a floor state
+    (FLOOR-state plans are committed, in-bounds, viable-in-the-floor's-
+    sense per doctrine §10.6). Returns ``{"accepted": bool, "reason":
+    str|None}``.
+
+    Wrapped as a free-standing helper too (``finalize_authoring`` below)
+    so callers outside a live SessionDriver can validate the same
+    pre-condition against an EvaluatePlanResult.
+    """
+    last = self._last_result
+    if last is None:
+      return {"accepted": False,
+              "reason": "no evaluate_plan result yet; cannot finalize"}
+    return finalize_authoring(last)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -518,19 +596,27 @@ def _as_list(proposal_or_options: Union[Proposal, List[Proposal]]) -> List[Propo
   return [proposal_or_options] if proposal_or_options is not None else []
 
 
+_WC_SCALAR_DRIVER_LEVERS = frozenset({
+  "balance_sheet::Accounts Receivable Days",
+  "balance_sheet::Accounts Payable Days",
+  "balance_sheet::Inventory Days",
+})
+
+
 def _patch_from_proposal(proposal: Proposal) -> Dict[str, Any]:
   """Turn a Proposal into a sparse patch dict the revise_* tools accept.
 
-  For drivers the patch shape is ``{lever_id: {"q1": v, "q11": v, "q20": v}}``
-  but the proposer typically only knows one quarter-target — the session
-  driver fills in the missing anchors from the current state. For other
-  sections the patch is a flat ``{field: value}`` dict.
+  Driver section shapes (mirror of ``set_drivers`` anchors):
+    - P&L levers (COGS, R&D, G&A, Marketing): per-anchor dict
+      ``{lever_id: {"q1": v, "q11": v, "q20": v}}``.
+    - Working-capital levers (AR Days, AP Days, Inventory Days):
+      scalar ``{lever_id: v}``.
+
+  Non-driver sections: flat ``{field: value}``.
   """
   if proposal.section == "drivers":
-    # Default to applying the proposed value to all three anchors. The
-    # revise tool merges with the current anchors so unchanged quarters
-    # are preserved if the section's revise_* implementation uses a deeper
-    # merge; this default is the most common cohort-target case.
+    if proposal.field in _WC_SCALAR_DRIVER_LEVERS:
+      return {proposal.field: proposal.proposed_value}
     return {
       proposal.field: {
         "q1":  proposal.proposed_value,
@@ -541,9 +627,43 @@ def _patch_from_proposal(proposal: Proposal) -> Dict[str, Any]:
   return {proposal.field: proposal.proposed_value}
 
 
+def finalize_authoring(result: EvaluatePlanResult) -> Dict[str, Any]:
+  """Spec §3.3 finalize_authoring — validate that authoring is allowed
+  to declare done.
+
+  Allowed when ``result.all_pass == True``. Returns:
+    {"accepted": True,  "reason": None}        if all_pass
+    {"accepted": False, "reason": "<detail>"}  otherwise (with the
+    failing-check count + worst-failing-check name when present).
+
+  The session driver's terminal state (FLOOR-equivalent terminations
+  like STAGNATION_FLOOR_ALL / BUDGET_EXHAUSTED_FLOOR / META_HALTED)
+  is the alternate finalize path — those commit an in-bounds plan
+  via the floor primitives and exit the session; ``finalize_authoring``
+  is the GPT-driven "I'm done" check the responder uses while the
+  cascade is still running.
+  """
+  if result is None:
+    return {"accepted": False,
+            "reason": "no evaluate_plan result supplied"}
+  if result.all_pass:
+    return {"accepted": True, "reason": None}
+  failing = sum(1 for c in result.checks if not c.passed)
+  worst = result.worst_failing_check or "(unknown)"
+  return {
+    "accepted": False,
+    "reason": (
+      f"evaluate_plan still failing: {failing} check(s), worst "
+      f"= {worst} (distance {result.worst_failing_distance!r}). "
+      "finalize_authoring requires all_pass=True (spec §3.3)."
+    ),
+  }
+
+
 __all__ = [
   "TerminationState",
   "SessionState",
   "SessionResult",
   "SessionDriver",
+  "finalize_authoring",
 ]
