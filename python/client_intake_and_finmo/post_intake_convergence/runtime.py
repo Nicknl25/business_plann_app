@@ -215,7 +215,6 @@ __all__ = [
   "_compact_convergence_quarter_rows_for_state",
   "_build_current_cycle_convergence_packet",
   "_lever_allowed_mapped_repair_targets",
-  "_run_unified_convergence_openai",
   "_quarter_count_from_model_input",
   "_normalized_quarter_window",
   "_solved_lever_value_map",
@@ -2772,53 +2771,6 @@ def _revenue_formula_driver_cells_contract_error(
     "revenue targets before Python applies the repair. "
     f"violations={json.dumps(violations, ensure_ascii=False)}"
   )
-
-def _run_unified_convergence_openai(
-  *,
-  draft_id: str,
-  planning_context_summary_json,
-  planning_mode: str,
-  planning_mode_reason: str,
-  planning_mode_prompt_file: str,
-  unified_convergence_context,
-  prior_numeric_feedback=None,
-  controller_retry_context=None,
-):
-  """P3.33 Phase 3 step 6 - unified_convergence_decision GPT loop deleted.
-
-  The post_intake_amalgamated session (post_intake_amalgamated.protocol
-  .SessionDriver) supersedes this GPT call. The signature is preserved
-  so the runner.py call site continues to work; the body returns the
-  same envelope shape this function returned when OPENAI_API_KEY was
-  unset, with a status that names the supersession explicitly.
-
-  Behavior unchanged from production-without-OPENAI-key: the runner's
-  decision_status != 'completed' gate triggers as it does today,
-  exiting the convergence runner gracefully. Orchestrator-side wiring
-  that routes SessionDriver in place of the convergence step lands in
-  step 7 (separate post-step-6 commit).
-  """
-  prompt_file = "client_intake_and_finmo/prompts/unified_convergence/reviewer.md"
-  planning_context_summary = (
-    planning_context_summary_json if isinstance(planning_context_summary_json, dict) else {}
-  )
-  selected_cash_strategy = _resolved_cash_strategy(
-    planning_context_summary,
-    unified_convergence_context,
-  )
-  return {
-    "contract_version": "unified_convergence_decision_v1",
-    "status": "skipped_amalgamated_session_supersedes",
-    "prompt_file": prompt_file,
-    "selected_cash_strategy": selected_cash_strategy,
-    "review_status": "not_completed",
-    "detail": (
-      "Phase 3 step 6: GPT call deleted. Authoring + revision is "
-      "handled by post_intake_amalgamated.protocol.SessionDriver. "
-      "Orchestrator wiring lands in step 7."
-    ),
-    "decision": {},
-  }
 
 def _quarter_count_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> int:
   model_input = model_input_json if isinstance(model_input_json, dict) else {}

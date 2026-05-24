@@ -53,7 +53,10 @@ from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash
 from client_intake_and_finmo import post_intake_resolution_state as _post_intake_resolution_state  # type: ignore
 from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
 from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
-from client_intake_and_finmo.post_intake_convergence import runner as _post_intake_convergence_runner  # type: ignore
+# post_intake_convergence/runner.py was deleted in Phase 3 step 7 (the
+# GPT-loop runner was dead code since Phase 2.5 — target_seeking_orchestrator
+# is the live convergence path). post_intake_convergence/runtime.py survives
+# only as a deterministic-helper module.
 from client_intake_and_finmo.post_intake_convergence import runtime as _post_intake_convergence_runtime  # type: ignore
 from client_intake_and_finmo.post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
 from client_intake_and_finmo.post_intake_sequence import run_targeted_process_step  # type: ignore
@@ -64,7 +67,8 @@ bind_cash_runtime_dependencies = _post_intake_cash_runner.bind_runtime_dependenc
 bind_contract_runtime_dependencies = _post_intake_contracts_runner.bind_runtime_dependencies
 bind_state_runtime_dependencies = _post_intake_state_runner.bind_runtime_dependencies
 bind_convergence_runtime_dependencies = _post_intake_convergence_runtime.bind_runtime_dependencies
-bind_convergence_execution_runtime_dependencies = _post_intake_convergence_runner.bind_runtime_dependencies
+# bind_convergence_execution_runtime_dependencies removed in Phase 3 step 7
+# (post_intake_convergence/runner.py deleted).
 
 # Cross-runner helpers used directly within this module. The bind dict
 # below carries the union of every runner's __all__, so these names are
@@ -191,7 +195,6 @@ _POST_INTAKE_RUNTIME_DEPENDENCY_PROVIDER_MODULES = (
   _post_intake_contracts_runner,
   _post_intake_state_runner,
   _post_intake_convergence_runtime,
-  # convergence.runner has no __all__ — it's a consumer, not a provider.
 )
 
 # Helpers and aliases defined inside intake_consult.py (or imported into
@@ -279,7 +282,8 @@ def _bind_post_intake_runtime_dependencies() -> None:
   # Phase 8: bind_issue_runtime_dependencies removed; legacy runner deleted.
   bind_contract_runtime_dependencies(dependencies)
   bind_state_runtime_dependencies(dependencies)
-  bind_convergence_execution_runtime_dependencies(dependencies)
+  # P3.33 Phase 3 step 7: bind_convergence_execution_runtime_dependencies
+  # removed (post_intake_convergence/runner.py deleted).
   bind_convergence_runtime_dependencies(dependencies)
 
 

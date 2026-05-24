@@ -57,12 +57,6 @@ CASH_RUNNER_PATH = (
   / "post_intake_cash"
   / "runner.py"
 )
-CONVERGENCE_RUNNER_PATH = (
-  pathlib.Path(PYTHON_ROOT)
-  / "client_intake_and_finmo"
-  / "post_intake_convergence"
-  / "runner.py"
-)
 FINMO_BRIDGE_PATH = (
   pathlib.Path(PYTHON_ROOT) / "client_intake_and_finmo" / "finmo_bridge.py"
 )
@@ -114,25 +108,9 @@ class STDCanonicalSourceLayer3SymbolRemovalTest(unittest.TestCase):
       "Import alias for the deleted writer must be removed",
     )
 
-  def test_convergence_runner_pipeline_stages_gone(self) -> None:
-    text = CONVERGENCE_RUNNER_PATH.read_text(encoding="utf-8")
-    # Pipeline stage IDs only appear in inline comments now (the
-    # _execute_sequence_step calls are gone).
-    self.assertNotIn(
-      '_execute_sequence_step(\n    "cash_short_term_debt_seed"',
-      text,
-      "cash_short_term_debt_seed pipeline stage must be removed",
-    )
-    self.assertNotIn(
-      '_execute_sequence_step(\n    "cash_short_term_debt_current_portion"',
-      text,
-      "cash_short_term_debt_current_portion pipeline stage must be removed",
-    )
-    self.assertNotIn(
-      "_apply_cash_pass_short_term_debt_current_portion,",
-      text,
-      "Reference to deleted wrapper function must be removed",
-    )
+  # test_convergence_runner_pipeline_stages_gone removed in P3.33 Phase 3
+  # step 7 — the convergence runner file itself was deleted, making this
+  # source-inspection regression check vacuous.
 
   def test_finmo_bridge_no_longer_seeds_lever_from_intake(self) -> None:
     text = FINMO_BRIDGE_PATH.read_text(encoding="utf-8")
