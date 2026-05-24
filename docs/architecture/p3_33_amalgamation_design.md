@@ -164,6 +164,20 @@ Each authoring tool validates against the band envelope + the contract schema
 the bands echoed. A rejected call does not mutate state.
 
 ### 3.3 Revision tools (the adaptation spine — critical)
+
+> **Superseded by [p3_33_restructure_protocol_spec.md](p3_33_restructure_protocol_spec.md).**
+> The free-form `restructure_from_q1` / `relax_lowest_priority_bound` sketch
+> below is replaced by the Python-driven cascade protocol (per-failure-mode
+> tiered cascades, smart-entry pinning, Type A/B step semantics, deterministic
+> floor as the unattended same-cascade walker, `restructuring_log` audit table,
+> closed `ReasonCode` enum). Step 4 builds `revise_stage_ramp`,
+> `revise_payroll`, `revise_drivers`, `revise_capex_rd_balance_seed`, the
+> `restructuring_log` table, and the four response-tool stubs
+> (`confirm_proposal` / `veto_proposal` / `choose_option` / `other_proposal`).
+> Step 5 builds the session driver, the cascade tables, the floor, and the
+> proposer. See the spec for definitive shapes; the table below is preserved
+> for historical context only.
+
 GPT must be able to **revise**, not only add. Revision is what makes
 restructuring possible.
 | Tool | Effect |
