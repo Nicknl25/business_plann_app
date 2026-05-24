@@ -74,3 +74,9 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.floor import (  # 
   apply_floor_primitive,
   floor_for_mode,
 )
+from client_intake_and_finmo.post_intake_amalgamated.protocol.session_driver import (  # noqa: F401  # noqa: E501
+  TerminationState,
+  SessionState,
+  SessionResult,
+  SessionDriver,
+)
