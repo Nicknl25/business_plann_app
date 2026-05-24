@@ -62,3 +62,15 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.restructure_propos
   Proposal,
   propose_for_tier,
 )
+from client_intake_and_finmo.post_intake_amalgamated.protocol.floor import (  # noqa: F401
+  FloorStepResult,
+  FloorResult,
+  PRIMITIVES,
+  viability_floor_primitive,
+  growth_floor_primitive,
+  capacity_floor_primitive,
+  band_floor_primitive,
+  coherence_floor_primitive,
+  apply_floor_primitive,
+  floor_for_mode,
+)
