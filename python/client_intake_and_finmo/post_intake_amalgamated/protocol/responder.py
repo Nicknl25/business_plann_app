@@ -1,0 +1,424 @@
+"""Production responder for the amalgamated restructure session
+(spec §6.3 + §6.4).
+
+The responder is the callable the SessionDriver invokes to get a
+structured GPT decision for each cascade step. It round-trips through
+the Chat Completions API with the four response tools
+(confirm_proposal / veto_proposal / choose_option / other_proposal)
+exposed as the ONLY callable functions — GPT cannot reply with free-
+form prose per spec §6.4.
+
+Public surface:
+
+  make_amalgamated_responder(*, conn, draft_id, planning_run_id,
+                             mirror, model="gpt-5.1", seed=1729,
+                             temperature=0.0, _http=None) -> responder
+
+  The returned callable matches the SessionDriver._responder seam
+  signature:
+    (mode, tier, proposal_or_options, state, **_) -> ProposalResponse
+
+Failure modes (spec §6.4 + §8.5 disposition):
+
+  - OPENAI_API_KEY unset: synthetic veto (kind="veto",
+    reason="openai_api_key_unset_synthetic_veto"). The cascade
+    advances tier-by-tier and ultimately hits the §9.2 floor
+    primitive, which produces a deterministic in-bounds plan.
+  - HTTP error or non-2xx: synthetic veto with the error detail in
+    the reason field.
+  - GPT returns no tool call / malformed payload: synthetic veto with
+    code "responder_malformed".
+
+This module does NOT mutate state. It builds a request, sends it,
+parses the response into a ProposalResponse, and hands back. All
+side effects (audit rows, plan_state writes) are the session
+driver's responsibility.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Callable, Dict, List, Optional, Union
+
+from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (
+  FailureMode,
+)
+from client_intake_and_finmo.post_intake_amalgamated.mirror import Mirror
+from client_intake_and_finmo.post_intake_amalgamated.protocol.cascades import (
+  CascadeTier,
+)
+from client_intake_and_finmo.post_intake_amalgamated.protocol.reason_codes import (
+  StepType,
+)
+from client_intake_and_finmo.post_intake_amalgamated.protocol.response_tools import (
+  ProposalResponse,
+  choose_option,
+  confirm_proposal,
+  other_proposal,
+  veto_proposal,
+)
+from client_intake_and_finmo.post_intake_amalgamated.protocol.restructure_proposer import (
+  Proposal,
+)
+
+
+_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+_DEFAULT_TIMEOUT_SECONDS = 60.0
+_DEFAULT_MAX_ATTEMPTS = 3
+
+
+# ---------------------------------------------------------------------------
+# Tool specs — the four response tools as OpenAI function definitions.
+# ---------------------------------------------------------------------------
+
+_RESPONSE_TOOL_SPECS: List[Dict[str, Any]] = [
+  {
+    "type": "function",
+    "function": {
+      "name": "confirm_proposal",
+      "description": (
+        "Apply the Python-proposed change as-is. Use this when the "
+        "cohort target is the right call for this specific business."
+      ),
+      "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "veto_proposal",
+      "description": (
+        "Reject the Python-proposed change. Use only when this specific "
+        "business has a reason the cohort default does not apply. "
+        "Provide a one-sentence business reason; 'I would prefer not "
+        "to' is not a veto reason."
+      ),
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "One-sentence business reason for the veto.",
+          },
+        },
+        "required": ["reason"],
+      },
+    },
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "choose_option",
+      "description": (
+        "Pick one of the labeled options (A, B, or C) presented in the "
+        "Type B proposal. Use this when the proposer offers explicit "
+        "alternatives."
+      ),
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "option_id": {
+            "type": "string",
+            "enum": ["A", "B", "C"],
+            "description": "The option letter to apply.",
+          },
+        },
+        "required": ["option_id"],
+      },
+    },
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "other_proposal",
+      "description": (
+        "Propose an in-band free-form alternative when none of the "
+        "Type B options fit. Out-of-band proposals are treated as a "
+        "veto. Provide a one-sentence reason."
+      ),
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "section": {"type": "string"},
+          "field": {"type": "string"},
+          "value": {"type": "number"},
+          "reason": {"type": "string"},
+        },
+        "required": ["section", "field", "value", "reason"],
+      },
+    },
+  },
+]
+
+
+# ---------------------------------------------------------------------------
+# Prompt rendering — spec §6.3 templates.
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = (
+  "You are the executive role in a Python-managed restructure protocol "
+  "for a post-intake business-plan amalgamated session. Python is the "
+  "manager: it diagnoses failures, selects which lever is on the table, "
+  "and computes the proposed value. You provide JUDGMENT — confirm "
+  "Python's call, veto with a one-sentence business reason when this "
+  "specific business has a reason the cohort default does not apply, "
+  "or pick from explicit options when the proposer presents alternatives. "
+  "You CANNOT reply with free-form prose. The four response tools are "
+  "the only acceptable responses. The cohort target is the realism "
+  "anchor; 'I would prefer not to' is not a valid veto reason."
+)
+
+
+def _fmt(value: Any) -> str:
+  if value is None:
+    return "(unset)"
+  if isinstance(value, float):
+    return f"{value:.4f}"
+  return str(value)
+
+
+def render_mirror_for_proposal(
+  *,
+  mirror: Optional[Mirror],
+  proposal_or_options: Union[Proposal, List[Proposal]],
+  mode: FailureMode,
+  tier: CascadeTier,
+) -> str:
+  """Build the §6.3 user-message text from the proposal + mirror context.
+
+  Returns a single string with the template filled in. The session
+  driver passes the live mirror so this function can echo the
+  business_facts + plan_state + validation_state slices the executive
+  needs to make a judgment call.
+  """
+  lines: List[str] = []
+  if isinstance(proposal_or_options, list):
+    head = proposal_or_options[0] if proposal_or_options else None
+  else:
+    head = proposal_or_options
+  failing_check = getattr(head, "rationale_text", "") or "(see proposal rationale)"
+
+  if tier.step_type == StepType.TYPE_A:
+    lines.append("RESTRUCTURE PROPOSAL — please confirm or veto.")
+    lines.append("")
+    lines.append(f"Cascade: {mode.value} / Tier {tier.tier_id} — {tier.name}")
+    if head is not None:
+      lines.append(f"Failing context: {failing_check}")
+      lines.append("")
+      lines.append("Proposed change:")
+      lines.append(f"  Section: {head.section}")
+      lines.append(f"  Lever:   {head.field}")
+      lines.append(f"  Current: {_fmt(head.current_value)}")
+      lines.append(f"  Target:  {_fmt(head.proposed_value)}")
+      lines.append(f"  Rationale: {head.rationale_text or '(none)'}")
+      lines.append("")
+      lines.append("Constraint context (band):")
+      lines.append(
+        f"  min: {_fmt(head.band_min)}  target: {_fmt(head.band_target)}  "
+        f"max: {_fmt(head.band_max)}"
+      )
+      lines.append(f"  Current is {head.pinning_summary or '(unknown)'}.")
+    lines.append("")
+    lines.append("Respond with confirm_proposal or veto_proposal(reason=...).")
+  elif tier.step_type == StepType.TYPE_B:
+    lines.append("RESTRUCTURE CHOICE — please pick one option.")
+    lines.append("")
+    lines.append(f"Cascade: {mode.value} / Tier {tier.tier_id} — {tier.name}")
+    if head is not None:
+      lines.append(f"Failing context: {failing_check}")
+    lines.append("")
+    lines.append("Options:")
+    options = proposal_or_options if isinstance(proposal_or_options, list) else [proposal_or_options]
+    for opt in options:
+      if opt is None:
+        continue
+      lines.append(
+        f"  ({opt.option_id or '?'}) {opt.summary or '(no summary)'}"
+      )
+      lines.append(
+        f"      Section/field/target: {opt.section}/{opt.field}/{_fmt(opt.proposed_value)}"
+      )
+      lines.append(f"      Trade-off: {opt.tradeoff_text or '(none)'}")
+    lines.append("")
+    lines.append(
+      "Respond with choose_option(option_id=A|B|C) or "
+      "other_proposal(section, field, value, reason)."
+    )
+  else:
+    lines.append(
+      f"Unexpected step_type {tier.step_type!r} reached the responder; "
+      "this is a protocol bug. Vetoing."
+    )
+
+  if mirror is not None:
+    biz = getattr(mirror, "business_facts", {}) or {}
+    if biz:
+      lines.append("")
+      lines.append("Business facts:")
+      for k in ("naics_6", "naics_2", "business_stage", "consumer_type",
+                "business_name", "primary_lob"):
+        if k in biz:
+          lines.append(f"  {k}: {biz[k]}")
+
+  return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI request + response parsing.
+# ---------------------------------------------------------------------------
+
+def _build_openai_request(
+  *,
+  user_prompt: str,
+  model: str,
+  seed: int,
+  temperature: float,
+) -> Dict[str, Any]:
+  return {
+    "model": model,
+    "messages": [
+      {"role": "system", "content": _SYSTEM_PROMPT},
+      {"role": "user", "content": user_prompt},
+    ],
+    "tools": _RESPONSE_TOOL_SPECS,
+    "tool_choice": "required",
+    "temperature": float(temperature),
+    "seed": int(seed),
+  }
+
+
+def _parse_tool_call_response(payload: Dict[str, Any]) -> ProposalResponse:
+  """Turn the OpenAI Chat Completions response payload into a
+  ProposalResponse. Malformed shapes -> synthetic veto."""
+  if not isinstance(payload, dict):
+    return veto_proposal(reason="responder_malformed:non_dict_response")
+  choices = payload.get("choices") if isinstance(payload.get("choices"), list) else None
+  if not choices:
+    return veto_proposal(reason="responder_malformed:no_choices")
+  message = choices[0].get("message") if isinstance(choices[0], dict) else None
+  tool_calls = (
+    message.get("tool_calls")
+    if isinstance(message, dict) and isinstance(message.get("tool_calls"), list)
+    else None
+  )
+  if not tool_calls:
+    return veto_proposal(reason="responder_malformed:no_tool_calls")
+
+  call = tool_calls[0] if isinstance(tool_calls[0], dict) else {}
+  fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+  fn_name = str(fn.get("name") or "").strip()
+  args_raw = fn.get("arguments")
+  args: Dict[str, Any] = {}
+  if isinstance(args_raw, str) and args_raw:
+    try:
+      parsed = json.loads(args_raw)
+      if isinstance(parsed, dict):
+        args = parsed
+    except Exception:
+      return veto_proposal(reason="responder_malformed:arguments_not_json")
+  elif isinstance(args_raw, dict):
+    args = args_raw
+
+  if fn_name == "confirm_proposal":
+    return confirm_proposal()
+  if fn_name == "veto_proposal":
+    return veto_proposal(reason=args.get("reason"))
+  if fn_name == "choose_option":
+    return choose_option(option_id=args.get("option_id"))
+  if fn_name == "other_proposal":
+    return other_proposal(
+      section=args.get("section"),
+      field=args.get("field"),
+      value=args.get("value"),
+      reason=args.get("reason"),
+    )
+  return veto_proposal(reason=f"responder_malformed:unknown_tool:{fn_name}")
+
+
+# ---------------------------------------------------------------------------
+# Responder factory
+# ---------------------------------------------------------------------------
+
+def make_amalgamated_responder(
+  *,
+  conn=None,
+  draft_id: Optional[str] = None,
+  planning_run_id: Optional[str] = None,
+  mirror: Optional[Mirror] = None,
+  model: str = "gpt-5.1",
+  seed: int = 1729,
+  temperature: float = 0.0,
+  timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+  max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+  _http: Optional[Callable[..., Any]] = None,
+) -> Callable[..., ProposalResponse]:
+  """Return a responder callable bound to a session's parameters.
+
+  The returned callable matches the SessionDriver._responder seam:
+    responder(mode, tier, proposal_or_options, state, **_) -> ProposalResponse
+
+  ``_http`` is a test seam — when supplied, it replaces the live
+  ``post_openai_with_retries`` call. Production callers pass None.
+  """
+
+  api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+  http_fn = _http
+  if http_fn is None and api_key:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      post_openai_with_retries,
+    )
+    http_fn = post_openai_with_retries
+
+  def responder(
+    *,
+    mode: FailureMode,
+    tier: CascadeTier,
+    proposal_or_options: Union[Proposal, List[Proposal]],
+    state: Any = None,
+    **_kwargs: Any,
+  ) -> ProposalResponse:
+    if api_key is None:
+      return veto_proposal(reason="openai_api_key_unset_synthetic_veto")
+    user_prompt = render_mirror_for_proposal(
+      mirror=mirror,
+      proposal_or_options=proposal_or_options,
+      mode=mode, tier=tier,
+    )
+    payload = _build_openai_request(
+      user_prompt=user_prompt, model=model, seed=seed, temperature=temperature,
+    )
+    headers = {
+      "Authorization": f"Bearer {api_key}",
+      "Content-Type": "application/json",
+    }
+    try:
+      resp = http_fn(
+        url=_OPENAI_URL,
+        headers=headers,
+        payload=payload,
+        timeout_seconds=timeout_seconds,
+        retryable_status=(429, 500, 502, 503, 504),
+        max_attempts=max_attempts,
+      )
+    except Exception as exc:
+      return veto_proposal(reason=f"responder_http_error:{type(exc).__name__}")
+
+    status = int(getattr(resp, "status_code", 0) or 0)
+    if status != 200:
+      detail = str(getattr(resp, "text", ""))[:200] or f"http_status_{status}"
+      return veto_proposal(reason=f"responder_http_non_200:{status}:{detail}")
+
+    try:
+      body = resp.json()
+    except Exception:
+      return veto_proposal(reason="responder_malformed:non_json_body")
+    return _parse_tool_call_response(body)
+
+  return responder
+
+
+__all__ = [
+  "make_amalgamated_responder",
+  "render_mirror_for_proposal",
+]
