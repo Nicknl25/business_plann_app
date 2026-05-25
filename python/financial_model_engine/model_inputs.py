@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 
 QUARTER_COUNT = 20
@@ -9,6 +10,236 @@ INPUT_PERIOD_COUNT = QUARTER_COUNT + 1
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
 DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
 LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
+
+
+# ---------------------------------------------------------------------------
+# Adapter helpers — bridge to FinmoModelInputContract (P3.40 Contract 1).
+#
+# The legacy ``FinancialModelInputs`` dataclass is on a deprecation path.
+# Production now produces the v3 ``model_input_json`` shape via
+# ``build_python_model_input_json`` at
+# ``python/client_intake_and_finmo/finmo_bridge.py:2927``; the
+# dataclass-driven ``to_model_input_json`` method below is the dead v1
+# path (R1 in the contract spec). The ``to_contract`` and ``from_contract``
+# methods added by this file bridge legacy code (round-trip helpers,
+# test fixtures, replay tooling) to the v3 contract without forcing a
+# full migration of the dataclass internals.
+# ---------------------------------------------------------------------------
+
+
+def _adapter_column_letter(column_index: int) -> str:
+  """A1-style column letter for ``column_index`` (1-based). Mirrors
+  ``_column_letter`` at finmo_bridge.py:48."""
+  index = int(column_index or 0)
+  if index <= 0:
+    return ""
+  letters = ""
+  while index > 0:
+    index, remainder = divmod(index - 1, 26)
+    letters = chr(ord("A") + remainder) + letters
+  return letters
+
+
+def _adapter_add_months(base: datetime, months: int) -> datetime:
+  """Add ``months`` months to ``base``, clamping the day. Mirrors
+  ``_add_months`` at finmo_bridge.py:2635."""
+  month_index = (base.month - 1) + int(months or 0)
+  year = base.year + (month_index // 12)
+  month = (month_index % 12) + 1
+  day = min(base.day, [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+  return base.replace(year=year, month=month, day=day)
+
+
+def _adapter_periods_21(start_date_iso: str) -> List[Dict[str, Any]]:
+  """Generate 21 Period dicts: 1 stub at index 0 + 20 live quarters at
+  indices 1..20. Mirrors ``_python_model_input_periods`` at
+  finmo_bridge.py:2659 with ``period_count=20``.
+  """
+  iso = _text(start_date_iso)
+  try:
+    start_dt = datetime.fromisoformat(iso) if iso else datetime.utcnow()
+  except ValueError:
+    start_dt = datetime.utcnow()
+  normalized_start = start_dt.date().isoformat()
+  slots: List[Dict[str, Any]] = [
+    {
+      "slot_index": 0,
+      "column_index": 7,
+      "column_letter": _adapter_column_letter(7),
+      "year": float(start_dt.year),
+      "quarter": 0.0,
+      "date": normalized_start,
+      "year_fraction": 0.0,
+      "is_stub": True,
+    }
+  ]
+  for live_index in range(QUARTER_COUNT):
+    period_date = _adapter_add_months(start_dt, live_index * 3)
+    column_index = 8 + live_index
+    slots.append({
+      "slot_index": live_index + 1,
+      "column_index": column_index,
+      "column_letter": _adapter_column_letter(column_index),
+      "year": float(period_date.year),
+      "quarter": float(live_index + 1),
+      "date": period_date.date().isoformat(),
+      "year_fraction": 1.0,
+      "is_stub": False,
+    })
+  return slots
+
+
+def _adapter_pad_values_to_21(values: List[Any]) -> List[float]:
+  """Coerce a values list to exactly INPUT_PERIOD_COUNT (21) floats:
+  if input is 20-long, prepend a 0.0 stub; if 21+, truncate; if
+  shorter, right-pad with 0.0."""
+  normalized = [_safe_float(item) for item in (values or [])]
+  if len(normalized) == QUARTER_COUNT:
+    return [0.0] + normalized
+  if len(normalized) >= INPUT_PERIOD_COUNT:
+    return normalized[:INPUT_PERIOD_COUNT]
+  return normalized + [0.0 for _ in range(INPUT_PERIOD_COUNT - len(normalized))]
+
+
+#: Defaults for ``(value_kind, input_semantics)`` per (section, label).
+#: Used by ``to_contract`` when the dataclass row has empty strings for
+#: these fields (e.g. when constructed via ``FinancialModelInputs.empty``
+#: rather than parsed from a real production payload). Production-source
+#: table per finmo_bridge.py:_simple_input_semantics (282-320).
+_ADAPTER_DEFAULT_SEMANTICS: Dict[Tuple[str, str], Tuple[str, str]] = {
+  # expenses
+  ("expenses", "Cost of Goods Sold"):       ("ratio", "percent_of_revenue"),
+  ("expenses", "Marketing"):                ("ratio", "percent_of_revenue"),
+  ("expenses", "Research & Development"):   ("ratio", "percent_of_revenue"),
+  ("expenses", "General & Administrative"): ("ratio", "percent_of_revenue"),
+  ("expenses", "Interest Rate"):            ("ratio", "percent_of_revenue"),
+  ("expenses", "Taxes"):                    ("ratio", "percent_of_revenue"),
+  ("expenses", "Depreciation"):             ("ratio", "percent_of_prior_ppe"),
+  ("expenses", "Lease"):                    ("direct_number", "quarter_currency"),
+  ("expenses", "Payroll"):                  ("direct_number", "quarter_currency"),
+  # balance_sheet
+  ("balance_sheet", "Accounts Receivable Days"):    ("day_count", "days"),
+  ("balance_sheet", "Inventory Days"):              ("day_count", "days"),
+  ("balance_sheet", "Accounts Payable Days"):       ("day_count", "days"),
+  ("balance_sheet", "Prepaid Expenses (% of Revenue)"): ("ratio", "percent_of_revenue"),
+  ("balance_sheet", "Deferred Revenue (% of Revenue)"): ("ratio", "percent_of_revenue"),
+  ("balance_sheet", "Short Term Debt (% of LTD)"):  ("ratio", "percent_of_long_term_debt"),
+  ("balance_sheet", "Owner's Capital"):             ("direct_number", "quarter_currency"),
+  ("balance_sheet", "Other Equity"):                ("direct_number", "quarter_currency"),
+  # schedules
+  ("schedules", DEBT_ISSUANCE_LABEL):             ("direct_number", "debt_new_borrowing"),
+  ("schedules", DEBT_REPAYMENT_LABEL):            ("direct_number", "debt_scheduled_repayment"),
+  ("schedules", "Capital Expenditures"):          ("direct_number", "capital_expenditures_cash"),
+  ("schedules", "Less: Principal Repayments"):    ("direct_number", "capital_lease_principal_repayments"),
+  ("schedules", "Plus: Net Additions"):           ("direct_number", "capital_lease_additions_noncash"),
+}
+
+
+def _adapter_default_semantics(section: str, label: str) -> Tuple[str, str]:
+  """Look up ``(value_kind, input_semantics)`` for an unrecognized row
+  shape; falls back to ``("direct_number", "direct_input")`` which is
+  what ``_simple_input_semantics`` returns for unknown labels."""
+  return _ADAPTER_DEFAULT_SEMANTICS.get(
+    (_text(section), _text(label)), ("direct_number", "direct_input")
+  )
+
+
+def _adapter_default_lever_id(section: str, label: str) -> str:
+  """``{section}::{label}`` — mirrors ``_simple_lever_id`` at
+  finmo_bridge.py:185."""
+  return f"{_text(section)}::{_text(label)}"
+
+
+def _adapter_simple_row_to_contract_dict(
+  row: "ControllerWriteRow",
+  *,
+  section: str,
+  expected_named_range: str,
+) -> Dict[str, Any]:
+  """Convert a ControllerWriteRow to a v3-contract-shaped dict.
+
+  Fills in missing ``value_kind`` / ``input_semantics`` / ``lever_id``
+  from the defaults table. Pads values to 21 entries.
+  """
+  label = _text(row.label)
+  vk = _text(row.value_kind)
+  sem = _text(row.input_semantics)
+  if not vk or not sem:
+    default_vk, default_sem = _adapter_default_semantics(section, label)
+    vk = vk or default_vk
+    sem = sem or default_sem
+  lever_id = _text(row.lever_id) or _adapter_default_lever_id(section, label)
+  named_range = _text(row.named_range) or expected_named_range
+  return {
+    "named_range": named_range,
+    "controller_write": True,
+    "lever_id": lever_id,
+    "label": label,
+    "value_kind": vk,
+    "input_semantics": sem,
+    "values": _adapter_pad_values_to_21(list(row.values or [])),
+  }
+
+
+def _adapter_revenue_rows_from_dataclass(
+  quarters: List["FinancialModelQuarter"],
+) -> List[Dict[str, Any]]:
+  """Build v3-contract revenue rows (3 per slot) from the dataclass's
+  per-quarter revenue_groups. Slot keys default to
+  ``lob_{N}_product_{M}`` (1-indexed) when the source row has no
+  ``revenue_slot_key`` set, matching ``_revenue_slot_key`` at
+  finmo_bridge.py:427."""
+  # Collect ordered (lob, product) slots and per-quarter driver values.
+  slot_order: List[Tuple[str, str, str]] = []  # (lob, product, revenue_slot_key)
+  driver_values: Dict[Tuple[str, str, str, str], List[float]] = {}
+  for q in quarters:
+    qi = q.quarter_index  # 1-based
+    for group in q.revenue_groups:
+      lob = _text(group.lob_name) or "LOB 1"
+      for product in group.products:
+        prod = _text(product.product_name) or "Product 1"
+        slot_key = _text(product.revenue_slot_key)
+        identity = (lob, prod, slot_key)
+        if identity not in slot_order:
+          slot_order.append(identity)
+        for driver_name, value in (
+          ("Capacity", product.drivers.capacity_units),
+          ("Unit Price", product.drivers.unit_price),
+          ("Utilization", product.drivers.utilization),
+        ):
+          key = (lob, prod, slot_key, driver_name)
+          arr = driver_values.setdefault(key, [0.0] * QUARTER_COUNT)
+          arr[qi - 1] = _safe_float(value)
+
+  rows: List[Dict[str, Any]] = []
+  semantics_for_driver = {
+    "Capacity":    ("direct_number", "quarter_capacity_units"),
+    "Unit Price":  ("direct_number", "currency_per_unit"),
+    "Utilization": ("ratio", "utilization_ratio"),
+  }
+  for ordinal, (lob, prod, slot_key) in enumerate(slot_order, start=1):
+    if not slot_key:
+      slot_key = f"lob_{ordinal}_product_1"
+    for driver_name in ("Capacity", "Unit Price", "Utilization"):
+      vk, sem = semantics_for_driver[driver_name]
+      live_values = driver_values.get((lob, prod, slot_key, driver_name), [0.0] * QUARTER_COUNT)
+      if not driver_values:
+        # No products in any quarter — bail out early; the caller will
+        # not have appended any slots.
+        live_values = [0.0] * QUARTER_COUNT
+      rows.append({
+        "named_range": "model_input_revenue",
+        "controller_write": True,
+        "lever_id": f"revenue::{lob}::{prod}::{driver_name}",
+        "lob": lob,
+        "product": prod,
+        "driver": driver_name,
+        "revenue_slot_key": slot_key,
+        "value_kind": vk,
+        "input_semantics": sem,
+        "values": _adapter_pad_values_to_21(live_values),
+      })
+  return rows
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -618,6 +849,101 @@ class FinancialModelInputs:
         },
       },
     }
+
+  def to_contract(self) -> "FinmoModelInputContract":
+    """P3.40 Contract 1 adapter (Commit 2 of 6). Build a
+    ``FinmoModelInputContract`` from this dataclass's data.
+
+    This bridges legacy code that constructs / round-trips through
+    ``FinancialModelInputs`` to the new v3 contract surface. It is
+    NOT the production producer — production code uses
+    ``build_python_model_input_json`` at
+    ``python/client_intake_and_finmo/finmo_bridge.py:2927`` directly.
+    The dataclass class is on a deprecation path; the adapter is
+    purely a transition helper for tests and replay tooling.
+
+    Top-level v3 fields the dataclass does not model
+    (``lever_catalog``, ``controller_write_levers``,
+    ``derived_driver_policies``, ``derived_driver_runtime``,
+    per-row ``seed_provenance_json`` and other opaque blobs) are
+    emitted as empty / absent. The contract is satisfied because
+    those fields are typed as opaque ``Dict[str, Any]`` /
+    ``Optional`` in Contract 1; once they get typed sub-contracts
+    in a future tightening, the adapter will need extending.
+    """
+    from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract import (  # type: ignore
+      FinmoModelInputContract,
+    )
+    revenue_rows = _adapter_revenue_rows_from_dataclass(self.quarters)
+    expense_rows = [
+      _adapter_simple_row_to_contract_dict(
+        row, section="expenses", expected_named_range="model_input_expenses",
+      )
+      for row in self.expense_rows.values()
+    ]
+    balance_sheet_rows = [
+      _adapter_simple_row_to_contract_dict(
+        row, section="balance_sheet",
+        expected_named_range="model_input_balancehseet",  # sic
+      )
+      for row in self.balance_sheet_rows.values()
+    ]
+    schedule_rows = [
+      _adapter_simple_row_to_contract_dict(
+        row, section="schedules", expected_named_range="model_input_schedules",
+      )
+      for row in self.schedule_rows.values()
+    ]
+    payload: Dict[str, Any] = {
+      "contract_version": "finmo_model_input_v3",
+      "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+      "finmo_path": "",
+      "business_name": _text(self.business_name) or "Unnamed",
+      "start_date": _text(self.start_date) or datetime.utcnow().date().isoformat(),
+      "periods": _adapter_periods_21(self.start_date),
+      "lever_catalog": {},
+      "controller_write_levers": [],
+      "sections": {
+        "revenue": revenue_rows,
+        "expenses": expense_rows,
+        "balance_sheet": balance_sheet_rows,
+        "schedules": {
+          "debt_opening_balance_seed":            round(self.debt_opening_balance_seed, 6),
+          "lease_opening_balance_seed":           round(self.lease_opening_balance_seed, 6),
+          "ppe_opening_balance_seed":             round(self.ppe_opening_balance_seed, 6),
+          "forecast_ppe_opening_balance_seed":    round(self.forecast_ppe_opening_balance_seed, 6),
+          # Adapter sign convention: the dataclass stores accumulated
+          # depreciation as a raw float (often 0.0); production normalizes
+          # to ``-abs(value)`` at finmo_bridge.py:3623. Normalize here so
+          # the contract's ``le=0`` constraint is satisfied.
+          "accumulated_depreciation_opening_seed": -abs(round(self.accumulated_depreciation_opening_seed, 6)),
+          "cash_opening_balance_seed":            round(self.cash_opening_balance_seed, 6),
+          "accounts_receivable_opening_balance_seed": round(self.accounts_receivable_opening_balance_seed, 6),
+          "inventory_opening_balance_seed":       round(self.inventory_opening_balance_seed, 6),
+          "accounts_payable_opening_balance_seed": round(self.accounts_payable_opening_balance_seed, 6),
+          "short_term_debt_opening_balance_seed": round(self.short_term_debt_opening_balance_seed, 6),
+          "client_reported_ppe_stub": 0.0,
+          "rows": schedule_rows,
+        },
+      },
+    }
+    return FinmoModelInputContract.model_validate(payload)
+
+  @classmethod
+  def from_contract(cls, contract: "FinmoModelInputContract") -> "FinancialModelInputs":
+    """P3.40 Contract 1 adapter (Commit 2 of 6). Build a
+    ``FinancialModelInputs`` from a v3 contract.
+
+    Drops the top-level wrappers (``lever_catalog``,
+    ``controller_write_levers``, ``derived_driver_policies``,
+    ``derived_driver_runtime``) that don't map to dataclass fields,
+    and the periods array (the dataclass has no per-period storage
+    beyond ``quarters[].quarter_index``). Reuses the existing
+    ``from_model_input_json`` parser so the section-row loading
+    logic stays single-sourced.
+    """
+    payload = contract.model_dump(mode="json")
+    return cls.from_model_input_json(payload)
 
   def to_dict(self) -> Dict[str, Any]:
     return {
