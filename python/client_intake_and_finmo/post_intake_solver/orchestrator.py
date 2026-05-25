@@ -1614,7 +1614,6 @@ def run_target_seeking_orchestrated_system_run(
         apply_lever_callable=apply_lever_callable,
         run_target_seeking_pass_callable=_run_target_seeking_pass,
         hard_fail_violations_callable=_hard_fail_violations_from_assertion,
-        inner_runner_callable=_inner_runner,
         inner_runner_kwargs=inner_runner_kwargs,
         original_planning_mode=planning_mode,
         original_planning_mode_reason=planning_mode_reason or "",

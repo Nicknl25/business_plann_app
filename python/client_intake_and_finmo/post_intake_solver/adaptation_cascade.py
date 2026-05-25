@@ -369,7 +369,6 @@ def run_adaptation_cascade(
   apply_lever_callable: Callable[[Dict[str, Any], str, float], Dict[str, Any]],
   run_target_seeking_pass_callable: Callable[..., Dict[str, Any]],
   hard_fail_violations_callable: Callable[..., List[Dict[str, Any]]],
-  inner_runner_callable: Callable[..., Dict[str, Any]],
   inner_runner_kwargs: Dict[str, Any],
   original_planning_mode: str,
   original_planning_mode_reason: str = "",
@@ -426,16 +425,22 @@ def run_adaptation_cascade(
         si[FINMO_OUTPUT_TARGET_KEY] = copy.deepcopy(targets)
       except Exception:
         pass
-    next_kwargs = dict(inner_runner_kwargs)
-    next_kwargs.update(overrides)
-    next_kwargs["applied_model_input_json"] = next_input
-    new_inner = inner_runner_callable(**next_kwargs)
-    new_post_model = (
-      new_inner.get("model_input_json") if isinstance(new_inner, dict) else None
-    ) or next_input
-    new_final_fin = (
-      new_inner.get("finmo_json") if isinstance(new_inner, dict) else None
-    ) or final_finmo_json
+    # Phase 8 bypass (commit b7f859c): the legacy convergence runner was
+    # retired. The cascade no longer invokes an inner planning runner;
+    # the adapted (envelope, targets, overrides) flow directly into the
+    # repair pass below. `overrides` is preserved in the calling tier's
+    # CascadeAttempt.modifications for diagnostic visibility — its effect
+    # under the old architecture (re-running the convergence runner with
+    # the override values) no longer applies.
+    new_inner = {
+      "status": "phase_8_inner_runner_bypassed",
+      "model_input_json": copy.deepcopy(next_input),
+      "finmo_json": copy.deepcopy(final_finmo_json or {}),
+      "applied_overrides": dict(overrides),
+      "abort_reason": "phase_8_legacy_convergence_runner_skipped",
+    }
+    new_post_model = next_input
+    new_final_fin = final_finmo_json
     repair = run_target_seeking_pass_callable(
       pass_label="post_flight_repair_adapted",
       model_input_json=new_post_model,
@@ -872,10 +877,18 @@ def run_adaptation_cascade(
   # If restoration applied changes, retry post-flight with the adjusted state.
   if restoration_diag.get("applied_adjustments"):
     try:
-      retry_inner = inner_runner_callable(**dict(inner_runner_kwargs))
-      retry_post_model = (
-        retry_inner.get("model_input_json") if isinstance(retry_inner, dict) else None
-      ) or post_inner_model
+      # Phase 8 bypass (commit b7f859c): no inner runner to retry through.
+      # The restoration adjustments live in `inner_runner_kwargs` (ops_json,
+      # financials_json, financials_year1_json, payroll_headcount) and are
+      # already in scope for the repair pass via the build_finmo / apply_lever
+      # closures the orchestrator captured at construction time.
+      retry_inner = {
+        "status": "phase_8_inner_runner_bypassed",
+        "model_input_json": copy.deepcopy(post_inner_model),
+        "finmo_json": copy.deepcopy(final_finmo_json or {}),
+        "abort_reason": "phase_8_legacy_convergence_runner_skipped",
+      }
+      retry_post_model = post_inner_model
       retry_repair = run_target_seeking_pass_callable(
         pass_label="post_flight_repair_after_restoration",
         model_input_json=retry_post_model,
