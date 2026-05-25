@@ -102,6 +102,24 @@ class Mirror:
     VERBATIM, not a summary. The step-5 session driver reads this directly."""
     self.validation_state = evaluate_plan_result.to_dict()
 
+  def set_plan_state_section(self, section: str, payload: Any) -> None:
+    """Replace ``plan_state[section]`` with ``payload``.
+
+    Called by SessionDriver after a successful revise_* commit so the
+    next cascade tier reads the post-commit payload instead of the
+    session-entry snapshot. Aliases are kept in sync — balance_sheet
+    and capex_rd_balance_seed mirror each other (the read-side closure
+    at session_factory._build_current_payload_for treats them as
+    aliases), so a write to one also writes the other.
+    """
+    if not isinstance(self.plan_state, dict):
+      self.plan_state = {}
+    stored = copy.deepcopy(payload) if payload is not None else {}
+    self.plan_state[section] = stored
+    if section in ("balance_sheet", "capex_rd_balance_seed", "capex_rd"):
+      self.plan_state["balance_sheet"] = stored
+      self.plan_state["capex_rd_balance_seed"] = stored
+
   def to_dict(self) -> Dict[str, Any]:
     return {
       "invariants": dict(self.invariants),

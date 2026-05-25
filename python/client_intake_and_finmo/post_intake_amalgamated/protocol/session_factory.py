@@ -334,6 +334,10 @@ def make_session_driver(
     model_input_json=model_input_json, finmo_json=finmo_json,
   )
   current_payload_for = _build_current_payload_for(mirror)
+  # P3.40 bug 2 fix: bind the mirror's plan_state setter so SessionDriver
+  # can refresh the in-memory snapshot after each revise_* commit.
+  def apply_to_plan_state_fn(section: str, payload: Any) -> None:
+    mirror.set_plan_state_section(section, payload)
   primitive_kwargs_for_mode = _build_primitive_kwargs_for_mode(
     mirror=mirror, model_input_json=model_input_json,
     finmo_json=finmo_json, stage_ramp_contract=stage_ramp_contract,
@@ -360,6 +364,7 @@ def make_session_driver(
     revise_fn_for_section=revise_fn_for_section,
     log_fn=lambda **kw: log_restructure(conn, **kw),
     current_payload_for=current_payload_for,
+    apply_to_plan_state_fn=apply_to_plan_state_fn,
     primitive_kwargs_for_mode=primitive_kwargs_for_mode,
     emit_diagnostic_fn=_emit_diagnostic_fn,
   )

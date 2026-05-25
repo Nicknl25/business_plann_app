@@ -87,6 +87,7 @@ class EventCode(str, Enum):
   CASCADE_PROPOSAL_CHOSEN            = "cascade_proposal_chosen"
   CASCADE_PROPOSAL_OTHER             = "cascade_proposal_other"
   CASCADE_PROPOSAL_OUT_OF_BAND       = "cascade_proposal_out_of_band"
+  CASCADE_PROPOSAL_APPLIED_TO_MIRROR = "cascade_proposal_applied_to_mirror"
   CASCADE_RESOLVED                   = "cascade_resolved"
   CASCADE_EXHAUSTED                  = "cascade_exhausted"
   CASCADE_OSCILLATION_SKIPPED        = "cascade_oscillation_skipped"
@@ -199,6 +200,7 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
     EventCode.CASCADE_PROPOSAL_CHOSEN,
     EventCode.CASCADE_PROPOSAL_OTHER,
     EventCode.CASCADE_PROPOSAL_OUT_OF_BAND,
+    EventCode.CASCADE_PROPOSAL_APPLIED_TO_MIRROR,
     EventCode.CASCADE_RESOLVED,
     EventCode.CASCADE_EXHAUSTED,
     EventCode.CASCADE_OSCILLATION_SKIPPED,

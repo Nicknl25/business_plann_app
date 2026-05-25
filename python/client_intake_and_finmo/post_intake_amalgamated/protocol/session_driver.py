@@ -160,6 +160,7 @@ class SessionDriver:
     revise_fn_for_section: Callable[..., Optional[Callable[..., Dict[str, Any]]]],
     log_fn: Optional[Callable[..., Any]] = None,
     current_payload_for: Optional[Callable[[str], Any]] = None,
+    apply_to_plan_state_fn: Optional[Callable[[str, Any], None]] = None,
     primitive_kwargs_for_mode: Optional[Callable[[FailureMode], Dict[str, Any]]] = None,
     emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
     budget: int = DEFAULT_TOOL_CALL_BUDGET,
@@ -174,6 +175,7 @@ class SessionDriver:
     self._revise_fn_for_section = revise_fn_for_section
     self._log_fn = log_fn or (lambda **kw: None)
     self._current_payload_for = current_payload_for or (lambda s: None)
+    self._apply_to_plan_state_fn = apply_to_plan_state_fn or (lambda s, p: None)
     self._primitive_kwargs_for_mode = primitive_kwargs_for_mode or (lambda m: {})
     # Step 9b — diagnostic emitter for state transitions. The factory
     # binds this to post_intake_run_diagnostics.emit_diagnostic with
@@ -656,6 +658,39 @@ class SessionDriver:
         accepted = True
         applied_value = proposal.proposed_value
         self._applied_steps += 1
+        # P3.40 bug 2 fix: refresh mirror.plan_state with the post-commit
+        # payload before the next read. Without this, _current_payload_for
+        # and evaluate_plan keep returning the session-entry snapshot for
+        # this section and downstream cascade tiers patch against stale
+        # state.
+        post_payload = _extract_post_commit_payload(proposal.section, envelope)
+        if post_payload is not None:
+          try:
+            self._apply_to_plan_state_fn(proposal.section, post_payload)
+            self._emit(
+              phase=PhaseCode.CASCADE_WALK,
+              event_code=EventCode.CASCADE_PROPOSAL_APPLIED_TO_MIRROR,
+              diagnostic_data={
+                "section": proposal.section,
+                "lever_id": proposal.field,
+                "envelope_payload_key": _post_commit_payload_key(proposal.section),
+              },
+            )
+          except Exception as _refresh_exc:
+            # Observability/mirror refresh failure must not interrupt
+            # the cascade. Log the failure into the audit emit so it
+            # surfaces in the run diagnostics.
+            self._emit(
+              phase=PhaseCode.CASCADE_WALK,
+              event_code=EventCode.CASCADE_PROPOSAL_APPLIED_TO_MIRROR,
+              status=Status.FAILED,
+              diagnostic_data={
+                "section": proposal.section,
+                "lever_id": proposal.field,
+                "exception_type": type(_refresh_exc).__name__,
+                "detail": str(_refresh_exc)[:300],
+              },
+            )
     # B3 — capture post-state after the apply by re-evaluating, so the
     # audit row records the change in worst_check/worst_distance. Skip
     # the re-evaluation when nothing was applied (post == pre). The
@@ -1105,6 +1140,44 @@ def _patch_from_proposal(proposal: Proposal) -> Dict[str, Any]:
       and proposal.field in _WC_SCALAR_BALANCE_SHEET_LEVERS):
     return {"working_capital_days": {proposal.field: proposal.proposed_value}}
   return {proposal.field: proposal.proposed_value}
+
+
+# Post-commit payload key per section. See P3.40 inventory commit 8ba4154
+# §Boundary 4 for the per-tool envelope shapes:
+#   - revise_drivers       -> envelope["anchors"]
+#   - revise_stage_ramp    -> envelope["contract"]
+#   - revise_payroll       -> envelope["contract"]  (also has "payload", but
+#                              "contract" is the round-trippable shape that
+#                              matches set_payroll_schedule's input)
+#   - revise_capex_rd_balance_seed -> envelope["payload"]
+_POST_COMMIT_PAYLOAD_KEY_BY_SECTION: Dict[str, str] = {
+  "drivers":               "anchors",
+  "stage_ramp":            "contract",
+  "payroll":               "contract",
+  "balance_sheet":         "payload",
+  "capex_rd":              "payload",
+  "capex_rd_balance_seed": "payload",
+}
+
+
+def _post_commit_payload_key(section: str) -> str:
+  """Which envelope key carries the post-commit payload for ``section``."""
+  return _POST_COMMIT_PAYLOAD_KEY_BY_SECTION.get(section, "payload")
+
+
+def _extract_post_commit_payload(section: str, envelope: Dict[str, Any]) -> Any:
+  """Pull the post-commit payload out of a revise_* envelope.
+
+  Returns the new committed payload (anchors / contract / payload dict)
+  on success, or None if the envelope shape is unrecognized. None is
+  treated by the caller as "nothing to refresh" — the existing mirror
+  snapshot remains, preserving the pre-fix behavior on shape drift.
+  """
+  if not isinstance(envelope, dict):
+    return None
+  key = _post_commit_payload_key(section)
+  value = envelope.get(key)
+  return value if value is not None else None
 
 
 def finalize_authoring(result: EvaluatePlanResult) -> Dict[str, Any]:
