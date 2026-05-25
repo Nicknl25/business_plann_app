@@ -1,9 +1,72 @@
 # P3.40 Contract 3 — SolverInputContract — Pre-spec trace
 
 **Boundary:** 5 (MODEL_INPUT → SOLVER, target_seeking).
-**Status:** pre-spec trace. Holds for review before the spec doc is drafted.
-**Companion to:** [p3_40_contract_3_solver_input_spec.md](./p3_40_contract_3_solver_input_spec.md) (not yet written).
+**Status:** APPROVED (commit c15df40). Amended with TC1-TC3 resolutions before spec doc.
+**Companion to:** [p3_40_contract_3_solver_input_spec.md](./p3_40_contract_3_solver_input_spec.md) (draft pending).
 **v2 inventory baseline:** [p3_40_pipeline_data_flow_inventory_v2.md §Boundary 5](./p3_40_pipeline_data_flow_inventory_v2.md#boundary-5-model_input--solver-target_seeking) (lines 452-526).
+
+---
+
+## Trace-completion amendments (post-approval)
+
+Three findings resolved before the spec drafts. Folded into the
+relevant sections below.
+
+### TC1. `planning_mode` enumeration — RESOLVED
+
+The mode-unknown fail-fast at orchestrator.py:1100-1115 enumerates
+the supported set:
+
+```python
+_VALID_PLANNING_MODES = {"growth", "stability", "runway_extension", "survival"}
+```
+
+Four members: `growth`, `stability`, `runway_extension`, **`survival`**.
+The spec's `planning_mode: Literal["growth", "stability", "runway_extension", "survival"]` will use the full set verbatim. (Updates T5.2 below.)
+
+### TC2. `applied_finmo_json` composition with Contract 2 — RESOLVED
+
+`applied_finmo_json` is the output of `build_python_finmo_json` —
+the same producer Contract 2's `FinmoOutputContract` types
+([runner.py:815](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L815),
+[runner.py:855](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L855)).
+
+**Spec composes Contract 2's `FinmoOutputContract` directly** for
+`applied_finmo_json`. No flag — same disposition as F6 for
+`applied_model_input_json` composing Contract 1's
+`FinmoModelInputContract`. (Updates T3 below.)
+
+### TC3. Tier-C shape typing — RESOLVED
+
+The two Tier-C params (`planning_context_summary_json`,
+`grid_application_summary`) are read at three orchestrator persist
+sites (3609, 3621, 3631). Tracing those readers:
+
+- `_build_minimal_convergence_context` at
+  [orchestrator.py:413-453](../../python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L413)
+  takes `planning_context_summary_json` and does
+  `del planning_context_summary_json` on line 444. The parameter is
+  explicitly kept "for caller-compat" per the docstring (lines
+  439-442); it is NOT structure-read.
+- `_persist_unified_convergence_state` at
+  [post_intake_state/runner.py:757-820](../../python/client_intake_and_finmo/post_intake_state/runner.py#L757)
+  does `copy.deepcopy(planning_context_summary_json or {})` and
+  `copy.deepcopy(grid_application_summary or {})` and forwards
+  into `_persist_post_intake_stage_state`, which again
+  `copy.deepcopy`s and chains into `persist_post_intake_execution_state`.
+  All hops do pure deep-copy round-trip; **no `.get(...)` chain or
+  structured read** on either payload at any persist layer.
+
+Both payloads land in JSON columns (`planning_runs.planning_context_summary_json`,
+`planning_runs.grid_application_summary`) for diagnostic queries.
+The solver pipeline does not structure-read them.
+
+**Spec types both as `Dict[str, Any]` opaque** (no typed sub-contract).
+Recommend NOT adding a sub-contract here — would add scope without
+producing a guarantee anyone consumes. (Updates T2.1 Tier-C
+classification + Flag 2 disposition for these specific fields.)
+
+---
 
 This document captures the trace-before-spec work for Contract 3.
 Same discipline as Contracts 1 and 2: enumerate the producer +
