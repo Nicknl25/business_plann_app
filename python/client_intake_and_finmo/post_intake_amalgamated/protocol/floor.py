@@ -420,7 +420,22 @@ def apply_floor_primitive(mode: FailureMode, **kwargs: Any) -> FloorResult:
       mode=mode, status="no_primitive",
       detail=f"no §9.2 floor primitive registered for {mode.value}",
     )
-  steps = prim(**kwargs)
+  # Step 9d item 14 — FAIL_FLOOR_PRIMITIVE_FAILED. Wrap the primitive
+  # call so any exception inside the §9.2 deterministic computation
+  # becomes a structured fail-fast rather than a stack trace bubbling
+  # up to the orchestrator. The floor primitives are terminal — no
+  # recovery — so a raise here is the right behaviour.
+  try:
+    steps = prim(**kwargs)
+  except Exception as _exc:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FAIL_FAST_PREFIX,
+    )
+    raise RuntimeError(
+      f"{FAIL_FAST_PREFIX}fail_floor_primitive_failed: "
+      f"§9.2 {mode.value} primitive raised "
+      f"{type(_exc).__name__}: {str(_exc)[:300]}"
+    ) from _exc
   reason = (
     steps[0].reason_code if steps else None
   )

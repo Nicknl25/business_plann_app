@@ -1092,6 +1092,22 @@ def run_target_seeking_orchestrated_system_run(
                      "planning_mode_reason": planning_mode_reason},
   )
 
+  # Step 9d item 18 — FAIL_TARGET_SEEKING_MODE_UNKNOWN. The four
+  # supported planning modes are growth / stability / runway_extension
+  # / survival; anything else is a contract violation.
+  _VALID_PLANNING_MODES = {"growth", "stability", "runway_extension", "survival"}
+  if str(planning_mode or "").strip() not in _VALID_PLANNING_MODES:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _rff(
+      conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+      phase=_PC.TARGET_SEEKING,
+      code=_FFC.FAIL_TARGET_SEEKING_MODE_UNKNOWN,
+      detail=f"planning_mode={planning_mode!r} not in {sorted(_VALID_PLANNING_MODES)}",
+      where="orchestrator.run_target_seeking_orchestrated_system_run",
+    )
+
   # ---------- Phase 9 Phase H: reset GPT call budget for this run --------
   # Doctrine Q4: maximum 4 GPT calls per planning run, hard runtime cap.
   # Reset the counter at the top of every orchestrator invocation so
@@ -1473,6 +1489,25 @@ def run_target_seeking_orchestrated_system_run(
     envelope_payload=envelope_payload_post,
     targets_payload=targets_payload_post,
   )
+  # Step 9d item 19 — FAIL_TARGET_SEEKING_REASON_UNKNOWN. Every hard_fail
+  # must be a dict with a non-empty string "code"; otherwise the
+  # downstream cascade dispatch cannot classify it.
+  _hf_malformed = [
+    i for i, hf in enumerate(final_hard_fails or [])
+    if not isinstance(hf, dict) or not isinstance(hf.get("code"), str)
+    or not hf.get("code")
+  ]
+  if _hf_malformed:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _rff(
+      conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+      phase=_PC.TARGET_SEEKING,
+      code=_FFC.FAIL_TARGET_SEEKING_REASON_UNKNOWN,
+      detail=f"{len(_hf_malformed)} hard_fails missing/empty 'code' (first idx={_hf_malformed[0]})",
+      where="orchestrator.run_target_seeking_orchestrated_system_run (post-cascade)",
+    )
 
   diagnostics: Dict[str, Any] = {
     "calibration": calibration_diagnostics,
@@ -2739,6 +2774,21 @@ def _run_post_cascade_completion(
           "applied_updates_count": getattr(cash_result, "applied_updates_count", 0),
         },
       )
+      # Step 9d item 20 — FAIL_CASH_PASS_RESULT_MALFORMED. The cash
+      # strategy returns a CashStrategyResult; we assert it has the
+      # applied_updates_count int that the rebuild branch reads next.
+      _cash_applied = getattr(cash_result, "applied_updates_count", None)
+      if not isinstance(_cash_applied, int) or _cash_applied < 0:
+        from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+          FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+        )
+        _rff(
+          conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+          phase=_PC.CASH_PASS,
+          code=_FFC.FAIL_CASH_PASS_RESULT_MALFORMED,
+          detail=f"applied_updates_count={_cash_applied!r} (expected non-negative int)",
+          where="orchestrator._run_post_cascade_completion (cash_pass)",
+        )
       if cash_result.applied_updates_count > 0:
         # Rebuild FINMO so cash, interest, debt balance reflect the
         # per-quarter mode-based decisions.
@@ -2831,6 +2881,40 @@ def _run_post_cascade_completion(
           "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
         },
       )
+      # Step 9d items 21 + 22 — band_source provenance + count
+      # mismatch. Every result row carries band_source; checked + any
+      # skipped metric_count must reconcile with the total result_count
+      # (or all three may be zero on the empty-results branch).
+      _rg_results = realism_gate_payload.get("results") or []
+      _missing_provenance = [
+        i for i, r in enumerate(_rg_results)
+        if not isinstance(r, dict) or not r.get("band_source")
+      ]
+      if _missing_provenance:
+        from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+          FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+        )
+        _rff(
+          conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+          phase=_PC.REALISM_GATE,
+          code=_FFC.FAIL_REALISM_BAND_SOURCE_MISSING,
+          detail=f"{len(_missing_provenance)} result rows missing band_source (first idx={_missing_provenance[0]})",
+          where="orchestrator._run_post_cascade_completion (realism_gate)",
+        )
+      _rg_total = int(realism_gate_payload.get("result_count") or 0)
+      _rg_checked = int(realism_gate_payload.get("checked_metric_count") or 0)
+      _rg_skipped = int(realism_gate_payload.get("skipped_metric_count") or 0)
+      if _rg_total != 0 and _rg_total != (_rg_checked + _rg_skipped):
+        from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+          FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+        )
+        _rff(
+          conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+          phase=_PC.REALISM_GATE,
+          code=_FFC.FAIL_REALISM_COUNT_MISMATCH,
+          detail=f"result_count={_rg_total} != checked({_rg_checked}) + skipped({_rg_skipped})",
+          where="orchestrator._run_post_cascade_completion (realism_gate)",
+        )
     except RealismBandViolation as exc:
       # Hard_fail tripped. Preserve the partial results (each row has
       # band_source provenance) so the acceptance gate can read them
@@ -3299,6 +3383,23 @@ def _run_post_cascade_completion(
         "solver_target_assertion_checked": bool(solver_target_assertion.get("checked")),
       },
     )
+    # Step 9d item 23 — FAIL_FINALIZE_STAGE_NOT_FINALIZED. On a
+    # success-like status the finalize call must have returned a dict
+    # carrying its outcome (we do not query the planning_run row
+    # here — that's a Phase-4 verification concern — but a malformed
+    # finalize_result still trips the fail-fast).
+    if not _finalize_status_str.startswith("fail"):
+      if not isinstance(finalize_result, dict):
+        from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+          FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+        )
+        _rff(
+          conn, draft_id=_DIAG_DRAFT_ID, planning_run_id=_DIAG_PLANNING_RUN_ID,
+          phase=_PC.FINALIZE,
+          code=_FFC.FAIL_FINALIZE_STAGE_NOT_FINALIZED,
+          detail=f"finalize_result not a dict (type={type(finalize_result).__name__})",
+          where="orchestrator._run_post_cascade_completion (finalize)",
+        )
     # Prefer the finalize call's own solver_target_assertion if it
     # succeeded — it has the same shape but with the validation flow's
     # context.

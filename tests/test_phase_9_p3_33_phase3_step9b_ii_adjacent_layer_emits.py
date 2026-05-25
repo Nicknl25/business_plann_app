@@ -275,17 +275,23 @@ class CohortBandsPopulatorEmitTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class BuildMirrorEmitTest(unittest.TestCase):
-  def test_no_bands_emits_no_bands_event(self) -> None:
+  def test_no_bands_emits_no_bands_event_then_fail_fasts(self) -> None:
+    """Step 9d added a FAIL_MIRROR_BANDS_UNRESOLVED guard: when conn +
+    ids are present (i.e. a real run) and the bands payload is empty,
+    that's a fail-fast. The diagnostic emit still fires *before* the
+    raise so observability captures the no-bands event."""
     from client_intake_and_finmo.post_intake_amalgamated.mirror import (
       build_mirror,
     )
     conn = _FakeConn()
-    mirror = build_mirror(
-      conn, draft_id="d", planning_run_id="r",
-      business_facts={"naics_6": "722511"},
-      plan_state={}, load_bands=False,
-    )
-    self.assertIsNotNone(mirror)
+    with self.assertRaises(RuntimeError) as ctx:
+      build_mirror(
+        conn, draft_id="d", planning_run_id="r",
+        business_facts={"naics_6": "722511"},
+        plan_state={}, load_bands=False,
+      )
+    self.assertIn("fail_mirror_bands_unresolved", str(ctx.exception))
+    # The MIRROR_BUILD_NO_BANDS emit fired before the guard tripped.
     self.assertIn(EventCode.MIRROR_BUILD_NO_BANDS.value, conn.events_emitted())
 
   def test_missing_conn_or_ids_skips_emit(self) -> None:

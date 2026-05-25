@@ -640,6 +640,51 @@ def prepare_initial_grid_for_draft(
     expected_handler_key="sync_planning_state_to_finmo",
     required_horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
   )
+  # Step 9d items 16 + 17 — finmo_sync postcondition guards.
+  # Item 16: the sync must yield a finmo_json dict carrying quarter
+  # rows; an empty/missing finmo_json means the FINMO build silently
+  # produced no output. Item 17: the required columns (period,
+  # revenue, gross_profit, op_income, cash_end) must be present on
+  # the first row so downstream consumers can read them.
+  _sync_finmo = (
+    sync_result.get("finmo_json") if isinstance(sync_result, dict) else None
+  )
+  _sync_quarter_rows = (
+    (_sync_finmo or {}).get("quarter_rows")
+    if isinstance(_sync_finmo, dict) else None
+  )
+  if not _sync_quarter_rows:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _rff(
+      conn,
+      draft_id=str(draft_id or ""),
+      planning_run_id=str(active_planning_run_id or ""),
+      phase=_PC.FINMO_SYNC,
+      code=_FFC.FAIL_FINMO_NO_QUARTER_ROWS,
+      detail=(
+        f"baseline_finmo_sync produced no quarter_rows "
+        f"(finmo_json type={type(_sync_finmo).__name__})"
+      ),
+      where="post_intake_initial_grid.runner (baseline_finmo_sync)",
+    )
+  _required_finmo_cols = {"period", "revenue", "gross_profit", "op_income", "cash_end"}
+  _first_row = _sync_quarter_rows[0] if isinstance(_sync_quarter_rows, list) else None
+  if not isinstance(_first_row, dict) or not _required_finmo_cols.issubset(set(_first_row.keys())):
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _missing_cols = _required_finmo_cols - set((_first_row or {}).keys() if isinstance(_first_row, dict) else [])
+    _rff(
+      conn,
+      draft_id=str(draft_id or ""),
+      planning_run_id=str(active_planning_run_id or ""),
+      phase=_PC.FINMO_SYNC,
+      code=_FFC.FAIL_FINMO_SCHEMA_MISSING,
+      detail=f"first quarter row missing required columns: {sorted(_missing_cols)}",
+      where="post_intake_initial_grid.runner (baseline_finmo_sync schema)",
+    )
   _diag_safe_emit(
     conn,
     draft_id=str(draft_id or "").strip(),
@@ -711,9 +756,22 @@ def prepare_initial_grid_for_draft(
       finmo_json=copy.deepcopy(finmo_json or {}),
     )
     if not capex_rd_seed_envelope.get("accepted"):
-      raise RuntimeError(
-        "capex_rd_balance_seed_round1_failed: "
-        f"violations={capex_rd_seed_envelope.get('violations')}"
+      # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+      # (set_capex_rd_balance_seed branch).
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+      )
+      _rff(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(active_planning_run_id or ""),
+        phase=_PC.ROUND1_AUTHORING,
+        code=_FFC.FAIL_ROUND1_SET_TOOL_REJECTED,
+        detail=(
+          f"set_capex_rd_balance_seed(contract=None) rejected: "
+          f"violations={capex_rd_seed_envelope.get('violations')}"
+        ),
+        where="post_intake_initial_grid.runner (capex_rd round1)",
       )
     capex_rd_payload = capex_rd_seed_envelope.get("payload") or {}
     r_and_d_applicability_decision = (
@@ -733,6 +791,26 @@ def prepare_initial_grid_for_draft(
     finmo_json = build_python_finmo_json(
       model_input_json=copy.deepcopy(model_input_json or {}),
     )
+    # Step 9d item 5 — FAIL_MIRROR_FINMO_BASELINE_BUILD. The baseline
+    # FINMO is the input to mirror_build's plan_state / bands lookup;
+    # an empty or non-dict baseline means a malformed model_input made
+    # it past r_and_d toggle, and continuing would feed the session
+    # garbage state.
+    if not isinstance(finmo_json, dict) or not finmo_json:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode, PhaseCode as _PC, raise_fail_fast,
+      )
+      raise_fail_fast(
+        conn,
+        draft_id=str(draft_id or ""), planning_run_id=str(planning_run_id or ""),
+        phase=_PC.MIRROR_BUILD,
+        code=FailFastCode.FAIL_MIRROR_FINMO_BASELINE_BUILD,
+        detail=(
+          f"build_python_finmo_json returned {type(finmo_json).__name__} "
+          f"after r_and_d apply (stage=baseline_ready_before_planning_mode)"
+        ),
+        where="post_intake_initial_grid.runner (baseline finmo rebuild)",
+      )
     shared_context["r_and_d_applicability_decision"] = {
       key: copy.deepcopy(value)
       for key, value in r_and_d_applicability_decision.items()
@@ -856,9 +934,22 @@ def prepare_initial_grid_for_draft(
     r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
   )
   if not stage_ramp_envelope.get("accepted"):
-    raise RuntimeError(
-      "stage_ramp_contract_round1_failed: "
-      f"violations={stage_ramp_envelope.get('violations')}"
+    # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+    # (set_stage_ramp_contract branch).
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _rff(
+      conn,
+      draft_id=str(draft_id or ""),
+      planning_run_id=str(active_planning_run_id or ""),
+      phase=_PC.ROUND1_AUTHORING,
+      code=_FFC.FAIL_ROUND1_SET_TOOL_REJECTED,
+      detail=(
+        f"set_stage_ramp_contract(contract=None) rejected: "
+        f"violations={stage_ramp_envelope.get('violations')}"
+      ),
+      where="post_intake_initial_grid.runner (stage_ramp round1)",
     )
   stage_ramp_contract = stage_ramp_envelope.get("contract") or {}
   payroll_headcount_payload = None
@@ -1002,9 +1093,22 @@ def prepare_initial_grid_for_draft(
       planning_mode_reason=planning_mode_reason,
     )
     if not payroll_envelope.get("accepted"):
-      raise RuntimeError(
-        "payroll_headcount_schedule_round1_failed: "
-        f"violations={payroll_envelope.get('violations')}"
+      # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+      # (set_payroll_schedule branch).
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+      )
+      _rff(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(active_planning_run_id or ""),
+        phase=_PC.ROUND1_AUTHORING,
+        code=_FFC.FAIL_ROUND1_SET_TOOL_REJECTED,
+        detail=(
+          f"set_payroll_schedule(contract=None) rejected: "
+          f"violations={payroll_envelope.get('violations')}"
+        ),
+        where="post_intake_initial_grid.runner (payroll round1)",
       )
     # set_payroll_schedule returns either a built payload (when
     # builder ran on the validated contract) or the validated
@@ -1015,6 +1119,34 @@ def prepare_initial_grid_for_draft(
       or payroll_envelope.get("contract")
       or {}
     )
+    # Step 9d item 7 — FAIL_ROUND1_PLAN_STATE_INCOMPLETE. After all
+    # three round-1 set_* calls succeeded, the section payloads must
+    # be non-empty so the SessionDriver can read them. Drivers are
+    # NOT a round-1 section (set_drivers(anchors=None) is by-design
+    # "amalgamated_session_pending"); the cascade authors them via
+    # revise_drivers.
+    _round1_state = {
+      "capex_rd_balance_seed": bool(capex_rd_payload),
+      "stage_ramp": bool(stage_ramp_contract),
+      "payroll": bool(schedule_payload),
+    }
+    _missing_sections = [k for k, present in _round1_state.items() if not present]
+    if _missing_sections:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+      )
+      _rff(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(active_planning_run_id or ""),
+        phase=_PC.ROUND1_AUTHORING,
+        code=_FFC.FAIL_ROUND1_PLAN_STATE_INCOMPLETE,
+        detail=(
+          f"round-1 finished with empty sections={_missing_sections} "
+          f"(expected non-empty: capex_rd_balance_seed, stage_ramp, payroll)"
+        ),
+        where="post_intake_initial_grid.runner (post-round1 completeness)",
+      )
     payroll_horizon = int(
       post_intake_contract_forecast_horizon_quarter_count(
         contract_name="payroll_headcount_schedule",

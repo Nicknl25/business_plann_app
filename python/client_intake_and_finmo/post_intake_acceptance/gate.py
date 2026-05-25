@@ -672,10 +672,33 @@ def verify_run_acceptance(
   """
   d_id = str(draft_id or "").strip()
   if not d_id:
-    raise RuntimeError("acceptance_gate_draft_id_required")
+    # Step 9d item 25 — FAIL_WORKBOOK_ACCEPT_NO_DRAFT_ID.
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode, PhaseCode, raise_fail_fast,
+    )
+    raise_fail_fast(
+      conn, draft_id="", planning_run_id=str(planning_run_id or ""),
+      phase=PhaseCode.WORKBOOK_ACCEPT,
+      code=FailFastCode.FAIL_WORKBOOK_ACCEPT_NO_DRAFT_ID,
+      detail="acceptance_gate_draft_id_required",
+      where="post_intake_acceptance.gate.verify_run_acceptance",
+    )
 
   planning_run = _planning_run_row(conn, planning_run_id=planning_run_id or "", draft_id=d_id)
   resolved_run_id = str(planning_run.get("planning_run_id") or planning_run_id or "").strip()
+  if not resolved_run_id:
+    # Step 9d item 24 — FAIL_WORKBOOK_ACCEPT_NO_RUN_ID. Neither the
+    # caller-supplied planning_run_id nor the row lookup yielded one.
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode, PhaseCode, raise_fail_fast,
+    )
+    raise_fail_fast(
+      conn, draft_id=d_id, planning_run_id="",
+      phase=PhaseCode.WORKBOOK_ACCEPT,
+      code=FailFastCode.FAIL_WORKBOOK_ACCEPT_NO_RUN_ID,
+      detail=f"no planning_run_id resolvable for draft_id={d_id!r}",
+      where="post_intake_acceptance.gate.verify_run_acceptance",
+    )
   draft = _draft_row(conn, draft_id=d_id)
 
   finmo_json = _parse_json(draft.get("finmo_json"))

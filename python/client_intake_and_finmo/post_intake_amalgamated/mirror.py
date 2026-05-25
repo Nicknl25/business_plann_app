@@ -191,6 +191,42 @@ def build_mirror(
       )
     except Exception:
       pass
+  # Step 9d items 3 + 4 — mirror_build fail-fast guards.
+  # Item 3: plan_state must be a dict (per-section dicts will be
+  # validated by their consumers). Item 4: when conn + IDs are present
+  # so bands were expected, bands_loaded must be > 0; an empty bands
+  # payload means cohort_bands_populator ran without writing anything,
+  # which the populator's own item-1 guard should have caught upstream.
+  if not isinstance(mirror.plan_state, dict):
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode, PhaseCode as _PC, raise_fail_fast,
+    )
+    raise_fail_fast(
+      conn, draft_id=str(draft_id or ""), planning_run_id=str(planning_run_id or ""),
+      phase=_PC.MIRROR_BUILD,
+      code=FailFastCode.FAIL_MIRROR_PLAN_STATE_NOT_DICT,
+      detail=f"mirror.plan_state is {type(mirror.plan_state).__name__}, expected dict",
+      where="post_intake_amalgamated.mirror.build_mirror",
+    )
+  if conn is not None and draft_id and planning_run_id:
+    _bands_loaded = sum(
+      1 for s in SECTIONS
+      if isinstance(mirror.bands.get(s), dict) and mirror.bands.get(s)
+    )
+    if _bands_loaded == 0:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode, PhaseCode as _PC, raise_fail_fast,
+      )
+      raise_fail_fast(
+        conn, draft_id=str(draft_id), planning_run_id=str(planning_run_id),
+        phase=_PC.MIRROR_BUILD,
+        code=FailFastCode.FAIL_MIRROR_BANDS_UNRESOLVED,
+        detail=(
+          f"bands unresolved across all {len(SECTIONS)} sections; "
+          f"cohort_bands populator must run before mirror_build"
+        ),
+        where="post_intake_amalgamated.mirror.build_mirror",
+      )
   return mirror
 
 

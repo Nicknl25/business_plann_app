@@ -203,6 +203,43 @@ class SessionDriver:
     except Exception:
       pass
 
+  # --- fail-fast helper (Step 9d) ----------------------------------------
+
+  def _raise_fail_fast_via_emit(
+    self,
+    *,
+    phase: PhaseCode,
+    event_code: EventCode,
+    code_value: str,
+    detail: str,
+    where: str = "",
+    cause: Optional[BaseException] = None,
+  ) -> None:
+    """Driver-local fail-fast that does not require a conn handle.
+
+    The factory wires the diagnostic emit closure with conn/draft_id/
+    planning_run_id captured; this helper rides that closure to write
+    a best-effort FAILED audit row, then ALWAYS raises a RuntimeError
+    prefixed ``post_intake_fail_fast::<code_value>`` matching the
+    contract enforced by ``post_intake_diagnostics.raise_fail_fast``.
+    """
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FAIL_FAST_PREFIX,
+    )
+    self._emit(
+      phase=phase, event_code=event_code, status=Status.FAILED,
+      diagnostic_data={
+        "fail_fast_code": code_value,
+        "where": where[:200],
+        "detail": str(detail)[:500],
+        "cause_type": type(cause).__name__ if cause is not None else None,
+      },
+    )
+    err = RuntimeError(f"{FAIL_FAST_PREFIX}{code_value}: {detail}")
+    if cause is not None:
+      raise err from cause
+    raise err
+
   # --- top-level entry --------------------------------------------------
 
   def run(self) -> SessionResult:
@@ -228,6 +265,18 @@ class SessionDriver:
       pre_count    = self._failing_count(result)
 
       cascade_outcome = self._walk_cascade(mode, result)
+      # Step 9d item 12 — FAIL_CASCADE_HALTED_WITHOUT_RESOLUTION. The
+      # cascade must return one of the three known outcomes; an
+      # unknown outcome is a silent-halt bug.
+      _co = (cascade_outcome or {}).get("outcome")
+      if _co not in {"resolved", "exhausted", "floor_applied"}:
+        self._raise_fail_fast_via_emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_EXHAUSTED,
+          code_value="fail_cascade_halted_without_resolution",
+          detail=f"_walk_cascade returned outcome={_co!r} (mode={mode.value!r})",
+          where="session_driver.run",
+        )
       post_result = cascade_outcome.get("post_result", result)
 
       progress = self._made_progress(pre_distance, pre_count, post_result)
@@ -253,9 +302,31 @@ class SessionDriver:
     Returns ``{"post_result": EvaluatePlanResult, "outcome": str}`` where
     outcome is "resolved" | "exhausted" | "floor_applied".
     """
+    # Step 9d item 10 — FAIL_CASCADE_MODE_UNKNOWN. The cascade dispatch
+    # only handles the four FailureMode members the registry knows; an
+    # unknown mode is a contract violation.
+    if not isinstance(mode, FailureMode):
+      self._raise_fail_fast_via_emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_EXHAUSTED,
+        code_value="fail_cascade_mode_unknown",
+        detail=f"mode={mode!r} not a FailureMode member",
+        where="session_driver._walk_cascade",
+      )
     self.state.current_tier_by_mode.setdefault(mode, None)
     current = next_tier(mode, self.state.current_tier_by_mode[mode])
     while current is not None:
+      # Step 9d item 11 — FAIL_CASCADE_TIER_UNKNOWN. The next_tier
+      # registry only returns tiers registered for this mode; a tier
+      # without a tier_id is malformed.
+      if not getattr(current, "tier_id", None):
+        self._raise_fail_fast_via_emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_EXHAUSTED,
+          code_value="fail_cascade_tier_unknown",
+          detail=f"current tier has no tier_id (mode={mode.value!r})",
+          where="session_driver._walk_cascade",
+        )
       if current.is_floor:
         floor_res = self._invoke_floor_for_mode(mode)
         self._floor_invocations += 1
@@ -581,7 +652,32 @@ class SessionDriver:
       status=Status.STARTED,
       diagnostic_data={"round_number": self.state.evaluate_plan_round},
     )
-    result = self._evaluate_plan_fn(round_number=self.state.evaluate_plan_round)
+    # Step 9d items 8 + 9 — wrap the evaluate_plan call so an exception
+    # in the standards checker is a structured fail-fast (item 8), and
+    # the returned result is shape-asserted (item 9) before downstream
+    # consumers read its fields. We do not have a conn handle on the
+    # driver (it's captured in the emit closure), so we surface the
+    # audit via self._emit then raise a FAIL_FAST_PREFIX-tagged
+    # RuntimeError directly.
+    try:
+      result = self._evaluate_plan_fn(round_number=self.state.evaluate_plan_round)
+    except Exception as _exc:
+      self._raise_fail_fast_via_emit(
+        phase=PhaseCode.EVALUATE_PLAN,
+        event_code=EventCode.EVALUATE_PLAN_FAILURES_DETECTED,
+        code_value="fail_evaluate_plan_exception",
+        detail=f"_evaluate_plan_fn raised: {type(_exc).__name__}: {str(_exc)[:300]}",
+        where="session_driver._evaluate",
+        cause=_exc,
+      )
+    if not isinstance(result, EvaluatePlanResult):
+      self._raise_fail_fast_via_emit(
+        phase=PhaseCode.EVALUATE_PLAN,
+        event_code=EventCode.EVALUATE_PLAN_FAILURES_DETECTED,
+        code_value="fail_evaluate_plan_malformed",
+        detail=f"_evaluate_plan_fn returned {type(result).__name__}, expected EvaluatePlanResult",
+        where="session_driver._evaluate",
+      )
     self.state.last_worst_distance = result.worst_failing_distance
     self.state.last_failing_check_count = self._failing_count(result)
     self._last_result = result
@@ -717,6 +813,17 @@ class SessionDriver:
       TerminationState.META_HALTED:            EventCode.SESSION_META_HALTED,
       TerminationState.BUDGET_EXHAUSTED_FLOOR: EventCode.SESSION_BUDGET_EXHAUSTED,
     }
+    # Step 9d item 15 — FAIL_SESSION_TERMINAL_STATE_UNKNOWN. The five
+    # entries in state_to_event are exactly the TerminationState
+    # attributes; any other value is a caller bug.
+    if state not in state_to_event:
+      self._raise_fail_fast_via_emit(
+        phase=PhaseCode.SESSION_TERMINATED,
+        event_code=EventCode.SESSION_RESOLVED,
+        code_value="fail_session_terminal_state_unknown",
+        detail=f"unknown terminal state: {state!r}",
+        where="session_driver._terminate",
+      )
     event = state_to_event.get(state, EventCode.SESSION_RESOLVED)
     self._emit(
       phase=PhaseCode.SESSION_TERMINATED,

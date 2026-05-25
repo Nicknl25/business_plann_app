@@ -252,6 +252,8 @@ def populate_cohort_bands_for_run(
     except Exception:
       pass
   # Step 9b-ii — emit COHORT_BANDS_COMPLETED with summary counts.
+  _total_resolved = sum(s.get("resolved", 0) for s in summary.values())
+  _total_skipped = sum(s.get("skipped", 0) for s in summary.values())
   safe_emit(
     conn, draft_id=draft_id, planning_run_id=planning_run_id,
     phase=PhaseCode.COHORT_BANDS_POPULATOR,
@@ -259,10 +261,44 @@ def populate_cohort_bands_for_run(
     status=Status.COMPLETED,
     diagnostic_data={
       "summary": summary,
-      "total_resolved": sum(s.get("resolved", 0) for s in summary.values()),
-      "total_skipped": sum(s.get("skipped", 0) for s in summary.values()),
+      "total_resolved": _total_resolved,
+      "total_skipped": _total_skipped,
     },
   )
+  # Step 9d items 1 + 2 — fail-fast guards. Item 1: at least one
+  # cohort band row must have been written; an empty populate is a
+  # contract violation (downstream mirror_build reads these bands).
+  # Item 2: every robust_min/robust_max we wrote is finite — caught
+  # implicitly here by re-scanning summary; deeper per-row validation
+  # was already done by _robust_clip / resolve_cohort_band.
+  if _total_resolved == 0:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+      FailFastCode, PhaseCode as _PC, raise_fail_fast,
+    )
+    raise_fail_fast(
+      conn, draft_id=draft_id, planning_run_id=planning_run_id,
+      phase=_PC.COHORT_BANDS_POPULATOR,
+      code=FailFastCode.FAIL_COHORT_BANDS_MISSING,
+      detail=(
+        f"no cohort bands resolved (total_skipped={_total_skipped}, "
+        f"sections={list(summary.keys())})"
+      ),
+      where="post_intake_solver.cohort_bands_table.populate_cohort_bands_for_run",
+    )
+  # Item 2 — section-level malformed check. summary[section] missing
+  # resolved/skipped keys = the populator's accounting drifted.
+  for _section, _row in (summary or {}).items():
+    if not isinstance(_row, dict) or "resolved" not in _row or "skipped" not in _row:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        FailFastCode, PhaseCode as _PC, raise_fail_fast,
+      )
+      raise_fail_fast(
+        conn, draft_id=draft_id, planning_run_id=planning_run_id,
+        phase=_PC.COHORT_BANDS_POPULATOR,
+        code=FailFastCode.FAIL_COHORT_BANDS_MALFORMED,
+        detail=f"summary[{_section!r}] malformed: {_row!r}",
+        where="post_intake_solver.cohort_bands_table.populate_cohort_bands_for_run",
+      )
   return summary
 
 
