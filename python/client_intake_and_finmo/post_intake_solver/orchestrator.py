@@ -1059,6 +1059,39 @@ def run_target_seeking_orchestrated_system_run(
 
   horizon = int(QUARTER_COUNT)
 
+  # ---------- Step 9c: diagnostic emit helper closure --------------------
+  # Binds conn + draft_id + planning_run_id so phase-boundary emits
+  # below can call _emit_diag(phase=..., event_code=..., ...) without
+  # repeating the args. safe_emit swallows exceptions; observability
+  # never crashes the orchestrator.
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+    EventCode as _DiagEventCode,
+    PhaseCode as _DiagPhaseCode,
+    Status as _DiagStatus,
+    safe_emit as _diag_safe_emit,
+  )
+  _DIAG_PLANNING_RUN_ID = str(planning_run_id or "").strip()
+  _DIAG_DRAFT_ID = str(draft_id or "").strip()
+
+  def _emit_diag(*, phase, event_code, status=_DiagStatus.COMPLETED, diagnostic_data=None):
+    if not _DIAG_DRAFT_ID or not _DIAG_PLANNING_RUN_ID:
+      return
+    _diag_safe_emit(
+      conn,
+      draft_id=_DIAG_DRAFT_ID,
+      planning_run_id=_DIAG_PLANNING_RUN_ID,
+      phase=phase, event_code=event_code, status=status,
+      diagnostic_data=diagnostic_data,
+    )
+
+  _emit_diag(
+    phase=_DiagPhaseCode.TARGET_SEEKING,
+    event_code=_DiagEventCode.TARGET_SEEKING_FEASIBILITY_STARTED,
+    status=_DiagStatus.STARTED,
+    diagnostic_data={"planning_mode": planning_mode,
+                     "planning_mode_reason": planning_mode_reason},
+  )
+
   # ---------- Phase 9 Phase H: reset GPT call budget for this run --------
   # Doctrine Q4: maximum 4 GPT calls per planning run, hard runtime cap.
   # Reset the counter at the top of every orchestrator invocation so
@@ -1512,6 +1545,13 @@ def run_target_seeking_orchestrated_system_run(
       if isinstance(business_facts, dict) else ""
     )
     try:
+      # Step 9c — adaptation cascade entry diagnostic.
+      _emit_diag(
+        phase=_DiagPhaseCode.TARGET_SEEKING,
+        event_code=_DiagEventCode.TARGET_SEEKING_ADAPTATION_CASCADE_STARTED,
+        status=_DiagStatus.STARTED,
+        diagnostic_data={"hard_fail_count": len(final_hard_fails or [])},
+      )
       final_payload, plan_confidence, cascade_diagnostics = run_adaptation_cascade(
         pre_input=pre_input,
         post_inner_model=post_inner_model,
@@ -2657,6 +2697,19 @@ def _run_post_cascade_completion(
     ).to_dict()
     # Phase 9 Phase F — sequence-controller scope is required for the
     # cash strategy's apply_exact_lever_updates_to_model_input call and
+    # Step 9c — cash_pass entry diagnostic.
+    _emit_diag(
+      phase=_DiagPhaseCode.CASH_PASS,
+      event_code=_DiagEventCode.CASH_PASS_STARTED,
+      status=_DiagStatus.STARTED,
+      diagnostic_data={
+        "adaptive_policy_mode": (
+          adaptive_policy_dict.get("cash_mode")
+          if isinstance(adaptive_policy_dict, dict) else None
+        ),
+        "industry_profile_present": bool(cash_industry_profile),
+      },
+    )
     # FINMO rebuild. Same scope the Phase 8 minimal cash strategy used.
     with post_intake_sequence_step_scope(
       step_key="post_intake_target_seeking_post_cascade_cash",
@@ -2676,6 +2729,15 @@ def _run_post_cascade_completion(
         planning_mode_reason=planning_mode_reason,
         conn=conn,
         horizon=int(horizon or 20),
+      )
+      _emit_diag(
+        phase=_DiagPhaseCode.CASH_PASS,
+        event_code=_DiagEventCode.CASH_PASS_COMPLETED,
+        status=_DiagStatus.COMPLETED,
+        diagnostic_data={
+          "cash_mode": getattr(cash_result, "cash_mode", None),
+          "applied_updates_count": getattr(cash_result, "applied_updates_count", 0),
+        },
       )
       if cash_result.applied_updates_count > 0:
         # Rebuild FINMO so cash, interest, debt balance reflect the
@@ -2735,6 +2797,14 @@ def _run_post_cascade_completion(
       candidate = solver_input.get(FINMO_OUTPUT_TARGET_KEY)
       if isinstance(candidate, dict) and candidate:
         realism_solver_input_targets_payload = copy.deepcopy(candidate)
+    # Step 9c — realism_gate entry diagnostic.
+    _emit_diag(
+      phase=_DiagPhaseCode.REALISM_GATE,
+      event_code=_DiagEventCode.REALISM_GATE_STARTED,
+      status=_DiagStatus.STARTED,
+      diagnostic_data={"business_naics_6": business_naics_6 or None,
+                       "planning_mode": planning_mode},
+    )
     try:
       realism_gate_payload = validate_industry_realism_bands(
         model_input_json=copy.deepcopy(final_model_input_json or {}),
@@ -2751,6 +2821,16 @@ def _run_post_cascade_completion(
         "warning_count": int(realism_gate_payload.get("warning_count") or 0),
         "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
       }
+      _emit_diag(
+        phase=_DiagPhaseCode.REALISM_GATE,
+        event_code=_DiagEventCode.REALISM_GATE_COMPLETED,
+        status=_DiagStatus.COMPLETED,
+        diagnostic_data={
+          "result_count": int(realism_gate_payload.get("result_count") or 0),
+          "warning_count": int(realism_gate_payload.get("warning_count") or 0),
+          "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
+        },
+      )
     except RealismBandViolation as exc:
       # Hard_fail tripped. Preserve the partial results (each row has
       # band_source provenance) so the acceptance gate can read them
@@ -2776,11 +2856,26 @@ def _run_post_cascade_completion(
         "result_count": len(raised_results),
         "hard_fail_message": str(exc)[:500],
       }
+      _emit_diag(
+        phase=_DiagPhaseCode.REALISM_GATE,
+        event_code=_DiagEventCode.REALISM_GATE_CHECK_FAILED,
+        status=_DiagStatus.FAILED,
+        diagnostic_data={
+          "result_count": len(raised_results),
+          "hard_fail_message": str(exc)[:300],
+        },
+      )
   except Exception as exc:
     completion_trace["realism_gate"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
     }
+    _emit_diag(
+      phase=_DiagPhaseCode.REALISM_GATE,
+      event_code=_DiagEventCode.REALISM_GATE_CHECK_FAILED,
+      status=_DiagStatus.FAILED,
+      diagnostic_data={"error": f"{type(exc).__name__}: {str(exc)[:300]}"},
+    )
 
   # Phase 9 P3 — silo'd cascade re-fire on realism hard_fails RETIRED.
   #
@@ -3157,6 +3252,15 @@ def _run_post_cascade_completion(
     if convergence_test_mode_enabled():
       raise
 
+  # Step 9c — finalize entry diagnostic.
+  _emit_diag(
+    phase=_DiagPhaseCode.FINALIZE,
+    event_code=_DiagEventCode.FINALIZE_STARTED,
+    status=_DiagStatus.STARTED,
+    diagnostic_data={
+      "solver_target_assertion_checked": bool(solver_target_assertion.get("checked")),
+    },
+  )
   try:
     from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore
       run_finalize_post_intake_validation,
@@ -3178,6 +3282,23 @@ def _run_post_cascade_completion(
       "status": str(finalize_result.get("status") or "completed"),
       "solver_target_assertion_checked": bool(solver_target_assertion.get("checked")),
     }
+    _finalize_status_str = str((finalize_result or {}).get("status") or "completed")
+    _emit_diag(
+      phase=_DiagPhaseCode.FINALIZE,
+      event_code=(
+        _DiagEventCode.FINALIZE_VALIDATION_FAILED
+        if _finalize_status_str.startswith("fail")
+        else _DiagEventCode.FINALIZE_VALIDATION_PASSED
+      ),
+      status=(
+        _DiagStatus.FAILED if _finalize_status_str.startswith("fail")
+        else _DiagStatus.COMPLETED
+      ),
+      diagnostic_data={
+        "finalize_status": _finalize_status_str,
+        "solver_target_assertion_checked": bool(solver_target_assertion.get("checked")),
+      },
+    )
     # Prefer the finalize call's own solver_target_assertion if it
     # succeeded — it has the same shape but with the validation flow's
     # context.
@@ -3479,4 +3600,14 @@ def _run_post_cascade_completion(
         f"{type(exc).__name__}: {str(exc)[:200]}"
       )
 
+  # Step 9c — target_seeking completion diagnostic.
+  _emit_diag(
+    phase=_DiagPhaseCode.TARGET_SEEKING,
+    event_code=_DiagEventCode.TARGET_SEEKING_COMPLETED,
+    status=_DiagStatus.COMPLETED,
+    diagnostic_data={
+      "plan_confidence": str(next_result.get("plan_confidence") or ""),
+      "cascade_diagnostics_present": bool(next_result.get("adaptation_cascade_diagnostics")),
+    },
+  )
   return next_result

@@ -764,4 +764,34 @@ def verify_run_acceptance(
     except Exception as exc:
       verdict.setdefault("persistence_error", str(exc))
 
+  # Step 9c — workbook_accept emit. The acceptance gate's verdict is the
+  # workbook_accept phase outcome. ACCEPTED on passed=True; REJECTED
+  # otherwise, with diagnostic_data carrying failed_check names.
+  if resolved_run_id and d_id:
+    try:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        EventCode as _DiagEventCode,
+        PhaseCode as _DiagPhaseCode,
+        Status as _DiagStatus,
+        safe_emit as _diag_safe_emit,
+      )
+      _diag_safe_emit(
+        conn,
+        draft_id=d_id,
+        planning_run_id=resolved_run_id,
+        phase=_DiagPhaseCode.WORKBOOK_ACCEPT,
+        event_code=(
+          _DiagEventCode.WORKBOOK_ACCEPT_ACCEPTED if verdict["passed"]
+          else _DiagEventCode.WORKBOOK_ACCEPT_REJECTED
+        ),
+        status=(_DiagStatus.COMPLETED if verdict["passed"] else _DiagStatus.FAILED),
+        diagnostic_data={
+          "failed_check_count": len(failed_checks),
+          "failed_check_names": list(failed_checks)[:10],
+          "gate_version": "phase_9_g_v1",
+        },
+      )
+    except Exception:
+      pass
+
   return verdict
