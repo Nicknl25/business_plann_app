@@ -85,3 +85,7 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.responder import (
   make_amalgamated_responder,
   render_mirror_for_proposal,
 )
+from client_intake_and_finmo.post_intake_amalgamated.protocol.session_factory import (  # noqa: F401  # noqa: E501
+  make_session_driver,
+  driver_run_with_audit_wrapper,
+)
