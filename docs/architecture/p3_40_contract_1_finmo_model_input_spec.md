@@ -996,6 +996,31 @@ These are decisions I'm asking you to confirm before code lands:
   payroll row which gets both). If you want to align them, that's a
   pre-Contract-1 cleanup.
 
+- **R6.** Deep migration of finmo_bridge.py to typed contract
+  attribute access. Commit 5 captured the validated contract instance
+  inside `build_python_finmo_json` and removed the topmost defensive
+  `if isinstance(model_input_json, dict) else {}` wrappers that were
+  redundant post-gate. The per-row `(row or {}).get(...)` patterns
+  inside helpers (`_build_model_input_overlay`,
+  `apply_derived_driver_policies_to_model_input`, capacity-shaping
+  helpers, etc.) remain in place. Migrating those is higher-risk
+  because many helpers are called from multiple paths (not only from
+  the validated `build_python_finmo_json` entry); each helper needs
+  its own decision on whether to validate at its own entry vs trust
+  callers. Follow-up commits (Contract 1 series-tail or a separate
+  series) can migrate section-by-section once the broader call graph
+  is documented.
+
+- **R7.** finmo_bridge.py has 490 `.get(...)` occurrences total; only
+  ~12 match the `(slot or {})` / `(row or {})` defensive-wrap pattern.
+  The remaining ~478 reads are over Optional sub-fields and stay
+  defensive by the contract's design (Optional fields permit
+  fallback). A future contract tightening could move some of these
+  Optional sub-fields to typed sub-contracts (e.g., a typed
+  `CapexDepreciation` sub-contract for the per-row
+  `capex_depreciation` blob), at which point the corresponding
+  `.get(...)` patterns can also become typed access.
+
 ---
 
 ## 9. Workflow

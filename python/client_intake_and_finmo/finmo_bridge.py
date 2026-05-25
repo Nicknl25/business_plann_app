@@ -634,17 +634,31 @@ def build_python_finmo_json(
   # success / failure events land on the same diagnostics stream as
   # producer-side; if absent the gate still raises the typed
   # exception but does not emit.
+  #
+  # P3.40 Contract 1 Commit 5 — capture the validated contract
+  # instance for downstream typed access and remove the topmost
+  # defensive `isinstance(model_input_json, dict) else {}` wrappers
+  # that were redundant post-gate. Per-row defensive patterns inside
+  # the helpers called below remain in place; their migration is
+  # documented as R6 in the contract spec (deeper helper rewrites
+  # are higher-risk and out of scope for a single commit).
   from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
     SIDE_CONSUMER,
     validate_model_input_at_boundary,
   )
-  validate_model_input_at_boundary(
+  _validated_contract = validate_model_input_at_boundary(
     model_input_json if isinstance(model_input_json, dict) else {},
     side=SIDE_CONSUMER,
     emit_diagnostic_fn=emit_diagnostic_fn,
   )
+  # Past this point ``model_input_json`` is guaranteed to be a dict
+  # with the contract-required top-level structure. The
+  # ``_validated_contract`` instance is available for future typed
+  # access (R6 migration). The dict-form ``model_input_json`` is
+  # used below to keep the existing helper call graph intact.
+  del _validated_contract  # placeholder for R6; not yet consumed
   normalized_model_input = apply_derived_driver_policies_to_model_input(
-    model_input_json if isinstance(model_input_json, dict) else {}
+    model_input_json
   )
   book = FinancialModelInputs.from_model_input_json(normalized_model_input)
   result = calculate_finmo_model(book)
@@ -660,13 +674,18 @@ def build_python_finmo_json(
     model_input_json=normalized_model_input,
     first_live_row=first_live_row,
   )
+  # ``normalized_model_input`` is the contract-validated payload after
+  # the derived-driver policies stamp; the policies preserve the
+  # contract's required top-level fields. Drop the
+  # ``if isinstance(normalized_model_input, dict)`` guards that
+  # predated the consumer-side gate.
   raw_periods = [
     _clone(item)
-    for item in (((normalized_model_input.get("periods") or []) if isinstance(normalized_model_input, dict) else []) or [])
+    for item in (normalized_model_input.get("periods") or [])
     if isinstance(item, dict)
   ]
   periods: List[Dict[str, Any]] = []
-  start_date_iso = _as_iso_date((normalized_model_input or {}).get("start_date")) if isinstance(normalized_model_input, dict) else None
+  start_date_iso = _as_iso_date(normalized_model_input.get("start_date"))
   if raw_periods:
     has_stub_period = any(_safe_float(item.get("quarter")) == 0.0 for item in raw_periods)
     if has_stub_period:
