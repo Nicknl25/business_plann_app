@@ -555,7 +555,31 @@ def prepare_initial_grid_for_draft(
       expected_handler_key="compute_marketing_model_json",
       required_horizon_rule="derive_marketing_context_before_baseline_finmo",
     )
-  except Exception:
+  except Exception as _marketing_exc:
+    # C2 — record the swallowed exception so the silent fallback to
+    # an empty marketing context leaves an audit trail. Marketing is
+    # optional context (the baseline FINMO still builds); the
+    # downstream code is robust to an empty model. But the exception
+    # cause should not vanish silently.
+    try:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        EventCode as _C2EventCode, PhaseCode as _C2PhaseCode,
+        Status as _C2Status, safe_emit as _c2_safe_emit,
+      )
+      _c2_safe_emit(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(active_planning_run_id or ""),
+        phase=_C2PhaseCode.MIRROR_BUILD,
+        event_code=_C2EventCode.MARKETING_CONTEXT_FETCH_FAILED,
+        status=_C2Status.FAILED,
+        diagnostic_data={
+          "exception_type": type(_marketing_exc).__name__,
+          "detail": str(_marketing_exc)[:480],
+        },
+      )
+    except Exception:
+      pass  # observability never breaks the pipeline
     marketing_model_json = dict(marketing_model_json or {})
   shared_context["marketing"] = marketing_model_json
 
@@ -1147,6 +1171,28 @@ def prepare_initial_grid_for_draft(
         ),
         where="post_intake_initial_grid.runner (post-round1 completeness)",
       )
+    # C6 — emit ROUND1_COMPLETED now that all three round-1 set_* calls
+    # have succeeded and the completeness check passed. Drivers are
+    # intentionally deferred to the cascade.
+    try:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        EventCode as _C6EventCode, PhaseCode as _C6PhaseCode,
+        Status as _C6Status, safe_emit as _c6_safe_emit,
+      )
+      _c6_safe_emit(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(active_planning_run_id or ""),
+        phase=_C6PhaseCode.ROUND1_AUTHORING,
+        event_code=_C6EventCode.ROUND1_COMPLETED,
+        status=_C6Status.COMPLETED,
+        diagnostic_data={
+          "sections_authored": list(_round1_state.keys()),
+          "drivers_deferred": True,
+        },
+      )
+    except Exception:
+      pass
     payroll_horizon = int(
       post_intake_contract_forecast_horizon_quarter_count(
         contract_name="payroll_headcount_schedule",

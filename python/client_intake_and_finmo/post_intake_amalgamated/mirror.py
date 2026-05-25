@@ -146,8 +146,31 @@ def build_mirror(
         bands_payload[section] = get_bands(
           conn, draft_id=draft_id, planning_run_id=planning_run_id, section=section
         )
-    except Exception:
-      pass  # bands stay empty; the standards check will note the lack
+    except Exception as _bands_exc:
+      # C3 — record the swallowed exception so the silent fallback to
+      # empty bands carries its cause forward. The downstream
+      # FAIL_MIRROR_BANDS_UNRESOLVED guard catches the consequence
+      # (empty bands); this preserves the underlying DB / lookup
+      # exception in diagnostics.
+      try:
+        from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+          EventCode as _C3EventCode, PhaseCode as _C3PhaseCode,
+          Status as _C3Status, safe_emit as _c3_safe_emit,
+        )
+        _c3_safe_emit(
+          conn,
+          draft_id=str(draft_id or ""),
+          planning_run_id=str(planning_run_id or ""),
+          phase=_C3PhaseCode.MIRROR_BUILD,
+          event_code=_C3EventCode.MIRROR_BANDS_LOAD_FAILED,
+          status=_C3Status.FAILED,
+          diagnostic_data={
+            "exception_type": type(_bands_exc).__name__,
+            "detail": str(_bands_exc)[:480],
+          },
+        )
+      except Exception:
+        pass  # observability never breaks the pipeline
 
   mirror = Mirror(
     invariants=dict(_INVARIANTS),

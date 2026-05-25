@@ -1379,6 +1379,18 @@ def run_target_seeking_orchestrated_system_run(
   # exists to envelope-shape the starting state before handing off to the
   # inner runner; deep multi-lever fitting belongs in the inner runner or
   # in the post-flight repair pass.
+  # C6 — emit TARGET_SEEKING_PREFLIGHT_STARTED so the pre-flight pass
+  # leaves a phase-trace marker for downstream queries.
+  _emit_diag(
+    phase=_DiagPhaseCode.TARGET_SEEKING,
+    event_code=_DiagEventCode.TARGET_SEEKING_PREFLIGHT_STARTED,
+    status=_DiagStatus.STARTED,
+    diagnostic_data={
+      "max_iterations": _DEFAULT_PREFLIGHT_MAX_ITERATIONS,
+      "numeric_tolerance": _DEFAULT_NUMERIC_TOLERANCE,
+      "horizon": horizon,
+    },
+  )
   pre_pass = _run_target_seeking_pass(
     pass_label="pre_flight",
     model_input_json=pre_input,
@@ -2378,6 +2390,21 @@ def _run_post_cascade_completion(
       model_input_json=final_model_input_json or {},
       payroll_headcount=payroll_headcount or {},
     )
+
+    # C6 — emit TARGET_SEEKING_PRE_CASH_GATE_STARTED right before the
+    # gate evaluator fires so the gate's entry is observable in the
+    # diagnostic stream.
+    try:
+      _emit_diag(
+        phase=_DiagPhaseCode.TARGET_SEEKING,
+        event_code=_DiagEventCode.TARGET_SEEKING_PRE_CASH_GATE_STARTED,
+        status=_DiagStatus.STARTED,
+        diagnostic_data={
+          "gate_handler_already_ran": bool(_gate_handler_already_ran),
+        },
+      )
+    except Exception:
+      pass
 
     gate_violations, gate_scope = _evaluate_gpt_authorable_pre_cash_checks(
       stage_ramp_contract=stage_ramp_contract or {},

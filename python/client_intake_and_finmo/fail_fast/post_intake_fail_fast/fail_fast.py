@@ -289,6 +289,17 @@ def _live_quarter_rows(finmo_json: Optional[Dict[str, Any]]) -> List[Dict[str, A
 
 
 def _expected_horizon(contract_name: str = "unified_convergence_decision") -> int:
+  # C5 audit (cloud Claude remediation): "unified_convergence_decision"
+  # is used here as a horizon-config lookup KEY, not as a runtime
+  # validator dispatch. The contract IS still live — referenced by
+  # post_intake_convergence/runtime.py:142 and adjacent paths — so the
+  # rows in post_intake_mapping.py and this default are intentional and
+  # not orphaned. The lookup falls back to 20 (the canonical post-intake
+  # horizon) when the mapping table is unavailable, so removing the
+  # default would not break callers, but the explicit name keeps the
+  # configuration discoverable. If a future commit deletes the live
+  # convergence runtime paths, this default and the mapping rows can
+  # both go in the same change.
   try:
     from client_intake_and_finmo.post_intake_mapping import post_intake_contract_forecast_horizon_quarter_count  # type: ignore
 
