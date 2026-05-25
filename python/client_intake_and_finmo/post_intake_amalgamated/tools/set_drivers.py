@@ -19,7 +19,12 @@ real GPT activity only once the amalgamated session lands.
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+
+def _is_finite_number(v: Any) -> bool:
+  return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 # The 4 P&L driver lever_ids the cohort bands populator covers
@@ -39,6 +44,37 @@ _DRIVER_LEVER_IDS: Tuple[str, ...] = (
 )
 
 _ANCHOR_QUARTERS: Tuple[str, ...] = ("q1", "q11", "q20")
+
+
+def _check_envelope_violations(anchors: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """B6 — economic envelope check for driver anchors. Each P&L lever
+  ratio must be in [0, 1] (a 100% ratio is at the edge but allowed;
+  negative or > 1 ratios are structurally impossible)."""
+  violations: List[Dict[str, Any]] = []
+  if not isinstance(anchors, dict):
+    return violations
+  for lever_id, levered in anchors.items():
+    if lever_id not in _DRIVER_LEVER_IDS:
+      continue
+    if not isinstance(levered, dict):
+      continue
+    for anchor in _ANCHOR_QUARTERS:
+      v = levered.get(anchor)
+      if v is None:
+        continue
+      if not _is_finite_number(v):
+        violations.append({
+          "code": "envelope_violation_driver_anchor_not_finite",
+          "lever_id": lever_id, "anchor": anchor, "actual": v,
+        })
+        continue
+      vf = float(v)
+      if vf < 0.0 or vf > 1.0:
+        violations.append({
+          "code": "envelope_violation_driver_anchor_out_of_unit_interval",
+          "lever_id": lever_id, "anchor": anchor, "actual": vf,
+        })
+  return violations
 
 
 def _string(value: Any) -> str:
@@ -168,15 +204,18 @@ def set_drivers(
       "decision_source": "amalgamated_session_pending",
     }
 
-  # Band check first — cheap, no mutation.
+  # 0) Economic envelope (B6) — structural sanity check.
+  envelope_violations = _check_envelope_violations(anchors)
+  # Band check — cheap, no mutation.
   band_violations = _check_anchor_band_violations(anchors, bands_echoed)
-  if band_violations:
+  combined = envelope_violations + band_violations
+  if combined:
     return {
       "accepted": False,
       "section": "drivers",
       "anchors": None,
       "commit_summary": None,
-      "violations": band_violations,
+      "violations": combined,
       "bands_echoed": bands_echoed,
       "decision_source": "amalgamated_gpt_supplied",
     }

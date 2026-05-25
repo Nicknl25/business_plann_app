@@ -19,11 +19,76 @@ becomes a real GPT activity only once the amalgamated session lands.
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any, Callable, Dict, List, Optional
 
 
 def _string(value: Any) -> str:
   return str(value if value is not None else "").strip()
+
+
+def _is_finite_number(v: Any) -> bool:
+  return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """B6 — economic envelope check for payroll contracts. Catches
+  malformations the per-class band check misses: negative headcounts,
+  negative wages, target_payroll_percent_of_revenue outside [0, 1]."""
+  violations: List[Dict[str, Any]] = []
+  if not isinstance(contract, dict):
+    return violations
+  # target_payroll_percent_of_revenue, when supplied, must be in [0, 1].
+  tppor = contract.get("target_payroll_percent_of_revenue")
+  if tppor is not None:
+    if not _is_finite_number(tppor):
+      violations.append({
+        "code": "envelope_violation_payroll_target_not_finite",
+        "actual": tppor,
+      })
+    else:
+      tppor_f = float(tppor)
+      if tppor_f < 0.0 or tppor_f > 1.0:
+        violations.append({
+          "code": "envelope_violation_payroll_target_out_of_unit_interval",
+          "actual": tppor_f,
+        })
+  # Headcount + wage per role: headcount integer ≥ 0; wage ≥ 0 finite.
+  roles = contract.get("roles") or contract.get("role_specs") or []
+  if isinstance(roles, list):
+    for idx, role in enumerate(roles):
+      if not isinstance(role, dict):
+        continue
+      hc = role.get("headcount", role.get("fte_count"))
+      if hc is not None:
+        if not _is_finite_number(hc) or float(hc) < 0 or float(hc) != int(float(hc)):
+          violations.append({
+            "code": "envelope_violation_headcount_invalid",
+            "role_index": idx, "role_id": role.get("id") or role.get("name"),
+            "actual": hc,
+          })
+      wage = role.get("wage_per_employee", role.get("wage"))
+      if wage is not None:
+        if not _is_finite_number(wage) or float(wage) < 0:
+          violations.append({
+            "code": "envelope_violation_wage_invalid",
+            "role_index": idx, "role_id": role.get("id") or role.get("name"),
+            "actual": wage,
+          })
+  # Per-quarter schedule total ≥ 0 (when present).
+  schedule = contract.get("schedule") or contract.get("quarter_schedule")
+  if isinstance(schedule, list):
+    for q_idx, row in enumerate(schedule, start=1):
+      if not isinstance(row, dict):
+        continue
+      total = row.get("total") or row.get("total_headcount") or row.get("total_payroll_dollars")
+      if total is not None:
+        if not _is_finite_number(total) or float(total) < 0:
+          violations.append({
+            "code": "envelope_violation_schedule_quarter_negative",
+            "quarter_index": q_idx, "actual": total,
+          })
+  return violations
 
 
 def _build_violations_from_runtime_error(exc: Exception) -> List[Dict[str, Any]]:
@@ -254,6 +319,9 @@ def set_payroll_schedule(
       "decision_source": decision_source,
     }
 
+  # 0) Economic envelope (B6) — structural sanity check.
+  envelope_violations = _check_envelope_violations(candidate)
+
   # 1) Canonical contract validator (shape + horizon + per-row).
   validator_violations: List[Dict[str, Any]] = []
   normalized: Optional[Dict[str, Any]] = None
@@ -265,7 +333,7 @@ def set_payroll_schedule(
   # 2) Band check (target_payroll_percent_of_revenue against class bounds).
   band_violations = _check_band_violations(candidate, bands_echoed) if not validator_violations else []
 
-  violations = validator_violations + band_violations
+  violations = envelope_violations + validator_violations + band_violations
   if violations or normalized is None:
     if decision_source == "handler_c_internal_authoring":
       from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore

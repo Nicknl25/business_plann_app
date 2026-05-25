@@ -25,11 +25,99 @@ contract payload; the deterministic floor calls it with
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any, Callable, Dict, List, Optional
 
 
 def _string(value: Any) -> str:
   return str(value if value is not None else "").strip()
+
+
+# Economic envelope (B6). Cheap per-field sanity checks that catch
+# malformations the cohort-band check can't see (e.g. a value that
+# happens to fall in band but is structurally impossible such as
+# a negative cost ratio or a utilization > 1).
+_RATIO_FIELDS_STAGE_RAMP = (
+  "cogs_max", "marketing_max", "rd_max", "ga_max",
+  "util_max", "util_floor",
+)
+
+
+def _is_finite_number(v: Any) -> bool:
+  return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """B6 — economic envelope check for stage_ramp contracts. Returns one
+  entry per violation; the band check still runs and adds its own."""
+  violations: List[Dict[str, Any]] = []
+  if not isinstance(contract, dict):
+    return violations
+  grid = contract.get("quarter_ramp_grid")
+  if not isinstance(grid, list):
+    return violations
+  prev_rev_max: Optional[float] = None
+  for q_idx, row in enumerate(grid, start=1):
+    if not isinstance(row, dict):
+      continue
+    # rev_max (or revenue_qoq_max) — non-negative and finite. Negative
+    # revenue is structurally impossible; allow zero (Q1 trough is fine).
+    rev_max = row.get("rev_max", row.get("revenue_qoq_max"))
+    if rev_max is not None:
+      if not _is_finite_number(rev_max):
+        violations.append({
+          "code": "envelope_violation_rev_max_not_finite",
+          "quarter_index": q_idx, "field": "rev_max", "actual": rev_max,
+        })
+      elif float(rev_max) < 0:
+        violations.append({
+          "code": "envelope_violation_rev_max_negative",
+          "quarter_index": q_idx, "field": "rev_max", "actual": float(rev_max),
+        })
+      else:
+        # Monotonic non-decreasing across quarters (a stage ramp should
+        # not regress; if a contract intentionally ramps down it should
+        # carry a ramp_down_allowed flag — which we don't yet model, so
+        # any decrease is a violation).
+        if prev_rev_max is not None and float(rev_max) < prev_rev_max - 1e-9:
+          violations.append({
+            "code": "envelope_violation_rev_max_non_monotonic",
+            "quarter_index": q_idx, "field": "rev_max",
+            "actual": float(rev_max), "previous": prev_rev_max,
+          })
+        prev_rev_max = float(rev_max)
+    # Ratio fields — must be in [0, 1] and finite.
+    for field in _RATIO_FIELDS_STAGE_RAMP:
+      v = row.get(field)
+      if v is None:
+        continue
+      if not _is_finite_number(v):
+        violations.append({
+          "code": "envelope_violation_ratio_not_finite",
+          "quarter_index": q_idx, "field": field, "actual": v,
+        })
+        continue
+      vf = float(v)
+      if vf < 0.0 or vf > 1.0:
+        violations.append({
+          "code": "envelope_violation_ratio_out_of_unit_interval",
+          "quarter_index": q_idx, "field": field, "actual": vf,
+        })
+    # util_max >= util_floor (consistency).
+    um = row.get("util_max"); uf = row.get("util_floor")
+    if _is_finite_number(um) and _is_finite_number(uf) and float(um) < float(uf):
+      violations.append({
+        "code": "envelope_violation_util_max_below_floor",
+        "quarter_index": q_idx, "util_max": float(um), "util_floor": float(uf),
+      })
+    # ni_floor — finite (can be negative). Reject NaN/inf only.
+    ni = row.get("ni_floor")
+    if ni is not None and not _is_finite_number(ni):
+      violations.append({
+        "code": "envelope_violation_ni_floor_not_finite",
+        "quarter_index": q_idx, "field": "ni_floor", "actual": ni,
+      })
+  return violations
 
 
 def _build_violations_from_runtime_error(exc: RuntimeError) -> List[Dict[str, Any]]:
@@ -203,6 +291,9 @@ def set_stage_ramp_contract(
   if isinstance(r_and_d_applicability, dict) and isinstance(r_and_d_applicability.get("r_and_d_enabled"), bool):
     r_and_d_enabled = bool(r_and_d_applicability["r_and_d_enabled"])
 
+  # 0) Economic envelope (B6) — cheap structural sanity check before band/validator.
+  envelope_violations = _check_envelope_violations(candidate)
+
   # 1) Cohort/robust band check (cross-section coherence with drivers).
   band_violations = _check_band_violations(candidate, bands_echoed)
 
@@ -229,7 +320,7 @@ def set_stage_ramp_contract(
     EventCode, PhaseCode, Status, safe_emit,
   )
 
-  violations = validator_violations + band_violations
+  violations = envelope_violations + validator_violations + band_violations
   if violations:
     if is_round1:
       safe_emit(

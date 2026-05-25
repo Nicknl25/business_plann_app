@@ -31,7 +31,64 @@ returns the deterministic-floor payload (the amalgamated session's
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+
+def _is_finite_number(v: Any) -> bool:
+  return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _check_envelope_violations(
+  mc_payload: Optional[Dict[str, Any]],
+  rd_payload: Optional[Dict[str, Any]],
+  bs_payload: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  """B6 — economic envelope check for the three pre_convergence
+  payloads. Catches structurally-impossible values the proposers might
+  emit on edge inputs (negative capex, days < 0, percent > 1)."""
+  violations: List[Dict[str, Any]] = []
+  # maintenance_capex_percent — must be a finite number in [0, 1].
+  if isinstance(mc_payload, dict):
+    pct = mc_payload.get("maintenance_capex_percent")
+    if pct is not None:
+      if not _is_finite_number(pct):
+        violations.append({
+          "code": "envelope_violation_maintenance_capex_not_finite",
+          "actual": pct,
+        })
+      else:
+        pf = float(pct)
+        if pf < 0.0 or pf > 1.0:
+          violations.append({
+            "code": "envelope_violation_maintenance_capex_out_of_unit_interval",
+            "actual": pf,
+          })
+  # balance_sheet_seed_grid rows — each seed_value must be finite ≥ 0.
+  if isinstance(bs_payload, dict):
+    grid = bs_payload.get("balance_sheet_seed_grid")
+    if isinstance(grid, list):
+      for row in grid:
+        if not isinstance(row, dict):
+          continue
+        if not bool(row.get("applicable")):
+          continue
+        sv = row.get("seed_value")
+        if sv is None:
+          continue
+        if not _is_finite_number(sv):
+          violations.append({
+            "code": "envelope_violation_balance_sheet_seed_not_finite",
+            "lever_id": row.get("lever_id"), "actual": sv,
+          })
+          continue
+        sf = float(sv)
+        if sf < 0.0:
+          violations.append({
+            "code": "envelope_violation_balance_sheet_seed_negative",
+            "lever_id": row.get("lever_id"), "actual": sf,
+          })
+  return violations
 
 
 # P3.33 Phase 3 pre-step-8 — Working-capital scalar lever_ids the
@@ -314,6 +371,13 @@ def set_capex_rd_balance_seed(
   except Exception as exc:
     violations.append({"code": "balance_sheet_seed_compute_failed", "message": _string(exc)[:600]})
     bs_payload = None
+
+  # B6 — economic envelope sanity. Run after builders so we can check
+  # the actual payload values (the builders never see overrides; those
+  # are validated in _apply_wc_overrides below).
+  violations = violations + _check_envelope_violations(
+    mc_payload, rd_payload, bs_payload,
+  )
 
   if violations:
     # Step 9b-ii — emit the round-1 failure when the builder exception
