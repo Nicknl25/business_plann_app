@@ -138,7 +138,7 @@ class WorkbookPeriod(BaseModel):
   to surface the DIV/0 risk on the quarter_rows path specifically.
   """
 
-  slot_index: int = Field(ge=0, le=20)
+  slot_index: int = Field(ge=0, le=LIVE_QUARTER_COUNT)
   quarter: Optional[float] = None
   year: Optional[Any] = None
   date: Optional[Any] = None
@@ -369,22 +369,28 @@ class DebtScheduleRow(BaseModel):
 
   quarter_index: int = Field(ge=1, le=LIVE_QUARTER_COUNT)
   date: Optional[Any] = None  # comes from finmo row; may be None
-  opening_debt: int
-  opening_principal_balance: int
-  requested_debt_issuance: int
-  actual_debt_issuance: int
-  new_borrowing: int
-  requested_debt_repayment: int
-  actual_debt_repayment: int
-  total_principal_payment: int
-  closing_debt: int
-  closing_principal_balance: int
+  # 1a-fix: numeric financial fields typed as float (not int).
+  # Production writer may emit int, float, or Decimal depending on
+  # the calculation path; float accepts all three via Pydantic v2
+  # default coercion. int rejects fractional values, which would
+  # surface false positives if a future writer path produces a
+  # non-integer (rounding artifact, computed average, etc.).
+  opening_debt: float
+  opening_principal_balance: float
+  requested_debt_issuance: float
+  actual_debt_issuance: float
+  new_borrowing: float
+  requested_debt_repayment: float
+  actual_debt_repayment: float
+  total_principal_payment: float
+  closing_debt: float
+  closing_principal_balance: float
   interest_rate: float
   annual_interest_rate: float
-  interest_expense: int
-  available_debt_before_repayment: int
-  available_principal_before_payment: int
-  total_debt_service: int
+  interest_expense: float
+  available_debt_before_repayment: float
+  available_principal_before_payment: float
+  total_debt_service: float
   finmo_formula: str = Field(min_length=1)
 
   model_config = ConfigDict(extra="ignore")
