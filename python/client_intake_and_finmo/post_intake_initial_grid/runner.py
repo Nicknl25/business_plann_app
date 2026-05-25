@@ -1554,6 +1554,107 @@ def prepare_initial_grid_for_draft(
           stage="quarter_grid_applied_after_feasibility_repair",
         )
 
+  # P3.33 Phase 3 step 8b — amalgamated restructure session.
+  #
+  # By this point initial-grid has produced a coherent applied_model_input_
+  # json + applied_finmo_json via the existing deterministic authoring path
+  # (R&D applicability, balance-sheet seed, stage_ramp contract via Python-
+  # first builder, payroll via Handler C + reapply). The amalgamated session
+  # runs the §5 restructure protocol over this state: evaluate_plan against
+  # the §10.6 doctrine + cohort bands; if any failure mode fires, the
+  # cascade revises sections in priority order (BAND → COHERENCE → CAPACITY
+  # → GROWTH → VIABILITY) via the four revise_* tools; floor primitives
+  # guarantee a committed in-bounds plan if the cascade exhausts.
+  #
+  # Round-1 consolidation followup (not in this commit): the existing
+  # _execute_sequence_step authoring calls for r_and_d_applicability,
+  # balance_sheet_contextual_seed, stage_ramp_contract, and
+  # payroll_headcount_schedule each wrap a Python-deterministic builder
+  # that lives inside the corresponding set_*(contract=None) path. Moving
+  # the orchestrator's invocation from _execute_sequence_step to direct
+  # set_*(contract=None) calls (per the Q2 reframing in the step-8 design
+  # discussion) is a follow-up consolidation; the cascade refinement layer
+  # ships first here so the protocol is observable end-to-end.
+  try:
+    from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
+      build_mirror,
+    )
+    from client_intake_and_finmo.post_intake_amalgamated.protocol.session_factory import (  # type: ignore  # noqa: E501
+      driver_run_with_audit_wrapper,
+      make_session_driver,
+    )
+    amalgamated_plan_state = {
+      "stage_ramp": copy.deepcopy(stage_ramp_contract or {}),
+      "payroll": copy.deepcopy(payroll_headcount_payload or {}),
+      "capex_rd_balance_seed": copy.deepcopy(
+        (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
+      ),
+      "balance_sheet": copy.deepcopy(
+        (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
+      ),
+      "drivers": {},
+    }
+    amalgamated_business_facts = copy.deepcopy(business_facts or {})
+    amalgamated_mirror = build_mirror(
+      conn,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(active_planning_run_id or "").strip(),
+      business_facts=amalgamated_business_facts,
+      plan_state=amalgamated_plan_state,
+      load_bands=True,
+    )
+    amalgamated_operating_context = {
+      "model_input_template": copy.deepcopy(applied_model_input_json or {}),
+      "build_finmo": build_python_finmo_json,
+      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+    }
+    amalgamated_driver = make_session_driver(
+      conn=conn,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(active_planning_run_id or "").strip(),
+      mirror=amalgamated_mirror,
+      operating_context=amalgamated_operating_context,
+      business_facts=amalgamated_business_facts,
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      model_input_json=copy.deepcopy(applied_model_input_json or {}),
+      finmo_json=copy.deepcopy(applied_finmo_json or {}),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+      build_finmo=build_python_finmo_json,
+    )
+    amalgamated_result = driver_run_with_audit_wrapper(
+      driver=amalgamated_driver, conn=conn,
+    )
+    # Surface the amalgamated session result in shared_context so the
+    # downstream pipeline + audit trail can read it. Revisions the driver
+    # applied via the revise_* tools have already been committed to
+    # applied_model_input_json in place via the set_*(contract=...) calls
+    # those wrappers delegate to.
+    if isinstance(shared_context, dict):
+      shared_context["amalgamated_session_result"] = {
+        "termination_state": amalgamated_result.termination_state,
+        "evaluate_plan_round_count": amalgamated_result.evaluate_plan_round_count,
+        "budget_remaining": amalgamated_result.budget_remaining,
+        "applied_steps": amalgamated_result.applied_steps,
+        "floor_invocations": amalgamated_result.floor_invocations,
+        "termination_detail": amalgamated_result.termination_detail,
+      }
+  except Exception as amalgamated_exc:
+    # The wrapper's RuntimeError surfaces here when the driver itself
+    # raises. We record the catastrophe in shared_context (the audit row
+    # already landed via the wrapper's META_ESCALATED write) and continue
+    # the pipeline with the pre-amalgamated state, since the existing
+    # deterministic initial-grid + downstream target_seeking still
+    # produces a valid plan. This is the documented partial-availability
+    # behavior of the integration: the cascade refinement is OPTIONAL on
+    # top of the existing pipeline.
+    if isinstance(shared_context, dict):
+      shared_context["amalgamated_session_result"] = {
+        "termination_state": "EXCEPTION_HALTED",
+        "termination_detail": str(amalgamated_exc)[:480],
+      }
+
   return {
     "planning_run_id": active_planning_run_id,
     "draft": copy.deepcopy(draft),
