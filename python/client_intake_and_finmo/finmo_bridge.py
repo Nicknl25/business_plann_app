@@ -3453,7 +3453,6 @@ def _build_model_input_overlay(
     values: List[float] = []
     base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     for slot_idx, slot in enumerate(slots):
-      working_capital = slot.get("working_capital") if isinstance(slot.get("working_capital"), dict) else {}
       revenue = max(0.0, _safe_float(slot.get("revenue")) or 0.0)
       cogs = max(0.0, _safe_float(slot.get("cogs")) or 0.0)
       marketing = max(0.0, _safe_float(slot.get("marketing")) or 0.0)
@@ -3463,10 +3462,13 @@ def _build_model_input_overlay(
       g_and_a = max(0.0, _safe_float(slot.get("g_and_a")) or 0.0)
       ap_expense_base = marketing + r_and_d + lease + payroll + g_and_a
       if label == "Accounts Receivable Days":
-        explicit_value = _safe_float(working_capital.get("dso"))
-        if explicit_value is not None and explicit_value > 0.0:
-          values.append(round(explicit_value, 6))
-        elif ar_days_band:
+        # P3.40 bug 4 fix: per-quarter WC override path (slot["working_capital"]
+        # ["dso"]) was scaffolded but never wired — no writer existed anywhere
+        # in the codebase, so the explicit-value branch was unreachable. WC
+        # days are authored at the row level by set_capex_rd_balance_seed
+        # (constant across all quarters); the per-quarter override is not
+        # part of the intended design today.
+        if ar_days_band:
           values.append(round(float(ar_days_band["benchmark_target"]), 6))
         else:
           envelope_value = _envelope_default("balance_sheet::Accounts Receivable Days")
@@ -3478,10 +3480,7 @@ def _build_model_input_overlay(
             )
           values.append(round(float(envelope_value), 6))
       elif label == "Inventory Days":
-        explicit_value = _safe_float(working_capital.get("inventory_days"))
-        if explicit_value is not None and explicit_value > 0.0:
-          values.append(round(explicit_value, 6))
-        elif inventory_days_band:
+        if inventory_days_band:
           values.append(round(float(inventory_days_band["benchmark_target"]), 6))
         else:
           envelope_value = _envelope_default("balance_sheet::Inventory Days")
@@ -3494,10 +3493,7 @@ def _build_model_input_overlay(
             )
           values.append(round(float(envelope_value), 6))
       elif label == "Accounts Payable Days":
-        explicit_value = _safe_float(working_capital.get("dpo"))
-        if explicit_value is not None and explicit_value > 0.0:
-          values.append(round(explicit_value, 6))
-        elif ap_days_band:
+        if ap_days_band:
           values.append(round(float(ap_days_band["benchmark_target"]), 6))
         else:
           envelope_value = _envelope_default("balance_sheet::Accounts Payable Days")

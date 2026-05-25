@@ -177,6 +177,10 @@ class QuarterRevenueProductGroup:
 
 @dataclass(slots=True)
 class ExpenseDriverSet:
+  # P3.40 bug 4 fix: ``working_capital`` removed. It was a per-quarter
+  # override dict whose subkeys (dso/dpo/inventory_days) had zero writers
+  # anywhere in the codebase; the reader at finmo_bridge.py is now also
+  # gone. WC days author at the row level via set_capex_rd_balance_seed.
   cogs_percent: float = 0.0
   marketing_percent: float = 0.0
   r_and_d_percent: float = 0.0
@@ -187,7 +191,6 @@ class ExpenseDriverSet:
   depreciation_percent: float = 0.0
   tax_percent: float = 0.0
   capex: float = 0.0
-  working_capital: Dict[str, Any] = field(default_factory=dict)
 
   def to_controller_expenses(self) -> Dict[str, Any]:
     return {
@@ -201,7 +204,6 @@ class ExpenseDriverSet:
       "depreciation_percent": round(self.depreciation_percent, 6),
       "tax_percent": round(self.tax_percent, 6),
       "capex": round(self.capex, 6),
-      "working_capital": self.working_capital,
     }
 
 
@@ -397,7 +399,6 @@ class FinancialModelInputs:
       quarter.expenses.depreciation_percent = _safe_float(item.get("depreciation_percent"))
       quarter.expenses.tax_percent = _safe_float(item.get("tax_percent"))
       quarter.expenses.capex = _safe_float(item.get("capex"))
-      quarter.expenses.working_capital = item.get("working_capital") if isinstance(item.get("working_capital"), dict) else {}
     next_book._sync_rows_from_known_expense_drivers()
     return next_book
 
@@ -444,7 +445,6 @@ class FinancialModelInputs:
     depreciation_percent: Optional[float] = None,
     tax_percent: Optional[float] = None,
     capex: Optional[float] = None,
-    working_capital: Optional[Dict[str, Any]] = None,
   ) -> None:
     expenses = self.quarter(quarter_index).expenses
     if cogs_percent is not None:
@@ -467,8 +467,6 @@ class FinancialModelInputs:
       expenses.tax_percent = _safe_float(tax_percent)
     if capex is not None:
       expenses.capex = _safe_float(capex)
-    if working_capital is not None:
-      expenses.working_capital = working_capital
     self._sync_row_from_known_expense_driver(_quarter_index(quarter_index))
 
   def set_simple_driver(

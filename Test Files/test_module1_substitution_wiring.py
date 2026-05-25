@@ -114,7 +114,6 @@ def _build_forecast_quarters(*, revenue_per_quarter: float, cogs_per_quarter: fl
       "payroll_amount": 0.0,
       "g_and_a": 0.0,
       "taxes": 0.0,
-      "working_capital": {},
       "revenue_products": [],
     }
     for idx in range(20)
