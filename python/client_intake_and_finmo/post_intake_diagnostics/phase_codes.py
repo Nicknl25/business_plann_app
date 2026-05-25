@@ -56,6 +56,8 @@ class EventCode(str, Enum):
   MIRROR_BUILD_STARTED               = "mirror_build_started"
   MIRROR_BUILD_COMPLETED             = "mirror_build_completed"
   MIRROR_BUILD_NO_BANDS              = "mirror_build_no_bands"
+  MARKETING_CONTEXT_FETCH_FAILED     = "marketing_context_fetch_failed"
+  MIRROR_BANDS_LOAD_FAILED           = "mirror_bands_load_failed"
 
   # round1_authoring
   ROUND1_STARTED                     = "round1_started"
@@ -74,6 +76,7 @@ class EventCode(str, Enum):
   EVALUATE_PLAN_ALL_PASS             = "evaluate_plan_all_pass"
   EVALUATE_PLAN_FAILURES_DETECTED    = "evaluate_plan_failures_detected"
   EVALUATE_PLAN_COMPLETED            = "evaluate_plan_completed"
+  EVALUATE_PLAN_CHECK_EXCEPTION      = "evaluate_plan_check_exception"
 
   # cascade_walk
   CASCADE_ENTERED                    = "cascade_entered"
@@ -86,6 +89,11 @@ class EventCode(str, Enum):
   CASCADE_PROPOSAL_OUT_OF_BAND       = "cascade_proposal_out_of_band"
   CASCADE_RESOLVED                   = "cascade_resolved"
   CASCADE_EXHAUSTED                  = "cascade_exhausted"
+  CASCADE_OSCILLATION_SKIPPED        = "cascade_oscillation_skipped"
+  CASCADE_BOUND_RELAXATION_APPLIED   = "cascade_bound_relaxation_applied"
+  CASCADE_BOUND_RELAXATION_CAP_HIT   = "cascade_bound_relaxation_cap_hit"
+  RESPONDER_RETRY_ATTEMPTED          = "responder_retry_attempted"
+  RESPONDER_RETRY_EXHAUSTED          = "responder_retry_exhausted"
 
   # floor_invocation
   FLOOR_WALKER_ENTERED               = "floor_walker_entered"
@@ -160,6 +168,8 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
     EventCode.MIRROR_BUILD_STARTED,
     EventCode.MIRROR_BUILD_COMPLETED,
     EventCode.MIRROR_BUILD_NO_BANDS,
+    EventCode.MARKETING_CONTEXT_FETCH_FAILED,
+    EventCode.MIRROR_BANDS_LOAD_FAILED,
   }),
   PhaseCode.ROUND1_AUTHORING: frozenset({
     EventCode.ROUND1_STARTED,
@@ -178,6 +188,7 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
     EventCode.EVALUATE_PLAN_ALL_PASS,
     EventCode.EVALUATE_PLAN_FAILURES_DETECTED,
     EventCode.EVALUATE_PLAN_COMPLETED,
+    EventCode.EVALUATE_PLAN_CHECK_EXCEPTION,
   }),
   PhaseCode.CASCADE_WALK: frozenset({
     EventCode.CASCADE_ENTERED,
@@ -190,6 +201,11 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
     EventCode.CASCADE_PROPOSAL_OUT_OF_BAND,
     EventCode.CASCADE_RESOLVED,
     EventCode.CASCADE_EXHAUSTED,
+    EventCode.CASCADE_OSCILLATION_SKIPPED,
+    EventCode.CASCADE_BOUND_RELAXATION_APPLIED,
+    EventCode.CASCADE_BOUND_RELAXATION_CAP_HIT,
+    EventCode.RESPONDER_RETRY_ATTEMPTED,
+    EventCode.RESPONDER_RETRY_EXHAUSTED,
   }),
   PhaseCode.FLOOR_INVOCATION: frozenset({
     EventCode.FLOOR_WALKER_ENTERED,

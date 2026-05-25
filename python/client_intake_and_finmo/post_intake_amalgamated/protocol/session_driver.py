@@ -107,6 +107,11 @@ class SessionState:
   last_failing_check_count: Optional[int] = None
   evaluate_plan_round: int = 0
   budget_aware: bool = False
+  # Spec §8.1(d) oscillation guard — remember the last lever_id walked
+  # per failure mode so that an adjacent tier proposing the same lever
+  # advances without re-consulting the responder. Reset to None when a
+  # mode exits (resolved or floored).
+  last_lever_by_mode: Dict[FailureMode, Optional[str]] = dc_field(default_factory=dict)
 
   def consume_budget(self) -> None:
     if self.tool_call_budget_remaining > 0:
@@ -330,6 +335,8 @@ class SessionDriver:
       if current.is_floor:
         floor_res = self._invoke_floor_for_mode(mode)
         self._floor_invocations += 1
+        # Reset oscillation memory when the mode exits the active cascade.
+        self.state.last_lever_by_mode[mode] = None
         post = self._evaluate()
         return {"post_result": post, "outcome": "floor_applied",
                 "floor_result": floor_res}
@@ -348,6 +355,52 @@ class SessionDriver:
         current = next_tier(mode, current.tier_id)
         continue
 
+      # B1 — Spec §8.1(d) oscillation guard. If this tier proposes the
+      # same (section, field) lever as the previous tier in this mode,
+      # advance without consulting the responder and without consuming
+      # budget.
+      proposal_lever_id = _lever_id_from_proposal(proposal)
+      previous_lever = self.state.last_lever_by_mode.get(mode)
+      if proposal_lever_id is not None and proposal_lever_id == previous_lever:
+        self._emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_OSCILLATION_SKIPPED,
+          status=Status.SKIPPED,
+          diagnostic_data={"mode": mode.value, "tier_id": current.tier_id,
+                           "tier_name": current.name,
+                           "lever_id": proposal_lever_id,
+                           "previous_lever_id": previous_lever},
+        )
+        self.state.current_tier_by_mode[mode] = current.tier_id
+        current = next_tier(mode, current.tier_id)
+        continue
+
+      # B2 — bound relaxation cap. Before walking a bound-relaxation tier
+      # (V7/G6/C5/H4/B3), check whether this band has already been
+      # relaxed BOUND_RELAXATION_MAX_ATTEMPTS times; if so, skip without
+      # consulting the responder or consuming budget.
+      is_relaxation_tier = getattr(current, "is_bound_relaxation", False)
+      band_key = (
+        f"{mode.value}::{proposal_lever_id}"
+        if is_relaxation_tier and proposal_lever_id else None
+      )
+      if is_relaxation_tier and band_key is not None:
+        prior_count = self.state.bound_relaxations_by_band.get(band_key, 0)
+        if prior_count >= BOUND_RELAXATION_MAX_ATTEMPTS:
+          self._emit(
+            phase=PhaseCode.CASCADE_WALK,
+            event_code=EventCode.CASCADE_BOUND_RELAXATION_CAP_HIT,
+            status=Status.SKIPPED,
+            diagnostic_data={"mode": mode.value, "tier_id": current.tier_id,
+                             "tier_name": current.name,
+                             "band_key": band_key,
+                             "prior_relaxation_count": prior_count,
+                             "cap": BOUND_RELAXATION_MAX_ATTEMPTS},
+          )
+          self.state.current_tier_by_mode[mode] = current.tier_id
+          current = next_tier(mode, current.tier_id)
+          continue
+
       self._emit(
         phase=PhaseCode.CASCADE_WALK,
         event_code=EventCode.CASCADE_TIER_WALKED,
@@ -356,11 +409,40 @@ class SessionDriver:
                          "tier_name": current.name,
                          "step_type": current.step_type.value},
       )
-      apply_outcome = self._apply_tier(mode, current, proposal)
+      # B3 — capture pre-state for restructuring_log before/after fields.
+      pre_worst_check = result.worst_failing_check
+      pre_worst_distance = result.worst_failing_distance
+      apply_outcome = self._apply_tier(
+        mode, current, proposal,
+        pre_worst_check=pre_worst_check,
+        pre_worst_distance=pre_worst_distance,
+      )
       self.state.current_tier_by_mode[mode] = current.tier_id
+      # Track lever for oscillation guard.
+      if proposal_lever_id is not None:
+        self.state.last_lever_by_mode[mode] = proposal_lever_id
+
+      # B2 — record that a bound relaxation was applied (only after the
+      # tier actually committed a state change).
+      if (is_relaxation_tier and band_key is not None
+          and apply_outcome.get("applied")):
+        self.state.bound_relaxations_by_band[band_key] = (
+          self.state.bound_relaxations_by_band.get(band_key, 0) + 1
+        )
+        self._emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_BOUND_RELAXATION_APPLIED,
+          diagnostic_data={"mode": mode.value, "tier_id": current.tier_id,
+                           "band_key": band_key,
+                           "new_relaxation_count": self.state.bound_relaxations_by_band[band_key]},
+        )
 
       if apply_outcome.get("re_evaluate"):
-        result = self._evaluate()
+        post_from_apply = apply_outcome.get("post_result")
+        if post_from_apply is not None:
+          result = post_from_apply
+        else:
+          result = self._evaluate()
         if not self._mode_failing(mode, result):
           self._emit(
             phase=PhaseCode.CASCADE_WALK,
@@ -369,11 +451,14 @@ class SessionDriver:
             diagnostic_data={"mode": mode.value,
                              "resolved_at_tier": current.tier_id},
           )
+          # Reset oscillation memory when the mode exits the active cascade.
+          self.state.last_lever_by_mode[mode] = None
           return {"post_result": result, "outcome": "resolved"}
 
       if self.state.tool_call_budget_remaining <= BUDGET_FLOOR_THRESHOLD:
         floor_res = self._invoke_floor_for_mode(mode)
         self._floor_invocations += 1
+        self.state.last_lever_by_mode[mode] = None
         post = self._evaluate()
         return {"post_result": post, "outcome": "floor_applied",
                 "floor_result": floor_res}
@@ -386,6 +471,7 @@ class SessionDriver:
       status=Status.COMPLETED,
       diagnostic_data={"mode": mode.value},
     )
+    self.state.last_lever_by_mode[mode] = None
     return {"post_result": result, "outcome": "exhausted"}
 
   # --- per-tier apply ---------------------------------------------------
@@ -395,6 +481,9 @@ class SessionDriver:
     mode: FailureMode,
     tier: CascadeTier,
     proposal_or_options: Union[Proposal, List[Proposal]],
+    *,
+    pre_worst_check: Optional[str] = None,
+    pre_worst_distance: Optional[float] = None,
   ) -> Dict[str, Any]:
     """Apply one tier — present to responder, dispatch on response,
     write the audit row, optionally invoke revise_* to actually mutate.
@@ -411,6 +500,8 @@ class SessionDriver:
       return self._commit_proposal(
         mode, tier, chosen,
         applied_by=AppliedBy.BUDGET_AWARE_AUTO_CONFIRM,
+        pre_worst_check=pre_worst_check,
+        pre_worst_distance=pre_worst_distance,
       )
 
     response: ProposalResponse = self._responder(
@@ -423,11 +514,16 @@ class SessionDriver:
                  "tier_name": tier.name}
 
     if response.kind == "veto" and response.validated:
+      # B3 — VETO rows: no apply happened, so pre == post (current state).
       self._log(
         proposal=_first(proposal_or_options),
         applied_by=AppliedBy.AMALGAMATED_GPT_VETOED,
         applied_value=None,
         veto_reason=response.reason or "",
+        worst_check_before=pre_worst_check,
+        worst_distance_before=pre_worst_distance,
+        worst_check_after=pre_worst_check,
+        worst_distance_after=pre_worst_distance,
       )
       self._emit(
         phase=PhaseCode.CASCADE_WALK,
@@ -446,8 +542,12 @@ class SessionDriver:
                          "field": getattr(chosen, "field", None),
                          "proposed_value": getattr(chosen, "proposed_value", None)},
       )
-      return self._commit_proposal(mode, tier, chosen,
-                                   applied_by=AppliedBy.AMALGAMATED_GPT_CONFIRMED)
+      return self._commit_proposal(
+        mode, tier, chosen,
+        applied_by=AppliedBy.AMALGAMATED_GPT_CONFIRMED,
+        pre_worst_check=pre_worst_check,
+        pre_worst_distance=pre_worst_distance,
+      )
 
     if response.kind == "choose" and response.validated:
       options = _as_list(proposal_or_options)
@@ -462,17 +562,25 @@ class SessionDriver:
                          "field": chosen.field,
                          "proposed_value": chosen.proposed_value},
       )
-      return self._commit_proposal(mode, tier, chosen,
-                                   applied_by=AppliedBy.AMALGAMATED_GPT_CHOSE)
+      return self._commit_proposal(
+        mode, tier, chosen,
+        applied_by=AppliedBy.AMALGAMATED_GPT_CHOSE,
+        pre_worst_check=pre_worst_check,
+        pre_worst_distance=pre_worst_distance,
+      )
 
     if response.kind == "other":
       if not response.validated:
-        # Treat as veto (response_tools validation failed).
+        # Treat as veto (response_tools validation failed). B3 — pre==post.
         self._log(
           proposal=_first(proposal_or_options),
           applied_by=AppliedBy.AMALGAMATED_GPT_OTHER_OUT_BAND,
           applied_value=None,
           veto_reason=";".join(e["code"] for e in response.validation_errors)[:512],
+          worst_check_before=pre_worst_check,
+          worst_distance_before=pre_worst_distance,
+          worst_check_after=pre_worst_check,
+          worst_distance_after=pre_worst_distance,
         )
         self._emit(
           phase=PhaseCode.CASCADE_WALK,
@@ -497,8 +605,12 @@ class SessionDriver:
                          "proposed_value": response.value,
                          "reason": (response.reason or "")[:200]},
       )
-      return self._commit_proposal(mode, tier, synthetic,
-                                   applied_by=AppliedBy.AMALGAMATED_GPT_OTHER)
+      return self._commit_proposal(
+        mode, tier, synthetic,
+        applied_by=AppliedBy.AMALGAMATED_GPT_OTHER,
+        pre_worst_check=pre_worst_check,
+        pre_worst_distance=pre_worst_distance,
+      )
 
     # No structured response — treat as veto, advance (spec §6.4).
     self._log(
@@ -506,6 +618,10 @@ class SessionDriver:
       applied_by=AppliedBy.AMALGAMATED_GPT_VETOED,
       applied_value=None,
       veto_reason="no_structured_response",
+      worst_check_before=pre_worst_check,
+      worst_distance_before=pre_worst_distance,
+      worst_check_after=pre_worst_check,
+      worst_distance_after=pre_worst_distance,
     )
     self._emit(
       phase=PhaseCode.CASCADE_WALK,
@@ -517,6 +633,8 @@ class SessionDriver:
   def _commit_proposal(
     self, mode: FailureMode, tier: CascadeTier, proposal: Proposal,
     *, applied_by: AppliedBy,
+    pre_worst_check: Optional[str] = None,
+    pre_worst_distance: Optional[float] = None,
   ) -> Dict[str, Any]:
     """Apply ``proposal`` via the section's revise_* tool and log."""
     revise_fn = self._revise_fn_for_section(proposal.section)
@@ -538,12 +656,30 @@ class SessionDriver:
         accepted = True
         applied_value = proposal.proposed_value
         self._applied_steps += 1
+    # B3 — capture post-state after the apply by re-evaluating, so the
+    # audit row records the change in worst_check/worst_distance. Skip
+    # the re-evaluation when nothing was applied (post == pre). The
+    # post_result is returned to the caller so _walk_cascade doesn't
+    # re-evaluate again.
+    post_result: Optional[EvaluatePlanResult] = None
+    if accepted:
+      post_result = self._evaluate()
+      post_worst_check = post_result.worst_failing_check
+      post_worst_distance = post_result.worst_failing_distance
+    else:
+      post_worst_check = pre_worst_check
+      post_worst_distance = pre_worst_distance
     row_id = self._log(
       proposal=proposal,
       applied_by=applied_by,
       applied_value=applied_value if accepted else None,
+      worst_check_before=pre_worst_check,
+      worst_distance_before=pre_worst_distance,
+      worst_check_after=post_worst_check,
+      worst_distance_after=post_worst_distance,
     )
-    return {"re_evaluate": accepted, "applied": accepted, "row_id": row_id}
+    return {"re_evaluate": accepted, "applied": accepted, "row_id": row_id,
+            "post_result": post_result}
 
   # --- floor ------------------------------------------------------------
 
@@ -750,6 +886,10 @@ class SessionDriver:
     applied_by: AppliedBy,
     applied_value: Optional[float] = None,
     veto_reason: Optional[str] = None,
+    worst_check_before: Optional[str] = None,
+    worst_distance_before: Optional[float] = None,
+    worst_check_after: Optional[str] = None,
+    worst_distance_after: Optional[float] = None,
   ) -> Optional[int]:
     if proposal is None:
       return None
@@ -769,9 +909,20 @@ class SessionDriver:
       applied_by=applied_by,
       veto_reason=veto_reason,
       evaluate_plan_round=self.state.evaluate_plan_round,
+      worst_check_before=worst_check_before,
+      worst_distance_before=worst_distance_before,
+      worst_check_after=worst_check_after,
+      worst_distance_after=worst_distance_after,
     )
 
   def _log_floor_step(self, mode: FailureMode, step: Any) -> None:
+    # B3 — floor steps record the current evaluate_plan state in both
+    # before and after; the floor walker does not re-evaluate between
+    # individual primitive steps. The cascade re-evaluates after the
+    # floor finishes (see _walk_cascade floor branch).
+    last = self._last_result
+    worst_check = last.worst_failing_check if last is not None else None
+    worst_distance = last.worst_failing_distance if last is not None else None
     self._log_fn(
       draft_id=self.state.draft_id,
       planning_run_id=self.state.planning_run_id,
@@ -785,9 +936,18 @@ class SessionDriver:
       step_type=step.step_type,
       applied_by=step.applied_by,
       evaluate_plan_round=self.state.evaluate_plan_round,
+      worst_check_before=worst_check,
+      worst_distance_before=worst_distance,
+      worst_check_after=worst_check,
+      worst_distance_after=worst_distance,
     )
 
   def _log_meta(self, reason: ReasonCode, *, detail: str = "") -> None:
+    # B3 — META rows record the current evaluate_plan state from the
+    # most-recent _last_result.
+    last = self._last_result
+    worst_check = last.worst_failing_check if last is not None else None
+    worst_distance = last.worst_failing_distance if last is not None else None
     self._log_fn(
       draft_id=self.state.draft_id,
       planning_run_id=self.state.planning_run_id,
@@ -799,6 +959,10 @@ class SessionDriver:
       step_type=StepType.META,
       applied_by=AppliedBy.META_ESCALATION,
       evaluate_plan_round=self.state.evaluate_plan_round,
+      worst_check_before=worst_check,
+      worst_distance_before=worst_distance,
+      worst_check_after=worst_check,
+      worst_distance_after=worst_distance,
     )
 
   def _terminate(
@@ -886,6 +1050,23 @@ def _as_list(proposal_or_options: Union[Proposal, List[Proposal]]) -> List[Propo
   if isinstance(proposal_or_options, list):
     return proposal_or_options
   return [proposal_or_options] if proposal_or_options is not None else []
+
+
+def _lever_id_from_proposal(
+  proposal_or_options: Union[Proposal, List[Proposal], None],
+) -> Optional[str]:
+  """Return a canonical "section::field" key for the proposal so the
+  oscillation guard (B1) and bound-relaxation cap (B2) can compare across
+  adjacent tiers. Returns None if the proposal can't be reduced to a
+  single lever (e.g. Type-B option lists with heterogeneous fields)."""
+  first = _first(proposal_or_options)
+  if first is None:
+    return None
+  section = getattr(first, "section", None)
+  field = getattr(first, "field", None)
+  if section is None or field is None:
+    return None
+  return f"{section}::{field}"
 
 
 # P3.33 Phase 3 pre-step-8 — WC scalar lever_ids owned by the

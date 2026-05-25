@@ -202,7 +202,12 @@ def _compute_lever_margins(
     bands_by_section.setdefault(section, {})[lever_id] = row
 
   for section in SECTIONS:
-    section_state = (plan_state or {}).get(section) or {}
+    section_state = plan_state.get(section) if plan_state else None
+    if section_state is None:
+      # plan_state was None entirely — caller has no state to evaluate
+      # margins against; skip silently (the public entry already gates
+      # on plan_state presence above).
+      continue
     if not isinstance(section_state, dict):
       continue
     section_bands = bands_by_section.get(section) or {}
@@ -305,7 +310,8 @@ def _evaluate_mini_finmo(
   *,
   anchors: Dict[str, Any],
   operating_context: Dict[str, Any],
-) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any]]:
+  emit_diagnostic_fn=None,
+) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any], int]:
   from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.mini_finmo import (  # type: ignore
     compute_trajectory_from_anchors,
   )
@@ -313,23 +319,43 @@ def _evaluate_mini_finmo(
   checks_dict = (raw.get("viability_checks") or {})
   violations = raw.get("stage_ramp_violations") or []
   results: List[CheckResult] = []
+  # B4 — count exceptions per check so the caller can fail-fast if ALL
+  # checks raised (the partial-result return path is still safe when at
+  # least one check resolved).
+  exception_count = 0
   for name, verdict in checks_dict.items():
     if name == "all_pass":
       continue
     if name in _CASH_RELATED_CHECKS:
       continue  # cash is a separate downstream process — filtered from session output
-    passed = str(verdict).upper() in {"PASS", "SKIPPED"}
-    if name.startswith("stage_ramp_") and name.endswith("_respected"):
-      distance, units = _stage_ramp_violation_distance(name, violations)
-    else:
-      distance, units = _mini_finmo_distance(name, raw)
-    results.append(CheckResult(
-      name=name, passed=passed,
-      failure_mode=(None if passed else classify_failure(name)),
-      distance_to_feasibility=distance, distance_units=units,
-      implicated_sections=attribute_to_sections(name) if not passed else [],
-      detail={"raw_verdict": str(verdict)},
-    ))
+    try:
+      passed = str(verdict).upper() in {"PASS", "SKIPPED"}
+      if name.startswith("stage_ramp_") and name.endswith("_respected"):
+        distance, units = _stage_ramp_violation_distance(name, violations)
+      else:
+        distance, units = _mini_finmo_distance(name, raw)
+      results.append(CheckResult(
+        name=name, passed=passed,
+        failure_mode=(None if passed else classify_failure(name)),
+        distance_to_feasibility=distance, distance_units=units,
+        implicated_sections=attribute_to_sections(name) if not passed else [],
+        detail={"raw_verdict": str(verdict)},
+      ))
+    except Exception as exc:
+      exception_count += 1
+      _emit_check_exception(emit_diagnostic_fn, name, exc)
+      # Synthesize a failed-by-infinite-distance check so downstream
+      # consumers see this as a META failure rather than missing the
+      # check entirely.
+      results.append(CheckResult(
+        name=name, passed=False,
+        failure_mode=FailureMode.META_INVARIANT,
+        distance_to_feasibility=float("-inf"),
+        distance_units=None,
+        implicated_sections=[],
+        detail={"exception_type": type(exc).__name__,
+                "exception_detail": str(exc)[:480]},
+      ))
   trajectory: List[QuarterTrajectory] = []
   # The mini_finmo output exposes key-quarter scalars only, not full grids.
   for q_key, q_label in (("q1", 1), ("q5", 5), ("q11", 11), ("q15", 15), ("q20", 20)):
@@ -343,7 +369,7 @@ def _evaluate_mini_finmo(
       quarter=q_label, revenue=_f(rev), ebitda=_f(eb),
       ebitda_margin=_f(em), gross_margin=_f(gm),
     ))
-  return results, trajectory, raw
+  return results, trajectory, raw, exception_count
 
 
 def _evaluate_full_acceptance_gate(
@@ -352,28 +378,69 @@ def _evaluate_full_acceptance_gate(
   draft_id: str,
   planning_run_id: Optional[str],
   finmo_json: Optional[Dict[str, Any]],
-) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any]]:
+  emit_diagnostic_fn=None,
+) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any], int]:
   from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore
     verify_run_acceptance,
   )
   verdict = verify_run_acceptance(conn, draft_id=draft_id, planning_run_id=planning_run_id)
   results: List[CheckResult] = []
+  # B4 — per-check try/except so a single check raising can't crash
+  # evaluate_plan; the caller can fail-fast if ALL checks raised.
+  exception_count = 0
   for c in (verdict.get("checks") or []):
     name = str(c.get("name") or "")
     if name in _CASH_RELATED_CHECKS:
       continue  # cash is a separate downstream process — filtered from session output
-    passed = bool(c.get("passed"))
-    detail = c.get("detail") or {}
-    distance, units = _gate_distance(name, detail) if not passed else (None, None)
-    results.append(CheckResult(
-      name=name, passed=passed,
-      failure_mode=(None if passed else classify_failure(name)),
-      distance_to_feasibility=distance, distance_units=units,
-      implicated_sections=attribute_to_sections(name) if not passed else [],
-      detail=detail if isinstance(detail, dict) else {},
-    ))
+    try:
+      passed = bool(c.get("passed"))
+      detail = c.get("detail") or {}
+      distance, units = _gate_distance(name, detail) if not passed else (None, None)
+      results.append(CheckResult(
+        name=name, passed=passed,
+        failure_mode=(None if passed else classify_failure(name)),
+        distance_to_feasibility=distance, distance_units=units,
+        implicated_sections=attribute_to_sections(name) if not passed else [],
+        detail=detail if isinstance(detail, dict) else {},
+      ))
+    except Exception as exc:
+      exception_count += 1
+      _emit_check_exception(emit_diagnostic_fn, name, exc)
+      results.append(CheckResult(
+        name=name, passed=False,
+        failure_mode=FailureMode.META_INVARIANT,
+        distance_to_feasibility=float("-inf"),
+        distance_units=None,
+        implicated_sections=[],
+        detail={"exception_type": type(exc).__name__,
+                "exception_detail": str(exc)[:480]},
+      ))
   trajectory = _trajectory_from_finmo(finmo_json)
-  return results, trajectory, verdict
+  return results, trajectory, verdict, exception_count
+
+
+def _emit_check_exception(emit_fn, check_name: str, exc: BaseException) -> None:
+  """Best-effort diagnostic emit for a per-check exception. Mirrors
+  session_driver._emit — swallows any emitter failure so the evaluator
+  never crashes on diagnostics."""
+  if emit_fn is None:
+    return
+  try:
+    from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # type: ignore
+      EventCode, PhaseCode, Status,
+    )
+    emit_fn(
+      phase=PhaseCode.EVALUATE_PLAN,
+      event_code=EventCode.EVALUATE_PLAN_CHECK_EXCEPTION,
+      status=Status.FAILED,
+      diagnostic_data={
+        "check_name": check_name,
+        "exception_type": type(exc).__name__,
+        "exception_detail": str(exc)[:480],
+      },
+    )
+  except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +459,8 @@ def evaluate_plan(
   operating_context: Optional[Dict[str, Any]] = None,
   # Input the full-gate trajectory wants:
   finmo_json: Optional[Dict[str, Any]] = None,
+  # Optional diagnostic emit closure (B4 — for per-check exception rows).
+  emit_diagnostic_fn=None,
 ) -> EvaluatePlanResult:
   """Run the standards check and return a structured result.
 
@@ -404,18 +473,79 @@ def evaluate_plan(
   strictness = "full_acceptance_gate" if structural_completeness else "mini_finmo"
   checks: List[CheckResult] = []
   trajectory: List[QuarterTrajectory] = []
+  check_exception_count = 0
+  total_check_attempts = 0
+
+  # B5 — when plan_state is supplied, every authoring section must be
+  # present (empty dict {} is OK and indicates "authored but no levers
+  # yet"; missing key is NOT). The Round-1 fail-fast guards round 1, but
+  # later evaluate_plan calls (mid-cascade) must enforce the same
+  # invariant.
+  if plan_state is not None:
+    missing = [s for s in SECTIONS if s not in plan_state]
+    if missing:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+        raise_fail_fast,
+      )
+      from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # type: ignore
+        PhaseCode,
+      )
+      from client_intake_and_finmo.post_intake_diagnostics.fail_fast_codes import (  # type: ignore
+        FailFastCode,
+      )
+      raise_fail_fast(
+        conn,
+        draft_id=draft_id or "", planning_run_id=planning_run_id or "",
+        phase=PhaseCode.EVALUATE_PLAN,
+        code=FailFastCode.FAIL_EVALUATE_PLAN_MALFORMED,
+        detail=f"plan_state missing required section(s): {missing!r}",
+        where="evaluate_plan",
+      )
   if strictness == "mini_finmo":
     if not anchors or not operating_context:
       notes.append("mini_finmo path skipped: missing anchors / operating_context")
     else:
-      checks, trajectory, _ = _evaluate_mini_finmo(anchors=anchors, operating_context=operating_context)
+      checks, trajectory, _, check_exception_count = _evaluate_mini_finmo(
+        anchors=anchors, operating_context=operating_context,
+        emit_diagnostic_fn=emit_diagnostic_fn,
+      )
+      total_check_attempts = len(checks)
   else:
     if conn is None or not draft_id:
       notes.append("full_acceptance_gate path skipped: conn + draft_id required")
     else:
-      checks, trajectory, _ = _evaluate_full_acceptance_gate(
-        conn, draft_id=draft_id, planning_run_id=planning_run_id, finmo_json=finmo_json,
+      checks, trajectory, _, check_exception_count = _evaluate_full_acceptance_gate(
+        conn, draft_id=draft_id, planning_run_id=planning_run_id,
+        finmo_json=finmo_json, emit_diagnostic_fn=emit_diagnostic_fn,
       )
+      total_check_attempts = len(checks)
+
+  # B4 — if every attempted check raised, the evaluator produced nothing
+  # useful; fail-fast so the caller doesn't act on synthetic META-failed
+  # placeholders. A partial result (at least one successful eval) is
+  # still safe — the cascade dispatches the META failure(s) on the
+  # exception-marked checks.
+  if total_check_attempts > 0 and check_exception_count == total_check_attempts:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+      raise_fail_fast,
+    )
+    from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # type: ignore
+      PhaseCode,
+    )
+    from client_intake_and_finmo.post_intake_diagnostics.fail_fast_codes import (  # type: ignore
+      FailFastCode,
+    )
+    raise_fail_fast(
+      conn,
+      draft_id=draft_id or "", planning_run_id=planning_run_id or "",
+      phase=PhaseCode.EVALUATE_PLAN,
+      code=FailFastCode.FAIL_EVALUATE_PLAN_EXCEPTION,
+      detail=(
+        f"all {total_check_attempts} attempted checks raised; no usable result. "
+        f"strictness={strictness}"
+      ),
+      where="evaluate_plan",
+    )
 
   lever_margins: List[LeverMargin] = []
   if conn is not None and draft_id and planning_run_id:
