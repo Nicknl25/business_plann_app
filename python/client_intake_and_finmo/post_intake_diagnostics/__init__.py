@@ -8,12 +8,10 @@ juncture.
 
 Module layout:
 
-  phase_codes.py            — PhaseCode + EventCode + Status enums
-                              (Step 9a part 1: this commit)
+  phase_codes.py            — PhaseCode + EventCode + Status enums.
   run_diagnostics_table.py  — ``post_intake_run_diagnostics`` DDL,
                               ``ensure_run_diagnostics_table`` helper,
-                              ``emit_diagnostic`` writer, fetch helpers
-                              (Step 9a part 2: next commit)
+                              ``emit_diagnostic`` writer, fetch helpers.
 
 Step 9a ships the table + writer + enums. Steps 9b and 9c instrument
 the actual pipeline phases to call ``emit_diagnostic`` at every state
@@ -28,4 +26,10 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noq
   PhaseCode,
   Status,
   event_code_belongs_to_phase,
+)
+from client_intake_and_finmo.post_intake_diagnostics.run_diagnostics_table import (  # noqa: F401  # noqa: E501
+  RUN_DIAGNOSTICS_TABLE_NAME,
+  emit_diagnostic,
+  ensure_run_diagnostics_table,
+  fetch_diagnostics,
 )
