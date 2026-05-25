@@ -33,6 +33,13 @@ from client_intake_and_finmo.post_intake_diagnostics.run_diagnostics_table impor
   ensure_run_diagnostics_table,
   fetch_diagnostics,
 )
+from client_intake_and_finmo.post_intake_diagnostics.fail_fast_codes import (  # noqa: F401  # noqa: E501
+  FAIL_FAST_CODES_BY_PHASE,
+  FAIL_FAST_PREFIX,
+  FailFastCode,
+  fail_fast_code_belongs_to_phase,
+  raise_fail_fast,
+)
 
 
 def safe_emit(conn, *, draft_id, planning_run_id, **kwargs):
