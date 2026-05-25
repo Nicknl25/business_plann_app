@@ -220,8 +220,31 @@ def set_stage_ramp_contract(
   except RuntimeError as exc:
     validator_violations = _build_violations_from_runtime_error(exc)
 
+  # Step 9b-ii — emit ROUND1_STAGE_RAMP_OK/FAIL only when contract=None
+  # (round-1 authoring path). Cascade-revision callers supply a
+  # contract and are observed via the SessionDriver's CASCADE_PROPOSAL_*
+  # emits.
+  is_round1 = contract is None
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+    EventCode, PhaseCode, Status, safe_emit,
+  )
+
   violations = validator_violations + band_violations
   if violations:
+    if is_round1:
+      safe_emit(
+        conn,
+        draft_id=_string(draft_id),
+        planning_run_id=_string(planning_run_id),
+        phase=PhaseCode.ROUND1_AUTHORING,
+        event_code=EventCode.ROUND1_STAGE_RAMP_FAIL,
+        status=Status.FAILED,
+        diagnostic_data={
+          "violation_codes": [v.get("code") for v in violations][:10],
+          "violation_count": len(violations),
+          "decision_source": decision_source,
+        },
+      )
     return {
       "accepted": False,
       "section": "stage_ramp",
@@ -239,6 +262,20 @@ def set_stage_ramp_contract(
   accepted.setdefault("planning_mode", _string(planning_mode).lower())
   accepted.setdefault("planning_mode_reason", _string(planning_mode_reason))
   accepted.setdefault("contract_version", "stage_ramp_contract_v2")
+  if is_round1:
+    safe_emit(
+      conn,
+      draft_id=_string(draft_id),
+      planning_run_id=_string(planning_run_id),
+      phase=PhaseCode.ROUND1_AUTHORING,
+      event_code=EventCode.ROUND1_STAGE_RAMP_OK,
+      status=Status.COMPLETED,
+      diagnostic_data={
+        "decision_source": decision_source,
+        "stage_family": accepted.get("stage_family"),
+        "planning_mode": accepted.get("planning_mode"),
+      },
+    )
   return {
     "accepted": True,
     "section": "stage_ramp",

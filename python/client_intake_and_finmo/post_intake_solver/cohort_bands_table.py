@@ -174,6 +174,20 @@ def populate_cohort_bands_for_run(
   if not draft_id or not planning_run_id:
     raise ValueError("draft_id and planning_run_id are required")
 
+  # Step 9b-ii — emit COHORT_BANDS_STARTED at phase entry.
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+    EventCode, PhaseCode, Status, safe_emit,
+  )
+  safe_emit(
+    conn, draft_id=draft_id, planning_run_id=planning_run_id,
+    phase=PhaseCode.COHORT_BANDS_POPULATOR,
+    event_code=EventCode.COHORT_BANDS_STARTED,
+    status=Status.STARTED,
+    diagnostic_data={
+      "sections": list(sections) if sections else list(_SECTION_LEVERS.keys()),
+    },
+  )
+
   target_sections = list(sections) if sections else list(_SECTION_LEVERS.keys())
   summary: Dict[str, Dict[str, int]] = {}
   now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -237,6 +251,18 @@ def populate_cohort_bands_for_run(
       cur.close()
     except Exception:
       pass
+  # Step 9b-ii — emit COHORT_BANDS_COMPLETED with summary counts.
+  safe_emit(
+    conn, draft_id=draft_id, planning_run_id=planning_run_id,
+    phase=PhaseCode.COHORT_BANDS_POPULATOR,
+    event_code=EventCode.COHORT_BANDS_COMPLETED,
+    status=Status.COMPLETED,
+    diagnostic_data={
+      "summary": summary,
+      "total_resolved": sum(s.get("resolved", 0) for s in summary.values()),
+      "total_skipped": sum(s.get("skipped", 0) for s in summary.values()),
+    },
+  )
   return summary
 
 

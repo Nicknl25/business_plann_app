@@ -160,6 +160,37 @@ def build_mirror(
     budget=dict(budget or {}),
     recent_decisions_cap=int(recent_decisions_cap),
   )
+  # Step 9b-ii — emit MIRROR_BUILD_STARTED + COMPLETED (or NO_BANDS
+  # when bands are empty across all sections). draft_id / planning_run_
+  # id are optional on build_mirror; skip the emit when they're absent.
+  if conn is not None and draft_id and planning_run_id:
+    try:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+        EventCode, PhaseCode, Status, safe_emit,
+      )
+      sections_populated = sum(
+        1 for s in SECTIONS if mirror.plan_state.get(s)
+      )
+      bands_loaded = sum(
+        1 for s in SECTIONS
+        if isinstance(mirror.bands.get(s), dict) and mirror.bands.get(s)
+      )
+      safe_emit(
+        conn, draft_id=draft_id, planning_run_id=planning_run_id,
+        phase=PhaseCode.MIRROR_BUILD,
+        event_code=(
+          EventCode.MIRROR_BUILD_NO_BANDS if bands_loaded == 0
+          else EventCode.MIRROR_BUILD_COMPLETED
+        ),
+        status=Status.COMPLETED,
+        diagnostic_data={
+          "sections_populated": sections_populated,
+          "bands_loaded": bands_loaded,
+          "section_total": len(SECTIONS),
+        },
+      )
+    except Exception:
+      pass
   return mirror
 
 

@@ -267,6 +267,22 @@ def set_payroll_schedule(
 
   violations = validator_violations + band_violations
   if violations or normalized is None:
+    if decision_source == "handler_c_internal_authoring":
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+        EventCode, PhaseCode, Status, safe_emit,
+      )
+      safe_emit(
+        conn,
+        draft_id=_string(draft_id),
+        planning_run_id=_string(planning_run_id),
+        phase=PhaseCode.ROUND1_AUTHORING,
+        event_code=EventCode.ROUND1_PAYROLL_FAIL,
+        status=Status.FAILED,
+        diagnostic_data={
+          "violation_codes": [v.get("code") for v in violations][:10],
+          "violation_count": len(violations),
+        },
+      )
     return {
       "accepted": False,
       "section": "payroll",
@@ -303,6 +319,23 @@ def set_payroll_schedule(
       "decision_source": decision_source,
     }
 
+  # Step 9b-ii — emit ROUND1_PAYROLL_OK when contract=None path
+  # (decision_source == "handler_c_internal_authoring"). Cascade
+  # revisions pass a contract directly and are observed via the
+  # SessionDriver's CASCADE_PROPOSAL_* emits.
+  if decision_source == "handler_c_internal_authoring":
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+      EventCode, PhaseCode, Status, safe_emit,
+    )
+    safe_emit(
+      conn,
+      draft_id=_string(draft_id),
+      planning_run_id=_string(planning_run_id),
+      phase=PhaseCode.ROUND1_AUTHORING,
+      event_code=EventCode.ROUND1_PAYROLL_OK,
+      status=Status.COMPLETED,
+      diagnostic_data={"decision_source": decision_source},
+    )
   return {
     "accepted": True,
     "section": "payroll",

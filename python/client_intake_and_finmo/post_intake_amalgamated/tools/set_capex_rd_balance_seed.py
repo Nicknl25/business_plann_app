@@ -316,6 +316,23 @@ def set_capex_rd_balance_seed(
     bs_payload = None
 
   if violations:
+    # Step 9b-ii — emit the round-1 failure when the builder exception
+    # path fires (overrides=None means caller wants round-1 authoring;
+    # cascade-revision callers pass overrides and are observed via
+    # the SessionDriver's CASCADE_PROPOSAL_* emits).
+    if overrides is None:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+        EventCode, PhaseCode, Status, safe_emit,
+      )
+      safe_emit(
+        conn,
+        draft_id=_string(draft_id),
+        planning_run_id=_string(planning_run_id),
+        phase=PhaseCode.ROUND1_AUTHORING,
+        event_code=EventCode.ROUND1_CAPEX_RD_BALANCE_SEED_FAIL,
+        status=Status.FAILED,
+        diagnostic_data={"violation_codes": [v.get("code") for v in violations]},
+      )
     return {
       "accepted": False,
       "section": "capex_rd_balance_seed",
@@ -356,7 +373,28 @@ def set_capex_rd_balance_seed(
       )
       overrides_audit.extend(wc_audit)
 
+  # Step 9b-ii — emit a ROUND1_AUTHORING diagnostic for the round-1
+  # path (overrides=None). Cascade-revision callers pass overrides
+  # and are observed via the SessionDriver's CASCADE_PROPOSAL_*
+  # emits — no duplicate emit needed here.
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+    EventCode, PhaseCode, Status, safe_emit,
+  )
+
   if wc_violations:
+    if overrides is None:
+      safe_emit(
+        conn,
+        draft_id=_string(draft_id),
+        planning_run_id=_string(planning_run_id),
+        phase=PhaseCode.ROUND1_AUTHORING,
+        event_code=EventCode.ROUND1_CAPEX_RD_BALANCE_SEED_FAIL,
+        status=Status.FAILED,
+        diagnostic_data={
+          "violation_codes": [v.get("code") for v in (wc_violations or [])],
+          "overrides_applied_count": len(overrides_audit),
+        },
+      )
     return {
       "accepted": False,
       "section": "capex_rd_balance_seed",
@@ -367,6 +405,20 @@ def set_capex_rd_balance_seed(
     }
 
   decision_source = "amalgamated_gpt_supplied" if overrides_audit else "python_deterministic_floor"
+  if overrides is None:
+    safe_emit(
+      conn,
+      draft_id=_string(draft_id),
+      planning_run_id=_string(planning_run_id),
+      phase=PhaseCode.ROUND1_AUTHORING,
+      event_code=EventCode.ROUND1_CAPEX_RD_BALANCE_SEED_OK,
+      status=Status.COMPLETED,
+      diagnostic_data={
+        "decision_source": decision_source,
+        "rd_enabled": bool((rd_payload or {}).get("r_and_d_enabled")),
+        "maintenance_capex_percent": (mc_payload or {}).get("maintenance_capex_percent"),
+      },
+    )
   return {
     "accepted": True,
     "section": "capex_rd_balance_seed",

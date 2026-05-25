@@ -597,6 +597,27 @@ def prepare_initial_grid_for_draft(
     "maintenance_rate": maintenance_rate,
   }
 
+  # Step 9b-ii — finmo_sync diagnostic emits around the baseline
+  # sync call. STARTED before _execute_sequence_step; COMPLETED on
+  # success; FAILED in the except path of any downstream consumer
+  # of sync_result. (The _execute_sequence_step itself raises on
+  # handler failure; we let that propagate.)
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+    EventCode as _DiagEventCode,
+    PhaseCode as _DiagPhaseCode,
+    Status as _DiagStatus,
+    safe_emit as _diag_safe_emit,
+  )
+  _diag_safe_emit(
+    conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+    phase=_DiagPhaseCode.FINMO_SYNC,
+    event_code=_DiagEventCode.FINMO_SYNC_STARTED,
+    status=_DiagStatus.STARTED,
+    diagnostic_data={"forecast_starting_ppe": forecast_starting_ppe,
+                     "maintenance_rate": maintenance_rate},
+  )
   sync_result = _execute_sequence_step(
     "baseline_finmo_sync",
     sync_planning_state_to_finmo,
@@ -618,6 +639,20 @@ def prepare_initial_grid_for_draft(
     expected_phase="pre_convergence",
     expected_handler_key="sync_planning_state_to_finmo",
     required_horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
+  )
+  _diag_safe_emit(
+    conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+    phase=_DiagPhaseCode.FINMO_SYNC,
+    event_code=_DiagEventCode.FINMO_SYNC_COMPLETED,
+    status=_DiagStatus.COMPLETED,
+    diagnostic_data={
+      "model_input_present": bool(isinstance(sync_result, dict)
+                                  and isinstance(sync_result.get("model_input_json"), dict)),
+      "finmo_present": bool(isinstance(sync_result, dict)
+                            and isinstance(sync_result.get("finmo_json"), dict)),
+    },
   )
   r_and_d_applicability_decision: Dict[str, Any] = {}
   balance_sheet_contextual_seed_decision: Dict[str, Any] = {}

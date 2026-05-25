@@ -33,3 +33,23 @@ from client_intake_and_finmo.post_intake_diagnostics.run_diagnostics_table impor
   ensure_run_diagnostics_table,
   fetch_diagnostics,
 )
+
+
+def safe_emit(conn, *, draft_id, planning_run_id, **kwargs):
+  """Wrapper around ``emit_diagnostic`` that swallows ALL exceptions so
+  observability never crashes the pipeline. Step 9b+ instrumentation
+  call sites in the set_* tools, mirror builder, cohort_bands
+  populator, and orchestrator should use this; the SessionDriver's
+  internal _emit handles its own try/except equivalently.
+
+  Returns the row id on success, ``None`` on any failure (including
+  programmer-bug ValueErrors from unknown enums / mismatched pairs —
+  this wrapper is meant to be infallible in production; tests should
+  call emit_diagnostic directly to catch enum drift).
+  """
+  try:
+    return emit_diagnostic(
+      conn, draft_id=draft_id, planning_run_id=planning_run_id, **kwargs,
+    )
+  except Exception:
+    return None
