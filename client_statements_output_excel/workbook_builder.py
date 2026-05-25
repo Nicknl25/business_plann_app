@@ -3,7 +3,7 @@ from __future__ import annotations
 from openpyxl.styles import Font, PatternFill
 
 from .checks_sheet import build_checks_sheet
-from .data import DraftWorkbookData, validate_draft_data
+from .data import DraftWorkbookData
 from .diagnostics_sheet import build_diagnostics_sheet
 from .excel_utils import (
   CASH_EQUITY_SHEET,
@@ -28,7 +28,35 @@ from .source_audit_sheet import build_source_audit_sheet
 
 
 def build_client_financial_model_workbook(data: DraftWorkbookData):
-  validate_draft_data(data)
+  # P3.40 Contract 2 Commit 3 -- consumer-side boundary gate.
+  # Replaces the legacy ``validate_draft_data(data)`` call (which only
+  # checked field presence) with a typed contract validation. On
+  # invalid input the gate raises ``ContractViolation``; the API
+  # entry point at intake_consult.py:7655 catches it as a generic
+  # Exception and logs str(exc), so the failure surfaces as a
+  # structured boundary error rather than mid-build sheet-builder
+  # crashes. The legacy ``validate_draft_data`` function is left in
+  # ``data.py`` for now (spec §8 R9 follow-up deletes it).
+  #
+  # Lazy import so workbook_builder.py remains importable in
+  # environments where the python/ contracts package isn't on
+  # sys.path (the API export path adds it; some test paths do not).
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (
+    SIDE_CONSUMER,
+    validate_workbook_payload_at_boundary,
+  )
+  payload: dict = {
+    "model_input_json": data.model_input_json,
+    "finmo_json": data.finmo_json,
+    "payroll_headcount": data.payroll_headcount,
+    "debt_schedule": data.debt_schedule,
+  }
+  if data.planning_run_json:
+    payload["planning_run_json"] = data.planning_run_json
+  if data.run_diagnostics is not None:
+    payload["run_diagnostics"] = data.run_diagnostics
+  validate_workbook_payload_at_boundary(payload, side=SIDE_CONSUMER)
+
   wb = create_workbook()
   wb.properties.title = f"{data.business_name} Financial Model"
   wb.properties.subject = "Client financial model workbook"

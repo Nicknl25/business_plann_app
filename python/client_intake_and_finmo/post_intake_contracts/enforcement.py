@@ -37,6 +37,10 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
   ContractViolation,
   FinmoModelInputContract,
 )
+from client_intake_and_finmo.post_intake_contracts.workbook_payload_contract import (
+  WORKBOOK_STAGE_LABEL,
+  WorkbookPayloadContract,
+)
 
 
 #: Stage label for the producer/consumer gates around the
@@ -203,6 +207,88 @@ def _safe_emit(
     return
 
 
+def validate_workbook_payload_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = WORKBOOK_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> WorkbookPayloadContract:
+  """P3.40 Contract 2 Commit 3 consumer-side gate. Validate
+  ``payload`` against ``WorkbookPayloadContract`` and return the
+  parsed contract on success.
+
+  This is the boundary enforcement called at the entry of
+  ``client_statements_output_excel/workbook_builder.py:
+  build_client_financial_model_workbook`` -- the workbook builder
+  is the SOLE consumer at this boundary, so this is the gate that
+  matters today. The matching producer-side gates (one per writer
+  of the 5 JSON dicts: model_input_json, finmo_json,
+  payroll_headcount, debt_schedule, planning_run_json) are deferred
+  to spec §8 R8.
+
+  On failure, raises ``ContractViolation`` with the WORKBOOK stage
+  label and the first ``ValidationError`` extracted into structured
+  fields. The API entry point at
+  ``python/api_handlers/intake_consult.py:7655`` already catches
+  generic ``Exception`` and logs ``str(exc)``, so the violation
+  propagates as a useful structured message in the server log
+  (verified by Adjustment B tests in
+  ``tests/test_p3_40_contract_2_workbook_payload.py``).
+
+  Diagnostic emission is best-effort (same pattern as the
+  model-input gate above): if ``emit_diagnostic_fn`` is supplied,
+  the gate emits ``WORKBOOK_PAYLOAD_CONTRACT_VALIDATED`` on success
+  and ``WORKBOOK_PAYLOAD_CONTRACT_VIOLATION`` on failure. Both
+  emit-failures are swallowed so observability cannot break the
+  workbook build.
+  """
+  try:
+    contract = WorkbookPayloadContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        event_code_name="WORKBOOK_PAYLOAD_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side,
+          "stage": stage,
+          "field": field_path,
+          "expected": expected[:300],
+          "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage,
+      field=field_path,
+      expected=expected,
+      actual=actual,
+      source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      event_code_name="WORKBOOK_PAYLOAD_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side,
+        "stage": stage,
+        "pl_row_count": len(contract.finmo_json.pl),
+        "balance_sheet_row_count": len(contract.finmo_json.balance_sheet),
+        "cash_flow_row_count": len(contract.finmo_json.cash_flow),
+        "payroll_row_count": len(contract.payroll_headcount.rows),
+        "debt_schedule_row_count": len(contract.debt_schedule.rows),
+        "has_planning_run_json": contract.planning_run_json is not None,
+        "has_run_diagnostics": contract.run_diagnostics is not None,
+      },
+    )
+  return contract
+
+
 def make_boundary_emitter(
   *,
   conn: Any,
@@ -232,8 +318,10 @@ def make_boundary_emitter(
 
 __all__ = [
   "MODEL_INPUT_STAGE_LABEL",
+  "WORKBOOK_STAGE_LABEL",
   "SIDE_PRODUCER",
   "SIDE_CONSUMER",
   "validate_model_input_at_boundary",
+  "validate_workbook_payload_at_boundary",
   "make_boundary_emitter",
 ]
