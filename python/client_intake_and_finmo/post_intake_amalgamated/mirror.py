@@ -26,6 +26,12 @@ from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (  
 
 DEFAULT_RECENT_DECISIONS_CAP = 10
 
+# Cap on the number of failing-check names + failing-lever-margin entries
+# that ``Mirror.set_validation_state`` projects into validation_state.
+# Keeps the responder's prompt budget bounded even on plans with many
+# simultaneous failures.
+_VALIDATION_STATE_RENDER_CAP = 12
+
 # The three invariants from the directive. Static. Always shown to GPT so the
 # operating contract is unambiguous regardless of round.
 _INVARIANTS: Dict[str, str] = {
@@ -98,9 +104,61 @@ class Mirror:
       self.recent_decisions = self.recent_decisions[-self.recent_decisions_cap:]
 
   def set_validation_state(self, evaluate_plan_result: EvaluatePlanResult) -> None:
-    """Memo §2 requirement: validation_state carries evaluate_plan output
-    VERBATIM, not a summary. The step-5 session driver reads this directly."""
-    self.validation_state = evaluate_plan_result.to_dict()
+    """Refresh the mirror's view of the current standards-check state.
+
+    Stores a small projection (not the full ``to_dict()`` payload) so the
+    responder can render it into GPT prompts without blowing the prompt
+    budget. Captures the fields the responder actually needs to surface
+    current failure context:
+
+      - ``all_pass`` / ``failing_check_count``
+      - ``worst_failing_check`` / ``worst_failing_distance``
+      - ``failing_check_names``: ordered names of failing checks (cap
+        applied to keep prompt budget bounded)
+      - ``failing_lever_margins``: only the levers currently outside their
+        band, each as ``{lever_id, section, current, band_min, band_max,
+        outside_band, pinned_min, pinned_max}`` — same cap
+      - ``round_number`` / ``strictness`` / ``evaluated_at``
+
+    The full result remains on ``SessionDriver._last_result`` for
+    in-process access; the mirror only carries what GPT needs to see.
+    """
+    if evaluate_plan_result is None:
+      self.validation_state = {}
+      return
+    cap = _VALIDATION_STATE_RENDER_CAP
+    failing_checks = [c for c in evaluate_plan_result.checks if not c.passed]
+    failing_check_names = [c.name for c in failing_checks][:cap]
+    failing_margins = [
+      m for m in evaluate_plan_result.lever_margins
+      if getattr(m, "outside_band", False)
+    ]
+    failing_lever_margins = [
+      {
+        "lever_id": getattr(m, "lever_id", None),
+        "section": getattr(m, "section", None),
+        "current": getattr(m, "current", None),
+        "band_min": getattr(m, "band_min", None),
+        "band_max": getattr(m, "band_max", None),
+        "outside_band": getattr(m, "outside_band", False),
+        "pinned_min": getattr(m, "pinned_min", False),
+        "pinned_max": getattr(m, "pinned_max", False),
+      }
+      for m in failing_margins[:cap]
+    ]
+    self.validation_state = {
+      "all_pass": bool(evaluate_plan_result.all_pass),
+      "round_number": int(evaluate_plan_result.round_number),
+      "strictness": str(evaluate_plan_result.strictness or ""),
+      "failing_check_count": len(failing_checks),
+      "worst_failing_check": evaluate_plan_result.worst_failing_check,
+      "worst_failing_distance": evaluate_plan_result.worst_failing_distance,
+      "failing_check_names": failing_check_names,
+      "failing_check_names_truncated": len(failing_checks) > cap,
+      "failing_lever_margins": failing_lever_margins,
+      "failing_lever_margins_truncated": len(failing_margins) > cap,
+      "evaluated_at": evaluate_plan_result.evaluated_at,
+    }
 
   def set_plan_state_section(self, section: str, payload: Any) -> None:
     """Replace ``plan_state[section]`` with ``payload``.

@@ -261,6 +261,53 @@ def render_mirror_for_proposal(
         if k in biz:
           lines.append(f"  {k}: {biz[k]}")
 
+    # P3.40 bug 3 fix: render the current standards-check state so the
+    # executive sees the failure context the cascade is responding to.
+    # The mirror's validation_state is populated by
+    # Mirror.set_validation_state after each SessionDriver._evaluate
+    # call (small projection; not the full EvaluatePlanResult).
+    vs = getattr(mirror, "validation_state", None) or {}
+    if isinstance(vs, dict) and vs:
+      lines.append("")
+      lines.append("Current standards-check state:")
+      lines.append(
+        f"  round {vs.get('round_number', '?')} | strictness "
+        f"{vs.get('strictness', '?')} | "
+        f"all_pass: {vs.get('all_pass')}"
+      )
+      fail_count = vs.get("failing_check_count")
+      if fail_count is not None:
+        lines.append(f"  failing checks: {fail_count}")
+      worst = vs.get("worst_failing_check")
+      if worst:
+        lines.append(
+          f"  worst: {worst} (distance "
+          f"{_fmt(vs.get('worst_failing_distance'))})"
+        )
+      names = vs.get("failing_check_names") or []
+      if names:
+        truncated = vs.get("failing_check_names_truncated")
+        suffix = " (truncated)" if truncated else ""
+        lines.append(f"  failing-check names{suffix}: " + ", ".join(names))
+      margins = vs.get("failing_lever_margins") or []
+      if margins:
+        truncated = vs.get("failing_lever_margins_truncated")
+        suffix = " (truncated)" if truncated else ""
+        lines.append(f"  out-of-band levers{suffix}:")
+        for m in margins:
+          if not isinstance(m, dict):
+            continue
+          lever_id = m.get("lever_id") or "?"
+          cur = _fmt(m.get("current"))
+          bmin = _fmt(m.get("band_min"))
+          bmax = _fmt(m.get("band_max"))
+          pin = ""
+          if m.get("pinned_min"):
+            pin = " [pinned-min]"
+          elif m.get("pinned_max"):
+            pin = " [pinned-max]"
+          lines.append(f"    {lever_id}: {cur} (band {bmin}..{bmax}){pin}")
+
   return "\n".join(lines)
 
 

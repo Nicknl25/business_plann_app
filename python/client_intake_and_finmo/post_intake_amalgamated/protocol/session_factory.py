@@ -338,6 +338,13 @@ def make_session_driver(
   # can refresh the in-memory snapshot after each revise_* commit.
   def apply_to_plan_state_fn(section: str, payload: Any) -> None:
     mirror.set_plan_state_section(section, payload)
+  # P3.40 bug 3 fix: bind the mirror's validation_state setter so
+  # SessionDriver propagates each evaluate_plan result into the mirror.
+  # Without this, the responder's render_mirror_for_proposal always sees
+  # an empty validation_state (the setter existed since session-1 but
+  # had zero callers).
+  def apply_to_validation_state_fn(evaluate_plan_result: Any) -> None:
+    mirror.set_validation_state(evaluate_plan_result)
   primitive_kwargs_for_mode = _build_primitive_kwargs_for_mode(
     mirror=mirror, model_input_json=model_input_json,
     finmo_json=finmo_json, stage_ramp_contract=stage_ramp_contract,
@@ -365,6 +372,7 @@ def make_session_driver(
     log_fn=lambda **kw: log_restructure(conn, **kw),
     current_payload_for=current_payload_for,
     apply_to_plan_state_fn=apply_to_plan_state_fn,
+    apply_to_validation_state_fn=apply_to_validation_state_fn,
     primitive_kwargs_for_mode=primitive_kwargs_for_mode,
     emit_diagnostic_fn=_emit_diagnostic_fn,
   )

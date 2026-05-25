@@ -161,6 +161,7 @@ class SessionDriver:
     log_fn: Optional[Callable[..., Any]] = None,
     current_payload_for: Optional[Callable[[str], Any]] = None,
     apply_to_plan_state_fn: Optional[Callable[[str, Any], None]] = None,
+    apply_to_validation_state_fn: Optional[Callable[[EvaluatePlanResult], None]] = None,
     primitive_kwargs_for_mode: Optional[Callable[[FailureMode], Dict[str, Any]]] = None,
     emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
     budget: int = DEFAULT_TOOL_CALL_BUDGET,
@@ -176,6 +177,7 @@ class SessionDriver:
     self._log_fn = log_fn or (lambda **kw: None)
     self._current_payload_for = current_payload_for or (lambda s: None)
     self._apply_to_plan_state_fn = apply_to_plan_state_fn or (lambda s, p: None)
+    self._apply_to_validation_state_fn = apply_to_validation_state_fn or (lambda r: None)
     self._primitive_kwargs_for_mode = primitive_kwargs_for_mode or (lambda m: {})
     # Step 9b — diagnostic emitter for state transitions. The factory
     # binds this to post_intake_run_diagnostics.emit_diagnostic with
@@ -852,6 +854,27 @@ class SessionDriver:
     self.state.last_worst_distance = result.worst_failing_distance
     self.state.last_failing_check_count = self._failing_count(result)
     self._last_result = result
+    # P3.40 bug 3 fix: propagate the just-evaluated result into the
+    # mirror's validation_state. Without this, the responder always
+    # renders an empty validation_state (the setter has been defined
+    # since the mirror landed but had zero callers). Best-effort —
+    # observability/mirror-projection failure must not abort the
+    # standards-check path. The full EvaluatePlanResult remains on
+    # ``self._last_result`` for in-process consumers.
+    try:
+      self._apply_to_validation_state_fn(result)
+    except Exception as _vs_exc:
+      self._emit(
+        phase=PhaseCode.EVALUATE_PLAN,
+        event_code=EventCode.EVALUATE_PLAN_COMPLETED,
+        status=Status.FAILED,
+        diagnostic_data={
+          "round_number": self.state.evaluate_plan_round,
+          "validation_state_projection_failed": True,
+          "exception_type": type(_vs_exc).__name__,
+          "detail": str(_vs_exc)[:300],
+        },
+      )
     self.state.consume_budget()
     failing_count = self._failing_count(result)
     self._emit(
