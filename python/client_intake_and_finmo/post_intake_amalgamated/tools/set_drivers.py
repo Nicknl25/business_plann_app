@@ -22,16 +22,20 @@ import copy
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
-# The 7 P&L + WC driver lever_ids the cohort bands populator covers
+# The 4 P&L driver lever_ids the cohort bands populator covers
 # (mirror of cohort_bands_table._SECTION_LEVERS["drivers"]).
+#
+# P3.33 Phase 3 pre-step-8 — WC scalar levers (AR/AP/Inventory days)
+# moved out of this tool. FINMO reads from the balance-sheet rows in
+# model_input; both this tool and set_capex_rd_balance_seed used to
+# write those rows for WC days, creating two sources of truth.
+# balance_sheet section now owns WC days exclusively, authored via
+# set_capex_rd_balance_seed and revised via revise_capex_rd_balance_seed.
 _DRIVER_LEVER_IDS: Tuple[str, ...] = (
   "expenses::Cost of Goods Sold",
   "expenses::Research & Development",
   "expenses::General & Administrative",
   "expenses::Marketing",
-  "balance_sheet::Accounts Receivable Days",
-  "balance_sheet::Accounts Payable Days",
-  "balance_sheet::Inventory Days",
 )
 
 _ANCHOR_QUARTERS: Tuple[str, ...] = ("q1", "q11", "q20")
@@ -73,12 +77,11 @@ def _check_anchor_band_violations(
     if isinstance(band, dict):
       bmin = band.get("robust_min") if band.get("robust_min") is not None else band.get("benchmark_min")
       bmax = band.get("robust_max") if band.get("robust_max") is not None else band.get("benchmark_max")
-    # Two anchor shapes accepted:
-    #   {"q1": <v>, "q11": <v>, "q20": <v>}  for P&L levers
-    #   <scalar number>                        for balance-sheet WC levers
-    if isinstance(levered, (int, float)):
-      candidates = [("scalar", float(levered))]
-    elif isinstance(levered, dict):
+    # P&L lever anchor shape: {"q1": <v>, "q11": <v>, "q20": <v>}.
+    # Scalar shape used to be accepted for balance-sheet WC levers
+    # (AR/AP/Inventory days), but those moved to set_capex_rd_balance_seed
+    # in P3.33 Phase 3 pre-step-8.
+    if isinstance(levered, dict):
       candidates = [
         (q, float(levered[q])) for q in _ANCHOR_QUARTERS
         if q in levered and isinstance(levered.get(q), (int, float))

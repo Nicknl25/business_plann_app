@@ -31,11 +31,148 @@ returns the deterministic-floor payload (the amalgamated session's
 from __future__ import annotations
 
 import copy
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+
+# P3.33 Phase 3 pre-step-8 — Working-capital scalar lever_ids the
+# balance_sheet section now owns. Mirror of
+# cohort_bands_table._SECTION_LEVERS["balance_sheet"].
+_WC_LEVER_IDS: Tuple[str, ...] = (
+  "balance_sheet::Accounts Receivable Days",
+  "balance_sheet::Accounts Payable Days",
+  "balance_sheet::Inventory Days",
+)
 
 
 def _string(value: Any) -> str:
   return str(value if value is not None else "").strip()
+
+
+def _echo_balance_sheet_bands(
+  conn, *, draft_id: str, planning_run_id: str,
+) -> Dict[str, Any]:
+  """Read the balance_sheet section's cohort bands for WC override
+  validation. Falls back to empty dict on any error / missing inputs
+  (validation then skips band checks)."""
+  if conn is None or not draft_id or not planning_run_id:
+    return {}
+  try:
+    from client_intake_and_finmo.post_intake_solver.cohort_bands_table import (  # type: ignore
+      get_bands,
+    )
+    payload = get_bands(
+      conn, draft_id=draft_id, planning_run_id=planning_run_id,
+      section="balance_sheet",
+    )
+    return payload.get("bands") or {}
+  except Exception:
+    return {}
+
+
+def _apply_wc_overrides(
+  bs_payload: Dict[str, Any],
+  wc_overrides: Optional[Dict[str, Any]],
+  bands: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+  """Apply WC-days overrides onto bs_payload['balance_sheet_seed_grid'].
+
+  Each override key is a WC lever_id (e.g. 'balance_sheet::Accounts
+  Receivable Days'); value is a scalar days number. The override
+  updates the matching row's ``seed_value`` IF that row exists and is
+  applicable. Out-of-band values are rejected with a structured
+  violation; non-numeric / unknown / non-applicable lever overrides
+  are likewise rejected.
+
+  Returns ``(audit_entries, violations)``.
+  """
+  audit: List[Dict[str, Any]] = []
+  violations: List[Dict[str, Any]] = []
+  if not isinstance(wc_overrides, dict) or not wc_overrides:
+    return audit, violations
+  if not isinstance(bs_payload, dict):
+    return audit, violations
+  grid = bs_payload.get("balance_sheet_seed_grid")
+  if not isinstance(grid, list):
+    return audit, violations
+  rows_by_id: Dict[str, Dict[str, Any]] = {
+    str(r.get("lever_id") or "").strip(): r
+    for r in grid if isinstance(r, dict)
+  }
+  for raw_lever_id, raw_value in wc_overrides.items():
+    lever_id = _string(raw_lever_id)
+    if lever_id not in _WC_LEVER_IDS:
+      violations.append({
+        "code": "wc_override_unknown_lever",
+        "lever_id": lever_id,
+        "message": (
+          f"unknown WC lever_id; expected one of {list(_WC_LEVER_IDS)}"
+        ),
+      })
+      continue
+    try:
+      value = float(raw_value)
+    except (TypeError, ValueError):
+      violations.append({
+        "code": "wc_override_non_numeric",
+        "lever_id": lever_id,
+        "actual": raw_value,
+      })
+      continue
+    row = rows_by_id.get(lever_id)
+    if row is None:
+      violations.append({
+        "code": "wc_override_lever_row_missing",
+        "lever_id": lever_id,
+        "message": (
+          "balance_sheet_seed_grid has no row for this lever; the proposer "
+          "did not produce one (probably because the lever is non-applicable "
+          "for this NAICS-2)"
+        ),
+      })
+      continue
+    if not bool(row.get("applicable")):
+      violations.append({
+        "code": "wc_override_lever_not_applicable",
+        "lever_id": lever_id,
+        "message": (
+          "the proposer marked this lever non-applicable for this business; "
+          "WC override rejected"
+        ),
+      })
+      continue
+    band = bands.get(lever_id) if isinstance(bands, dict) else None
+    if isinstance(band, dict):
+      bmin = (band.get("robust_min")
+              if band.get("robust_min") is not None
+              else band.get("benchmark_min"))
+      bmax = (band.get("robust_max")
+              if band.get("robust_max") is not None
+              else band.get("benchmark_max"))
+      if isinstance(bmin, (int, float)) and value < float(bmin):
+        violations.append({
+          "code": "wc_override_below_band_min",
+          "lever_id": lever_id, "actual": value,
+          "band_min": float(bmin),
+          "delta": float(bmin) - value, "units": "days",
+        })
+        continue
+      if isinstance(bmax, (int, float)) and value > float(bmax):
+        violations.append({
+          "code": "wc_override_above_band_max",
+          "lever_id": lever_id, "actual": value,
+          "band_max": float(bmax),
+          "delta": value - float(bmax), "units": "days",
+        })
+        continue
+    prior = row.get("seed_value")
+    row["seed_value"] = round(value, 6)
+    audit.append({
+      "section": "balance_sheet_seed",
+      "field": lever_id,
+      "prior": prior,
+      "applied": row["seed_value"],
+    })
+  return audit, violations
 
 
 def _maintenance_capex(builder_inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -202,6 +339,32 @@ def set_capex_rd_balance_seed(
         sub_audit = _apply_overrides(sub_payload, sub_overrides)
         for entry in sub_audit:
           overrides_audit.append({"section": sub_key, **entry})
+
+  # P3.33 Phase 3 pre-step-8 — WC days overrides go to a dedicated path
+  # that updates the balance_sheet_seed_grid rows + band-validates.
+  wc_violations: List[Dict[str, Any]] = []
+  if overrides:
+    wc_overrides = overrides.get("working_capital_days")
+    if isinstance(wc_overrides, dict) and wc_overrides:
+      bands_for_bs = _echo_balance_sheet_bands(
+        conn,
+        draft_id=_string(draft_id),
+        planning_run_id=_string(planning_run_id),
+      )
+      wc_audit, wc_violations = _apply_wc_overrides(
+        bs_payload, wc_overrides, bands_for_bs,
+      )
+      overrides_audit.extend(wc_audit)
+
+  if wc_violations:
+    return {
+      "accepted": False,
+      "section": "capex_rd_balance_seed",
+      "payload": None,
+      "overrides_applied": overrides_audit,
+      "violations": wc_violations,
+      "decision_source": "amalgamated_gpt_supplied",
+    }
 
   decision_source = "amalgamated_gpt_supplied" if overrides_audit else "python_deterministic_floor"
   return {

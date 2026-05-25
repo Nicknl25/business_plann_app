@@ -10,8 +10,10 @@ finalize_authoring wiring:
   2. Budget-aware auto-confirm (§8.7): when state.budget_aware is True
      Type A tiers skip the responder and auto-confirm; Type B tiers
      still consult GPT.
-  3. _patch_from_proposal emits the scalar shape for WC driver levers
-     (AR Days, AP Days, Inventory Days) instead of the per-anchor dict.
+  3. _patch_from_proposal emits the nested "working_capital_days"
+     overrides shape for WC levers under section="balance_sheet"
+     (AR Days, AP Days, Inventory Days). P3.33 Phase 3 pre-step-8 —
+     WC days moved from drivers to balance_sheet section.
 
 Plus finalize_authoring(result) standalone function + the SessionDriver
 method that wraps it against the last evaluate_plan result.
@@ -249,7 +251,11 @@ class PatchFromProposalShapeTest(unittest.TestCase):
       {"expenses::Cost of Goods Sold": {"q1": 0.4, "q11": 0.4, "q20": 0.4}},
     )
 
-  def test_wc_scalar_driver_lever_emits_scalar(self) -> None:
+  def test_wc_lever_under_balance_sheet_section_emits_nested_overrides(self) -> None:
+    """P3.33 Phase 3 pre-step-8 — WC days moved from drivers to
+    balance_sheet section. A proposal with section='balance_sheet' and
+    a WC lever_id must emit the patch shape revise_capex_rd_balance_seed
+    expects: {"working_capital_days": {lever_id: value}}."""
     from client_intake_and_finmo.post_intake_amalgamated.protocol.session_driver import (  # noqa: E501
       _patch_from_proposal,
     )
@@ -259,10 +265,12 @@ class PatchFromProposalShapeTest(unittest.TestCase):
       "balance_sheet::Inventory Days",
     ):
       patch = _patch_from_proposal(
-        self._proposal(section="drivers", field=wc_lever)
+        self._proposal(section="balance_sheet", field=wc_lever)
       )
-      self.assertEqual(patch, {wc_lever: 0.4},
-                       msg=f"WC lever {wc_lever} should be scalar")
+      self.assertEqual(
+        patch, {"working_capital_days": {wc_lever: 0.4}},
+        msg=f"WC lever {wc_lever} under balance_sheet section should emit nested overrides shape",
+      )
 
   def test_non_driver_section_emits_flat(self) -> None:
     from client_intake_and_finmo.post_intake_amalgamated.protocol.session_driver import (  # noqa: E501

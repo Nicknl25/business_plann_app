@@ -101,11 +101,11 @@ def authored_lever_ids_from_commit(
   for key, lever_id in _DRIVER_KEY_TO_LEVER_ID.items():
     if key in driver_anchors and driver_anchors.get(key) is not None:
       authored.add(lever_id)
-  wc = driver_anchors.get("working_capital_drivers")
-  if isinstance(wc, dict):
-    for wc_key, lever_id in _WC_KEY_TO_LEVER_ID.items():
-      if wc_key in wc and wc.get(wc_key) is not None:
-        authored.add(lever_id)
+  # P3.33 Phase 3 pre-step-8 — WC days are no longer authored via this
+  # path. The working_capital_drivers branch + _WC_KEY_TO_LEVER_ID +
+  # _write_gpt_authored_working_capital_values were deleted; WC is
+  # authored exclusively via set_capex_rd_balance_seed (balance_sheet
+  # section).
   return authored
 
 
@@ -122,20 +122,6 @@ GPT_AUTHORED_WORKING_CAPITAL_LEVER_IDS: Tuple[str, ...] = (
   "balance_sheet::Deferred Revenue (% of Revenue)",
   "balance_sheet::Prepaid Expenses (% of Revenue)",
 )
-
-
-# Map GPT working-capital key -> lever_id.
-_WC_KEY_TO_LEVER_ID: Dict[str, str] = {
-  "accounts_receivable_days": "balance_sheet::Accounts Receivable Days",
-  "accounts_payable_days": "balance_sheet::Accounts Payable Days",
-  "inventory_days": "balance_sheet::Inventory Days",
-  "deferred_revenue_percent_of_revenue": (
-    "balance_sheet::Deferred Revenue (% of Revenue)"
-  ),
-  "prepaid_expenses_percent_of_revenue": (
-    "balance_sheet::Prepaid Expenses (% of Revenue)"
-  ),
-}
 
 
 # Universal viability trajectory checks. These evaluate against FINMO
@@ -322,113 +308,6 @@ def _detect_payroll_supported_capacity(model_input: Dict[str, Any]) -> bool:
     or isinstance(r.get("payroll_supported_capacity"), dict)
     for r in (capacity_rows or [])
   )
-
-
-def _write_gpt_authored_working_capital_values(
-  *,
-  model_input: Dict[str, Any],
-  working_capital_drivers: Dict[str, Any],
-  provenance_tag: str,
-) -> Dict[str, Any]:
-  """Stamp each GPT-authored working capital driver as a SINGLE value
-  uniformly across all 20 live quarters. These drivers are
-  operationally stable across the planning horizon (AR / AP / inventory
-  days, prepaid + deferred revenue ratios), so the writer treats them
-  as flat across the horizon — no interpolation. Tags each write with
-  the same provenance mechanism the P&L writer uses so FINMO seed-
-  policy doesn't clobber.
-  """
-  # Phase 9 P3.10 Commit 3 — WC writer silent-skip conversions. Note
-  # that `skipped_no_value` (None in WC dict) is LEGITIMATE on the
-  # bs_only_path because the tool schema marks each WC field as
-  # nullable — GPT may explicitly null fields it does not wish to
-  # change. `skipped_non_numeric` and `skipped_no_rows` are always
-  # contract violations and now raise under test mode.
-  from client_intake_and_finmo.fail_fast.common import (  # type: ignore
-    PostIntakePreconditionFailed,
-    convergence_test_mode_enabled,
-  )
-  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
-    _find_rows_for_lever,
-  )
-  per_driver_summary: Dict[str, Any] = {}
-  test_mode_wc = convergence_test_mode_enabled()
-  for wc_key, lever_id in _WC_KEY_TO_LEVER_ID.items():
-    raw = (working_capital_drivers or {}).get(wc_key)
-    if raw is None:
-      per_driver_summary[lever_id] = {
-        "status": "skipped_no_value",
-        "reason": "wc_value_not_in_commit_payload",
-      }
-      continue
-    try:
-      value = float(raw)
-    except Exception as exc:
-      if test_mode_wc:
-        raise PostIntakePreconditionFailed(
-          operation="gpt_exhaustion_handler_wc_writer_non_numeric_value",
-          pipeline_stage="phase_9_p3_6_wc_writer",
-          expected=f"working_capital_drivers.{wc_key} is a numeric value",
-          actual=f"raw_value={raw!r} ({type(raw).__name__})",
-          details={"wc_key": wc_key, "lever_id": lever_id},
-          cause=exc,
-        ) from exc
-      per_driver_summary[lever_id] = {
-        "status": "skipped_non_numeric",
-        "raw_value": raw,
-      }
-      continue
-
-    rows = _find_rows_for_lever(model_input or {}, lever_id)
-    if not rows:
-      if test_mode_wc:
-        raise PostIntakePreconditionFailed(
-          operation="gpt_exhaustion_handler_wc_writer_no_rows_for_lever",
-          pipeline_stage="phase_9_p3_6_wc_writer",
-          expected=f"model_input has at least one row for {lever_id}",
-          actual="no rows found",
-          details={
-            "wc_key": wc_key,
-            "lever_id": lever_id,
-            "value": value,
-          },
-        )
-      per_driver_summary[lever_id] = {
-        "status": "skipped_no_rows",
-        "value": value,
-      }
-      continue
-
-    for row in rows:
-      vals = row.get("values")
-      if not isinstance(vals, list):
-        vals = [0.0] * (HORIZON_QUARTERS + 1)
-        row["values"] = vals
-      while len(vals) <= HORIZON_QUARTERS:
-        vals.append(0.0)
-      for q_idx in range(HORIZON_QUARTERS):
-        live_idx = 1 + q_idx
-        if live_idx < len(vals):
-          vals[live_idx] = float(value)
-
-      tag = row.get("applied_by_target_solver_quarters")
-      if not isinstance(tag, dict):
-        tag = {}
-        row["applied_by_target_solver_quarters"] = tag
-      for q_idx in range(HORIZON_QUARTERS):
-        tag[str(q_idx + 1)] = {
-          "target_metric": provenance_tag,
-          "applied_value": float(value),
-          "gpt_authored": True,
-          "lever_id": lever_id,
-        }
-
-    per_driver_summary[lever_id] = {
-      "status": "written",
-      "value": value,
-      "rows_written": len(rows),
-    }
-  return per_driver_summary
 
 
 def _write_gpt_authored_per_quarter_values(
@@ -645,15 +524,6 @@ def _write_gpt_authored_per_quarter_values(
       ],
     }
 
-  # Phase 9 P3.6 — working capital drivers (flat across 20 quarters).
-  wc = (driver_anchors or {}).get("working_capital_drivers")
-  if isinstance(wc, dict) and wc:
-    wc_summary = _write_gpt_authored_working_capital_values(
-      model_input=model_input,
-      working_capital_drivers=wc,
-      provenance_tag=provenance_tag,
-    )
-    per_driver_summary["_working_capital"] = wc_summary
   return per_driver_summary
 
 

@@ -596,7 +596,12 @@ def _as_list(proposal_or_options: Union[Proposal, List[Proposal]]) -> List[Propo
   return [proposal_or_options] if proposal_or_options is not None else []
 
 
-_WC_SCALAR_DRIVER_LEVERS = frozenset({
+# P3.33 Phase 3 pre-step-8 — WC scalar lever_ids owned by the
+# balance_sheet section. The patch shape revise_capex_rd_balance_seed
+# expects routes WC overrides under the "working_capital_days" sub-key
+# of its overrides dict (matches set_capex_rd_balance_seed's
+# _apply_wc_overrides input shape).
+_WC_SCALAR_BALANCE_SHEET_LEVERS = frozenset({
   "balance_sheet::Accounts Receivable Days",
   "balance_sheet::Accounts Payable Days",
   "balance_sheet::Inventory Days",
@@ -606,17 +611,16 @@ _WC_SCALAR_DRIVER_LEVERS = frozenset({
 def _patch_from_proposal(proposal: Proposal) -> Dict[str, Any]:
   """Turn a Proposal into a sparse patch dict the revise_* tools accept.
 
-  Driver section shapes (mirror of ``set_drivers`` anchors):
-    - P&L levers (COGS, R&D, G&A, Marketing): per-anchor dict
-      ``{lever_id: {"q1": v, "q11": v, "q20": v}}``.
-    - Working-capital levers (AR Days, AP Days, Inventory Days):
-      scalar ``{lever_id: v}``.
-
-  Non-driver sections: flat ``{field: value}``.
+  Section shapes:
+    - ``drivers``: P&L levers (COGS, R&D, G&A, Marketing) emit a
+      per-anchor dict ``{lever_id: {"q1": v, "q11": v, "q20": v}}``.
+    - ``balance_sheet``: WC days (AR/AP/Inventory) emit a nested patch
+      ``{"working_capital_days": {lever_id: v}}`` matching the
+      revise_capex_rd_balance_seed -> set_capex_rd_balance_seed
+      overrides shape.
+    - Other sections: flat ``{field: value}``.
   """
   if proposal.section == "drivers":
-    if proposal.field in _WC_SCALAR_DRIVER_LEVERS:
-      return {proposal.field: proposal.proposed_value}
     return {
       proposal.field: {
         "q1":  proposal.proposed_value,
@@ -624,6 +628,9 @@ def _patch_from_proposal(proposal: Proposal) -> Dict[str, Any]:
         "q20": proposal.proposed_value,
       },
     }
+  if (proposal.section == "balance_sheet"
+      and proposal.field in _WC_SCALAR_BALANCE_SHEET_LEVERS):
+    return {"working_capital_days": {proposal.field: proposal.proposed_value}}
   return {proposal.field: proposal.proposed_value}
 
 

@@ -480,17 +480,11 @@ def compute_trajectory_from_anchors(
        "cogs_percent_of_revenue": {...},
        "marketing_percent_of_revenue": {...},
        "sga_percent_of_revenue": {...},
-       "r_and_d_percent_of_revenue": {...},
-       "working_capital_drivers": {                  # Phase 9 P3.6
-         "accounts_receivable_days": <number>,
-         "accounts_payable_days": <number>,
-         "inventory_days": <number>,
-         "deferred_revenue_percent_of_revenue": <decimal>,
-         "prepaid_expenses_percent_of_revenue": <decimal>
-       }}
-    Working capital drivers are SINGLE values per driver (no Q1/Q11/Q20
-    ramp) — operationally stable across the planning horizon; the
-    writer stamps them uniformly across all 20 live quarters.
+       "r_and_d_percent_of_revenue": {...}}
+    P3.33 Phase 3 pre-step-8: working_capital_drivers removed from the
+    anchors shape — WC days (AR/AP/Inventory) are now authored
+    exclusively via set_capex_rd_balance_seed (balance_sheet section).
+    The probe writer no longer dispatches on "working_capital_drivers".
   operating_context
     {
       "model_input_template": Dict[str, Any]    # deepcopy source

@@ -85,6 +85,16 @@ _SECTION_LEVERS: Dict[str, List[Tuple[str, str]]] = {
     ("expenses::Research & Development",      "expenses::Research & Development"),
     ("expenses::General & Administrative",    "expenses::General & Administrative"),
     ("expenses::Marketing",                   "expenses::Marketing"),
+  ],
+  # P3.33 Phase 3 pre-step-8 — WC scalar levers (AR/AP/Inventory days)
+  # moved to the balance_sheet section. Both set_drivers and
+  # set_capex_rd_balance_seed used to be able to author these; FINMO
+  # reads from the balance-sheet rows in model_input, so balance_sheet
+  # owns them now. set_drivers no longer touches them;
+  # set_capex_rd_balance_seed routes WC overrides into the
+  # balance_sheet_seed_grid that apply_balance_sheet_contextual_seed_to_
+  # model_input commits.
+  "balance_sheet": [
     ("balance_sheet::Accounts Receivable Days", "balance_sheet::Accounts Receivable Days"),
     ("balance_sheet::Accounts Payable Days",  "balance_sheet::Accounts Payable Days"),
     ("balance_sheet::Inventory Days",         "balance_sheet::Inventory Days"),
