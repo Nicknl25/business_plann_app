@@ -11,8 +11,10 @@ structured RuntimeError rather than silently degrade. The doctrine
      ``post_intake_fail_fast::<code>`` so tests and upstream handlers
      can parse it.
 
-The 25 codes below cover every fail-fast point catalogued in
-``docs/architecture/p3_33_phase35_fail_fast_inventory.md``. They are
+The 24 codes below cover every fail-fast point catalogued in
+``docs/architecture/p3_33_phase35_fail_fast_inventory.md`` after the
+post-review corrections (item 13 — FLOOR_BUDGET — was dropped on
+review because the §9.2 floor primitives do not loop). They are
 partitioned by ``PhaseCode`` via ``FAIL_FAST_CODES_BY_PHASE`` in the
 same shape as ``EVENT_CODES_BY_PHASE`` so the diagnostic stream stays
 queryable along the same axes.
@@ -51,8 +53,7 @@ class FailFastCode(str, Enum):
   FAIL_CASCADE_TIER_UNKNOWN              = "fail_cascade_tier_unknown"
   FAIL_CASCADE_HALTED_WITHOUT_RESOLUTION = "fail_cascade_halted_without_resolution"
 
-  # floor_invocation
-  FAIL_FLOOR_BUDGET_EXCEEDED             = "fail_floor_budget_exceeded"
+  # floor_invocation — primitives are one-shot, so no budget code.
   FAIL_FLOOR_PRIMITIVE_FAILED            = "fail_floor_primitive_failed"
 
   # session_terminated
@@ -105,7 +106,6 @@ FAIL_FAST_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[FailFastCode]] = {
     FailFastCode.FAIL_CASCADE_HALTED_WITHOUT_RESOLUTION,
   }),
   PhaseCode.FLOOR_INVOCATION: frozenset({
-    FailFastCode.FAIL_FLOOR_BUDGET_EXCEEDED,
     FailFastCode.FAIL_FLOOR_PRIMITIVE_FAILED,
   }),
   PhaseCode.SESSION_TERMINATED: frozenset({

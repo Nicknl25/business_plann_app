@@ -34,11 +34,11 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (
 )
 
 
-EXPECTED_COUNT = 25
+EXPECTED_COUNT = 24
 
 
 class FailFastCodeEnumTest(unittest.TestCase):
-  def test_enum_has_25_members(self) -> None:
+  def test_enum_has_expected_member_count(self) -> None:
     self.assertEqual(len(list(FailFastCode)), EXPECTED_COUNT)
 
   def test_prefix_constant(self) -> None:

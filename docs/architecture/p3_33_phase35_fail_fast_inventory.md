@@ -61,6 +61,11 @@ class FailFastCode(str, Enum):
   FAIL_MIRROR_FINMO_BASELINE_BUILD     = "fail_mirror_finmo_baseline_build"
 
   # round1_authoring
+  # NOTE: round-1 authors three sections only — capex_rd_balance_seed,
+  # stage_ramp, payroll. set_drivers(anchors=None) is NOT a round-1
+  # authoring path; it returns accepted=False with
+  # "amalgamated_session_pending" by design, and drivers are authored
+  # via revise_drivers inside the cascade.
   FAIL_ROUND1_SET_TOOL_REJECTED        = "fail_round1_set_tool_rejected"
   FAIL_ROUND1_PLAN_STATE_INCOMPLETE    = "fail_round1_plan_state_incomplete"
 
@@ -74,7 +79,10 @@ class FailFastCode(str, Enum):
   FAIL_CASCADE_HALTED_WITHOUT_RESOLUTION = "fail_cascade_halted_without_resolution"
 
   # floor_invocation
-  FAIL_FLOOR_BUDGET_EXCEEDED           = "fail_floor_budget_exceeded"
+  # NOTE: no FAIL_FLOOR_BUDGET_EXCEEDED. The §9.2 floor primitives are
+  # one-shot deterministic computations dispatched by
+  # ``floor_for_mode``; there is no loop and therefore no budget to
+  # exhaust. Only the per-primitive exception path is guarded.
   FAIL_FLOOR_PRIMITIVE_FAILED          = "fail_floor_primitive_failed"
 
   # session_terminated
@@ -147,15 +155,25 @@ For each item: **(Invariant) → (FailFastCode) → (assertion site)**.
 ### 2.3 `round1_authoring`
 
 6. **Every set_* tool invoked with `contract=None` returns
-   `accepted=True`.** `FAIL_ROUND1_SET_TOOL_REJECTED`. Site:
+   `accepted=True` for the THREE round-1 sections.**
+   `FAIL_ROUND1_SET_TOOL_REJECTED`. Site:
    `post_intake_solver/orchestrator.py::run_round1_authoring`
-   (introduced in Step 8b-fix) — wrap each of `set_capex_rd_balance_seed`,
-   `set_stage_ramp_contract`, `set_payroll_schedule`, `set_drivers`.
+   (introduced in Step 8b-fix) — wrap each of
+   `set_capex_rd_balance_seed`, `set_stage_ramp_contract`,
+   `set_payroll_schedule`. **`set_drivers` is intentionally NOT
+   wrapped** — drivers are not authored in round-1; the cascade
+   authors them via `revise_drivers`, and
+   `set_drivers(anchors=None)` returns
+   `accepted=False / "amalgamated_session_pending"` by design.
 
 7. **After round-1, `mirror.plan_state` carries non-empty sections:
-   `balance_seed`, `stage_ramp`, `payroll`, `drivers`.**
-   `FAIL_ROUND1_PLAN_STATE_INCOMPLETE`. Site: same wrapper, at the end
-   of round-1 (post-set, pre-session open).
+   `capex_rd_balance_seed`, `stage_ramp`, `payroll`.**
+   `FAIL_ROUND1_PLAN_STATE_INCOMPLETE`. Site: same wrapper, at the
+   end of round-1 (post-set, pre-session open). Section keys match
+   the `"section": "<key>"` field returned by each set_* tool's
+   envelope (verified by grep against the tools' source). Drivers
+   being empty post-round-1 is the design and must NOT trigger this
+   invariant.
 
 ### 2.4 `evaluate_plan`
 
@@ -182,20 +200,26 @@ For each item: **(Invariant) → (FailFastCode) → (assertion site)**.
 
 ### 2.6 `floor_invocation`
 
-13. **Floor terminates within `FLOOR_BUDGET` (200 iterations).**
-    `FAIL_FLOOR_BUDGET_EXCEEDED`. Site:
-    `protocol/floor.py::run_floor_for_mode` loop tail.
+13. *(DROPPED.)* There is no FLOOR_BUDGET to enforce. The §9.2
+    floor primitives in `protocol/floor.py` are one-shot
+    deterministic computations dispatched by `floor_for_mode`; they
+    do not loop, so termination is guaranteed by construction.
 
 14. **Floor primitives apply cleanly (no exception in the §9.2
     primitives).** `FAIL_FLOOR_PRIMITIVE_FAILED`. Site: `floor.py`
-    per-primitive wrap.
+    per-primitive wrap inside `apply_floor_primitive` /
+    `floor_for_mode`.
 
 ### 2.7 `session_terminated`
 
-15. **Terminal state ∈ {RESOLVED, FLOOR_ALL, META_HALTED,
-    BUDGET_EXHAUSTED, EXCEPTION_HALTED}.**
+15. **Terminal state ∈ `{RESOLVED, MODE_FLOOR, STAGNATION_FLOOR_ALL,
+    META_HALTED, BUDGET_EXHAUSTED_FLOOR}`** — the exact attribute
+    names on
+    `post_intake_amalgamated/protocol/session_driver.py::TerminationState`.
+    There is no `EXCEPTION_HALTED` (it was removed in Step 8b-fix).
     `FAIL_SESSION_TERMINAL_STATE_UNKNOWN`. Site:
-    `session_driver.py::_terminate`.
+    `session_driver.py::_terminate`, guarded at entry against the
+    `TerminationState` class attribute set.
 
 ### 2.8 `finmo_sync`
 
@@ -282,11 +306,14 @@ The implementation sub-commit will:
      `raise_fail_fast` emits the audit row AND re-raises with the
      expected message prefix.
    - `test_phase_9_p3_33_phase3_step9d_fail_fast_sites.py` —
-     source-shape regression: each of the 25 numbered sites contains
-     a reference to its FailFastCode.
+     source-shape regression: each of the **24** numbered sites
+     contains a reference to its FailFastCode.
 
 The implementation sub-commit is expected at ~400-600 LOC (one new
-module + ~25 small guards + 3 test files). Stays under the 800 cap.
+module + ~24 small guards + 3 test files). Stays under the 800 cap.
+
+**Total fail-fast points after corrections: 24** (was 25; item 13
+dropped — see §2.6).
 
 ---
 
