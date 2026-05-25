@@ -1796,6 +1796,31 @@ def prepare_initial_grid_for_draft(
       "termination_detail": amalgamated_result.termination_detail,
     }
 
+  # P3.40 Contract 1 Commit 3 — producer-side boundary enforcement.
+  # Validate `applied_model_input_json` against FinmoModelInputContract
+  # before handing it to `run_target_seeking_orchestrated_system_run`
+  # (which will mutate it further via feasibility restoration and the
+  # cascade). Raises ContractViolation with stage tag
+  # "AMALGAMATED_SESSION→MODEL_INPUT" on shape failure; emits a
+  # diagnostic event on success (MODEL_INPUT_CONTRACT_VALIDATED with
+  # side="producer"). Consumer-side mirror lands at
+  # `build_python_finmo_json` entry in Commit 4.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+    SIDE_PRODUCER,
+    make_boundary_emitter,
+    validate_model_input_at_boundary,
+  )
+  _boundary_emitter = make_boundary_emitter(
+    conn=conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+  )
+  validate_model_input_at_boundary(
+    copy.deepcopy(applied_model_input_json or {}),
+    side=SIDE_PRODUCER,
+    emit_diagnostic_fn=_boundary_emitter,
+  )
+
   return {
     "planning_run_id": active_planning_run_id,
     "draft": copy.deepcopy(draft),

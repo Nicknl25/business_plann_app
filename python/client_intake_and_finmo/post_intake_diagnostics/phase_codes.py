@@ -44,6 +44,7 @@ class PhaseCode(str, Enum):
   REALISM_GATE            = "realism_gate"
   FINALIZE                = "finalize"
   WORKBOOK_ACCEPT         = "workbook_accept"
+  MODEL_INPUT_CONTRACT    = "model_input_contract"
 
 
 class EventCode(str, Enum):
@@ -144,6 +145,10 @@ class EventCode(str, Enum):
   WORKBOOK_ACCEPT_STARTED            = "workbook_accept_started"
   WORKBOOK_ACCEPT_ACCEPTED           = "workbook_accept_accepted"
   WORKBOOK_ACCEPT_REJECTED           = "workbook_accept_rejected"
+
+  # model_input_contract (P3.40 Contract 1 boundary enforcement)
+  MODEL_INPUT_CONTRACT_VALIDATED     = "model_input_contract_validated"
+  MODEL_INPUT_CONTRACT_VIOLATION     = "model_input_contract_violation"
 
 
 class Status(str, Enum):
@@ -257,6 +262,10 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
     EventCode.WORKBOOK_ACCEPT_STARTED,
     EventCode.WORKBOOK_ACCEPT_ACCEPTED,
     EventCode.WORKBOOK_ACCEPT_REJECTED,
+  }),
+  PhaseCode.MODEL_INPUT_CONTRACT: frozenset({
+    EventCode.MODEL_INPUT_CONTRACT_VALIDATED,
+    EventCode.MODEL_INPUT_CONTRACT_VIOLATION,
   }),
 }
 
