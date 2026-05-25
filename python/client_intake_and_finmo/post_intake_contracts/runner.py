@@ -6305,6 +6305,12 @@ def _retry_scope_lever_ids(
   )
 
 def _build_retry_scope_payload(
+  # C4 audit (cloud Claude remediation): this helper IS live in the
+  # new pipeline. Called from _build_repair_guidance_payload at line
+  # 2554; the repair guidance is used by _persist_post_intake_stage_state
+  # which is the persistence path for the orchestrator's
+  # _run_post_cascade_completion (see the call-chain comment at
+  # post_intake_convergence/runtime.py::_build_current_cycle_convergence_packet).
   *,
   controller_retry_context: Optional[Dict[str, Any]],
   prior_numeric_feedback: Optional[Dict[str, Any]],
@@ -6334,6 +6340,11 @@ def _build_retry_scope_payload(
   )
 
 def _subset_numeric_solver_contract(
+  # C4 audit (cloud Claude remediation): live helper called from
+  # _build_repair_guidance_payload at line 2563. See the call-chain
+  # comment at post_intake_convergence/runtime.py::
+  # _build_current_cycle_convergence_packet for the full
+  # orchestrator → state runner → contracts runner trace.
   *,
   numeric_solver_contract: Optional[Dict[str, Any]],
   retry_scope_payload: Optional[Dict[str, Any]],

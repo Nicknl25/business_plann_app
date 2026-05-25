@@ -650,6 +650,30 @@ def _compact_convergence_quarter_rows_for_state(rows: Any) -> List[Dict[str, Any
   return compact_rows
 
 def _build_current_cycle_convergence_packet(
+  # C4 audit (cloud Claude remediation): this helper survived Phase 3
+  # step 7's orphan sweep because it IS still on the live execution
+  # path. Call chain (orchestrator → state runner → contracts runner):
+  #
+  #   api_handlers.intake_consult._run_planning_system_for_draft_unified
+  #     → post_intake_solver.orchestrator.run_target_seeking_
+  #       orchestrated_system_run (orchestrator.py:1024)
+  #       → _run_post_cascade_completion (orchestrator.py:1731 → 1768)
+  #         → _persist_unified_convergence_state (orchestrator.py:3601;
+  #           imported via bind_state_runtime_dependencies)
+  #           → post_intake_state.runner._persist_unified_convergence_state
+  #             (state/runner.py:757)
+  #               → _persist_post_intake_stage_state (state/runner.py:787,
+  #                 imported via bind_runtime_dependencies)
+  #                 → post_intake_contracts.runner._build_repair_guidance_payload
+  #                   (contracts/runner.py:2484)
+  #                     → _build_current_cycle_convergence_packet  ← HERE
+  #                     → _build_retry_scope_payload
+  #                     → _subset_numeric_solver_contract
+  #
+  # The dependency-injection layer (bind_contract_runtime_dependencies,
+  # bind_state_runtime_dependencies) in api_handlers/intake_consult.py
+  # wires the contracts/state runners' callables when the API starts;
+  # the orchestrator then drives them via the seams above.
   *,
   stage: str,
   status: str,
