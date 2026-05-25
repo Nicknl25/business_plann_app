@@ -370,6 +370,31 @@ def make_amalgamated_responder(
     )
     http_fn = post_openai_with_retries
 
+  def _emit_responder_diag(event_code_name: str, *, attempt: int,
+                           reason: str) -> None:
+    """Best-effort diagnostic emit for responder retry/exhaust events.
+    Mirrors the SessionDriver._emit pattern — swallows exceptions so
+    observability never breaks the responder."""
+    try:
+      from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+        EventCode as _RDxEventCode, PhaseCode as _RDxPhaseCode,
+        Status as _RDxStatus, safe_emit as _rdx_safe_emit,
+      )
+      ec = getattr(_RDxEventCode, event_code_name, None)
+      if ec is None:
+        return
+      _rdx_safe_emit(
+        conn,
+        draft_id=str(draft_id or ""),
+        planning_run_id=str(planning_run_id or ""),
+        phase=_RDxPhaseCode.CASCADE_WALK,
+        event_code=ec,
+        status=_RDxStatus.STARTED if "ATTEMPTED" in event_code_name else _RDxStatus.FAILED,
+        diagnostic_data={"attempt": attempt, "reason": reason[:300]},
+      )
+    except Exception:
+      pass
+
   def responder(
     *,
     mode: FailureMode,
@@ -385,35 +410,96 @@ def make_amalgamated_responder(
       proposal_or_options=proposal_or_options,
       mode=mode, tier=tier,
     )
-    payload = _build_openai_request(
-      user_prompt=user_prompt, model=model, seed=seed, temperature=temperature,
-    )
     headers = {
       "Authorization": f"Bearer {api_key}",
       "Content-Type": "application/json",
     }
-    try:
-      resp = http_fn(
-        url=_OPENAI_URL,
-        headers=headers,
-        payload=payload,
-        timeout_seconds=timeout_seconds,
-        retryable_status=(429, 500, 502, 503, 504),
-        max_attempts=max_attempts,
+
+    # C12 (spec §6.4) — one retry on malformed / transient failure
+    # before treating as synthetic veto. The retry uses a fresh
+    # OpenAI request (no caching). HTTP-layer retries (the http_fn
+    # internal retries on 5xx/429) are independent of this protocol-
+    # level retry; they handle TCP failure, this handles GPT
+    # responding with shape it shouldn't have.
+    last_failure_reason = "no_attempt_made"
+    for attempt in range(2):  # 0 = initial, 1 = retry
+      payload = _build_openai_request(
+        user_prompt=user_prompt, model=model, seed=seed + attempt,
+        temperature=temperature,
       )
-    except Exception as exc:
-      return veto_proposal(reason=f"responder_http_error:{type(exc).__name__}")
+      try:
+        resp = http_fn(
+          url=_OPENAI_URL,
+          headers=headers,
+          payload=payload,
+          timeout_seconds=timeout_seconds,
+          retryable_status=(429, 500, 502, 503, 504),
+          max_attempts=max_attempts,
+        )
+      except Exception as exc:
+        last_failure_reason = f"responder_http_error:{type(exc).__name__}"
+        if attempt == 0:
+          _emit_responder_diag("RESPONDER_RETRY_ATTEMPTED",
+                               attempt=attempt + 1,
+                               reason=last_failure_reason)
+          continue
+        _emit_responder_diag("RESPONDER_RETRY_EXHAUSTED",
+                             attempt=attempt + 1,
+                             reason=last_failure_reason)
+        return veto_proposal(reason=last_failure_reason)
 
-    status = int(getattr(resp, "status_code", 0) or 0)
-    if status != 200:
-      detail = str(getattr(resp, "text", ""))[:200] or f"http_status_{status}"
-      return veto_proposal(reason=f"responder_http_non_200:{status}:{detail}")
+      status = int(getattr(resp, "status_code", 0) or 0)
+      if status != 200:
+        detail = str(getattr(resp, "text", ""))[:200] or f"http_status_{status}"
+        last_failure_reason = f"responder_http_non_200:{status}:{detail}"
+        if attempt == 0:
+          _emit_responder_diag("RESPONDER_RETRY_ATTEMPTED",
+                               attempt=attempt + 1,
+                               reason=last_failure_reason)
+          continue
+        _emit_responder_diag("RESPONDER_RETRY_EXHAUSTED",
+                             attempt=attempt + 1,
+                             reason=last_failure_reason)
+        return veto_proposal(reason=last_failure_reason)
 
-    try:
-      body = resp.json()
-    except Exception:
-      return veto_proposal(reason="responder_malformed:non_json_body")
-    return _parse_tool_call_response(body)
+      try:
+        body = resp.json()
+      except Exception:
+        last_failure_reason = "responder_malformed:non_json_body"
+        if attempt == 0:
+          _emit_responder_diag("RESPONDER_RETRY_ATTEMPTED",
+                               attempt=attempt + 1,
+                               reason=last_failure_reason)
+          continue
+        _emit_responder_diag("RESPONDER_RETRY_EXHAUSTED",
+                             attempt=attempt + 1,
+                             reason=last_failure_reason)
+        return veto_proposal(reason=last_failure_reason)
+
+      parsed = _parse_tool_call_response(body)
+
+      # If the parser returned a synthetic veto with a "responder_malformed"
+      # reason, retry once. Real vetoes (with GPT-supplied reason text)
+      # and other valid responses pass through immediately.
+      is_synthetic_malformed = (
+        parsed.kind == "veto"
+        and isinstance(parsed.reason, str)
+        and parsed.reason.startswith("responder_malformed")
+      )
+      if is_synthetic_malformed and attempt == 0:
+        last_failure_reason = parsed.reason or "responder_malformed"
+        _emit_responder_diag("RESPONDER_RETRY_ATTEMPTED",
+                             attempt=attempt + 1,
+                             reason=last_failure_reason)
+        continue
+
+      return parsed
+
+    # Loop exhausted (defensive — the inner branches above handle
+    # every termination case explicitly).
+    _emit_responder_diag("RESPONDER_RETRY_EXHAUSTED",
+                         attempt=2, reason=last_failure_reason)
+    return veto_proposal(reason=f"responder_retry_exhausted:{last_failure_reason}")
 
   return responder
 

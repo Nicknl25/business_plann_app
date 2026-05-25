@@ -189,31 +189,54 @@ def _pick_lever(
   margin can be None for non-band-tracked levers (capacity, payroll
   counts) — the proposer will then fall back to a deterministic default.
   """
-  # Sort keys per spec §4.3 in priority order:
-  #   1. outside_band (True before False)
-  #   2. CascadeLever.priority (1 before 2 before 3)
-  #   3. distance from band_target (larger first — more to gain)
-  candidates: List[Tuple[CascadeLever, Optional[LeverMargin], bool, int, float]] = []
+  # C1 (spec §4.3) — sort keys in priority order:
+  #   1. outside_band (True before False)               — rule 1
+  #   2. computed viability_impact (larger first)       — rule 2 (DYNAMIC)
+  #   3. CascadeLever.priority (1 before 2 before 3)    — rule 3 (tiebreak)
+  #   4. distance from band_target (larger first)       — final tiebreak
+  #
+  # Rule 2 used to be hard-coded to CascadeLever.priority (which made
+  # it indistinguishable from rule 3). Now it's a computed impact:
+  #
+  #   impact = abs(current - proposed_target) * viability_weight_factor
+  #
+  # When two candidates tie on outside_band (rule 1), the lever with
+  # larger computed impact wins — even if its declared priority is
+  # lower. This gives the proposer a way to express "this lever has a
+  # bigger lever-arm" without rewriting the cascade table.
+  candidates: List[Tuple[CascadeLever, Optional[LeverMargin], bool, float, int, float]] = []
   for lever in tier.levers:
     margin = _find_margin(margins, lever.section, lever.field)
     if margin is None:
-      # Non-band-tracked lever — accept with neutral score.
-      candidates.append((lever, None, False, lever.priority, 0.0))
+      # Non-band-tracked lever — accept with neutral impact score.
+      candidates.append((lever, None, False, 0.0, lever.priority, 0.0))
       continue
     if _is_unfavorable_pinned(margin, lever.direction):
       continue
     distance = 0.0
     if margin.current is not None and margin.band_target is not None:
       distance = abs(margin.current - margin.band_target)
+    # Compute viability impact for rule 2.
+    target = _target_from_direction(lever.direction, margin)
+    if (margin.current is not None and isinstance(target, (int, float))):
+      move_magnitude = abs(float(margin.current) - float(target))
+    else:
+      move_magnitude = distance
+    weight = float(getattr(lever, "viability_weight_factor", 1.0) or 1.0)
+    impact = move_magnitude * weight
     candidates.append((
-      lever, margin, bool(margin.outside_band), lever.priority, distance,
+      lever, margin,
+      bool(margin.outside_band),   # rule 1
+      impact,                       # rule 2 — dynamic
+      lever.priority,               # rule 3 — declared priority tiebreak
+      distance,                     # final tiebreak
     ))
 
   if not candidates:
     return None
 
-  candidates.sort(key=lambda t: (not t[2], t[3], -t[4]))
-  best_lever, best_margin, _, _, _ = candidates[0]
+  candidates.sort(key=lambda t: (not t[2], -t[3], t[4], -t[5]))
+  best_lever, best_margin, _, _, _, _ = candidates[0]
   return best_lever, best_margin
 
 

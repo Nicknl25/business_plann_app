@@ -62,11 +62,20 @@ class CascadeLever:
     1 = most-out-of-band first
     2 = largest viability impact next
     3 = most headroom last
+
+  ``viability_weight_factor`` scales the lever's impact in the C1
+  dynamic priority sort: among rule-1-tied candidates, the lever with
+  the larger ``abs(current - proposed) * viability_weight_factor``
+  wins. Defaults to 1.0; spec-recognized high-impact levers (COGS,
+  Q12 revenue ramp, payroll headcount) can override with a larger
+  factor so the proposer prefers them when their impact is comparable
+  to a lower-impact lever's distance.
   """
   section: str
   field: str
   direction: str
   priority: int = 1
+  viability_weight_factor: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -111,7 +120,9 @@ _VIABILITY_CASCADE: Tuple[CascadeTier, ...] = (
   CascadeTier(
     tier_id="V1", name="Cost-ratio tuning",
     levers=(
-      CascadeLever("drivers", "expenses::Cost of Goods Sold",       "to_band_target", priority=1),
+      # COGS has the largest viability impact (it's the biggest line item
+      # by share of revenue for most businesses); weighted accordingly.
+      CascadeLever("drivers", "expenses::Cost of Goods Sold",       "to_band_target", priority=1, viability_weight_factor=2.0),
       CascadeLever("drivers", "expenses::Marketing",                "to_band_target", priority=2),
       CascadeLever("drivers", "expenses::General & Administrative", "to_band_target", priority=3),
       CascadeLever("drivers", "expenses::Research & Development",   "to_band_target", priority=3),
