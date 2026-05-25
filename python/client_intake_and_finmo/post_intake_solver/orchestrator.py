@@ -421,29 +421,33 @@ def _build_minimal_convergence_context(
   Phase 8 persisted ``unified_convergence_context={}``, which orphaned the
   stage_ramp_contract in the planning_run_json blob. Workbook export reads
   via ``payload.unified_convergence_context.business_world_contract.stage_ramp_contract``
-  (see client_statements_output_excel/data.py:146-160). With that path
-  empty, the Revenue Drivers sheet's Stage Ramp Contract rows showed zeros
-  across Q1-Q20 even though the contract itself had been generated correctly.
+  (the canonical path; see
+  ``client_statements_output_excel/data.py:DraftWorkbookData.stage_ramp_contract``).
+  With that path empty, the Revenue Drivers sheet's Stage Ramp Contract
+  rows showed zeros across Q1-Q20 even though the contract itself had
+  been generated correctly.
 
   This builder writes the minimum surface the workbook reader needs.
   Intentionally NOT a full convergence-runner payload — convergence runner
   is dead code awaiting Phase I deletion. Phase D may extend this with
   cascade widening artifacts; Phase F adds cash plan summary.
+
+  P3.40 bug 5 fix: the secondary mirror write at
+  ``context["planning_context_summary"]["stage_ramp_contract"]`` was
+  removed. The workbook reader's 4-path fallback chain was collapsed to
+  a single canonical read, so the dual-write is no longer needed.
+  ``planning_context_summary_json`` is no longer threaded through here
+  (the parameter is kept on the signature for caller-compat; if it
+  reappears as a non-stage-ramp surface in a future change, populate
+  ``context["planning_context_summary"]`` then).
   """
+  del planning_context_summary_json  # no longer mirrored here; see docstring
   context: Dict[str, Any] = {}
   bwc: Dict[str, Any] = {}
   if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
     bwc["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
   if bwc:
     context["business_world_contract"] = bwc
-  # Mirror at planning_context_summary path for the alternate fallback the
-  # workbook reader walks at data.py:151.
-  if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
-    pcs: Dict[str, Any] = {}
-    if isinstance(planning_context_summary_json, dict):
-      pcs.update(copy.deepcopy(planning_context_summary_json))
-    pcs["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
-    context["planning_context_summary"] = pcs
   if isinstance(adaptive_policy_dict, dict) and adaptive_policy_dict:
     context["adaptive_policy"] = copy.deepcopy(adaptive_policy_dict)
   return context

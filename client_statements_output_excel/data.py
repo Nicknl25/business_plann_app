@@ -149,20 +149,48 @@ class DraftWorkbookData:
 
   @property
   def stage_ramp_contract(self) -> Dict[str, Any]:
+    """Read the stage-ramp contract from the canonical location only.
+
+    P3.40 bug 5 fix: collapsed a 4-path silent fallback (data.py:151-165
+    before this change) to a single canonical read. The other three
+    paths had no writers anywhere in the codebase (paths 1 and 4) or
+    were intentional mirrors of path 2 written by the same orchestrator
+    function (path 3); the silent fallback masked any failure to
+    populate the canonical path.
+
+    Canonical writer: orchestrator._build_minimal_convergence_context at
+    [orchestrator.py:413](python/client_intake_and_finmo/post_intake_solver/orchestrator.py#L413)
+    which stores the contract under
+    ``planning_run_json["unified_convergence_context"]["business_world_contract"]["stage_ramp_contract"]``.
+
+    Returns ``{}`` only when ``planning_run_json`` itself is absent or
+    empty (workbook export ran before convergence). When
+    ``planning_run_json`` is populated but the canonical path is missing
+    or carries no ``quarter_ramp_grid``, raises ``RuntimeError`` so the
+    operator sees the writer-side gap instead of getting silent
+    zero-filled Stage Ramp Contract rows in the rendered Revenue
+    Drivers sheet.
+    """
     payload = self.planning_run_json if isinstance(self.planning_run_json, dict) else {}
-    candidates = [
-      payload.get("stage_ramp_contract"),
-      ((payload.get("unified_convergence_context") or {}).get("business_world_contract") or {}).get("stage_ramp_contract"),
-      ((payload.get("unified_convergence_context") or {}).get("planning_context_summary") or {}).get("stage_ramp_contract"),
-      ((payload.get("first_pass_handoff") or {}).get("business_world_contract") or {}).get("stage_ramp_contract"),
-    ]
-    for candidate in candidates:
-      if not isinstance(candidate, dict):
-        continue
+    if not payload:
+      return {}
+    candidate = (
+      ((payload.get("unified_convergence_context") or {}).get("business_world_contract") or {})
+      .get("stage_ramp_contract")
+    )
+    if isinstance(candidate, dict):
       ramp_rows = candidate.get("quarter_ramp_grid")
       if isinstance(ramp_rows, list) and ramp_rows:
         return candidate
-    return {}
+    raise RuntimeError(
+      "stage_ramp_contract_missing_at_canonical_path: planning_run_json is "
+      "populated but planning_run_json.unified_convergence_context."
+      "business_world_contract.stage_ramp_contract has no quarter_ramp_grid. "
+      "The orchestrator's _build_minimal_convergence_context "
+      "(post_intake_solver/orchestrator.py:413) is the canonical writer; if "
+      "this fires the upstream write was skipped or the persisted payload "
+      "was overwritten."
+    )
 
 
 def draft_data_from_row(
