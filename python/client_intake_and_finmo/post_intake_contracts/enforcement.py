@@ -44,6 +44,15 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
 #: name in the v2 inventory and the contract spec.
 MODEL_INPUT_STAGE_LABEL = "AMALGAMATED_SESSION→MODEL_INPUT"
 
+#: FailFastCode value emitted alongside the typed ``ContractViolation``
+#: when a gate fires. Carries the standard ``post_intake_fail_fast::``
+#: prefix in the audit row so existing upstream halt detectors (which
+#: match on that prefix) see contract violations as structural failures
+#: alongside other fail-fast points. The code itself is declared in
+#: ``post_intake_diagnostics.fail_fast_codes.FailFastCode``:
+#: ``FAIL_MODEL_INPUT_CONTRACT_VIOLATION = "fail_model_input_contract_violation"``.
+_MODEL_INPUT_CONTRACT_FAIL_FAST_CODE_VALUE = "fail_model_input_contract_violation"
+
 #: Sides of the boundary. Distinguished in diagnostic_data so a
 #: failure at one side vs the other is queryable.
 SIDE_PRODUCER = "producer"

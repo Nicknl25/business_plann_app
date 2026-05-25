@@ -620,7 +620,29 @@ def build_python_finmo_json(
   *,
   model_input_json: Dict[str, Any],
   finmo_path: Optional[str] = None,
+  emit_diagnostic_fn: Optional[Any] = None,
 ) -> Dict[str, Any]:
+  # P3.40 Contract 1 Commit 4 — consumer-side boundary enforcement.
+  # Validate the incoming model_input_json against
+  # FinmoModelInputContract before any processing. Intentionally
+  # redundant with the producer-side gate in
+  # `prepare_initial_grid_for_draft` (Commit 3) — catches the case
+  # where something modifies model_input_json between the producer's
+  # write and the consumer's read. Raises ContractViolation with
+  # stage="AMALGAMATED_SESSION→MODEL_INPUT" and side="consumer" on
+  # shape failure. Callers may pass an emit_diagnostic_fn so the
+  # success / failure events land on the same diagnostics stream as
+  # producer-side; if absent the gate still raises the typed
+  # exception but does not emit.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+    SIDE_CONSUMER,
+    validate_model_input_at_boundary,
+  )
+  validate_model_input_at_boundary(
+    model_input_json if isinstance(model_input_json, dict) else {},
+    side=SIDE_CONSUMER,
+    emit_diagnostic_fn=emit_diagnostic_fn,
+  )
   normalized_model_input = apply_derived_driver_policies_to_model_input(
     model_input_json if isinstance(model_input_json, dict) else {}
   )

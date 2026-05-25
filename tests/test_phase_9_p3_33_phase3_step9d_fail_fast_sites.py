@@ -85,6 +85,8 @@ CODE_HOMES: Dict[FailFastCode, str] = {
     "python/client_intake_and_finmo/post_intake_acceptance/gate.py",
   FailFastCode.FAIL_WORKBOOK_ACCEPT_NO_DRAFT_ID:
     "python/client_intake_and_finmo/post_intake_acceptance/gate.py",
+  FailFastCode.FAIL_MODEL_INPUT_CONTRACT_VIOLATION:
+    "python/client_intake_and_finmo/post_intake_contracts/enforcement.py",
 }
 
 

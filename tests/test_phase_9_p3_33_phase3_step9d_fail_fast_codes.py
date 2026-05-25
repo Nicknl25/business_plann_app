@@ -34,7 +34,7 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (
 )
 
 
-EXPECTED_COUNT = 24
+EXPECTED_COUNT = 25  # 24 original + FAIL_MODEL_INPUT_CONTRACT_VIOLATION (P3.40 Contract 1)
 
 
 class FailFastCodeEnumTest(unittest.TestCase):

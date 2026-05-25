@@ -42,8 +42,11 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noq
 
 
 # Inventory document item count (after item 13 was dropped per
-# docs/architecture/p3_33_phase35_fail_fast_inventory.md §2.6).
-_INVENTORY_ITEM_COUNT = 24
+# docs/architecture/p3_33_phase35_fail_fast_inventory.md §2.6). Bumped
+# to 25 by P3.40 Contract 1 Commit 4, which adds
+# FAIL_MODEL_INPUT_CONTRACT_VIOLATION for the producer/consumer-side
+# gates around the AMALGAMATED_SESSION → MODEL_INPUT boundary.
+_INVENTORY_ITEM_COUNT = 25
 
 
 class FailFastCodePartitionTest(unittest.TestCase):
