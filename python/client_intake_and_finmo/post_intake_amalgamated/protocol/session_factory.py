@@ -53,6 +53,12 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.restructuring_log_
 from client_intake_and_finmo.post_intake_amalgamated.protocol.session_driver import (
   SessionDriver,
 )
+# Step 9b — diagnostic emitter. The factory binds emit_diagnostic with
+# conn/draft_id/planning_run_id closure-captured and hands the callable
+# to SessionDriver for state-transition emits.
+from client_intake_and_finmo.post_intake_diagnostics.run_diagnostics_table import (  # type: ignore  # noqa: E501
+  emit_diagnostic,
+)
 
 
 # Section name -> revise_* tool. The post-WC-migration mapping (pre-step-8
@@ -334,6 +340,18 @@ def make_session_driver(
     build_finmo=build_finmo,
   )
 
+  # Step 9b — diagnostic emitter wired with conn/draft_id/planning_
+  # run_id closure-captured. The driver calls it at every state
+  # transition. Best-effort writes (the driver's _emit swallows
+  # exceptions so observability never breaks the protocol).
+  def _emit_diagnostic_fn(**kw: Any) -> Any:
+    return emit_diagnostic(
+      conn,
+      draft_id=draft_id,
+      planning_run_id=planning_run_id,
+      **kw,
+    )
+
   driver_kwargs: Dict[str, Any] = dict(
     draft_id=draft_id,
     planning_run_id=planning_run_id,
@@ -343,6 +361,7 @@ def make_session_driver(
     log_fn=lambda **kw: log_restructure(conn, **kw),
     current_payload_for=current_payload_for,
     primitive_kwargs_for_mode=primitive_kwargs_for_mode,
+    emit_diagnostic_fn=_emit_diagnostic_fn,
   )
   if budget is not None:
     driver_kwargs["budget"] = int(budget)

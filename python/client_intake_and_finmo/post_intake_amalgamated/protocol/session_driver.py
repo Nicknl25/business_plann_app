@@ -69,6 +69,14 @@ from client_intake_and_finmo.post_intake_amalgamated.protocol.restructure_propos
   Proposal,
   propose_for_tier,
 )
+# Step 9b diagnostics — closed enums for the post_intake_run_
+# diagnostics event stream. The driver uses these to tag every state
+# transition emit.
+from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (
+  EventCode,
+  PhaseCode,
+  Status,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +156,7 @@ class SessionDriver:
     log_fn: Optional[Callable[..., Any]] = None,
     current_payload_for: Optional[Callable[[str], Any]] = None,
     primitive_kwargs_for_mode: Optional[Callable[[FailureMode], Dict[str, Any]]] = None,
+    emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
     budget: int = DEFAULT_TOOL_CALL_BUDGET,
   ) -> None:
     self.state = SessionState(
@@ -161,9 +170,38 @@ class SessionDriver:
     self._log_fn = log_fn or (lambda **kw: None)
     self._current_payload_for = current_payload_for or (lambda s: None)
     self._primitive_kwargs_for_mode = primitive_kwargs_for_mode or (lambda m: {})
+    # Step 9b — diagnostic emitter for state transitions. The factory
+    # binds this to post_intake_run_diagnostics.emit_diagnostic with
+    # conn/draft_id/planning_run_id closure-captured; tests pass a
+    # recorder fake. When None, emissions are silently dropped (a
+    # no-op preserves driver behavior for code paths that don't yet
+    # wire diagnostics).
+    self._emit_diagnostic_fn = emit_diagnostic_fn or (lambda **kw: None)
     self._applied_steps = 0
     self._floor_invocations = 0
     self._last_result: Optional[EvaluatePlanResult] = None
+
+  # --- diagnostic emit helper (Step 9b) ---------------------------------
+
+  def _emit(
+    self,
+    *,
+    phase: PhaseCode,
+    event_code: EventCode,
+    status: Status = Status.COMPLETED,
+    diagnostic_data: Optional[Dict[str, Any]] = None,
+  ) -> None:
+    """Best-effort diagnostic emit. The factory wires
+    emit_diagnostic_fn to post_intake_diagnostics.emit_diagnostic with
+    conn/draft_id/planning_run_id closure-bound; tests pass a fake.
+    Swallows exceptions so observability never breaks the driver."""
+    try:
+      self._emit_diagnostic_fn(
+        phase=phase, event_code=event_code, status=status,
+        diagnostic_data=diagnostic_data,
+      )
+    except Exception:
+      pass
 
   # --- top-level entry --------------------------------------------------
 
@@ -179,6 +217,12 @@ class SessionDriver:
       mode = self._pick_next_failing_mode(result)
       if mode is None:
         return self._terminate(TerminationState.RESOLVED, result)
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_ENTERED,
+        status=Status.STARTED,
+        diagnostic_data={"mode": mode.value, "round_number": self.state.evaluate_plan_round},
+      )
 
       pre_distance = result.worst_failing_distance
       pre_count    = self._failing_count(result)
@@ -222,16 +266,38 @@ class SessionDriver:
       proposal = propose_for_tier(mode, current, result)
       if proposal is None:
         # Smart entry: every lever pinned. Advance to next tier.
+        self._emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_SMART_ENTRY_SKIPPED,
+          status=Status.SKIPPED,
+          diagnostic_data={"mode": mode.value, "tier_id": current.tier_id,
+                           "tier_name": current.name},
+        )
         self.state.current_tier_by_mode[mode] = current.tier_id
         current = next_tier(mode, current.tier_id)
         continue
 
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_TIER_WALKED,
+        status=Status.STARTED,
+        diagnostic_data={"mode": mode.value, "tier_id": current.tier_id,
+                         "tier_name": current.name,
+                         "step_type": current.step_type.value},
+      )
       apply_outcome = self._apply_tier(mode, current, proposal)
       self.state.current_tier_by_mode[mode] = current.tier_id
 
       if apply_outcome.get("re_evaluate"):
         result = self._evaluate()
         if not self._mode_failing(mode, result):
+          self._emit(
+            phase=PhaseCode.CASCADE_WALK,
+            event_code=EventCode.CASCADE_RESOLVED,
+            status=Status.COMPLETED,
+            diagnostic_data={"mode": mode.value,
+                             "resolved_at_tier": current.tier_id},
+          )
           return {"post_result": result, "outcome": "resolved"}
 
       if self.state.tool_call_budget_remaining <= BUDGET_FLOOR_THRESHOLD:
@@ -243,6 +309,12 @@ class SessionDriver:
 
       current = next_tier(mode, current.tier_id)
 
+    self._emit(
+      phase=PhaseCode.CASCADE_WALK,
+      event_code=EventCode.CASCADE_EXHAUSTED,
+      status=Status.COMPLETED,
+      diagnostic_data={"mode": mode.value},
+    )
     return {"post_result": result, "outcome": "exhausted"}
 
   # --- per-tier apply ---------------------------------------------------
@@ -276,6 +348,9 @@ class SessionDriver:
     )
     self.state.consume_budget()
 
+    tier_diag = {"mode": mode.value, "tier_id": tier.tier_id,
+                 "tier_name": tier.name}
+
     if response.kind == "veto" and response.validated:
       self._log(
         proposal=_first(proposal_or_options),
@@ -283,10 +358,23 @@ class SessionDriver:
         applied_value=None,
         veto_reason=response.reason or "",
       )
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_PROPOSAL_VETOED,
+        diagnostic_data={**tier_diag, "veto_reason": (response.reason or "")[:480]},
+      )
       return {"re_evaluate": False, "applied": False, "row_id": None}
 
     if response.kind == "confirm" and response.validated:
       chosen = _first(proposal_or_options)
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_PROPOSAL_CONFIRMED,
+        diagnostic_data={**tier_diag,
+                         "section": getattr(chosen, "section", None),
+                         "field": getattr(chosen, "field", None),
+                         "proposed_value": getattr(chosen, "proposed_value", None)},
+      )
       return self._commit_proposal(mode, tier, chosen,
                                    applied_by=AppliedBy.AMALGAMATED_GPT_CONFIRMED)
 
@@ -295,6 +383,14 @@ class SessionDriver:
       chosen = next((o for o in options if o.option_id == response.option_id), None)
       if chosen is None:
         return {"re_evaluate": False, "applied": False, "row_id": None}
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_PROPOSAL_CHOSEN,
+        diagnostic_data={**tier_diag, "option_id": response.option_id,
+                         "section": chosen.section,
+                         "field": chosen.field,
+                         "proposed_value": chosen.proposed_value},
+      )
       return self._commit_proposal(mode, tier, chosen,
                                    applied_by=AppliedBy.AMALGAMATED_GPT_CHOSE)
 
@@ -307,6 +403,12 @@ class SessionDriver:
           applied_value=None,
           veto_reason=";".join(e["code"] for e in response.validation_errors)[:512],
         )
+        self._emit(
+          phase=PhaseCode.CASCADE_WALK,
+          event_code=EventCode.CASCADE_PROPOSAL_OUT_OF_BAND,
+          diagnostic_data={**tier_diag,
+                           "validation_errors": [e.get("code") for e in response.validation_errors]},
+        )
         return {"re_evaluate": False, "applied": False, "row_id": None}
       synthetic = Proposal(
         mode=mode, tier_id=tier.tier_id, tier_name=tier.name,
@@ -315,6 +417,14 @@ class SessionDriver:
         field=response.field or "*",
         proposed_value=response.value,
         rationale_text=response.reason or "",
+      )
+      self._emit(
+        phase=PhaseCode.CASCADE_WALK,
+        event_code=EventCode.CASCADE_PROPOSAL_OTHER,
+        diagnostic_data={**tier_diag,
+                         "section": response.section, "field": response.field,
+                         "proposed_value": response.value,
+                         "reason": (response.reason or "")[:200]},
       )
       return self._commit_proposal(mode, tier, synthetic,
                                    applied_by=AppliedBy.AMALGAMATED_GPT_OTHER)
@@ -325,6 +435,11 @@ class SessionDriver:
       applied_by=AppliedBy.AMALGAMATED_GPT_VETOED,
       applied_value=None,
       veto_reason="no_structured_response",
+    )
+    self._emit(
+      phase=PhaseCode.CASCADE_WALK,
+      event_code=EventCode.CASCADE_PROPOSAL_VETOED,
+      diagnostic_data={**tier_diag, "veto_reason": "no_structured_response"},
     )
     return {"re_evaluate": False, "applied": False, "row_id": None}
 
@@ -366,6 +481,12 @@ class SessionDriver:
     runs before the §9.2 primitive (per spec §9: same machinery,
     unattended; primitive only fires if the unattended walk doesn't
     resolve the mode)."""
+    self._emit(
+      phase=PhaseCode.FLOOR_INVOCATION,
+      event_code=EventCode.FLOOR_WALKER_ENTERED,
+      status=Status.STARTED,
+      diagnostic_data={"mode": mode.value},
+    )
     res = floor_for_mode(
       mode,
       cascade_walker=self._unattended_cascade_pass,
@@ -373,6 +494,24 @@ class SessionDriver:
     )
     for step in res.steps:
       self._log_floor_step(mode, step)
+      self._emit(
+        phase=PhaseCode.FLOOR_INVOCATION,
+        event_code=EventCode.FLOOR_PRIMITIVE_APPLIED,
+        diagnostic_data={"mode": mode.value, "section": step.section,
+                         "field": step.field,
+                         "applied_value": step.applied_value,
+                         "reason_code": step.reason_code.value},
+      )
+    self._emit(
+      phase=PhaseCode.FLOOR_INVOCATION,
+      event_code=(
+        EventCode.FLOOR_WALKER_RESOLVED if res.status == "resolved"
+        else EventCode.FLOOR_COMPLETED
+      ),
+      status=Status.COMPLETED,
+      diagnostic_data={"mode": mode.value, "floor_status": res.status,
+                       "step_count": len(res.steps)},
+    )
     return res
 
   def _unattended_cascade_pass(self, *, mode: FailureMode) -> FloorResult:
@@ -436,11 +575,33 @@ class SessionDriver:
 
   def _evaluate(self) -> EvaluatePlanResult:
     self.state.evaluate_plan_round += 1
+    self._emit(
+      phase=PhaseCode.EVALUATE_PLAN,
+      event_code=EventCode.EVALUATE_PLAN_STARTED,
+      status=Status.STARTED,
+      diagnostic_data={"round_number": self.state.evaluate_plan_round},
+    )
     result = self._evaluate_plan_fn(round_number=self.state.evaluate_plan_round)
     self.state.last_worst_distance = result.worst_failing_distance
     self.state.last_failing_check_count = self._failing_count(result)
     self._last_result = result
     self.state.consume_budget()
+    failing_count = self._failing_count(result)
+    self._emit(
+      phase=PhaseCode.EVALUATE_PLAN,
+      event_code=(
+        EventCode.EVALUATE_PLAN_ALL_PASS if result.all_pass
+        else EventCode.EVALUATE_PLAN_FAILURES_DETECTED
+      ),
+      status=Status.COMPLETED,
+      diagnostic_data={
+        "round_number": self.state.evaluate_plan_round,
+        "all_pass": bool(result.all_pass),
+        "failing_check_count": failing_count,
+        "worst_failing_check": result.worst_failing_check,
+        "worst_failing_distance": result.worst_failing_distance,
+      },
+    )
     return result
 
   @staticmethod
@@ -547,6 +708,30 @@ class SessionDriver:
   def _terminate(
     self, state: str, result: EvaluatePlanResult, *, detail: str = "",
   ) -> SessionResult:
+    # Step 9b — emit a session_terminated row tagged with the
+    # terminal state so observability captures the exit reason.
+    state_to_event = {
+      TerminationState.RESOLVED:               EventCode.SESSION_RESOLVED,
+      TerminationState.MODE_FLOOR:             EventCode.SESSION_FLOOR_ALL,
+      TerminationState.STAGNATION_FLOOR_ALL:   EventCode.SESSION_FLOOR_ALL,
+      TerminationState.META_HALTED:            EventCode.SESSION_META_HALTED,
+      TerminationState.BUDGET_EXHAUSTED_FLOOR: EventCode.SESSION_BUDGET_EXHAUSTED,
+    }
+    event = state_to_event.get(state, EventCode.SESSION_RESOLVED)
+    self._emit(
+      phase=PhaseCode.SESSION_TERMINATED,
+      event_code=event,
+      status=(Status.COMPLETED if state == TerminationState.RESOLVED
+              else Status.FAILED),
+      diagnostic_data={
+        "termination_state": state,
+        "evaluate_plan_round_count": self.state.evaluate_plan_round,
+        "budget_remaining": self.state.tool_call_budget_remaining,
+        "applied_steps": self._applied_steps,
+        "floor_invocations": self._floor_invocations,
+        "termination_detail": detail or None,
+      },
+    )
     return SessionResult(
       termination_state=state,
       evaluate_plan_round_count=self.state.evaluate_plan_round,
