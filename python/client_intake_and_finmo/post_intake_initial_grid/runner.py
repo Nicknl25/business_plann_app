@@ -652,56 +652,52 @@ def prepare_initial_grid_for_draft(
       if isinstance(sync_result.get("finmo_json"), dict)
       else {}
     )
-    r_and_d_applicability_decision = _execute_sequence_step(
-      "r_and_d_applicability",
-      estimate_r_and_d_applicability_with_gpt,
-      runtime_context=_runtime_context(
-        current_model_input_json=model_input_json,
-        current_finmo_json=finmo_json,
-        extra={"shared_context": copy.deepcopy(shared_context)},
-      ),
-      handler_kwargs={
-        "business_facts": copy.deepcopy(business_facts or {}),
-        "ops_json": copy.deepcopy(ops_json or {}),
-        "financials_json": copy.deepcopy(financials_json or {}),
-        "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
-        "model_input_json": copy.deepcopy(model_input_json or {}),
-      },
-      expected_phase="pre_convergence",
-      expected_handler_key="estimate_r_and_d_applicability_with_gpt",
-      required_contract_name="r_and_d_applicability",
-      required_lookup_tables=["post_intake_gpt_contract_lookup"],
-      required_horizon_rule="single_pre_convergence_toggle",
+    # P3.33 Phase 3 8b-fix — REPLACE the legacy
+    # _execute_sequence_step pair (r_and_d_applicability + balance_
+    # sheet_contextual_seed) with a single set_capex_rd_balance_seed
+    # (contract=None) call. The tool's contract=None path wraps the
+    # SAME deterministic Python builders the sequence steps used to
+    # delegate to (estimate_r_and_d_applicability_with_gpt is pure
+    # Python per P3.10; propose_balance_sheet_contextual_seed_payload
+    # is the deterministic balance-sheet proposer). The apply_*
+    # utilities still write each authored payload to model_input.
+    from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
+      set_capex_rd_balance_seed,
     )
-    def _apply_r_and_d_policy() -> Dict[str, Any]:
-      next_model_input = apply_r_and_d_applicability_policy_to_model_input(
-        copy.deepcopy(model_input_json or {}),
-        r_and_d_enabled=bool(r_and_d_applicability_decision.get("r_and_d_enabled")),
-        decision_source="gpt_pre_forecast",
-        rationale=str(r_and_d_applicability_decision.get("rationale") or ""),
+    capex_rd_seed_envelope = set_capex_rd_balance_seed(
+      conn=conn,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(active_planning_run_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+    )
+    if not capex_rd_seed_envelope.get("accepted"):
+      raise RuntimeError(
+        "capex_rd_balance_seed_round1_failed: "
+        f"violations={capex_rd_seed_envelope.get('violations')}"
       )
-      return {
-        "model_input_json": next_model_input,
-        "finmo_json": build_python_finmo_json(model_input_json=copy.deepcopy(next_model_input)),
-      }
-
-    r_and_d_policy_result = _execute_sequence_step(
-      "r_and_d_policy_application",
-      _apply_r_and_d_policy,
-      runtime_context=_runtime_context(
-        current_model_input_json=model_input_json,
-        current_finmo_json=finmo_json,
-        extra={
-          "r_and_d_applicability": copy.deepcopy(r_and_d_applicability_decision or {}),
-          "shared_context": copy.deepcopy(shared_context),
-        },
-      ),
-      expected_phase="pre_convergence",
-      expected_handler_key="apply_r_and_d_applicability_policy_to_model_input",
-      required_horizon_rule="apply_single_pre_convergence_r_and_d_toggle",
+    capex_rd_payload = capex_rd_seed_envelope.get("payload") or {}
+    r_and_d_applicability_decision = (
+      capex_rd_payload.get("r_and_d_applicability") or {}
     )
-    model_input_json = copy.deepcopy(r_and_d_policy_result.get("model_input_json") or {})
-    finmo_json = copy.deepcopy(r_and_d_policy_result.get("finmo_json") or {})
+    balance_sheet_contextual_seed_decision = (
+      capex_rd_payload.get("balance_sheet_seed") or {}
+    )
+
+    # Apply R&D toggle to model_input + rebuild finmo.
+    model_input_json = apply_r_and_d_applicability_policy_to_model_input(
+      copy.deepcopy(model_input_json or {}),
+      r_and_d_enabled=bool(r_and_d_applicability_decision.get("r_and_d_enabled")),
+      decision_source="set_capex_rd_balance_seed_round1",
+      rationale=str(r_and_d_applicability_decision.get("rationale") or ""),
+    )
+    finmo_json = build_python_finmo_json(
+      model_input_json=copy.deepcopy(model_input_json or {}),
+    )
     shared_context["r_and_d_applicability_decision"] = {
       key: copy.deepcopy(value)
       for key, value in r_and_d_applicability_decision.items()
@@ -712,66 +708,16 @@ def prepare_initial_grid_for_draft(
       finmo_json=finmo_json,
       stage="baseline_ready_before_planning_mode",
     )
-    balance_sheet_contextual_seed_decision = _execute_sequence_step(
-      "balance_sheet_contextual_seed",
-      estimate_balance_sheet_contextual_seed_with_gpt,
-      runtime_context=_runtime_context(
-        current_model_input_json=model_input_json,
-        current_finmo_json=finmo_json,
-        extra={
-          "r_and_d_applicability": copy.deepcopy(r_and_d_applicability_decision or {}),
-          "shared_context": copy.deepcopy(shared_context),
-        },
-      ),
-      handler_kwargs={
-        "business_facts": copy.deepcopy(business_facts or {}),
-        "ops_json": copy.deepcopy(ops_json or {}),
-        "financials_json": copy.deepcopy(financials_json or {}),
-        "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
-        "model_input_json": copy.deepcopy(model_input_json or {}),
-        "finmo_json": copy.deepcopy(finmo_json or {}),
-      },
-      expected_phase="pre_convergence",
-      expected_handler_key="estimate_balance_sheet_contextual_seed_with_gpt",
-      required_contract_name="balance_sheet_contextual_seed",
-      required_context_contract_name="balance_sheet_contextual_seed",
-      required_context_include_phase="pre_convergence",
-      required_lookup_tables=[
-        "post_intak_mapping_lookup",
-        "post_intake_gpt_contract_lookup",
-        "post_intake_gpt_context_lookup",
-      ],
-      required_horizon_rule="single_pre_convergence_balance_sheet_driver_seed",
-    )
 
-    def _apply_balance_sheet_seed() -> Dict[str, Any]:
-      next_model_input = apply_balance_sheet_contextual_seed_to_model_input(
-        copy.deepcopy(model_input_json or {}),
-        copy.deepcopy(balance_sheet_contextual_seed_decision or {}),
-        live_count=20,
-      )
-      return {
-        "model_input_json": next_model_input,
-        "finmo_json": build_python_finmo_json(model_input_json=copy.deepcopy(next_model_input)),
-      }
-
-    balance_sheet_seed_result = _execute_sequence_step(
-      "balance_sheet_seed_application",
-      _apply_balance_sheet_seed,
-      runtime_context=_runtime_context(
-        current_model_input_json=model_input_json,
-        current_finmo_json=finmo_json,
-        extra={
-          "balance_sheet_contextual_seed": copy.deepcopy(balance_sheet_contextual_seed_decision or {}),
-          "shared_context": copy.deepcopy(shared_context),
-        },
-      ),
-      expected_phase="pre_convergence",
-      expected_handler_key="apply_balance_sheet_contextual_seed_to_model_input",
-      required_horizon_rule="apply_balance_sheet_contextual_seed_to_model_input",
+    # Apply balance-sheet contextual seed + rebuild finmo.
+    model_input_json = apply_balance_sheet_contextual_seed_to_model_input(
+      copy.deepcopy(model_input_json or {}),
+      copy.deepcopy(balance_sheet_contextual_seed_decision or {}),
+      live_count=20,
     )
-    model_input_json = copy.deepcopy(balance_sheet_seed_result.get("model_input_json") or {})
-    finmo_json = copy.deepcopy(balance_sheet_seed_result.get("finmo_json") or {})
+    finmo_json = build_python_finmo_json(
+      model_input_json=copy.deepcopy(model_input_json or {}),
+    )
     shared_context["balance_sheet_contextual_seed_decision"] = {
       key: copy.deepcopy(value)
       for key, value in balance_sheet_contextual_seed_decision.items()
@@ -848,42 +794,38 @@ def prepare_initial_grid_for_draft(
     planning_context_summary_json["r_and_d_applicability"] = copy.deepcopy(
       r_and_d_applicability_decision_for_ramp
     )
-  stage_ramp_contract = _execute_sequence_step(
-    "stage_ramp_contract",
-    estimate_stage_ramp_contract_with_gpt,
-    runtime_context=_runtime_context(
-      current_model_input_json=model_input_json,
-      current_finmo_json=finmo_json,
-      extra={
-        "r_and_d_applicability": copy.deepcopy(r_and_d_applicability_decision_for_ramp),
-        "balance_sheet_contextual_seed": copy.deepcopy(balance_sheet_contextual_seed_decision or {}),
-        "planning_mode_decision": copy.deepcopy(planning_choice or {}),
-        "shared_context": copy.deepcopy(shared_context),
-      },
-    ),
-    handler_kwargs={
-      "business_facts": copy.deepcopy(business_facts or {}),
-      "ops_json": copy.deepcopy(ops_json or {}),
-      "people_json": copy.deepcopy(people_json or {}),
-      "financials_json": copy.deepcopy(financials_json or {}),
-      "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
-      "planning_mode": planning_mode,
-      "planning_mode_reason": planning_mode_reason,
-      "model_input_json": copy.deepcopy(model_input_json or {}),
-      "finmo_json": copy.deepcopy(finmo_json or {}),
-      "r_and_d_applicability": copy.deepcopy(r_and_d_applicability_decision_for_ramp),
-    },
-    expected_phase="pre_convergence",
-    expected_handler_key="estimate_stage_ramp_contract_with_gpt",
-    required_contract_name="stage_ramp_contract",
-    required_context_contract_name="stage_ramp_contract",
-    required_context_include_phase="pre_convergence",
-    required_lookup_tables=[
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-    ],
-    required_horizon_rule="q1_to_q20_exactly_once",
+  # P3.33 Phase 3 8b-fix — REPLACE the legacy _execute_sequence_step
+  # call for stage_ramp_contract with a direct set_stage_ramp_contract
+  # (contract=None) call. The tool's contract=None path runs the same
+  # Python-first builder (build_python_stage_ramp_contract +
+  # robust_bound_stage_ramp_contract per step 3a) the existing handler
+  # delegates to. The handler-on-validator-failure recovery path that
+  # used to live behind estimate_stage_ramp_contract_with_gpt is now
+  # the V1/V2 cascade tiers in the SessionDriver below.
+  from client_intake_and_finmo.post_intake_amalgamated.tools.set_stage_ramp_contract import (  # type: ignore  # noqa: E501
+    set_stage_ramp_contract,
   )
+  stage_ramp_envelope = set_stage_ramp_contract(
+    conn=conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+    people_json=copy.deepcopy(people_json or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_json=copy.deepcopy(finmo_json or {}),
+    r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
+  )
+  if not stage_ramp_envelope.get("accepted"):
+    raise RuntimeError(
+      "stage_ramp_contract_round1_failed: "
+      f"violations={stage_ramp_envelope.get('violations')}"
+    )
+  stage_ramp_contract = stage_ramp_envelope.get("contract") or {}
   payroll_headcount_payload = None
   persist_system_stage(
     stage="stage_ramp_contract_applied",
@@ -997,38 +939,46 @@ def prepare_initial_grid_for_draft(
       required_lookup_tables=["post_intake_headcount_policy_lookup"],
       required_horizon_rule="naics_filtered_oews_titles_before_gpt_selection",
     )
-    schedule_payload = _execute_sequence_step(
-      "payroll_gpt_contract_request",
-      estimate_payroll_headcount_schedule_with_gpt,
-      runtime_context={
-        **payroll_runtime_context,
-        "payroll_context_payload": copy.deepcopy(payroll_context_payload or {}),
-        **copy.deepcopy(payroll_lookup_payload or {}),
-      },
-      handler_kwargs={
-        "business_facts": copy.deepcopy(business_facts or {}),
-        "ops_json": copy.deepcopy(ops_json or {}),
-        "people_json": copy.deepcopy(people_json or {}),
-        "financials_json": copy.deepcopy(financials_json or {}),
-        "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
-        "planning_mode": planning_mode,
-        "planning_mode_reason": planning_mode_reason,
-        "model_input_json": copy.deepcopy(current_model_input_json or {}),
-        "finmo_json": copy.deepcopy(current_finmo_json or {}),
-        "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
-        "draft_id": normalized_draft_id,
-        "client_id": str(draft.get("client_id") or "").strip(),
-      },
-      expected_phase="initial_grid",
-      expected_handler_key="estimate_payroll_headcount_schedule_with_gpt",
-      required_contract_name="payroll_headcount_schedule",
-      required_context_contract_name="payroll_headcount_schedule",
-      required_context_include_phase="pre_convergence",
-      required_lookup_tables=[
-        "post_intake_gpt_contract_lookup",
-        "post_intake_gpt_context_lookup",
-      ],
-      required_horizon_rule="q1_to_q20_oews_title_fte_contract",
+    # P3.33 Phase 3 8b-fix — REPLACE the legacy _execute_sequence_step
+    # payroll authoring with a direct set_payroll_schedule(contract=None)
+    # call. set_payroll_schedule's contract=None path now internally
+    # invokes estimate_payroll_headcount_schedule_with_gpt (Handler C)
+    # to author the contract, then validates + builds the payload.
+    # See set_payroll_schedule.py — the tool became the canonical
+    # orchestrator entry point for round-1 payroll authoring as part
+    # of step 8b-fix.
+    from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule import (  # type: ignore  # noqa: E501
+      set_payroll_schedule,
+    )
+    payroll_envelope = set_payroll_schedule(
+      conn=conn,
+      draft_id=normalized_draft_id,
+      planning_run_id=str(active_planning_run_id or "").strip(),
+      contract=None,
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      model_input_json=copy.deepcopy(current_model_input_json or {}),
+      finmo_json=copy.deepcopy(current_finmo_json or {}),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+    )
+    if not payroll_envelope.get("accepted"):
+      raise RuntimeError(
+        "payroll_headcount_schedule_round1_failed: "
+        f"violations={payroll_envelope.get('violations')}"
+      )
+    # set_payroll_schedule returns either a built payload (when
+    # builder ran on the validated contract) or the validated
+    # contract envelope. The downstream pipeline consumes the
+    # built payload as schedule_payload, matching the legacy shape.
+    schedule_payload = (
+      payroll_envelope.get("payload")
+      or payroll_envelope.get("contract")
+      or {}
     )
     payroll_horizon = int(
       post_intake_contract_forecast_horizon_quarter_count(
@@ -1554,106 +1504,84 @@ def prepare_initial_grid_for_draft(
           stage="quarter_grid_applied_after_feasibility_repair",
         )
 
-  # P3.33 Phase 3 step 8b — amalgamated restructure session.
+  # P3.33 Phase 3 8b-fix — amalgamated restructure session.
   #
-  # By this point initial-grid has produced a coherent applied_model_input_
-  # json + applied_finmo_json via the existing deterministic authoring path
-  # (R&D applicability, balance-sheet seed, stage_ramp contract via Python-
-  # first builder, payroll via Handler C + reapply). The amalgamated session
-  # runs the §5 restructure protocol over this state: evaluate_plan against
-  # the §10.6 doctrine + cohort bands; if any failure mode fires, the
-  # cascade revises sections in priority order (BAND → COHERENCE → CAPACITY
-  # → GROWTH → VIABILITY) via the four revise_* tools; floor primitives
-  # guarantee a committed in-bounds plan if the cascade exhausts.
+  # Round-1 authoring has produced applied_model_input_json +
+  # applied_finmo_json via the four set_*(contract=None) calls earlier
+  # in this function (REPLACE pattern per the step-8 design discussion
+  # Q2 reframing — no _execute_sequence_step legacy authoring path
+  # remains). The mirror is built AFTER round-1 with the complete
+  # plan_state snapshot, then SessionDriver runs the §5 restructure
+  # protocol over it: evaluate_plan classifies failures, the cascade
+  # revises sections in §7.1 priority order, floor primitives
+  # guarantee a committed in-bounds plan on cascade exhaustion.
   #
-  # Round-1 consolidation followup (not in this commit): the existing
-  # _execute_sequence_step authoring calls for r_and_d_applicability,
-  # balance_sheet_contextual_seed, stage_ramp_contract, and
-  # payroll_headcount_schedule each wrap a Python-deterministic builder
-  # that lives inside the corresponding set_*(contract=None) path. Moving
-  # the orchestrator's invocation from _execute_sequence_step to direct
-  # set_*(contract=None) calls (per the Q2 reframing in the step-8 design
-  # discussion) is a follow-up consolidation; the cascade refinement layer
-  # ships first here so the protocol is observable end-to-end.
-  try:
-    from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
-      build_mirror,
-    )
-    from client_intake_and_finmo.post_intake_amalgamated.protocol.session_factory import (  # type: ignore  # noqa: E501
-      driver_run_with_audit_wrapper,
-      make_session_driver,
-    )
-    amalgamated_plan_state = {
-      "stage_ramp": copy.deepcopy(stage_ramp_contract or {}),
-      "payroll": copy.deepcopy(payroll_headcount_payload or {}),
-      "capex_rd_balance_seed": copy.deepcopy(
-        (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
-      ),
-      "balance_sheet": copy.deepcopy(
-        (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
-      ),
-      "drivers": {},
+  # FAIL-FAST: no try/except wrapper here. driver_run_with_audit_
+  # wrapper raises RuntimeError(amalgamated_session_failed_
+  # catastrophically: ...) on unhandled driver exceptions; that
+  # propagates through prepare_initial_grid_for_draft as a
+  # planning_run failure (matching the existing initial-grid failure-
+  # handling pattern). The audit row has already landed inside the
+  # wrapper's best-effort log_restructure call.
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+    build_mirror,
+  )
+  from client_intake_and_finmo.post_intake_amalgamated.protocol.session_factory import (  # type: ignore  # noqa: E501
+    driver_run_with_audit_wrapper,
+    make_session_driver,
+  )
+  amalgamated_plan_state = {
+    "stage_ramp": copy.deepcopy(stage_ramp_contract or {}),
+    "payroll": copy.deepcopy(payroll_headcount_payload or {}),
+    "capex_rd_balance_seed": copy.deepcopy(
+      (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
+    ),
+    "balance_sheet": copy.deepcopy(
+      (shared_context or {}).get("balance_sheet_contextual_seed_decision") or {}
+    ),
+    "drivers": {},
+  }
+  amalgamated_business_facts = copy.deepcopy(business_facts or {})
+  amalgamated_mirror = build_mirror(
+    conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+    business_facts=amalgamated_business_facts,
+    plan_state=amalgamated_plan_state,
+    load_bands=True,
+  )
+  amalgamated_operating_context = {
+    "model_input_template": copy.deepcopy(applied_model_input_json or {}),
+    "build_finmo": build_python_finmo_json,
+    "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+  }
+  amalgamated_driver = make_session_driver(
+    conn=conn,
+    draft_id=str(draft_id or "").strip(),
+    planning_run_id=str(active_planning_run_id or "").strip(),
+    mirror=amalgamated_mirror,
+    operating_context=amalgamated_operating_context,
+    business_facts=amalgamated_business_facts,
+    ops_json=copy.deepcopy(ops_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+    model_input_json=copy.deepcopy(applied_model_input_json or {}),
+    finmo_json=copy.deepcopy(applied_finmo_json or {}),
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+    build_finmo=build_python_finmo_json,
+  )
+  amalgamated_result = driver_run_with_audit_wrapper(
+    driver=amalgamated_driver, conn=conn,
+  )
+  if isinstance(shared_context, dict):
+    shared_context["amalgamated_session_result"] = {
+      "termination_state": amalgamated_result.termination_state,
+      "evaluate_plan_round_count": amalgamated_result.evaluate_plan_round_count,
+      "budget_remaining": amalgamated_result.budget_remaining,
+      "applied_steps": amalgamated_result.applied_steps,
+      "floor_invocations": amalgamated_result.floor_invocations,
+      "termination_detail": amalgamated_result.termination_detail,
     }
-    amalgamated_business_facts = copy.deepcopy(business_facts or {})
-    amalgamated_mirror = build_mirror(
-      conn,
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(active_planning_run_id or "").strip(),
-      business_facts=amalgamated_business_facts,
-      plan_state=amalgamated_plan_state,
-      load_bands=True,
-    )
-    amalgamated_operating_context = {
-      "model_input_template": copy.deepcopy(applied_model_input_json or {}),
-      "build_finmo": build_python_finmo_json,
-      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
-    }
-    amalgamated_driver = make_session_driver(
-      conn=conn,
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(active_planning_run_id or "").strip(),
-      mirror=amalgamated_mirror,
-      operating_context=amalgamated_operating_context,
-      business_facts=amalgamated_business_facts,
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-      model_input_json=copy.deepcopy(applied_model_input_json or {}),
-      finmo_json=copy.deepcopy(applied_finmo_json or {}),
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
-      build_finmo=build_python_finmo_json,
-    )
-    amalgamated_result = driver_run_with_audit_wrapper(
-      driver=amalgamated_driver, conn=conn,
-    )
-    # Surface the amalgamated session result in shared_context so the
-    # downstream pipeline + audit trail can read it. Revisions the driver
-    # applied via the revise_* tools have already been committed to
-    # applied_model_input_json in place via the set_*(contract=...) calls
-    # those wrappers delegate to.
-    if isinstance(shared_context, dict):
-      shared_context["amalgamated_session_result"] = {
-        "termination_state": amalgamated_result.termination_state,
-        "evaluate_plan_round_count": amalgamated_result.evaluate_plan_round_count,
-        "budget_remaining": amalgamated_result.budget_remaining,
-        "applied_steps": amalgamated_result.applied_steps,
-        "floor_invocations": amalgamated_result.floor_invocations,
-        "termination_detail": amalgamated_result.termination_detail,
-      }
-  except Exception as amalgamated_exc:
-    # The wrapper's RuntimeError surfaces here when the driver itself
-    # raises. We record the catastrophe in shared_context (the audit row
-    # already landed via the wrapper's META_ESCALATED write) and continue
-    # the pipeline with the pre-amalgamated state, since the existing
-    # deterministic initial-grid + downstream target_seeking still
-    # produces a valid plan. This is the documented partial-availability
-    # behavior of the integration: the cascade refinement is OPTIONAL on
-    # top of the existing pipeline.
-    if isinstance(shared_context, dict):
-      shared_context["amalgamated_session_result"] = {
-        "termination_state": "EXCEPTION_HALTED",
-        "termination_detail": str(amalgamated_exc)[:480],
-      }
 
   return {
     "planning_run_id": active_planning_run_id,

@@ -122,15 +122,23 @@ def set_payroll_schedule(
   planning_run_id: Optional[str] = None,
   contract: Optional[Dict[str, Any]] = None,
   # Builder inputs (used when caller wants the tool to compute the
-  # built payload after validation):
+  # built payload after validation, or when contract=None and the
+  # tool must invoke Handler C internally to author from scratch):
   business_facts: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  planning_mode: str = "",
+  planning_mode_reason: str = "",
   policy_code: str = "default",
   # Test seams.
   _validator: Optional[Callable[..., Dict[str, Any]]] = None,
   _builder: Optional[Callable[..., Dict[str, Any]]] = None,
+  _handler_c_author: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
   """Author / validate / commit the payroll headcount schedule.
 
@@ -143,22 +151,22 @@ def set_payroll_schedule(
       "payload": <full headcount payload built from contract>|None,
       "violations": [ {...}, ... ],
       "bands_echoed": { "by_class": {...}, "tolerance": ..., "cohort_bands"?: {...} },
-      "decision_source": "amalgamated_gpt_supplied" | "amalgamated_session_pending",
+      "decision_source": "amalgamated_gpt_supplied" | "handler_c_internal_authoring",
     }
 
   Rejection does NOT mutate state. On acceptance the caller writes
   the returned ``payload`` into plan_state['payroll'] and refreshes
   the mirror's bands echo with ``bands_echoed``.
 
-  When ``contract`` is None the tool currently returns accepted=False
-  with code ``payroll_contract_required`` and
-  decision_source ``amalgamated_session_pending``. Handler C lacks a
-  Python-deterministic contract builder (the prior GPT iteration loop
-  was the author); step 5 wires the amalgamated session as the
-  author. During the transition the orchestrator's
-  ``estimate_payroll_headcount_schedule_with_gpt`` shim returns an
-  empty structurally-valid payload directly so the pre-amalgamation
-  pipeline continues to make progress.
+  Round-1 authoring (P3.33 Phase 3 step 8b-fix): when ``contract`` is
+  None, the tool internally invokes Handler C
+  (``estimate_payroll_headcount_schedule_with_gpt``) to author the
+  contract, then validates + builds the payload. This makes
+  set_payroll_schedule the orchestrator-side entry point for
+  round-1 payroll authoring — replacing the legacy
+  _execute_sequence_step("payroll_headcount_schedule", ...) call
+  pattern. The internal Handler C invocation can be replaced via the
+  ``_handler_c_author`` test seam.
   """
   validator = _validator
   builder = _builder
@@ -177,7 +185,57 @@ def set_payroll_schedule(
     conn, draft_id=_string(draft_id), planning_run_id=_string(planning_run_id)
   )
 
-  if not isinstance(contract, dict) or not contract:
+  decision_source = "amalgamated_gpt_supplied"
+  candidate: Optional[Dict[str, Any]] = (
+    copy.deepcopy(contract) if isinstance(contract, dict) and contract else None
+  )
+
+  if candidate is None:
+    # Round-1 authoring path — invoke Handler C internally.
+    handler_c = _handler_c_author
+    if handler_c is None:
+      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+        estimate_payroll_headcount_schedule_with_gpt,
+      )
+      handler_c = estimate_payroll_headcount_schedule_with_gpt
+    try:
+      authored = handler_c(
+        business_facts=business_facts or {},
+        ops_json=ops_json or {},
+        people_json=people_json or {},
+        financials_json=financials_json or {},
+        financials_year1_json=financials_year1_json or {},
+        planning_mode=_string(planning_mode),
+        planning_mode_reason=_string(planning_mode_reason),
+        model_input_json=model_input_json or {},
+        finmo_json=finmo_json or {},
+        stage_ramp_contract=stage_ramp_contract or {},
+        draft_id=_string(draft_id),
+      )
+    except Exception as exc:
+      return {
+        "accepted": False,
+        "section": "payroll",
+        "contract": None,
+        "payload": None,
+        "violations": [{
+          "code": "payroll_handler_c_authoring_failed",
+          "message": _string(exc)[:600],
+        }],
+        "bands_echoed": bands_echoed,
+        "decision_source": "handler_c_internal_authoring",
+      }
+    if isinstance(authored, dict):
+      raw_contract = (
+        authored.get("payroll_headcount_contract")
+        if isinstance(authored.get("payroll_headcount_contract"), dict)
+        else authored
+      )
+      if isinstance(raw_contract, dict) and raw_contract:
+        candidate = copy.deepcopy(raw_contract)
+    decision_source = "handler_c_internal_authoring"
+
+  if not isinstance(candidate, dict) or not candidate:
     return {
       "accepted": False,
       "section": "payroll",
@@ -186,17 +244,15 @@ def set_payroll_schedule(
       "violations": [{
         "code": "payroll_contract_required",
         "message": (
-          "Handler C lacks a Python-deterministic contract builder; the "
-          "amalgamated GPT session must supply the contract. The pre-"
-          "amalgamation orchestrator uses a transitional empty-payload "
-          "shim during step 3b -> step 5."
+          "Handler C authoring produced no contract and no contract was "
+          "supplied directly. The orchestrator must either pass a "
+          "contract or provide enough builder inputs for Handler C to "
+          "author one."
         ),
       }],
       "bands_echoed": bands_echoed,
-      "decision_source": "amalgamated_session_pending",
+      "decision_source": decision_source,
     }
-
-  candidate = copy.deepcopy(contract)
 
   # 1) Canonical contract validator (shape + horizon + per-row).
   validator_violations: List[Dict[str, Any]] = []
@@ -218,7 +274,7 @@ def set_payroll_schedule(
       "payload": None,
       "violations": violations,
       "bands_echoed": bands_echoed,
-      "decision_source": "amalgamated_gpt_supplied",
+      "decision_source": decision_source,
     }
 
   # 3) Build full payload from the validated contract.
@@ -244,7 +300,7 @@ def set_payroll_schedule(
         "message": _string(exc)[:1200],
       }],
       "bands_echoed": bands_echoed,
-      "decision_source": "amalgamated_gpt_supplied",
+      "decision_source": decision_source,
     }
 
   return {
@@ -254,5 +310,5 @@ def set_payroll_schedule(
     "payload": payload,
     "violations": [],
     "bands_echoed": bands_echoed,
-    "decision_source": "amalgamated_gpt_supplied",
+    "decision_source": decision_source,
   }

@@ -213,17 +213,50 @@ class OrchestratorBlockShapeTest(unittest.TestCase):
     self.assertIn("build_mirror", src)
     self.assertIn("amalgamated_session_result", src)
 
-  def test_integration_block_wraps_in_try_except(self) -> None:
-    """The orchestrator's amalgamated invocation MUST be in a
-    try/except so a driver catastrophe does not break the rest of
-    the initial-grid pipeline."""
+  def test_integration_block_does_not_silently_swallow_driver_exception(self) -> None:
+    """P3.33 Phase 3 8b-fix — the orchestrator MUST NOT wrap
+    driver_run_with_audit_wrapper in a try/except that records
+    EXCEPTION_HALTED and continues. Item D from the step-8 design
+    discussion: on driver catastrophe the RuntimeError propagates
+    out of prepare_initial_grid_for_draft as a planning_run failure.
+    The audit row landing is the wrapper's job; pipeline behavior on
+    exception is FAIL, not degrade."""
     from pathlib import Path
     src = (Path(__file__).resolve().parent.parent / "python"
            / "client_intake_and_finmo" / "post_intake_initial_grid"
            / "runner.py").read_text(encoding="utf-8")
     self.assertIn("driver_run_with_audit_wrapper(", src)
-    self.assertIn("except Exception as amalgamated_exc:", src)
-    self.assertIn("EXCEPTION_HALTED", src)
+    self.assertNotIn("except Exception as amalgamated_exc:", src)
+    self.assertNotIn("EXCEPTION_HALTED", src)
+
+  def test_orchestrator_uses_set_star_contract_none_for_round1(self) -> None:
+    """8b-fix REPLACE pattern — round-1 authoring goes through
+    set_*(contract=None) calls, not _execute_sequence_step legacy
+    GPT authoring."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "python"
+           / "client_intake_and_finmo" / "post_intake_initial_grid"
+           / "runner.py").read_text(encoding="utf-8")
+    self.assertIn("from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed", src)
+    self.assertIn("from client_intake_and_finmo.post_intake_amalgamated.tools.set_stage_ramp_contract", src)
+    self.assertIn("from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule", src)
+    # The replaced _execute_sequence_step authoring calls are gone:
+    self.assertNotIn(
+      'r_and_d_applicability_decision = _execute_sequence_step(\n      "r_and_d_applicability",',
+      src,
+    )
+    self.assertNotIn(
+      'balance_sheet_contextual_seed_decision = _execute_sequence_step(\n      "balance_sheet_contextual_seed",',
+      src,
+    )
+    self.assertNotIn(
+      'stage_ramp_contract = _execute_sequence_step(\n    "stage_ramp_contract",',
+      src,
+    )
+    self.assertNotIn(
+      'schedule_payload = _execute_sequence_step(\n      "payroll_gpt_contract_request",',
+      src,
+    )
 
 
 if __name__ == "__main__":
