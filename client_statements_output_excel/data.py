@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+
+if TYPE_CHECKING:  # pragma: no cover -- type-only import
+  from client_intake_and_finmo.post_intake_contracts.workbook_payload_contract import (  # noqa: E501
+    WorkbookPayloadContract,
+  )
 
 
 QUARTER_COUNT = 20
@@ -190,6 +196,81 @@ class DraftWorkbookData:
       "(post_intake_solver/orchestrator.py:413) is the canonical writer; if "
       "this fires the upstream write was skipped or the persisted payload "
       "was overwritten."
+    )
+
+  def to_contract(self) -> "WorkbookPayloadContract":
+    """P3.40 Contract 2 adapter (Commit 2). Build a
+    ``WorkbookPayloadContract`` from this dataclass's 6 JSON dict
+    fields.
+
+    The dataclass's ``draft_row`` field carries the raw DB row used
+    to derive ``draft_id`` / ``client_id`` / ``business_name`` for
+    file naming and the cover sheet -- it is NOT part of the
+    workbook payload contract (which describes what the workbook
+    builder consumes to render sheets). ``draft_row`` is dropped
+    here and reconstructed as ``{}`` in ``from_contract``.
+
+    The 4 required JSON dicts (``model_input_json``, ``finmo_json``,
+    ``payroll_headcount``, ``debt_schedule``) are passed through
+    verbatim; the contract's ``model_validate`` performs the typed
+    checks.
+
+    ``planning_run_json`` is required on the dataclass but optional
+    on the contract. An empty dict on the dataclass means
+    "convergence did not run" -- the same semantic ``data.py:175-176``
+    encodes with ``if not payload: return {}``. The adapter OMITS
+    the field in that case so the contract's invariant 4.1
+    chain-raise (which fires on present-but-empty
+    planning_run_json) does not trip on an absence that is
+    intentional rather than corrupt.
+    """
+    from client_intake_and_finmo.post_intake_contracts.workbook_payload_contract import (  # noqa: E501
+      WorkbookPayloadContract,
+    )
+    payload: Dict[str, Any] = {
+      "model_input_json": self.model_input_json,
+      "finmo_json": self.finmo_json,
+      "payroll_headcount": self.payroll_headcount,
+      "debt_schedule": self.debt_schedule,
+    }
+    if self.planning_run_json:
+      payload["planning_run_json"] = self.planning_run_json
+    if self.run_diagnostics is not None:
+      payload["run_diagnostics"] = self.run_diagnostics
+    return WorkbookPayloadContract.model_validate(payload)
+
+  @classmethod
+  def from_contract(
+    cls,
+    contract: "WorkbookPayloadContract",
+    *,
+    draft_row: Optional[Dict[str, Any]] = None,
+  ) -> "DraftWorkbookData":
+    """P3.40 Contract 2 adapter (Commit 2). Build a
+    ``DraftWorkbookData`` from a validated
+    ``WorkbookPayloadContract``.
+
+    ``draft_row`` is not stored on the contract (it is the raw DB
+    row, not part of the workbook payload). Callers that have the
+    DB row in scope -- the API export path -- pass it through;
+    callers that don't (test fixtures, replay tooling) accept the
+    default of ``{}`` and the derived ``draft_id`` / ``client_id``
+    / ``business_name`` properties fall back to the values that
+    live inside ``model_input_json`` / ``payroll_headcount``.
+
+    Contract envelopes are serialised back to plain dicts via
+    ``model_dump(mode="json")`` so the dataclass's existing
+    consumer paths (which read dict keys) keep working unchanged.
+    """
+    dumped = contract.model_dump(mode="json")
+    return cls(
+      draft_row=dict(draft_row or {}),
+      model_input_json=dumped["model_input_json"],
+      finmo_json=dumped["finmo_json"],
+      payroll_headcount=dumped["payroll_headcount"],
+      debt_schedule=dumped["debt_schedule"],
+      planning_run_json=dumped.get("planning_run_json") or {},
+      run_diagnostics=dumped.get("run_diagnostics"),
     )
 
 
