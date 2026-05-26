@@ -189,14 +189,35 @@ class CascadeResolverPayloadContractTest(unittest.TestCase):
 class CohortSqlRowContractTest(unittest.TestCase):
   """F3 + F8 + F13 + F9 + F12 monotonicity invariant."""
 
-  def test_valid_19_field_row_accepted(self) -> None:
-    """19 fields total (5 PK + 13 data + 1 auto-stamp) per SQL
-    DDL at cohort_bands_table.py:32-58."""
+  def test_valid_20_field_row_accepted(self) -> None:
+    """20 fields total (5 PK + 14 data + 1 auto-stamp) per SQL
+    DDL at cohort_bands_table.py:32-58 post-Cleanup-Commit-1.
+    R10 closure added cohort_query as the 14th data column."""
     contract = CohortSqlRowContract.model_validate(
       valid_cohort_sql_row_dict()
     )
     self.assertEqual(contract.section, "drivers")
-    self.assertEqual(len(CohortSqlRowContract.model_fields), 19)
+    self.assertEqual(len(CohortSqlRowContract.model_fields), 20)
+    self.assertIn("cohort_query", CohortSqlRowContract.model_fields)
+
+  def test_cohort_query_optional_default_none(self) -> None:
+    """R10 closure (Cleanup Commit 1): cohort_query Optional
+    so legacy rows pre-dating the cleanup (which carry NULL
+    in the new column) still validate. PSL2 production-reality-
+    wins."""
+    payload = valid_cohort_sql_row_dict()
+    payload.pop("cohort_query", None)
+    contract = CohortSqlRowContract.model_validate(payload)
+    self.assertIsNone(contract.cohort_query)
+
+  def test_cohort_query_populated_dict_accepted(self) -> None:
+    """R10 closure: post-cleanup rows carry the dict directly
+    (deserialized from the JSON column at SELECT time)."""
+    contract = CohortSqlRowContract.model_validate(
+      valid_cohort_sql_row_dict()
+    )
+    self.assertIsInstance(contract.cohort_query, dict)
+    self.assertEqual(contract.cohort_query.get("naics_prefix"), "722515")
 
   def test_invalid_section_rejected(self) -> None:
     """F3: Literal of 5 values."""
@@ -259,25 +280,52 @@ class CohortSqlRowContractTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class GetBandsViewBandContractTest(unittest.TestCase):
-  """F12 (b) monotonicity carried through + F7 silent-drop
-  documentation (12 fields, NOT 14 -- naics_prefix_used +
-  data_source dropped per F7)."""
+  """F12 (b) monotonicity carried through + R11 closure
+  (Cleanup Commit 1): naics_prefix_used + data_source now
+  symmetric with Shape B; 14 fields per band post-cleanup."""
 
-  def test_valid_12_field_band_accepted(self) -> None:
-    """F7: 12 fields per band (production writer at
-    cohort_bands_table.py:347-386). Shape B has 19 fields;
-    Shape C has 12 + envelope. 2 fields silently dropped
-    (naics_prefix_used + data_source) plus PK fields hoisted +
-    resolved_at dropped."""
+  def test_valid_14_field_band_accepted(self) -> None:
+    """R11 closure (Cleanup Commit 1): 14 fields per band per
+    cohort_bands_table.py:347-388 (production writer post-
+    cleanup). Shape B has 20 fields (incl. cohort_query +
+    resolved_at + PK fields); Shape C has 14 + envelope.
+    Field difference: 4 PK/metadata hoisted to envelope
+    (draft_id, planning_run_id, section, lever_id) +
+    resolved_at dropped (server-stamped) + cohort_query
+    dropped (R10 closure persists to SQL but isn't surfaced
+    in the get_bands view -- query-context data, not band-
+    data)."""
     contract = GetBandsViewBandContract.model_validate(
       valid_get_bands_view_band_dict()
     )
     self.assertEqual(contract.metric_key, "gross_margin_percent")
-    self.assertEqual(len(GetBandsViewBandContract.model_fields), 12)
-    # F7 silent-drop pinned: these fields are NOT on the contract
-    self.assertNotIn("naics_prefix_used", GetBandsViewBandContract.model_fields)
-    self.assertNotIn("data_source", GetBandsViewBandContract.model_fields)
+    self.assertEqual(len(GetBandsViewBandContract.model_fields), 14)
+    # R11 closure: naics_prefix_used + data_source NOW present
+    # on Shape C (asymmetry resolved).
+    self.assertIn("naics_prefix_used", GetBandsViewBandContract.model_fields)
+    self.assertIn("data_source", GetBandsViewBandContract.model_fields)
+    # resolved_at still dropped (server-stamped at SQL insert,
+    # not surfaced in the GPT-tool view).
     self.assertNotIn("resolved_at", GetBandsViewBandContract.model_fields)
+
+  def test_naics_prefix_used_optional_default_none(self) -> None:
+    """R11 closure: Optional default for legacy in-memory
+    views (if any cached) that pre-date Cleanup Commit 1."""
+    payload = valid_get_bands_view_band_dict()
+    payload.pop("naics_prefix_used", None)
+    payload.pop("data_source", None)
+    contract = GetBandsViewBandContract.model_validate(payload)
+    self.assertIsNone(contract.naics_prefix_used)
+    self.assertIsNone(contract.data_source)
+
+  def test_naics_prefix_used_populated_value_accepted(self) -> None:
+    """R11 closure: post-cleanup in-memory views carry the 2
+    new fields populated from Shape B."""
+    contract = GetBandsViewBandContract.model_validate(
+      valid_get_bands_view_band_dict()
+    )
+    self.assertEqual(contract.naics_prefix_used, "722515")
+    self.assertEqual(contract.data_source, "industry_metrics_alpha")
 
   def test_benchmark_monotonicity_violation_rejected(self) -> None:
     """F12 (b): same invariant as Shape B."""

@@ -863,7 +863,7 @@ diagnostic-only purpose in the field's docstring.
 1 field. Recommend against — production writes it; contract
 should match.
 
-### F5 — `cohort_query` field inclusion — AMENDED to Option α (DROP entirely)
+### F5 — `cohort_query` field inclusion — AMENDED to Option α (DROP entirely from Shape A); Shape B silent-drop RESOLVED per Cleanup Commit 1
 
 **Pre-1a re-verification finding:** Original F5 disposition put
 `cohort_query` on Shape A, but trace re-verification of
@@ -903,16 +903,22 @@ BusinessProfileInputContract.** Aliases (`business_naics_6`,
 `naics_code`, `business_naics`) live at upstream producer
 sites; Contract 5b sub-contracts would normalize there.
 
-### F7 — Shape B vs Shape C separate sub-contracts
+### F7 — Shape B vs Shape C separate sub-contracts — asymmetry RESOLVED per Cleanup Commit 1
 
 **(Recommended) (a) SEPARATE sub-contracts.** Shape B has 17
-SQL cols; Shape C has 11 in-memory fields. The structural drop
-of `naics_prefix_used` + `data_source` at SQL → in-memory
-translation is a CONTRACT-LEVEL FACT, not a runtime bug
-waiting to happen. Typing them separately surfaces the
-asymmetry; consumers know they're working with a stripped view.
-Fix (extending `get_bands` to return the 2 missing fields) is
-R-residual.
+SQL cols (now 18 post-Cleanup-Commit-1 cohort_query addition);
+Shape C had 11 in-memory fields (now 14 post-Cleanup-Commit-1
+naics_prefix_used + data_source addition).
+
+**Post-Cleanup-Commit-1 status:** the structural drop of
+`naics_prefix_used` + `data_source` at SQL → in-memory
+translation is RESOLVED. R11 closure landed in Cleanup Commit 1
+— both fields now flow through `get_bands()` symmetrically.
+Sub-contracts remain SEPARATE because they still differ
+structurally (Shape B has PK fields + resolved_at + cohort_query
+that Shape C doesn't surface); the F7 separation is now a clean
+structural distinction, not an asymmetry workaround. Original F7
+asymmetry rationale preserved here for historical context.
 
 ### F8 — `confidence_tier` Literal pinning
 
@@ -1011,17 +1017,32 @@ IndustryBaselineResolvedContract.** All sub-contracts use
   invariant. Cheap; deferred to keep §4 lean.
 - **R9.** `cascade_payloads[metric_key].metric_key == metric_key`
   cross-field invariant. Same reasoning.
-- **R10.** Extend Shape B (SQL INSERT) to include `cohort_query`
-  column. Closes the v1 §F-1 audit-trail gap. Producer-side
-  upstream change; not Contract 6's scope. When this lands,
-  amend Contract 6 to add `cohort_query: Optional[Dict[str, Any]]`
-  to `CohortSqlRowContract` (Shape B) — the field is currently
-  excluded entirely from Contract 6 per amended F5 (α) because
-  it crosses no boundary surface today.
-- **R11.** Extend `get_bands` to return `naics_prefix_used` +
-  `data_source` (close the silent-drop asymmetry per F7).
-  Producer-side upstream change; would need contract amendment to
-  re-type Shape C with 13 fields per band instead of 11.
+- **R10.** ~~Extend Shape B (SQL INSERT) to include `cohort_query`
+  column. Closes the v1 §F-1 audit-trail gap.~~ **RESOLVED in
+  P3.40 Contract Layer Cleanup Commit 1.** The SQL DDL +
+  INSERT + ON DUPLICATE KEY UPDATE at
+  cohort_bands_table.py:32-58 + :206-260 now persist
+  `cohort_query` as a JSON column. `CohortSqlRowContract`
+  (Shape B) amended to type the field as
+  `Optional[Dict[str, Any]] = None` (Optional for legacy rows
+  pre-dating Cleanup Commit 1 which carry NULL). Shape A
+  disposition (F5-α DROP) unchanged — cohort_query crosses
+  no Shape A boundary surface. **DB migration note:** existing
+  production tables need a separate `ALTER TABLE
+  post_intake_cohort_bands ADD COLUMN cohort_query JSON NULL`
+  migration; the inline `CREATE TABLE IF NOT EXISTS` only
+  helps fresh deployments.
+- **R11.** ~~Extend `get_bands` to return `naics_prefix_used` +
+  `data_source` (close the silent-drop asymmetry per F7).~~
+  **RESOLVED in P3.40 Contract Layer Cleanup Commit 1.** The
+  SQL → in-memory translation at cohort_bands_table.py:347-396
+  now surfaces both fields to in-memory consumers
+  (mirror.build_mirror, evaluate_plan).
+  `GetBandsViewBandContract` (Shape C nested) amended to type
+  them as `Optional[str] = None` (Optional for legacy
+  in-memory views, if any cached, that pre-date the cleanup).
+  Field count per band: 12 → 14. Shape B / Shape C
+  asymmetry per F7 RESOLVED.
 - **R12.** Type-tighten `business_profile.business_model` to
   reflect a future-enabled value once a producer writes
   non-None. Currently `Literal[None]` per F2 (a); upgrade when

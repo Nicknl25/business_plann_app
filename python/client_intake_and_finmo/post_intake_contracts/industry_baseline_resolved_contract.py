@@ -294,7 +294,7 @@ class CascadeResolverPayloadContract(BaseModel):
 
 class CohortSqlRowContract(BaseModel):
   """One row in the ``post_intake_cohort_bands`` SQL table, per
-  the schema at ``cohort_bands_table.py:32-58``. 17 data columns
+  the schema at ``cohort_bands_table.py:32-58``. 18 data columns
   + ``resolved_at`` (server-stamped on INSERT).
 
   Per F3: ``section`` types as Literal of 5 values.
@@ -309,13 +309,13 @@ class CohortSqlRowContract(BaseModel):
   benchmark_min / benchmark_target / benchmark_max are non-None,
   monotonicity (min <= target <= max) is enforced.
 
-  Per F5-α: ``cohort_query`` is NOT on this contract. The
-  CohortBandResult dataclass at cohort_band_resolver.py:163
-  carries it in-memory but the SQL INSERT at
-  cohort_bands_table.py:209-244 silently drops it at
-  materialization (v1 §F-1 known bug). R10 covers the upstream
-  fix; this contract amends to include the field when that
-  lands.
+  R10 closure (Cleanup Commit 1): ``cohort_query`` IS now on
+  this contract. Previously dropped at SQL INSERT
+  (cohort_bands_table.py:209-244 silent-drop, v1 §F-1 known
+  bug). The INSERT now persists the dict as JSON; this contract
+  types the field as ``Optional[Dict[str, Any]] = None``.
+  Original F5-α DROP from Shape A (CascadeResolverPayloadContract)
+  stays -- that disposition was about Shape A, not Shape B.
   """
 
   draft_id: str = Field(min_length=1, max_length=64)
@@ -336,6 +336,11 @@ class CohortSqlRowContract(BaseModel):
   confidence_tier: Optional[Literal["high", "medium", "low", "generic_default"]] = None
   cohort_table: Optional[Literal["edgar", "alpha"]] = None
   data_source: Optional[str] = None
+  # R10 closure (Cleanup Commit 1) -- previously silently dropped
+  # at SQL INSERT. Now persisted as JSON in the new cohort_query
+  # column. Optional because legacy rows pre-dating Cleanup Commit
+  # 1 carry NULL; PSL2 production-reality-wins.
+  cohort_query: Optional[Dict[str, Any]] = None
   resolved_at: Optional[datetime] = None
 
   model_config = ConfigDict(extra="ignore")
@@ -366,15 +371,21 @@ class CohortSqlRowContract(BaseModel):
 
 class GetBandsViewBandContract(BaseModel):
   """One band entry inside ``GetBandsViewContract.bands``, keyed
-  by lever_id. 11 fields per band -- per
+  by lever_id. 14 fields per band -- per
   ``cohort_bands_table.py:347-386``.
 
-  Per F7: this is a SEPARATE sub-contract from CohortSqlRowContract
-  even though it's structurally a subset. The silent drop of
-  ``naics_prefix_used`` + ``data_source`` at SQL -> in-memory
-  translation is intentional production behavior (R11 covers the
-  upstream fix). Typing them separately surfaces the asymmetry
-  at the contract level rather than as a runtime bug.
+  Per F7: this is a SEPARATE sub-contract from
+  CohortSqlRowContract even though it's structurally a near-
+  subset.
+
+  R11 closure (Cleanup Commit 1): ``naics_prefix_used`` +
+  ``data_source`` now flow through Shape B -> Shape C without
+  silent drop. Previously dropped at the SQL -> in-memory
+  translation in get_bands(); Contract 6 F7 documented the
+  asymmetry. Asymmetry now RESOLVED -- both fields typed here
+  as Optional so legacy in-memory views (if any cached
+  anywhere) that pre-date Cleanup Commit 1 still validate.
+  PSL2 production-reality-wins.
 
   Per F12 (b) cross-field invariant: same benchmark monotonicity
   as CohortSqlRowContract. Re-checked here so a future
@@ -394,6 +405,13 @@ class GetBandsViewBandContract(BaseModel):
   firm_count: Optional[int] = None
   naics_level_used: Optional[Literal[0, 2, 3, 4, 5, 6]] = None
   cohort_table: Optional[Literal["edgar", "alpha"]] = None
+  # R11 closure (Cleanup Commit 1) -- the 2 fields previously
+  # dropped at SQL -> in-memory translation. Now flow through
+  # get_bands() so in-memory consumers (mirror.build_mirror,
+  # evaluate_plan) see the same shape as the SQL row. Optional
+  # for legacy-view compatibility.
+  naics_prefix_used: Optional[str] = None
+  data_source: Optional[str] = None
 
   model_config = ConfigDict(extra="ignore")
 

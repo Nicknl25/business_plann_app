@@ -20,6 +20,7 @@ point ``_robust_clip`` plugs in the canonical economic envelopes (today's
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS {_TABLE_NAME} (
   confidence_tier VARCHAR(16) NULL,
   cohort_table VARCHAR(16) NULL,
   data_source VARCHAR(64) NULL,
+  cohort_query JSON NULL,
   resolved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (draft_id, planning_run_id, section, lever_id, metric_key),
   KEY ix_draft_run (draft_id, planning_run_id),
@@ -210,8 +212,8 @@ def populate_cohort_bands_for_run(
              metric_column, benchmark_min, benchmark_target, benchmark_max,
              robust_min, robust_max, naics_level_used, naics_prefix_used,
              cohort_size, firm_count, confidence_tier, cohort_table,
-             data_source, resolved_at)
-          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             data_source, cohort_query, resolved_at)
+          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
           ON DUPLICATE KEY UPDATE
             metric_column=VALUES(metric_column),
             benchmark_min=VALUES(benchmark_min),
@@ -226,6 +228,7 @@ def populate_cohort_bands_for_run(
             confidence_tier=VALUES(confidence_tier),
             cohort_table=VALUES(cohort_table),
             data_source=VALUES(data_source),
+            cohort_query=VALUES(cohort_query),
             resolved_at=VALUES(resolved_at)
           """,
           (
@@ -240,6 +243,17 @@ def populate_cohort_bands_for_run(
             result.confidence_tier,
             result.cohort_table,
             result.data_source,
+            # R10 closure (Cleanup Commit 1): cohort_query persisted
+            # as JSON so the SQL audit trail can reconstruct which
+            # revenue/stage/date windows produced each cohort band.
+            # Previously dropped at materialization (v1 §F-1 known
+            # bug). NULL when the dict is empty so the column reads
+            # cleanly under existing SELECTs.
+            (
+              json.dumps(result.cohort_query)
+              if isinstance(result.cohort_query, dict) and result.cohort_query
+              else None
+            ),
             now,
           ),
         )
@@ -358,10 +372,19 @@ def get_bands(
           "confidence_tier": "high"|"medium"|"low",
           "cohort_size": int, "firm_count": int,
           "naics_level_used": int, "cohort_table": "edgar"|"alpha",
+          "naics_prefix_used": str|None,
+          "data_source": str|None,
         },
         ...
       }
     }
+
+  R11 closure (Cleanup Commit 1): naics_prefix_used + data_source
+  now flow through to in-memory consumers (mirror.build_mirror,
+  evaluate_plan). Previously dropped at the SQL -> in-memory
+  translation so in-memory consumers saw an incomplete picture
+  vs the SQL row. Asymmetry resolved; Contract 6 Shape C
+  (GetBandsViewBandContract) amended to type the 2 new fields.
   """
   rows = get_cohort_bands(conn, draft_id=draft_id, planning_run_id=planning_run_id, section=section)
   bands: Dict[str, Any] = {}
@@ -382,6 +405,11 @@ def get_bands(
       "firm_count": row.get("firm_count"),
       "naics_level_used": row.get("naics_level_used"),
       "cohort_table": row.get("cohort_table"),
+      # R11 closure (Cleanup Commit 1): naics_prefix_used +
+      # data_source now flow through Shape B -> Shape C without
+      # silent drop.
+      "naics_prefix_used": row.get("naics_prefix_used"),
+      "data_source": row.get("data_source"),
     }
   _result = {
     "section": section,

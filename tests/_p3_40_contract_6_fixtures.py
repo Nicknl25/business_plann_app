@@ -82,7 +82,9 @@ def valid_cascade_resolver_payload_dict(
 
 
 # ---------------------------------------------------------------------------
-# Shape B -- CohortSqlRowContract (19 fields incl. resolved_at)
+# Shape B -- CohortSqlRowContract (20 fields incl. cohort_query + resolved_at)
+# Cleanup Commit 1: cohort_query added per R10 closure (previously
+# silently dropped at SQL INSERT).
 # ---------------------------------------------------------------------------
 
 def valid_cohort_sql_row_dict(
@@ -96,8 +98,12 @@ def valid_cohort_sql_row_dict(
   draft_id: str = "draft_test_001",
   planning_run_id: str = "run_test_001",
 ) -> Dict[str, Any]:
-  """19-field cohort SQL row per cohort_bands_table.py:32-58
-  schema. F12 monotonicity satisfied by default."""
+  """20-field cohort SQL row per cohort_bands_table.py:32-58
+  schema. F12 monotonicity satisfied by default.
+
+  R10 closure: cohort_query populated with a representative
+  dict matching CohortBandResult.cohort_query shape at
+  cohort_band_resolver.py:656+."""
   return {
     "draft_id": draft_id,
     "planning_run_id": planning_run_id,
@@ -117,12 +123,19 @@ def valid_cohort_sql_row_dict(
     "confidence_tier": "high",
     "cohort_table": "alpha",
     "data_source": "industry_metrics_alpha",
+    "cohort_query": {
+      "naics_prefix": "722515",
+      "metric_column": "gross_margin_percent_col",
+      "min_firms": 5,
+    },
     "resolved_at": datetime(2026, 5, 26, 12, 0, 0),
   }
 
 
 # ---------------------------------------------------------------------------
-# Shape C -- GetBandsViewBandContract (12 fields per band)
+# Shape C -- GetBandsViewBandContract (14 fields per band)
+# Cleanup Commit 1: naics_prefix_used + data_source added per R11
+# closure (previously silently dropped at SQL -> in-memory translation).
 # ---------------------------------------------------------------------------
 
 def valid_get_bands_view_band_dict(
@@ -132,10 +145,11 @@ def valid_get_bands_view_band_dict(
   benchmark_target: float = 0.40,
   benchmark_max: float = 0.55,
 ) -> Dict[str, Any]:
-  """12-field band dict per cohort_bands_table.py:347-386
-  (production writer). F7: 2 fields fewer than Shape B
-  (naics_prefix_used + data_source silently dropped at SQL
-  -> in-memory translation)."""
+  """14-field band dict per cohort_bands_table.py:347-386
+  (production writer post-Cleanup-Commit-1). R11 closure:
+  naics_prefix_used + data_source now flow through Shape B
+  -> Shape C symmetrically (asymmetry previously documented
+  via F7; now resolved)."""
   return {
     "metric_key": metric_key,
     "metric_column": "gross_margin_percent_col",
@@ -149,6 +163,9 @@ def valid_get_bands_view_band_dict(
     "firm_count": 12,
     "naics_level_used": 6,
     "cohort_table": "alpha",
+    # R11 closure (Cleanup Commit 1)
+    "naics_prefix_used": "722515",
+    "data_source": "industry_metrics_alpha",
   }
 
 
