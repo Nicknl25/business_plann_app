@@ -84,6 +84,9 @@ class FailFastCode(str, Enum):
   # model_input_contract (P3.40 Contract 1 boundary enforcement)
   FAIL_MODEL_INPUT_CONTRACT_VIOLATION    = "fail_model_input_contract_violation"
 
+  # solver_input_contract (P3.40 Contract 3 boundary enforcement)
+  FAIL_SOLVER_INPUT_CONTRACT_VIOLATION   = "fail_solver_input_contract_violation"
+
 
 FAIL_FAST_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[FailFastCode]] = {
   PhaseCode.COHORT_BANDS_POPULATOR: frozenset({
@@ -138,6 +141,9 @@ FAIL_FAST_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[FailFastCode]] = {
   }),
   PhaseCode.MODEL_INPUT_CONTRACT: frozenset({
     FailFastCode.FAIL_MODEL_INPUT_CONTRACT_VIOLATION,
+  }),
+  PhaseCode.SOLVER_INPUT_CONTRACT: frozenset({
+    FailFastCode.FAIL_SOLVER_INPUT_CONTRACT_VIOLATION,
   }),
 }
 
@@ -202,6 +208,7 @@ def raise_fail_fast(
     PhaseCode.FINALIZE: EventCode.FINALIZE_VALIDATION_FAILED,
     PhaseCode.WORKBOOK_ACCEPT: EventCode.WORKBOOK_ACCEPT_REJECTED,
     PhaseCode.MODEL_INPUT_CONTRACT: EventCode.MODEL_INPUT_CONTRACT_VIOLATION,
+    PhaseCode.SOLVER_INPUT_CONTRACT: EventCode.SOLVER_INPUT_CONTRACT_VIOLATION,
   }[phase]
 
   safe_emit(

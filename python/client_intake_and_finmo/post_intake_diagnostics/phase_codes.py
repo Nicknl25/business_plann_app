@@ -45,6 +45,7 @@ class PhaseCode(str, Enum):
   FINALIZE                = "finalize"
   WORKBOOK_ACCEPT         = "workbook_accept"
   MODEL_INPUT_CONTRACT    = "model_input_contract"
+  SOLVER_INPUT_CONTRACT   = "solver_input_contract"
 
 
 class EventCode(str, Enum):
@@ -149,6 +150,10 @@ class EventCode(str, Enum):
   # model_input_contract (P3.40 Contract 1 boundary enforcement)
   MODEL_INPUT_CONTRACT_VALIDATED     = "model_input_contract_validated"
   MODEL_INPUT_CONTRACT_VIOLATION     = "model_input_contract_violation"
+
+  # solver_input_contract (P3.40 Contract 3 boundary enforcement)
+  SOLVER_INPUT_CONTRACT_VALIDATED    = "solver_input_contract_validated"
+  SOLVER_INPUT_CONTRACT_VIOLATION    = "solver_input_contract_violation"
 
 
 class Status(str, Enum):
@@ -266,6 +271,10 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
   PhaseCode.MODEL_INPUT_CONTRACT: frozenset({
     EventCode.MODEL_INPUT_CONTRACT_VALIDATED,
     EventCode.MODEL_INPUT_CONTRACT_VIOLATION,
+  }),
+  PhaseCode.SOLVER_INPUT_CONTRACT: frozenset({
+    EventCode.SOLVER_INPUT_CONTRACT_VALIDATED,
+    EventCode.SOLVER_INPUT_CONTRACT_VIOLATION,
   }),
 }
 

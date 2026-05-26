@@ -41,6 +41,10 @@ from client_intake_and_finmo.post_intake_contracts.workbook_payload_contract imp
   WORKBOOK_STAGE_LABEL,
   WorkbookPayloadContract,
 )
+from client_intake_and_finmo.post_intake_contracts.solver_input_contract import (
+  SOLVER_STAGE_LABEL,
+  SolverInputContract,
+)
 
 
 #: Stage label for the producer/consumer gates around the
@@ -140,6 +144,7 @@ def validate_model_input_at_boundary(
     if emit_diagnostic_fn is not None:
       _safe_emit(
         emit_diagnostic_fn,
+        phase_code_name="MODEL_INPUT_CONTRACT",
         event_code_name="MODEL_INPUT_CONTRACT_VIOLATION",
         status_name="FAILED",
         diagnostic_data={
@@ -162,6 +167,7 @@ def validate_model_input_at_boundary(
   if emit_diagnostic_fn is not None:
     _safe_emit(
       emit_diagnostic_fn,
+      phase_code_name="MODEL_INPUT_CONTRACT",
       event_code_name="MODEL_INPUT_CONTRACT_VALIDATED",
       status_name="COMPLETED",
       diagnostic_data={
@@ -179,6 +185,7 @@ def validate_model_input_at_boundary(
 def _safe_emit(
   emit_diagnostic_fn: Callable[..., Any],
   *,
+  phase_code_name: str,
   event_code_name: str,
   status_name: str,
   diagnostic_data: Dict[str, Any],
@@ -190,6 +197,15 @@ def _safe_emit(
   Resolution is dynamic so this helper can run in environments
   where the diagnostics module hasn't been bound (tests with fake
   emitters, etc.).
+
+  ``phase_code_name`` parameterized in P3.40 Contract 3 Commit 3
+  so each per-boundary gate routes to its own PhaseCode rather
+  than all gates landing under MODEL_INPUT_CONTRACT. Each caller
+  passes the PhaseCode attribute name (e.g.
+  "MODEL_INPUT_CONTRACT", "SOLVER_INPUT_CONTRACT"); if the
+  attribute doesn't exist (e.g. an older boundary contract whose
+  PhaseCode wasn't added), the AttributeError is swallowed and
+  no event lands -- contract still raises ContractViolation.
   """
   try:
     from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # type: ignore  # noqa: E501
@@ -198,7 +214,7 @@ def _safe_emit(
       Status,
     )
     emit_diagnostic_fn(
-      phase=PhaseCode.MODEL_INPUT_CONTRACT,
+      phase=getattr(PhaseCode, phase_code_name),
       event_code=getattr(EventCode, event_code_name),
       status=getattr(Status, status_name),
       diagnostic_data=diagnostic_data,
@@ -250,6 +266,7 @@ def validate_workbook_payload_at_boundary(
     if emit_diagnostic_fn is not None:
       _safe_emit(
         emit_diagnostic_fn,
+        phase_code_name="WORKBOOK_PAYLOAD_CONTRACT",
         event_code_name="WORKBOOK_PAYLOAD_CONTRACT_VIOLATION",
         status_name="FAILED",
         diagnostic_data={
@@ -272,6 +289,7 @@ def validate_workbook_payload_at_boundary(
   if emit_diagnostic_fn is not None:
     _safe_emit(
       emit_diagnostic_fn,
+      phase_code_name="WORKBOOK_PAYLOAD_CONTRACT",
       event_code_name="WORKBOOK_PAYLOAD_CONTRACT_VALIDATED",
       status_name="COMPLETED",
       diagnostic_data={
@@ -284,6 +302,93 @@ def validate_workbook_payload_at_boundary(
         "debt_schedule_row_count": len(contract.debt_schedule.rows),
         "has_planning_run_json": contract.planning_run_json is not None,
         "has_run_diagnostics": contract.run_diagnostics is not None,
+      },
+    )
+  return contract
+
+
+def validate_solver_input_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = SOLVER_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> SolverInputContract:
+  """P3.40 Contract 3 Commit 3 boundary gate. Validate ``payload``
+  against ``SolverInputContract`` and return the parsed contract
+  on success.
+
+  Producer-side: called at the end of
+  ``prepare_initial_grid_for_draft`` (runner.py:1830, just before
+  the dict return; SECOND validate call after Contract 1's gate
+  at runner.py:1809-1822, validating the disjoint set of solver
+  bundle fields).
+
+  Consumer-side: called as the FIRST executable line of
+  ``run_target_seeking_orchestrated_system_run``
+  (orchestrator.py:1028+).
+
+  On failure raises ``ContractViolation`` with the SOLVER stage
+  label and the first ``ValidationError`` extracted into
+  structured fields. Per trace Div-8: the API handler at
+  ``intake_consult.py:7377`` catches ``except Exception as exc:``
+  and logs ``str(exc)`` -- the violation propagates as a useful
+  structured message containing ``SOLVER_STAGE_LABEL`` + field
+  path. Verified by Adjustment B tests in
+  ``tests/test_p3_40_contract_3_consumer_gate.py``.
+
+  Diagnostic emission is best-effort (same pattern as the
+  model-input and workbook-payload gates): emits
+  ``SOLVER_INPUT_CONTRACT_VALIDATED`` on success and
+  ``SOLVER_INPUT_CONTRACT_VIOLATION`` on failure when
+  ``emit_diagnostic_fn`` is supplied. Failures swallowed so
+  observability cannot break the gate.
+  """
+  try:
+    contract = SolverInputContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="SOLVER_INPUT_CONTRACT",
+        event_code_name="SOLVER_INPUT_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side,
+          "stage": stage,
+          "field": field_path,
+          "expected": expected[:300],
+          "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage,
+      field=field_path,
+      expected=expected,
+      actual=actual,
+      source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="SOLVER_INPUT_CONTRACT",
+      event_code_name="SOLVER_INPUT_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side,
+        "stage": stage,
+        "planning_mode": contract.planning_mode,
+        "has_stage_ramp_contract": contract.stage_ramp_contract is not None,
+        "has_payroll_headcount": contract.payroll_headcount is not None,
+        "has_planning_context_summary_json": (
+          contract.planning_context_summary_json is not None
+        ),
+        "has_grid_application_summary": (
+          contract.grid_application_summary is not None
+        ),
       },
     )
   return contract
@@ -319,9 +424,11 @@ def make_boundary_emitter(
 __all__ = [
   "MODEL_INPUT_STAGE_LABEL",
   "WORKBOOK_STAGE_LABEL",
+  "SOLVER_STAGE_LABEL",
   "SIDE_PRODUCER",
   "SIDE_CONSUMER",
   "validate_model_input_at_boundary",
   "validate_workbook_payload_at_boundary",
+  "validate_solver_input_at_boundary",
   "make_boundary_emitter",
 ]

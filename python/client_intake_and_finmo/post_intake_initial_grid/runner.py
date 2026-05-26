@@ -1821,6 +1821,56 @@ def prepare_initial_grid_for_draft(
     emit_diagnostic_fn=_boundary_emitter,
   )
 
+  # P3.40 Contract 3 Commit 3 -- producer-side boundary enforcement
+  # for SolverInputContract (Boundary 5: MODEL_INPUT -> SOLVER).
+  # Second validate call in this function: Contract 1's gate above
+  # validates `applied_model_input_json` only; this gate validates
+  # the disjoint set of 18 other solver-bundle fields plus
+  # composing Contract 1 for applied_model_input_json + Contract 2
+  # for applied_finmo_json / stage_ramp_contract / payroll_headcount.
+  # Structurally clean per spec Div-2: one gate per contract, no
+  # merge.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+    validate_solver_input_at_boundary,
+  )
+  _solver_bundle_for_gate = {
+    "draft_id": str(draft_id or "").strip(),
+    "planning_run_id": str(active_planning_run_id or "").strip(),
+    "business_facts": copy.deepcopy(business_facts or {}),
+    "planning_context_summary_json": (
+      copy.deepcopy(planning_context_summary_json or {}) or None
+    ),
+    "ops_json": copy.deepcopy(ops_json or {}),
+    "target_market_json": copy.deepcopy(market_json or {}),
+    "people_json": copy.deepcopy(people_json or {}),
+    "financials_json": copy.deepcopy(financials_json or {}),
+    "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
+    "fulfillment_json": copy.deepcopy(fulfillment_json or {}),
+    "marketing_model_json": copy.deepcopy(marketing_model_json or {}),
+    "planning_mode": planning_mode,
+    "planning_mode_reason": planning_mode_reason,
+    "planning_result": copy.deepcopy(planning_result or {}),
+    "grid_application_summary": (
+      copy.deepcopy(grid_application_summary or {}) or None
+    ),
+    "catalog_source_model_input_json": copy.deepcopy(model_input_json),
+    "applied_model_input_json": copy.deepcopy(applied_model_input_json),
+    "applied_finmo_json": copy.deepcopy(applied_finmo_json),
+    "stage_ramp_contract": (
+      copy.deepcopy(stage_ramp_contract) if stage_ramp_contract else None
+    ),
+    "payroll_headcount": (
+      copy.deepcopy(payroll_headcount_payload)
+      if payroll_headcount_payload
+      else None
+    ),
+  }
+  validate_solver_input_at_boundary(
+    _solver_bundle_for_gate,
+    side=SIDE_PRODUCER,
+    emit_diagnostic_fn=_boundary_emitter,
+  )
+
   return {
     "planning_run_id": active_planning_run_id,
     "draft": copy.deepcopy(draft),

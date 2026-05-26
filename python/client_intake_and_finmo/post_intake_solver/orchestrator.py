@@ -1056,6 +1056,45 @@ def run_target_seeking_orchestrated_system_run(
   call site. Returns the same payload shape, with an additional
   `target_seeking_diagnostics` section.
   """
+  # P3.40 Contract 3 Commit 3 -- consumer-side boundary gate.
+  # FIRST executable line. Validates the 21-field solver-input
+  # bundle (19 data params + draft_id + planning_run_id) before
+  # any adaptive_policy / feasibility / solver-loop work. On
+  # invalid input raises ContractViolation, which propagates
+  # through the API handler's generic `except Exception as exc:`
+  # catch at intake_consult.py:7377 (trace Div-8) as a structured
+  # 500 with str(exc) carrying the SOLVER_STAGE_LABEL +
+  # field path.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+    SIDE_CONSUMER as _SOLVER_SIDE_CONSUMER,
+    validate_solver_input_at_boundary,
+  )
+  validate_solver_input_at_boundary(
+    {
+      "draft_id": draft_id,
+      "planning_run_id": planning_run_id,
+      "business_facts": business_facts,
+      "planning_context_summary_json": planning_context_summary_json,
+      "ops_json": ops_json,
+      "target_market_json": target_market_json,
+      "people_json": people_json,
+      "financials_json": financials_json,
+      "financials_year1_json": financials_year1_json,
+      "fulfillment_json": fulfillment_json,
+      "marketing_model_json": marketing_model_json,
+      "planning_mode": planning_mode,
+      "planning_mode_reason": planning_mode_reason,
+      "planning_result": planning_result,
+      "grid_application_summary": grid_application_summary,
+      "catalog_source_model_input_json": catalog_source_model_input_json,
+      "applied_model_input_json": applied_model_input_json,
+      "applied_finmo_json": applied_finmo_json,
+      "stage_ramp_contract": stage_ramp_contract,
+      "payroll_headcount": payroll_headcount,
+    },
+    side=_SOLVER_SIDE_CONSUMER,
+  )
+
   try:
     from financial_model_engine.model_inputs import QUARTER_COUNT  # type: ignore
   except Exception:
