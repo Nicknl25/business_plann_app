@@ -146,29 +146,43 @@ class ExtraForbidTopLevelTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class OpacityConfirmationTest(unittest.TestCase):
-  """F0 (b) first-cut disposition: all 8 fields are opaque
-  Dict[str, Any]. No sub-shape constraints. Pins the disposition
-  so a future contract tightening doesn't slip through silently
-  (deep-typing belongs in Contract 5b/c/d follow-ups, not Commit
-  1a)."""
+  """F0 (b) first-cut disposition: the REMAINING 7 fields
+  (target_market_json, people_json, financials_json,
+  financials_year1_json, marketing_model_json,
+  planning_context_summary_json, fulfillment_json) are still
+  opaque Dict[str, Any]. operating_model_json was retrofitted
+  to OperatingModelJsonContract in Commit 5b-3 -- its own
+  arbitrary-shape acceptance is replaced by structural typing
+  per Contract 5b. Contract 5b's tests at
+  tests/test_p3_40_contract_5b_operating_model_json.py cover
+  the typed shape.
 
-  def test_arbitrary_nested_shape_accepted(self) -> None:
+  Future retrofits (5c target_market_json, 5d people_json,
+  5e/f/g/h python-aggregated shapes) follow the same pattern.
+  """
+
+  def test_arbitrary_nested_shape_accepted_for_other_dict_field(self) -> None:
+    """The 7 remaining opaque Dict[str, Any] fields still accept
+    arbitrary nested shapes. Pick target_market_json (Contract
+    5c R-residual)."""
     payload = valid_intake_draft_dict()
-    payload["operating_model_json"] = {
+    payload["target_market_json"] = {
       "deeply_nested": {"a": [1, 2, {"b": None}]},
       "any_key": "any_value",
       "numeric_key": 42.5,
     }
     contract = IntakeDraftContract.model_validate(payload)
     self.assertEqual(
-      contract.operating_model_json["deeply_nested"]["a"][2]["b"], None,
+      contract.target_market_json["deeply_nested"]["a"][2]["b"], None,
     )
 
   def test_empty_dict_accepted_for_required_field(self) -> None:
-    """Per spec section 5.3 (a): boundary contract validates shape,
-    not content depth. {} is a valid Dict[str, Any]. Downstream
-    code's actual reads will fail when they try to extract keys
-    -- but that's a consumer concern, not the contract gate's."""
+    """Per spec section 5.3 (a): for opaque Dict[str, Any]
+    fields, {} is valid. Downstream code's actual reads will
+    fail when they try to extract keys -- but that's a consumer
+    concern, not the contract gate's. (operating_model_json no
+    longer opaque per 5b-3 retrofit; this test uses
+    financials_json which remains opaque.)"""
     payload = valid_intake_draft_dict()
     payload["financials_json"] = {}
     contract = IntakeDraftContract.model_validate(payload)

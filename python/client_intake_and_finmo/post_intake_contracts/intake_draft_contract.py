@@ -120,6 +120,12 @@ from pydantic import (
 from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract import (
   ContractViolation,
 )
+# Contract 5b retrofit (Commit 5b-3): operating_model_json is no
+# longer opaque Dict[str, Any] -- composes OperatingModelJsonContract
+# for structural typing per spec §0 value-constraint policy.
+from client_intake_and_finmo.post_intake_contracts.operating_model_json_contract import (
+  OperatingModelJsonContract,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +177,7 @@ class IntakeDraftContract(BaseModel):
   """
 
   # Tier A -- consultant-produced or python-aggregated
-  operating_model_json: Dict[str, Any]
+  operating_model_json: OperatingModelJsonContract
   target_market_json: Dict[str, Any]
   people_json: Dict[str, Any]
   financials_json: Dict[str, Any]

@@ -55,8 +55,12 @@ class IntakeDraftContractAcceptanceTest(unittest.TestCase):
 
   def test_valid_full_payload_accepted(self) -> None:
     contract = IntakeDraftContract.model_validate(valid_intake_draft_dict())
+    # Per Commit 5b-3 retrofit: operating_model_json is now typed
+    # as OperatingModelJsonContract -- attribute access, not dict
+    # lookup. business_naics_6 is one of the 4 production extras
+    # (T3) populated by default in valid_operating_model_json_dict().
     self.assertEqual(
-      contract.operating_model_json["business_naics_6"], "722515",
+      contract.operating_model_json.business_naics_6, "722515",
     )
     self.assertIsNotNone(contract.fulfillment_json)
 

@@ -5,10 +5,13 @@ Contracts 1-4 fixture modules.
 Module is leading-underscore-prefixed so the test runner does NOT
 auto-discover it as a test module.
 
-ZERO re-uses of Contract 1-4 fixtures (Contract 5 is upstream of
-all prior contracts). All 8 fields are opaque Dict[str, Any] per
-spec Flag 0 (b) first cut -- minimal valid payloads use small
-arbitrary dicts since no sub-shape typing applies yet.
+Re-uses Contract 5b fixture ``valid_operating_model_json_dict``
+per Commit 5b-3 retrofit (the operating_model_json field is now
+typed as OperatingModelJsonContract instead of Dict[str, Any]).
+All other 7 fields remain opaque Dict[str, Any] per spec Flag 0
+(b) first cut -- minimal valid payloads use small arbitrary
+dicts since no sub-shape typing applies yet (Contracts 5c/5d/5e
+etc. retrofits follow the 5b precedent).
 """
 
 from __future__ import annotations
@@ -24,6 +27,11 @@ if PYTHON_ROOT not in sys.path:
   sys.path.insert(0, PYTHON_ROOT)
 if HERE not in sys.path:
   sys.path.insert(0, HERE)
+
+
+from _p3_40_contract_5b_fixtures import (  # noqa: E402
+  valid_operating_model_json_dict,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -47,10 +55,7 @@ def valid_intake_draft_dict(
   more readable (clear which field is being tested).
   """
   payload: Dict[str, Any] = {
-    "operating_model_json": {
-      "business_naics_6": "722515",
-      "business_stage": "growth",
-    },
+    "operating_model_json": valid_operating_model_json_dict(),
     "target_market_json": {
       "target_market_summary": "Test market",
     },
