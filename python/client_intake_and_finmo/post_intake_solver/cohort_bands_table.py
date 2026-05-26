@@ -383,13 +383,29 @@ def get_bands(
       "naics_level_used": row.get("naics_level_used"),
       "cohort_table": row.get("cohort_table"),
     }
-  return {
+  _result = {
     "section": section,
     "draft_id": draft_id,
     "planning_run_id": planning_run_id,
     "count": len(bands),
     "bands": bands,
   }
+  # P3.40 Contract 6 Commit 3 -- Shape C consumer-side gate.
+  # Validates the in-memory get_bands view (envelope + 12-field
+  # bands per F7 silent-drop) before handing to amalgamated
+  # tools / mirror.build_mirror /
+  # evaluate_plan._margin_distance_from_bands. F12 (b)
+  # benchmark monotonicity invariant fires per band.
+  # ContractViolation propagates through intake_consult.py:7377
+  # generic catch per F17.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+    SIDE_CONSUMER as _IBR_SIDE_CONSUMER,
+    validate_industry_baseline_get_bands_view_at_boundary,
+  )
+  validate_industry_baseline_get_bands_view_at_boundary(
+    _result, side=_IBR_SIDE_CONSUMER,
+  )
+  return _result
 
 
 def _to_float(v: Any) -> Optional[float]:

@@ -41,6 +41,7 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
 from client_intake_and_finmo.post_intake_contracts.enforcement import (  # noqa: E402
   SIDE_CONSUMER,
   SIDE_PRODUCER,
+  validate_industry_baseline_population_summary_at_boundary,
   validate_intake_draft_at_boundary,
   validate_model_input_at_boundary,
   validate_solver_input_at_boundary,
@@ -55,6 +56,9 @@ from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
 from _p3_40_contract_3_fixtures import valid_solver_input_dict  # noqa: E402
 from _p3_40_contract_4_fixtures import valid_solver_output_dict  # noqa: E402
 from _p3_40_contract_5_fixtures import valid_intake_draft_dict  # noqa: E402
+from _p3_40_contract_6_fixtures import (  # noqa: E402
+  valid_population_summary_section_dict,
+)
 
 
 class _CapturingEmitter:
@@ -172,6 +176,36 @@ class ContractFiveEmitsIntakeDraftPhaseCodeTest(unittest.TestCase):
     self.assertEqual(emitter.calls[0]["phase"], PhaseCode.INTAKE_DRAFT_CONTRACT)
 
 
+class ContractSixEmitsIndustryBaselinePhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_industry_baseline_contract_phase(self) -> None:
+    """Contract 6 gate must emit under
+    PhaseCode.INDUSTRY_BASELINE_CONTRACT. Per F16: SINGLE
+    PhaseCode covers all 4 shapes (A/B/C/D);
+    diagnostic_data['shape'] field distinguishes them.
+
+    This test exercises Shape D (PopulationSummary) via the
+    F10 zero-resolved-total violation; the same PhaseCode
+    routing applies to the other 3 enforcement helpers
+    (validated separately in the cross-contamination test
+    class below)."""
+    emitter = _CapturingEmitter()
+    # F10 violation: zero resolved bands triggers ContractViolation
+    bad_payload = {
+      "drivers": valid_population_summary_section_dict(resolved=0, skipped=5),
+    }
+    with self.assertRaises(ContractViolation):
+      validate_industry_baseline_population_summary_at_boundary(
+        bad_payload, side=SIDE_PRODUCER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(
+      emitter.calls[0]["phase"], PhaseCode.INDUSTRY_BASELINE_CONTRACT,
+    )
+    # Per F16: diagnostic_data['shape'] distinguishes A/B/C/D
+    self.assertEqual(emitter.calls[0]["diagnostic_data"]["shape"], "D")
+
+
 # ---------------------------------------------------------------------------
 # Cross-contract negative check: phase codes are NOT mis-routed
 # ---------------------------------------------------------------------------
@@ -245,6 +279,29 @@ class PhaseCodesDoNotCrossContaminateTest(unittest.TestCase):
     self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
+
+  def test_contract_6_violation_routes_only_to_industry_baseline_contract_phase(self) -> None:
+    """Belt-and-suspenders for Contract 6: confirm a violation
+    emits ONLY under INDUSTRY_BASELINE_CONTRACT, NOT under any of
+    the other 5 contract phase codes. Symmetric with the
+    Contract 2-5 cross-contamination tests above."""
+    emitter = _CapturingEmitter()
+    bad_payload = {
+      "drivers": valid_population_summary_section_dict(resolved=0, skipped=5),
+    }
+    with self.assertRaises(ContractViolation):
+      validate_industry_baseline_population_summary_at_boundary(
+        bad_payload, side=SIDE_PRODUCER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    emitted_phase = emitter.calls[0]["phase"]
+    self.assertEqual(emitted_phase, PhaseCode.INDUSTRY_BASELINE_CONTRACT)
+    # And NOT any of the other five contract phase codes:
+    self.assertNotEqual(emitted_phase, PhaseCode.MODEL_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.INTAKE_DRAFT_CONTRACT)
 
 
 if __name__ == "__main__":

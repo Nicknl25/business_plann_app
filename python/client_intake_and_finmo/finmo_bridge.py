@@ -345,6 +345,18 @@ def _attach_seed_provenance(row: Dict[str, Any], payload: Dict[str, Any]) -> Non
     return
   if not payload.get("trust_flag"):
     return
+  # P3.40 Contract 6 Commit 3 -- Shape A consumer-side gate.
+  # Validates the cascade resolver payload (13 fields per F5-α)
+  # before stamping model_input row. ContractViolation propagates
+  # through intake_consult.py:7377 generic catch per F17. Lazy
+  # import + emit-skip per Contracts 3-5 pattern.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+    SIDE_CONSUMER as _IBR_SIDE_CONSUMER,
+    validate_industry_baseline_cascade_payload_at_boundary,
+  )
+  validate_industry_baseline_cascade_payload_at_boundary(
+    payload, side=_IBR_SIDE_CONSUMER,
+  )
   prov = baseline_seed_provenance(payload)
   bucket = row.setdefault("seed_provenance_json", {})
   if isinstance(bucket, dict):

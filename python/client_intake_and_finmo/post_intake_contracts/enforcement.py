@@ -53,6 +53,13 @@ from client_intake_and_finmo.post_intake_contracts.intake_draft_contract import 
   INTAKE_DRAFT_STAGE_LABEL,
   IntakeDraftContract,
 )
+from client_intake_and_finmo.post_intake_contracts.industry_baseline_resolved_contract import (
+  INDUSTRY_BASELINE_STAGE_LABEL,
+  CascadeResolverPayloadContract,
+  CohortSqlRowContract,
+  GetBandsViewContract,
+  PopulationSummaryContract,
+)
 
 
 #: Stage label for the producer/consumer gates around the
@@ -569,6 +576,230 @@ def validate_intake_draft_at_boundary(
   return contract
 
 
+def validate_industry_baseline_cascade_payload_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = INDUSTRY_BASELINE_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> CascadeResolverPayloadContract:
+  """P3.40 Contract 6 Commit 3 -- Shape A consumer-side gate.
+  Validates the cascade resolver payload (13 fields per metric)
+  per F5-α (NO cohort_query). Single PhaseCode per F16;
+  diagnostic_data['shape']='A' distinguishes from Shape B/C/D
+  emissions.
+
+  Consumer-side: called from _attach_seed_provenance at
+  finmo_bridge.py:339 and from
+  driver_movement_assembler._resolve_naics_band at
+  driver_movement_assembler.py:97.
+  """
+  try:
+    contract = CascadeResolverPayloadContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+        event_code_name="INDUSTRY_BASELINE_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "A",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+      event_code_name="INDUSTRY_BASELINE_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "A",
+        "metric_key": contract.metric_key,
+        "trust_flag": contract.trust_flag,
+        "naics_level_used": contract.naics_level_used,
+      },
+    )
+  return contract
+
+
+def validate_industry_baseline_cohort_sql_row_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = INDUSTRY_BASELINE_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> CohortSqlRowContract:
+  """P3.40 Contract 6 Commit 3 -- Shape B per-row gate. F12 (a)
+  benchmark monotonicity invariant fires here when all 3
+  benchmark values are non-None. Per F15: per-row validation
+  SKIPPED at the production populator (no in-process consumer
+  reads SQL rows directly; R13 covers defense-in-depth).
+  This helper exists for test paths + future direct-SQL
+  consumers."""
+  try:
+    contract = CohortSqlRowContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+        event_code_name="INDUSTRY_BASELINE_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "B",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+      event_code_name="INDUSTRY_BASELINE_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "B",
+        "section": contract.section,
+        "lever_id": contract.lever_id,
+      },
+    )
+  return contract
+
+
+def validate_industry_baseline_get_bands_view_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = INDUSTRY_BASELINE_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> GetBandsViewContract:
+  """P3.40 Contract 6 Commit 3 -- Shape C consumer-side gate.
+  Validates the in-memory get_bands view before handing to
+  amalgamated tools / mirror.build_mirror /
+  evaluate_plan._margin_distance_from_bands.
+
+  Per F7: 12 fields per band (NOT 14); naics_prefix_used +
+  data_source silently dropped at SQL -> in-memory translation.
+  F12 (b) benchmark monotonicity invariant fires on each band
+  when all 3 benchmark values are non-None.
+
+  Consumer-side: called inside get_bands at
+  cohort_bands_table.py:386 immediately before return.
+  """
+  try:
+    contract = GetBandsViewContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+        event_code_name="INDUSTRY_BASELINE_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "C",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+      event_code_name="INDUSTRY_BASELINE_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "C",
+        "section": contract.section,
+        "count": contract.count,
+      },
+    )
+  return contract
+
+
+def validate_industry_baseline_population_summary_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = INDUSTRY_BASELINE_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> PopulationSummaryContract:
+  """P3.40 Contract 6 Commit 3 -- Shape D producer-side gate
+  per F14 (a). Includes F10 cross-field invariant (total
+  resolved >= 1 across all 5 sections). Closes v1 §F-2
+  FAIL_COHORT_BANDS_MISSING precondition that today is
+  swallowed by the soft try/except at runner.py:556-583.
+
+  Producer-side: called immediately after
+  populate_cohort_bands_for_run returns at runner.py:580+.
+  """
+  try:
+    contract = PopulationSummaryContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+        event_code_name="INDUSTRY_BASELINE_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "D",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    total_resolved = sum(
+      section.resolved
+      for section in (
+        contract.drivers, contract.balance_sheet,
+        contract.stage_ramp, contract.capex_rd, contract.payroll,
+      )
+      if section is not None
+    )
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="INDUSTRY_BASELINE_CONTRACT",
+      event_code_name="INDUSTRY_BASELINE_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "D",
+        "total_resolved": total_resolved,
+      },
+    )
+  return contract
+
+
 def make_boundary_emitter(
   *,
   conn: Any,
@@ -602,6 +833,7 @@ __all__ = [
   "SOLVER_STAGE_LABEL",
   "SOLVER_OUTPUT_STAGE_LABEL",
   "INTAKE_DRAFT_STAGE_LABEL",
+  "INDUSTRY_BASELINE_STAGE_LABEL",
   "SIDE_PRODUCER",
   "SIDE_CONSUMER",
   "validate_model_input_at_boundary",
@@ -609,5 +841,9 @@ __all__ = [
   "validate_solver_input_at_boundary",
   "validate_solver_output_at_boundary",
   "validate_intake_draft_at_boundary",
+  "validate_industry_baseline_cascade_payload_at_boundary",
+  "validate_industry_baseline_cohort_sql_row_at_boundary",
+  "validate_industry_baseline_get_bands_view_at_boundary",
+  "validate_industry_baseline_population_summary_at_boundary",
   "make_boundary_emitter",
 ]

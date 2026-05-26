@@ -106,6 +106,17 @@ def _resolve_naics_band(metric_key: str, naics_6: str) -> Optional[Dict[str, Any
     return None
   if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
     return None
+  # P3.40 Contract 6 Commit 3 -- Shape A consumer-side gate #2.
+  # Validates the cascade resolver payload (13 fields per F5-α)
+  # before returning to the envelope-assembly caller. Mirrors
+  # the gate at finmo_bridge.py:339 _attach_seed_provenance.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+    SIDE_CONSUMER as _IBR_SIDE_CONSUMER,
+    validate_industry_baseline_cascade_payload_at_boundary,
+  )
+  validate_industry_baseline_cascade_payload_at_boundary(
+    band, side=_IBR_SIDE_CONSUMER,
+  )
   return band
 
 

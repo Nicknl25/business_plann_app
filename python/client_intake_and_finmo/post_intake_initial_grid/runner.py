@@ -581,6 +581,29 @@ def prepare_initial_grid_for_draft(
   except Exception as _cohort_bands_exc:  # noqa: BLE001 — soft sink (see above)
     sequence_trace["cohort_bands_populated"] = {"error": repr(_cohort_bands_exc)}
 
+  # P3.40 Contract 6 Commit 3 -- Shape D producer-side gate
+  # (F14 a SHIP). Placed OUTSIDE the soft try/except above so a
+  # ContractViolation from F10 (zero resolved bands across all
+  # 5 sections) propagates loud through intake_consult.py:7377
+  # generic catch -- closes v1 §F-2 FAIL_COHORT_BANDS_MISSING
+  # precondition that the soft try/except otherwise silences.
+  # Gate only fires when the populator succeeded (sequence_trace
+  # has a non-error summary); skipped when the soft-swallow above
+  # fired (preserves the "this is a new audit sink, populator-
+  # internal exceptions soft-degrade" semantic from runner.py:557).
+  _ibr_bands_summary_for_gate = sequence_trace.get("cohort_bands_populated")
+  if (
+    isinstance(_ibr_bands_summary_for_gate, dict)
+    and "error" not in _ibr_bands_summary_for_gate
+  ):
+    from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+      SIDE_PRODUCER as _IBR_SIDE_PRODUCER,
+      validate_industry_baseline_population_summary_at_boundary,
+    )
+    validate_industry_baseline_population_summary_at_boundary(
+      _ibr_bands_summary_for_gate, side=_IBR_SIDE_PRODUCER,
+    )
+
   try:
     marketing_model_json = _execute_sequence_step(
       "marketing_context_build",

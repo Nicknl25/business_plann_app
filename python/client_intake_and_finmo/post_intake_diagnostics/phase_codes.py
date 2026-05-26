@@ -49,6 +49,7 @@ class PhaseCode(str, Enum):
   WORKBOOK_PAYLOAD_CONTRACT = "workbook_payload_contract"
   SOLVER_OUTPUT_CONTRACT  = "solver_output_contract"
   INTAKE_DRAFT_CONTRACT   = "intake_draft_contract"
+  INDUSTRY_BASELINE_CONTRACT = "industry_baseline_contract"
 
 
 class EventCode(str, Enum):
@@ -169,6 +170,13 @@ class EventCode(str, Enum):
   # intake_draft_contract (P3.40 Contract 5 boundary enforcement)
   INTAKE_DRAFT_CONTRACT_VALIDATED    = "intake_draft_contract_validated"
   INTAKE_DRAFT_CONTRACT_VIOLATION    = "intake_draft_contract_violation"
+
+  # industry_baseline_contract (P3.40 Contract 6 boundary
+  # enforcement). Per F16: SINGLE PhaseCode covers all 4 shapes
+  # (A/B/C/D); diagnostic_data['shape'] field distinguishes
+  # them for queryability.
+  INDUSTRY_BASELINE_CONTRACT_VALIDATED = "industry_baseline_contract_validated"
+  INDUSTRY_BASELINE_CONTRACT_VIOLATION = "industry_baseline_contract_violation"
 
 
 class Status(str, Enum):
@@ -302,6 +310,10 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
   PhaseCode.INTAKE_DRAFT_CONTRACT: frozenset({
     EventCode.INTAKE_DRAFT_CONTRACT_VALIDATED,
     EventCode.INTAKE_DRAFT_CONTRACT_VIOLATION,
+  }),
+  PhaseCode.INDUSTRY_BASELINE_CONTRACT: frozenset({
+    EventCode.INDUSTRY_BASELINE_CONTRACT_VALIDATED,
+    EventCode.INDUSTRY_BASELINE_CONTRACT_VIOLATION,
   }),
 }
 
