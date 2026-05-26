@@ -1,9 +1,30 @@
-# P3.40 Contract 4 — FinmoJsonContract — Pre-spec trace
+# P3.40 Contract 4 — SolverOutputContract — Pre-spec trace
 
-**Boundary:** 6 (SOLVER → FINMO_BUILD).
-**Status:** pre-spec trace. Holds for review before the spec doc is drafted.
-**Companion to:** [p3_40_contract_4_finmo_json_spec.md](./p3_40_contract_4_finmo_json_spec.md) (not yet written).
-**v2 inventory baseline:** [p3_40_pipeline_data_flow_inventory_v2.md §Boundary 6](./p3_40_pipeline_data_flow_inventory_v2.md#boundary-6-solver--finmo_build) (lines 530-575).
+**Boundary:** Solver return → API handler (formerly framed as
+"Boundary 6: SOLVER → FINMO_BUILD"; see Flag 0 resolution below
+for why the rename + re-scope).
+**Status:** APPROVED + Flag 0 resolved (renamed from FinmoJsonContract → SolverOutputContract). Holds for review before the spec doc.
+**Companion to:** [p3_40_contract_4_solver_output_spec.md](./p3_40_contract_4_solver_output_spec.md) (draft pending).
+**v2 inventory baseline:** [p3_40_pipeline_data_flow_inventory_v2.md §Boundary 6](./p3_40_pipeline_data_flow_inventory_v2.md#boundary-6-solver--finmo_build) (lines 530-575) — closed per Flag 0 (a).
+
+---
+
+## Flag 0 resolution (post-trace, pre-spec)
+
+Resolved (a) **Pivot to Surface B**. Surface A is closed (already
+typed end-to-end by Contract 1's gates at finmo_bridge.py:619
+consumer-side and runner.py:1809-1822 producer-side). Contract 4
+covers Surface B exclusively. Contract renamed
+**FinmoJsonContract → SolverOutputContract** to reflect the
+actual subject (the solver's output dict consumed by the API
+handler at intake_consult.py:7418+, not the finmo_bridge input).
+Pairs naturally with Contract 3's `SolverInputContract` — the
+solver's input vs output surfaces.
+
+All subsequent T-sections and Flag references below read against
+Surface B unless explicitly labeled Surface A. The "Headline
+finding" section is preserved as-is for historical context —
+it's the work that produced this decision.
 
 This document captures the trace-before-spec work for Contract 4.
 Same discipline as Contracts 1, 2, and 3: enumerate the actual
