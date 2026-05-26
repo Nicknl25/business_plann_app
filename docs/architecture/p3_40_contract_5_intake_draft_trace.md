@@ -32,17 +32,26 @@ contract before the spec is written.
    this is the Contract 2 R8 pattern, not the Contract 3 single-
    producer pattern. T7 elaborates.
 
-3. **T4 fulfillment_json: v1 mechanism CLOSED, broader phantom
-   RESIDUAL.** The v1-cited silent-drop site (runner.py:854 →
+3. **T4 fulfillment_json: v1 specific mechanism CLOSED (corrected
+   rationale), broader phantom RESIDUAL.** The v1-cited
+   silent-drop site (runner.py:854 →
    `estimate_balance_sheet_contextual_seed_with_gpt(fulfillment_context=fulfillment_json)`)
-   IS GONE — `estimate_balance_sheet_contextual_seed_with_gpt` no
-   longer exists anywhere in the codebase (grep: 0 results). But
-   the broader phantom holds: fulfillment_json is parsed +
-   threaded through 5 downstream dicts in runner.py and never
-   structure-read by any consumer per Contract 3's trace (Tier-B
-   closure-only-but-explicitly-unused per the closure docstring at
-   orchestrator.py:625-630). §T4 enumerates the lifecycle and
-   classifies the disposition.
+   IS structurally closed, but NOT for the reason v1 implied.
+   The function still exists at
+   [post_intake_contracts/runner.py:1447](../../python/client_intake_and_finmo/post_intake_contracts/runner.py#L1447)
+   with its full body; its declared parameters do not include
+   `fulfillment_context` / `fulfillment_json`, so the function
+   could not accept fulfillment_json even if called with that
+   kwarg. It's plumbed as a Callable parameter to
+   [initial_grid/runner.py:53](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L53)
+   but **never invoked inside that file** (Tier-F forwarded-
+   but-unused pattern, same as Contract 3 identified for other
+   params). Broader phantom still holds: fulfillment_json is
+   parsed + threaded through 5 downstream dicts in runner.py and
+   never structure-read by any consumer per Contract 3's trace
+   (Tier-B closure-captured-but-explicitly-unused per the
+   closure docstring at orchestrator.py:625-630). §T4 enumerates
+   the corrected lifecycle and classifies the disposition.
 
 4. **All 8 fields are FALLBACK_PATH reads** via `parse_json_dict`
    which silently returns `{}` on missing or malformed JSON.
@@ -278,7 +287,7 @@ fulfillment_json's downstream fate:**
 
 **No production consumer structure-reads `fulfillment_json`.**
 
-### T4.4 v1/v2 phantom mechanism — CONFIRMED CLOSED (specific) + CONFIRMED RESIDUAL (broader)
+### T4.4 v1/v2 phantom mechanism — CONFIRMED CLOSED (corrected rationale) + CONFIRMED RESIDUAL (broader)
 
 v1 inventory §D-1 cited a specific silent-drop site:
 > `fulfillment_json is effectively READER_MISSING. It's parsed at
@@ -286,25 +295,67 @@ v1 inventory §D-1 cited a specific silent-drop site:
 >  to estimate_balance_sheet_contextual_seed_with_gpt at runner.py:854,
 >  but the callee's signature does not accept that parameter.`
 
-Verified by grep across the codebase:
-- `estimate_balance_sheet_contextual_seed_with_gpt`: **0 results**
-  anywhere (function deleted).
-- `fulfillment_context=`: **0 results** in runner.py (zero current
-  call sites).
-- `fulfillment_context`: 2 results in intake_consult.py
-  ([line 8286](../../python/api_handlers/intake_consult.py#L8286)
-  and [line 9175](../../python/api_handlers/intake_consult.py#L9175))
-  — both inside the interactive chat-turn handler (NOT the
-  post-intake system run path), confirmed by v2 inventory §C
-  note.
+**Corrected picture (the function is NOT deleted; the broken call
+site is gone for a different reason):**
 
-**CONFIRMED CLOSED for the specific v1 mechanism.** The alleged
-broken call site is gone.
+1. The function **still exists** at
+   [post_intake_contracts/runner.py:1447](../../python/client_intake_and_finmo/post_intake_contracts/runner.py#L1447)
+   with its full body. Exported in `__all__` at
+   [post_intake_contracts/runner.py:390](../../python/client_intake_and_finmo/post_intake_contracts/runner.py#L390).
+
+2. Its declared parameters are: `business_facts`, `ops_json`,
+   `financials_json`, `financials_year1_json`, `model_input_json`,
+   `finmo_json` (verified verbatim from the signature at lines
+   1447-1455). `fulfillment_context` / `fulfillment_json` is NOT
+   among them — so the function could not accept fulfillment_json
+   even if a caller passed that kwarg. v1's "callee does not
+   accept that parameter" half is correct.
+
+3. The function is plumbed through to `initial_grid/runner.py` as
+   a Callable parameter at
+   [initial_grid/runner.py:53](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L53):
+   `estimate_balance_sheet_contextual_seed_with_gpt: Callable[..., Dict[str, Any]]`.
+   Bound at the API layer:
+   - Module-level alias at
+     [intake_consult.py:79](../../python/api_handlers/intake_consult.py#L79):
+     `_estimate_balance_sheet_contextual_seed_with_gpt = _post_intake_contracts_runner._estimate_balance_sheet_contextual_seed_with_gpt`
+   - Passed as kwarg at
+     [intake_consult.py:7088](../../python/api_handlers/intake_consult.py#L7088):
+     `estimate_balance_sheet_contextual_seed_with_gpt=_estimate_balance_sheet_contextual_seed_with_gpt`
+     into the initial_grid runner call.
+
+4. **The Callable parameter is never invoked inside
+   initial_grid/runner.py.** Grep:
+   `estimate_balance_sheet_contextual_seed_with_gpt(` in
+   initial_grid/runner.py returns **0 results**. This is the
+   Tier-F forwarded-but-unused pattern that Contract 3's trace
+   identified for other params at the solver boundary
+   (target_market_json, planning_result,
+   catalog_source_model_input_json). The Callable is in the
+   signature but never called.
+
+5. The v1-cited call site at the historical runner.py:854 line
+   no longer exists in initial_grid/runner.py — there is no
+   invocation of this Callable in the file at all.
+
+**CONFIRMED CLOSED for the specific v1 mechanism** — but the
+correct rationale is "the broken call site is gone (Callable
+forwarded-but-unused at initial_grid/runner.py)" rather than the
+previously-stated wrong rationale "the function was deleted from
+the codebase".
 
 **CONFIRMED RESIDUAL for the broader pattern.** fulfillment_json
 remains effectively unread post-intake — parsed, threaded through
 5 dicts, captured by a closure that explicitly marks it
-"intentionally unused".
+"intentionally unused" (per T4.3 + Contract 3 trace).
+
+Independent of the Callable plumbing: `fulfillment_context=` does
+not appear in initial_grid/runner.py at all (zero current call
+sites with that keyword). It does appear at
+[intake_consult.py:8286](../../python/api_handlers/intake_consult.py#L8286)
+and [9175](../../python/api_handlers/intake_consult.py#L9175) —
+both inside the interactive chat-turn handler (NOT the post-intake
+system run path), confirmed by v2 inventory §C note.
 
 ### T4.5 Disposition options for the spec
 
@@ -510,11 +561,19 @@ disjoint surfaces, structurally clean (same pattern as Contracts
 Taxonomy: **NEW SUBSTANTIVE** / **NEW STRUCTURAL** / **CONFIRMED
 RESIDUAL** / **CONFIRMED CLOSED**.
 
-### Div-1. fulfillment_json silent-drop specific mechanism — CONFIRMED CLOSED
+### Div-1. fulfillment_json silent-drop specific mechanism — CONFIRMED CLOSED (corrected rationale)
 
-Per §T4.4: `estimate_balance_sheet_contextual_seed_with_gpt` no
-longer exists. The v1/v2-cited runner.py:854 call site is gone.
-Broader phantom remains (CONFIRMED RESIDUAL) per §T4.3.
+Per §T4.4: the v1-cited runner.py:854 call site is gone from
+initial_grid/runner.py — but the function
+`_estimate_balance_sheet_contextual_seed_with_gpt` itself **still
+exists** at post_intake_contracts/runner.py:1447 and is plumbed
+as a Callable parameter to initial_grid/runner.py:53. The
+Callable is **never invoked** inside initial_grid/runner.py
+(Tier-F forwarded-but-unused pattern). The function's declared
+parameters do not include `fulfillment_context` / `fulfillment_json`,
+so even a hypothetical future call site would not consume
+fulfillment_json without a signature change. Broader phantom
+remains (CONFIRMED RESIDUAL) per §T4.3.
 
 ### Div-2. 8-field roster — CONFIRMED unchanged
 
@@ -676,9 +735,12 @@ PhaseCode count 17 → 18; rename
 ## Lessons baked in for Contract 5 spec drafting
 
 - **Trace before spec.** The trace caught Div-1 (v1's fulfillment_json
-  mechanism is gone) and Div-4 (v1's claim of zero realism_memo_json
-  readers is wrong — bundled at runner.py:1541). Both would have
-  been costly assumption errors in the spec.
+  silent-drop mechanism is closed via the Callable-never-invoked
+  path, NOT via function deletion as initially claimed —
+  amendment corrected the supporting facts) and Div-4 (v1's claim
+  of zero realism_memo_json readers is wrong — bundled at
+  runner.py:1541). Both would have been costly assumption errors
+  in the spec.
 - **Match production vocabulary verbatim.** All 8 field names +
   producer sites + line numbers lifted from source.
 - **Constraints from production reality.** Persistence pattern
