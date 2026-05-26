@@ -5,14 +5,16 @@ Contracts 1-4 fixture modules.
 Module is leading-underscore-prefixed so the test runner does NOT
 auto-discover it as a test module.
 
-Re-uses Contract 5b fixture ``valid_operating_model_json_dict``
-per Commit 5b-3 retrofit + Contract 5c fixture
-``valid_target_market_json_dict`` per Commit 5c-3 retrofit
-(operating_model_json + target_market_json now typed via their
-respective sub-contracts instead of Dict[str, Any]). The
-remaining 6 fields stay opaque Dict[str, Any] per spec Flag 0
-(b) first cut -- Contracts 5d/5e/etc. retrofits will follow
-the 5b/5c precedent.
+Re-uses Contracts 5b/5c/5d fixtures per Commits 5b-3/5c-3/5d-3
+retrofits (operating_model_json + target_market_json +
+people_json now typed via their respective sub-contracts instead
+of Dict[str, Any]). The remaining 5 fields stay opaque
+Dict[str, Any] per spec Flag 0 (b) first cut -- Contracts 5e/f/
+g/h retrofits (python-aggregated shapes) follow a different
+pattern than the 5b/c/d series.
+
+The 5b/5c/5d sub-contract retrofit series COMPLETES with this
+fixture set.
 """
 
 from __future__ import annotations
@@ -35,6 +37,9 @@ from _p3_40_contract_5b_fixtures import (  # noqa: E402
 )
 from _p3_40_contract_5c_fixtures import (  # noqa: E402
   valid_target_market_json_dict,
+)
+from _p3_40_contract_5d_fixtures import (  # noqa: E402
+  valid_people_json_dict,
 )
 
 
@@ -61,10 +66,7 @@ def valid_intake_draft_dict(
   payload: Dict[str, Any] = {
     "operating_model_json": valid_operating_model_json_dict(),
     "target_market_json": valid_target_market_json_dict(),
-    "people_json": {
-      "people": [],
-      "inferred_roles": [],
-    },
+    "people_json": valid_people_json_dict(),
     "financials_json": {
       "gross_margin_percent": 0.40,
     },

@@ -132,6 +132,13 @@ from client_intake_and_finmo.post_intake_contracts.operating_model_json_contract
 from client_intake_and_finmo.post_intake_contracts.target_market_json_contract import (
   TargetMarketJsonContract,
 )
+# Contract 5d retrofit (Commit 5d-3): people_json is no longer
+# opaque Dict[str, Any] -- composes PeopleJsonContract for
+# structural typing per spec §0 value-constraint policy.
+# COMPLETES the 5b/5c/5d sub-contract retrofit series.
+from client_intake_and_finmo.post_intake_contracts.people_json_contract import (
+  PeopleJsonContract,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +192,7 @@ class IntakeDraftContract(BaseModel):
   # Tier A -- consultant-produced or python-aggregated
   operating_model_json: OperatingModelJsonContract
   target_market_json: TargetMarketJsonContract
-  people_json: Dict[str, Any]
+  people_json: PeopleJsonContract
   financials_json: Dict[str, Any]
   financials_year1_json: Dict[str, Any]
   marketing_model_json: Dict[str, Any]

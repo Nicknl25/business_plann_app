@@ -146,34 +146,37 @@ class ExtraForbidTopLevelTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class OpacityConfirmationTest(unittest.TestCase):
-  """F0 (b) first-cut disposition: the REMAINING 6 fields
-  (people_json, financials_json, financials_year1_json,
-  marketing_model_json, planning_context_summary_json,
-  fulfillment_json) are still opaque Dict[str, Any].
-  operating_model_json + target_market_json were retrofitted in
-  Commits 5b-3 + 5c-3 respectively -- their own arbitrary-shape
-  acceptance is replaced by structural typing per Contracts 5b
-  + 5c. Their typed-shape tests live at
+  """F0 (b) first-cut disposition: the REMAINING 5 fields
+  (financials_json, financials_year1_json, marketing_model_json,
+  planning_context_summary_json, fulfillment_json) are still
+  opaque Dict[str, Any]. operating_model_json + target_market_json
+  + people_json were retrofitted in Commits 5b-3 + 5c-3 + 5d-3
+  respectively -- their own arbitrary-shape acceptance is
+  replaced by structural typing per Contracts 5b/5c/5d. Their
+  typed-shape tests live at
   tests/test_p3_40_contract_5b_operating_model_json.py +
-  tests/test_p3_40_contract_5c_target_market_json.py.
+  tests/test_p3_40_contract_5c_target_market_json.py +
+  tests/test_p3_40_contract_5d_people_json.py.
 
-  Future retrofits (5d people_json, 5e/f/g/h python-aggregated
-  shapes) follow the same pattern.
+  The 5b/5c/5d sub-contract retrofit series COMPLETES with
+  5d-3. The remaining 5 fields are python-aggregated shapes
+  (NOT OpenAI-schema-enforced) -- their retrofits (5e/f/g/h
+  R-residual track) follow a different pattern.
   """
 
   def test_arbitrary_nested_shape_accepted_for_other_dict_field(self) -> None:
-    """The 6 remaining opaque Dict[str, Any] fields still accept
-    arbitrary nested shapes. Pick people_json (Contract 5d
-    R-residual -- next retrofit target)."""
+    """The 5 remaining opaque Dict[str, Any] fields still accept
+    arbitrary nested shapes. Pick financials_year1_json (next
+    5e R-residual target)."""
     payload = valid_intake_draft_dict()
-    payload["people_json"] = {
+    payload["financials_year1_json"] = {
       "deeply_nested": {"a": [1, 2, {"b": None}]},
       "any_key": "any_value",
       "numeric_key": 42.5,
     }
     contract = IntakeDraftContract.model_validate(payload)
     self.assertEqual(
-      contract.people_json["deeply_nested"]["a"][2]["b"], None,
+      contract.financials_year1_json["deeply_nested"]["a"][2]["b"], None,
     )
 
   def test_empty_dict_accepted_for_required_field(self) -> None:
@@ -181,9 +184,9 @@ class OpacityConfirmationTest(unittest.TestCase):
     fields, {} is valid. Downstream code's actual reads will
     fail when they try to extract keys -- but that's a consumer
     concern, not the contract gate's. (operating_model_json +
-    target_market_json no longer opaque per 5b-3 + 5c-3
-    retrofits; this test uses financials_json which remains
-    opaque.)"""
+    target_market_json + people_json no longer opaque per
+    5b-3 + 5c-3 + 5d-3 retrofits; this test uses
+    financials_json which remains opaque.)"""
     payload = valid_intake_draft_dict()
     payload["financials_json"] = {}
     contract = IntakeDraftContract.model_validate(payload)
