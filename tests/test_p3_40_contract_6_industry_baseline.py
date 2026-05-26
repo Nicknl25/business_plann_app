@@ -119,14 +119,17 @@ class CompositionInternalTest(unittest.TestCase):
   propagate through the top-level validator. Demonstrates the
   6 sub-contracts are real sub-models, not opaque Dicts."""
 
-  def test_business_profile_naics_pattern_propagates(self) -> None:
-    """F11 NAICS-6 pattern violation in business_profile surfaces
-    at top-level model_validate."""
+  def test_business_profile_naics_non_pattern_propagates_acceptance(self) -> None:
+    """R16 closure (Cleanup Commit 2): F11 pattern DROPPED per
+    §0 alignment with 5b/5d. Non-pattern naics_6 values
+    propagate as ACCEPTED through top-level model_validate
+    (previously rejected per F11 pattern). PSL2 production-
+    reality-wins: runner.py:562 upstream strip prevents these
+    values from reaching production payloads."""
     payload = valid_industry_baseline_resolved_dict()
     payload["business_profile"]["naics_6"] = "ABC"
-    with self.assertRaises(ValidationError) as ctx:
-      IndustryBaselineResolvedContract.model_validate(payload)
-    self.assertIn("naics_6", str(ctx.exception))
+    contract = IndustryBaselineResolvedContract.model_validate(payload)
+    self.assertEqual(contract.business_profile.naics_6, "ABC")
 
   def test_cascade_payload_literal_violation_propagates(self) -> None:
     """F13 trust_flag typo in any cascade_payloads entry

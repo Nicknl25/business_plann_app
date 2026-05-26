@@ -63,8 +63,9 @@ from _p3_40_contract_6_fixtures import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 class BusinessProfileInputContractTest(unittest.TestCase):
-  """F11 NAICS-6 pattern validation + F2 business_model
-  Literal[None] pin."""
+  """R16 closure (Cleanup Commit 2) + F2 business_model
+  Literal[None] pin. F11 pattern DROPPED per §0 alignment
+  with 5b/5d's bare Optional[str] = None typing."""
 
   def test_valid_minimal_payload_accepted(self) -> None:
     bp = BusinessProfileInputContract.model_validate(
@@ -85,23 +86,35 @@ class BusinessProfileInputContractTest(unittest.TestCase):
     })
     self.assertEqual(bp.naics_6, "123456")
 
-  def test_naics_6_5_digit_rejected(self) -> None:
-    """F11: pattern=r'^[0-9]{6}$' rejects 5-digit strings."""
-    with self.assertRaises(ValidationError) as ctx:
-      BusinessProfileInputContract.model_validate({
-        "naics_6": "12345", "business_model": None,
-      })
-    self.assertIn("naics_6", str(ctx.exception))
+  def test_naics_6_non_6_digit_accepted_per_cleanup_commit_2(self) -> None:
+    """R16 closure (Cleanup Commit 2): F11 pattern DROPPED per
+    §0 alignment with 5b/5d. PSL2 production-reality-wins:
+    runner.py:562 strips non-digit chars upstream so production
+    payloads reaching the contract are already digit-only or
+    empty. Pattern-rejection regression test replaced with
+    acceptance test."""
+    # 5-digit accepted (would have failed pre-Cleanup-2)
+    bp_5digit = BusinessProfileInputContract.model_validate({
+      "naics_6": "12345", "business_model": None,
+    })
+    self.assertEqual(bp_5digit.naics_6, "12345")
+    # Empty string accepted (runner.py strip can produce this)
+    bp_empty = BusinessProfileInputContract.model_validate({
+      "naics_6": "", "business_model": None,
+    })
+    self.assertEqual(bp_empty.naics_6, "")
 
-  def test_naics_6_alpha_rejected(self) -> None:
-    """F11: pattern rejects alpha-contaminated strings.
-    Surfaces v1 §F-3 garbage inputs (e.g., 'ABC') at the contract
-    gate instead of silently treating as no_coverage."""
-    with self.assertRaises(ValidationError) as ctx:
-      BusinessProfileInputContract.model_validate({
-        "naics_6": "ABC123", "business_model": None,
-      })
-    self.assertIn("naics_6", str(ctx.exception))
+  def test_naics_6_alpha_chars_accepted_per_cleanup_commit_2(self) -> None:
+    """R16 closure (Cleanup Commit 2): pattern DROPPED.
+    Alpha-contaminated strings PASS structural typing now.
+    Downstream NAICS resolution at runner.py:283-287 handles
+    empty-string-as-no-coverage gracefully; runner.py:562
+    upstream strip prevents alpha chars from reaching production
+    payloads in the first place."""
+    bp = BusinessProfileInputContract.model_validate({
+      "naics_6": "ABC123", "business_model": None,
+    })
+    self.assertEqual(bp.naics_6, "ABC123")
 
   def test_business_model_string_rejected(self) -> None:
     """F2 (a) Literal[None] pin. Future code change setting

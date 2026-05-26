@@ -208,22 +208,51 @@ SUPPORTED_COHORT_TABLES = ("edgar", "alpha")
 
 class BusinessProfileInputContract(BaseModel):
   """The 4-field business_profile input dict built at
-  runner.py:573-579 from Contract 5 intake fields.
+  runner.py:558-578 from Contract 5 intake fields.
 
-  Per F11: ``naics_6`` types as Optional[str] with a strict
-  6-digit pattern. Surfaces v1 §F-3 garbage inputs (e.g., "ABC"
-  -> "" today silently treated as no_coverage) at the contract
-  gate.
+  R16 closure (Cleanup Commit 2): per-field composition
+  assessment with Contracts 5b/5c/5d typed sub-contracts:
+    - ``naics_6`` SHARED with 5b's
+      ``OperatingModelJsonContract.business_naics_6`` + 5d's
+      ``PeopleJsonContract.business_naics_6`` (both bare
+      ``Optional[str] = None`` per §0). Previously DIVERGENT
+      (Contract 6 had ``Field(pattern=r'^[0-9]{6}$')`` per
+      F11); pattern dropped here to align with §0 policy.
+      PSL2 production-reality-wins: runner.py:562 already
+      strips non-digit characters before passing
+      (``''.join(ch for ch in ... if ch.isdigit())``), so
+      values reaching this contract are already digit-only
+      or empty -- the pattern caught hypothetical legacy
+      non-digit inputs that the upstream strip already
+      handles. R16 retrofit aligns the typings.
+    - ``stage`` SHARED with 5b's
+      ``OperatingModelJsonContract.business_stage`` (both
+      bare ``Optional[str] = None``). Already consistent
+      pre-Cleanup-Commit-2; no change.
+    - ``target_annual_revenue`` UNIQUE (sourced from
+      ``financials_year1_json.company_revenue_total_year1``
+      per runner.py:558-560 -- that's the python-aggregated
+      Contract 5e/h R-residual track, not 5b/c/d). No
+      composition opportunity until 5e/h lands.
+    - ``business_model`` UNIQUE. ``Literal[None]`` per F2/R12
+      preserved -- this is a STRUCTURAL value-pin (the field
+      is always None per runner.py:577 placeholder
+      semantic), NOT an enum-vocabulary narrowing. §0's
+      Literal ban targets enum-vocabulary narrowings; this
+      structural pin stays. R12 covers the upgrade when
+      use cases land.
 
   Per F2 (a): ``business_model`` types as Literal[None]. Pins
   production reality verbatim (runner.py:577 always writes None
   as the placeholder per v1 §D-1). A future code change setting
   business_model = "saas" surfaces as ContractViolation, forcing
-  contract amendment alongside code. R12 covers the upgrade
-  when use cases land.
+  contract amendment alongside code.
   """
 
-  naics_6: Optional[str] = Field(default=None, pattern=r"^[0-9]{6}$")
+  # R16 closure: pattern dropped per §0 alignment with 5b/5d's
+  # bare Optional[str] = None typing. PSL2 production-reality-
+  # wins (runner.py:562 strips non-digit chars upstream).
+  naics_6: Optional[str] = None
   target_annual_revenue: Optional[float] = None
   stage: Optional[str] = None
   business_model: Literal[None] = None

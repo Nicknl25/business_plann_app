@@ -129,8 +129,25 @@ wirings):
 Residual cleanups deferred (spec §8):
   - R8.  Per-section PlanStateSectionContract typing (F2
          deferral). Composes Contract 1 sub-shapes per section.
-  - R9.  business_facts typing -- compose Contract 5b/c/d
-         sub-contracts when they land.
+  - R9.  ASSESSED (Cleanup Commit 2), NO CODE CHANGE
+         WARRANTED. Production Mirror.business_facts is built
+         at runner.py:261-271 from FLAT DRAFT-ROW COLUMNS
+         (name, business_name, address, start_date,
+         address_street/city/state/zip/country) -- NOT from
+         5b/5c/5d JSON content. Zero structural overlap with
+         the typed sub-contracts (OperatingModelJsonContract /
+         TargetMarketJsonContract / PeopleJsonContract). The
+         R9 hypothesis ("compose 5b/c/d when they land")
+         doesn't match production reality; the field is
+         genuinely heterogeneous draft-column data. Mirror.
+         business_facts stays as Dict[str, Any] -- composing
+         5b/c/d here would type fields production doesn't
+         populate. Contract 5's consumer-side gate at
+         runner.py:189 already provides the structural
+         assurance for the 3 typed sub-contracts; that
+         enforcement doesn't transitively apply to
+         Mirror.business_facts because the two surfaces are
+         disjoint.
   - R10. Drop mirror.recent_decisions phantom-write per v2 §D-2.
   - R11. Drop mirror.sequence_position + mirror.budget
          phantom-required fields per v2 §D-3.

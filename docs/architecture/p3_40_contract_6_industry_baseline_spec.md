@@ -945,12 +945,34 @@ at runner.py:556-583.
 Loses contract-level enforcement; preserves the silent-skip
 behavior. Recommend against.
 
-### F11 — NAICS-6 length validation
+### F11 — NAICS-6 length validation — AMENDED per Cleanup Commit 2 (pattern DROPPED)
 
-**(Recommended) (a) `Field(default=None, pattern=r"^[0-9]{6}$")`
-on `BusinessProfileInputContract.naics_6`.** Surfaces v1 §F-3
-garbage inputs (e.g., `"ABC"` → silent no_coverage today) at the
-contract gate.
+**Original disposition (a) `Field(default=None, pattern=r"^[0-9]{6}$")`**
+on `BusinessProfileInputContract.naics_6` shipped in Contract 6
+Commit 1a.
+
+**Post-Cleanup-Commit-2 amendment:** R16 inverse-retrofit
+assessment found the pattern constraint DIVERGENT from 5b/5d's
+bare `Optional[str] = None` typing per §0 value-constraint
+policy. Pattern DROPPED in Cleanup Commit 2; field now bare
+`Optional[str] = None`.
+
+Rationale per PSL2 production-reality-wins: runner.py:562 strips
+non-digit characters upstream
+(`"".join(ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit())`)
+before passing the value, so payloads reaching this contract
+are already digit-only or empty. The pattern caught only
+hypothetical legacy non-digit inputs the upstream strip
+already handles. Net behavior change: zero (production payloads
+already satisfied the pattern post-strip; downstream NAICS
+resolution at runner.py:283-287 handles empty-string-as-
+no-coverage gracefully). §0 alignment is the win.
+
+R17 (NAICS normalizer length-validation cleanup) re-scoped
+post-Cleanup-Commit-2: with the contract no longer enforcing
+the pattern, R17 is about adding the strip to ALL callers of
+`_naics_6_from_ops` (currently only one caller — runner.py:562
+— strips). Tracked separately.
 
 ### F12 — Benchmark monotonicity invariant
 
@@ -1057,11 +1079,43 @@ IndustryBaselineResolvedContract.** All sub-contracts use
   and cohort-side confidence_tier as distinct fields if the
   shared vocabulary becomes ambiguous. Currently F8 (a) types
   them as a shared Literal.
-- **R16.** Inverse retrofit: Contract 5b/c/d sub-contracts for
+- **R16.** ~~Inverse retrofit: Contract 5b/c/d sub-contracts for
   intake-side `business_naics_6` / `business_stage` /
   `company_revenue_total_year1` would let `BusinessProfileInputContract`
-  compose those instead of accepting opaque types. R-residual
-  triggered by Contract 5b/c/d wave.
+  compose those instead of accepting opaque types.~~
+  **RESOLVED in P3.40 Contract Layer Cleanup Commit 2 (per-field
+  composition assessment).** Per-field findings:
+  - `naics_6` was DIVERGENT (Contract 6 had
+    `Field(pattern=r'^[0-9]{6}$')` per F11; 5b/5d are bare
+    `Optional[str] = None` per §0). Pattern DROPPED in
+    Cleanup Commit 2 to align with §0. PSL2 production-
+    reality-wins: runner.py:562 strips non-digit chars
+    upstream so the pattern caught only hypothetical legacy
+    non-digit inputs the upstream strip already handles.
+    Field count + structure unchanged; only the pattern
+    constraint removed. F11 disposition amended.
+  - `stage` was SHARED and ALREADY CONSISTENT with 5b's
+    `business_stage` (both bare `Optional[str] = None`). No
+    code change; consistency documented in the contract
+    module docstring.
+  - `target_annual_revenue` is UNIQUE in the 5b/c/d wave
+    (sourced from `financials_year1_json.
+    company_revenue_total_year1`, which is the python-
+    aggregated Contract 5e/h R-residual track). No
+    composition opportunity until 5e/h lands. R-residual
+    re-opened as R16-bis pending 5e/h.
+  - `business_model` is UNIQUE. `Literal[None]` per F2/R12
+    preserved — STRUCTURAL value-pin (not enum-vocabulary
+    narrowing); §0's Literal ban targets enum narrowings.
+    R12 covers the upgrade.
+
+  Composition opportunity assessed as 1 alignment (naics_6
+  pattern drop) + 1 already-consistent (stage) + 2 unique
+  (target_annual_revenue, business_model). No sub-contract
+  IMPORT performed -- the directive's "only ACTUAL
+  composition if a 5b/c/d nested-object shape is structurally
+  consumed" gate filtered out scalar field overlaps. R16
+  status: structurally aligned per §0 where applicable.
 - **R17.** NAICS normalizer length-validation cleanup. Currently
   upstream `_naics_6_from_ops` doesn't enforce length; the
   contract gate per F11 surfaces violations. R-residual to

@@ -943,10 +943,32 @@ RecentDecision) automatically. R-residual upgrade path.
   trace+spec work per section. R-residual when a downstream
   consumer warrants the tightening.
 
-- **R9.** `business_facts` typing — currently opaque
-  `Dict[str, Any]`. Once Contract 5b/c/d sub-contracts land
-  (intake-side scalar fields typed), inverse retrofit so
-  `MirrorContract.business_facts` composes those.
+- **R9.** ~~`business_facts` typing — currently opaque
+  `Dict[str, Any]`. Once Contract 5b/c/d sub-contracts land,
+  inverse retrofit so `MirrorContract.business_facts` composes
+  those.~~ **ASSESSED in P3.40 Contract Layer Cleanup Commit
+  2; NO CODE CHANGE WARRANTED.** Production
+  Mirror.business_facts is built at runner.py:261-271 from
+  FLAT DRAFT-ROW COLUMNS (`name`, `business_name`, `address`,
+  `start_date`, `address_street/city/state/zip/country`) and
+  forwarded verbatim to `build_mirror(...,
+  business_facts=amalgamated_business_facts, ...)` at
+  runner.py:1825-1830. The dict contains ZERO content from
+  the 5b/5c/5d typed JSONs (operating_model_json /
+  target_market_json / people_json). The R9 hypothesis
+  ("compose 5b/c/d when they land") doesn't match production
+  reality — the field is genuinely heterogeneous draft-column
+  data, not intake-JSON content. `MirrorContract.business_
+  facts` stays as `Dict[str, Any]`; the alternative (typing
+  as a sub-shape composing 5b/c/d) would type fields
+  production doesn't populate. Contract 5's consumer-side
+  gate at runner.py:189 provides the structural assurance
+  for the 3 typed sub-contracts; that enforcement doesn't
+  transitively apply to Mirror.business_facts because the
+  two surfaces are disjoint. R9 status: ASSESSED + RESOLVED
+  via assessment (no code change is the correct outcome
+  per the directive's "do NOT force composition where it
+  doesn't structurally make sense" guideline).
 
 - **R10.** Drop `mirror.recent_decisions` setter + field. Per
   v2 §D-2: phantom-write — setter is called but no production
