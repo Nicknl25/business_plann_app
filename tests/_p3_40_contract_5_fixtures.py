@@ -6,12 +6,13 @@ Module is leading-underscore-prefixed so the test runner does NOT
 auto-discover it as a test module.
 
 Re-uses Contract 5b fixture ``valid_operating_model_json_dict``
-per Commit 5b-3 retrofit (the operating_model_json field is now
-typed as OperatingModelJsonContract instead of Dict[str, Any]).
-All other 7 fields remain opaque Dict[str, Any] per spec Flag 0
-(b) first cut -- minimal valid payloads use small arbitrary
-dicts since no sub-shape typing applies yet (Contracts 5c/5d/5e
-etc. retrofits follow the 5b precedent).
+per Commit 5b-3 retrofit + Contract 5c fixture
+``valid_target_market_json_dict`` per Commit 5c-3 retrofit
+(operating_model_json + target_market_json now typed via their
+respective sub-contracts instead of Dict[str, Any]). The
+remaining 6 fields stay opaque Dict[str, Any] per spec Flag 0
+(b) first cut -- Contracts 5d/5e/etc. retrofits will follow
+the 5b/5c precedent.
 """
 
 from __future__ import annotations
@@ -31,6 +32,9 @@ if HERE not in sys.path:
 
 from _p3_40_contract_5b_fixtures import (  # noqa: E402
   valid_operating_model_json_dict,
+)
+from _p3_40_contract_5c_fixtures import (  # noqa: E402
+  valid_target_market_json_dict,
 )
 
 
@@ -56,9 +60,7 @@ def valid_intake_draft_dict(
   """
   payload: Dict[str, Any] = {
     "operating_model_json": valid_operating_model_json_dict(),
-    "target_market_json": {
-      "target_market_summary": "Test market",
-    },
+    "target_market_json": valid_target_market_json_dict(),
     "people_json": {
       "people": [],
       "inferred_roles": [],

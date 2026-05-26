@@ -126,6 +126,12 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
 from client_intake_and_finmo.post_intake_contracts.operating_model_json_contract import (
   OperatingModelJsonContract,
 )
+# Contract 5c retrofit (Commit 5c-3): target_market_json is no
+# longer opaque Dict[str, Any] -- composes TargetMarketJsonContract
+# for structural typing per spec §0 value-constraint policy.
+from client_intake_and_finmo.post_intake_contracts.target_market_json_contract import (
+  TargetMarketJsonContract,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +184,7 @@ class IntakeDraftContract(BaseModel):
 
   # Tier A -- consultant-produced or python-aggregated
   operating_model_json: OperatingModelJsonContract
-  target_market_json: Dict[str, Any]
+  target_market_json: TargetMarketJsonContract
   people_json: Dict[str, Any]
   financials_json: Dict[str, Any]
   financials_year1_json: Dict[str, Any]
