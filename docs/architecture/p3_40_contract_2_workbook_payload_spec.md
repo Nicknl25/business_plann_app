@@ -963,6 +963,13 @@ follow-ups.
 
 ## 8. Known residual cleanups (out of scope for Contract 2)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DEFERRED**: 6 producer-side gate commits, each per-writer-site; multi-week scope.
+- R9 → **DEFERRED**: `validate_draft_data` deletion needs caller-by-caller audit; documented for future cleanup.
+- R10 → **DEFERRED**: `WorkbookBuildContext` registry typing is its own sub-shape contract; speculative without driving need.
+- R11 → **DEFERRED**: Same pattern as Contract 1 R6 — deep helper migration; per-helper risk assessment needed.
+- R12 → **DEFERRED**: Coupled to Flag 1 disposition decision; not a structural blocker.
+
 - **R8.** Producer-side validation gates for each of the 5 JSON
   fields (model_input_json, finmo_json, payroll_headcount,
   debt_schedule, planning_run_json, run_diagnostics) at their

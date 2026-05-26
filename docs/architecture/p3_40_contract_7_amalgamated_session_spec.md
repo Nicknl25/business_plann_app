@@ -936,6 +936,19 @@ RecentDecision) automatically. R-residual upgrade path.
 
 ## 8. Known residual cleanups (out of scope for Contract 7)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DEFERRED**: Per-section `PlanStateSectionContract` typing; Contract 1 sub-shape composition; future series.
+- R9 → **ASSESSED + NO CODE CHANGE** in Cleanup 2/6 (Mirror.business_facts is flat draft-row columns, not 5b/c/d JSON content; zero structural overlap).
+- R10 → **DONE** in Cleanup 3/6 (recent_decisions + RecentDecision + record_decision dropped; phantom-write confirmed).
+- R11 → **DONE** in Cleanup 3/6 (sequence_position + budget dropped; phantom-required confirmed).
+- R12 → **DEFERRED**: F6 (iii) full bidirectional check requires upstream EvaluatePlanResult context.
+- R13 → **DEFERRED**: Refresh-point gates pending diagnostic showing refresh-time violations matter.
+- R14 → **DONE** in Cleanup 5/6 (MirrorContract.from_mirror classmethod adapter added).
+- R15 → **DEFERRED**: evaluate_plan re-fetches mirror.bands; architectural cleanup, not Contract 7 scope.
+- R16 → **DEFERRED**: Operating-model levers no revise_* tool; architectural gap.
+- R17 → **DEFERRED**: WC scalar patch shape formalization in CascadeLever.direction; partial typing exists.
+- R18 → **DEFERRED**: End-to-end AmalgamatedSessionContract round-trip test; integration scope.
+
 - **R8.** Per-section `PlanStateSectionContract` typing (F2
   deferral). Each of the 5 SECTIONS has a section-specific
   revise_* tool that commits a specific payload shape. Typing

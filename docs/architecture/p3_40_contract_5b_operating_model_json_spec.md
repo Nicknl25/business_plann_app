@@ -651,6 +651,17 @@ Expected total: 8 flags. None require ``Literal`` /
 
 ## 8. Known residual cleanups (out of scope for Contract 5b)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R-a → **ASSESSED + KEPT** in Cleanup 3/6 (legacy DB support; runner.py fallback chain retained).
+- R-b → **DEFERRED**: `confidence` field range — §0 prohibits the constraint.
+- R-c → **DEFERRED**: `unit_cadence` enum mismatch is documentary per §0.
+- R-d → **DEFERRED**: `competitive_advantage` trigger documentation; out of cleanup scope.
+- R-e → **DEFERRED**: `_apply_model_ops_patch` whitelist harmonization is intake-side work.
+- R-f → **DEFERRED**: Contract 3 fact_template path harmonization requires Contract 3 sub-shape typing.
+- R-g → **DEFERRED**: Downstream consumer typed-instance upgrade is multi-helper work.
+- R-h → **DEFERRED**: Tighten `Optional[X] = None` → `Optional[X]` pending DB audit.
+- R-i → **DONE**: Contract 6 R16 + Contract 7 R9 actionability unblocked; both addressed in Cleanup 2/6 (R16 alignment landed; R9 ASSESSED + NO CODE CHANGE).
+
 - **R-a.** ~~DB audit for ``naics_code`` + ``business_naics``
   legacy fields per T3 (b). If zero hits in production drafts,
   delete the defensive fallbacks in runner.py:284-285 +

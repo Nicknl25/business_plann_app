@@ -1035,6 +1035,26 @@ IndustryBaselineResolvedContract.** All sub-contracts use
 
 ## 8. Known residual cleanups (out of scope for Contract 6)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DONE** in Cleanup 5/6 (count invariant added).
+- R9 → **DONE** in Cleanup 5/6 (cascade_payloads + get_bands_views key/value consistency invariants added).
+- R10 → **DONE** in Cleanup 1/6 (cohort_query SQL persistence + Shape B contract amendment; DB migration note in commit summary).
+- R11 → **DONE** in Cleanup 1/6 (naics_prefix_used + data_source surfaced in get_bands; Shape C contract amended; F7 asymmetry resolved).
+- R12 → **DEFERRED**: `business_model` typing upgrade pending future use case.
+- R13 → **DEFERRED**: Per-row contract validation inside populator loop; defense-in-depth without driving need.
+- R14 → **DEFERRED**: Producer-side cascade resolver gate at multiple sites; Contract 2 R8 pattern follow-up.
+- R15 → **DEFERRED**: Confidence-tier semantic split pending vocabulary ambiguity.
+- R16 → **DONE** in Cleanup 2/6 (per-field assessment; naics_6 pattern dropped for §0 alignment; stage already consistent; target_annual_revenue+business_model UNIQUE).
+- R17 → **DONE** in Cleanup 5/6 (NAICS normalizer length-warning at _naics_6_from_ops upstream).
+- R18 → **DEFERRED**: Cohort row cache silent-None is internal to resolver; out of boundary scope.
+- R19 → **DEFERRED**: Confidence-tier dual-meaning documentation; cosmetic.
+- R20 → **DEFERRED**: Cohort section coverage rules; semantic policy not contract scope.
+- R21 → **DEFERRED**: Section-level resolved-count thresholds; F10 (a) baseline kept.
+- R22 → **DEFERRED**: cohort_table Literal enforcement at upstream; contract layer covers downstream.
+- R23 → **DEFERRED**: End-to-end IndustryBaselineResolvedContract round-trip test; integration scope.
+- R24 → **DONE** via Cleanup 2/6 naics_6 pattern drop (digit-length validation re-located to upstream R17).
+- R25 → **DEFERRED**: cohort_table value harmonization with resolver vocabulary; semantic alignment.
+
 - **R8.** ~~`get_bands_views[section].count == len(bands)`
   cross-field invariant. Cheap; deferred to keep §4 lean.~~
   **RESOLVED in P3.40 Contract Layer Cleanup Commit 5/6.**

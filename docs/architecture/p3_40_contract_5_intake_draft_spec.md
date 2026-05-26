@@ -736,6 +736,17 @@ Contracts 3 + 4. Lockstep PhaseCode count 17 → 18.
 
 ## 8. Known residual cleanups (out of scope for Contract 5)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DONE**: Contract 5b retrofit landed (b7b8da6/662d2a1/fc91083).
+- R9 → **DONE**: Contract 5c retrofit landed (763577b/8efdc6e/8942527).
+- R10 → **DONE**: Contract 5d retrofit landed (863b393/adb28d1/6c71a14).
+- R11 → **NOT PURSUED**: financials_json / financials_year1_json / marketing_model_json / planning_context_summary_json / fulfillment_json are python-aggregated shapes (NOT OpenAI-schema-enforced). The 5e/f/g/h retrofit track would follow a different pattern than 5b/c/d; no current consumer warrants the work.
+- R12 → **DEFERRED**: fulfillment_json audit+drop pending Flag 1 (c) producer telemetry.
+- R13 → **DEFERRED**: `_apply_scoped_patch` promotion is a follow-up patch-layer cleanup.
+- R14 → **DEFERRED**: legacy-table import error squelching is a finmo_bridge cleanup.
+- R15 → **DEFERRED**: Producer-side "finalize lock" gate per F4 sub-flag (c) requires consultant-side wiring.
+- R16 → **DEFERRED**: `BusinessFactsForSolverContract.fact_template` typing requires Contract 3 sub-shape work.
+
 - **R8.** Sub-contract for `operating_model_json` (Contract 5b).
   Translate OpenAI schema at intake_consultant.py:583 to Pydantic
   `OperatingModelJsonContract`. Add producer-side gate at

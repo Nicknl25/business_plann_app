@@ -970,6 +970,14 @@ These are decisions I'm asking you to confirm before code lands:
 
 ## 8. Known residual cleanups (out of scope for Contract 1)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R1 → **ASSESSED + KEPT** in Cleanup 4/6 (test callers block removal per Cleanup 3 precedent).
+- R2 → **DEFERRED**: "model_input_balancehseet" typo needs coordinated workbook-reader migration.
+- R3 → **DEFERRED**: Sub-contract typing of opaque blob fields needs its own trace+spec+multi-commit series.
+- R4 → **DEFERRED**: Pre-Contract-1 production cleanup; doesn't affect Contract 1 typing.
+- R6 → **DEFERRED**: Deep finmo_bridge.py typed-access migration; multi-week scope.
+- R7 → **DEFERRED**: Defensive .get() reads; depends on R3.
+
 - **R1.** ~~Dead `FinancialModelInputs.to_model_input_json` method at
   [model_inputs.py:537](../../python/financial_model_engine/model_inputs.py#L537).~~
   **ASSESSED in P3.40 Contract Layer Cleanup Commit 4/6;

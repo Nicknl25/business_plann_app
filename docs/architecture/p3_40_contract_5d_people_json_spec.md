@@ -666,6 +666,17 @@ Field(constraint) / validators per §0.
 
 ## 8. Known residual cleanups (out of scope for Contract 5d)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R-a → **DEFERRED**: `confidence` range; §0 prohibits.
+- R-b → **ASSESSED + KEPT** in Cleanup 3/6 (legacy DB support; post_intake_headcount/schedule.py fallback chain retained per directive's "THE classic legacy data support case" hint).
+- R-c → **DEFERRED**: `key_people_summary` post-pop pattern; either-direction harmonization is intake-side work.
+- R-d → **DEFERRED**: financials.py:164 dead-read cleanup tied to R-c.
+- R-e → **DEFERRED**: Contract 3 fact_template path harmonization (same as 5b R-f / 5c R-e).
+- R-f → **DEFERRED**: Downstream consumer typed-instance upgrade.
+- R-g → **DEFERRED**: Tighten Optional pending DB audit.
+- R-h → **DEFERRED**: `progress_schema` patch flow harmonization.
+- R-i → **DONE**: Contract 6 R16 + Contract 7 R9 unblocked; addressed in Cleanup 2/6.
+
 - **R-a.** ``confidence`` field range — schema is unbounded
   ``number``. Per §0 no range constraint (matches 5b R-b /
   5c R-a).

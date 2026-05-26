@@ -772,6 +772,14 @@ benefit. Recommend against.
 
 ## 8. Known residual cleanups (out of scope for Contract 4)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DEFERRED**: Diagnostic-blob sub-shape typing speculative without consuming downstream gate.
+- R9 → **DEFERRED**: Phantom-read audit requires production-data sampling.
+- R10 → **DEFERRED**: Promotion of trace fields to typed shape; PSL2 latitude preserved.
+- R11 → **DEFERRED**: `CapitalLeaseScheduleContract` sub-typing belongs to debt-domain follow-up.
+- R12 → **DEFERRED**: Inner-runner bypass cleanup is architectural.
+- R13 → **DEFERRED**: Per-stamp-site producer gates require 14-site coordination per F7 (b).
+
 - **R8.** Diagnostic-blob typing: structurally type
   `target_seeking_diagnostics`, `adaptation_cascade_diagnostics`,
   `adaptive_policy`, `gpt_call_budget_diagnostic`,

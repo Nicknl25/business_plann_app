@@ -643,6 +643,17 @@ Expected total: 8 flags. None require ``Literal`` /
 
 ## 8. Known residual cleanups (out of scope for Contract 5c)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R-a → **DEFERRED**: `confidence` range; §0 prohibits constraint.
+- R-b → **DEFERRED**: `acs_codes` item-type pinning; §0 prohibits.
+- R-c → **DEFERRED**: `b2b_naics_6` pattern + length bounds; §0 prohibits at contract layer.
+- R-d → **DEFERRED**: `_turn_schema()` patch harmonization is intake-side work.
+- R-e → **DEFERRED**: Contract 3 fact_template path harmonization (same as 5b R-f).
+- R-f → **DEFERRED**: Downstream consumer typed-instance upgrade (same as 5b R-g).
+- R-g → **DEFERRED**: Tighten Optional pending DB audit (same as 5b R-h).
+- R-h → **DEFERRED**: Conditional-required CSV-extras check enforced downstream at intake_submission.py:240-263.
+- R-i → **DONE**: Contract 6 R16 + Contract 7 R9 unblocked; addressed in Cleanup 2/6.
+
 - **R-a.** ``confidence`` field range — schema is unbounded
   ``number``. Per §0 no range constraint (matches 5b R-b).
 - **R-b.** ``acs_codes`` item-type pinning deferred per §0

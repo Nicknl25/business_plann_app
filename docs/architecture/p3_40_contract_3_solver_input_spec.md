@@ -785,6 +785,13 @@ No Nick decision needed.
 
 ## 8. Known residual cleanups (out of scope for Contract 3)
 
+**P3.40 Contract Layer Cleanup Pass 6/6 final dispositions:**
+- R8 → **DEFERRED**: Same pattern as Contract 1 R7 — deep defensive-read migration; scope too large for cleanup batch.
+- R9 → **DEFERRED**: Same as Contract 2 R9 (`validate_draft_data` deletion needs caller audit).
+- R10 → **DONE** via the 5b/5c/5d retrofit series (Cleanups 5b/5c/5d landed at fc91083/8942527/6c71a14).
+- R11 → **DONE** via Contract 4 landing (the SolverOutputContract spec covers the typed contract that R11 anticipated).
+- R12 → **DEFERRED**: API wrapper consolidation is architectural cleanup, not contract scope.
+
 - **R8.** Defensive `or {}` pattern removal in the orchestrator
   body (trace T5.1). 20+ sites that the contract gate makes
   redundant. Separate commit / commits per scope (the gate alone
