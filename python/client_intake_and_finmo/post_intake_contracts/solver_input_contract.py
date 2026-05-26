@@ -121,6 +121,23 @@ SOLVER_STAGE_LABEL = "MODEL_INPUT→SOLVER"
 #: in Commit 1b.
 SUPPORTED_PLANNING_MODES = ("growth", "stability", "runway_extension", "survival")
 
+#: Dict keys that ``prepare_initial_grid_for_draft`` includes in
+#: its return at runner.py:1830-1850 but are NOT part of the
+#: solver input contract (they exist for non-solver callers).
+#: ``SolverInputContract.from_initial_grid_state`` drops them so
+#: ``extra="forbid"`` on the top-level contract does not reject
+#: the call. Module-level (not class attribute) because Pydantic
+#: v2 wraps underscore-prefixed class attributes as
+#: ModelPrivateAttr, which isn't iterable for the membership check.
+NON_CONTRACT_INITIAL_GRID_STATE_KEYS = frozenset({
+  "draft",
+  "post_intake_process_sequence_trace",
+  "shared_context",
+  # planning_run_id is in initial_grid_state but Contract 3 also
+  # accepts it as an explicit kwarg per spec §6 Commit 2, so it's
+  # handled separately (not dropped).
+})
+
 
 # ---------------------------------------------------------------------------
 # BusinessFactsForSolverContract — the one new sub-contract
@@ -268,6 +285,68 @@ class SolverInputContract(BaseModel):
   # are each enforced declaratively (Literal[...] /
   # Field(min_length=1)) or inherited via composition from
   # Contracts 1/2; no separate @model_validator needed for them.
+
+  # -------------------------------------------------------------------------
+  # Adapter (Commit 2, classmethod-only per spec Flag 1)
+  # -------------------------------------------------------------------------
+
+  @classmethod
+  def from_initial_grid_state(
+    cls,
+    state: Dict[str, Any],
+    *,
+    draft_id: str,
+    planning_run_id: Optional[str] = None,
+  ) -> "SolverInputContract":
+    """Build SolverInputContract from the dict
+    ``prepare_initial_grid_for_draft`` returns at
+    [runner.py:1830-1850](../../python/client_intake_and_finmo/post_intake_initial_grid/runner.py#L1830).
+
+    Translates dict keys to contract fields. Drops keys that aren't
+    part of the solver input (``post_intake_process_sequence_trace``,
+    ``shared_context``, ``draft``). The 19 data fields pass through
+    verbatim; ``draft_id`` and ``planning_run_id`` are sourced
+    from explicit kwargs (caller supplies them since the runner's
+    state dict carries them separately).
+
+    If ``planning_run_id`` is None and ``state["planning_run_id"]``
+    is present, the latter is used. Per Flag 8(a), the resulting
+    string must be non-empty; an empty value will raise
+    ValidationError at model_validate.
+    """
+    resolved_planning_run_id: str = (
+      planning_run_id
+      if planning_run_id is not None
+      else str(state.get("planning_run_id") or "")
+    )
+    payload: Dict[str, Any] = {
+      "draft_id": draft_id,
+      "planning_run_id": resolved_planning_run_id,
+    }
+    for key, value in state.items():
+      if key in NON_CONTRACT_INITIAL_GRID_STATE_KEYS:
+        continue
+      if key in ("draft_id", "planning_run_id"):
+        # Both runtime IDs come from the explicit kwargs (or
+        # planning_run_id falls back to state above). Don't let the
+        # state's value silently override the caller-supplied kwarg.
+        continue
+      payload[key] = value
+    return cls.model_validate(payload)
+
+  def to_initial_grid_state(self) -> Dict[str, Any]:
+    """Inverse of ``from_initial_grid_state``. Emits the dict shape
+    ``prepare_initial_grid_for_draft`` returns (minus the dropped
+    non-contract keys, which the caller must re-attach if needed
+    for non-solver downstream consumers).
+
+    Convenience for round-trip tests + replay tooling. NOT the
+    production producer -- production code returns the dict from
+    runner.py:1830-1850 directly without going through this
+    method.
+    """
+    dumped = self.model_dump(mode="json")
+    return dumped
 
 
 # ---------------------------------------------------------------------------
