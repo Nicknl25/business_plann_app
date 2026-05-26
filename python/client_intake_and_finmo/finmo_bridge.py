@@ -332,8 +332,31 @@ def _safe_ratio(value: Any) -> Optional[float]:
 def _naics_6_from_ops(ops_json: Any) -> Optional[str]:
   if not isinstance(ops_json, dict):
     return None
-  digits = re.sub(r"[^0-9]", "", str(ops_json.get("business_naics_6") or "").strip())
-  return digits or None
+  raw = str(ops_json.get("business_naics_6") or "").strip()
+  digits = re.sub(r"[^0-9]", "", raw)
+  if not digits:
+    return None
+  # R17 closure (Cleanup Commit 5/6): defense-in-depth length
+  # check at the upstream producer. Contract 6 F11 pattern was
+  # DROPPED in Cleanup Commit 2 per §0 alignment with 5b/5d's
+  # bare Optional[str] = None typing; this site is the
+  # producer-side counterpart that flags malformed NAICS codes
+  # at the source. Log-only (does NOT reject) per PSL2
+  # production-reality-wins: downstream NAICS resolution at
+  # runner.py:283-287 handles partial / empty values
+  # gracefully via fallback chain.
+  if len(digits) != 6:
+    try:
+      import logging
+      logging.getLogger(__name__).warning(
+        "naics_6_malformed_length: raw=%r digits=%r len=%d "
+        "(expected 6); accepting per PSL2 -- downstream "
+        "fallback handles partial values",
+        raw, digits, len(digits),
+      )
+    except Exception:
+      pass  # logging never breaks the producer
+  return digits
 
 
 def _attach_seed_provenance(row: Dict[str, Any], payload: Dict[str, Any]) -> None:

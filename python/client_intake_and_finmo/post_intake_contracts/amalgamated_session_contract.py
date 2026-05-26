@@ -442,6 +442,40 @@ class MirrorContract(BaseModel):
 
   model_config = ConfigDict(extra="forbid")
 
+  @classmethod
+  def from_mirror(cls, mirror: Any) -> "MirrorContract":
+    """R14 closure (Cleanup Commit 5/6): explicit Mirror
+    dataclass -> MirrorContract adapter classmethod. Mirrors the
+    F14 dataclass-to-dict pattern with a readable wrapper
+    instead of inline ``asdict(mirror)`` + manual normalization
+    at each gate site.
+
+    Behavior:
+      1. ``asdict(mirror)`` -- recursive dataclass-to-dict.
+      2. Normalize empty-dict ``validation_state`` to None so
+         the dataclass default round-trips through this
+         contract's ``Optional[ValidationStateProjectionContract]``
+         typing (Mirror initializes the field as empty dict;
+         the contract types None for the pre-evaluate state).
+      3. ``cls.model_validate(payload)`` -- raises ValidationError
+         (caller converts to ContractViolation via the standard
+         enforcement.py helper).
+
+    Caller pattern:
+      ``MirrorContract.from_mirror(mirror)`` instead of
+      ``MirrorContract.model_validate(asdict(mirror))`` plus
+      manual normalization. Cleaner readability; explicit
+      adapter; same behavior.
+
+    Note: this is a STRUCTURAL convenience wrapper, NOT a
+    value-level check. §0-compatible.
+    """
+    from dataclasses import asdict as _asdict
+    payload = _asdict(mirror)
+    if not payload.get("validation_state"):
+      payload["validation_state"] = None
+    return cls.model_validate(payload)
+
   # -------------------------------------------------------------------------
   # F5 -- Bug 2 fix plan_state_alias_sync invariant
   # -------------------------------------------------------------------------
@@ -533,6 +567,8 @@ __all__ = [
   "VALIDATION_STATE_RENDER_CAP",
   "PLAN_STATE_ALIAS_TRIPLET",
   # RecentDecisionContract DROPPED per Cleanup 3/6 R10.
+  # MirrorContract.from_mirror(mirror) classmethod added per
+  # Cleanup 5/6 R14 (accessed via MirrorContract).
   "LeverMarginEntryContract",
   "ValidationStateProjectionContract",
   "MirrorContract",

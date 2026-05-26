@@ -1035,10 +1035,22 @@ IndustryBaselineResolvedContract.** All sub-contracts use
 
 ## 8. Known residual cleanups (out of scope for Contract 6)
 
-- **R8.** `get_bands_views[section].count == len(bands)` cross-field
-  invariant. Cheap; deferred to keep §4 lean.
-- **R9.** `cascade_payloads[metric_key].metric_key == metric_key`
-  cross-field invariant. Same reasoning.
+- **R8.** ~~`get_bands_views[section].count == len(bands)`
+  cross-field invariant. Cheap; deferred to keep §4 lean.~~
+  **RESOLVED in P3.40 Contract Layer Cleanup Commit 5/6.**
+  Added `@model_validator(mode="after")` on
+  `GetBandsViewContract` enforcing `count == len(bands)`.
+  STRUCTURAL consistency check, not value-level — §0-compatible.
+  Catches producer drift where the envelope reports a count
+  that doesn't match the actual bands map size.
+- **R9.** ~~`cascade_payloads[metric_key].metric_key == metric_key`
+  cross-field invariant.~~ **RESOLVED in P3.40 Contract Layer
+  Cleanup Commit 5/6.** Added `@model_validator(mode="after")`
+  on `IndustryBaselineResolvedContract` enforcing key/value
+  metric_key consistency for `cascade_payloads` AND a mirror
+  invariant enforcing key/value section consistency for
+  `get_bands_views`. Both STRUCTURAL key/value identity
+  checks — §0-compatible.
 - **R10.** ~~Extend Shape B (SQL INSERT) to include `cohort_query`
   column. Closes the v1 §F-1 audit-trail gap.~~ **RESOLVED in
   P3.40 Contract Layer Cleanup Commit 1.** The SQL DDL +
@@ -1116,10 +1128,16 @@ IndustryBaselineResolvedContract.** All sub-contracts use
   composition if a 5b/c/d nested-object shape is structurally
   consumed" gate filtered out scalar field overlaps. R16
   status: structurally aligned per §0 where applicable.
-- **R17.** NAICS normalizer length-validation cleanup. Currently
-  upstream `_naics_6_from_ops` doesn't enforce length; the
-  contract gate per F11 surfaces violations. R-residual to
-  tighten the upstream normalizer.
+- **R17.** ~~NAICS normalizer length-validation cleanup.~~
+  **RESOLVED in P3.40 Contract Layer Cleanup Commit 5/6.**
+  Added defense-in-depth length-check + warning log at
+  `_naics_6_from_ops` (finmo_bridge.py:332-360) so non-6-digit
+  NAICS codes log a warning at the source. PSL2 production-
+  reality-wins: log-only (does NOT reject) -- downstream
+  NAICS resolution at runner.py:283-287 handles partial /
+  empty values via fallback chain. Complements F11 (DROPPED
+  in Cleanup Commit 2) by surfacing the malformed-NAICS
+  signal at the producer instead of the gate.
 - **R18.** Cohort row cache silent-None per v1 §F-4. Internal
   to resolver; not directly boundary scope.
 - **R19.** Confidence-tier dual-meaning documentation in the

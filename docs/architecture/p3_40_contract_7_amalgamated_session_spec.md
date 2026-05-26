@@ -1011,9 +1011,19 @@ RecentDecision) automatically. R-residual upgrade path.
   fail-loud semantics (would require restructuring the
   surrounding try/except).
 
-- **R14.** `MirrorContract.from_mirror(mirror)` explicit adapter
-  classmethod (F14 (b) deferred). Add if `dataclasses.asdict()`
-  conversion proves insufficient for a future Mirror field.
+- **R14.** ~~`MirrorContract.from_mirror(mirror)` explicit adapter
+  classmethod (F14 (b) deferred).~~ **RESOLVED in P3.40
+  Contract Layer Cleanup Commit 5/6.** Added
+  `MirrorContract.from_mirror(mirror)` classmethod that
+  encapsulates the `asdict(mirror)` + validation_state
+  normalization + `model_validate` pattern as a readable
+  one-liner. The existing dict-based gate-site path remains
+  functional (gates use the dict-based `validate_amalgamated_
+  session_at_boundary` helper for diagnostic-emission
+  compatibility). The classmethod is a readability upgrade
+  for external callers + future gate-site simplification.
+  STRUCTURAL convenience wrapper, NOT a value-level check --
+  §0-compatible.
 
 - **R15.** `evaluate_plan._margin_distance_from_bands` per v1
   §E-2 — `mirror.bands` loaded once but evaluate_plan re-fetches.

@@ -470,6 +470,11 @@ class GetBandsViewContract(BaseModel):
   Per F7: bands dict values are typed as GetBandsViewBandContract.
   Per the trace: ``count`` is allowed to be 0 (empty section is
   a valid state per v1 §D-2 for capex_rd + payroll).
+
+  R8 closure (Cleanup Commit 5/6): cross-field invariant
+  ``count == len(bands)``. STRUCTURAL consistency check, not
+  value-level — §0-compatible. Catches map/count drift if a
+  future producer constructs the envelope with stale count.
   """
 
   section: Literal["drivers", "balance_sheet", "stage_ramp", "capex_rd", "payroll"]
@@ -479,6 +484,21 @@ class GetBandsViewContract(BaseModel):
   bands: Dict[str, GetBandsViewBandContract] = Field(default_factory=dict)
 
   model_config = ConfigDict(extra="ignore")
+
+  @model_validator(mode="after")
+  def count_matches_bands_length(self) -> "GetBandsViewContract":
+    """R8 (Cleanup 5/6): structural cross-field consistency.
+    ``count`` MUST equal ``len(bands)``. Catches a producer
+    drift where the envelope reports a count that doesn't
+    match the actual bands map size."""
+    if self.count != len(self.bands):
+      raise ValueError(
+        f"GetBandsViewContract count/bands mismatch: count="
+        f"{self.count} but len(bands)={len(self.bands)} "
+        f"(section={self.section!r}). Producer should populate "
+        f"count from len(bands) post-construction."
+      )
+    return self
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +592,42 @@ class IndustryBaselineResolvedContract(BaseModel):
   population_summary: Optional[PopulationSummaryContract] = None
 
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def cascade_payloads_metric_key_consistency(self) -> "IndustryBaselineResolvedContract":
+    """R9 closure (Cleanup 5/6): structural cross-field
+    consistency. Each cascade_payloads[metric_key] entry's
+    ``metric_key`` field MUST match the dict key it lives
+    under. Catches map/key drift if a future producer
+    constructs the dict with a payload keyed by a different
+    metric_key than the payload itself carries.
+
+    STRUCTURAL (key/value identity) -- §0-compatible. Not a
+    value-level content check."""
+    for key, payload in self.cascade_payloads.items():
+      if payload.metric_key != key:
+        raise ValueError(
+          f"cascade_payloads key/value metric_key mismatch: "
+          f"dict key={key!r} but payload.metric_key="
+          f"{payload.metric_key!r}. Producer must key each "
+          f"entry by its own metric_key field."
+        )
+    return self
+
+  @model_validator(mode="after")
+  def get_bands_views_section_key_consistency(self) -> "IndustryBaselineResolvedContract":
+    """R9 mirror for get_bands_views (structural key/value
+    consistency for the section-keyed dict). Each
+    get_bands_views[section] entry's ``section`` field MUST
+    match its dict key."""
+    for key, view in self.get_bands_views.items():
+      if view.section != key:
+        raise ValueError(
+          f"get_bands_views key/value section mismatch: "
+          f"dict key={key!r} but view.section={view.section!r}. "
+          f"Producer must key each entry by its own section field."
+        )
+    return self
 
 
 # ---------------------------------------------------------------------------
