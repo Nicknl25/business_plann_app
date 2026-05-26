@@ -179,7 +179,7 @@ class Mirror:
       self.plan_state["capex_rd_balance_seed"] = stored
 
   def to_dict(self) -> Dict[str, Any]:
-    return {
+    payload = {
       "invariants": dict(self.invariants),
       "authority": self.authority,
       "business_facts": copy.deepcopy(self.business_facts),
@@ -190,6 +190,38 @@ class Mirror:
       "recent_decisions": [d.to_dict() for d in self.recent_decisions],
       "budget": copy.deepcopy(self.budget),
     }
+    # P3.40 Contract 7 Commit 3 -- Shape A consumer-side gate. Per
+    # spec §5.2.1: the canonical Mirror serialization point. Gate
+    # fires at every serialization to catch in-process mutation
+    # that violated invariants (F5 alias-sync, F6 i-iv).
+    #
+    # Normalize empty-dict / empty-list optionals to None so the
+    # dataclass defaults round-trip through MirrorContract whose
+    # Optional fields type the pre-populate state as None
+    # (matches the production semantic where consumers check
+    # ``vs = ... or {}``). The gate validates a normalized copy;
+    # the original payload returned to the caller is untouched
+    # so existing consumers still see the {} / [] defaults.
+    try:
+      from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+        SIDE_CONSUMER as _AS_SIDE_CONSUMER,
+        validate_amalgamated_session_at_boundary,
+      )
+      gate_payload = dict(payload)
+      if not gate_payload.get("validation_state"):
+        gate_payload["validation_state"] = None
+      if not gate_payload.get("sequence_position"):
+        gate_payload["sequence_position"] = None
+      if not gate_payload.get("budget"):
+        gate_payload["budget"] = None
+      if not gate_payload.get("recent_decisions"):
+        gate_payload["recent_decisions"] = None
+      validate_amalgamated_session_at_boundary(
+        gate_payload, side=_AS_SIDE_CONSUMER,
+      )
+    except ImportError:
+      pass  # contract module absent (e.g. partial install) -- skip
+    return payload
 
 
 def build_mirror(
@@ -326,6 +358,35 @@ def build_mirror(
         ),
         where="post_intake_amalgamated.mirror.build_mirror",
       )
+  # P3.40 Contract 7 Commit 3 -- producer-side gate per spec §5.1.
+  # Fires only when conn + draft_id + planning_run_id are supplied
+  # (production path; bypassed for test stubs that build a partial
+  # Mirror without DB context). F14 dataclass-to-dict via
+  # ``dataclasses.asdict(mirror)`` -- recursive conversion handles
+  # the nested RecentDecision dataclass automatically.
+  if conn is not None and draft_id and planning_run_id:
+    try:
+      from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+        SIDE_PRODUCER as _AS_SIDE_PRODUCER,
+        validate_amalgamated_session_at_boundary,
+      )
+      gate_payload = asdict(mirror)
+      gate_payload.pop("recent_decisions_cap", None)
+      # Normalize empty-dict / empty-list optionals to None so
+      # the dataclass defaults round-trip through MirrorContract.
+      if not gate_payload.get("validation_state"):
+        gate_payload["validation_state"] = None
+      if not gate_payload.get("sequence_position"):
+        gate_payload["sequence_position"] = None
+      if not gate_payload.get("budget"):
+        gate_payload["budget"] = None
+      if not gate_payload.get("recent_decisions"):
+        gate_payload["recent_decisions"] = None
+      validate_amalgamated_session_at_boundary(
+        gate_payload, side=_AS_SIDE_PRODUCER,
+      )
+    except ImportError:
+      pass  # contract module absent -- skip (best-effort)
   return mirror
 
 

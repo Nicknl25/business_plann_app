@@ -268,6 +268,21 @@ def render_mirror_for_proposal(
     # call (small projection; not the full EvaluatePlanResult).
     vs = getattr(mirror, "validation_state", None) or {}
     if isinstance(vs, dict) and vs:
+      # P3.40 Contract 7 Commit 3 -- Shape D consumer-side gate per
+      # spec §5.2.2. Validates the Bug 3 bounded projection (11
+      # fields per mirror.py:146-157) including F6 invariants
+      # (cap=12, truncation flag consistency, outside_band filter)
+      # before consumers render it into GPT prompt context.
+      try:
+        from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+          SIDE_CONSUMER as _AS_SIDE_CONSUMER,
+          validate_amalgamated_validation_state_at_boundary,
+        )
+        validate_amalgamated_validation_state_at_boundary(
+          vs, side=_AS_SIDE_CONSUMER,
+        )
+      except ImportError:
+        pass  # contract module absent -- skip (best-effort)
       lines.append("")
       lines.append("Current standards-check state:")
       lines.append(

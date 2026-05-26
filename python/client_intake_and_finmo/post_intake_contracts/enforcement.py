@@ -60,6 +60,11 @@ from client_intake_and_finmo.post_intake_contracts.industry_baseline_resolved_co
   GetBandsViewContract,
   PopulationSummaryContract,
 )
+from client_intake_and_finmo.post_intake_contracts.amalgamated_session_contract import (
+  AMALGAMATED_SESSION_STAGE_LABEL,
+  MirrorContract,
+  ValidationStateProjectionContract,
+)
 
 
 #: Stage label for the producer/consumer gates around the
@@ -800,6 +805,160 @@ def validate_industry_baseline_population_summary_at_boundary(
   return contract
 
 
+def validate_amalgamated_session_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = AMALGAMATED_SESSION_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> MirrorContract:
+  """P3.40 Contract 7 Commit 3 -- Shape A gate. Validates the full
+  Mirror payload (9 data fields per mirror.py:75-86) against
+  ``MirrorContract``. Carries the F5 plan_state_alias_sync
+  @model_validator (Bug 2 fix invariant) + composes Contract 6
+  GetBandsViewContract for mirror.bands per F1.
+
+  Producer-side: called at the end of build_mirror (mirror.py:329+)
+  via ``dataclasses.asdict(mirror)`` per F14 -- recursive
+  conversion handles the nested RecentDecision dataclass
+  automatically.
+
+  Consumer-side: called inside ``Mirror.to_dict()``
+  (mirror.py:182-192); the method already builds the dict, the
+  gate validates that dict before returning.
+
+  Per F0 + F12: SINGLE PhaseCode AMALGAMATED_SESSION_CONTRACT
+  covers both helpers; diagnostic_data['shape']='mirror'
+  distinguishes from the validation_state slice gate.
+
+  On failure raises ``ContractViolation`` with the
+  AMALGAMATED_SESSION stage label and the first
+  ``ValidationError`` extracted into structured fields. Per F11
+  / trace Div-8: the API handler at intake_consult.py:7377
+  catches ``except Exception as exc:`` (skips line-7298
+  RuntimeError because ContractViolation is Exception subclass,
+  not RuntimeError). The violation surfaces as a structured 500
+  with str(exc) carrying ``AMALGAMATED_SESSION_STAGE_LABEL`` +
+  field path. Verified by Adjustment B tests in
+  ``tests/test_p3_40_contract_7_consumer_gate.py``.
+
+  Diagnostic emission is best-effort (same pattern as Contracts
+  1-6 helpers): emits ``AMALGAMATED_SESSION_CONTRACT_VALIDATED``
+  on success and ``AMALGAMATED_SESSION_CONTRACT_VIOLATION`` on
+  failure when ``emit_diagnostic_fn`` is supplied. Failures
+  swallowed so observability cannot break the gate.
+  """
+  try:
+    contract = MirrorContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="AMALGAMATED_SESSION_CONTRACT",
+        event_code_name="AMALGAMATED_SESSION_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "mirror",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="AMALGAMATED_SESSION_CONTRACT",
+      event_code_name="AMALGAMATED_SESSION_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "mirror",
+        "plan_state_section_count": len(contract.plan_state),
+        "bands_section_count": len(contract.bands),
+        "has_validation_state": contract.validation_state is not None,
+        "recent_decisions_count": (
+          len(contract.recent_decisions)
+          if contract.recent_decisions is not None else 0
+        ),
+      },
+    )
+  return contract
+
+
+def validate_amalgamated_validation_state_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = AMALGAMATED_SESSION_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> ValidationStateProjectionContract:
+  """P3.40 Contract 7 Commit 3 -- Shape D gate. Validates the
+  Bug 3 bounded projection (11 fields per mirror.py:146-157)
+  against ``ValidationStateProjectionContract``. Carries the F6
+  (i)-(iv) cross-field invariants: cap on failing_check_names,
+  cap on failing_lever_margins, truncation flag consistency,
+  outside_band filter.
+
+  Consumer-side: called inside ``responder.render_mirror_for_proposal``
+  at responder.py:269+ where the validation_state slice is read
+  for GPT rendering. Only validates when vs is non-empty
+  (validation_state is {} pre-evaluate).
+
+  Per F0 + F12: SINGLE PhaseCode AMALGAMATED_SESSION_CONTRACT
+  covers both helpers; diagnostic_data['shape']='validation_state'
+  distinguishes from the full Mirror gate.
+
+  On failure raises ``ContractViolation`` with the
+  AMALGAMATED_SESSION stage label and the first ``ValidationError``
+  extracted into structured fields. Adjustment B propagation per
+  the Shape A helper docstring above.
+
+  Diagnostic emission best-effort (same pattern).
+  """
+  try:
+    contract = ValidationStateProjectionContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="AMALGAMATED_SESSION_CONTRACT",
+        event_code_name="AMALGAMATED_SESSION_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side, "stage": stage, "shape": "validation_state",
+          "field": field_path,
+          "expected": expected[:300], "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage, field=field_path,
+      expected=expected, actual=actual, source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="AMALGAMATED_SESSION_CONTRACT",
+      event_code_name="AMALGAMATED_SESSION_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side, "stage": stage, "shape": "validation_state",
+        "all_pass": contract.all_pass,
+        "round_number": contract.round_number,
+        "failing_check_count": contract.failing_check_count,
+        "failing_lever_margins_count": len(contract.failing_lever_margins),
+      },
+    )
+  return contract
+
+
 def make_boundary_emitter(
   *,
   conn: Any,
@@ -834,6 +993,7 @@ __all__ = [
   "SOLVER_OUTPUT_STAGE_LABEL",
   "INTAKE_DRAFT_STAGE_LABEL",
   "INDUSTRY_BASELINE_STAGE_LABEL",
+  "AMALGAMATED_SESSION_STAGE_LABEL",
   "SIDE_PRODUCER",
   "SIDE_CONSUMER",
   "validate_model_input_at_boundary",
@@ -845,5 +1005,7 @@ __all__ = [
   "validate_industry_baseline_cohort_sql_row_at_boundary",
   "validate_industry_baseline_get_bands_view_at_boundary",
   "validate_industry_baseline_population_summary_at_boundary",
+  "validate_amalgamated_session_at_boundary",
+  "validate_amalgamated_validation_state_at_boundary",
   "make_boundary_emitter",
 ]

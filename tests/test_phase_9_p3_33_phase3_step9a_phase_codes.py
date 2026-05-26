@@ -37,15 +37,17 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noq
 
 
 class PhaseCodeEnumTest(unittest.TestCase):
-  def test_phase_code_has_nineteen_phases(self) -> None:
-    # 19 = 13 original + MODEL_INPUT_CONTRACT (P3.40 Contract 1)
+  def test_phase_code_has_twenty_phases(self) -> None:
+    # 20 = 13 original + MODEL_INPUT_CONTRACT (P3.40 Contract 1)
     #    + SOLVER_INPUT_CONTRACT (P3.40 Contract 3)
     #    + WORKBOOK_PAYLOAD_CONTRACT (P3.40 Contract 2 diagnostic
     #      restoration follow-up)
     #    + SOLVER_OUTPUT_CONTRACT (P3.40 Contract 4)
     #    + INTAKE_DRAFT_CONTRACT (P3.40 Contract 5)
-    #    + INDUSTRY_BASELINE_CONTRACT (P3.40 Contract 6).
-    self.assertEqual(len(PhaseCode), 19)
+    #    + INDUSTRY_BASELINE_CONTRACT (P3.40 Contract 6)
+    #    + AMALGAMATED_SESSION_CONTRACT (P3.40 Contract 7 -- FINAL
+    #      contract in the P3.40 sequence).
+    self.assertEqual(len(PhaseCode), 20)
 
   def test_status_enum_values(self) -> None:
     self.assertEqual(Status.STARTED.value, "started")

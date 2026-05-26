@@ -41,6 +41,7 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
 from client_intake_and_finmo.post_intake_contracts.enforcement import (  # noqa: E402
   SIDE_CONSUMER,
   SIDE_PRODUCER,
+  validate_amalgamated_session_at_boundary,
   validate_industry_baseline_population_summary_at_boundary,
   validate_intake_draft_at_boundary,
   validate_model_input_at_boundary,
@@ -58,6 +59,9 @@ from _p3_40_contract_4_fixtures import valid_solver_output_dict  # noqa: E402
 from _p3_40_contract_5_fixtures import valid_intake_draft_dict  # noqa: E402
 from _p3_40_contract_6_fixtures import (  # noqa: E402
   valid_population_summary_section_dict,
+)
+from _p3_40_contract_7_fixtures import (  # noqa: E402
+  valid_mirror_dict,
 )
 
 
@@ -206,6 +210,34 @@ class ContractSixEmitsIndustryBaselinePhaseCodeTest(unittest.TestCase):
     self.assertEqual(emitter.calls[0]["diagnostic_data"]["shape"], "D")
 
 
+class ContractSevenEmitsAmalgamatedSessionPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_amalgamated_session_contract_phase(self) -> None:
+    """Contract 7 gate must emit under
+    PhaseCode.AMALGAMATED_SESSION_CONTRACT. Per F12: SINGLE
+    PhaseCode covers all sub-contract shapes
+    (mirror / validation_state); diagnostic_data['shape'] field
+    distinguishes them. Closes the every-contract-emits-its-own
+    invariant for the FINAL P3.40 contract."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_mirror_dict()
+    # F5 alias-sync violation: balance_sheet + capex_rd hold
+    # differing payloads.
+    bad_payload["plan_state"]["balance_sheet"] = {"key": "A"}
+    bad_payload["plan_state"]["capex_rd"] = {"key": "B"}
+    with self.assertRaises(ContractViolation):
+      validate_amalgamated_session_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(
+      emitter.calls[0]["phase"], PhaseCode.AMALGAMATED_SESSION_CONTRACT,
+    )
+    # Per F12: diagnostic_data['shape'] distinguishes mirror /
+    # validation_state sub-contracts under the single PhaseCode.
+    self.assertEqual(emitter.calls[0]["diagnostic_data"]["shape"], "mirror")
+
+
 # ---------------------------------------------------------------------------
 # Cross-contract negative check: phase codes are NOT mis-routed
 # ---------------------------------------------------------------------------
@@ -302,6 +334,30 @@ class PhaseCodesDoNotCrossContaminateTest(unittest.TestCase):
     self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.INTAKE_DRAFT_CONTRACT)
+
+  def test_contract_7_violation_routes_only_to_amalgamated_session_contract_phase(self) -> None:
+    """Belt-and-suspenders for Contract 7: confirm a violation
+    emits ONLY under AMALGAMATED_SESSION_CONTRACT, NOT under any
+    of the other 6 contract phase codes. Closes the cross-
+    contamination invariant for the FINAL P3.40 contract."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_mirror_dict()
+    bad_payload["plan_state"]["balance_sheet"] = {"key": "A"}
+    bad_payload["plan_state"]["capex_rd"] = {"key": "B"}
+    with self.assertRaises(ContractViolation):
+      validate_amalgamated_session_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    emitted_phase = emitter.calls[0]["phase"]
+    self.assertEqual(emitted_phase, PhaseCode.AMALGAMATED_SESSION_CONTRACT)
+    # And NOT any of the other six contract phase codes:
+    self.assertNotEqual(emitted_phase, PhaseCode.MODEL_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.INTAKE_DRAFT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.INDUSTRY_BASELINE_CONTRACT)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,7 @@ class PhaseCode(str, Enum):
   SOLVER_OUTPUT_CONTRACT  = "solver_output_contract"
   INTAKE_DRAFT_CONTRACT   = "intake_draft_contract"
   INDUSTRY_BASELINE_CONTRACT = "industry_baseline_contract"
+  AMALGAMATED_SESSION_CONTRACT = "amalgamated_session_contract"
 
 
 class EventCode(str, Enum):
@@ -177,6 +178,14 @@ class EventCode(str, Enum):
   # them for queryability.
   INDUSTRY_BASELINE_CONTRACT_VALIDATED = "industry_baseline_contract_validated"
   INDUSTRY_BASELINE_CONTRACT_VIOLATION = "industry_baseline_contract_violation"
+
+  # amalgamated_session_contract (P3.40 Contract 7 boundary
+  # enforcement -- FINAL contract in the P3.40 series). Per F12:
+  # SINGLE PhaseCode covers all sub-contract shapes
+  # (mirror full / validation_state slice);
+  # diagnostic_data['shape'] field distinguishes them.
+  AMALGAMATED_SESSION_CONTRACT_VALIDATED = "amalgamated_session_contract_validated"
+  AMALGAMATED_SESSION_CONTRACT_VIOLATION = "amalgamated_session_contract_violation"
 
 
 class Status(str, Enum):
@@ -314,6 +323,10 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
   PhaseCode.INDUSTRY_BASELINE_CONTRACT: frozenset({
     EventCode.INDUSTRY_BASELINE_CONTRACT_VALIDATED,
     EventCode.INDUSTRY_BASELINE_CONTRACT_VIOLATION,
+  }),
+  PhaseCode.AMALGAMATED_SESSION_CONTRACT: frozenset({
+    EventCode.AMALGAMATED_SESSION_CONTRACT_VALIDATED,
+    EventCode.AMALGAMATED_SESSION_CONTRACT_VIOLATION,
   }),
 }
 

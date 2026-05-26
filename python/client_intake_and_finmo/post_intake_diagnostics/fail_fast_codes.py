@@ -99,6 +99,10 @@ class FailFastCode(str, Enum):
   # industry_baseline_contract (P3.40 Contract 6 boundary enforcement)
   FAIL_INDUSTRY_BASELINE_CONTRACT_VIOLATION = "fail_industry_baseline_contract_violation"
 
+  # amalgamated_session_contract (P3.40 Contract 7 boundary enforcement
+  # -- FINAL contract in the P3.40 series)
+  FAIL_AMALGAMATED_SESSION_CONTRACT_VIOLATION = "fail_amalgamated_session_contract_violation"
+
 
 FAIL_FAST_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[FailFastCode]] = {
   PhaseCode.COHORT_BANDS_POPULATOR: frozenset({
@@ -169,6 +173,9 @@ FAIL_FAST_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[FailFastCode]] = {
   PhaseCode.INDUSTRY_BASELINE_CONTRACT: frozenset({
     FailFastCode.FAIL_INDUSTRY_BASELINE_CONTRACT_VIOLATION,
   }),
+  PhaseCode.AMALGAMATED_SESSION_CONTRACT: frozenset({
+    FailFastCode.FAIL_AMALGAMATED_SESSION_CONTRACT_VIOLATION,
+  }),
 }
 
 
@@ -237,6 +244,7 @@ def raise_fail_fast(
     PhaseCode.SOLVER_OUTPUT_CONTRACT: EventCode.SOLVER_OUTPUT_CONTRACT_VIOLATION,
     PhaseCode.INTAKE_DRAFT_CONTRACT: EventCode.INTAKE_DRAFT_CONTRACT_VIOLATION,
     PhaseCode.INDUSTRY_BASELINE_CONTRACT: EventCode.INDUSTRY_BASELINE_CONTRACT_VIOLATION,
+    PhaseCode.AMALGAMATED_SESSION_CONTRACT: EventCode.AMALGAMATED_SESSION_CONTRACT_VIOLATION,
   }[phase]
 
   safe_emit(
