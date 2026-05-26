@@ -125,7 +125,13 @@ Per trace T1.3 (verbatim from lookup.py:237-256):
 | 11 | `raw_confidence_tier` | `str` | required | A |
 | 12 | `trust_flag` | `Literal["naics_6_direct", "naics_5_fallback", "naics_4_fallback", "naics_3_fallback", "naics_2_fallback", "no_coverage"]` | required (F13) | A |
 | 13 | `fallback_chain_attempted` | `List[str]` | Optional (diagnostic-only per F4) | C diagnostic |
-| (+ per F5) | `cohort_query` | `Optional[Dict[str, Any]]` | Optional (F5 — present on Shape A; excluded from Shape B SQL row) | A |
+
+**13 fields total**, matching `_payload_from_row` at
+[lookup.py:240-256](../../python/client_intake_and_finmo/post_intake_industry_baseline/lookup.py#L240)
+verbatim. `cohort_query` is intentionally NOT on Shape A per the
+amended F5 disposition (see §7) — it's an internal field on the
+cohort-side `CohortBandResult` dataclass, never reaches any of
+the 4 boundary shapes.
 
 ### 2.2 Shape B — `CohortSqlRowContract` (17 cols + auto-stamp)
 
@@ -153,9 +159,14 @@ Per trace T2.2 (verbatim from cohort_bands_table.py SQL schema):
 | 18 | `data_source` | `Optional[str]` | Optional |
 | 19 | `resolved_at` | `Optional[datetime]` | Optional (auto server-stamped; round-trip-only) |
 
-Per F5 (a): `cohort_query` is NOT on Shape B. The SQL INSERT
-intentionally drops it; the contract documents that asymmetry.
-Fix is R-residual.
+Per amended F5 (α — see §7): `cohort_query` is NOT on Shape B
+AND is NOT on Shape A. It exists only on the cohort-side
+`CohortBandResult` intermediate dataclass at
+[cohort_band_resolver.py:163](../../python/client_intake_and_finmo/post_intake_solver/cohort_band_resolver.py#L163);
+the SQL INSERT silently drops it at materialization. The contract
+documents the asymmetry as an R10 R-residual upstream-producer
+fix; cohort_query crosses no boundary surface today and is
+intentionally excluded from all 4 typed shapes.
 
 ### 2.3 Shape C — `GetBandsViewContract` (envelope + nested bands)
 
@@ -633,7 +644,7 @@ File: `python/client_intake_and_finmo/post_intake_contracts/industry_baseline_re
 
 - 6 sub-contracts per §2 + §3:
   - `BusinessProfileInputContract` (4 fields, F2 + F11 baked in)
-  - `CascadeResolverPayloadContract` (13 + F5 cohort_query = 14 fields, F8 + F13 Literals baked in)
+  - `CascadeResolverPayloadContract` (13 fields, F8 + F13 Literals baked in; F5-α DROP cohort_query)
   - `CohortSqlRowContract` (17 cols + resolved_at, F12 invariant)
   - `GetBandsViewBandContract` (11 fields, F12 invariant)
   - `GetBandsViewContract` (envelope + nested bands)
@@ -663,7 +674,7 @@ LOC both shipped single-artifact with notes).
 
 Fixtures:
 - `valid_business_profile_dict()` — 4 fields
-- `valid_cascade_resolver_payload_dict(metric_key=...)` — 14 fields
+- `valid_cascade_resolver_payload_dict(metric_key=...)` — 13 fields (F5-α: no cohort_query)
 - `valid_cohort_sql_row_dict(section=..., lever_id=..., metric_key=...)` — 18 cols + auto-stamp
 - `valid_get_bands_view_band_dict(metric_key=...)` — 11 fields
 - `valid_get_bands_view_dict(section=...)` — envelope + N bands
@@ -676,19 +687,22 @@ Test classes (6-8 per spec target):
   validation (valid 6-digit accepted; 5-digit rejected;
   alpha-contaminated rejected; None accepted); F2 business_model
   Literal[None] (None accepted; string rejected).
-- `CascadeResolverPayloadContractTest` (~6): valid 14-field
+- `CascadeResolverPayloadContractTest` (~5): valid 13-field
   payload; missing required fields; F8 confidence_tier Literal
   (4 accepted + typo rejected); F13 trust_flag Literal (6
   accepted + typo rejected); F13 naics_level_used Literal
-  (6 accepted: 6/5/4/3/2/0; level-1 rejected); F5 cohort_query
-  Optional accepted absent.
-- `CohortSqlRowContractTest` (~8): valid 18-field row; missing
+  (6 accepted: 6/5/4/3/2/0; level-1 rejected). F5-α: no
+  cohort_query test needed (field never present in the
+  contract; extra="ignore" silently drops it if a future
+  caller adds it speculatively).
+- `CohortSqlRowContractTest` (~7): valid 18-field row; missing
   PK fields; F3 section Literal (5 accepted + invalid rejected);
   cohort_table Literal (edgar/alpha accepted + invalid rejected);
   F12 benchmark monotonicity (min<target<max accepted;
-  min>target rejected); F9 robust_min/max Optional absent;
-  F5 cohort_query NOT present (extra='ignore' but the contract
-  doesn't declare it).
+  min>target rejected); F9 robust_min/max Optional absent.
+  F5-α: cohort_query intentionally not declared on this contract;
+  extra='ignore' would silently drop it if a future caller
+  added it speculatively.
 - `GetBandsViewBandContractTest` (~4): valid 11-field band;
   F12 benchmark monotonicity carried through; F9 robust_min/max
   Optional absent.
@@ -849,13 +863,38 @@ diagnostic-only purpose in the field's docstring.
 1 field. Recommend against — production writes it; contract
 should match.
 
-### F5 — `cohort_query` field inclusion
+### F5 — `cohort_query` field inclusion — AMENDED to Option α (DROP entirely)
 
-**(Recommended) (a) Include on Shape A (where it exists);
-EXCLUDE from Shape B (SQL row drops it at materialization).**
-The asymmetry is intentional production behavior; the contract
-documents it. Fix (extending Shape B INSERT to include
-cohort_query) is R-residual upstream-side work.
+**Pre-1a re-verification finding:** Original F5 disposition put
+`cohort_query` on Shape A, but trace re-verification of
+`_payload_from_row` at lookup.py:240-256 confirms the cascade
+resolver returns **13 fields, NO `cohort_query`**. The field
+exists only on the cohort-side `CohortBandResult` intermediate
+dataclass at
+[cohort_band_resolver.py:163](../../python/client_intake_and_finmo/post_intake_solver/cohort_band_resolver.py#L163),
+which is internal to the cohort resolver and NOT one of the 4
+boundary shapes (A/B/C/D). The SQL INSERT at
+[cohort_bands_table.py:209-244](../../python/client_intake_and_finmo/post_intake_solver/cohort_bands_table.py#L209)
+silently drops it at materialization (v1 §F-1 known bug; R10
+covers the producer-side fix). So cohort_query crosses no
+boundary surface today; it doesn't belong in Contract 6.
+
+**(Recommended and adopted) (α) DROP entirely from Contract 6.**
+The contract types only what crosses the boundary surface;
+internal intermediates are out of scope. When R10 lands and
+`cohort_query` reaches Shape B's SQL row, the contract gets
+amended at that time.
+
+**(β) Add `CohortBandResolverResultContract` as a 7th sub-contract
+to type the intermediate.** Considered and rejected: contracts
+are boundary gates, not internal-data type-coverage tools.
+Pydantic-typing an internal dataclass adds no enforcement value
+today.
+
+**(γ) Add `cohort_query` to Shape A speculatively.** Considered
+and rejected: Shape A genuinely doesn't carry the field;
+speculative inclusion would fail validation on every real
+production payload.
 
 ### F6 — NAICS field name variation pinning
 
@@ -974,7 +1013,11 @@ IndustryBaselineResolvedContract.** All sub-contracts use
   cross-field invariant. Same reasoning.
 - **R10.** Extend Shape B (SQL INSERT) to include `cohort_query`
   column. Closes the v1 §F-1 audit-trail gap. Producer-side
-  upstream change; not Contract 6's scope.
+  upstream change; not Contract 6's scope. When this lands,
+  amend Contract 6 to add `cohort_query: Optional[Dict[str, Any]]`
+  to `CohortSqlRowContract` (Shape B) — the field is currently
+  excluded entirely from Contract 6 per amended F5 (α) because
+  it crosses no boundary surface today.
 - **R11.** Extend `get_bands` to return `naics_prefix_used` +
   `data_source` (close the silent-drop asymmetry per F7).
   Producer-side upstream change; would need contract amendment to
