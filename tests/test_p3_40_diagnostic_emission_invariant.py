@@ -41,6 +41,7 @@ from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract im
 from client_intake_and_finmo.post_intake_contracts.enforcement import (  # noqa: E402
   SIDE_CONSUMER,
   SIDE_PRODUCER,
+  validate_intake_draft_at_boundary,
   validate_model_input_at_boundary,
   validate_solver_input_at_boundary,
   validate_solver_output_at_boundary,
@@ -53,6 +54,7 @@ from _p3_40_contract_1_fixtures import valid_top_level  # noqa: E402
 from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
 from _p3_40_contract_3_fixtures import valid_solver_input_dict  # noqa: E402
 from _p3_40_contract_4_fixtures import valid_solver_output_dict  # noqa: E402
+from _p3_40_contract_5_fixtures import valid_intake_draft_dict  # noqa: E402
 
 
 class _CapturingEmitter:
@@ -151,6 +153,25 @@ class ContractFourEmitsSolverOutputPhaseCodeTest(unittest.TestCase):
     self.assertEqual(emitter.calls[0]["phase"], PhaseCode.SOLVER_OUTPUT_CONTRACT)
 
 
+class ContractFiveEmitsIntakeDraftPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_intake_draft_contract_phase(self) -> None:
+    """Contract 5 gate must emit under
+    PhaseCode.INTAKE_DRAFT_CONTRACT. Extends the established
+    every-contract-emits-its-own-phase invariant to Contract 5
+    (the most-upstream contract in the P3.40 series). Same
+    regression guard pattern as Contracts 1-4."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_intake_draft_dict()
+    del bad_payload["financials_json"]  # required-field violation
+    with self.assertRaises(ContractViolation):
+      validate_intake_draft_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(emitter.calls[0]["phase"], PhaseCode.INTAKE_DRAFT_CONTRACT)
+
+
 # ---------------------------------------------------------------------------
 # Cross-contract negative check: phase codes are NOT mis-routed
 # ---------------------------------------------------------------------------
@@ -203,6 +224,27 @@ class PhaseCodesDoNotCrossContaminateTest(unittest.TestCase):
     self.assertNotEqual(emitted_phase, PhaseCode.MODEL_INPUT_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
     self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
+
+  def test_contract_5_violation_routes_only_to_intake_draft_contract_phase(self) -> None:
+    """Belt-and-suspenders for Contract 5: confirm a violation
+    emits ONLY under INTAKE_DRAFT_CONTRACT, NOT under any of the
+    other 4 contract phase codes. Symmetric with the Contract 2-4
+    cross-contamination tests above."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_intake_draft_dict()
+    del bad_payload["financials_json"]
+    with self.assertRaises(ContractViolation):
+      validate_intake_draft_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    emitted_phase = emitter.calls[0]["phase"]
+    self.assertEqual(emitted_phase, PhaseCode.INTAKE_DRAFT_CONTRACT)
+    # And NOT any of the other four contract phase codes:
+    self.assertNotEqual(emitted_phase, PhaseCode.MODEL_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
 
 
 if __name__ == "__main__":

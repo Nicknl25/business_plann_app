@@ -49,6 +49,10 @@ from client_intake_and_finmo.post_intake_contracts.solver_output_contract import
   SOLVER_OUTPUT_STAGE_LABEL,
   SolverOutputContract,
 )
+from client_intake_and_finmo.post_intake_contracts.intake_draft_contract import (
+  INTAKE_DRAFT_STAGE_LABEL,
+  IntakeDraftContract,
+)
 
 
 #: Stage label for the producer/consumer gates around the
@@ -482,6 +486,89 @@ def validate_solver_output_at_boundary(
   return contract
 
 
+def validate_intake_draft_at_boundary(
+  payload: Dict[str, Any],
+  *,
+  side: str,
+  stage: str = INTAKE_DRAFT_STAGE_LABEL,
+  emit_diagnostic_fn: Optional[Callable[..., Any]] = None,
+) -> IntakeDraftContract:
+  """P3.40 Contract 5 Commit 3 boundary gate. Validate ``payload``
+  against ``IntakeDraftContract`` and return the parsed contract
+  on success.
+
+  Consumer-side: called inside ``prepare_initial_grid_for_draft``
+  immediately after the draft row is loaded and BEFORE the 8
+  ``parse_json_dict(draft.get(<column>))`` reads at
+  runner.py:190-197. Closes the FALLBACK_PATH silent-empty pattern
+  per trace Div-3.
+
+  Producer-side is SKIPPED per spec Flag 4 (20+ append_messages
+  writer sites in intake_consult.py make a single producer-side
+  gate infeasible -- Contract 2 R8 pattern). Per-consultant gates
+  land as Contract 5b/c/etc. follow-ups once typed sub-contracts
+  ship.
+
+  On failure raises ``ContractViolation`` with the INTAKE_DRAFT
+  stage label and the first ``ValidationError`` extracted into
+  structured fields. Per trace Div-6: the API handler at
+  intake_consult.py:7377 catches ``except Exception as exc:``
+  (skips line-7298 RuntimeError because ContractViolation is
+  Exception subclass, not RuntimeError). The violation surfaces
+  as a structured 500 with str(exc) carrying
+  ``INTAKE_DRAFT_STAGE_LABEL`` + field path. Verified by
+  Adjustment B tests in
+  ``tests/test_p3_40_contract_5_intake_draft.py``.
+
+  Diagnostic emission is best-effort (same pattern as the
+  model-input / workbook-payload / solver-input / solver-output
+  gates): emits ``INTAKE_DRAFT_CONTRACT_VALIDATED`` on success
+  and ``INTAKE_DRAFT_CONTRACT_VIOLATION`` on failure when
+  ``emit_diagnostic_fn`` is supplied. Failures swallowed so
+  observability cannot break the gate.
+  """
+  try:
+    contract = IntakeDraftContract.model_validate(payload)
+  except ValidationError as exc:
+    field_path, expected, actual = _extract_first_error(exc)
+    if emit_diagnostic_fn is not None:
+      _safe_emit(
+        emit_diagnostic_fn,
+        phase_code_name="INTAKE_DRAFT_CONTRACT",
+        event_code_name="INTAKE_DRAFT_CONTRACT_VIOLATION",
+        status_name="FAILED",
+        diagnostic_data={
+          "side": side,
+          "stage": stage,
+          "field": field_path,
+          "expected": expected[:300],
+          "actual": actual[:300],
+          "error_count": len(exc.errors()),
+        },
+      )
+    raise ContractViolation(
+      stage=stage,
+      field=field_path,
+      expected=expected,
+      actual=actual,
+      source_payload=payload,
+    ) from exc
+
+  if emit_diagnostic_fn is not None:
+    _safe_emit(
+      emit_diagnostic_fn,
+      phase_code_name="INTAKE_DRAFT_CONTRACT",
+      event_code_name="INTAKE_DRAFT_CONTRACT_VALIDATED",
+      status_name="COMPLETED",
+      diagnostic_data={
+        "side": side,
+        "stage": stage,
+        "has_fulfillment_json": contract.fulfillment_json is not None,
+      },
+    )
+  return contract
+
+
 def make_boundary_emitter(
   *,
   conn: Any,
@@ -514,11 +601,13 @@ __all__ = [
   "WORKBOOK_STAGE_LABEL",
   "SOLVER_STAGE_LABEL",
   "SOLVER_OUTPUT_STAGE_LABEL",
+  "INTAKE_DRAFT_STAGE_LABEL",
   "SIDE_PRODUCER",
   "SIDE_CONSUMER",
   "validate_model_input_at_boundary",
   "validate_workbook_payload_at_boundary",
   "validate_solver_input_at_boundary",
   "validate_solver_output_at_boundary",
+  "validate_intake_draft_at_boundary",
   "make_boundary_emitter",
 ]

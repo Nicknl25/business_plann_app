@@ -187,6 +187,51 @@ def prepare_initial_grid_for_draft(
   )
   from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
 
+  # P3.40 Contract 5 Commit 3 -- consumer-side boundary gate
+  # for IntakeDraftContract (Boundary 1: INTAKE -> POST_INTAKE).
+  # Validates the 8-field intake-draft JSON shape BEFORE the
+  # parse_json_dict reads below (which today silently coerce
+  # missing/malformed JSON to {}). Surfaces structural problems
+  # as ContractViolation rather than empty plans downstream.
+  # ContractViolation lands in the API handler's `except Exception
+  # as exc:` catch at intake_consult.py:7377 (Div-6) -- structured
+  # 500 with detail=str(exc) carrying INTAKE_DRAFT_STAGE_LABEL.
+  #
+  # fulfillment_json is Optional per Flag 1 (a): if the SQL column
+  # is NULL, the parse_json_dict would return {} -- but we want
+  # the contract to see field-absent rather than empty-dict so
+  # the Optional default path matches production reality
+  # (patch-system-only writes). Include the field only if the raw
+  # column is non-null.
+  from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+    SIDE_CONSUMER as _IDC_SIDE_CONSUMER,
+    validate_intake_draft_at_boundary,
+  )
+  _intake_draft_payload_for_gate: Dict[str, Any] = {
+    "operating_model_json": parse_json_dict(draft.get("operating_model_json")),
+    "target_market_json": parse_json_dict(draft.get("target_market_json")),
+    "people_json": parse_json_dict(draft.get("people_json")),
+    "financials_json": parse_json_dict(draft.get("financials_json")),
+    "financials_year1_json": parse_json_dict(draft.get("financials_year1_json")),
+    "marketing_model_json": parse_json_dict(draft.get("marketing_model_json")),
+    "planning_context_summary_json": parse_json_dict(draft.get("planning_context_summary_json")),
+  }
+  _raw_fulfillment_for_gate = draft.get("fulfillment_json")
+  if _raw_fulfillment_for_gate is not None:
+    _intake_draft_payload_for_gate["fulfillment_json"] = parse_json_dict(
+      _raw_fulfillment_for_gate
+    )
+  # Emit-skip per Contracts 3 + 4 consumer-side gate pattern:
+  # _boundary_emitter is defined later (line ~1853) for the
+  # Contract 1 + Contract 3 producer-side gates; building it
+  # here for Contract 5's consumer-side gate would require
+  # reordering and the diagnostic emit is best-effort anyway.
+  # The gate raises ContractViolation on failure regardless.
+  validate_intake_draft_at_boundary(
+    _intake_draft_payload_for_gate,
+    side=_IDC_SIDE_CONSUMER,
+  )
+
   ops_json = parse_json_dict(draft.get("operating_model_json"))
   market_json = parse_json_dict(draft.get("target_market_json"))
   people_json = parse_json_dict(draft.get("people_json"))
