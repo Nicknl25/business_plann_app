@@ -881,10 +881,7 @@ def validate_amalgamated_session_at_boundary(
         "plan_state_section_count": len(contract.plan_state),
         "bands_section_count": len(contract.bands),
         "has_validation_state": contract.validation_state is not None,
-        "recent_decisions_count": (
-          len(contract.recent_decisions)
-          if contract.recent_decisions is not None else 0
-        ),
+        # recent_decisions_count DROPPED per Cleanup 3/6 R10.
       },
     )
   return contract

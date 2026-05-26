@@ -34,50 +34,22 @@ from client_intake_and_finmo.post_intake_contracts.amalgamated_session_contract 
   VALIDATION_STATE_RENDER_CAP,
   LeverMarginEntryContract,
   MirrorContract,
-  RecentDecisionContract,
   ValidationStateProjectionContract,
 )
 from _p3_40_contract_7_fixtures import (  # noqa: E402
   valid_lever_margin_entry_dict,
   valid_mirror_dict,
   valid_plan_state_dict,
-  valid_recent_decision_dict,
   valid_validation_state_projection_dict,
 )
 
 
 # ---------------------------------------------------------------------------
-# RecentDecisionContract
+# RecentDecisionContractTest REMOVED per P3.40 Cleanup 3/6 R10
+# (RecentDecisionContract + RecentDecision + record_decision all
+# dropped upstream). Phantom-write status confirmed via reader/
+# writer audit -- zero production callers of record_decision.
 # ---------------------------------------------------------------------------
-
-class RecentDecisionContractTest(unittest.TestCase):
-
-  def test_valid_6_field_payload_accepted(self) -> None:
-    rd = RecentDecisionContract.model_validate(valid_recent_decision_dict())
-    self.assertEqual(rd.tool_name, "revise_drivers")
-    self.assertEqual(len(RecentDecisionContract.model_fields), 6)
-
-  def test_missing_tool_name_rejected(self) -> None:
-    payload = valid_recent_decision_dict()
-    del payload["tool_name"]
-    with self.assertRaises(ValidationError):
-      RecentDecisionContract.model_validate(payload)
-
-  def test_empty_tool_name_rejected(self) -> None:
-    payload = valid_recent_decision_dict(tool_name="")
-    with self.assertRaises(ValidationError):
-      RecentDecisionContract.model_validate(payload)
-
-  def test_optional_fields_default(self) -> None:
-    """delta_all_pass + delta_worst_distance + at all Optional;
-    result_summary defaults to empty string."""
-    rd = RecentDecisionContract.model_validate({
-      "tool_name": "minimal", "inputs_summary": "test",
-    })
-    self.assertIsNone(rd.delta_all_pass)
-    self.assertIsNone(rd.delta_worst_distance)
-    self.assertEqual(rd.result_summary, "")
-    self.assertIsNone(rd.at)
 
 
 # ---------------------------------------------------------------------------
@@ -237,22 +209,23 @@ class MirrorContractTest(unittest.TestCase):
 
   def test_valid_full_payload_accepted(self) -> None:
     mirror = MirrorContract.model_validate(valid_mirror_dict())
-    self.assertEqual(len(MirrorContract.model_fields), 9)
+    # 9 -> 6 post-Cleanup-3/6: recent_decisions +
+    # sequence_position + budget dropped per R10 + R11.
+    self.assertEqual(len(MirrorContract.model_fields), 6)
     self.assertIsNotNone(mirror.validation_state)
 
   def test_minimal_payload_accepted_without_optionals(self) -> None:
-    """recent_decisions + sequence_position + budget +
-    validation_state all Optional per F3/F4."""
+    """validation_state Optional per F4. recent_decisions /
+    sequence_position / budget DROPPED per Cleanup 3/6 R10 +
+    R11; no longer on MirrorContract."""
     mirror = MirrorContract.model_validate(valid_mirror_dict(
       include_validation_state=False,
-      include_recent_decisions=False,
-      include_sequence_position=False,
-      include_budget=False,
     ))
     self.assertIsNone(mirror.validation_state)
-    self.assertIsNone(mirror.recent_decisions)
-    self.assertIsNone(mirror.sequence_position)
-    self.assertIsNone(mirror.budget)
+    # R10/R11 closure: these attributes are gone from MirrorContract
+    self.assertFalse(hasattr(mirror, "recent_decisions"))
+    self.assertFalse(hasattr(mirror, "sequence_position"))
+    self.assertFalse(hasattr(mirror, "budget"))
 
   # --- F5 plan_state_alias_sync invariant ---
 
@@ -352,16 +325,13 @@ class VocabularyConstantsTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class ExtraPolicyTest(unittest.TestCase):
-  """F13: extra='ignore' on sub-contracts (RecentDecision,
-  ValidationStateProjection, LeverMarginEntry). MirrorContract
-  uses extra='forbid' top-level. Top-level AmalgamatedSessionContract
-  also extra='forbid'."""
+  """F13: extra='ignore' on sub-contracts
+  (ValidationStateProjection, LeverMarginEntry). MirrorContract
+  uses extra='forbid' top-level. Top-level
+  AmalgamatedSessionContract also extra='forbid'.
 
-  def test_recent_decision_extra_ignored(self) -> None:
-    payload = valid_recent_decision_dict()
-    payload["future_diagnostic"] = "future_value"
-    rd = RecentDecisionContract.model_validate(payload)
-    self.assertFalse(hasattr(rd, "future_diagnostic"))
+  Cleanup 3/6 R10: RecentDecision extra-ignore test removed
+  (RecentDecisionContract dropped)."""
 
   def test_validation_state_extra_ignored(self) -> None:
     payload = valid_validation_state_projection_dict()

@@ -222,27 +222,12 @@ PLAN_STATE_ALIAS_TRIPLET = ("balance_sheet", "capex_rd_balance_seed", "capex_rd"
 
 
 # ---------------------------------------------------------------------------
-# Shape B -- RecentDecisionContract (6 fields per mirror.py:64-72)
+# Shape B -- RecentDecisionContract REMOVED per P3.40 Cleanup 3/6
+# (Contract 7 R10 closure). RecentDecision dataclass +
+# Mirror.recent_decisions field + Mirror.record_decision() method
+# all dropped at mirror.py:14-30/57-67. The contract's Shape B
+# class is correspondingly removed.
 # ---------------------------------------------------------------------------
-
-class RecentDecisionContract(BaseModel):
-  """One ring-buffer entry per ``RecentDecision`` dataclass at
-  mirror.py:64-72. Phantom-write per v2 §D-2 -- the setter
-  ``record_decision`` is called but no production reader
-  consumes the buffer. R10 R-residual covers eventual cleanup.
-
-  6 fields total. tool_name + inputs_summary required; the rest
-  are Optional or defaults.
-  """
-
-  tool_name: str = Field(min_length=1)
-  inputs_summary: str
-  delta_all_pass: Optional[int] = None
-  delta_worst_distance: Optional[float] = None
-  result_summary: str = ""
-  at: Optional[str] = None
-
-  model_config = ConfigDict(extra="ignore")
 
 
 # ---------------------------------------------------------------------------
@@ -414,9 +399,9 @@ class ValidationStateProjectionContract(BaseModel):
 # ---------------------------------------------------------------------------
 
 class MirrorContract(BaseModel):
-  """The Mirror dataclass per mirror.py:75-86. 9 data fields
-  (recent_decisions_cap excluded as internal config, matching
-  the Mirror.to_dict() precedent at mirror.py:182-192).
+  """The Mirror dataclass per mirror.py:73-82. 6 data fields
+  post-Cleanup-3/6 (was 9 pre-cleanup; Cleanup 3/6 R10 + R11
+  dropped recent_decisions + sequence_position + budget).
 
   Composition:
   - F1: bands types as ``Dict[Literal[5 SECTIONS], GetBandsViewContract]``
@@ -425,12 +410,13 @@ class MirrorContract(BaseModel):
     ``Dict[Literal[5 SECTIONS], Dict[str, Any]]`` -- per-section
     typing is R8 R-residual.
 
-  Phantom-write / phantom-required fields per v2 §D + F3/F4:
-  - recent_decisions: Optional[List[...]] = None (F3 -- v2 §D-2
-    phantom-write).
-  - sequence_position: Optional[Dict] = None (F4 -- v2 §D-3
-    phantom-required).
-  - budget: Optional[Dict] = None (F4 -- v2 §D-3 phantom-required).
+  Phantom-write / phantom-required fields per v2 §D + F3/F4
+  RESOLVED in P3.40 Cleanup 3/6:
+  - recent_decisions DROPPED (R10): record_decision() had zero
+    production callers; field served no GPT/responder consumer.
+  - sequence_position DROPPED (R11): zero callers passed it to
+    build_mirror; always defaulted to empty dict; no reader.
+  - budget DROPPED (R11): mirror of sequence_position.
 
   F5 invariant: plan_state_alias_sync. The Bug 2 fix at
   mirror.py:163-180 establishes that when plan_state contains
@@ -448,14 +434,11 @@ class MirrorContract(BaseModel):
     Literal["stage_ramp", "drivers", "payroll", "capex_rd", "balance_sheet"],
     Dict[str, Any],
   ] = Field(default_factory=dict)
-  sequence_position: Optional[Dict[str, Any]] = None
   bands: Dict[
     Literal["stage_ramp", "drivers", "payroll", "capex_rd", "balance_sheet"],
     GetBandsViewContract,
   ] = Field(default_factory=dict)
   validation_state: Optional[ValidationStateProjectionContract] = None
-  recent_decisions: Optional[List[RecentDecisionContract]] = None
-  budget: Optional[Dict[str, Any]] = None
 
   model_config = ConfigDict(extra="forbid")
 
@@ -549,7 +532,7 @@ __all__ = [
   "SUPPORTED_STRICTNESS_VALUES",
   "VALIDATION_STATE_RENDER_CAP",
   "PLAN_STATE_ALIAS_TRIPLET",
-  "RecentDecisionContract",
+  # RecentDecisionContract DROPPED per Cleanup 3/6 R10.
   "LeverMarginEntryContract",
   "ValidationStateProjectionContract",
   "MirrorContract",

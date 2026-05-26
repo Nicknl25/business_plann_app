@@ -198,13 +198,15 @@ class DataclassConversionTest(unittest.TestCase):
     """The Mirror() default dataclass (empty business_facts,
     empty plan_state, etc.) should validate against
     MirrorContract -- even an empty Mirror is structurally
-    valid per F3/F4 Optional dispositions."""
+    valid per F4 validation_state Optional disposition.
+
+    Post-Cleanup-3/6 (R10 + R11): Mirror has 6 data fields
+    (was 9 -- recent_decisions/sequence_position/budget
+    dropped). asdict() output requires only validation_state
+    normalization from {} to None per the F4 Optional typing."""
     from client_intake_and_finmo.post_intake_amalgamated.mirror import Mirror
     mirror = Mirror()
     mirror_dict = asdict(mirror)
-    # Drop recent_decisions_cap per the to_dict() precedent
-    # (internal config, not boundary surface)
-    mirror_dict.pop("recent_decisions_cap", None)
     # Pre-build_mirror, bands isn't loaded yet -- supply minimal
     # valid bands so the F1 composition validates.
     from _p3_40_contract_6_fixtures import valid_get_bands_view_dict
@@ -219,39 +221,27 @@ class DataclassConversionTest(unittest.TestCase):
     # so empty {} would fail. Match production: pre-evaluate
     # state is None, not {}.
     mirror_dict["validation_state"] = None
-    # Same for empty recent_decisions list -> None per F3
-    if not mirror_dict["recent_decisions"]:
-      mirror_dict["recent_decisions"] = None
-    # Same for empty sequence_position + budget per F4
-    if not mirror_dict["sequence_position"]:
-      mirror_dict["sequence_position"] = None
-    if not mirror_dict["budget"]:
-      mirror_dict["budget"] = None
     # Now validate
     contract = MirrorContract.model_validate(mirror_dict)
     self.assertEqual(contract.invariants, {})
 
-  def test_asdict_handles_nested_recent_decision_dataclass(self) -> None:
-    """F14 spec point: asdict() recursive conversion handles the
-    nested RecentDecision dataclass automatically -- no special-
-    case adapter needed."""
-    from client_intake_and_finmo.post_intake_amalgamated.mirror import (
-      Mirror, RecentDecision,
-    )
+  def test_asdict_of_default_mirror_field_set_post_cleanup_3(self) -> None:
+    """Post-Cleanup-3/6 R10 + R11: Mirror dataclass has exactly
+    6 fields (was 9). asdict() output should reflect the
+    cleanup. Pins the field-set so a future field addition
+    that re-introduces phantom-write surfaces explicitly."""
+    from client_intake_and_finmo.post_intake_amalgamated.mirror import Mirror
     mirror = Mirror()
-    mirror.record_decision(
-      tool_name="revise_drivers",
-      inputs_summary="test conversion",
-      delta_all_pass=1,
-    )
     mirror_dict = asdict(mirror)
-    self.assertEqual(len(mirror_dict["recent_decisions"]), 1)
     self.assertEqual(
-      mirror_dict["recent_decisions"][0]["tool_name"], "revise_drivers",
+      set(mirror_dict.keys()),
+      {"invariants", "authority", "business_facts", "plan_state",
+       "bands", "validation_state"},
     )
-    # The nested dataclass is now a plain dict -- ready for
-    # Pydantic validation without special handling.
-    self.assertIsInstance(mirror_dict["recent_decisions"][0], dict)
+    # Confirm the 3 phantom-write fields are GONE post-R10/R11
+    self.assertNotIn("recent_decisions", mirror_dict)
+    self.assertNotIn("sequence_position", mirror_dict)
+    self.assertNotIn("budget", mirror_dict)
 
 
 # ---------------------------------------------------------------------------

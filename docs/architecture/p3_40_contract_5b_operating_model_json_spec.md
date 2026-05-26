@@ -651,11 +651,25 @@ Expected total: 8 flags. None require ``Literal`` /
 
 ## 8. Known residual cleanups (out of scope for Contract 5b)
 
-- **R-a.** DB audit for ``naics_code`` + ``business_naics``
+- **R-a.** ~~DB audit for ``naics_code`` + ``business_naics``
   legacy fields per T3 (b). If zero hits in production drafts,
   delete the defensive fallbacks in runner.py:284-285 +
-  1093-1094. Currently the contract's ``extra="ignore"`` covers
-  any extant legacy payloads.
+  1093-1094.~~ **ASSESSED in P3.40 Contract Layer Cleanup
+  Commit 3/6; FALLBACKS KEPT for legacy DB support.**
+  Reader/writer audit confirmed ZERO current code writes
+  ``naics_code`` or ``business_naics`` to ``ops_json``.
+  However, legacy production drafts pre-dating the current
+  OperatingModelJsonContract schema MAY carry these keys
+  (DB audit out of scope for the cleanup commit). Per PSL2
+  production-reality-wins + conservative engineering: removing
+  the fallback chain would silently lose NAICS resolution on
+  any legacy draft that still uses the old keys. Contract 5b's
+  ``extra="ignore"`` lets such drafts pass the gate; the
+  fallback chain at runner.py:283-287 + 1093-1110 is the
+  actual consumer that uses them. KEPT with explicit
+  ASSESSED+KEPT comments at both sites. A future DB audit
+  (separate work item, not in cleanup scope) could confirm
+  zero legacy data exposure and warrant removal.
 
 - **R-b.** ``confidence`` field range — schema is unbounded
   ``number``. Per §0 no range constraint. If production audit

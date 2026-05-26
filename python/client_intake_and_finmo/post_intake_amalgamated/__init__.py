@@ -27,7 +27,7 @@ from client_intake_and_finmo.post_intake_amalgamated.evaluate_plan import (  # n
 )
 from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # noqa: F401
   Mirror,
-  RecentDecision,
   build_mirror,
   estimate_token_count,
 )
+# RecentDecision DROPPED per P3.40 Cleanup 3/6 Contract 7 R10.

@@ -15,8 +15,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (  # type: ignore
   EvaluatePlanResult,
@@ -24,7 +23,20 @@ from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (  
 )
 
 
-DEFAULT_RECENT_DECISIONS_CAP = 10
+# P3.40 Contract Layer Cleanup 3/6 -- Contract 7 R10 + R11 closures:
+# - R10 RESOLVED: dropped RecentDecision dataclass +
+#   Mirror.recent_decisions field + Mirror.record_decision()
+#   method + DEFAULT_RECENT_DECISIONS_CAP constant. Reader/writer
+#   audit per Cleanup 3/6 confirmed zero production callers of
+#   record_decision; recent_decisions had only serialization
+#   (Mirror.to_dict + Contract 7 telemetry) and one test reader,
+#   no GPT/responder consumer.
+# - R11 RESOLVED: dropped Mirror.sequence_position +
+#   Mirror.budget fields + the corresponding build_mirror kwargs.
+#   Reader/writer audit confirmed zero callers pass these to
+#   build_mirror; both always defaulted to empty dict; no
+#   downstream reader.
+
 
 # Cap on the number of failing-check names + failing-lever-margin entries
 # that ``Mirror.set_validation_state`` projects into validation_state.
@@ -57,51 +69,24 @@ _AUTHORITY = (
 
 
 @dataclass
-class RecentDecision:
-  """One ring-buffer entry. Summaries only — not full payloads."""
-  tool_name: str
-  inputs_summary: str
-  delta_all_pass: Optional[int] = None          # -1 (regressed), 0 (no change), +1 (now passing)
-  delta_worst_distance: Optional[float] = None  # new_worst - old_worst (positive = improved)
-  result_summary: str = ""
-  at: Optional[str] = None
-
-  def to_dict(self) -> Dict[str, Any]:
-    return asdict(self)
-
-
-@dataclass
 class Mirror:
-  """The per-decision context handed to GPT."""
+  """The per-decision context handed to GPT.
+
+  P3.40 Contract Layer Cleanup 3/6 -- Contract 7 R10 + R11
+  closures dropped 3 phantom-write fields:
+    - sequence_position (R11): no caller passed it; always
+      defaulted to empty dict.
+    - recent_decisions + record_decision() (R10): method
+      defined but never called in production; serialized but
+      never consumed by GPT/responder.
+    - budget (R11): mirror of sequence_position.
+  """
   invariants: Dict[str, str] = field(default_factory=dict)
   authority: str = ""
   business_facts: Dict[str, Any] = field(default_factory=dict)
   plan_state: Dict[str, Any] = field(default_factory=dict)
-  sequence_position: Dict[str, Any] = field(default_factory=dict)
   bands: Dict[str, Any] = field(default_factory=dict)
   validation_state: Dict[str, Any] = field(default_factory=dict)
-  recent_decisions: List[RecentDecision] = field(default_factory=list)
-  budget: Dict[str, Any] = field(default_factory=dict)
-  recent_decisions_cap: int = DEFAULT_RECENT_DECISIONS_CAP
-
-  def record_decision(
-    self,
-    *,
-    tool_name: str,
-    inputs_summary: str,
-    delta_all_pass: Optional[int] = None,
-    delta_worst_distance: Optional[float] = None,
-    result_summary: str = "",
-  ) -> None:
-    entry = RecentDecision(
-      tool_name=tool_name, inputs_summary=inputs_summary,
-      delta_all_pass=delta_all_pass, delta_worst_distance=delta_worst_distance,
-      result_summary=result_summary,
-      at=datetime.now(timezone.utc).isoformat(),
-    )
-    self.recent_decisions.append(entry)
-    if len(self.recent_decisions) > self.recent_decisions_cap:
-      self.recent_decisions = self.recent_decisions[-self.recent_decisions_cap:]
 
   def set_validation_state(self, evaluate_plan_result: EvaluatePlanResult) -> None:
     """Refresh the mirror's view of the current standards-check state.
@@ -179,29 +164,29 @@ class Mirror:
       self.plan_state["capex_rd_balance_seed"] = stored
 
   def to_dict(self) -> Dict[str, Any]:
+    # P3.40 Cleanup 3/6 -- R10 + R11 dropped sequence_position,
+    # recent_decisions, budget keys from the serialized payload.
     payload = {
       "invariants": dict(self.invariants),
       "authority": self.authority,
       "business_facts": copy.deepcopy(self.business_facts),
       "plan_state": copy.deepcopy(self.plan_state),
-      "sequence_position": copy.deepcopy(self.sequence_position),
       "bands": copy.deepcopy(self.bands),
       "validation_state": copy.deepcopy(self.validation_state),
-      "recent_decisions": [d.to_dict() for d in self.recent_decisions],
-      "budget": copy.deepcopy(self.budget),
     }
     # P3.40 Contract 7 Commit 3 -- Shape A consumer-side gate. Per
     # spec §5.2.1: the canonical Mirror serialization point. Gate
     # fires at every serialization to catch in-process mutation
     # that violated invariants (F5 alias-sync, F6 i-iv).
     #
-    # Normalize empty-dict / empty-list optionals to None so the
-    # dataclass defaults round-trip through MirrorContract whose
-    # Optional fields type the pre-populate state as None
-    # (matches the production semantic where consumers check
-    # ``vs = ... or {}``). The gate validates a normalized copy;
-    # the original payload returned to the caller is untouched
-    # so existing consumers still see the {} / [] defaults.
+    # Normalize empty-dict validation_state to None so the
+    # dataclass default round-trips through MirrorContract whose
+    # Optional[ValidationStateProjectionContract] field types the
+    # pre-populate state as None (matches the production semantic
+    # where consumers check ``vs = ... or {}``). The gate
+    # validates a normalized copy; the original payload returned
+    # to the caller is untouched so existing consumers still see
+    # the {} default.
     try:
       from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
         SIDE_CONSUMER as _AS_SIDE_CONSUMER,
@@ -210,12 +195,6 @@ class Mirror:
       gate_payload = dict(payload)
       if not gate_payload.get("validation_state"):
         gate_payload["validation_state"] = None
-      if not gate_payload.get("sequence_position"):
-        gate_payload["sequence_position"] = None
-      if not gate_payload.get("budget"):
-        gate_payload["budget"] = None
-      if not gate_payload.get("recent_decisions"):
-        gate_payload["recent_decisions"] = None
       validate_amalgamated_session_at_boundary(
         gate_payload, side=_AS_SIDE_CONSUMER,
       )
@@ -231,10 +210,7 @@ def build_mirror(
   planning_run_id: Optional[str] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   plan_state: Optional[Dict[str, Any]] = None,
-  sequence_position: Optional[Dict[str, Any]] = None,
   validation_state: Optional[Dict[str, Any]] = None,
-  budget: Optional[Dict[str, Any]] = None,
-  recent_decisions_cap: int = DEFAULT_RECENT_DECISIONS_CAP,
   load_bands: bool = True,
 ) -> Mirror:
   """Build a fresh Mirror. Bands are loaded from
@@ -243,6 +219,12 @@ def build_mirror(
 
   Sections without committed plan_state or bands appear as empty dicts —
   GPT sees the shape and can tell what is missing vs what is present.
+
+  P3.40 Cleanup 3/6 -- R10 + R11 dropped the
+  ``sequence_position``, ``budget``, and ``recent_decisions_cap``
+  kwargs (all phantom-required per v2 §D-3 reader/writer audit:
+  zero callers passed them; always defaulted to empty values
+  with no downstream consumer).
   """
   bands_payload: Dict[str, Any] = {section: {} for section in SECTIONS}
   if load_bands and conn is not None and draft_id and planning_run_id:
@@ -285,11 +267,8 @@ def build_mirror(
     authority=_AUTHORITY,
     business_facts=dict(business_facts or {}),
     plan_state={section: dict((plan_state or {}).get(section) or {}) for section in SECTIONS},
-    sequence_position=dict(sequence_position or {}),
     bands=bands_payload,
     validation_state=dict(validation_state or {}),
-    budget=dict(budget or {}),
-    recent_decisions_cap=int(recent_decisions_cap),
   )
   # Step 9b-ii — emit MIRROR_BUILD_STARTED + COMPLETED (or NO_BANDS
   # when bands are empty across all sections). draft_id / planning_run_
@@ -362,8 +341,7 @@ def build_mirror(
   # Fires only when conn + draft_id + planning_run_id are supplied
   # (production path; bypassed for test stubs that build a partial
   # Mirror without DB context). F14 dataclass-to-dict via
-  # ``dataclasses.asdict(mirror)`` -- recursive conversion handles
-  # the nested RecentDecision dataclass automatically.
+  # ``dataclasses.asdict(mirror)``.
   if conn is not None and draft_id and planning_run_id:
     try:
       from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
@@ -371,17 +349,14 @@ def build_mirror(
         validate_amalgamated_session_at_boundary,
       )
       gate_payload = asdict(mirror)
-      gate_payload.pop("recent_decisions_cap", None)
-      # Normalize empty-dict / empty-list optionals to None so
-      # the dataclass defaults round-trip through MirrorContract.
+      # P3.40 Cleanup 3/6 -- R10 + R11 dropped sequence_position
+      # / recent_decisions / budget / recent_decisions_cap from
+      # Mirror, so no normalization needed for those fields here.
+      # Normalize empty-dict validation_state to None so the
+      # dataclass default round-trips through MirrorContract's
+      # Optional[ValidationStateProjectionContract] typing.
       if not gate_payload.get("validation_state"):
         gate_payload["validation_state"] = None
-      if not gate_payload.get("sequence_position"):
-        gate_payload["sequence_position"] = None
-      if not gate_payload.get("budget"):
-        gate_payload["budget"] = None
-      if not gate_payload.get("recent_decisions"):
-        gate_payload["recent_decisions"] = None
       validate_amalgamated_session_at_boundary(
         gate_payload, side=_AS_SIDE_PRODUCER,
       )

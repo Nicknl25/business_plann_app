@@ -970,13 +970,34 @@ RecentDecision) automatically. R-residual upgrade path.
   per the directive's "do NOT force composition where it
   doesn't structurally make sense" guideline).
 
-- **R10.** Drop `mirror.recent_decisions` setter + field. Per
-  v2 §D-2: phantom-write — setter is called but no production
-  reader. Audit for any remaining tests/uses then delete.
+- **R10.** ~~Drop `mirror.recent_decisions` setter + field. Per
+  v2 §D-2: phantom-write.~~ **RESOLVED in P3.40 Contract Layer
+  Cleanup Commit 3/6.** Reader/writer audit confirmed
+  `record_decision()` has ZERO production callers and
+  `recent_decisions` had only serialization (Mirror.to_dict)
+  + telemetry (enforcement.py:885 length count) + 1 test
+  reader. No GPT/responder consumer. Removed: RecentDecision
+  dataclass, Mirror.recent_decisions field,
+  Mirror.record_decision() method, DEFAULT_RECENT_DECISIONS_CAP
+  constant, Mirror.recent_decisions_cap config field,
+  RecentDecisionContract class, the recent_decisions field on
+  MirrorContract, the recent_decisions_count diagnostic line
+  in enforcement.py, the RecentDecisionContract export,
+  valid_recent_decision_dict fixture builder, and
+  RecentDecisionContractTest test class. Mirror.to_dict()
+  output no longer carries the "recent_decisions" key.
 
-- **R11.** Drop `mirror.sequence_position` + `mirror.budget`
-  fields. Per v2 §D-3: phantom-required — no caller passes
-  either; both default `{}`. Audit + delete.
+- **R11.** ~~Drop `mirror.sequence_position` + `mirror.budget`
+  fields. Per v2 §D-3: phantom-required.~~ **RESOLVED in
+  P3.40 Contract Layer Cleanup Commit 3/6.** Reader/writer
+  audit confirmed ZERO callers pass either to build_mirror;
+  both always defaulted to empty dict; only "reader" was
+  Mirror.to_dict() serialization with no downstream consumer.
+  Removed: both fields from Mirror dataclass, both kwargs
+  from build_mirror() signature, both keys from Mirror.to_dict
+  output, both fields from MirrorContract, and the
+  corresponding normalization shims in mirror.py producer-side
+  and consumer-side gates.
 
 - **R12.** F6 invariant (iii) full bidirectional check —
   currently §4.2 only enforces one half (truncated flag must

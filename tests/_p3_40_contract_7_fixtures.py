@@ -33,23 +33,10 @@ from _p3_40_contract_6_fixtures import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Shape B -- RecentDecisionContract
+# Shape B -- valid_recent_decision_dict REMOVED per Cleanup 3/6
+# (Contract 7 R10 closure). RecentDecisionContract + Mirror.
+# recent_decisions / record_decision() all dropped upstream.
 # ---------------------------------------------------------------------------
-
-def valid_recent_decision_dict(
-  *,
-  tool_name: str = "revise_drivers",
-  inputs_summary: str = "cogs_percent: 0.40 -> 0.35",
-) -> Dict[str, Any]:
-  """6-field RecentDecision per mirror.py:64-72."""
-  return {
-    "tool_name": tool_name,
-    "inputs_summary": inputs_summary,
-    "delta_all_pass": 1,
-    "delta_worst_distance": -0.05,
-    "result_summary": "lever applied",
-    "at": "2026-05-26T12:00:00+00:00",
-  }
 
 
 # ---------------------------------------------------------------------------
@@ -151,16 +138,12 @@ def valid_plan_state_dict(
 def valid_mirror_dict(
   *,
   include_validation_state: bool = True,
-  include_recent_decisions: bool = False,
-  include_sequence_position: bool = False,
-  include_budget: bool = False,
   alias_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  """9-field Mirror per mirror.py:75-86. Defaults match the
-  build_mirror initial state -- validation_state populated;
-  recent_decisions / sequence_position / budget Optional
-  (phantom-write + phantom-required per F3 + F4 -- absent by
-  default)."""
+  """6-field Mirror per mirror.py:73-82 post-Cleanup-3/6. Was
+  9 fields pre-cleanup; R10 + R11 dropped recent_decisions +
+  sequence_position + budget. Defaults match the build_mirror
+  initial state -- validation_state populated."""
   payload: Dict[str, Any] = {
     "invariants": {
       "realism": "Operate within cohort-shape bounds.",
@@ -181,12 +164,6 @@ def valid_mirror_dict(
   }
   if include_validation_state:
     payload["validation_state"] = valid_validation_state_projection_dict()
-  if include_recent_decisions:
-    payload["recent_decisions"] = [valid_recent_decision_dict()]
-  if include_sequence_position:
-    payload["sequence_position"] = {"phase": "drivers", "step": 2}
-  if include_budget:
-    payload["budget"] = {"calls_remaining": 30}
   return payload
 
 

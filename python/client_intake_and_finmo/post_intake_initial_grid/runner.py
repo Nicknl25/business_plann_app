@@ -279,6 +279,20 @@ def prepare_initial_grid_for_draft(
     context = {
       "business_facts": copy.deepcopy(business_facts or {}),
       "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+      # P3.40 Contract Layer Cleanup 3/6 -- Contract 5b R-a:
+      # ASSESSED + KEPT for legacy DB support. naics_code +
+      # business_naics are NOT in the current GPT schema and
+      # have ZERO current code writers (per Cleanup 3/6 reader/
+      # writer audit). However, legacy production drafts that
+      # pre-date the current OperatingModelJsonContract schema
+      # MAY carry these keys instead of business_naics_6.
+      # Contract 5b's extra='ignore' lets them pass the gate;
+      # this fallback chain ensures NAICS resolution still
+      # works for those legacy drafts. Removing the fallback
+      # silently loses NAICS resolution on legacy data. DB
+      # audit (5b R-a) would confirm whether any legacy draft
+      # actually carries these keys; until then, KEEP per
+      # PSL2 production-reality-wins.
       "business_naics": str(
         (people_json or {}).get("business_naics_6")
         or (ops_json or {}).get("naics_code")
@@ -1088,6 +1102,9 @@ def prepare_initial_grid_for_draft(
         "payroll_context_payload": {
           "business_facts": copy.deepcopy(business_facts or {}),
           "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+          # P3.40 Cleanup 3/6 -- 5b R-a: ASSESSED + KEPT.
+          # Mirror of the runtime_context fallback chain above
+          # (same rationale: legacy DB support pending audit).
           "business_naics": str(
             (people_json or {}).get("business_naics_6")
             or (ops_json or {}).get("naics_code")

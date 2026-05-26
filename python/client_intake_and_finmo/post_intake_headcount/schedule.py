@@ -690,6 +690,19 @@ def _people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str,
     for item in raw_items:
       if not isinstance(item, dict):
         continue
+      # P3.40 Contract Layer Cleanup 3/6 -- Contract 5d R-b:
+      # ASSESSED + KEPT for legacy DB support. role_title +
+      # full_name are schema-blessed PersonContract fields per
+      # people_capability_consultant.py:94-114; role + name are
+      # NOT in the current schema (no current GPT writer). The
+      # 4-level fallback chain preserves staffing-row
+      # generation for any legacy person-item shape in the
+      # production DB that uses role/name instead of
+      # role_title/full_name. PersonContract has extra='ignore'
+      # tolerating legacy keys at the contract gate; this site
+      # is the consumer that actually USES them. Per directive
+      # Cleanup 3/6: "THE classic 'legacy data support' case
+      # ... Likely keep the fallback".
       role_title = str(item.get("role_title") or item.get("full_name") or item.get("role") or item.get("name") or "").strip()
       if not role_title:
         continue
@@ -699,6 +712,13 @@ def _people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str,
           "position_title": role_title,
           "annual_wage": _round_currency(item.get("annual_wage")),
           "wage_source": str(item.get("wage_source") or "").strip(),
+          # months_until_hire is schema-bound to inferred_roles
+          # items (per consultant.py:128), NOT person items.
+          # This read from person items defends against the
+          # cross-shape leak hypothesis: a legacy/edit-mode
+          # path that wrote months_until_hire onto a person
+          # item. Per Cleanup 3/6 5d R-b: ASSESSED + KEPT for
+          # legacy DB support pending audit.
           "months_until_hire": (
             int(round(float(_safe_float(item.get("months_until_hire")) or 0.0)))
             if item.get("months_until_hire") is not None

@@ -669,11 +669,26 @@ Field(constraint) / validators per §0.
 - **R-a.** ``confidence`` field range — schema is unbounded
   ``number``. Per §0 no range constraint (matches 5b R-b /
   5c R-a).
-- **R-b.** Downstream defensive person-item reads (``role`` /
+- **R-b.** ~~Downstream defensive person-item reads (``role`` /
   ``name`` / ``months_until_hire`` on people items) at
   post_intake_headcount/schedule.py:693-706. Audit DB for any
   legacy person-item carrying these keys; if zero hits, clean
-  up the fallback chain (matches 5b R-a DB audit pattern).
+  up the fallback chain.~~ **ASSESSED in P3.40 Contract Layer
+  Cleanup Commit 3/6; FALLBACK CHAIN KEPT for legacy DB
+  support.** Reader/writer audit confirmed ZERO current code
+  writes ``role`` / ``name`` to person items, and
+  ``months_until_hire`` only writes to inferred_roles items
+  per the GPT schema. However, the cleanup directive
+  explicitly flagged this case: "THE classic 'legacy data
+  support' case ... Likely keep the fallback". PersonContract
+  has ``extra="ignore"`` tolerating legacy person-item shapes
+  at the gate; the schedule.py fallback chain is the
+  consumer that actually uses them for staffing-row
+  generation. Removing the chain would silently break
+  staffing rows for any legacy person item still using the
+  old keys. KEPT with explicit ASSESSED+KEPT comments at the
+  consumer site. A future DB audit could confirm zero legacy
+  data exposure and warrant removal.
 - **R-c.** ``key_people_summary`` post-pop pattern. Two paths
   to harmonize:
   - (i) Stop popping in intake_consult.py:6241; persist
