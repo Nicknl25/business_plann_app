@@ -7279,6 +7279,23 @@ def post_intake_consult_system_run_handler(*, app, request):
         lifecycle_mode=lifecycle_mode,
         planning_run_id=planning_run_id or None,
       )
+      # P3.40 Contract 4 Commit 3 -- consumer-side boundary gate.
+      # FIRST consumer access of `result`. Validates the 20-field
+      # solver-output dict before any acceptance-gate processing or
+      # workbook-export trigger. Placed INSIDE this try block so a
+      # ContractViolation raised by the gate lands in the existing
+      # `except Exception as exc:` branch below (ContractViolation
+      # is Exception subclass, not RuntimeError -- skips the
+      # RuntimeError branch). Surfaces as a structured 500 with
+      # detail=str(exc) carrying SOLVER_OUTPUT_STAGE_LABEL + field
+      # path per trace Div-6.
+      from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore  # noqa: E501
+        SIDE_CONSUMER as _SO_SIDE_CONSUMER,
+        validate_solver_output_at_boundary,
+      )
+      validate_solver_output_at_boundary(
+        result, side=_SO_SIDE_CONSUMER,
+      )
     except PlanningRunLifecycleInterrupt as exc:
       run_row = get_planning_run(conn, planning_run_id=exc.planning_run_id)
       checkpoint = get_latest_planning_run_checkpoint(conn, planning_run_id=exc.planning_run_id)

@@ -43,6 +43,7 @@ from client_intake_and_finmo.post_intake_contracts.enforcement import (  # noqa:
   SIDE_PRODUCER,
   validate_model_input_at_boundary,
   validate_solver_input_at_boundary,
+  validate_solver_output_at_boundary,
   validate_workbook_payload_at_boundary,
 )
 from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noqa: E402
@@ -51,6 +52,7 @@ from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noq
 from _p3_40_contract_1_fixtures import valid_top_level  # noqa: E402
 from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
 from _p3_40_contract_3_fixtures import valid_solver_input_dict  # noqa: E402
+from _p3_40_contract_4_fixtures import valid_solver_output_dict  # noqa: E402
 
 
 class _CapturingEmitter:
@@ -127,6 +129,28 @@ class ContractThreeEmitsSolverPhaseCodeTest(unittest.TestCase):
     self.assertEqual(emitter.calls[0]["phase"], PhaseCode.SOLVER_INPUT_CONTRACT)
 
 
+class ContractFourEmitsSolverOutputPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_solver_output_contract_phase(self) -> None:
+    """Contract 4 gate must emit under
+    PhaseCode.SOLVER_OUTPUT_CONTRACT. Extends the established
+    every-contract-emits-its-own-phase invariant to Contract 4.
+    The Commit 3 lockstep that added the PhaseCode enum entry
+    + the validate_solver_output_at_boundary helper must keep
+    them paired -- this test catches a future regression where
+    the helper's phase_code_name string drifts from the enum
+    attribute name."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_solver_output_dict()
+    del bad_payload["plan_confidence"]  # required-field violation
+    with self.assertRaises(ContractViolation):
+      validate_solver_output_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(emitter.calls[0]["phase"], PhaseCode.SOLVER_OUTPUT_CONTRACT)
+
+
 # ---------------------------------------------------------------------------
 # Cross-contract negative check: phase codes are NOT mis-routed
 # ---------------------------------------------------------------------------
@@ -159,6 +183,26 @@ class PhaseCodesDoNotCrossContaminateTest(unittest.TestCase):
       )
     self.assertEqual(len(emitter.calls), 1)
     self.assertNotEqual(emitter.calls[0]["phase"], PhaseCode.MODEL_INPUT_CONTRACT)
+
+  def test_contract_4_violation_routes_only_to_solver_output_contract_phase(self) -> None:
+    """Belt-and-suspenders for Contract 4: confirm a violation
+    emits ONLY under SOLVER_OUTPUT_CONTRACT, not under any of the
+    other 3 contract phase codes. Symmetric with the Contract 2
+    + Contract 3 cross-contamination tests above."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_solver_output_dict()
+    del bad_payload["plan_confidence"]
+    with self.assertRaises(ContractViolation):
+      validate_solver_output_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    emitted_phase = emitter.calls[0]["phase"]
+    self.assertEqual(emitted_phase, PhaseCode.SOLVER_OUTPUT_CONTRACT)
+    # And NOT any of the other three contract phase codes:
+    self.assertNotEqual(emitted_phase, PhaseCode.MODEL_INPUT_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
+    self.assertNotEqual(emitted_phase, PhaseCode.SOLVER_INPUT_CONTRACT)
 
 
 if __name__ == "__main__":

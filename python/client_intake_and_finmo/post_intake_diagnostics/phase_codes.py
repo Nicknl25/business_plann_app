@@ -47,6 +47,7 @@ class PhaseCode(str, Enum):
   MODEL_INPUT_CONTRACT    = "model_input_contract"
   SOLVER_INPUT_CONTRACT   = "solver_input_contract"
   WORKBOOK_PAYLOAD_CONTRACT = "workbook_payload_contract"
+  SOLVER_OUTPUT_CONTRACT  = "solver_output_contract"
 
 
 class EventCode(str, Enum):
@@ -159,6 +160,10 @@ class EventCode(str, Enum):
   # workbook_payload_contract (P3.40 Contract 2 boundary enforcement)
   WORKBOOK_PAYLOAD_CONTRACT_VALIDATED = "workbook_payload_contract_validated"
   WORKBOOK_PAYLOAD_CONTRACT_VIOLATION = "workbook_payload_contract_violation"
+
+  # solver_output_contract (P3.40 Contract 4 boundary enforcement)
+  SOLVER_OUTPUT_CONTRACT_VALIDATED   = "solver_output_contract_validated"
+  SOLVER_OUTPUT_CONTRACT_VIOLATION   = "solver_output_contract_violation"
 
 
 class Status(str, Enum):
@@ -284,6 +289,10 @@ EVENT_CODES_BY_PHASE: Dict[PhaseCode, FrozenSet[EventCode]] = {
   PhaseCode.WORKBOOK_PAYLOAD_CONTRACT: frozenset({
     EventCode.WORKBOOK_PAYLOAD_CONTRACT_VALIDATED,
     EventCode.WORKBOOK_PAYLOAD_CONTRACT_VIOLATION,
+  }),
+  PhaseCode.SOLVER_OUTPUT_CONTRACT: frozenset({
+    EventCode.SOLVER_OUTPUT_CONTRACT_VALIDATED,
+    EventCode.SOLVER_OUTPUT_CONTRACT_VIOLATION,
   }),
 }
 
