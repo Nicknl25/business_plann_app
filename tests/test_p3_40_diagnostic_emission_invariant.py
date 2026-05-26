@@ -1,0 +1,165 @@
+"""Observability-actually-emits invariant tests for P3.40
+contracts 1, 2, and 3.
+
+Establishes the invariant that every contract's gate observably
+emits its OWN phase code (not silently dropped, not mis-routed to
+a different contract's phase code).
+
+This guard catches a class of regression: if a future refactor
+re-introduces the ``_safe_emit`` hardcode-to-MODEL_INPUT_CONTRACT
+bug, or if a new contract's PhaseCode is forgotten in the
+diagnostics module (which is exactly what happened to
+Contract 2's WORKBOOK_PAYLOAD_CONTRACT from its Commit 3 landing
+through to the Contract 3 Commit 3 _safe_emit parameterization),
+these tests fail loudly rather than silently no-op'ing the
+diagnostic stream.
+
+Pattern: each test feeds a deliberate contract violation through
+the boundary gate with a capturing ``emit_diagnostic_fn`` callback.
+Assert the captured event carries the right PhaseCode value.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+from typing import Any, Dict, List
+
+
+HERE = os.path.abspath(os.path.dirname(__file__))
+PYTHON_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, "python"))
+ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
+for path in (PYTHON_ROOT, ROOT, HERE):
+  if path not in sys.path:
+    sys.path.insert(0, path)
+
+
+from client_intake_and_finmo.post_intake_contracts.finmo_model_input_contract import (  # noqa: E402
+  ContractViolation,
+)
+from client_intake_and_finmo.post_intake_contracts.enforcement import (  # noqa: E402
+  SIDE_CONSUMER,
+  SIDE_PRODUCER,
+  validate_model_input_at_boundary,
+  validate_solver_input_at_boundary,
+  validate_workbook_payload_at_boundary,
+)
+from client_intake_and_finmo.post_intake_diagnostics.phase_codes import (  # noqa: E402
+  PhaseCode,
+)
+from _p3_40_contract_1_fixtures import valid_top_level  # noqa: E402
+from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
+from _p3_40_contract_3_fixtures import valid_solver_input_dict  # noqa: E402
+
+
+class _CapturingEmitter:
+  """Records every (phase, event_code, status, diagnostic_data)
+  tuple ``_safe_emit`` forwards through it. Used by all three
+  observability tests below to confirm the gate's emit lands."""
+
+  def __init__(self) -> None:
+    self.calls: List[Dict[str, Any]] = []
+
+  def __call__(self, **kwargs: Any) -> None:
+    self.calls.append(kwargs)
+
+
+class ContractOneEmitsModelInputPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_model_input_contract_phase(self) -> None:
+    """Contract 1 gate must emit under PhaseCode.MODEL_INPUT_CONTRACT
+    -- the gate's diagnostic event tags the right contract so
+    queries / dashboards can filter by phase. Catches the
+    _safe_emit hardcode-regression class."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_top_level()
+    bad_payload["sections"]["revenue"] = []  # min_length=1 violation
+    with self.assertRaises(ContractViolation):
+      validate_model_input_at_boundary(
+        bad_payload, side=SIDE_PRODUCER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(emitter.calls[0]["phase"], PhaseCode.MODEL_INPUT_CONTRACT)
+
+
+class ContractTwoEmitsWorkbookPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_workbook_payload_contract_phase(self) -> None:
+    """Contract 2 gate must emit under
+    PhaseCode.WORKBOOK_PAYLOAD_CONTRACT. This is the regression
+    test for the silent-no-op bug that lived between Contract 2's
+    Commit 3 landing and the Contract 2 diagnostic-stack
+    restoration commit (this commit). Before this commit:
+    Contract 2's _safe_emit calls passed
+    phase_code_name='WORKBOOK_PAYLOAD_CONTRACT', but
+    PhaseCode.WORKBOOK_PAYLOAD_CONTRACT didn't exist, so
+    getattr(PhaseCode, 'WORKBOOK_PAYLOAD_CONTRACT') raised
+    AttributeError which the outer try/except in _safe_emit
+    swallowed. Contract still raised ContractViolation, but the
+    diagnostic event never landed. This test pins the fix."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_workbook_payload_dict()
+    del bad_payload["debt_schedule"]  # required-field violation
+    with self.assertRaises(ContractViolation):
+      validate_workbook_payload_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(emitter.calls[0]["phase"], PhaseCode.WORKBOOK_PAYLOAD_CONTRACT)
+
+
+class ContractThreeEmitsSolverPhaseCodeTest(unittest.TestCase):
+
+  def test_violation_emit_carries_solver_input_contract_phase(self) -> None:
+    """Contract 3 gate must emit under
+    PhaseCode.SOLVER_INPUT_CONTRACT. Symmetric with Contract 1 +
+    Contract 2 tests above -- establishes the invariant that
+    every contract's gate observably emits its own phase code."""
+    emitter = _CapturingEmitter()
+    bad_payload = valid_solver_input_dict()
+    del bad_payload["business_facts"]  # required-field violation
+    with self.assertRaises(ContractViolation):
+      validate_solver_input_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertEqual(emitter.calls[0]["phase"], PhaseCode.SOLVER_INPUT_CONTRACT)
+
+
+# ---------------------------------------------------------------------------
+# Cross-contract negative check: phase codes are NOT mis-routed
+# ---------------------------------------------------------------------------
+
+class PhaseCodesDoNotCrossContaminateTest(unittest.TestCase):
+  """Belt-and-suspenders: confirm Contract 2's gate does NOT emit
+  under MODEL_INPUT_CONTRACT (the old hardcoded value) even now
+  that the PhaseCode is parameterized. If a future refactor
+  re-hardcodes a phase code, this test fails before the silent
+  cross-contamination ships."""
+
+  def test_contract_2_violation_does_not_emit_under_model_input_contract(self) -> None:
+    emitter = _CapturingEmitter()
+    bad_payload = valid_workbook_payload_dict()
+    del bad_payload["debt_schedule"]
+    with self.assertRaises(ContractViolation):
+      validate_workbook_payload_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertNotEqual(emitter.calls[0]["phase"], PhaseCode.MODEL_INPUT_CONTRACT)
+
+  def test_contract_3_violation_does_not_emit_under_model_input_contract(self) -> None:
+    emitter = _CapturingEmitter()
+    bad_payload = valid_solver_input_dict()
+    del bad_payload["business_facts"]
+    with self.assertRaises(ContractViolation):
+      validate_solver_input_at_boundary(
+        bad_payload, side=SIDE_CONSUMER, emit_diagnostic_fn=emitter,
+      )
+    self.assertEqual(len(emitter.calls), 1)
+    self.assertNotEqual(emitter.calls[0]["phase"], PhaseCode.MODEL_INPUT_CONTRACT)
+
+
+if __name__ == "__main__":
+  unittest.main()
