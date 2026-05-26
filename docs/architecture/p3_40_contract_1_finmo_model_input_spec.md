@@ -970,56 +970,65 @@ These are decisions I'm asking you to confirm before code lands:
 
 ## 8. Known residual cleanups (out of scope for Contract 1)
 
-- **R1.** Dead `FinancialModelInputs.to_model_input_json` method at
-  [model_inputs.py:537](../../python/financial_model_engine/model_inputs.py#L537).
-  Only `from_model_input_json` is called in production. The
-  `to_model_input_json` produces the unused
-  `engine_contract_version: "financial_model_inputs_v1"` shape.
-  Delete in a follow-up commit, OR repurpose it as the new
-  contract-aware producer.
+- **R1.** ~~Dead `FinancialModelInputs.to_model_input_json` method at
+  [model_inputs.py:537](../../python/financial_model_engine/model_inputs.py#L537).~~
+  **ASSESSED in P3.40 Contract Layer Cleanup Commit 4/6;
+  METHOD KEPT.** Reader/writer audit confirmed ZERO PRODUCTION
+  callers but TWO test callers
+  ([tests/test_financial_model_engine_model_inputs.py:145
+  + :180](../../tests/test_financial_model_engine_model_inputs.py#L145))
+  exercising the round-trip dataclass→JSON path. Per the Cleanup 3
+  precedent (any reader including tests blocks removal): tests
+  count as callers; the method is testably exercised even though
+  production doesn't use it. The method serves as a documented
+  round-trip utility and any future contract-aware producer would
+  build on it. NOT REMOVED.
 
-- **R2.** Production typo `"model_input_balancehseet"` in
-  [finmo_bridge.py:2846](../../python/client_intake_and_finmo/finmo_bridge.py#L2846).
-  Renaming requires migrating the workbook reader; coordinate then.
+- **R2.** ~~Production typo `"model_input_balancehseet"` in
+  [finmo_bridge.py:2846](../../python/client_intake_and_finmo/finmo_bridge.py#L2846).~~
+  **DEFERRED beyond P3.40 Cleanup Pass.** Renaming requires a
+  coordinated migration of the workbook reader (uses the typo as a
+  named range identifier). The typo is structurally inert (just a
+  string key), causing no runtime issue. Coordinated cleanup
+  belongs in a workbook-builder follow-up commit, not the
+  contract-layer cleanup pass.
 
-- **R3.** Top-level fields `lever_catalog`, `controller_write_levers`,
+- **R3.** ~~Top-level fields `lever_catalog`, `controller_write_levers`,
   `derived_driver_policies`, `derived_driver_runtime`, per-row
   `seed_provenance_json` / `capex_depreciation` /
   `payroll_supported_capacity` / `balance_sheet_contextual_seed` /
-  `capacity_shaping` are all typed as `Dict[str, Any]` opaque blobs
-  in Contract 1. Each is a candidate for its own typed contract in a
-  future commit.
+  `capacity_shaping` typed as opaque blobs.~~ **DEFERRED beyond
+  P3.40 Cleanup Pass.** Each blob is a candidate for its own typed
+  sub-contract retrofit (analog to the 5b/5c/5d Contract 5
+  retrofit pattern). Each retrofit needs its own trace + spec doc
+  + multi-commit implementation — multi-week work, separate from
+  the cleanup pass. Speculative defense-in-depth without a
+  documented downstream consumer warranting the typing investment.
+  Re-open as a separate "Contract 1 sub-shape typing wave" project
+  if/when a consumer needs structural typing of a specific blob.
 
-- **R4.** Inconsistency in production: `apply_derived_driver_policies_to_model_input`
-  stamps `derived_driver` on capex/depreciation/balance-sheet rows
-  but does NOT set `controller_write=False` on them (unlike the
-  payroll row which gets both). If you want to align them, that's a
-  pre-Contract-1 cleanup.
+- **R4.** ~~Inconsistency: `apply_derived_driver_policies_to_model_input`
+  stamps `derived_driver` on capex/depreciation/balance-sheet
+  rows but does NOT set `controller_write=False`.~~ **DEFERRED
+  beyond P3.40 Cleanup Pass.** This is a pre-Contract-1
+  production cleanup, not contract-layer scope. The inconsistency
+  doesn't affect Contract 1's typing (both shapes pass the
+  contract). Address in a focused finmo_bridge.py harmonization
+  commit when production behavior changes warrant it.
 
-- **R6.** Deep migration of finmo_bridge.py to typed contract
-  attribute access. Commit 5 captured the validated contract instance
-  inside `build_python_finmo_json` and removed the topmost defensive
-  `if isinstance(model_input_json, dict) else {}` wrappers that were
-  redundant post-gate. The per-row `(row or {}).get(...)` patterns
-  inside helpers (`_build_model_input_overlay`,
-  `apply_derived_driver_policies_to_model_input`, capacity-shaping
-  helpers, etc.) remain in place. Migrating those is higher-risk
-  because many helpers are called from multiple paths (not only from
-  the validated `build_python_finmo_json` entry); each helper needs
-  its own decision on whether to validate at its own entry vs trust
-  callers. Follow-up commits (Contract 1 series-tail or a separate
-  series) can migrate section-by-section once the broader call graph
-  is documented.
+- **R6.** ~~Deep migration of finmo_bridge.py to typed contract
+  attribute access.~~ **DEFERRED beyond P3.40 Cleanup Pass.**
+  Multi-week work scoped to its own series. The remaining
+  defensive `(row or {}).get(...)` patterns inside per-row
+  helpers stay; each helper needs its own decision on
+  validate-at-entry vs trust-caller. Cleanup pass intentionally
+  doesn't touch this — too invasive to batch into a cleanup
+  commit.
 
-- **R7.** finmo_bridge.py has 490 `.get(...)` occurrences total; only
-  ~12 match the `(slot or {})` / `(row or {})` defensive-wrap pattern.
-  The remaining ~478 reads are over Optional sub-fields and stay
-  defensive by the contract's design (Optional fields permit
-  fallback). A future contract tightening could move some of these
-  Optional sub-fields to typed sub-contracts (e.g., a typed
-  `CapexDepreciation` sub-contract for the per-row
-  `capex_depreciation` blob), at which point the corresponding
-  `.get(...)` patterns can also become typed access.
+- **R7.** ~~finmo_bridge.py has 478 defensive `.get(...)` calls.~~
+  **DEFERRED beyond P3.40 Cleanup Pass.** Depends on R3 (sub-
+  contract typing wave) to make typed access possible for the
+  Optional sub-field reads. R3 deferred → R7 deferred.
 
 ---
 
