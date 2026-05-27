@@ -740,7 +740,7 @@ Contracts 3 + 4. Lockstep PhaseCode count 17 → 18.
 - R8 → **DONE**: Contract 5b retrofit landed (b7b8da6/662d2a1/fc91083).
 - R9 → **DONE**: Contract 5c retrofit landed (763577b/8efdc6e/8942527).
 - R10 → **DONE**: Contract 5d retrofit landed (863b393/adb28d1/6c71a14).
-- R11 → **NOT PURSUED**: financials_json / financials_year1_json / marketing_model_json / planning_context_summary_json / fulfillment_json are python-aggregated shapes (NOT OpenAI-schema-enforced). The 5e/f/g/h retrofit track would follow a different pattern than 5b/c/d; no current consumer warrants the work.
+- R11 → **DEFERRED** (reclassified from NOT PURSUED per cloud Claude post-audit reframing). 5e/f/g/h typing (`financials_json` / `financials_year1_json` / `marketing_model_json` / `planning_context_summary_json` / `fulfillment_json`) requires per-producer trace work since these shapes have no OpenAI schema as authoritative source. No consumer is currently breaking on the lack of typing. Out of scope for the 5b/c/d retrofit cleanup pass. The skip is defensible. Whoever picks this up after Fix #1/Fix #2 should know they're closing a real coverage gap, not doing speculative work — python-aggregated shapes have more drift risk than OpenAI-schema shapes precisely because the upstream schema enforcement is absent.
 - R12 → **DEFERRED**: fulfillment_json audit+drop pending Flag 1 (c) producer telemetry.
 - R13 → **DEFERRED**: `_apply_scoped_patch` promotion is a follow-up patch-layer cleanup.
 - R14 → **DEFERRED**: legacy-table import error squelching is a finmo_bridge cleanup.

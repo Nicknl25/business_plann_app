@@ -64,16 +64,29 @@ consistency invariants permitted (added in Cleanup 5 R8/R9).
 
 ## 3. R-residual total inventory
 
-Counts across all 10 spec docs §8 sections (post-Cleanup 6
-final dispositions):
+Counts across all 10 spec docs §8 sections (post-Cleanup 6 +
+post-audit disposition updates):
 
 | Disposition | Count |
 |---|---|
 | DONE (addressed in Cleanups 1-5 with SHA reference) | 13 |
 | ASSESSED + KEPT (investigated; no change warranted per directive's "do NOT force composition / removal" guideline) | 4 |
-| DEFERRED (explicit rationale: no current use case / speculative defense-in-depth / depends on architectural fixes / etc.) | 46 |
-| NOT PURSUED (5e/f/g/h python-aggregated track skipped per recommendation) | 1 |
-| **Total R-residuals across all 10 specs** | **64** |
+| DEFERRED (explicit rationale: no current use case / speculative defense-in-depth / depends on architectural fixes / intake-remediation workstream / etc.) | 48 |
+| NOT PURSUED | 0 |
+| **Total R-residuals across all 10 specs** | **65** |
+
+**Post-audit accounting:**
+- Original Cleanup-6 totals: 13 + 4 + 46 + 1 = 64.
+- Contract 5 R11 (5e/f/g/h skip) reclassified NOT PURSUED → DEFERRED
+  per cloud Claude reframing ("requires per-producer trace work"
+  rather than "different pattern"). +1 DEFERRED, -1 NOT PURSUED, 0
+  net change.
+- Contract 5c R-d-bis newly tracked (target_market_summary parallel
+  bug surfaced by intake-side research at 8a98e26). +1 DEFERRED,
+  +1 total.
+- Contract 5d R-d rationale rewritten (reclassified to intake-
+  remediation workstream); bucket unchanged.
+- Post-audit totals: 13 + 4 + 48 + 0 = 65.
 
 ### DONE inventory (13)
 
@@ -113,11 +126,50 @@ final dispositions):
 | 3/6 | 0d48fac | Legacy fallback assessments + R10/R11 phantom-write removals | Mirror phantom-writes dropped; fallback chains KEPT for legacy support |
 | 4/6 | c196ef0 | Contract 1 R1-R7 dead-code assessments | R1 ASSESSED+KEPT (test callers); R2/R3/R4/R6/R7 DEFERRED |
 | 5/6 | d92bfe2 | Cheap defense-in-depth (R8/R9/R17/R14) | Structural cross-field invariants + length-warning at source + classmethod adapter |
-| 6/6 | (this commit) | Documentation closeout | 10 spec docs §8 dispositions + this top-level summary |
+| 6/6 | 4d59e3d | Documentation closeout | 10 spec docs §8 dispositions + this top-level summary |
+| (post-audit) | (this commit) | Post-audit disposition updates | R-d reclassified to intake-remediation; R-d-bis tracked; R11 reframed per cloud Claude |
 
 ---
 
-## 5. Architectural milestone statement
+## 5. Post-audit intake-remediation handoff
+
+Cloud Claude's post-Contract-7 audit (full text in conversation
+history) flagged Contract 5d R-d (`key_people_summary` submission
+gate) as broken production submission path. Claude Code VS's
+intake-side research
+([docs/architecture/intake_side_research_post_audit.md](intake_side_research_post_audit.md),
+commit 8a98e26) established that:
+
+- The pop machinery is intentional design (commit e57ff49
+  single-source-of-truth).
+- The bug class includes a parallel for `target_market_summary`
+  (now tracked as Contract 5c R-d-bis).
+- The proper fix is Option 3 (replace proxy-summary gate checks
+  with structural checks on primary data).
+- The fix requires intake-domain context and belongs to a
+  separate intake-remediation workstream, not contract-layer
+  cleanup.
+
+Both residuals (Contract 5d R-d + Contract 5c R-d-bis) are
+reclassified from contract-layer cleanup to intake-remediation
+workstream. Fix #1 and Fix #2 do not depend on either residual
+being fixed.
+
+This handoff note exists so the intake-remediation pass starts
+with explicit awareness of:
+
+- The 2 parallel summary-field issues that need Option 3
+  treatment.
+- The design intent that must be preserved during the fix
+  (single-source-of-truth via pop).
+- The dual-handler split (LEGACY `target_market.py` +
+  `people_capability.py` vs UNIFIED `intake_consult.py`)
+  documented in §4 of the research doc.
+- The frontend's use of the UNIFIED handler per the research.
+
+---
+
+## 6. Architectural milestone statement
 
 **P3.40 contract layer end-to-end.**
 
@@ -135,9 +187,12 @@ Boundaries 1-7 contract-typed with:
   value-constraint policy: type JSON SHAPE only, no VALUE-level
   content constraints
 
-R-residual inventory: 13 DONE + 4 ASSESSED-KEPT + 46 DEFERRED
-+ 1 NOT PURSUED = 64 total. Every R-residual has an explicit
-disposition recorded in its respective spec doc §8.
+R-residual inventory (post-audit): 13 DONE + 4 ASSESSED-KEPT +
+48 DEFERRED + 0 NOT PURSUED = 65 total. Every R-residual has an
+explicit disposition recorded in its respective spec doc §8.
+The 2 intake-side residuals (Contract 5d R-d + Contract 5c
+R-d-bis) are formally handed off to the intake-remediation
+workstream per §5 above.
 
 §0 policy held across 5b/5c/5d retrofits + R8/R9 structural
 cross-field invariants in Cleanup 5: no Literal narrowing for
@@ -156,15 +211,23 @@ rather than removed pre-emptively.
 
 ---
 
-## 6. Verification status
+## 7. Verification status
 
-**Cleanup Commit 6 complete. Awaiting web Claude verification
-before P3.40 contract layer is declared FULLY COMPLETE.
-Cloud Claude audit follows.**
+**P3.40 contract layer FULLY COMPLETE.**
 
-The contract layer is functionally complete and verified at the
-test suite level. Final FULLY COMPLETE designation is gated on:
-1. Web Claude verification of the 6-commit cleanup pass.
-2. Nick's handoff to cloud Claude for final architectural audit.
+7 boundary contracts + 3 sub-contract retrofits done. 6-commit
+cleanup pass done. Post-audit disposition updates applied per
+cloud Claude + Claude Code VS findings.
+
+Remaining intake-side work (Contract 5d R-d + Contract 5c
+R-d-bis) explicitly handed off to intake-remediation
+workstream with full design-intent documentation in §5 above
+and in
+[intake_side_research_post_audit.md](intake_side_research_post_audit.md).
+
+Ready for Fix #1 (steady-state viability) and Fix #2 (headcount
+derivation) to begin on top of this foundation.
+
+Test suite: 637 P3.40 + 18 adjacent = 655 combined, all passing.
 
 This doc is the input artifact for both.

@@ -653,6 +653,7 @@ Expected total: 8 flags. None require ``Literal`` /
 - R-g → **DEFERRED**: Tighten Optional pending DB audit (same as 5b R-h).
 - R-h → **DEFERRED**: Conditional-required CSV-extras check enforced downstream at intake_submission.py:240-263.
 - R-i → **DONE**: Contract 6 R16 + Contract 7 R9 unblocked; addressed in Cleanup 2/6.
+- R-d-bis → **DEFERRED to intake-remediation workstream**. `target_market_summary` parallel bug. Surfaced during cloud Claude audit response research ([docs/architecture/intake_side_research_post_audit.md](intake_side_research_post_audit.md), commit 8a98e26). Structurally identical to Contract 5d R-d (`key_people_summary`): (1) `target_market_summary` popped at intake_consult.py:10863 (intentional, same single-source-of-truth pattern as `key_people_summary`); (2) downstream gate-read at financials.py:95 hard-fails on the popped field; (3) the summary is a denormalized view of the per-segment target market data; (4) same Option 3 fix applies (replace proxy-summary check with structural check on primary data); (5) same disposition: intake-remediation workstream, not contract-layer cleanup. This residual was not surfaced during the original Contract 5c spec drafting because the cleanup-pass discipline didn't catch the parallel between `key_people_summary` and `target_market_summary`. Documented here for the intake remediation pass to address both fields together.
 
 - **R-a.** ``confidence`` field range — schema is unbounded
   ``number``. Per §0 no range constraint (matches 5b R-b).
