@@ -13,6 +13,18 @@ from client_intake_and_finmo.intake_submission import (
 )
 
 
+# P3.41 intake-remediation circumvention (mirrors api_handlers/financials.py:_SKIP_INTAKE_REMEDIATION_GATES)
+# See docs/architecture/p3_40_contract_layer_closeout.md §5 "Post-audit intake-remediation handoff"
+# See docs/architecture/intake_side_research_post_audit.md (commit 8a98e26)
+# When True: bypasses the duplicated second-stage summary-gate checks
+# (key_people_summary + target_market_summary in required_text_fields). Cloud Claude's audit
+# (Section G) flagged this duplication; without mirroring here the second-stage validation
+# kills the submission after the first-stage gate already passed. Proper fix lives in the
+# intake-remediation workstream (Contract 5d R-d / Contract 5c R-d-bis). MUST be set False
+# before any production submission path is exercised.
+_SKIP_INTAKE_REMEDIATION_GATES = True
+
+
 class IntakeValidationError(Exception):
   def __init__(self, errors: Dict[str, str]):
     super().__init__("invalid_request")
@@ -228,7 +240,14 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "email_address",
     "business_start_date",
   )
+  _intake_remediation_bypassed_fields = (
+    {"target_market_summary", "key_people_summary"}
+    if _SKIP_INTAKE_REMEDIATION_GATES
+    else set()
+  )
   for key in required_text_fields:
+    if key in _intake_remediation_bypassed_fields:
+      continue
     if payload.get(key) is None or not str(payload.get(key)).strip():
       errors[key] = f"{key} is required"
 

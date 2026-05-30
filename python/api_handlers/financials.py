@@ -4,6 +4,19 @@ from typing import Any, Dict, List
 from flask import jsonify
 
 
+# P3.41 intake-remediation circumvention
+# See docs/architecture/p3_40_contract_layer_closeout.md §5 "Post-audit intake-remediation handoff"
+# See docs/architecture/intake_side_research_post_audit.md (commit 8a98e26)
+# When True: bypasses the 2 summary-gate hard-fails (key_people_summary + target_market_summary).
+# These gates are KNOWN BROKEN because they read fields that are intentionally popped before
+# persistence per commit e57ff49 (single-source-of-truth enforcement). Proper fix is Option 3
+# (replace proxy-summary check with structural check on primary data -- see intake-remediation
+# workstream, Contract 5d R-d / Contract 5c R-d-bis). This flag exists ONLY so E2E can flow
+# through to post-intake for Fix #2 / Fix #1 verification. MUST be set False before any
+# production submission path is exercised.
+_SKIP_INTAKE_REMEDIATION_GATES = True
+
+
 def post_financials_handler(*, app, request):
   """
   Relocated verbatim from python/api.py:post_financials (Phase 1 sweep).
@@ -93,7 +106,7 @@ def post_financials_handler(*, app, request):
       raise IntakeValidationError({"draft_id": "target_market_json must be a JSON object."})
 
     target_market_summary = str(tm_obj.get("target_market_summary") or "").strip()
-    if not target_market_summary:
+    if not target_market_summary and not _SKIP_INTAKE_REMEDIATION_GATES:
       raise IntakeValidationError(
         {"draft_id": "Target market consult is missing target_market_summary."}
       )
@@ -162,7 +175,7 @@ def post_financials_handler(*, app, request):
       raise IntakeValidationError({"draft_id": "people_json must be a JSON object."})
 
     key_people_summary = str(pc_obj.get("key_people_summary") or "").strip()
-    if not key_people_summary:
+    if not key_people_summary and not _SKIP_INTAKE_REMEDIATION_GATES:
       raise IntakeValidationError(
         {"draft_id": "People & Capability consult is missing key_people_summary."}
       )
