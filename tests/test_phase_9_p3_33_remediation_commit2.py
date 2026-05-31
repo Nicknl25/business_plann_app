@@ -167,8 +167,12 @@ class DriversEnvelopeTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class CapexBalanceSeedEnvelopeTest(unittest.TestCase):
+  # P3.41 NexGen E2E iter 8: envelope check now reads maintenance_rate
+  # (canonical ratio form, matches every downstream consumer) rather than
+  # the percent-form maintenance_capex_percent. Tests updated to assert
+  # the corrected field.
   def test_maintenance_capex_above_one_rejected(self) -> None:
-    mc = {"maintenance_capex_percent": 1.5}
+    mc = {"maintenance_rate": 1.5}
     v = _capex_envelope(mc, None, None)
     self.assertTrue(any(
       x["code"] == "envelope_violation_maintenance_capex_out_of_unit_interval"
@@ -176,7 +180,7 @@ class CapexBalanceSeedEnvelopeTest(unittest.TestCase):
     ))
 
   def test_maintenance_capex_negative_rejected(self) -> None:
-    mc = {"maintenance_capex_percent": -0.1}
+    mc = {"maintenance_rate": -0.1}
     v = _capex_envelope(mc, None, None)
     self.assertTrue(any(
       x["code"] == "envelope_violation_maintenance_capex_out_of_unit_interval"
@@ -215,7 +219,9 @@ class CapexBalanceSeedEnvelopeTest(unittest.TestCase):
     self.assertEqual(v, [])
 
   def test_clean_payloads_no_violations(self) -> None:
-    mc = {"maintenance_capex_percent": 0.02}
+    # P3.41 NexGen E2E iter 8: maintenance_rate (ratio) replaces
+    # maintenance_capex_percent (percent) as the envelope-checked field.
+    mc = {"maintenance_rate": 0.02}
     bs = {"balance_sheet_seed_grid": [
       {"lever_id": "balance_sheet::AR Days",
        "applicable": True, "seed_value": 30},

@@ -48,21 +48,31 @@ def _check_envelope_violations(
   payloads. Catches structurally-impossible values the proposers might
   emit on edge inputs (negative capex, days < 0, percent > 1)."""
   violations: List[Dict[str, Any]] = []
-  # maintenance_capex_percent — must be a finite number in [0, 1].
+  # maintenance_rate — must be a finite ratio in [0, 1]. P3.41 NexGen E2E
+  # iter 8 fix: previously read mc_payload["maintenance_capex_percent"]
+  # against this [0, 1] bound. The producer emits TWO fields by convention
+  # (post_intake_contracts/runner.py:1132/1140): maintenance_capex_percent
+  # = clamped_rate * 100 (percent form, 0..100) and maintenance_rate =
+  # clamped_rate (ratio form, 0..1). Every downstream consumer reads
+  # maintenance_rate (finmo_bridge.py:1266/:1331/:1695). The check was
+  # dead-on-arrival on the percent value (any valid band emits >1.0).
+  # Read the canonical ratio field; keep the [0, 1] sanity floor. The
+  # precise business band [0.02, 0.15] stays enforced at finmo_bridge --
+  # this is the structural sanity check, not the business validator.
   if isinstance(mc_payload, dict):
-    pct = mc_payload.get("maintenance_capex_percent")
-    if pct is not None:
-      if not _is_finite_number(pct):
+    rate = mc_payload.get("maintenance_rate")
+    if rate is not None:
+      if not _is_finite_number(rate):
         violations.append({
           "code": "envelope_violation_maintenance_capex_not_finite",
-          "actual": pct,
+          "actual": rate,
         })
       else:
-        pf = float(pct)
-        if pf < 0.0 or pf > 1.0:
+        rf = float(rate)
+        if rf < 0.0 or rf > 1.0:
           violations.append({
             "code": "envelope_violation_maintenance_capex_out_of_unit_interval",
-            "actual": pf,
+            "actual": rf,
           })
   # balance_sheet_seed_grid rows — each seed_value must be finite ≥ 0.
   if isinstance(bs_payload, dict):
