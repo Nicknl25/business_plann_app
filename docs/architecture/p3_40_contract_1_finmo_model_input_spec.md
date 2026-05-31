@@ -1036,6 +1036,23 @@ These are decisions I'm asking you to confirm before code lands:
   blobs. R3's sub-contract typing wave (still deferred) now covers 8
   blobs instead of 5. Universal producer paths; not NexGen-specific.
 
+  **P3.41 NexGen E2E iter 4 amendment:** `ScheduleRow` was missing the
+  4 period-scope fields already declared on `RevenueRow` / `ExpenseRow`
+  / `BalanceSheetRow`. The producer
+  [`_full_quarter_scope`](../../python/client_intake_and_finmo/finmo_bridge.py#L244)
+  stamps `valid_quarter_indices` / `valid_period_columns` /
+  `total_period_count` / `writable_full_quarters_only` on every row
+  template, including schedule rows (spread via
+  [`_empty_controller_write_row`](../../python/client_intake_and_finmo/finmo_bridge.py#L2949)).
+  Inventory oversight in the original Contract 1 — the 3 other row
+  classes had these declared, `ScheduleRow` did not, and the
+  `extra="forbid"` policy tripped on the producer-stamped values.
+  All 4 added as `Optional[List[int]] / Optional[List[str]] /
+  Optional[int] / Optional[bool]` first-cut typing matching the
+  pre-existing declarations on the other row classes (no R3 sub-
+  contract typing implied — these are scalars/flat lists). Universal
+  across all businesses; not NexGen-specific.
+
 - **R4.** ~~Inconsistency: `apply_derived_driver_policies_to_model_input`
   stamps `derived_driver` on capex/depreciation/balance-sheet
   rows but does NOT set `controller_write=False`.~~ **DEFERRED

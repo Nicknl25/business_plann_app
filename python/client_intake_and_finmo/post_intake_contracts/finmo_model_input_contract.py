@@ -518,6 +518,18 @@ class ScheduleRow(BaseModel):
   derived_driver: Optional[str] = None
   capex_depreciation: Optional[Dict[str, Any]] = None  # only on Capital Expenditures
   seed_provenance_json: Optional[Dict[str, Any]] = None
+  # Period-scope fields stamped on every row by the template
+  # (``_full_quarter_scope`` at finmo_bridge.py:244, spread into
+  # schedule rows via ``_empty_controller_write_row`` at
+  # finmo_bridge.py:2949-2956). Universal across all businesses;
+  # mirrors the same 4 fields already declared on Revenue/Expense/
+  # BalanceSheet rows. Inventory oversight surfaced by NexGen E2E
+  # iter 4 -- the producer is universal, the contract row class
+  # was the holdout.
+  valid_quarter_indices: Optional[List[int]] = None
+  valid_period_columns: Optional[List[str]] = None
+  total_period_count: Optional[int] = None
+  writable_full_quarters_only: Optional[bool] = None
 
   @field_validator("values")
   @classmethod
