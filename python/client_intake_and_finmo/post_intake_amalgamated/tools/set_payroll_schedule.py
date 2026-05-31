@@ -33,8 +33,21 @@ def _is_finite_number(v: Any) -> bool:
 
 def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
   """B6 — economic envelope check for payroll contracts. Catches
-  malformations the per-class band check misses: negative headcounts,
-  negative wages, target_payroll_percent_of_revenue outside [0, 1]."""
+  malformations the per-class band check misses:
+  target_payroll_percent_of_revenue outside [0, 1].
+
+  P3.41 audit F-C2: the original implementation also had role/wage and
+  schedule sub-blocks that read fields no producer emits anywhere in
+  python/client_intake_and_finmo/ (`roles`/`role_specs`/`headcount`/
+  `fte_count`/`wage_per_employee`/`wage`/`schedule`/`quarter_schedule`/
+  `total`/`total_headcount`/`total_payroll_dollars` -- all zero
+  producer occurrences). Both sub-blocks were dead-on-arrival. Deleted;
+  the canonical validator at validate_payroll_headcount_contract_payload
+  still enforces structural correctness on the real producer shape
+  (payroll_headcount_grid + starting_fte/ending_fte/hires). Adding new
+  per-row invariants on the real grid is a separate design task --
+  out of scope for the audit batch.
+  """
   violations: List[Dict[str, Any]] = []
   if not isinstance(contract, dict):
     return violations
@@ -53,41 +66,6 @@ def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]
           "code": "envelope_violation_payroll_target_out_of_unit_interval",
           "actual": tppor_f,
         })
-  # Headcount + wage per role: headcount integer ≥ 0; wage ≥ 0 finite.
-  roles = contract.get("roles") or contract.get("role_specs") or []
-  if isinstance(roles, list):
-    for idx, role in enumerate(roles):
-      if not isinstance(role, dict):
-        continue
-      hc = role.get("headcount", role.get("fte_count"))
-      if hc is not None:
-        if not _is_finite_number(hc) or float(hc) < 0 or float(hc) != int(float(hc)):
-          violations.append({
-            "code": "envelope_violation_headcount_invalid",
-            "role_index": idx, "role_id": role.get("id") or role.get("name"),
-            "actual": hc,
-          })
-      wage = role.get("wage_per_employee", role.get("wage"))
-      if wage is not None:
-        if not _is_finite_number(wage) or float(wage) < 0:
-          violations.append({
-            "code": "envelope_violation_wage_invalid",
-            "role_index": idx, "role_id": role.get("id") or role.get("name"),
-            "actual": wage,
-          })
-  # Per-quarter schedule total ≥ 0 (when present).
-  schedule = contract.get("schedule") or contract.get("quarter_schedule")
-  if isinstance(schedule, list):
-    for q_idx, row in enumerate(schedule, start=1):
-      if not isinstance(row, dict):
-        continue
-      total = row.get("total") or row.get("total_headcount") or row.get("total_payroll_dollars")
-      if total is not None:
-        if not _is_finite_number(total) or float(total) < 0:
-          violations.append({
-            "code": "envelope_violation_schedule_quarter_negative",
-            "quarter_index": q_idx, "actual": total,
-          })
   return violations
 
 

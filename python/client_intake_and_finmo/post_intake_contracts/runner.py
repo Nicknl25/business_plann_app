@@ -1686,12 +1686,57 @@ def _stage_family_ni_floors(
   q11_min = float(_safe_float(validator_rules.get("q11_to_q20_min_net_income_margin_floor")) or 0.0)
   q5_floor = _safe_float(validator_rules.get("q5_to_q20_min_net_income_margin_floor"))
   if str(stage_family).lower() == "operational":
-    # Operational stage: validator requires ni_floor >= 0 from Q1
-    # when validator_rules.operational_requires_nonnegative_from_q1 is
-    # True. Default to non-negative throughout.
-    base = [0.0] * 4 + [0.02] * 16
+    # P3.41 NexGen E2E iter 9 + audit F-J1: derive the 20-quarter floor
+    # array entirely from the planning-mode policy values now resolved
+    # into validator_rules at post_intake_mapping.py:2948-2964. Zero
+    # hardcoded floor numbers in this branch -- all values come from
+    # policy. The previous hardcode (Q1-Q4=0.0 + Q5-Q20=0.02) was
+    # dead-on-arrival for operational businesses whose policy stage-
+    # shift set a higher q11_q20 floor (NexGen on normalize mode:
+    # q11_q20_operational=0.05 > 0.02 -> 10 violations Q11..Q20).
+    #
+    # Policy-key -> validator-key aliasing (per the policy resolver):
+    #   floor_q1_q4  -> validator_rules["q1_to_q20_min_net_income_margin_floor"]
+    #   floor_q5_q10 -> validator_rules["q5_to_q20_min_net_income_margin_floor"]
+    #   floor_q11_q20-> validator_rules["q11_to_q20_min_net_income_margin_floor"]
+    # The validator-side key NAMES are confusingly broad (q5_to_q20
+    # actually carries the q5_q10 stage value), but the validator
+    # CHECKS use the matching quarter ranges: q5_to_q20 applies Q5+,
+    # q11_to_q20 applies Q11+, etc. Producer floors derived below
+    # satisfy every validator floor check by construction.
+    #
+    # Policy-defined universal viability floor per post_intake_mapping.py:2956
+    # ("q11_q20 floor binds at 0.0 for every (mode, stage)"). Used as
+    # the baseline when a policy floor is absent (NOT a magic number --
+    # this IS the policy doctrine, made explicit).
+    universal_viability_floor = 0.0
+    q1_q4_policy = _safe_float(validator_rules.get("q1_to_q20_min_net_income_margin_floor"))
+    q5_q10_policy = _safe_float(validator_rules.get("q5_to_q20_min_net_income_margin_floor"))
+    q11_q20_policy = _safe_float(validator_rules.get("q11_to_q20_min_net_income_margin_floor"))
+    q10_min_policy = _safe_float(validator_rules.get("q10_min_net_income_margin_floor"))
+
+    def _operational_floor_for_quarter(q: int) -> float:
+      if q <= 4:
+        return float(q1_q4_policy) if q1_q4_policy is not None else universal_viability_floor
+      if q <= 9:
+        return float(q5_q10_policy) if q5_q10_policy is not None else universal_viability_floor
+      if q == 10:
+        candidates: List[float] = [universal_viability_floor]
+        if q5_q10_policy is not None:
+          candidates.append(float(q5_q10_policy))
+        if q10_min_policy is not None:
+          candidates.append(float(q10_min_policy))
+        return max(candidates)
+      candidates = [universal_viability_floor]
+      if q5_q10_policy is not None:
+        candidates.append(float(q5_q10_policy))
+      if q11_q20_policy is not None:
+        candidates.append(float(q11_q20_policy))
+      return max(candidates)
+
+    base = [_operational_floor_for_quarter(q) for q in range(1, 21)]
     if bool(validator_rules.get("operational_requires_nonnegative_from_q1")):
-      base = [max(0.0, v) for v in base]
+      base = [max(universal_viability_floor, v) for v in base]
     return base
   # Glide from negative floor up to positive by Q11.
   floors: List[float] = []

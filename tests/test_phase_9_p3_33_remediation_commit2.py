@@ -63,12 +63,11 @@ class StageRampEnvelopeTest(unittest.TestCase):
           and x["field"] == "marketing_max" for x in v)
     )
 
-  def test_util_max_below_floor_rejected(self) -> None:
-    contract = {"quarter_ramp_grid": [
-      {"q": 1, "util_max": 0.3, "util_floor": 0.5},
-    ]}
-    v = _stage_ramp_envelope(contract)
-    self.assertTrue(any(x["code"] == "envelope_violation_util_max_below_floor" for x in v))
+  # P3.41 audit F-C1: deleted test_util_max_below_floor_rejected -- the
+  # util_max >= util_floor consistency check was dead (both referenced
+  # fields were wrong/nonexistent in the producer's emission shape).
+  # The replacement coverage -- max_util ratio bound -- lives in
+  # tests/test_p3_41_round1_audit_batch.py::StageRampEnvelopeMaxUtilTest.
 
   def test_non_monotonic_rev_max_rejected(self) -> None:
     contract = {"quarter_ramp_grid": [
@@ -102,20 +101,13 @@ class PayrollEnvelopeTest(unittest.TestCase):
       for x in v
     ))
 
-  def test_negative_headcount_rejected(self) -> None:
-    contract = {"roles": [{"id": "eng", "headcount": -2, "wage_per_employee": 1000}]}
-    v = _payroll_envelope(contract)
-    self.assertTrue(any(x["code"] == "envelope_violation_headcount_invalid" for x in v))
-
-  def test_fractional_headcount_rejected(self) -> None:
-    contract = {"roles": [{"id": "eng", "headcount": 2.5, "wage_per_employee": 1000}]}
-    v = _payroll_envelope(contract)
-    self.assertTrue(any(x["code"] == "envelope_violation_headcount_invalid" for x in v))
-
-  def test_negative_wage_rejected(self) -> None:
-    contract = {"roles": [{"id": "eng", "headcount": 2, "wage_per_employee": -100}]}
-    v = _payroll_envelope(contract)
-    self.assertTrue(any(x["code"] == "envelope_violation_wage_invalid" for x in v))
+  # P3.41 audit F-C2: deleted test_negative_headcount_rejected,
+  # test_fractional_headcount_rejected, test_negative_wage_rejected --
+  # the roles/headcount/wage_per_employee arm was dead (no producer
+  # emits any of those fields anywhere in python/client_intake_and_finmo/).
+  # Adding equivalent invariants on the real payroll_headcount_grid
+  # shape (starting_fte/ending_fte/hires) is a separate design task
+  # outside the audit batch.
 
   def test_clean_payroll_no_violations(self) -> None:
     contract = {

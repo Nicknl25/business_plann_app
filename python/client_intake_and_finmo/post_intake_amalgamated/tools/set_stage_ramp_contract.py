@@ -39,7 +39,11 @@ def _string(value: Any) -> str:
 # a negative cost ratio or a utilization > 1).
 _RATIO_FIELDS_STAGE_RAMP = (
   "cogs_max", "marketing_max", "rd_max", "ga_max",
-  "util_max", "util_floor",
+  # P3.41 audit F-C1: was "util_max" (dead -- producer emits "max_util"
+  # at post_intake_contracts/runner.py:2017); renamed so the [0, 1]
+  # ratio sanity bound actually fires on the real utilization field.
+  # "util_floor" removed (no producer emits any such field).
+  "max_util",
 )
 
 
@@ -103,13 +107,10 @@ def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]
           "code": "envelope_violation_ratio_out_of_unit_interval",
           "quarter_index": q_idx, "field": field, "actual": vf,
         })
-    # util_max >= util_floor (consistency).
-    um = row.get("util_max"); uf = row.get("util_floor")
-    if _is_finite_number(um) and _is_finite_number(uf) and float(um) < float(uf):
-      violations.append({
-        "code": "envelope_violation_util_max_below_floor",
-        "quarter_index": q_idx, "util_max": float(um), "util_floor": float(uf),
-      })
+    # P3.41 audit F-C1: deleted the util_max >= util_floor consistency
+    # check -- both referenced fields were wrong/nonexistent (producer
+    # emits "max_util", never emits any "util_floor"). The remaining
+    # max_util ratio bound above replaces the structural sanity coverage.
     # ni_floor — finite (can be negative). Reject NaN/inf only.
     ni = row.get("ni_floor")
     if ni is not None and not _is_finite_number(ni):
