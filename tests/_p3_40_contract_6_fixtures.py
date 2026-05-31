@@ -61,9 +61,18 @@ def valid_cascade_resolver_payload_dict(
   level_used: int = 6,
   trust_flag: str = "naics_6_direct",
   confidence_tier: str = "high",
+  raw_confidence_tier: Optional[str] = "high",
 ) -> Dict[str, Any]:
   """13-field cascade resolver payload per
-  lookup.py:240-256. F5-α: NO cohort_query."""
+  lookup.py:240-256. F5-α: NO cohort_query.
+
+  Default profile matches the happy-path SQL-row emission at
+  lookup.py:240-256 (raw_confidence_tier=\"high\"). Pass
+  ``raw_confidence_tier=None`` to exercise the no-coverage /
+  generic-default / cohort-alternating fallback paths
+  (lookup.py:299/:319/:483) where the producer emits the field
+  as None for any business hitting those paths.
+  """
   return {
     "metric_key": metric_key,
     "benchmark_min": 0.20,
@@ -75,7 +84,7 @@ def valid_cascade_resolver_payload_dict(
     "source_year": 2024,
     "sample_size": 142,
     "confidence_tier": confidence_tier,
-    "raw_confidence_tier": "high",
+    "raw_confidence_tier": raw_confidence_tier,
     "trust_flag": trust_flag,
     "fallback_chain_attempted": ["naics_6"],
   }

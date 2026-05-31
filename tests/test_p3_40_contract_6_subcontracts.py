@@ -194,6 +194,31 @@ class CascadeResolverPayloadContractTest(unittest.TestCase):
     contract = CascadeResolverPayloadContract.model_validate(payload)
     self.assertEqual(contract.fallback_chain_attempted, [])
 
+  def test_raw_confidence_tier_accepts_explicit_none(self) -> None:
+    """PSL2 / P3.41 R-d-raw: Optional[str] = None accepts
+    explicit None. Producer emits None at lookup.py:299
+    (_phase_9_p3_generic_default_payload), :319
+    (_no_coverage_payload), and :483 (cohort_alternating fallback)
+    -- universal across any business hitting those paths."""
+    payload = valid_cascade_resolver_payload_dict(raw_confidence_tier=None)
+    contract = CascadeResolverPayloadContract.model_validate(payload)
+    self.assertIsNone(contract.raw_confidence_tier)
+
+  def test_raw_confidence_tier_accepts_absent(self) -> None:
+    """PSL2 / P3.41 R-d-raw: Optional[str] = None accepts
+    absent (defaults to None)."""
+    payload = valid_cascade_resolver_payload_dict()
+    del payload["raw_confidence_tier"]
+    contract = CascadeResolverPayloadContract.model_validate(payload)
+    self.assertIsNone(contract.raw_confidence_tier)
+
+  def test_raw_confidence_tier_accepts_populated_string(self) -> None:
+    """PSL2 / P3.41 R-d-raw: Optional[str] = None still accepts
+    the happy-path populated value (lookup.py:251)."""
+    payload = valid_cascade_resolver_payload_dict(raw_confidence_tier="medium")
+    contract = CascadeResolverPayloadContract.model_validate(payload)
+    self.assertEqual(contract.raw_confidence_tier, "medium")
+
 
 # ---------------------------------------------------------------------------
 # Shape B -- CohortSqlRowContract

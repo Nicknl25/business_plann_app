@@ -291,6 +291,23 @@ class CascadeResolverPayloadContract(BaseModel):
   2 digits or empty for no_coverage); the contract permits
   empty string as the no_coverage marker but requires
   digit-only when present.
+
+  Per F8 / PSL2 (R-d-raw, P3.41): ``raw_confidence_tier`` types
+  as ``Optional[str] = None``. The producer emits None on three
+  fallback paths at
+  ``post_intake_industry_baseline/lookup.py:299, :319, :483``:
+  (1) ``_phase_9_p3_generic_default_payload`` for the working-
+  capital structure metrics (Targets 3 & 4) when both alternating-
+  walk + baseline come up empty; (2) ``_no_coverage_payload`` when
+  no NAICS coverage exists at any level; (3) cohort_alternating
+  fallback where the cohort-derived bands lack a raw signal from
+  the underlying source row. The paired ``confidence_tier`` always
+  resolves to a Literal value (defaults to ``"generic_default"``
+  on the no-coverage paths), so the resolved tier remains pinned
+  even when the raw signal is absent. This Optional flip is
+  UNIVERSAL across any business hitting these no-coverage / generic-
+  default paths -- not profile-specific. Surfaced by NexGen E2E
+  re-run (b2b SaaS with no NAICS-6 cohort coverage).
   """
 
   metric_key: str = Field(min_length=1)
@@ -303,7 +320,7 @@ class CascadeResolverPayloadContract(BaseModel):
   source_year: Optional[int] = None
   sample_size: Optional[int] = None
   confidence_tier: Literal["high", "medium", "low", "generic_default"]
-  raw_confidence_tier: str
+  raw_confidence_tier: Optional[str] = None
   trust_flag: Literal[
     "naics_6_direct",
     "naics_5_fallback",

@@ -122,7 +122,7 @@ Per trace T1.3 (verbatim from lookup.py:237-256):
 | 8 | `source_year` | `Optional[int]` | Optional (None when SQL NULL) | A |
 | 9 | `sample_size` | `Optional[int]` | Optional | A |
 | 10 | `confidence_tier` | `Literal["high", "medium", "low", "generic_default"]` | required (F8) | A |
-| 11 | `raw_confidence_tier` | `str` | required | A |
+| 11 | `raw_confidence_tier` | `Optional[str]` | required (None on no-coverage / generic-default / cohort-alternating fallback paths per P3.41 R-d-raw) | A |
 | 12 | `trust_flag` | `Literal["naics_6_direct", "naics_5_fallback", "naics_4_fallback", "naics_3_fallback", "naics_2_fallback", "no_coverage"]` | required (F13) | A |
 | 13 | `fallback_chain_attempted` | `List[str]` | Optional (diagnostic-only per F4) | C diagnostic |
 
@@ -1054,6 +1054,7 @@ IndustryBaselineResolvedContract.** All sub-contracts use
 - R23 → **DEFERRED**: End-to-end IndustryBaselineResolvedContract round-trip test; integration scope.
 - R24 → **DONE** via Cleanup 2/6 naics_6 pattern drop (digit-length validation re-located to upstream R17).
 - R25 → **DEFERRED**: cohort_table value harmonization with resolver vocabulary; semantic alignment.
+- R-d-raw → **DONE** in P3.41 (NexGen E2E guarded autonomous fix loop, iteration 1). `CascadeResolverPayloadContract.raw_confidence_tier` retyped `str` → `Optional[str] = None`. Producer emits None at three universal fallback paths in [post_intake_industry_baseline/lookup.py](../../python/client_intake_and_finmo/post_intake_industry_baseline/lookup.py): (1) `_phase_9_p3_generic_default_payload` (line 299) for the Phase 9 P3 working-capital structure metrics when both alternating-walk + baseline lookup come up empty; (2) `_no_coverage_payload` (line 319) when no NAICS coverage exists at any level; (3) cohort_alternating fallback (line 483) where the cohort-derived bands have no raw signal from the source row. Universal: any business hitting these paths gets None. Paired `confidence_tier` Literal stays pinned (defaults to `"generic_default"` on no-coverage paths) -- only the raw signal goes Optional. Surfaced by NexGen E2E re-run after the Contract 5c R-d-bis fix (commit 502ca89) unblocked the INTAKE->POST_INTAKE boundary. NOT a §0 violation: Literal vocabularies untouched; only nullable typing relaxed per PSL2 production-reality-wins.
 
 - **R8.** ~~`get_bands_views[section].count == len(bands)`
   cross-field invariant. Cheap; deferred to keep §4 lean.~~
