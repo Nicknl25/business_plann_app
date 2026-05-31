@@ -749,6 +749,18 @@ class FinmoModelInputContract(BaseModel):
   #: the same function as above.
   derived_driver_runtime: Optional[Dict[str, Any]] = None
 
+  #: Stamped unconditionally by ``finmo_bridge.py:3227-3230`` for every
+  #: business -- ``next_payload.setdefault("solver_input", {})`` followed
+  #: by population with ``DRIVER_MOVEMENT_ENVELOPE_KEY`` and
+  #: ``FINMO_OUTPUT_TARGET_KEY`` payloads from
+  #: ``assemble_driver_movement_envelope`` /
+  #: ``assemble_finmo_output_targets`` at the same site. Universal
+  #: across all businesses; inventory oversight in the original
+  #: Contract 1 (surfaced by NexGen E2E iter 5). Opaque first-cut
+  #: typing matching the pattern of the two derived_driver_* fields
+  #: above; sub-contract structural typing deferred to R3's wave.
+  solver_input: Optional[Dict[str, Any]] = None
+
   @model_validator(mode="after")
   def periods_stub_first_then_live(self) -> "FinmoModelInputContract":
     """``periods[0]`` is the stub (quarter=0); ``periods[1..20]`` are

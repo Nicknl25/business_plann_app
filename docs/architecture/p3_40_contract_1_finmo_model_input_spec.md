@@ -1053,6 +1053,22 @@ These are decisions I'm asking you to confirm before code lands:
   contract typing implied — these are scalars/flat lists). Universal
   across all businesses; not NexGen-specific.
 
+  **P3.41 NexGen E2E iter 5 amendment:** the top-level
+  `FinmoModelInputContract` was missing `solver_input`. Producer
+  [finmo_bridge.py:3227-3230](../../python/client_intake_and_finmo/finmo_bridge.py#L3227)
+  unconditionally stamps `solver_input` via
+  `next_payload.setdefault("solver_input", {})` and then populates
+  it with `DRIVER_MOVEMENT_ENVELOPE_KEY` + `FINMO_OUTPUT_TARGET_KEY`
+  payloads from `assemble_driver_movement_envelope` /
+  `assemble_finmo_output_targets`. Stamped for every business going
+  through `build_python_model_input_json`; not NexGen-specific.
+  Added as `Optional[Dict[str, Any]] = None` first-cut typing
+  matching the pattern of the two pre-existing `derived_driver_*`
+  fields. R3's sub-contract typing wave now covers 9 blobs (8 row-
+  level + 1 top-level); structural typing of the
+  driver_movement_envelope + finmo_output_target sub-shapes
+  deferred to R3.
+
 - **R4.** ~~Inconsistency: `apply_derived_driver_policies_to_model_input`
   stamps `derived_driver` on capex/depreciation/balance-sheet
   rows but does NOT set `controller_write=False`.~~ **DEFERRED
