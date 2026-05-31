@@ -115,48 +115,102 @@ ContractVersion = Literal["finmo_model_input_v3"]
 #: Constant declared at ``python/client_intake_and_finmo/finmo_bridge.py:2897``.
 CanonicalLeverVocabulary = Literal["model_inputs_controller_write_only"]
 
-#: Production ``value_kind`` enum (from ``_revenue_input_semantics`` and
-#: ``_simple_input_semantics`` at ``python/client_intake_and_finmo/finmo_bridge.py:256-320``).
-#: Single enum across all row types — per spec T4, the original directive's
-#: separate per-row-type ``value_kind`` enums did not match production.
-ValueKind = Literal["direct_number", "ratio", "day_count"]
+#: Production ``value_kind`` enum.
+#:
+#: PASS-THROUGH SOURCE -- ``_revenue_input_semantics`` and ``_simple_input_semantics`` at
+#: ``python/client_intake_and_finmo/finmo_bridge.py:256-320`` have a pass-through path at
+#: the top: if the mapping table (``_mapping_formula_contract_for_lever``) specifies
+#: ``value_kind`` + ``input_semantics`` for a lever, they are returned VERBATIM. The
+#: hardcoded ``direct_number`` / ``ratio`` / ``day_count`` returns are FALLBACK only,
+#: fired when no mapping row exists for the lever.
+#:
+#: The authoritative producer vocabulary is therefore the UNION of:
+#:   (a) the code-seeded mapping table (``post_intak_mapping_lookup``), the rows of
+#:       which are seeded externally and read at runtime via
+#:       ``post_intake_driver_formula_contract`` -- per the P3.41 NexGen E2E iter 2
+#:       extraction, distinct active values are: ``count``, ``currency``, ``day_count``,
+#:       ``quarter_currency``, ``ratio``;
+#:   (b) the finmo_bridge fallback returns at lines 265-320:
+#:       ``direct_number``, ``ratio``, ``day_count``.
+#:
+#: The seed-parity guard at
+#: ``tests/test_p3_40_contract_1_seed_parity.py`` asserts this UNION at test time so
+#: that future divergence (seed gains a new value_kind / fallback gains a new branch)
+#: fails CI loudly with a clear message instead of silently breaking a future E2E run.
+#:
+#: Original Contract 1 trace (spec T4) read only the fallback returns and missed the
+#: pass-through path -- surfaced by NexGen E2E iter 2 where the contract fired on
+#: ``value_kind='count'`` (a seed value, not a fallback value). NOT a §0 loosening:
+#: ``value_kind`` is a controlled system-internal vocabulary that dictates lever math
+#: (rounding, deterministic handling); the Literal stays enforced, it was merely
+#: incompletely scoped.
+ValueKind = Literal[
+  # Seed vocabulary (live post_intak_mapping_lookup, active rows):
+  "count",
+  "currency",
+  "day_count",
+  "quarter_currency",
+  "ratio",
+  # finmo_bridge fallback returns (lines 265-320) when no mapping row exists:
+  "direct_number",
+]
 
-#: Revenue row ``input_semantics`` per
-#: ``python/client_intake_and_finmo/finmo_bridge.py:264-270``.
+#: Revenue row ``input_semantics``.
+#:
+#: Pass-through source per the ``ValueKind`` docstring above. Per-section seed
+#: vocabulary extracted from ``post_intak_mapping_lookup`` active rows whose
+#: ``lever_id`` starts with ``revenue::``. Note: the seed and fallback DIVERGE here
+#: -- the seed uses shorter names (``capacity_units`` / ``unit_price`` / ``ratio``)
+#: while the fallback uses descriptive names (``quarter_capacity_units`` /
+#: ``currency_per_unit`` / ``utilization_ratio``). The Literal carries both so
+#: either path is accepted.
 RevenueInputSemantics = Literal[
+  # Seed vocabulary (revenue:: rows in post_intak_mapping_lookup):
+  "capacity_units",
+  "ratio",
+  "unit_price",
+  # finmo_bridge fallback returns at lines 265-270:
   "quarter_capacity_units",
   "currency_per_unit",
   "utilization_ratio",
   "direct_input",
 ]
 
-#: Expense row ``input_semantics`` per
-#: ``python/client_intake_and_finmo/finmo_bridge.py:282-295, 319-320``.
+#: Expense row ``input_semantics``. Pass-through source per the ``ValueKind``
+#: docstring above; per-section seed extracted from ``expenses::`` rows.
 ExpenseInputSemantics = Literal[
-  "percent_of_revenue",
+  # Seed vocabulary (expenses:: rows):
+  "interest_rate",
+  "percent_of_pre_tax_income",
   "percent_of_prior_ppe",
-  "quarter_currency",
-  "direct_input",
-]
-
-#: Balance-sheet row ``input_semantics`` per
-#: ``python/client_intake_and_finmo/finmo_bridge.py:296-307, 320``.
-BalanceSheetInputSemantics = Literal[
-  "days",
   "percent_of_revenue",
-  "percent_of_long_term_debt",
   "quarter_currency",
+  # finmo_bridge fallback returns at lines 282-295, 319-320:
   "direct_input",
 ]
 
-#: Schedule row ``input_semantics`` per
-#: ``python/client_intake_and_finmo/finmo_bridge.py:308-320``.
+#: Balance-sheet row ``input_semantics``. Pass-through source per the ``ValueKind``
+#: docstring above; per-section seed extracted from ``balance_sheet::`` rows.
+BalanceSheetInputSemantics = Literal[
+  # Seed vocabulary (balance_sheet:: rows):
+  "days",
+  "percent_of_long_term_debt",
+  "percent_of_revenue",
+  "quarter_currency",
+  # finmo_bridge fallback returns at lines 296-307, 320:
+  "direct_input",
+]
+
+#: Schedule row ``input_semantics``. Pass-through source per the ``ValueKind``
+#: docstring above; per-section seed extracted from ``schedules::`` rows.
 ScheduleInputSemantics = Literal[
+  # Seed vocabulary (schedules:: rows):
+  "capital_expenditures_cash",
+  "capital_lease_additions_noncash",
+  "capital_lease_principal_repayments",
   "debt_new_borrowing",
   "debt_scheduled_repayment",
-  "capital_expenditures_cash",
-  "capital_lease_principal_repayments",
-  "capital_lease_additions_noncash",
+  # finmo_bridge fallback returns at lines 308-320:
   "quarter_currency",
   "direct_input",
 ]
