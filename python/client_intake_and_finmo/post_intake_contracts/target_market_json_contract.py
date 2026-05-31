@@ -64,10 +64,19 @@ extra-key policy per F3:
     schema-version drift; top-level forbid lives at the draft
     level (Contract 5 F6).
 
-Required-vs-Optional disposition per F6:
-  - 4 non-nullable required schema fields (consumer_type,
-    target_market_summary, marketing_plan_summary, confidence)
-    -> bare type, required (no default).
+Required-vs-Optional disposition per F6 + F1:
+  - 3 non-nullable required schema fields (consumer_type,
+    marketing_plan_summary, confidence) -> bare type, required
+    (no default).
+  - 1 schema-required-but-production-popped per F1 / PSL2:
+    ``target_market_summary`` -> ``Optional[str] = None``.
+    Mirror of people_json ``key_people_summary``. Schema marks
+    REQUIRED; intake_consult.py:10863 POPS before persistence
+    (same single-source-of-truth pattern as commit e57ff49).
+    Production drafts NEVER carry this field; typing as required
+    would fail 100% of production runs (surfaced by NexGen E2E).
+    R-d-bis contract-typing portion RESOLVED; gate portion still
+    DEFERRED to intake-remediation workstream.
   - 7 nullable-required schema fields (gender_age_intent,
     income_intent, selections, b2b_industry_terms, b2b_naics_6,
     b2b_size_bands, b2b_age_bands) -> ``Optional[X] = None``.
@@ -226,9 +235,11 @@ class TargetMarketJsonContract(BaseModel):
   fields + 3 production extras (T3) = 14 typed fields.
 
   Field ordering grouped for readability:
-    1. 4 non-nullable required schema fields (bare type, no default)
-    2. 7 nullable-required schema fields (Optional[X] = None per F6)
-    3. 3 production extras (Optional[str] = None per F1)
+    1. 3 non-nullable required schema fields (bare type, no default)
+    2. 1 schema-required-but-production-popped field
+       (target_market_summary, Optional[str] = None per F1 / PSL2)
+    3. 7 nullable-required schema fields (Optional[X] = None per F6)
+    4. 3 production extras (Optional[str] = None per F1)
 
   Enum vocabularies (consumer_type / gender_focus inside
   GenderAgeIntentEntry / segment inside SelectionsEntry /
@@ -251,11 +262,24 @@ class TargetMarketJsonContract(BaseModel):
   drift.
   """
 
-  # --- 4 non-nullable required GPT-schema fields ---
+  # --- 3 non-nullable required GPT-schema fields ---
   consumer_type: str
-  target_market_summary: str
   marketing_plan_summary: str
   confidence: float
+
+  # --- 1 schema-required-but-production-popped per F1 / PSL2 ---
+  #: Schema lists as REQUIRED. intake_consult.py:10863 pops the
+  #: field before persistence to draft (mirrors people_json
+  #: key_people_summary pop at intake_consult.py:6241). Production
+  #: payloads NEVER carry this field. Typing as required would fail
+  #: 100% of production runs (surfaced by NexGen E2E run -- contract
+  #: fired at this line against real production payload). Per PSL2
+  #: production-reality-wins: type as Optional[str] = None despite
+  #: schema-required. Mirror of people_json key_people_summary at
+  #: people_json_contract.py:294. R-d-bis contract-typing portion
+  #: now RESOLVED; gate portion (financials.py + intake_submit_service
+  #: gate-reads) still DEFERRED to intake-remediation workstream.
+  target_market_summary: Optional[str] = None
 
   # --- 7 nullable-required GPT-schema fields (Optional[X] = None per F6) ---
   gender_age_intent: Optional[List[GenderAgeIntentEntry]] = None

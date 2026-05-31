@@ -97,16 +97,25 @@ def valid_target_market_json_dict(
   include_selections: bool = True,
   include_b2b_arrays: bool = False,
   include_csv_extras: bool = False,
+  include_target_market_summary: bool = False,
   **overrides: Any,
 ) -> Dict[str, Any]:
-  """TargetMarketJsonContract-shaped dict. 14 typed fields when
-  all toggles on.
+  """TargetMarketJsonContract-shaped dict. Default profile
+  matches the PRODUCTION POST-POP shape per F1 / T3 (mirrors
+  5d ``valid_people_json_dict`` post-pop default):
+    - 3 non-nullable required schema fields populated
+      (consumer_type, marketing_plan_summary, confidence)
+    - ``target_market_summary`` OMITTED (popped at
+      intake_consult.py:10863 before persistence -- mirrors
+      key_people_summary pop at intake_consult.py:6241)
+    - 3 consumer-side nullable arrays populated with one entry
+      each; 4 b2b_* arrays + 3 CSV extras omitted
 
-  Defaults: consumer-only profile -- 4 non-nullable required
-  fields populated; the 3 consumer-side nullable arrays
-  (gender_age_intent, income_intent, selections) populated with
-  one entry each; the 4 b2b_* arrays + 3 CSV extras omitted.
-  Toggles enable b2b/mixed cases.
+  Toggle ``include_target_market_summary`` exercises the
+  contract's PSL2 acceptance of BOTH presence + absence of this
+  field (mirrors 5d ``include_key_people_summary``).
+  Toggles ``include_b2b_arrays`` + ``include_csv_extras`` enable
+  b2b/mixed cases.
 
   Per F6: 7 nullable-required schema fields all type as
   Optional[X] = None. Defaults populate the 3 consumer-side
@@ -116,16 +125,17 @@ def valid_target_market_json_dict(
   **overrides applied last -- caller can override any field.
   """
   payload: Dict[str, Any] = {
-    # --- 4 non-nullable required ---
+    # --- 3 non-nullable required ---
     "consumer_type": consumer_type,
-    "target_market_summary": (
-      "Local consumers interested in specialty coffee and community spaces."
-    ),
     "marketing_plan_summary": (
       "Word-of-mouth + neighborhood events + Instagram Reels."
     ),
     "confidence": 0.85,
   }
+  if include_target_market_summary:
+    payload["target_market_summary"] = (
+      "Local consumers interested in specialty coffee and community spaces."
+    )
   if include_gender_age:
     payload["gender_age_intent"] = [valid_gender_age_intent_entry_dict()]
   if include_income:

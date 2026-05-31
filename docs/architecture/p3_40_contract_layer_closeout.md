@@ -69,9 +69,9 @@ post-audit disposition updates):
 
 | Disposition | Count |
 |---|---|
-| DONE (addressed in Cleanups 1-5 with SHA reference) | 13 |
+| DONE (addressed in Cleanups 1-5 with SHA reference + P3.41 R-d-bis contract-typing portion) | 14 |
 | ASSESSED + KEPT (investigated; no change warranted per directive's "do NOT force composition / removal" guideline) | 4 |
-| DEFERRED (explicit rationale: no current use case / speculative defense-in-depth / depends on architectural fixes / intake-remediation workstream / etc.) | 48 |
+| DEFERRED (explicit rationale: no current use case / speculative defense-in-depth / depends on architectural fixes / intake-remediation workstream / etc.) | 47 |
 | NOT PURSUED | 0 |
 | **Total R-residuals across all 10 specs** | **65** |
 
@@ -86,7 +86,16 @@ post-audit disposition updates):
   +1 total.
 - Contract 5d R-d rationale rewritten (reclassified to intake-
   remediation workstream); bucket unchanged.
-- Post-audit totals: 13 + 4 + 48 + 0 = 65.
+- Post-audit totals (pre-NexGen-E2E): 13 + 4 + 48 + 0 = 65.
+- P3.41 NexGen E2E surfaced that R-d-bis was an actionable SPLIT, not
+  a single deferred item: the contract-typing portion was independently
+  fixable. R-d-bis CONTRACT-TYPING portion → DONE
+  (target_market_summary retyped Optional[str] = None at
+  target_market_json_contract.py to mirror Contract 5d
+  key_people_summary at people_json_contract.py:294). R-d-bis GATE
+  portion remains DEFERRED to intake-remediation workstream. +1 DONE,
+  -1 DEFERRED. Post-P3.41 totals: 14 + 4 + 47 + 0 = 65 (R-d-bis still
+  counts as one row, now with split-disposition).
 
 ### DONE inventory (13)
 
@@ -105,6 +114,7 @@ post-audit disposition updates):
 | (retrofit series) | Contract 5 R8 | 5b OperatingModelJsonContract sub-contract retrofit |
 | (retrofit series) | Contract 5 R9 | 5c TargetMarketJsonContract sub-contract retrofit |
 | (retrofit series) | Contract 5 R10 | 5d PeopleJsonContract sub-contract retrofit |
+| (P3.41) | Contract 5c R-d-bis (CONTRACT-TYPING portion only) | target_market_summary retyped Optional[str] = None to mirror 5d key_people_summary; surfaced by NexGen E2E; GATE portion still deferred to intake-remediation |
 
 ### ASSESSED + KEPT inventory (4)
 
@@ -150,22 +160,45 @@ commit 8a98e26) established that:
   separate intake-remediation workstream, not contract-layer
   cleanup.
 
-Both residuals (Contract 5d R-d + Contract 5c R-d-bis) are
-reclassified from contract-layer cleanup to intake-remediation
-workstream. Fix #1 and Fix #2 do not depend on either residual
-being fixed.
+Both residuals (Contract 5d R-d + Contract 5c R-d-bis) GATE
+portions are reclassified from contract-layer cleanup to
+intake-remediation workstream. Fix #1 and Fix #2 do not depend
+on either gate-portion being fixed.
+
+**Post-P3.41 update (R-d-bis split):** the NexGen E2E run on
+2026-05-30 exposed an actionable contract-typing asymmetry:
+Contract 5d had typed `key_people_summary` as `Optional[str] =
+None` from the start, but Contract 5c left
+`target_market_summary` as required `str`. The contract-typing
+portion of R-d-bis was therefore independently fixable without
+touching intake. That fix landed in P3.41 (target_market_summary
+retyped to mirror 5d). What remains is:
+
+- Contract 5d R-d → GATE portion only (financials.py:164 +
+  intake_submit_service.py gate-reads on key_people_summary).
+  Contract-typing was already correct in 5d.
+- Contract 5c R-d-bis → GATE portion only (financials.py:95 +
+  intake_submit_service.py gate-reads on target_market_summary).
+  Contract-typing now fixed in P3.41.
+
+Both gate portions need the same Option 3 fix (replace proxy-
+summary check with structural check on primary data).
 
 This handoff note exists so the intake-remediation pass starts
 with explicit awareness of:
 
-- The 2 parallel summary-field issues that need Option 3
-  treatment.
+- The 2 parallel summary-field GATE issues that need Option 3
+  treatment (contract-typing now symmetric across 5c + 5d).
 - The design intent that must be preserved during the fix
   (single-source-of-truth via pop).
 - The dual-handler split (LEGACY `target_market.py` +
   `people_capability.py` vs UNIFIED `intake_consult.py`)
   documented in §4 of the research doc.
 - The frontend's use of the UNIFIED handler per the research.
+- The `_SKIP_INTAKE_REMEDIATION_GATES` flag (default True)
+  introduced in P3.41 commit 6a03377 — MUST be set False
+  before any production submission path runs once Option 3
+  lands.
 
 ---
 
@@ -187,12 +220,13 @@ Boundaries 1-7 contract-typed with:
   value-constraint policy: type JSON SHAPE only, no VALUE-level
   content constraints
 
-R-residual inventory (post-audit): 13 DONE + 4 ASSESSED-KEPT +
-48 DEFERRED + 0 NOT PURSUED = 65 total. Every R-residual has an
+R-residual inventory (post-P3.41): 14 DONE + 4 ASSESSED-KEPT +
+47 DEFERRED + 0 NOT PURSUED = 65 total. Every R-residual has an
 explicit disposition recorded in its respective spec doc §8.
 The 2 intake-side residuals (Contract 5d R-d + Contract 5c
-R-d-bis) are formally handed off to the intake-remediation
-workstream per §5 above.
+R-d-bis) GATE portions are formally handed off to the intake-
+remediation workstream per §5 above; R-d-bis contract-typing
+portion landed in P3.41.
 
 §0 policy held across 5b/5c/5d retrofits + R8/R9 structural
 cross-field invariants in Cleanup 5: no Literal narrowing for
@@ -205,9 +239,10 @@ not value-level content.
 PSL2 production-reality-wins applied across all retrofits:
 nullable-required schema fields type as `Optional[X] = None`
 for legacy-draft safety; production-popped fields
-(`key_people_summary`) type as Optional despite schema-
-required; legacy fallback chains KEPT pending DB audits
-rather than removed pre-emptively.
+(`key_people_summary` since Contract 5d landing;
+`target_market_summary` since P3.41 R-d-bis fix) type as
+Optional despite schema-required; legacy fallback chains KEPT
+pending DB audits rather than removed pre-emptively.
 
 ---
 
@@ -217,10 +252,13 @@ rather than removed pre-emptively.
 
 7 boundary contracts + 3 sub-contract retrofits done. 6-commit
 cleanup pass done. Post-audit disposition updates applied per
-cloud Claude + Claude Code VS findings.
+cloud Claude + Claude Code VS findings. P3.41 NexGen E2E
+surfaced + resolved the R-d-bis contract-typing asymmetry
+(target_market_summary now mirrors key_people_summary as
+Optional[str] = None at the contract layer).
 
-Remaining intake-side work (Contract 5d R-d + Contract 5c
-R-d-bis) explicitly handed off to intake-remediation
+Remaining intake-side work (Contract 5d R-d GATE + Contract 5c
+R-d-bis GATE) explicitly handed off to intake-remediation
 workstream with full design-intent documentation in §5 above
 and in
 [intake_side_research_post_audit.md](intake_side_research_post_audit.md).

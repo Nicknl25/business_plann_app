@@ -165,13 +165,37 @@ class SelectionsEntryTest(unittest.TestCase):
 
 class TargetMarketJsonContractTest(unittest.TestCase):
 
-  def test_valid_consumer_only_payload_accepted(self) -> None:
+  def test_valid_production_post_pop_payload_accepted(self) -> None:
+    """Default fixture matches production POST-POP shape per
+    F1 / T3 (mirrors 5d): target_market_summary OMITTED (popped
+    at intake_consult.py:10863)."""
     contract = TargetMarketJsonContract.model_validate(
       valid_target_market_json_dict()
     )
     self.assertEqual(contract.consumer_type, "consumer")
+    self.assertIsNone(contract.target_market_summary)
     self.assertIsNone(contract.b2b_naics_6)
     self.assertIsNone(contract.target_market_b2b_industry)
+
+  def test_valid_payload_with_target_market_summary_accepted(self) -> None:
+    """F1 / PSL2: contract accepts BOTH presence and absence
+    of target_market_summary. This verifies the present case
+    (which would only occur in pre-pop in-memory state, never
+    in persisted drafts -- but the contract still accepts it
+    for robustness). Mirror of 5d
+    test_valid_payload_with_key_people_summary_accepted."""
+    contract = TargetMarketJsonContract.model_validate(
+      valid_target_market_json_dict(include_target_market_summary=True)
+    )
+    self.assertIn("specialty coffee", contract.target_market_summary)
+
+  def test_target_market_summary_accepts_explicit_none(self) -> None:
+    """F1: Optional[str] = None accepts explicit None. Mirror
+    of 5d test_key_people_summary_accepts_explicit_none."""
+    payload = valid_target_market_json_dict(include_target_market_summary=True)
+    payload["target_market_summary"] = None
+    contract = TargetMarketJsonContract.model_validate(payload)
+    self.assertIsNone(contract.target_market_summary)
 
   def test_valid_b2b_payload_accepted(self) -> None:
     contract = TargetMarketJsonContract.model_validate(
@@ -313,8 +337,10 @@ class ModuleConstantsTest(unittest.TestCase):
     )
 
   def test_top_level_contract_has_14_typed_fields(self) -> None:
-    """4 non-nullable required + 7 nullable-required Optional +
-    3 production extras = 14. Pins the field set."""
+    """3 non-nullable required + 1 schema-required-popped
+    Optional (target_market_summary, R-d-bis fix) + 7
+    nullable-required Optional + 3 production extras = 14.
+    Pins the field set."""
     self.assertEqual(len(TargetMarketJsonContract.model_fields), 14)
 
 
