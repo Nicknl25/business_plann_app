@@ -368,6 +368,11 @@ class ExpenseRow(BaseModel):
 
   derived_driver: Optional[str] = None
   capex_depreciation: Optional[Dict[str, Any]] = None  # only on Depreciation row
+  #: Stamped by ``post_intake_headcount/schedule.py:2488`` on the Payroll
+  #: expense row only (derived row carrying the headcount-schedule
+  #: provenance blob). Opaque first-cut typing per R3 (sub-contract
+  #: typing deferred).
+  payroll_headcount_schedule: Optional[Dict[str, Any]] = None
   seed_provenance_json: Optional[Dict[str, Any]] = None
   valid_quarter_indices: Optional[List[int]] = None
   valid_period_columns: Optional[List[str]] = None
@@ -431,6 +436,16 @@ class BalanceSheetRow(BaseModel):
 
   derived_driver: Optional[str] = None
   balance_sheet_contextual_seed: Optional[Dict[str, Any]] = None
+  #: Stamped by ``finmo_bridge.py:544`` on balance-sheet rows where
+  #: opening/contributed-equity stock-level carryforward adjustments
+  #: fired (any business with such adjustments). Opaque first-cut
+  #: typing per R3.
+  balance_sheet_stock_carryforward: Optional[Dict[str, Any]] = None
+  #: Stamped by ``finmo_bridge.py:3644`` on the Deferred Revenue
+  #: (% of Revenue) row (any business with that lever). Captures
+  #: source_table + business_applicability_key + applicable flag.
+  #: Opaque first-cut typing per R3.
+  mapping_table_presence_applicability: Optional[Dict[str, Any]] = None
   seed_provenance_json: Optional[Dict[str, Any]] = None
   valid_quarter_indices: Optional[List[int]] = None
   valid_period_columns: Optional[List[str]] = None

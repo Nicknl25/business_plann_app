@@ -1016,6 +1016,26 @@ These are decisions I'm asking you to confirm before code lands:
   Re-open as a separate "Contract 1 sub-shape typing wave" project
   if/when a consumer needs structural typing of a specific blob.
 
+  **P3.41 NexGen E2E iter 3 amendment:** the R3 first-cut typing was
+  itself incomplete — 3 producer-stamped opaque blobs were missing
+  from the row classes and tripped `extra="forbid"` at runtime:
+  - `BalanceSheetRow.balance_sheet_stock_carryforward` —
+    stamped by [finmo_bridge.py:544](../../python/client_intake_and_finmo/finmo_bridge.py#L544)
+    on balance-sheet rows whose opening/contributed-equity stock-level
+    carryforward adjustments fired (any business with such adjustments).
+  - `BalanceSheetRow.mapping_table_presence_applicability` —
+    stamped by [finmo_bridge.py:3644](../../python/client_intake_and_finmo/finmo_bridge.py#L3644)
+    on the Deferred Revenue (% of Revenue) row (any business with that
+    lever; the surfaced violation on NexGen E2E iter 3).
+  - `ExpenseRow.payroll_headcount_schedule` —
+    stamped by [post_intake_headcount/schedule.py:2488](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2488)
+    on the Payroll expense row (universal — any business has Payroll).
+
+  All three added as `Optional[Dict[str, Any]] = None` first-cut
+  typing matching the pre-existing R3 disposition for the original 5
+  blobs. R3's sub-contract typing wave (still deferred) now covers 8
+  blobs instead of 5. Universal producer paths; not NexGen-specific.
+
 - **R4.** ~~Inconsistency: `apply_derived_driver_policies_to_model_input`
   stamps `derived_driver` on capex/depreciation/balance-sheet
   rows but does NOT set `controller_write=False`.~~ **DEFERRED
