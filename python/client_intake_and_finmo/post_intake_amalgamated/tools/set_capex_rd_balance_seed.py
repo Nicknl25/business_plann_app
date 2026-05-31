@@ -236,7 +236,19 @@ def _maintenance_capex(builder_inputs: Dict[str, Any]) -> Dict[str, Any]:
   from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
     _derive_maintenance_capex_percent_from_naics,
   )
-  return _derive_maintenance_capex_percent_from_naics(**builder_inputs)
+  # P3.41 NexGen E2E iter 7 Bug 1 fix: pass explicit kwargs matching the
+  # callee's narrower signature (post_intake_contracts/runner.py:1073-1079
+  # declares 4 keyword-only params: business_facts, ops_json,
+  # financials_json, financials_year1_json). The previous **builder_inputs
+  # spread also passed model_input_json + finmo_json, which the callee
+  # does not accept -> TypeError on every clean E2E. Mirrors the explicit-
+  # kwargs pattern the R&D sibling below already uses.
+  return _derive_maintenance_capex_percent_from_naics(
+    business_facts=builder_inputs.get("business_facts") or {},
+    ops_json=builder_inputs.get("ops_json") or {},
+    financials_json=builder_inputs.get("financials_json") or {},
+    financials_year1_json=builder_inputs.get("financials_year1_json") or {},
+  )
 
 
 def _r_and_d_applicability(builder_inputs: Dict[str, Any]) -> Dict[str, Any]:

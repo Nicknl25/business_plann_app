@@ -380,6 +380,7 @@ __all__ = [
   "_balance_sheet_contextual_seed_timeout_seconds",
   "_r_and_d_applicability_schema",
   "_balance_sheet_contextual_seed_schema",
+  "_balance_sheet_seed_contract_row_fields",
   "_validate_r_and_d_applicability_payload",
   "_validate_balance_sheet_contextual_seed_payload",
   "_r_and_d_policy_from_model_input",
@@ -1499,6 +1500,43 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
     proposal=proposal, response=response, raw_openai_response=None,
   )
 
+def _balance_sheet_seed_contract_row_fields() -> Tuple[str, ...]:
+  """Grid-row field whitelist for the balance_sheet_contextual_seed contract.
+
+  P3.41 NexGen E2E iter 7 Bug 2 fix: previous implementation referenced a
+  module-level constant ``_BALANCE_SHEET_SEED_CONTRACT_ROW_FIELDS`` that
+  was never defined (NameError on every clean E2E). Derived here from the
+  authoritative contract schema instead of a hand-maintained parallel
+  list, so the whitelist cannot drift from the contract -- same single-
+  source-of-truth pattern as the seed-parity guard. Module-level cache
+  via the ``_cached`` attribute keeps schema-build work out of the per-row
+  hot path.
+
+  The four metadata fields the proposer attaches (``naics_provenance``,
+  ``decision_source``, ``naics_6``, ``source_of_truth``) are NOT in the
+  contract schema's grid-row properties and are therefore correctly
+  excluded by this derivation -- they're re-attached after validation.
+  """
+  cached = getattr(_balance_sheet_seed_contract_row_fields, "_cached", None)
+  if cached is not None:
+    return cached
+  schema = _balance_sheet_contextual_seed_schema()
+  grid = (
+    (schema or {}).get("properties", {}).get("balance_sheet_seed_grid", {})
+  )
+  items = grid.get("items", {}) if isinstance(grid, dict) else {}
+  properties = items.get("properties", {}) if isinstance(items, dict) else {}
+  if not isinstance(properties, dict) or not properties:
+    raise RuntimeError(
+      "balance_sheet_contextual_seed schema is missing "
+      "balance_sheet_seed_grid[].properties; cannot derive contract-row "
+      "whitelist for slimming"
+    )
+  fields_tuple = tuple(sorted(properties.keys()))
+  _balance_sheet_seed_contract_row_fields._cached = fields_tuple  # type: ignore[attr-defined]
+  return fields_tuple
+
+
 def _slim_balance_sheet_seed_proposal_for_contract(proposal: Dict[str, Any]) -> Dict[str, Any]:
   """Project the rich proposer payload onto the strict GPT contract shape.
 
@@ -1509,11 +1547,12 @@ def _slim_balance_sheet_seed_proposal_for_contract(proposal: Dict[str, Any]) -> 
   validation.
   """
   rows = proposal.get("balance_sheet_seed_grid") if isinstance(proposal, dict) else []
+  contract_row_fields = _balance_sheet_seed_contract_row_fields()
   slim_rows: List[Dict[str, Any]] = []
   for row in (rows or []):
     if not isinstance(row, dict):
       continue
-    slim_rows.append({field: row.get(field) for field in _BALANCE_SHEET_SEED_CONTRACT_ROW_FIELDS})
+    slim_rows.append({field: row.get(field) for field in contract_row_fields})
   rationale = str((proposal or {}).get("rationale") or "").strip() or (
     "Python proposer built deterministic seed grid from NAICS resolver and intake anchors; "
     "GPT critic may amend specific rows."
