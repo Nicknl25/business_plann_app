@@ -749,9 +749,18 @@ def prepare_initial_grid_for_draft(
   # Step 9d items 16 + 17 — finmo_sync postcondition guards.
   # Item 16: the sync must yield a finmo_json dict carrying quarter
   # rows; an empty/missing finmo_json means the FINMO build silently
-  # produced no output. Item 17: the required columns (period,
-  # revenue, gross_profit, op_income, cash_end) must be present on
-  # the first row so downstream consumers can read them.
+  # produced no output. Item 17: the required columns (quarter_index,
+  # revenue, gross_profit, ebitda, ending_cash) must be present on
+  # the first row so downstream consumers can read them. P3.41 NexGen
+  # E2E iter 6 correction: original names (period / op_income /
+  # cash_end) never matched the FINMO engine's actual output schema
+  # (quarter_index / ebitda / ending_cash per FinmoQuarterResult at
+  # financial_model_engine/finmo_model.py:145-199 + bridge aliases at
+  # finmo_bridge.py:887-908). The guard was dead -- would have failed
+  # every clean run; never fired before because no E2E reached
+  # FINMO_SYNC cleanly until the iter 1-5 contract fixes unblocked
+  # the path. Renaming makes the guard functional (strengthening, not
+  # loosening).
   _sync_finmo = (
     sync_result.get("finmo_json") if isinstance(sync_result, dict) else None
   )
@@ -775,7 +784,7 @@ def prepare_initial_grid_for_draft(
       ),
       where="post_intake_initial_grid.runner (baseline_finmo_sync)",
     )
-  _required_finmo_cols = {"period", "revenue", "gross_profit", "op_income", "cash_end"}
+  _required_finmo_cols = {"quarter_index", "revenue", "gross_profit", "ebitda", "ending_cash"}
   _first_row = _sync_quarter_rows[0] if isinstance(_sync_quarter_rows, list) else None
   if not isinstance(_first_row, dict) or not _required_finmo_cols.issubset(set(_first_row.keys())):
     from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501

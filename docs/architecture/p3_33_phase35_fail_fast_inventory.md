@@ -227,9 +227,20 @@ For each item: **(Invariant) → (FailFastCode) → (assertion site)**.
     `FAIL_FINMO_NO_QUARTER_ROWS`. Site:
     `post_intake_amalgamated/finmo_sync.py` post-build.
 
-17. **FINMO row schema carries the required columns (period,
-    revenue, gross_profit, op_income, cash_end).**
+17. **FINMO row schema carries the required columns (quarter_index,
+    revenue, gross_profit, ebitda, ending_cash).**
     `FAIL_FINMO_SCHEMA_MISSING`. Site: same module.
+    **P3.41 NexGen E2E iter 6 correction:** the original names
+    (period / op_income / cash_end) never matched producer output.
+    The FINMO engine emits `quarter_index` / `ebitda` / `ending_cash`
+    per `FinmoQuarterResult` at
+    [financial_model_engine/finmo_model.py:145-199](../../python/financial_model_engine/finmo_model.py#L145)
+    + bridge aliases at
+    [finmo_bridge.py:887-908](../../python/client_intake_and_finmo/finmo_bridge.py#L887).
+    Guard was dead pre-iter-6 — would have failed every clean run;
+    never fired before because no E2E reached FINMO_SYNC cleanly
+    until contract-layer iters 1-5 unblocked the path. NexGen was
+    the first profile to reach it.
 
 ### 2.9 `target_seeking`
 
