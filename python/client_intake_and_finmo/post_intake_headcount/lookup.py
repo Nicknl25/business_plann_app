@@ -936,6 +936,51 @@ def build_empty_payroll_headcount_payload(
   }
 
 
+def build_pending_payroll_stub(
+  *,
+  draft_id: Any = "",
+  client_id: Any = "",
+  previous_contract_failure: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """P3.41 NexGen E2E iter 11 fix (option 3): single-source the
+  ``amalgamated_session_pending`` payroll stub.
+
+  Both callers go through this helper:
+    - ``estimate_payroll_headcount_schedule_with_gpt`` (the legacy
+      gated shim at schedule.py:2156) -- after its
+      ``_assert_payroll_sequence_step`` gate, calls this helper.
+    - ``set_payroll_schedule(contract=None)`` (the canonical
+      amalgamated round-1 entry at
+      post_intake_amalgamated/tools/set_payroll_schedule.py:258)
+      calls this helper DIRECTLY, bypassing the legacy gate. The
+      gate was preserved on the shim for its legacy controller
+      callers; round-1 doesn't need it because the amalgamated path
+      replaces (not invokes) the legacy controller.
+
+  The stub shape is the same on both paths -- empty payload from
+  ``build_empty_payroll_headcount_payload`` with three transitional
+  metadata stamps overlaid (``decision_source`` /
+  ``contract_version`` / ``python_proposal_diagnostic``).
+  """
+  empty = build_empty_payroll_headcount_payload(
+    draft_id=str(draft_id or "").strip(),
+    client_id=str(client_id or "").strip(),
+  )
+  if not isinstance(empty, dict):
+    return {}
+  empty.setdefault("decision_source", "amalgamated_session_pending")
+  empty.setdefault("contract_version", "payroll_headcount_schedule_amalgamated_pending_v1")
+  empty.setdefault("python_proposal_diagnostic", {
+    "transition_note": (
+      "P3.33 Phase 3 step 3b: Handler C GPT session loop deleted; "
+      "amalgamated session (step 5) will author payroll. This empty "
+      "payload is a transitional placeholder."
+    ),
+    "previous_contract_failure": previous_contract_failure or None,
+  })
+  return empty
+
+
 def _validate_no_prose_fields(value: Any, *, path: str, errors: List[str]) -> None:
   if isinstance(value, dict):
     for key, child in value.items():

@@ -2213,25 +2213,20 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "retry_payroll_headcount_schedule_from_feasibility_failure",
     ],
   )
+  # P3.41 NexGen E2E iter 11 fix (option 3): the inline build-and-stamp
+  # was extracted into build_pending_payroll_stub() in lookup.py so the
+  # canonical amalgamated entry (set_payroll_schedule(contract=None))
+  # can produce the identical stub without tripping the legacy gate
+  # above. This shim keeps the gate intact for its legacy controller
+  # callers; only the body delegates to the shared helper now.
   from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
-    build_empty_payroll_headcount_payload,
+    build_pending_payroll_stub,
   )
-  empty = build_empty_payroll_headcount_payload(
-    draft_id=str(draft_id or "").strip(),
-    client_id=str(client_id or "").strip(),
+  return build_pending_payroll_stub(
+    draft_id=draft_id,
+    client_id=client_id,
+    previous_contract_failure=previous_contract_failure,
   )
-  if isinstance(empty, dict):
-    empty.setdefault("decision_source", "amalgamated_session_pending")
-    empty.setdefault("contract_version", "payroll_headcount_schedule_amalgamated_pending_v1")
-    empty.setdefault("python_proposal_diagnostic", {
-      "transition_note": (
-        "P3.33 Phase 3 step 3b: Handler C GPT session loop deleted; "
-        "amalgamated session (step 5) will author payroll. This empty "
-        "payload is a transitional placeholder."
-      ),
-      "previous_contract_failure": previous_contract_failure or None,
-    })
-  return empty if isinstance(empty, dict) else {}
 
 
 def _live_series(values: Any, *, horizon: int) -> List[float]:

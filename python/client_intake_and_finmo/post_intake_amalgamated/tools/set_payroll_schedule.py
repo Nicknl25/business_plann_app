@@ -234,27 +234,43 @@ def set_payroll_schedule(
   )
 
   if candidate is None:
-    # Round-1 authoring path — invoke Handler C internally.
+    # Round-1 authoring path -- P3.41 NexGen E2E iter 11 fix (option 3):
+    # call the ungated stub helper directly instead of invoking the
+    # legacy gated shim estimate_payroll_headcount_schedule_with_gpt
+    # (which asserts a PostIntakeSequenceController context the round-1
+    # amalgamated path doesn't have, by design). The shim's body now
+    # delegates to the same helper after its gate. Single source for the
+    # stub shape + metadata stamps; gate preserved on the legacy shim
+    # for its legacy controller callers.
+    #
+    # The ``_handler_c_author`` test seam remains supported -- when a
+    # test passes a custom callable, we still invoke it (the legacy
+    # interface) instead of the helper, so existing tests that exercise
+    # the shim contract continue to work.
     handler_c = _handler_c_author
-    if handler_c is None:
-      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
-        estimate_payroll_headcount_schedule_with_gpt,
-      )
-      handler_c = estimate_payroll_headcount_schedule_with_gpt
     try:
-      authored = handler_c(
-        business_facts=business_facts or {},
-        ops_json=ops_json or {},
-        people_json=people_json or {},
-        financials_json=financials_json or {},
-        financials_year1_json=financials_year1_json or {},
-        planning_mode=_string(planning_mode),
-        planning_mode_reason=_string(planning_mode_reason),
-        model_input_json=model_input_json or {},
-        finmo_json=finmo_json or {},
-        stage_ramp_contract=stage_ramp_contract or {},
-        draft_id=_string(draft_id),
-      )
+      if handler_c is not None:
+        authored = handler_c(
+          business_facts=business_facts or {},
+          ops_json=ops_json or {},
+          people_json=people_json or {},
+          financials_json=financials_json or {},
+          financials_year1_json=financials_year1_json or {},
+          planning_mode=_string(planning_mode),
+          planning_mode_reason=_string(planning_mode_reason),
+          model_input_json=model_input_json or {},
+          finmo_json=finmo_json or {},
+          stage_ramp_contract=stage_ramp_contract or {},
+          draft_id=_string(draft_id),
+        )
+      else:
+        from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
+          build_pending_payroll_stub,
+        )
+        authored = build_pending_payroll_stub(
+          draft_id=_string(draft_id),
+          client_id=_string(draft_id),  # set_payroll_schedule has no client_id param; reuse draft_id for trace
+        )
     except Exception as exc:
       return {
         "accepted": False,
