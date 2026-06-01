@@ -146,10 +146,11 @@ direction — capacity is computed from headcount (Step 3).
 It is a GPT-selected number in the payroll contract: "how many structural capacity units one
 supporting FTE can support per quarter."
 ([post_intake_mapping.py:2139](../../python/client_intake_and_finmo/post_intake_mapping.py#L2139))
-It has explicit min/max policy columns
-(`capacity_units_per_supporting_fte_min` / `_max`,
-[lookup.py:336-337](../../python/client_intake_and_finmo/post_intake_headcount/lookup.py#L336-L337))
-and is the multiplier used to derive capacity from FTE
+It has **no** active min/max policy columns — `capacity_units_per_supporting_fte_min` / `_max`
+(and `capacity_productivity_bounds_json`) are in a DROP COLUMN legacy-removal list with no
+replacement ([lookup.py:336-338](../../python/client_intake_and_finmo/post_intake_headcount/lookup.py#L336-L338);
+corrected in the Fix #2 spec — productivity has no current numeric anchor / starting value).
+It is the multiplier used to derive capacity from FTE
 ([schedule.py:2559-2631](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2559-L2631),
 formula string `"total_average_fte * capacity_units_per_supporting_fte"` at
 [schedule.py:2631](../../python/client_intake_and_finmo/post_intake_headcount/schedule.py#L2631)).
