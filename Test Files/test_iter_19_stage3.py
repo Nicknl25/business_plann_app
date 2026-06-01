@@ -47,7 +47,9 @@ from client_intake_and_finmo.post_intake_solver.orchestrator import (  # noqa: E
 from client_intake_and_finmo.fail_fast.common import (  # noqa: E402
   PostIntakePreconditionFailed,
 )
-from client_intake_and_finmo.post_intake_convergence import runner as _conv_runner  # noqa: E402
+# NOTE: post_intake_convergence.runner was deleted in the P3.33 amalgamation
+# refactor; the convergence-runner tests that referenced it are removed. The
+# remaining gate-helper / orchestrator-wiring tests stay valid.
 
 
 _RESULTS: List[Tuple[str, bool, str]] = []
@@ -205,26 +207,9 @@ def test_gate_helper_diagnostic_message_names_upstream_owner() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_convergence_runner_imports_logger() -> None:
-  # _logger remains in use elsewhere in the runner; module-level
-  # import survives the Stage 3 correction.
-  assert hasattr(_conv_runner, "_logger")
-  assert isinstance(_conv_runner._logger, logging.Logger)
-
-
-def test_convergence_runner_payroll_writeback_is_unconditional() -> None:
-  # iter 19 Stage 3 correction — the legacy conditional skip on
-  # empty payroll_headcount payload was removed. Both writeback
-  # helpers (apply_payroll_supported_capacity_to_model_input and
-  # apply_payroll_headcount_payload_to_model_input) now no-op on
-  # empty payload, so the runner can call them unconditionally.
-  src = open(_conv_runner.__file__, encoding="utf-8").read()
-  # The old skip marker must be gone.
-  assert "convergence_apply_payroll_authority_skipped" not in src
-  # The new unconditional comment must be present and reference the
-  # writeback functions' no-op behavior.
-  assert "payroll writeback is UNCONDITIONAL" in src
-  assert "no-op on" in src and "empty payload" in src
+# (convergence-runner tests removed — post_intake_convergence.runner deleted in
+#  the P3.33 amalgamation refactor. The capacity overwrite's new revenue-primary
+#  loop-broken behavior is covered in tests/test_payroll_producer_round1.py.)
 
 
 # --------------------------------------------------------------------------
@@ -260,8 +245,6 @@ def main() -> int:
     ("gate_helper_no_op_payroll_row_missing", test_gate_helper_no_op_when_payroll_expense_row_missing),
     ("gate_helper_raises_specific_diagnostic", test_gate_helper_raises_specific_diagnostic_when_lever_zero),
     ("gate_helper_diagnostic_names_upstream", test_gate_helper_diagnostic_message_names_upstream_owner),
-    ("convergence_runner_imports_logger", test_convergence_runner_imports_logger),
-    ("convergence_runner_payroll_writeback_unconditional", test_convergence_runner_payroll_writeback_is_unconditional),
     ("orchestrator_calls_pre_gate_helper_first", test_orchestrator_calls_pre_gate_helper_before_evaluating_checks),
   ]
   for name, fn in tests:

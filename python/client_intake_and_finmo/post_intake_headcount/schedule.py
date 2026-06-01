@@ -2833,16 +2833,22 @@ def apply_payroll_supported_capacity_to_model_input(
       "payload (no payroll contract authored upstream)."
     )
     return next_payload
+  # Part E: capacity_units_per_supporting_fte is reported-only now (it does NOT
+  # drive capacity). The old fatal "productivity must be positive" guard is
+  # retired -- a missing/zero reported productivity no longer blocks the
+  # (non-mutating) capacity consistency pass.
   productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
-  if productivity <= 0.0:
-    _payroll_fail_fast(
-      "payroll_supported_capacity_productivity_missing",
-      "Payroll-supported capacity requires positive capacity_units_per_supporting_fte selected in payroll_headcount.",
-      stage="payroll_supported_capacity_application",
-    )
   rows = _payroll_headcount_grid_rows(schedule)
   average_fte_by_quarter = _average_fte_by_quarter_from_rows(rows)
-  supported_capacity = {
+  # Part E (payroll_producer_spec.md): revenue.Capacity is the step-10 revenue
+  # anchor. Payroll FTE NO LONGER overwrites capacity -- the
+  # revenue -> FTE -> capacity -> revenue loop is formally broken. This function
+  # is now a NON-mutating consistency pass: it MARKS the capacity rows as
+  # payroll-owned (so finmo freezes them at the authored anchor and no other
+  # handler rewrites them) and records an implied-vs-anchor comparison, but it
+  # does NOT change any capacity value. capacity_units_per_supporting_fte is a
+  # reported figure here, never a driver (Part G).
+  implied_capacity_from_fte = {
     quarter: round(float(average_fte_by_quarter.get(quarter) or 0.0) * productivity, 6)
     for quarter in range(1, live_count + 1)
   }
@@ -2855,42 +2861,25 @@ def apply_payroll_supported_capacity_to_model_input(
   if not capacity_rows:
     _payroll_fail_fast(
       "payroll_supported_capacity_rows_missing",
-      "Revenue Capacity rows are required so payroll FTE can define the supported capacity envelope.",
+      "Revenue Capacity rows are required so payroll FTE can be reconciled against the revenue-primary capacity anchor.",
       stage="payroll_supported_capacity_application",
     )
-  current_totals = {quarter: 0.0 for quarter in range(1, live_count + 1)}
-  row_live_values: List[Tuple[Dict[str, Any], float, List[float]]] = []
+  anchor_capacity_by_quarter = {quarter: 0.0 for quarter in range(1, live_count + 1)}
   for row in capacity_rows:
-    values = list(row.get("values") or [])
-    _stub, live_values = _row_stub_and_live_values(values, live_count=live_count)
-    padded = list(live_values[:live_count])
-    if len(padded) < live_count:
-      padded.extend([0.0 for _ in range(live_count - len(padded))])
-    row_total = round(sum(max(0.0, float(value or 0.0)) for value in padded), 6)
-    row_live_values.append((row, row_total, padded))
-    for idx, value in enumerate(padded, start=1):
-      current_totals[idx] = round(current_totals.get(idx, 0.0) + max(0.0, float(value or 0.0)), 6)
-  equal_weight = round(1.0 / max(1, len(capacity_rows)), 6)
-  for row, row_total, live_values in row_live_values:
-    values = list(row.get("values") or [])
-    stub_value, _existing_live = _row_stub_and_live_values(values, live_count=live_count)
-    next_live_values: List[float] = []
-    for quarter_index, current_value in enumerate(live_values, start=1):
-      total_capacity = round(float(current_totals.get(quarter_index) or 0.0), 6)
-      if total_capacity > 0.0:
-        weight = max(0.0, float(current_value or 0.0)) / total_capacity
-      elif row_total > 0.0:
-        weight = max(0.0, float(current_value or 0.0)) / row_total
-      else:
-        weight = equal_weight
-      next_live_values.append(round(float(supported_capacity[quarter_index]) * float(weight), 6))
-    row["values"] = _compose_period_values(stub_value=stub_value, live_values=next_live_values)
+    _stub, live_values = _row_stub_and_live_values(list(row.get("values") or []), live_count=live_count)
+    for idx, value in enumerate(live_values[:live_count], start=1):
+      anchor_capacity_by_quarter[idx] = round(
+        anchor_capacity_by_quarter.get(idx, 0.0) + max(0.0, float(_safe_float(value) or 0.0)), 6,
+      )
+    # Mark payroll-owned WITHOUT changing row["values"]: capacity stays the
+    # step-10 anchor. The marker preserves finmo's freeze behavior and blocks
+    # other handlers from rewriting capacity; the values are untouched.
     row["controller_write"] = False
     row["derived_driver"] = "payroll_supported_capacity"
     row["payroll_supported_capacity"] = {
       "payroll_source": PAYROLL_HEADCOUNT_SOURCE,
-      "capacity_source": "payroll_fte_times_capacity_units_per_supporting_fte",
-      "capacity_units_per_supporting_fte": productivity,
+      "capacity_source": "revenue_primary_step10_anchor",
+      "capacity_units_per_supporting_fte_reported": productivity,
       "schedule_storage_column": PAYROLL_HEADCOUNT_DRAFT_COLUMN,
     }
   next_payload.setdefault("derived_driver_policies", {})
@@ -2898,21 +2887,22 @@ def apply_payroll_supported_capacity_to_model_input(
   if isinstance(next_payload.get("derived_driver_policies"), dict):
     next_payload["derived_driver_policies"]["revenue::Capacity"] = {
       "policy_version": PAYROLL_HEADCOUNT_POLICY_VERSION,
-      "capacity_source": "payroll_supported_capacity",
+      "capacity_source": "revenue_primary_step10_anchor",
       "payroll_source": PAYROLL_HEADCOUNT_SOURCE,
-      "capacity_units_per_supporting_fte": productivity,
+      "capacity_units_per_supporting_fte_reported": productivity,
     }
   if isinstance(next_payload.get("derived_driver_runtime"), dict):
     next_payload["derived_driver_runtime"]["payroll_supported_capacity"] = {
       "policy_version": PAYROLL_HEADCOUNT_POLICY_VERSION,
-      "formula": "total_average_fte * capacity_units_per_supporting_fte",
-      "capacity_units_per_supporting_fte": productivity,
-      "total_average_fte_by_quarter": {
-        str(quarter): round(float(average_fte_by_quarter.get(quarter) or 0.0), 6)
+      "mode": "revenue_primary_consistency_check",
+      "formula": "capacity is the revenue-authored step-10 anchor; payroll FTE does not overwrite it (loop broken, Part E)",
+      "capacity_units_per_supporting_fte_reported": productivity,
+      "anchor_capacity_by_quarter": {
+        str(quarter): round(float(anchor_capacity_by_quarter.get(quarter) or 0.0), 6)
         for quarter in range(1, live_count + 1)
       },
-      "supported_capacity_by_quarter": {
-        str(quarter): round(float(supported_capacity.get(quarter) or 0.0), 6)
+      "implied_capacity_from_fte_by_quarter": {
+        str(quarter): round(float(implied_capacity_from_fte.get(quarter) or 0.0), 6)
         for quarter in range(1, live_count + 1)
       },
     }
@@ -2927,18 +2917,7 @@ def _payroll_supported_capacity_model_input_violations(
 ) -> List[Dict[str, Any]]:
   payload = model_input_json if isinstance(model_input_json, dict) else {}
   schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
-  productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
-  if productivity <= 0.0:
-    return [{
-      "error": "payroll_supported_capacity_productivity_missing",
-      "reason": "capacity_units_per_supporting_fte must be positive before payroll can support revenue capacity.",
-    }]
-  rows = _payroll_headcount_grid_rows(schedule)
-  average_fte_by_quarter = _average_fte_by_quarter_from_rows(rows)
-  expected_by_quarter = {
-    quarter: round(float(average_fte_by_quarter.get(quarter) or 0.0) * productivity, 6)
-    for quarter in range(1, live_count + 1)
-  }
+  # Part E: productivity is reported-only; no positivity requirement here.
   sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
   revenue_rows = sections.get("revenue") if isinstance(sections.get("revenue"), list) else []
   capacity_rows = [
@@ -2948,19 +2927,17 @@ def _payroll_supported_capacity_model_input_violations(
   if not capacity_rows:
     return [{
       "error": "payroll_supported_capacity_rows_missing",
-      "reason": "Revenue Capacity rows are required so payroll FTE can define the supported capacity envelope.",
+      "reason": "Revenue Capacity rows are required so payroll can be reconciled against the revenue-primary capacity anchor.",
     }]
-  actual_by_quarter = {quarter: 0.0 for quarter in range(1, live_count + 1)}
+  # Part E: the per-quarter capacity == sum(avg_fte) * productivity equality
+  # check is GONE -- that equality WAS the revenue -> FTE -> capacity loop.
+  # Capacity is now the revenue-authored step-10 anchor; we only verify the
+  # STRUCTURAL marker (so finmo freezes the anchor + no handler rewrites it),
+  # never that the values match an FTE-derived figure.
   unmarked_rows: List[str] = []
   for row in capacity_rows:
     if str(row.get("derived_driver") or "").strip() != "payroll_supported_capacity":
       unmarked_rows.append(str(row.get("label") or row.get("revenue_slot_key") or "Capacity").strip())
-    _stub, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
-    for quarter_index, value in enumerate(live_values[:live_count], start=1):
-      actual_by_quarter[quarter_index] = round(
-        float(actual_by_quarter.get(quarter_index) or 0.0) + max(0.0, float(_safe_float(value) or 0.0)),
-        6,
-      )
   violations: List[Dict[str, Any]] = []
   if unmarked_rows:
     violations.append({
@@ -2968,19 +2945,6 @@ def _payroll_supported_capacity_model_input_violations(
       "reason": "Capacity rows must be marked derived_driver='payroll_supported_capacity'.",
       "rows": unmarked_rows[:20],
     })
-  for quarter_index in range(1, live_count + 1):
-    expected = round(float(expected_by_quarter.get(quarter_index) or 0.0), 6)
-    actual = round(float(actual_by_quarter.get(quarter_index) or 0.0), 6)
-    tolerance = max(0.01, abs(expected) * 0.0001)
-    if abs(actual - expected) > tolerance:
-      violations.append({
-        "error": "payroll_supported_capacity_mismatch",
-        "quarter_index": quarter_index,
-        "expected_capacity": expected,
-        "actual_capacity": actual,
-        "delta": round(actual - expected, 6),
-        "formula": "sum(payroll_average_fte) * capacity_units_per_supporting_fte",
-      })
   return violations
 
 
@@ -3181,32 +3145,14 @@ def payroll_revenue_feasibility_violations(
         if revenue_multiplier_to_bound is not None and productivity > 0.0
         else None
       )
-      if too_low:
-        revenue_bound_direction = "at_or_below"
-        productivity_bound_direction = "at_or_below"
-        safe_productivity_target = (
-          round(float(implied_productivity_at_bound) * 0.98, 6)
-          if implied_productivity_at_bound is not None
-          else None
-        )
-        productivity_target_instruction = (
-          "Payroll/revenue is too low. If FTE, price, and utilization are unchanged, "
-          "capacity_units_per_supporting_fte must be less than or equal to the implied bound; "
-          "choosing slightly above the bound remains infeasible."
-        )
-      else:
-        revenue_bound_direction = "at_or_above"
-        productivity_bound_direction = "at_or_above"
-        safe_productivity_target = (
-          round(float(implied_productivity_at_bound) * 1.02, 6)
-          if implied_productivity_at_bound is not None
-          else None
-        )
-        productivity_target_instruction = (
-          "Payroll/revenue is too high. If FTE, price, and utilization are unchanged, "
-          "capacity_units_per_supporting_fte must be greater than or equal to the implied bound; "
-          "choosing slightly below the bound remains infeasible."
-        )
+      # OQ-1 (payroll_producer_spec.md Part E.3 / Part I): the productivity-nudge
+      # repair lever is RETIRED. capacity_units_per_supporting_fte no longer
+      # drives capacity (Part E broke the loop), so a repair that moves
+      # productivity moves nothing. The lever is the dollar path: re-derive
+      # supporting FTE / wage-budget from the revised per-quarter revenue. The
+      # productivity-direction fields are gone -- the gpt_repair_constraints
+      # builder degrades gracefully to no productivity caps/floors.
+      revenue_bound_direction = "at_or_below" if too_low else "at_or_above"
       violations.append({
         "error": "payroll_revenue_economic_feasibility_failed",
         "quarter_index": quarter_index,
@@ -3222,21 +3168,21 @@ def payroll_revenue_feasibility_violations(
         "repair_rule_key": "payroll_revenue_ratio_low" if too_low else "payroll_revenue_ratio_high",
         "mapping_direction_rules": deepcopy(mapping_direction_rules),
         "deterministic_driver_math": {
-          "current_capacity_units_per_supporting_fte": productivity,
+          "current_capacity_units_per_supporting_fte_reported": productivity,
           "total_average_fte": round(float(average_fte_by_quarter.get(quarter_index) or 0.0), 6),
           "required_revenue_at_policy_bound": required_revenue_at_bound,
           "required_revenue_direction": revenue_bound_direction,
           "revenue_multiplier_to_policy_bound": revenue_multiplier_to_bound,
-          "implied_capacity_units_per_supporting_fte_if_price_utilization_and_fte_unchanged": implied_productivity_at_bound,
-          "required_capacity_units_per_supporting_fte_direction": productivity_bound_direction,
-          "safe_capacity_units_per_supporting_fte_target_with_buffer": safe_productivity_target,
-          "target_instruction": productivity_target_instruction,
-          "math_source": "payroll / policy_bound; payroll_supported_revenue scales linearly with capacity_units_per_supporting_fte when FTE, unit price, and utilization are unchanged",
+          "math_source": (
+            "payroll / policy_bound; payroll = sum(avg_fte * wage / 4 * (1 + benefits)). "
+            "Part E: capacity is the revenue-primary anchor and is NOT a repair lever; "
+            "re-derive supporting FTE from the per-quarter revenue (the dollar path)."
+          ),
         },
         "required_action": (
-          "Read mapping_direction_rules from sql.post_intak_mapping_lookup, recompute allowed upstream drivers, "
-          "use deterministic_driver_math.required_capacity_units_per_supporting_fte_direction as the binding quantitative target when price/utilization/FTE are unchanged, "
-          "then rebuild payroll-supported capacity, revenue, payroll, and FINMO. "
+          "Re-run the deterministic dollar path (payroll_producer_spec.md Part B) against the "
+          "revised per-quarter revenue: re-derive supporting FTE / wage-budget so payroll/revenue "
+          "returns into the policy band. capacity_units_per_supporting_fte is NOT a lever (Part E). "
           "Do not clip payroll or revenue."
         ),
       })

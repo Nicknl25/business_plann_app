@@ -206,5 +206,61 @@ class PayrollProducerRound1Test(unittest.TestCase):
       0.22, places=4)
 
 
+class CapacityOverwriteLoopBrokenTest(unittest.TestCase):
+  """Part E — apply_payroll_supported_capacity_to_model_input no longer
+  overwrites revenue.Capacity from FTE. The revenue->FTE->capacity->revenue
+  loop is formally broken: capacity stays the step-10 anchor. No DB needed."""
+
+  def _run(self):
+    from client_intake_and_finmo.post_intake_headcount.schedule import (
+      apply_payroll_supported_capacity_to_model_input,
+    )
+    from client_intake_and_finmo.post_intake_sequence import (
+      post_intake_sequence_step_scope,
+    )
+    anchor = [0.0] + [5000 + (q - 1) * 500 for q in range(1, H + 1)]  # [stub]+20 live
+    mi = {"sections": {"revenue": [{"revenue_slot_key": "s1", "driver": "capacity",
+          "values": list(anchor), "label": "Capacity"}]},
+          "periods": [{"is_stub": True}] + [{"is_stub": False} for _ in range(H)]}
+    sched = {"capacity_units_per_supporting_fte": 1500.0, "payroll_headcount_grid": [
+      {"q": q, "oews_occ_title": "X", "starting_fte": 2.0, "hires": 0.0,
+       "ending_fte": 2.0, "payroll_tax_benefits_pct": 0.22} for q in range(1, H + 1)]}
+    with post_intake_sequence_step_scope(
+      step_key="payroll_headcount_schedule", phase="initial_grid",
+      executor_function="apply_payroll_supported_capacity_to_model_input",
+      step_kind="orchestration",
+    ):
+      out = apply_payroll_supported_capacity_to_model_input(mi, sched, live_count=H)
+    cap_row = [r for r in out["sections"]["revenue"] if r["driver"] == "capacity"][0]
+    return anchor, cap_row, out
+
+  def test_capacity_stays_step10_anchor_not_fte_derived(self) -> None:
+    anchor, cap_row, _ = self._run()
+    self.assertEqual(cap_row["values"], anchor, "capacity must be unchanged (step-10 anchor)")
+    # FTE-derived would be 2.0 * 1500 = 3000 in every quarter; assert it is NOT.
+    self.assertTrue(all(abs(float(v) - 3000.0) > 1e-6 for v in cap_row["values"][1:]),
+                    "capacity must NOT equal the FTE-derived value (loop broken)")
+
+  def test_marker_preserved_for_finmo_freeze(self) -> None:
+    _, cap_row, out = self._run()
+    self.assertEqual(cap_row.get("derived_driver"), "payroll_supported_capacity")
+    self.assertEqual(cap_row["payroll_supported_capacity"]["capacity_source"],
+                     "revenue_primary_step10_anchor")
+    rt = out["derived_driver_runtime"]["payroll_supported_capacity"]
+    self.assertEqual(rt["mode"], "revenue_primary_consistency_check")
+
+  def test_equality_verifier_no_longer_enforces_fte_derivation(self) -> None:
+    """The capacity==FTE*productivity enforcer is gone; only the structural
+    marker check remains (marked rows -> no violations)."""
+    from client_intake_and_finmo.post_intake_headcount import schedule as S
+    _, _, out = self._run()
+    violations = S._payroll_supported_capacity_model_input_violations(
+      out, {"capacity_units_per_supporting_fte": 1500.0,
+            "payroll_headcount_grid": [{"q": q, "oews_occ_title": "X", "starting_fte": 2.0,
+             "hires": 0.0, "ending_fte": 2.0, "payroll_tax_benefits_pct": 0.22}
+            for q in range(1, H + 1)]}, live_count=H)
+    self.assertEqual(violations, [], "marked anchor capacity must pass (no equality enforcement)")
+
+
 if __name__ == "__main__":
   unittest.main()

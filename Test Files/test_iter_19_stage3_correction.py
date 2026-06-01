@@ -40,7 +40,12 @@ if _PY not in sys.path:
   sys.path.insert(0, _PY)
 
 from client_intake_and_finmo.post_intake_headcount import schedule as _payroll_schedule  # noqa: E402
-from client_intake_and_finmo.post_intake_convergence import runner as _conv_runner  # noqa: E402
+
+# NOTE: the post_intake_convergence GPT loop was deleted in the P3.33
+# amalgamation refactor; the two convergence-runner tests that lived here are
+# removed (the module no longer exists). The payroll-writeback no-op tests below
+# remain valid. The capacity overwrite's new revenue-primary (loop-broken)
+# behavior is covered in tests/test_payroll_producer_round1.py.
 
 
 _RESULTS: List[Tuple[str, bool, str]] = []
@@ -97,19 +102,8 @@ def test_writeback_noop_branches_reference_stage_3_correction() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_convergence_runner_skip_marker_removed() -> None:
-  src = open(_conv_runner.__file__, encoding="utf-8").read()
-  assert "convergence_apply_payroll_authority_skipped" not in src
-  assert "payroll writeback is UNCONDITIONAL" in src
-
-
-def test_convergence_runner_no_early_return_on_empty_payload() -> None:
-  # Source-inspect: the previous `if not isinstance(...) or not
-  # final_payroll_headcount_payload: return` early-return must be gone.
-  src = open(_conv_runner.__file__, encoding="utf-8").read()
-  # The exact pattern that used to gate the skip:
-  assert "not final_payroll_headcount_payload:\n      return" not in src
-  assert "not final_payroll_headcount_payload:\n      _logger" not in src
+# (convergence-runner tests removed — post_intake_convergence.runner deleted in
+#  the P3.33 amalgamation refactor.)
 
 
 # --------------------------------------------------------------------------
@@ -144,8 +138,6 @@ def main() -> int:
     ("payroll_writeback_noop_branch_wired", test_payroll_writeback_has_empty_payload_noop_branch),
     ("capacity_writeback_noop_branch_wired", test_capacity_writeback_has_empty_payload_noop_branch),
     ("noop_branches_reference_correction", test_writeback_noop_branches_reference_stage_3_correction),
-    ("convergence_runner_skip_marker_removed", test_convergence_runner_skip_marker_removed),
-    ("convergence_runner_no_early_return", test_convergence_runner_no_early_return_on_empty_payload),
     ("payroll_writeback_validator_still_runs", test_payroll_writeback_still_calls_validation_on_non_empty_payloads),
   ]
   for name, fn in tests:
