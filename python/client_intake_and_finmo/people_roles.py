@@ -322,7 +322,7 @@ def _fetch_oews_rows_exact(conn, *, state_abbrev: str, naics_6: str) -> List[Dic
   try:
     cur.execute(
       """
-      SELECT occ_code, occ_title, o_group, a_pct10, a_median
+      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics = %s
@@ -359,7 +359,7 @@ def _fetch_oews_rows_prefix(conn, *, state_abbrev: str, naics_prefix: str) -> Li
   try:
     cur.execute(
       """
-      SELECT occ_code, occ_title, o_group, a_pct10, a_median
+      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics LIKE %s

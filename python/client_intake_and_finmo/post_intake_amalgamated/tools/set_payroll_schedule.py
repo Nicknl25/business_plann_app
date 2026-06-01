@@ -234,19 +234,17 @@ def set_payroll_schedule(
   )
 
   if candidate is None:
-    # Round-1 authoring path -- P3.41 NexGen E2E iter 11 fix (option 3):
-    # call the ungated stub helper directly instead of invoking the
-    # legacy gated shim estimate_payroll_headcount_schedule_with_gpt
-    # (which asserts a PostIntakeSequenceController context the round-1
-    # amalgamated path doesn't have, by design). The shim's body now
-    # delegates to the same helper after its gate. Single source for the
-    # stub shape + metadata stamps; gate preserved on the legacy shim
-    # for its legacy controller callers.
+    # Round-1 authoring path -- Lineage B deterministic producer. Python
+    # authors a real payroll_headcount_schedule contract from the business's
+    # own per-quarter revenue (the dollar path), REPLACING the prior
+    # build_pending_payroll_stub placeholder. GPT later critiques the output
+    # via the amalgamated responder (this tool's contract!=None revision
+    # path). Authority: docs/architecture/payroll_producer_spec.md.
     #
-    # The ``_handler_c_author`` test seam remains supported -- when a
-    # test passes a custom callable, we still invoke it (the legacy
-    # interface) instead of the helper, so existing tests that exercise
-    # the shim contract continue to work.
+    # The ``_handler_c_author`` test seam remains supported -- when a test
+    # passes a custom callable, we invoke it (the legacy interface) instead
+    # of the deterministic producer, so existing tests that exercise that
+    # contract continue to work.
     handler_c = _handler_c_author
     try:
       if handler_c is not None:
@@ -264,12 +262,19 @@ def set_payroll_schedule(
           draft_id=_string(draft_id),
         )
       else:
-        from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
-          build_pending_payroll_stub,
+        from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+          author_round1_payroll_contract,
         )
-        authored = build_pending_payroll_stub(
-          draft_id=_string(draft_id),
-          client_id=_string(draft_id),  # set_payroll_schedule has no client_id param; reuse draft_id for trace
+        authored = author_round1_payroll_contract(
+          business_facts=business_facts or {},
+          ops_json=ops_json or {},
+          people_json=people_json or {},
+          financials_json=financials_json or {},
+          financials_year1_json=financials_year1_json or {},
+          model_input_json=model_input_json or {},
+          finmo_json=finmo_json or {},
+          stage_ramp_contract=stage_ramp_contract or {},
+          policy_code=policy_code,
         )
     except Exception as exc:
       return {
@@ -278,11 +283,14 @@ def set_payroll_schedule(
         "contract": None,
         "payload": None,
         "violations": [{
-          "code": "payroll_handler_c_authoring_failed",
+          "code": "payroll_round1_producer_authoring_failed",
           "message": _string(exc)[:600],
         }],
         "bands_echoed": bands_echoed,
-        "decision_source": "handler_c_internal_authoring",
+        "decision_source": (
+          "handler_c_internal_authoring" if handler_c is not None
+          else "deterministic_round1_producer"
+        ),
       }
     if isinstance(authored, dict):
       raw_contract = (
@@ -292,7 +300,10 @@ def set_payroll_schedule(
       )
       if isinstance(raw_contract, dict) and raw_contract:
         candidate = copy.deepcopy(raw_contract)
-    decision_source = "handler_c_internal_authoring"
+    decision_source = (
+      "handler_c_internal_authoring" if handler_c is not None
+      else "deterministic_round1_producer"
+    )
 
   if not isinstance(candidate, dict) or not candidate:
     return {
@@ -329,7 +340,7 @@ def set_payroll_schedule(
 
   violations = envelope_violations + validator_violations + band_violations
   if violations or normalized is None:
-    if decision_source == "handler_c_internal_authoring":
+    if decision_source in ("handler_c_internal_authoring", "deterministic_round1_producer"):
       from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
         EventCode, PhaseCode, Status, safe_emit,
       )
@@ -381,11 +392,10 @@ def set_payroll_schedule(
       "decision_source": decision_source,
     }
 
-  # Step 9b-ii — emit ROUND1_PAYROLL_OK when contract=None path
-  # (decision_source == "handler_c_internal_authoring"). Cascade
-  # revisions pass a contract directly and are observed via the
+  # Step 9b-ii — emit ROUND1_PAYROLL_OK on the contract=None round-1 path.
+  # Cascade revisions pass a contract directly and are observed via the
   # SessionDriver's CASCADE_PROPOSAL_* emits.
-  if decision_source == "handler_c_internal_authoring":
+  if decision_source in ("handler_c_internal_authoring", "deterministic_round1_producer"):
     from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
       EventCode, PhaseCode, Status, safe_emit,
     )

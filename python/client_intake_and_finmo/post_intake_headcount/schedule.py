@@ -949,12 +949,20 @@ def _oews_title_catalog_from_rows(
     if picked is None:
       continue
     seen_titles.add(normalized_title)
+    # tot_emp / o_group carried so the deterministic round-1 producer can
+    # weight the staffing mix by NAICS occupation employment share and
+    # restrict to detailed occupations (avoid double-counting major/total
+    # aggregate rows). GPT-facing context already drops wage_source via
+    # _compact_payroll_gpt_context; these two are small additive fields.
+    tot_emp_value = _safe_float(row.get("tot_emp"))
     candidates.append(
       {
         "occ_title": occ_title,
         "occ_code": occ_code,
         "annual_wage": _round_currency(picked),
         "wage_source": source or "oews_median",
+        "o_group": str(row.get("o_group") or "").strip().lower(),
+        "tot_emp": round(float(tot_emp_value), 2) if tot_emp_value is not None else None,
       }
     )
   candidates.sort(key=lambda item: (str(item.get("occ_code") or ""), str(item.get("occ_title") or "").lower()))
@@ -2063,6 +2071,275 @@ def build_payroll_headcount_payload_from_contract(
     ops_json=ops_json,
     people_json=people_json,
   )
+
+
+# ---------------------------------------------------------------------------
+# Round-1 deterministic payroll producer (Lineage B).
+#
+# Authority: docs/architecture/payroll_producer_spec.md. Python authors the
+# round-1 payroll_headcount_schedule deterministically from the business's OWN
+# per-quarter revenue (the dollar path); GPT later critiques the output via the
+# amalgamated responder (confirm/veto/choose/other). This REPLACES
+# build_pending_payroll_stub on the canonical set_payroll_schedule(contract=None)
+# path. NO productivity coefficient is used to SIZE FTE — that is the Fix #2
+# OQ-1 wall; revenue->FTE goes through OEWS wages, not productivity.
+#
+# The four confirmed values (spec Step 1) are NAMED policy defaults, not inline
+# literals. Benefits reuse the existing DB policy value
+# default_payroll_tax_benefits_pct (= 0.22). The rest are named module
+# constants here because they are UNIVERSAL producer policy (not per-NAICS
+# cohort data); promoting them into post_intake_headcount_policy_lookup is a
+# deferred option if per-cohort variation is ever needed.
+# ---------------------------------------------------------------------------
+
+# OQ-2 — intensity -> capacity_labor_model map.
+ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL: Dict[str, str] = {
+  "low": "system_driven",
+  "medium": "hybrid",
+  "high": "labor_driven",
+  "expert": "expert_driven",
+}
+# OQ-6 — staffing-mix breadth: top-N occupations by NAICS tot_emp.
+ROUND1_MIX_TOP_N = 6
+# OQ-5 — per-quarter revenue source priority (finmo first, computed fallback).
+ROUND1_REVENUE_SOURCE_PRIORITY = ("finmo_revenue", "computed_revenue_from_model_input")
+# Part D fallback when intake cannot imply an intensity (payroll/revenue absent).
+ROUND1_DEFAULT_LABOR_INTENSITY_CLASS = "medium"
+# Neutral wage positioning: pay at the OEWS-resolved median, no premium. The
+# multiplier is sourced from the policy tier bounds (floor.min), not a literal.
+ROUND1_DEFAULT_WAGE_POSITIONING_TIER = "floor"
+# Lifecycle floor: a supporting title, once active, must keep ending_fte > 0
+# every quarter (lookup._validate_supporting_title_lifecycle). Tiny early-
+# quarter budgets can round below this; floor to keep the schedule valid.
+ROUND1_SUPPORTING_FTE_FLOOR = 0.01
+# Reported-productivity fallback for the degenerate no-supporting-FTE case only
+# (the contract field must be > 0); never a sizing input (Part G).
+ROUND1_REPORTED_PRODUCTIVITY_FALLBACK = 1.0
+
+
+def _round1_resolve_labor_intensity_class(
+  *,
+  policy: Dict[str, Any],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+) -> Tuple[str, str]:
+  """Deterministically resolve labor_intensity_class (spec Part D).
+
+  Picks the class whose payroll/revenue band midpoint is nearest the intake-
+  implied payroll/revenue ratio. Falls back to the named default when intake
+  does not supply both payroll and revenue. Returns (class, source_note).
+  """
+  bounds = policy.get("payroll_revenue_sanity_bounds") if isinstance(policy, dict) else {}
+  bounds = bounds if isinstance(bounds, dict) else {}
+  implied = _intake_implied_operating_intensity(
+    financials=financials_json if isinstance(financials_json, dict) else {},
+    year1=financials_year1_json if isinstance(financials_year1_json, dict) else {},
+  ).get("implied_payroll_percent_of_revenue")
+  if implied is None or not bounds:
+    return ROUND1_DEFAULT_LABOR_INTENSITY_CLASS, "default_intake_silent"
+  best_class: Optional[str] = None
+  best_distance: Optional[float] = None
+  for class_name, band in bounds.items():
+    if not isinstance(band, dict):
+      continue
+    min_pct = _safe_float(band.get("min_pct"))
+    max_pct = _safe_float(band.get("max_pct"))
+    if min_pct is None or max_pct is None or max_pct < min_pct:
+      continue
+    midpoint = (float(min_pct) + float(max_pct)) / 2.0
+    distance = abs(float(implied) - midpoint)
+    if best_distance is None or distance < best_distance:
+      best_distance = distance
+      best_class = str(class_name).strip().lower()
+  if not best_class:
+    return ROUND1_DEFAULT_LABOR_INTENSITY_CLASS, "default_no_policy_bounds"
+  return best_class, f"intake_implied_payroll_pct={round(float(implied), 4)}"
+
+
+def author_round1_payroll_contract(
+  *,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  policy_code: str = "default",
+) -> Dict[str, Any]:
+  """Author a deterministic round-1 payroll_headcount_schedule CONTRACT from the
+  business's own per-quarter revenue (the dollar path). See
+  docs/architecture/payroll_producer_spec.md.
+
+  Sizing chain (per quarter q): payroll_budget = revenue_q x band_midpoint;
+  minus fixed key-person payroll; supporting FTE solved by inverting the
+  builder's wage formula (avg_fte x wage / 4 x (1+benefits)) using the SAME
+  wage path (_select_wage median + _policy_adjusted_annual_wage). Flat within
+  the quarter (starting == ending) so the builder's average-based payroll
+  reproduces the budget exactly. Output is shaped to pass
+  validate_payroll_headcount_contract_payload.
+  """
+  del stage_ramp_contract  # context only at round-1; not a sizing input here
+  policy = post_intake_headcount_policy_for(policy_code=policy_code) or {}
+  horizon = int(policy.get("schedule_horizon_quarters") or _contract_horizon_quarters())
+  benefits_pct = round(float(policy.get("default_payroll_tax_benefits_pct") or 0.22), 2)
+
+  # --- labor intensity + percent-of-revenue midpoint (Parts D, B.4) -------
+  labor_intensity_class, intensity_source = _round1_resolve_labor_intensity_class(
+    policy=policy,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
+  from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
+    headcount_payroll_revenue_sanity_bounds,
+  )
+  band = headcount_payroll_revenue_sanity_bounds(policy, labor_intensity_class=labor_intensity_class)
+  pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
+
+  capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
+    labor_intensity_class,
+    ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL[ROUND1_DEFAULT_LABOR_INTENSITY_CLASS],
+  )
+  wage_tiers = policy.get("wage_positioning_multiplier") if isinstance(policy.get("wage_positioning_multiplier"), dict) else {}
+  floor_bounds = wage_tiers.get(ROUND1_DEFAULT_WAGE_POSITIONING_TIER) if isinstance(wage_tiers, dict) else None
+  if not isinstance(floor_bounds, dict) or _safe_float(floor_bounds.get("min")) is None:
+    _payroll_fail_fast(
+      "payroll_round1_wage_positioning_tier_missing",
+      f"policy wage_positioning_multiplier missing '{ROUND1_DEFAULT_WAGE_POSITIONING_TIER}' tier bounds.",
+      stage="payroll_round1_producer",
+    )
+  wage_multiplier = round(float(floor_bounds.get("min")), 4)
+
+  # --- per-quarter revenue + authored capacity (Part B.2, OQ-5) -----------
+  rdc = _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json)
+  revenue_by_q: Dict[int, float] = {}
+  capacity_by_q: Dict[int, float] = {}
+  for qrow in rdc.get("quarter_rows") or []:
+    q = int(qrow.get("quarter_index") or 0)
+    if q < 1 or q > horizon:
+      continue
+    revenue_value: Optional[float] = None
+    for key in ROUND1_REVENUE_SOURCE_PRIORITY:
+      candidate_value = qrow.get(key)
+      if candidate_value is not None:
+        revenue_value = float(candidate_value)
+        break
+    revenue_by_q[q] = max(0.0, float(revenue_value or 0.0))
+    capacity_by_q[q] = sum(
+      max(0.0, float((pr or {}).get("capacity_units") or 0.0))
+      for pr in (qrow.get("product_rows") or [])
+    )
+
+  # --- key people: fixed payroll per quarter (builder math) (Part B.5) ----
+  key_rows = _key_people_rows_from_intake(
+    people_json, policy=policy, horizon=horizon,
+    business_facts=business_facts, ops_json=ops_json,
+  )
+  key_payroll_by_q: Dict[int, int] = {q: 0 for q in range(1, horizon + 1)}
+  for row in key_rows:
+    q = int(row.get("quarter_index") or 0)
+    if q < 1 or q > horizon:
+      continue
+    annual_wage = _round_currency(row.get("annual_wage"))
+    row_benefits = round(float(_safe_ratio(row.get("payroll_taxes_benefits_percent")) or 0.0), 2)
+    average_fte = round((float(row.get("starting_fte") or 0.0) + float(row.get("ending_fte") or 0.0)) / 2.0, 2)
+    wage_cost = _round_currency((average_fte * annual_wage) / 4.0)
+    taxes = _round_currency(wage_cost * row_benefits)
+    key_payroll_by_q[q] += int(wage_cost + taxes)
+
+  # --- supporting role mix from OEWS tot_emp (Part C, OQ-6) ---------------
+  catalog = _oews_title_catalog_for_business(
+    business_facts=business_facts, ops_json=ops_json, people_json=people_json,
+  )
+  candidates = [c for c in (catalog.get("title_candidates") or []) if isinstance(c, dict)]
+
+  def _emp(candidate: Dict[str, Any]) -> float:
+    value = _safe_float(candidate.get("tot_emp"))
+    return float(value) if value is not None else 0.0
+
+  def _has_wage(candidate: Dict[str, Any]) -> bool:
+    return float(_round_currency(candidate.get("annual_wage"))) > 0.0
+
+  # Prefer detailed occupations with positive tot_emp (avoid double-counting
+  # major/total aggregate rows in the employment-share weights).
+  pool = [c for c in candidates if c.get("o_group") == "detailed" and _emp(c) > 0.0 and _has_wage(c)]
+  mix_source = "oews_tot_emp_detailed"
+  if not pool:
+    pool = [c for c in candidates if _has_wage(c)]
+    mix_source = "oews_tot_emp_any" if any(_emp(c) > 0.0 for c in pool) else "equal_weight_no_tot_emp"
+  if not pool:
+    _payroll_fail_fast(
+      "payroll_round1_no_supporting_titles",
+      f"No usable OEWS supporting titles for naics={catalog.get('business_naics_6')}.",
+      stage="payroll_round1_producer",
+      details={"business_naics_6": catalog.get("business_naics_6")},
+    )
+  pool.sort(key=lambda c: (-_emp(c), str(c.get("occ_title") or "").lower()))
+  selected = pool[: max(1, int(ROUND1_MIX_TOP_N))]
+  emp_total = sum(_emp(c) for c in selected)
+  if emp_total > 0.0:
+    weights = [_emp(c) / emp_total for c in selected]
+  else:
+    weights = [1.0 / len(selected) for _ in selected]
+  selected_base_wage = [int(_round_currency(c.get("annual_wage"))) for c in selected]
+
+  # --- dollar-path FTE per title per quarter (Part B.1, B.6) --------------
+  # Flat within quarter (starting == ending) so average_fte == ending and the
+  # builder's average-based payroll reproduces the supporting budget exactly.
+  grid: List[Dict[str, Any]] = []
+  total_supporting_avg_fte = 0.0
+  for q in range(1, horizon + 1):
+    revenue_q = revenue_by_q.get(q, 0.0)
+    supporting_budget_q = max(0.0, revenue_q * pct_mid - float(key_payroll_by_q.get(q, 0)))
+    wage_iq = [
+      _policy_adjusted_annual_wage(base, quarter_index=q, policy=policy, wage_positioning_multiplier=wage_multiplier)
+      for base in selected_base_wage
+    ]
+    w_dot_wage = sum(weights[i] * float(wage_iq[i]) for i in range(len(selected)))
+    if supporting_budget_q > 0.0 and w_dot_wage > 0.0:
+      level_q = supporting_budget_q * 4.0 / ((1.0 + benefits_pct) * w_dot_wage)
+    else:
+      level_q = 0.0
+    for i, candidate in enumerate(selected):
+      ending = round(max(level_q * weights[i], ROUND1_SUPPORTING_FTE_FLOOR), 2)
+      grid.append({
+        "q": q,
+        "oews_occ_title": str(candidate.get("occ_title") or "").strip(),
+        "starting_fte": ending,   # flat within quarter -> avg_fte == ending
+        "hires": 0.0,
+        "ending_fte": ending,
+        "payroll_tax_benefits_pct": benefits_pct,
+      })
+      total_supporting_avg_fte += ending
+
+  # --- productivity: DERIVED / reported, never looked up (Part G) ---------
+  total_capacity = sum(capacity_by_q.get(q, 0.0) for q in range(1, horizon + 1))
+  if total_supporting_avg_fte > 0.0 and total_capacity > 0.0:
+    productivity = round(total_capacity / total_supporting_avg_fte, 4)
+  else:
+    productivity = ROUND1_REPORTED_PRODUCTIVITY_FALLBACK
+  if productivity <= 0.0:
+    productivity = ROUND1_REPORTED_PRODUCTIVITY_FALLBACK
+
+  rationale = (
+    f"deterministic_round1_producer: per-quarter payroll budget = own revenue x "
+    f"{pct_mid} ({labor_intensity_class} band midpoint, source={intensity_source}); "
+    f"key-person payroll subtracted; supporting FTE solved from OEWS wages "
+    f"(mix_source={mix_source}, top {len(selected)} by tot_emp); productivity "
+    f"reported (capacity/FTE), not a sizing input."
+  )
+
+  return {
+    "capacity_labor_model": capacity_labor_model,
+    "labor_intensity_class": labor_intensity_class,
+    "wage_positioning_tier": ROUND1_DEFAULT_WAGE_POSITIONING_TIER,
+    "wage_positioning_multiplier": wage_multiplier,
+    "capacity_units_per_supporting_fte": productivity,
+    "target_payroll_percent_of_revenue": pct_mid,
+    "rationale": rationale,
+    "payroll_headcount_grid": grid,
+  }
 
 
 def _assert_payroll_contract_economic_feasible_for_retry(
