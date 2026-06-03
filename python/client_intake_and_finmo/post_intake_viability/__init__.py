@@ -41,3 +41,10 @@ from .gates import (  # noqa: F401
 )
 from . import policy  # noqa: F401
 from . import grade  # noqa: F401  (submodule; call grade.grade(...))
+from . import standard  # noqa: F401
+from .standard import (  # noqa: F401
+  VERDICT_NON_VIABLE,
+  VERDICT_PASS,
+  VERDICT_REFINE,
+  evaluate_viability,
+)

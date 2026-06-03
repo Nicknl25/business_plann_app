@@ -30,6 +30,7 @@ from client_intake_and_finmo.post_intake_viability import gates as _gates  # noq
 from client_intake_and_finmo.post_intake_viability import grade as _grade  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import policy as _pol  # noqa: E402
 from client_intake_and_finmo.post_intake_viability.cohort_bands import HIGHER_BETTER, LOWER_BETTER  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import standard as _std  # noqa: E402
 
 
 def _finmo_from_ebitda(ebitda_list, revenue=100.0):
@@ -421,6 +422,76 @@ def test_grade_distress_relaxes_convergence_bar() -> None:
   assert dist["overall_score"] >= base["overall_score"]
 
 
+# ---------------------------------------------------------------------------
+# Unit 7+8 (§3, §7, §8) — verdict orchestrator + posture.
+# ---------------------------------------------------------------------------
+
+
+def _with_bands(bands):
+  """Context-managerish helper: patch standard.resolve_viability_bands."""
+  orig = _std.resolve_viability_bands
+  _std.resolve_viability_bands = lambda profile: dict(bands)
+  return orig
+
+
+def test_verdict_non_viable_when_gate_fails() -> None:
+  fj = _finmo_from_ebitda([-5] * 20)  # never breaks even, cumulative < 0
+  v = _std.evaluate_viability(fj, business_age_months=0,
+                              business_profile={"naics_6": "311811", "target_annual_revenue": 1.5e6})
+  assert v["verdict"] == _std.VERDICT_NON_VIABLE
+  assert v["viable"] is False
+  assert v["grade"] is not None  # grade still computed for the refine signal
+
+
+def test_verdict_pass_when_gates_clear_and_grade_strong() -> None:
+  orig = _with_bands(_BANDS)
+  try:
+    fj = _finmo_rich(n=16, rev0=100, g=0.08, margin=0.15)
+    v = _std.evaluate_viability(fj, business_age_months=48,  # operational
+                                business_profile={"naics_6": "311811", "target_annual_revenue": 1.5e6})
+    assert v["viable"] is True
+    assert v["tier1_score"] is not None and v["tier1_score"] >= v["pass_refine_threshold"]
+    assert v["verdict"] == _std.VERDICT_PASS
+    assert v["stage"] == "operational"
+  finally:
+    _std.resolve_viability_bands = orig
+
+
+def test_verdict_refine_when_viable_but_ungraded() -> None:
+  # Gates clear but no naics -> no bands -> tier1 None -> refine (never silent pass).
+  fj = _finmo_rich(n=16, rev0=100, g=0.04, margin=0.10)
+  v = _std.evaluate_viability(fj, business_age_months=48, business_profile={})
+  assert v["viable"] is True
+  assert v["tier1_score"] is None
+  assert v["verdict"] == _std.VERDICT_REFINE
+  assert any("tier1_ungraded" in n for n in v["notes"])
+
+
+def test_posture_distress_changes_gate_a_verdict() -> None:
+  # Breakeven first sustained ~Q12: fails Gate A at Q10 (non_viable) but the
+  # +4q distress deadline (Q14) lets it through. Gate B passes both (cum>0).
+  fj = _finmo_from_ebitda([-5] * 11 + [50] * 9)
+  base = _std.evaluate_viability(fj, business_age_months=0, business_profile={})
+  dist = _std.evaluate_viability(fj, business_age_months=0, business_profile={},
+                                 explicit_distress_context=True)
+  assert base["verdict"] == _std.VERDICT_NON_VIABLE  # gate A misses Q10
+  assert dist["viable"] is True                      # distress extends to Q14
+  assert dist["gates"]["gate_b"]["passed"] is True   # gate B firm in both
+
+
+def test_stage_is_age_derived() -> None:
+  v_startup = _std.evaluate_viability(_finmo_rich(), business_age_months=6, business_profile={})
+  v_oper = _std.evaluate_viability(_finmo_rich(), business_age_months=48, business_profile={})
+  assert v_startup["stage"] == "startup"
+  assert v_oper["stage"] == "operational"
+
+
+def test_age_unavailable_defaults_and_notes() -> None:
+  v = _std.evaluate_viability(_finmo_rich(), business_profile={})  # no age, no start_date
+  assert v["stage"] == "startup"
+  assert any("business_age_unavailable" in n for n in v["notes"])
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -458,6 +529,12 @@ def main() -> int:
     ("u6_ebitda_ramp_trajectory_only", test_grade_ebitda_ramp_is_trajectory_only),
     ("u6_unavailable_band_drops_level", test_grade_unavailable_band_drops_level_not_crash),
     ("u6_distress_relaxes_bar", test_grade_distress_relaxes_convergence_bar),
+    ("u7_verdict_non_viable_gate_fail", test_verdict_non_viable_when_gate_fails),
+    ("u7_verdict_pass_strong", test_verdict_pass_when_gates_clear_and_grade_strong),
+    ("u7_verdict_refine_ungraded", test_verdict_refine_when_viable_but_ungraded),
+    ("u8_posture_distress_changes_verdict", test_posture_distress_changes_gate_a_verdict),
+    ("u7_stage_age_derived", test_stage_is_age_derived),
+    ("u7_age_unavailable_defaults", test_age_unavailable_defaults_and_notes),
   ]
   for name, fn in tests:
     _run(name, fn)
