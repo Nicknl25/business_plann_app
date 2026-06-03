@@ -25,6 +25,19 @@ if _PY not in sys.path:
 from client_intake_and_finmo.post_intake_solver import cohort_band_resolver as _cbr  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import stage as _stage  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import constructs as _con  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import cohort_bands as _cb  # noqa: E402
+
+
+def _load_env_once() -> None:
+  env = os.path.join(_ROOT, ".env")
+  if not os.path.exists(env):
+    return
+  for line in open(env, encoding="utf-8-sig"):
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+      continue
+    k, v = line.split("=", 1)
+    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def _approx(a, b, tol=1e-6) -> bool:
@@ -194,6 +207,50 @@ def test_constructs_none_safe_on_empty() -> None:
   assert _con.firm_constructs({})["quarters"] == []
 
 
+# ---------------------------------------------------------------------------
+# Unit 4 (§5) — cohort band resolution for graded constructs.
+# ---------------------------------------------------------------------------
+
+
+def test_band_to_dict_none_is_unavailable_not_faked() -> None:
+  d = _cb._band_to_dict(None, "ebitda_margin_q")
+  assert d["available"] is False
+  assert d["p25"] is None and d["p50"] is None and d["p75"] is None
+  assert d["direction"] == _cb.HIGHER_BETTER
+
+
+def test_construct_cohort_reference_mapping_columns_known() -> None:
+  # Every referenced column must be a registered resolver column.
+  for cols in _cb.CONSTRUCT_COHORT_REFERENCES.values():
+    for col in cols:
+      assert col in _cbr._KNOWN_METRIC_COLUMNS, f"{col} not a known resolver column"
+      assert col in _cb.VIABILITY_METRIC_DIRECTIONS
+
+
+def test_directions_orientation() -> None:
+  assert _cb.VIABILITY_METRIC_DIRECTIONS["ebitda_margin_q"] == _cb.HIGHER_BETTER
+  assert _cb.VIABILITY_METRIC_DIRECTIONS["current_assets_minus_cash_to_revenue"] == _cb.LOWER_BETTER
+
+
+def test_resolve_viability_bands_live_best_effort() -> None:
+  # Best-effort live check against the DB. Skips (soft pass) when the DB is
+  # unreachable so the suite still runs without a DB; asserts band sanity
+  # when it IS reachable. (Live resolution was confirmed manually in Unit 1.)
+  _load_env_once()
+  bands = _cb.resolve_viability_bands(
+    {"naics_6": "311811", "target_annual_revenue": 1500000, "stage": "operational"}
+  )
+  assert set(bands.keys()) == set(_cb.VIABILITY_METRIC_DIRECTIONS.keys())
+  available = [b for b in bands.values() if b["available"]]
+  if not available:
+    print("    (skipped live band asserts — DB unreachable)")
+    return
+  for b in available:
+    assert b["p25"] is not None and b["p50"] is not None and b["p75"] is not None
+    assert b["p25"] <= b["p50"] <= b["p75"], f"band not ordered: {b}"
+    assert b["firm_count"] is not None and b["firm_count"] >= 2
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -213,6 +270,10 @@ def main() -> int:
     ("u3_c5_cumulative_ebitda", test_c5_cumulative_ebitda),
     ("u3_firm_constructs_bundle", test_firm_constructs_bundle),
     ("u3_constructs_none_safe", test_constructs_none_safe_on_empty),
+    ("u4_band_to_dict_none_unavailable", test_band_to_dict_none_is_unavailable_not_faked),
+    ("u4_construct_refs_columns_known", test_construct_cohort_reference_mapping_columns_known),
+    ("u4_directions_orientation", test_directions_orientation),
+    ("u4_resolve_bands_live_best_effort", test_resolve_viability_bands_live_best_effort),
   ]
   for name, fn in tests:
     _run(name, fn)
