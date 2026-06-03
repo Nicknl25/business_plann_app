@@ -24,6 +24,35 @@ if _PY not in sys.path:
 
 from client_intake_and_finmo.post_intake_solver import cohort_band_resolver as _cbr  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import stage as _stage  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import constructs as _con  # noqa: E402
+
+
+def _approx(a, b, tol=1e-6) -> bool:
+  return a is not None and b is not None and abs(a - b) <= tol
+
+
+# A hand-built 3-quarter finmo_json with known values (plus an opening stub
+# at quarter_index 0 that must be excluded). Operating-NWC = (AR+inv+prepaid)
+# - (AP+deferred); the funding-contaminated totals are deliberately wrong to
+# prove they are NOT read.
+_FIXTURE = {
+  "quarter_rows": [
+    {"quarter_index": 0, "revenue": 0, "ebitda": 0},  # stub — must be skipped
+    {"quarter_index": 1, "revenue": 100.0, "ebitda": -20.0,
+     "changes_in_current_assets": -10.0, "changes_in_current_liabilities": 4.0,
+     "accounts_receivable": 30.0, "inventory": 10.0, "prepaid_expenses": 0.0,
+     "accounts_payable": 12.0, "deferred_revenue": 0.0,
+     "current_assets": 999.0, "current_liabilities": 999.0},  # totals (contaminated) — must be ignored
+    {"quarter_index": 2, "revenue": 150.0, "ebitda": 15.0,
+     "changes_in_current_assets": -5.0, "changes_in_current_liabilities": 2.0,
+     "accounts_receivable": 40.0, "inventory": 12.0, "prepaid_expenses": 0.0,
+     "accounts_payable": 15.0, "deferred_revenue": 0.0},
+    {"quarter_index": 3, "revenue": 200.0, "ebitda": 40.0,
+     "changes_in_current_assets": -6.0, "changes_in_current_liabilities": 3.0,
+     "accounts_receivable": 50.0, "inventory": 14.0, "prepaid_expenses": 0.0,
+     "accounts_payable": 18.0, "deferred_revenue": 0.0},
+  ]
+}
 
 
 _RESULTS: List[Tuple[str, bool, str]] = []
@@ -95,6 +124,76 @@ def test_business_age_months_matches_precedent() -> None:
   assert _stage.business_age_months(None, date(2026, 1, 15)) is None
 
 
+# ---------------------------------------------------------------------------
+# Unit 3 (§2) — the 5 firm-side constructs.
+# ---------------------------------------------------------------------------
+
+
+def test_live_rows_excludes_stub() -> None:
+  rows = _con.live_quarter_rows(_FIXTURE)
+  assert [r["quarter_index"] for r in rows] == [1, 2, 3], "stub q0 must be excluded, sorted asc"
+
+
+def test_c1_operating_cash_proxy_signs() -> None:
+  # proxy = ebitda + changes_in_current_assets + changes_in_current_liabilities
+  s = _con.operating_cash_proxy_series(_con.live_quarter_rows(_FIXTURE))
+  by_q = {x["quarter_index"]: x for x in s}
+  assert _approx(by_q[1]["value"], -26.0)   # -20 + (-10) + 4
+  assert _approx(by_q[1]["margin"], -0.26)  # -26/100
+  assert _approx(by_q[2]["value"], 12.0)    # 15 + (-5) + 2
+  assert _approx(by_q[3]["value"], 37.0)    # 40 + (-6) + 3
+
+
+def test_c3_nwc_intensity_uses_operating_subset_not_totals() -> None:
+  s = _con.nwc_intensity_series(_con.live_quarter_rows(_FIXTURE))
+  by_q = {x["quarter_index"]: x for x in s}
+  # q1 operating NWC = (30+10+0) - (12+0) = 28 ; intensity 28/100=0.28
+  # (the contaminated 999 totals must NOT appear)
+  assert _approx(by_q[1]["nwc"], 28.0)
+  assert _approx(by_q[1]["nwc_to_revenue"], 0.28)
+  assert _approx(by_q[3]["nwc"], 46.0)  # (50+14)-18
+
+
+def test_c2_rule_of_40() -> None:
+  s = _con.rule_of_40_series(_con.live_quarter_rows(_FIXTURE))
+  by_q = {x["quarter_index"]: x for x in s}
+  assert by_q[1]["revenue_growth"] is None  # first quarter, no prior
+  assert _approx(by_q[2]["revenue_growth"], 0.5)     # (150-100)/100
+  assert _approx(by_q[2]["ebitda_margin"], 0.10)     # 15/150
+  assert _approx(by_q[2]["rule_of_40"], 0.60)        # 0.5 + 0.10
+
+
+def test_c4_ebitda_ramp() -> None:
+  ramp = _con.ebitda_ramp(_con.live_quarter_rows(_FIXTURE))
+  assert ramp["breakeven_quarter"] == 2  # first ebitda >= 0
+  # margins [-0.20, 0.10, 0.20] over q [1,2,3] -> OLS slope 0.2
+  assert _approx(ramp["margin_slope_per_quarter"], 0.2)
+  assert ramp["operating_leverage"] is not None and ramp["operating_leverage"] > 0.0
+
+
+def test_c5_cumulative_ebitda() -> None:
+  res = _con.cumulative_ebitda_series(_con.live_quarter_rows(_FIXTURE))
+  by_q = {x["quarter_index"]: x for x in res}
+  assert _approx(by_q[1]["cumulative_ebitda"], -20.0)
+  assert _approx(by_q[2]["cumulative_ebitda"], -5.0)
+  assert _approx(by_q[3]["cumulative_ebitda"], 35.0)
+
+
+def test_firm_constructs_bundle() -> None:
+  b = _con.firm_constructs(_FIXTURE)
+  assert b["quarters"] == [1, 2, 3]
+  assert _approx(b["cumulative_ebitda"]["final"], 35.0)
+  assert b["cumulative_ebitda"]["final_quarter"] == 3
+  assert b["ebitda_ramp"]["breakeven_quarter"] == 2
+
+
+def test_constructs_none_safe_on_empty() -> None:
+  # Missing / malformed finmo_json must not crash (no silent degradation
+  # to wrong numbers — returns empty / None).
+  assert _con.firm_constructs(None)["quarters"] == []
+  assert _con.firm_constructs({})["quarters"] == []
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -106,6 +205,14 @@ def main() -> int:
     ("u2_stage_none_propagates", test_stage_none_age_propagates_none),
     ("u2_business_age_quarters", test_business_age_quarters),
     ("u2_business_age_months_precedent", test_business_age_months_matches_precedent),
+    ("u3_live_rows_excludes_stub", test_live_rows_excludes_stub),
+    ("u3_c1_operating_cash_proxy", test_c1_operating_cash_proxy_signs),
+    ("u3_c3_nwc_intensity_operating_subset", test_c3_nwc_intensity_uses_operating_subset_not_totals),
+    ("u3_c2_rule_of_40", test_c2_rule_of_40),
+    ("u3_c4_ebitda_ramp", test_c4_ebitda_ramp),
+    ("u3_c5_cumulative_ebitda", test_c5_cumulative_ebitda),
+    ("u3_firm_constructs_bundle", test_firm_constructs_bundle),
+    ("u3_constructs_none_safe", test_constructs_none_safe_on_empty),
   ]
   for name, fn in tests:
     _run(name, fn)
