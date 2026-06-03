@@ -26,6 +26,15 @@ from client_intake_and_finmo.post_intake_solver import cohort_band_resolver as _
 from client_intake_and_finmo.post_intake_viability import stage as _stage  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import constructs as _con  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import cohort_bands as _cb  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import gates as _gates  # noqa: E402
+
+
+def _finmo_from_ebitda(ebitda_list, revenue=100.0):
+  """Build a minimal finmo_json (live quarters 1..N) from an EBITDA list."""
+  rows = [{"quarter_index": 0, "revenue": 0.0, "ebitda": 0.0}]
+  for i, e in enumerate(ebitda_list, start=1):
+    rows.append({"quarter_index": i, "revenue": revenue, "ebitda": e})
+  return {"quarter_rows": rows}
 
 
 def _load_env_once() -> None:
@@ -251,6 +260,73 @@ def test_resolve_viability_bands_live_best_effort() -> None:
     assert b["firm_count"] is not None and b["firm_count"] >= 2
 
 
+# ---------------------------------------------------------------------------
+# Unit 5 (§3, §4.1b, §4.3, §7) — Tier 2 gates.
+# ---------------------------------------------------------------------------
+
+
+def test_gate_a_deadline_age_anchoring() -> None:
+  d = _gates.gate_a_deadline_plan_quarter
+  assert d(business_age_quarters=0) == 10           # brand-new startup: full Q10
+  assert d(business_age_quarters=5) == 5            # 5q elapsed -> plan-Q5
+  assert d(business_age_quarters=9) == 2            # past-ish: floored to 2q grace
+  assert d(business_age_quarters=20) == 2           # well past: grace floor
+  assert d(business_age_quarters=0, distress=True) == 14  # +4 under turnaround
+
+
+def test_gate_a_pass_when_sustained_positive_by_deadline() -> None:
+  rows = _con.live_quarter_rows(_finmo_from_ebitda(
+    [-20, -15, -10, -5, -2, 2, 6, 10, 14, 18] + [20] * 10))
+  g = _gates.evaluate_gate_a(rows, business_age_quarters=0)
+  assert g["passed"] is True
+  assert g["breakeven_plan_q"] is not None and g["breakeven_plan_q"] <= 10
+
+
+def test_gate_a_fail_when_never_positive_by_deadline() -> None:
+  rows = _con.live_quarter_rows(_finmo_from_ebitda([-5] * 20))
+  g = _gates.evaluate_gate_a(rows, business_age_quarters=0)
+  assert g["passed"] is False
+  assert g["evaluable"] is True  # data present, genuinely failed (not indeterminate)
+
+
+def test_gate_a_cannot_fire_before_business_q4() -> None:
+  # Positive from q1; breakeven must be detected at business-Q4, never earlier.
+  rows = _con.live_quarter_rows(_finmo_from_ebitda([5] * 20))
+  g = _gates.evaluate_gate_a(rows, business_age_quarters=0)
+  assert g["breakeven_plan_q"] == 4, g
+
+
+def test_gate_a_distress_extends_deadline() -> None:
+  # Sustained positive first reached at plan-Q12 — fails at Q10, passes at Q14.
+  ebitda = [-5] * 11 + [50] * 9  # trailing-4q sum crosses 0 around q12-13
+  rows = _con.live_quarter_rows(_finmo_from_ebitda(ebitda))
+  base = _gates.evaluate_gate_a(rows, business_age_quarters=0, distress=False)
+  dist = _gates.evaluate_gate_a(rows, business_age_quarters=0, distress=True)
+  assert base["passed"] is False
+  assert dist["passed"] is True and dist["deadline_plan_q"] == 14
+
+
+def test_gate_b_cumulative() -> None:
+  rows_pos = _con.live_quarter_rows(_finmo_from_ebitda([10] * 20))
+  rows_neg = _con.live_quarter_rows(_finmo_from_ebitda([-10] * 20))
+  assert _gates.evaluate_gate_b(rows_pos)["passed"] is True
+  assert _gates.evaluate_gate_b(rows_neg)["passed"] is False
+
+
+def test_gate_b_posture_independent() -> None:
+  # evaluate_gates with distress must not change Gate B.
+  fj = _finmo_from_ebitda([-10] * 20)
+  g0 = _gates.evaluate_gates(fj, business_age_quarters=0, distress=False)
+  g1 = _gates.evaluate_gates(fj, business_age_quarters=0, distress=True)
+  assert g0["gate_b"]["passed"] == g1["gate_b"]["passed"] is False
+
+
+def test_evaluate_gates_all_pass() -> None:
+  fj = _finmo_from_ebitda([-20, -15, -10, -5, -2, 2, 6, 10, 14, 18] + [20] * 10)
+  g = _gates.evaluate_gates(fj, business_age_quarters=0)
+  assert g["gate_a"]["passed"] and g["gate_b"]["passed"] and g["all_pass"]
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -274,6 +350,14 @@ def main() -> int:
     ("u4_construct_refs_columns_known", test_construct_cohort_reference_mapping_columns_known),
     ("u4_directions_orientation", test_directions_orientation),
     ("u4_resolve_bands_live_best_effort", test_resolve_viability_bands_live_best_effort),
+    ("u5_gate_a_deadline_age_anchoring", test_gate_a_deadline_age_anchoring),
+    ("u5_gate_a_pass_sustained", test_gate_a_pass_when_sustained_positive_by_deadline),
+    ("u5_gate_a_fail_never_positive", test_gate_a_fail_when_never_positive_by_deadline),
+    ("u5_gate_a_q4_floor", test_gate_a_cannot_fire_before_business_q4),
+    ("u5_gate_a_distress_extends", test_gate_a_distress_extends_deadline),
+    ("u5_gate_b_cumulative", test_gate_b_cumulative),
+    ("u5_gate_b_posture_independent", test_gate_b_posture_independent),
+    ("u5_evaluate_gates_all_pass", test_evaluate_gates_all_pass),
   ]
   for name, fn in tests:
     _run(name, fn)

@@ -33,3 +33,9 @@ from .cohort_bands import (  # noqa: F401
   VIABILITY_METRIC_DIRECTIONS,
   resolve_viability_bands,
 )
+from .gates import (  # noqa: F401
+  evaluate_gate_a,
+  evaluate_gate_b,
+  evaluate_gates,
+  gate_a_deadline_plan_quarter,
+)
