@@ -27,6 +27,9 @@ from client_intake_and_finmo.post_intake_viability import stage as _stage  # noq
 from client_intake_and_finmo.post_intake_viability import constructs as _con  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import cohort_bands as _cb  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import gates as _gates  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import grade as _grade  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import policy as _pol  # noqa: E402
+from client_intake_and_finmo.post_intake_viability.cohort_bands import HIGHER_BETTER, LOWER_BETTER  # noqa: E402
 
 
 def _finmo_from_ebitda(ebitda_list, revenue=100.0):
@@ -35,6 +38,38 @@ def _finmo_from_ebitda(ebitda_list, revenue=100.0):
   for i, e in enumerate(ebitda_list, start=1):
     rows.append({"quarter_index": i, "revenue": revenue, "ebitda": e})
   return {"quarter_rows": rows}
+
+
+def _finmo_rich(n=16, rev0=100.0, g=0.05, margin=0.12):
+  """Richer finmo_json: growing revenue, fixed EBITDA margin, working-capital
+  line items + clean WC deltas, so all four graded constructs are scorable."""
+  rows = [{"quarter_index": 0, "revenue": 0.0, "ebitda": 0.0}]
+  prev_ar = prev_inv = prev_ap = 0.0
+  for i in range(1, n + 1):
+    rev = rev0 * ((1 + g) ** (i - 1))
+    ar, inv, ap = 0.20 * rev, 0.10 * rev, 0.08 * rev
+    rows.append({
+      "quarter_index": i, "revenue": rev, "ebitda": margin * rev,
+      "accounts_receivable": ar, "inventory": inv, "prepaid_expenses": 0.0,
+      "accounts_payable": ap, "deferred_revenue": 0.0,
+      "changes_in_current_assets": -((ar - prev_ar) + (inv - prev_inv)),
+      "changes_in_current_liabilities": (ap - prev_ap),
+    })
+    prev_ar, prev_inv, prev_ap = ar, inv, ap
+  return {"quarter_rows": rows}
+
+
+# Synthetic cohort bands (SMB-ish, deterministic) for grade tests.
+_BANDS = {
+  "ebitda_margin_q": {"available": True, "p25": -0.04, "p50": 0.05, "p75": 0.10,
+                       "direction": HIGHER_BETTER, "naics_level_used": 6},
+  "revenue_growth_q": {"available": True, "p25": -0.05, "p50": 0.02, "p75": 0.10,
+                       "direction": HIGHER_BETTER, "naics_level_used": 6},
+  "current_assets_minus_cash_to_revenue": {"available": True, "p25": 0.05, "p50": 0.10, "p75": 0.20,
+                                           "direction": LOWER_BETTER, "naics_level_used": 6},
+  "current_liabilities_to_revenue": {"available": True, "p25": 0.03, "p50": 0.06, "p75": 0.10,
+                                     "direction": HIGHER_BETTER, "naics_level_used": 6},
+}
 
 
 def _load_env_once() -> None:
@@ -327,6 +362,65 @@ def test_evaluate_gates_all_pass() -> None:
   assert g["gate_a"]["passed"] and g["gate_b"]["passed"] and g["all_pass"]
 
 
+# ---------------------------------------------------------------------------
+# Unit 6 (§3, §5, §6, §7) — Tier 1 grade.
+# ---------------------------------------------------------------------------
+
+
+def test_health_percentile_anchors_and_direction() -> None:
+  hp = _grade._health_percentile
+  assert _approx(hp(0.05, -0.04, 0.05, 0.10, HIGHER_BETTER), 0.50)
+  assert _approx(hp(-0.04, -0.04, 0.05, 0.10, HIGHER_BETTER), 0.25)
+  assert _approx(hp(0.10, -0.04, 0.05, 0.10, HIGHER_BETTER), 0.75)
+  # lower-better: a value at the cohort's p25 (low) is HEALTHY -> high health.
+  assert _approx(hp(0.05, 0.05, 0.10, 0.20, LOWER_BETTER), 0.75)
+
+
+def test_level_score_from_health_curve() -> None:
+  f = _grade._level_score_from_health
+  assert _approx(f(0.50), 1.0)
+  assert _approx(f(0.75), 1.0)   # capped
+  assert _approx(f(0.25), 0.5)   # clears p25 -> 0.5
+  assert _approx(f(0.375), 0.75)
+  assert _approx(f(0.0), 0.0)
+
+
+def test_grade_strong_beats_weak() -> None:
+  strong = _finmo_rich(n=16, rev0=100, g=0.08, margin=0.15)   # above p75 margin, strong growth
+  weak = _finmo_rich(n=16, rev0=100, g=-0.02, margin=-0.06)   # below p25 margin, shrinking
+  gs = _grade.grade(strong, _BANDS, stage="operational", deadline_plan_q=10)
+  gw = _grade.grade(weak, _BANDS, stage="operational", deadline_plan_q=10)
+  assert gs["overall_score"] is not None and gw["overall_score"] is not None
+  assert 0.0 <= gw["overall_score"] <= gs["overall_score"] <= 1.0
+  assert gs["overall_score"] > gw["overall_score"]
+
+
+def test_grade_ebitda_ramp_is_trajectory_only() -> None:
+  g = _grade.grade(_finmo_rich(), _BANDS, stage="startup", deadline_plan_q=10)
+  assert g["per_construct"]["ebitda_ramp"]["level_score"] is None
+  assert g["per_construct"]["ebitda_ramp"]["trajectory_score"] is not None
+
+
+def test_grade_unavailable_band_drops_level_not_crash() -> None:
+  bands = {k: dict(v) for k, v in _BANDS.items()}
+  bands["ebitda_margin_q"] = {"available": False, "p25": None, "p50": None, "p75": None,
+                              "direction": HIGHER_BETTER}
+  g = _grade.grade(_finmo_rich(), bands, stage="operational", deadline_plan_q=10)
+  # operating_cash_proxy + ebitda_ramp reference ebitda_margin_q -> level drops,
+  # but the grade still computes (no crash) from the remaining constructs.
+  assert g["overall_score"] is not None
+  assert g["per_construct"]["operating_cash_proxy"]["level_score"] is None
+
+
+def test_grade_distress_relaxes_convergence_bar() -> None:
+  # A below-target, slowly-improving firm: distress lowers the convergence
+  # target, so the trajectory/overall score is >= the non-distress score.
+  fj = _finmo_rich(n=16, rev0=100, g=0.01, margin=-0.02)
+  base = _grade.grade(fj, _BANDS, stage="startup", deadline_plan_q=10, distress=False)
+  dist = _grade.grade(fj, _BANDS, stage="startup", deadline_plan_q=10, distress=True)
+  assert dist["overall_score"] >= base["overall_score"]
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -358,6 +452,12 @@ def main() -> int:
     ("u5_gate_b_cumulative", test_gate_b_cumulative),
     ("u5_gate_b_posture_independent", test_gate_b_posture_independent),
     ("u5_evaluate_gates_all_pass", test_evaluate_gates_all_pass),
+    ("u6_health_percentile_anchors", test_health_percentile_anchors_and_direction),
+    ("u6_level_score_curve", test_level_score_from_health_curve),
+    ("u6_grade_strong_beats_weak", test_grade_strong_beats_weak),
+    ("u6_ebitda_ramp_trajectory_only", test_grade_ebitda_ramp_is_trajectory_only),
+    ("u6_unavailable_band_drops_level", test_grade_unavailable_band_drops_level_not_crash),
+    ("u6_distress_relaxes_bar", test_grade_distress_relaxes_convergence_bar),
   ]
   for name, fn in tests:
     _run(name, fn)

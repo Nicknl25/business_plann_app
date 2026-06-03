@@ -39,3 +39,5 @@ from .gates import (  # noqa: F401
   evaluate_gates,
   gate_a_deadline_plan_quarter,
 )
+from . import policy  # noqa: F401
+from . import grade  # noqa: F401  (submodule; call grade.grade(...))
