@@ -31,6 +31,8 @@ from client_intake_and_finmo.post_intake_viability import grade as _grade  # noq
 from client_intake_and_finmo.post_intake_viability import policy as _pol  # noqa: E402
 from client_intake_and_finmo.post_intake_viability.cohort_bands import HIGHER_BETTER, LOWER_BETTER  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import standard as _std  # noqa: E402
+from client_intake_and_finmo.post_intake_viability import adapter as _ad  # noqa: E402
+from datetime import date as _date  # noqa: E402
 
 
 def _finmo_from_ebitda(ebitda_list, revenue=100.0):
@@ -492,6 +494,88 @@ def test_age_unavailable_defaults_and_notes() -> None:
   assert any("business_age_unavailable" in n for n in v["notes"])
 
 
+# ---------------------------------------------------------------------------
+# Unit 9 (§9) — pipeline adapter + wiring.
+# ---------------------------------------------------------------------------
+
+
+def test_adapter_parse_start_date_formats() -> None:
+  assert _ad._parse_start_date("06/19/2024") == _date(2024, 6, 19)
+  assert _ad._parse_start_date("2024-06-19") == _date(2024, 6, 19)
+  assert _ad._parse_start_date("") is None
+  assert _ad._parse_start_date(None) is None
+
+
+def test_adapter_distress_detection() -> None:
+  assert _ad._is_distress({"planning_mode": "turnaround"}) is True
+  assert _ad._is_distress({"planning_mode_reason": "app_classified_distress_case"}) is True
+  assert _ad._is_distress({"explicit_distress_context": True}) is True
+  assert _ad._is_distress({"planning_mode": "normalize"}) is False
+  assert _ad._is_distress({}) is False
+
+
+def test_adapter_extract_naics_from_nests() -> None:
+  assert _ad._extract_naics({}, {"business_naics_6": "311811"}, {}) == "311811"
+  assert _ad._extract_naics({}, {}, {"business_naics_6": "722511"}) == "722511"
+  assert _ad._extract_naics({"operating_model_json": {"business_naics_6": "448140"}}, {}, {}) == "448140"
+  assert _ad._extract_naics({}, {}, {}) is None
+
+
+def test_adapter_never_raises_on_garbage() -> None:
+  r = _ad.evaluate_run_viability(finmo_json="not a dict", draft=None, planning_run_json=None)
+  assert isinstance(r, dict) and "verdict" in r  # error-wrapped, not an exception
+
+
+def test_adapter_produces_coherent_verdict() -> None:
+  fj = _finmo_rich(n=16, rev0=100, g=0.05, margin=0.12)
+  r = _ad.evaluate_run_viability(
+    finmo_json=fj,
+    draft={"business_start_date": "06/19/2022"},
+    planning_run_json={"planning_mode": "rebalance"},
+    as_of=_date(2026, 6, 2),
+  )
+  assert r["verdict"] in (_std.VERDICT_PASS, _std.VERDICT_REFINE, _std.VERDICT_NON_VIABLE)
+  assert r["stage"] in ("startup", "early", "operational", "mature")
+
+
+def test_real_sunny_finmo_flows_to_verdict() -> None:
+  """The original Fix #1 failing case: the standard must produce a COHERENT
+  verdict on Sunny's real (deeply loss-making, flat-revenue) finmo_json —
+  non_viable is the expected, acceptable outcome. Best-effort (needs DB)."""
+  _load_env_once()
+  try:
+    import json as _json
+    from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
+    conn = get_mysql_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+      "SELECT finmo_json, planning_run_json, model_input_json, business_start_date "
+      "FROM intake_consult_drafts WHERE business_name LIKE %s AND finmo_json IS NOT NULL "
+      "ORDER BY planning_run_started_at DESC LIMIT 1",
+      ("%Sunny%",),
+    )
+    row = cur.fetchone()
+    conn.close()
+  except Exception as exc:
+    print(f"    (skipped — DB unreachable: {type(exc).__name__})")
+    return
+  if not row:
+    print("    (skipped — no Sunny draft with finmo_json)")
+    return
+  r = _ad.evaluate_run_viability(
+    finmo_json=_json.loads(row["finmo_json"]),
+    draft={"business_start_date": row["business_start_date"]},
+    model_input_json=_json.loads(row["model_input_json"]) if row.get("model_input_json") else {},
+    planning_run_json=_json.loads(row["planning_run_json"]) if row.get("planning_run_json") else {},
+    as_of=_date(2026, 6, 2),
+  )
+  assert r["verdict"] in (_std.VERDICT_PASS, _std.VERDICT_REFINE, _std.VERDICT_NON_VIABLE), r
+  # Sunny is deeply loss-making with flat revenue -> gates must fail it.
+  assert r["verdict"] == _std.VERDICT_NON_VIABLE, r
+  print(f"    Sunny real finmo -> verdict={r['verdict']} stage={r['stage']} "
+        f"gateA={r['gates']['gate_a']['passed']} gateB={r['gates']['gate_b']['passed']}")
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -535,6 +619,12 @@ def main() -> int:
     ("u8_posture_distress_changes_verdict", test_posture_distress_changes_gate_a_verdict),
     ("u7_stage_age_derived", test_stage_is_age_derived),
     ("u7_age_unavailable_defaults", test_age_unavailable_defaults_and_notes),
+    ("u9_adapter_parse_start_date", test_adapter_parse_start_date_formats),
+    ("u9_adapter_distress_detection", test_adapter_distress_detection),
+    ("u9_adapter_extract_naics", test_adapter_extract_naics_from_nests),
+    ("u9_adapter_never_raises", test_adapter_never_raises_on_garbage),
+    ("u9_adapter_coherent_verdict", test_adapter_produces_coherent_verdict),
+    ("u9_real_sunny_flows_to_verdict", test_real_sunny_finmo_flows_to_verdict),
   ]
   for name, fn in tests:
     _run(name, fn)

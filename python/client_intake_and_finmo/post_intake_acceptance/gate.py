@@ -781,6 +781,26 @@ def verify_run_acceptance(
     "gate_version": "phase_9_g_v1",
   }
 
+  # Fix #1 — viability standard (operating-engine-only economic-soundness
+  # verdict). ADVISORY here: attached for surfacing, does NOT gate `passed`
+  # (the standard supersedes planning_mode's profitability-FLOOR judgement
+  # role, but that floor still shapes the out-of-scope solver — see
+  # post_intake_viability/adapter.py SURFACED notes). Wrapped so it can never
+  # break the acceptance gate.
+  try:
+    from client_intake_and_finmo.post_intake_viability.adapter import (  # type: ignore
+      evaluate_run_viability,
+    )
+    model_input_json = _parse_json(draft.get("model_input_json"))
+    verdict["viability_standard"] = evaluate_run_viability(
+      finmo_json=finmo_json,
+      draft=draft,
+      model_input_json=model_input_json,
+      planning_run_json=planning_run_json,
+    )
+  except Exception as exc:  # advisory — never break acceptance
+    verdict["viability_standard"] = {"verdict": "error", "error": str(exc)}
+
   if resolved_run_id:
     try:
       _persist_verdict(conn, planning_run_id=resolved_run_id, verdict=copy.deepcopy(verdict))

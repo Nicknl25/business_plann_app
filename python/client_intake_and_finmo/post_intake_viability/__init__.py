@@ -48,3 +48,5 @@ from .standard import (  # noqa: F401
   VERDICT_REFINE,
   evaluate_viability,
 )
+from . import adapter  # noqa: F401
+from .adapter import evaluate_run_viability  # noqa: F401
