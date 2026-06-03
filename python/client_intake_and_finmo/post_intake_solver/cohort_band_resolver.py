@@ -78,6 +78,11 @@ METRIC_KEY_TO_COLUMN: Dict[str, str] = {
   "cogs_to_revenue_ratio": "cogs_percent",
   "cogs_percent_of_revenue": "cogs_percent",
   "gross_margin_percent": "gross_margin_q",
+  # Fix #1 viability standard (§5.1): the Rule-of-40 growth term. The
+  # column exists in industry_metrics_{edgar,alpha} but was previously
+  # unregistered, so resolve_cohort_band returned None for it.
+  "revenue_growth": "revenue_growth_q",
+  "revenue_growth_q": "revenue_growth_q",
   "marketing_percent_of_revenue": "sga_percent",
   "advertising_percent_of_revenue": "sga_percent",
   "r_and_d_percent_of_revenue": "rnd_percent",
@@ -105,6 +110,7 @@ METRIC_KEY_TO_COLUMN: Dict[str, str] = {
 # Columns we know about in industry_metrics_raw — used to validate that a
 # requested column exists before we build a SELECT.
 _KNOWN_METRIC_COLUMNS = frozenset({
+  "revenue_growth_q",  # Fix #1 viability standard (§5.1) — Rule-of-40 growth term.
   "cogs_percent", "gross_margin_q", "operating_margin_q", "ebit_margin_q",
   "ebitda_margin_q", "net_margin_q", "sga_percent", "rnd_percent",
   "dso", "dpo", "inventory_days", "ccc",
