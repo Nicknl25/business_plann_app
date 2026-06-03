@@ -116,7 +116,7 @@ Constructs **1, 2, 3, and Construct 4's slope + operating-leverage**. Each score
 - **Level-now** — direction-oriented **percentile vs cohort** (§5).
 - **Trajectory** — gap-closure toward a healthy band by a deadline + slope momentum (§5).
 
-Tier-1 is **stage-weighted** (§4) and **cohort-confidence-weighted** (§5.2). It is a
+Tier-1 is **stage-weighted** (§4). It is a
 **competitiveness grade, NOT a viability verdict** — the gates (Tier 2) own non-viability, so
 Tier-1 never emits "fail". Its only outputs are:
 - **clear gates + strong Tier-1 → PASS**
@@ -323,7 +323,7 @@ cumulative EBITDA), with **two tiers**: absolute firm-internal **gates** that ow
 sustained (trailing-4-quarter, expanding before Q4) EBITDA breakeven by **business-quarter-10**
 (age-anchored to the required `business_start_date`; **+4 quarters under turnaround posture**) and
 cumulative EBITDA ≥ 0 by Q20 (**firm, posture-independent**) — and, above the gates, a
-**stage-weighted, cohort-confidence-weighted competitiveness GRADE** producing **pass / refine only**
+**stage-weighted competitiveness GRADE** producing **pass / refine only**
 over Constructs 1, 2, 3 and Construct 4's slope/operating-leverage, each scored on **level-now
 (cohort percentile, p25-clear / p50-full-credit)** AND **trajectory (gap-closure toward band by
 deadline + slope momentum)**, with the level/trajectory split stage-dependent (startup 30/70 →
