@@ -299,9 +299,11 @@ class VocabularyConstantsTest(unittest.TestCase):
       ("stage_ramp", "drivers", "payroll", "capex_rd", "balance_sheet"),
     )
 
-  def test_supported_strictness_matches_2_tuple(self) -> None:
+  def test_supported_strictness_matches_tuple(self) -> None:
+    # Fork A added the in-LOOP standard mode "in_cascade_economic".
     self.assertEqual(
-      SUPPORTED_STRICTNESS_VALUES, ("mini_finmo", "full_acceptance_gate"),
+      SUPPORTED_STRICTNESS_VALUES,
+      ("mini_finmo", "full_acceptance_gate", "in_cascade_economic"),
     )
 
   def test_validation_state_render_cap_is_12(self) -> None:

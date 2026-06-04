@@ -28,8 +28,9 @@ into prepare_initial_grid_for_draft.
 
 from __future__ import annotations
 
+import copy
 import sys
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from client_intake_and_finmo.post_intake_amalgamated.evaluation_types import (
   EvaluatePlanResult,
@@ -194,6 +195,152 @@ def _build_current_payload_for(mirror: Mirror) -> Callable[[str], Any]:
   return current_payload_for
 
 
+def _interp_anchor(anchor_vals: Dict[int, Any], quarter_index: int) -> Optional[float]:
+  """Linear interpolation across {1: q1, 11: q11, 20: q20} driver anchors.
+  Cascade driver proposals are flat (q1==q11==q20) so this returns that
+  flat value; it stays correct for the general non-flat anchor case too."""
+  pts = sorted((q, float(v)) for q, v in anchor_vals.items() if v is not None)
+  if not pts:
+    return None
+  if quarter_index <= pts[0][0]:
+    return pts[0][1]
+  if quarter_index >= pts[-1][0]:
+    return pts[-1][1]
+  for i in range(1, len(pts)):
+    q0, v0 = pts[i - 1]
+    q1, v1 = pts[i]
+    if q0 <= quarter_index <= q1:
+      if q1 == q0:
+        return v1
+      frac = (quarter_index - q0) / (q1 - q0)
+      return v0 + frac * (v1 - v0)
+  return pts[-1][1]
+
+
+def _drivers_anchors_to_exact_updates(anchors: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """drivers plan_state (``{lever_id: {q1, q11, q20}}``) -> per-quarter exact
+  lever updates for apply_exact_lever_updates_to_model_input."""
+  updates: List[Dict[str, Any]] = []
+  for lever_id, spec in (anchors or {}).items():
+    if not isinstance(spec, dict):
+      continue
+    anchor_vals = {1: spec.get("q1"), 11: spec.get("q11"), 20: spec.get("q20")}
+    if all(v is None for v in anchor_vals.values()):
+      continue
+    for q in range(1, 21):
+      v = _interp_anchor(anchor_vals, q)
+      if v is not None:
+        updates.append({"lever_id": str(lever_id), "quarter_index": q, "exact_value": float(v)})
+  return updates
+
+
+def _propagate_committed_section_to_model_input(
+  live_ref: Dict[str, Any], section: str, payload: Any,
+) -> None:
+  """Fork A — after a cascade commit, propagate the committed section into
+  the LIVE model_input so the next round's recompute reflects the executive's
+  move (REAL per-round deltas). Mirrors round-1's appliers. Raises on a
+  propagation failure (caught + emitted by SessionDriver._commit_proposal's
+  mirror-refresh handler) so a no-propagation bug is never silent."""
+  mi = live_ref.get("mi")
+  if not isinstance(mi, dict) or not isinstance(section, str):
+    return
+  # The model_input appliers are sequence-controller-guarded; the cascade is
+  # a legitimate orchestration-level caller (see post_intake_sequence_step_scope).
+  from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+    post_intake_sequence_step_scope,
+  )
+  from client_intake_and_finmo.quarter_grid import (  # type: ignore
+    apply_exact_lever_updates_to_model_input,
+  )
+  with post_intake_sequence_step_scope(
+    step_key="amalgamated_in_cascade_propagate",
+    phase="post_intake_target_seeking",
+    executor_function="amalgamated_in_cascade_propagate",
+  ):
+    if section == "drivers" and isinstance(payload, dict):
+      updates = _drivers_anchors_to_exact_updates(payload)
+      if updates:
+        live_ref["mi"] = apply_exact_lever_updates_to_model_input(
+          model_input_json=mi, exact_updates=updates,
+        )
+    elif section == "payroll" and isinstance(payload, dict):
+      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+        apply_payroll_supported_capacity_to_model_input,
+        apply_payroll_headcount_payload_to_model_input,
+      )
+      mi2 = apply_payroll_supported_capacity_to_model_input(
+        copy.deepcopy(mi), copy.deepcopy(payload), live_count=20,
+      )
+      mi2 = apply_payroll_headcount_payload_to_model_input(
+        mi2, copy.deepcopy(payload), live_count=20,
+      )
+      live_ref["mi"] = mi2
+    elif section in ("balance_sheet", "capex_rd", "capex_rd_balance_seed") and isinstance(payload, dict):
+      from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+        apply_balance_sheet_contextual_seed_to_model_input,
+      )
+      seed = payload.get("balance_sheet_seed") if isinstance(payload.get("balance_sheet_seed"), dict) else payload
+      live_ref["mi"] = apply_balance_sheet_contextual_seed_to_model_input(
+        copy.deepcopy(mi), copy.deepcopy(seed), live_count=20,
+      )
+    elif section == "operating_model" and isinstance(payload, dict):
+      # Wired in B1 (revise_operating_model); until then operating_model is a
+      # cascade no-op and never commits a payload here.
+      updates = [
+        {"lever_id": str(k), "quarter_index": q, "exact_value": float(v)}
+        for k, v in payload.items() if isinstance(v, (int, float))
+        for q in range(1, 21)
+      ]
+      if updates:
+        live_ref["mi"] = apply_exact_lever_updates_to_model_input(
+          model_input_json=mi, exact_updates=updates,
+        )
+  # stage_ramp propagation: the stage-ramp contract reshapes the revenue/util
+  # path through its own builder; per-commit model_input propagation for it is
+  # a follow-up (tracked). plan_state IS updated regardless, so the final
+  # build still reflects it; in-loop deltas for stage-ramp-only tiers may lag.
+
+
+def _finmo_parity_key(finmo_json: Optional[Dict[str, Any]]) -> str:
+  """Canonical comparison key = the economic substance (quarter_rows)."""
+  import json as _json
+  rows = (finmo_json or {}).get("quarter_rows") if isinstance(finmo_json, dict) else None
+  return _json.dumps(rows or [], sort_keys=True, default=str)
+
+
+def _assert_round1_finmo_parity(
+  entry_finmo: Optional[Dict[str, Any]],
+  recomputed_finmo: Optional[Dict[str, Any]],
+  *, conn, draft_id: str, planning_run_id: str,
+) -> None:
+  """MANDATORY (Fork A): on round 1 (unchanged plan_state) the in-cascade
+  recompute MUST reproduce the round-1 finmo. A mismatch means the live
+  model_input assembly is wrong and any later 'convergence' is FAKE -> fail
+  loud and stop."""
+  if _finmo_parity_key(entry_finmo) == _finmo_parity_key(recomputed_finmo):
+    return
+  e_rows = len((entry_finmo or {}).get("quarter_rows") or []) if isinstance(entry_finmo, dict) else 0
+  r_rows = len((recomputed_finmo or {}).get("quarter_rows") or []) if isinstance(recomputed_finmo, dict) else 0
+  detail = (
+    f"in-cascade recompute != round-1 finmo on UNCHANGED plan_state "
+    f"(entry_quarter_rows={e_rows}, recompute_quarter_rows={r_rows}); "
+    f"the live model_input assembly is wrong -- convergence would be fake."
+  )
+  try:
+    from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
+      FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
+    )
+    _rff(
+      conn, draft_id=str(draft_id or ""), planning_run_id=str(planning_run_id or ""),
+      phase=_PC.EVALUATE_PLAN, code=_FFC.FAIL_EVALUATE_PLAN_MALFORMED,
+      detail=f"fork_a_round1_finmo_parity_failed: {detail}",
+      where="session_factory.evaluate_plan_fn (parity)",
+    )
+  except Exception:
+    raise RuntimeError(f"fork_a_round1_finmo_parity_failed: {detail}")
+
+
 def _build_evaluate_plan_fn(
   *,
   conn,
@@ -202,28 +349,58 @@ def _build_evaluate_plan_fn(
   mirror: Mirror,
   operating_context: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
+  live_model_input_ref: Optional[Dict[str, Any]] = None,
+  build_finmo: Optional[Callable[..., Any]] = None,
 ) -> Callable[..., EvaluatePlanResult]:
-  """Wrap evaluate_plan with the orchestrator-side inputs already known
-  at session-entry time. The driver calls evaluate_plan_fn(round_number=N)
-  and expects an EvaluatePlanResult back."""
+  """Fork A in-cascade standard: each round, rebuild the LIVE finmo from the
+  current ``live_model_input`` (mutated per commit) and score the
+  restructurable economic checks on it (in_cascade=True). On round 1 the
+  recompute MUST equal the round-1 finmo (mandatory parity assertion)."""
   from client_intake_and_finmo.post_intake_amalgamated.evaluate_plan import (
     evaluate_plan,
   )
+  _bf = build_finmo
+  if _bf is None:
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json as _bf,
+    )
+  entry_finmo = copy.deepcopy(finmo_json) if isinstance(finmo_json, dict) else {}
+  _ref = live_model_input_ref if isinstance(live_model_input_ref, dict) else {"mi": {}}
+  parity_state = {"checked": False}
 
   def evaluate_plan_fn(*, round_number: int) -> EvaluatePlanResult:
-    # The mirror is the live plan_state source; evaluate_plan re-reads
-    # plan_state from the mirror so it sees the most-recent revisions.
-    return evaluate_plan(
-      conn=conn,
-      draft_id=draft_id,
-      planning_run_id=planning_run_id,
-      plan_state=dict(mirror.plan_state) if isinstance(mirror.plan_state, dict) else {},
-      structural_completeness=True,
-      round_number=int(round_number),
-      anchors=None,
-      operating_context=operating_context,
-      finmo_json=finmo_json,
+    # The in-cascade FINMO rebuild calls sequence-controller-guarded helpers
+    # (payroll capacity derivation, validators, etc.). The amalgamated
+    # cascade is a legitimate orchestration-level caller per
+    # post_intake_sequence_step_scope's contract, so we push a synthetic
+    # scope that honestly identifies the recompute step.
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope,
     )
+    with post_intake_sequence_step_scope(
+      step_key="amalgamated_in_cascade_evaluate",
+      phase="post_intake_target_seeking",
+      executor_function="amalgamated_in_cascade_evaluate",
+    ):
+      live_mi = _ref.get("mi") or {}
+      live_finmo = _bf(model_input_json=copy.deepcopy(live_mi))
+      if not parity_state["checked"]:
+        parity_state["checked"] = True
+        _assert_round1_finmo_parity(
+          entry_finmo, live_finmo,
+          conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
+        )
+      return evaluate_plan(
+        conn=conn,
+        draft_id=draft_id,
+        planning_run_id=planning_run_id,
+        plan_state=dict(mirror.plan_state) if isinstance(mirror.plan_state, dict) else {},
+        in_cascade=True,
+        round_number=int(round_number),
+        anchors=None,
+        operating_context=operating_context,
+        finmo_json=live_finmo,
+      )
 
   return evaluate_plan_fn
 
@@ -320,10 +497,21 @@ def make_session_driver(
     mirror=mirror,
   )
 
+  # Fork A — the LIVE model_input the in-cascade standard recomputes finmo
+  # from each round. Seeded to the round-1 applied_model_input_json so the
+  # mandatory round-1 parity assertion holds by construction
+  # (build_python_finmo_json is deterministic and the runner built
+  # applied_finmo_json from this same model_input). Mutated per commit by
+  # _propagate_committed_section_to_model_input so the executive's moves
+  # produce REAL per-round finmo deltas.
+  live_model_input_ref: Dict[str, Any] = {"mi": copy.deepcopy(model_input_json or {})}
+
   evaluate_plan_fn = _build_evaluate_plan_fn(
     conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
     mirror=mirror, operating_context=operating_context,
     finmo_json=finmo_json,
+    live_model_input_ref=live_model_input_ref,
+    build_finmo=build_finmo,
   )
   revise_fn_for_section = _build_revise_fn_for_section(
     conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
@@ -336,8 +524,11 @@ def make_session_driver(
   current_payload_for = _build_current_payload_for(mirror)
   # P3.40 bug 2 fix: bind the mirror's plan_state setter so SessionDriver
   # can refresh the in-memory snapshot after each revise_* commit.
+  # Fork A: ALSO propagate the committed section into live_model_input so the
+  # next round's recompute reflects the move (real per-round deltas).
   def apply_to_plan_state_fn(section: str, payload: Any) -> None:
     mirror.set_plan_state_section(section, payload)
+    _propagate_committed_section_to_model_input(live_model_input_ref, section, payload)
   # P3.40 bug 3 fix: bind the mirror's validation_state setter so
   # SessionDriver propagates each evaluate_plan result into the mirror.
   # Without this, the responder's render_mirror_for_proposal always sees

@@ -419,6 +419,82 @@ def _evaluate_full_acceptance_gate(
   return results, trajectory, verdict, exception_count
 
 
+# ---------------------------------------------------------------------------
+# In-cascade evaluator (Fork A — Wall A) — the in-LOOP standard.
+# ---------------------------------------------------------------------------
+# The cascade restructures the LIVE plan, so its standard must score the live
+# finmo (rebuilt each round from the mirror's plan_state) on the RESTRUCTURABLE
+# economic checks ONLY. It deliberately excludes:
+#   - the post-hoc COMPLETION checks (stage_reached_finalize,
+#     cascade_landed_tier_set, plan_confidence_recorded,
+#     cascade_exercised_or_documented) + the realism/solver-artifact checks,
+#     which can only pass after the run finalizes. Those stay ENFORCED,
+#     unchanged, at the FINAL acceptance gate (verify_run_acceptance).
+#   - the CASH-dependent checks (current_assets_positive_q1_q10,
+#     balance_sheet_growth_plausible, cash_*), because the cash pass runs
+#     AFTER the session — cash is meaningless here and its levers are walled
+#     off from the cascade (see _CASH_RELATED_CHECKS). Including them would
+#     inject permanent failures the cascade cannot fix and block convergence.
+# Net in-loop set: the two non-cash, finmo-based, restructurable gate checks —
+# net_income_trajectory_viable (VIABILITY) and revenue_not_flat_q1_q10
+# (GROWTH). A genuine exception in a check still yields a META_INVARIANT
+# failure, so a real protocol/structural failure halts the cascade (the
+# structural META-halt SURVIVES; only the premature completion checks are
+# removed from the in-loop set).
+_IN_CASCADE_ECONOMIC_CHECKS: Tuple[str, ...] = (
+  "net_income_trajectory_viable",
+  "revenue_not_flat_q1_q10",
+)
+
+
+def _evaluate_in_cascade(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+  emit_diagnostic_fn=None,
+) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any], int]:
+  """Run the restructurable economic checks on the LIVE finmo. Reuses the
+  Fix #1 acceptance-gate finmo check functions (single source of truth) so
+  the in-loop standard and the final gate agree on what 'economically
+  failing' means; the in-loop set just omits the post-hoc + cash checks."""
+  from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore
+    _check_net_income_trajectory_viable,
+    _check_revenue_not_flat,
+  )
+  fj = finmo_json if isinstance(finmo_json, dict) else {}
+  runners = {
+    "net_income_trajectory_viable": _check_net_income_trajectory_viable,
+    "revenue_not_flat_q1_q10": _check_revenue_not_flat,
+  }
+  results: List[CheckResult] = []
+  exception_count = 0
+  for name in _IN_CASCADE_ECONOMIC_CHECKS:
+    fn = runners[name]
+    try:
+      passed, detail = fn(fj)
+      distance, units = _gate_distance(name, detail) if not passed else (None, None)
+      results.append(CheckResult(
+        name=name, passed=bool(passed),
+        failure_mode=(None if passed else classify_failure(name)),
+        distance_to_feasibility=distance, distance_units=units,
+        implicated_sections=attribute_to_sections(name) if not passed else [],
+        detail=detail if isinstance(detail, dict) else {},
+      ))
+    except Exception as exc:
+      exception_count += 1
+      _emit_check_exception(emit_diagnostic_fn, name, exc)
+      results.append(CheckResult(
+        name=name, passed=False,
+        failure_mode=FailureMode.META_INVARIANT,
+        distance_to_feasibility=float("-inf"),
+        distance_units=None,
+        implicated_sections=[],
+        detail={"exception_type": type(exc).__name__,
+                "exception_detail": str(exc)[:480]},
+      ))
+  trajectory = _trajectory_from_finmo(fj)
+  return results, trajectory, {}, exception_count
+
+
 def _emit_check_exception(emit_fn, check_name: str, exc: BaseException) -> None:
   """Best-effort diagnostic emit for a per-check exception. Mirrors
   session_driver._emit — swallows any emitter failure so the evaluator
@@ -453,6 +529,7 @@ def evaluate_plan(
   planning_run_id: Optional[str] = None,
   plan_state: Optional[Dict[str, Any]] = None,
   structural_completeness: bool = False,
+  in_cascade: bool = False,
   round_number: int = 1,
   # Inputs the mini_finmo path needs (caller supplies what it has):
   anchors: Optional[Dict[str, Any]] = None,
@@ -471,6 +548,8 @@ def evaluate_plan(
   """
   notes: List[str] = []
   strictness = "full_acceptance_gate" if structural_completeness else "mini_finmo"
+  if in_cascade:
+    strictness = "in_cascade_economic"
   checks: List[CheckResult] = []
   trajectory: List[QuarterTrajectory] = []
   check_exception_count = 0
@@ -501,7 +580,14 @@ def evaluate_plan(
         detail=f"plan_state missing required section(s): {missing!r}",
         where="evaluate_plan",
       )
-  if strictness == "mini_finmo":
+  if in_cascade:
+    # Fork A Wall A — the in-LOOP standard: restructurable economic checks
+    # on the LIVE finmo (rebuilt by the caller from the mirror each round).
+    checks, trajectory, _, check_exception_count = _evaluate_in_cascade(
+      finmo_json=finmo_json, emit_diagnostic_fn=emit_diagnostic_fn,
+    )
+    total_check_attempts = len(checks)
+  elif strictness == "mini_finmo":
     if not anchors or not operating_context:
       notes.append("mini_finmo path skipped: missing anchors / operating_context")
     else:

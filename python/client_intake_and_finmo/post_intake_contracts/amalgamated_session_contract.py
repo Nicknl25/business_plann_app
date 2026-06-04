@@ -203,10 +203,12 @@ AMALGAMATED_SESSION_STAGE_LABEL = "INDUSTRY_BASELINE->AMALGAMATED_SESSION"
 #: MirrorContract.bands keys + LeverMarginEntryContract.section.
 SUPPORTED_SECTIONS = ("stage_ramp", "drivers", "payroll", "capex_rd", "balance_sheet")
 
-#: 2-value strictness vocabulary per evaluation_types.py:110
-#: docstring. Used as Literal members in
-#: ValidationStateProjectionContract.strictness.
-SUPPORTED_STRICTNESS_VALUES = ("mini_finmo", "full_acceptance_gate")
+#: Strictness vocabulary per evaluation_types.py:110 docstring. Used as
+#: Literal members in ValidationStateProjectionContract.strictness.
+#: Fork A adds "in_cascade_economic" — the in-LOOP standard the cascade
+#: scores the live finmo with (restructurable economic checks only;
+#: completion/realism/solver/cash checks stay at the final acceptance gate).
+SUPPORTED_STRICTNESS_VALUES = ("mini_finmo", "full_acceptance_gate", "in_cascade_economic")
 
 #: Bug 3 bounded-projection cap, verbatim from
 #: mirror.py:34 (_VALIDATION_STATE_RENDER_CAP = 12). Referenced
@@ -283,7 +285,7 @@ class ValidationStateProjectionContract(BaseModel):
 
   all_pass: bool
   round_number: int = Field(ge=0)
-  strictness: Literal["mini_finmo", "full_acceptance_gate"]
+  strictness: Literal["mini_finmo", "full_acceptance_gate", "in_cascade_economic"]
   failing_check_count: int = Field(ge=0)
   worst_failing_check: Optional[str] = None
   worst_failing_distance: Optional[float] = None
