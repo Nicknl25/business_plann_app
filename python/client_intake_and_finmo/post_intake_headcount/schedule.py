@@ -2197,6 +2197,188 @@ def _round1_resolve_labor_intensity_class(
   return best_class, f"intake_implied_payroll_pct={round(float(implied), 4)}"
 
 
+def compute_round1_payroll_anchor(
+  *,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  policy_code: str = "default",
+) -> Dict[str, Any]:
+  """Compute the revenue-grounded payroll ANCHOR (Lineage B grounding).
+
+  This is the GROUND half of "GPT authors, Python grounds + validates"
+  (docs/architecture/gpt_authors_payroll_anchored_scope.md). It computes,
+  per quarter, the revenue-driven payroll budget and the supporting FTE it
+  implies, plus the OEWS title mix and the policy-band inputs — the
+  NON-BINDING reference an executive (GPT) authors against. It does NOT
+  emit a payroll grid; it never authors. Both the GPT author
+  (``gpt_payroll_author``) and the deterministic no-executive fallback
+  (``author_round1_payroll_contract``) consume this single source of truth.
+
+  Returned shape::
+
+    {
+      "horizon", "labor_intensity_class", "intensity_source",
+      "target_payroll_percent_of_revenue" (band midpoint),
+      "benefits_pct", "capacity_labor_model",
+      "wage_positioning_tier", "wage_positioning_multiplier",
+      "payroll_revenue_band": {"min_pct","max_pct"},
+      "suggested_oews_mix": [{"occ_title","tot_emp_weight","base_annual_wage"}],
+      "mix_source",
+      "per_quarter": [{"q","revenue","payroll_budget","key_people_payroll",
+                       "supporting_budget","implied_supporting_fte_total",
+                       "capacity_units"}],
+    }
+  """
+  policy = post_intake_headcount_policy_for(policy_code=policy_code) or {}
+  horizon = int(policy.get("schedule_horizon_quarters") or _contract_horizon_quarters())
+  benefits_pct = round(float(policy.get("default_payroll_tax_benefits_pct") or 0.22), 2)
+
+  labor_intensity_class, intensity_source = _round1_resolve_labor_intensity_class(
+    policy=policy,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
+  from client_intake_and_finmo.post_intake_headcount.lookup import (  # type: ignore
+    headcount_payroll_revenue_sanity_bounds,
+  )
+  band = headcount_payroll_revenue_sanity_bounds(policy, labor_intensity_class=labor_intensity_class)
+  pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
+
+  capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
+    labor_intensity_class,
+    ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL[ROUND1_DEFAULT_LABOR_INTENSITY_CLASS],
+  )
+  wage_tiers = policy.get("wage_positioning_multiplier") if isinstance(policy.get("wage_positioning_multiplier"), dict) else {}
+  floor_bounds = wage_tiers.get(ROUND1_DEFAULT_WAGE_POSITIONING_TIER) if isinstance(wage_tiers, dict) else None
+  if not isinstance(floor_bounds, dict) or _safe_float(floor_bounds.get("min")) is None:
+    _payroll_fail_fast(
+      "payroll_round1_wage_positioning_tier_missing",
+      f"policy wage_positioning_multiplier missing '{ROUND1_DEFAULT_WAGE_POSITIONING_TIER}' tier bounds.",
+      stage="payroll_round1_producer",
+    )
+  wage_multiplier = round(float(floor_bounds.get("min")), 4)
+
+  rdc = _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json)
+  revenue_by_q: Dict[int, float] = {}
+  capacity_by_q: Dict[int, float] = {}
+  for qrow in rdc.get("quarter_rows") or []:
+    q = int(qrow.get("quarter_index") or 0)
+    if q < 1 or q > horizon:
+      continue
+    revenue_value: Optional[float] = None
+    for key in ROUND1_REVENUE_SOURCE_PRIORITY:
+      candidate_value = qrow.get(key)
+      if candidate_value is not None:
+        revenue_value = float(candidate_value)
+        break
+    revenue_by_q[q] = max(0.0, float(revenue_value or 0.0))
+    capacity_by_q[q] = sum(
+      max(0.0, float((pr or {}).get("capacity_units") or 0.0))
+      for pr in (qrow.get("product_rows") or [])
+    )
+
+  key_rows = _key_people_rows_from_intake(
+    people_json, policy=policy, horizon=horizon,
+    business_facts=business_facts, ops_json=ops_json,
+  )
+  key_payroll_by_q: Dict[int, int] = {q: 0 for q in range(1, horizon + 1)}
+  for row in key_rows:
+    q = int(row.get("quarter_index") or 0)
+    if q < 1 or q > horizon:
+      continue
+    annual_wage = _round_currency(row.get("annual_wage"))
+    row_benefits = round(float(_safe_ratio(row.get("payroll_taxes_benefits_percent")) or 0.0), 2)
+    average_fte = round((float(row.get("starting_fte") or 0.0) + float(row.get("ending_fte") or 0.0)) / 2.0, 2)
+    wage_cost = _round_currency((average_fte * annual_wage) / 4.0)
+    taxes = _round_currency(wage_cost * row_benefits)
+    key_payroll_by_q[q] += int(wage_cost + taxes)
+
+  catalog = _oews_title_catalog_for_business(
+    business_facts=business_facts, ops_json=ops_json, people_json=people_json,
+  )
+  candidates = [c for c in (catalog.get("title_candidates") or []) if isinstance(c, dict)]
+
+  def _emp(candidate: Dict[str, Any]) -> float:
+    value = _safe_float(candidate.get("tot_emp"))
+    return float(value) if value is not None else 0.0
+
+  def _has_wage(candidate: Dict[str, Any]) -> bool:
+    return float(_round_currency(candidate.get("annual_wage"))) > 0.0
+
+  pool = [c for c in candidates if c.get("o_group") == "detailed" and _emp(c) > 0.0 and _has_wage(c)]
+  mix_source = "oews_tot_emp_detailed"
+  if not pool:
+    pool = [c for c in candidates if _has_wage(c)]
+    mix_source = "oews_tot_emp_any" if any(_emp(c) > 0.0 for c in pool) else "equal_weight_no_tot_emp"
+  if not pool:
+    _payroll_fail_fast(
+      "payroll_round1_no_supporting_titles",
+      f"No usable OEWS supporting titles for naics={catalog.get('business_naics_6')}.",
+      stage="payroll_round1_producer",
+      details={"business_naics_6": catalog.get("business_naics_6")},
+    )
+  pool.sort(key=lambda c: (-_emp(c), str(c.get("occ_title") or "").lower()))
+  selected = pool[: max(1, int(ROUND1_MIX_TOP_N))]
+  emp_total = sum(_emp(c) for c in selected)
+  if emp_total > 0.0:
+    weights = [_emp(c) / emp_total for c in selected]
+  else:
+    weights = [1.0 / len(selected) for _ in selected]
+  selected_base_wage = [int(_round_currency(c.get("annual_wage"))) for c in selected]
+
+  per_quarter: List[Dict[str, Any]] = []
+  for q in range(1, horizon + 1):
+    revenue_q = revenue_by_q.get(q, 0.0)
+    payroll_budget_q = revenue_q * pct_mid
+    key_payroll_q = float(key_payroll_by_q.get(q, 0))
+    supporting_budget_q = max(0.0, payroll_budget_q - key_payroll_q)
+    wage_iq = [
+      _policy_adjusted_annual_wage(base, quarter_index=q, policy=policy, wage_positioning_multiplier=wage_multiplier)
+      for base in selected_base_wage
+    ]
+    w_dot_wage = sum(weights[i] * float(wage_iq[i]) for i in range(len(selected)))
+    if supporting_budget_q > 0.0 and w_dot_wage > 0.0:
+      implied_fte = supporting_budget_q * 4.0 / ((1.0 + benefits_pct) * w_dot_wage)
+    else:
+      implied_fte = 0.0
+    per_quarter.append({
+      "q": q,
+      "revenue": round(revenue_q, 2),
+      "payroll_budget": round(payroll_budget_q, 2),
+      "key_people_payroll": round(key_payroll_q, 2),
+      "supporting_budget": round(supporting_budget_q, 2),
+      "implied_supporting_fte_total": round(implied_fte, 2),
+      "capacity_units": round(capacity_by_q.get(q, 0.0), 2),
+    })
+
+  return {
+    "horizon": horizon,
+    "labor_intensity_class": labor_intensity_class,
+    "intensity_source": intensity_source,
+    "target_payroll_percent_of_revenue": pct_mid,
+    "benefits_pct": benefits_pct,
+    "capacity_labor_model": capacity_labor_model,
+    "wage_positioning_tier": ROUND1_DEFAULT_WAGE_POSITIONING_TIER,
+    "wage_positioning_multiplier": wage_multiplier,
+    "payroll_revenue_band": {"min_pct": float(band["min_pct"]), "max_pct": float(band["max_pct"])},
+    "suggested_oews_mix": [
+      {
+        "occ_title": str(selected[i].get("occ_title") or "").strip(),
+        "tot_emp_weight": round(weights[i], 4),
+        "base_annual_wage": int(selected_base_wage[i]),
+      }
+      for i in range(len(selected))
+    ],
+    "mix_source": mix_source,
+    "per_quarter": per_quarter,
+  }
+
+
 def author_round1_payroll_contract(
   *,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -2209,7 +2391,15 @@ def author_round1_payroll_contract(
   stage_ramp_contract: Optional[Dict[str, Any]] = None,
   policy_code: str = "default",
 ) -> Dict[str, Any]:
-  """Author a deterministic round-1 payroll_headcount_schedule CONTRACT from the
+  """Deterministic NO-EXECUTIVE FALLBACK round-1 payroll contract.
+
+  NOTE (Lineage B): payroll is GPT-authored. This deterministic producer
+  is the fallback used ONLY when no executive (GPT) is available (e.g. no
+  OPENAI_API_KEY, hermetic tests). The live path is ``gpt_payroll_author``
+  grounded by ``compute_round1_payroll_anchor``. Authority:
+  docs/architecture/gpt_authors_payroll_anchored_scope.md.
+
+  Authors a deterministic round-1 payroll_headcount_schedule CONTRACT from the
   business's own per-quarter revenue (the dollar path). See
   docs/architecture/payroll_producer_spec.md.
 

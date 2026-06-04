@@ -1,0 +1,254 @@
+"""GPT-authors-anchored round-1 payroll authoring (Lineage B).
+
+The EXECUTIVE (GPT) authors the round-1 ``payroll_headcount_schedule``
+contract — it decides which OEWS occupation titles to staff and the
+ending FTE per title per quarter — grounded in the revenue-driven payroll
+ANCHOR (``compute_round1_payroll_anchor``) handed in as non-binding
+reference. PYTHON grounds (the anchor) and validates (the existing
+``validate_payroll_headcount_contract_payload`` + builder, invoked by the
+caller); on a validation failure the executive RE-AUTHORS with the
+validator's structured feedback (bounded retries).
+
+Division of labor (matches the contract schema, post_intake_mapping.py:
+2051-2053): GPT owns the FTE staffing decision (ending_fte per title per
+quarter); Python NORMALIZES the mechanical arithmetic (starting_fte, hires,
+continuity) and validates. So GPT supplies ``ending_fte`` per row and may
+leave ``starting_fte``/``hires`` at 0 — Python derives them from continuity.
+
+Authority: docs/architecture/gpt_authors_payroll_anchored_scope.md.
+
+This module makes ONE structured tool-call per attempt. No key / HTTP
+failure -> ``ok=False`` (the caller falls back to the deterministic
+no-executive producer). It does NOT mutate state and does NOT validate;
+the caller (set_payroll_schedule) owns validate/build.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Callable, Dict, List, Optional
+
+
+_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+_DEFAULT_MODEL = "gpt-5.1"
+_DEFAULT_TIMEOUT_SECONDS = 90.0
+
+
+def _resolve_model(model: Optional[str]) -> str:
+  if model:
+    return str(model)
+  return (os.getenv("OPENAI_MODEL") or "").strip() or _DEFAULT_MODEL
+
+
+_SUBMIT_TOOL: Dict[str, Any] = {
+  "type": "function",
+  "function": {
+    "name": "submit_payroll_headcount_schedule",
+    "description": (
+      "Submit the authored round-1 payroll_headcount_schedule contract. "
+      "Call exactly once with the full contract."
+    ),
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "payroll_headcount_grid": {
+          "type": "array",
+          "description": (
+            "One row per (OEWS title, quarter) you staff. Provide a row for "
+            "every quarter Q1..Q20 for each title you use; once a title "
+            "starts, keep it active through Q20."
+          ),
+          "items": {
+            "type": "object",
+            "properties": {
+              "q": {"type": "integer", "minimum": 1, "maximum": 20},
+              "oews_occ_title": {
+                "type": "string",
+                "description": "Exact occ_title from the supplied oews_title_catalog.",
+              },
+              "starting_fte": {"type": "number", "minimum": 0},
+              "hires": {"type": "number", "minimum": 0},
+              "ending_fte": {
+                "type": "number", "minimum": 0,
+                "description": (
+                  "YOUR staffing decision: FTE of this title at quarter end. "
+                  "Must be NON-DECREASING across quarters for a given title "
+                  "(hold or grow; never cut). You may leave starting_fte and "
+                  "hires at 0 -- Python derives them from continuity."
+                ),
+              },
+              "payroll_tax_benefits_pct": {"type": "number", "minimum": 0.12, "maximum": 0.35},
+            },
+            "required": ["q", "oews_occ_title", "starting_fte", "hires", "ending_fte", "payroll_tax_benefits_pct"],
+          },
+        },
+        "capacity_labor_model": {"type": "string", "enum": ["labor_driven", "hybrid", "system_driven", "expert_driven"]},
+        "labor_intensity_class": {"type": "string", "enum": ["low", "medium", "high", "expert"]},
+        "wage_positioning_tier": {"type": "string", "enum": ["floor", "market", "premium", "specialized"]},
+        "wage_positioning_multiplier": {"type": "number", "minimum": 1.0, "maximum": 3.0},
+        "capacity_units_per_supporting_fte": {"type": "number", "minimum": 0.0001},
+        "target_payroll_percent_of_revenue": {"type": "number", "minimum": 0.06, "maximum": 0.80},
+        "rationale": {"type": "string"},
+      },
+      "required": [
+        "payroll_headcount_grid", "capacity_labor_model", "labor_intensity_class",
+        "wage_positioning_tier", "wage_positioning_multiplier",
+        "capacity_units_per_supporting_fte", "target_payroll_percent_of_revenue", "rationale",
+      ],
+    },
+  },
+}
+
+
+_SYSTEM_PROMPT = (
+  "You are the executive authoring the round-1 payroll headcount schedule for a "
+  "post-intake business plan. Python has computed a revenue-grounded payroll ANCHOR "
+  "(per-quarter payroll budget and the supporting FTE it implies) and the NAICS OEWS "
+  "title catalog. YOU decide which OEWS occupation titles to staff and the ending FTE "
+  "per title per quarter, grounded in that anchor. Python validates your contract and "
+  "derives the mechanical fields. Rules you MUST follow:\n"
+  "1. Use ONLY exact occ_title strings from the supplied oews_title_catalog.\n"
+  "2. For each title you staff, provide a row for EVERY quarter Q1..Q20. Once a title "
+  "starts it stays active through Q20.\n"
+  "3. ending_fte is your staffing decision. It MUST be NON-DECREASING across quarters "
+  "for a given title (you may hold flat or grow; you may NOT reduce a title's FTE). "
+  "Set starting_fte=0 and hires=0 on every row -- Python derives them from continuity.\n"
+  "4. Staff so each quarter's TOTAL supporting payroll tracks the anchor's "
+  "supporting_budget: total ending FTE across titles each quarter should be close to "
+  "that quarter's implied_supporting_fte_total, distributed across titles roughly by "
+  "the suggested mix weights. Do not overstaff beyond the budget or understaff to zero "
+  "when budget exists.\n"
+  "5. payroll_tax_benefits_pct must be within [0.12, 0.35]; use the anchor benefits_pct "
+  "unless you have reason to differ.\n"
+  "6. Set the root scalars from the anchor (labor_intensity_class, capacity_labor_model, "
+  "wage_positioning_tier, wage_positioning_multiplier, target_payroll_percent_of_revenue) "
+  "unless business judgment dictates an in-band adjustment.\n"
+  "Call submit_payroll_headcount_schedule exactly once with the complete contract."
+)
+
+
+def _build_user_prompt(
+  *,
+  anchor: Dict[str, Any],
+  oews_catalog: Dict[str, Any],
+  previous_violations: Optional[List[Dict[str, Any]]],
+) -> str:
+  candidates = [
+    {
+      "occ_title": str(c.get("occ_title") or "").strip(),
+      "tot_emp": c.get("tot_emp"),
+      "annual_wage": c.get("annual_wage"),
+      "o_group": c.get("o_group"),
+    }
+    for c in (oews_catalog.get("title_candidates") or [])
+    if isinstance(c, dict) and str(c.get("occ_title") or "").strip()
+  ]
+  # Keep the catalog bounded so the prompt stays in budget; the anchor's
+  # suggested_oews_mix already surfaces the highest-employment titles.
+  candidates = candidates[:60]
+  lines: List[str] = []
+  lines.append("PAYROLL ANCHOR (revenue-grounded reference; non-binding):")
+  lines.append(json.dumps({
+    "horizon": anchor.get("horizon"),
+    "labor_intensity_class": anchor.get("labor_intensity_class"),
+    "target_payroll_percent_of_revenue": anchor.get("target_payroll_percent_of_revenue"),
+    "benefits_pct": anchor.get("benefits_pct"),
+    "capacity_labor_model": anchor.get("capacity_labor_model"),
+    "wage_positioning_tier": anchor.get("wage_positioning_tier"),
+    "wage_positioning_multiplier": anchor.get("wage_positioning_multiplier"),
+    "payroll_revenue_band": anchor.get("payroll_revenue_band"),
+    "suggested_oews_mix": anchor.get("suggested_oews_mix"),
+    "per_quarter": anchor.get("per_quarter"),
+  }, ensure_ascii=False, default=str))
+  lines.append("")
+  lines.append("OEWS TITLE CATALOG (choose oews_occ_title strings ONLY from here):")
+  lines.append(json.dumps(candidates, ensure_ascii=False, default=str))
+  if previous_violations:
+    lines.append("")
+    lines.append(
+      "YOUR PREVIOUS CONTRACT WAS REJECTED by Python validation. Fix exactly "
+      "these problems and resubmit the FULL corrected contract:"
+    )
+    lines.append(json.dumps(previous_violations[:20], ensure_ascii=False, default=str))
+  return "\n".join(lines)
+
+
+def gpt_author_payroll_contract_once(
+  *,
+  anchor: Dict[str, Any],
+  oews_catalog: Dict[str, Any],
+  previous_violations: Optional[List[Dict[str, Any]]] = None,
+  model: Optional[str] = None,
+  seed: int = 1729,
+  timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+  _http: Optional[Callable[..., Any]] = None,
+) -> Dict[str, Any]:
+  """Make ONE GPT authoring call; return ``{ok, contract, error}``.
+
+  ``ok=False`` on missing key / HTTP error / malformed tool call. The
+  caller validates the returned contract and decides whether to retry
+  (feeding ``previous_violations`` back) or fall back.
+  """
+  api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+  if api_key is None:
+    return {"ok": False, "contract": None, "error": "openai_api_key_unset"}
+
+  http_fn = _http
+  if http_fn is None:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      post_openai_with_retries,
+    )
+    http_fn = post_openai_with_retries
+
+  payload = {
+    "model": _resolve_model(model),
+    "messages": [
+      {"role": "system", "content": _SYSTEM_PROMPT},
+      {"role": "user", "content": _build_user_prompt(
+        anchor=anchor, oews_catalog=oews_catalog,
+        previous_violations=previous_violations,
+      )},
+    ],
+    "tools": [_SUBMIT_TOOL],
+    "tool_choice": {"type": "function", "function": {"name": "submit_payroll_headcount_schedule"}},
+    "seed": int(seed),
+  }
+  headers = {
+    "Authorization": f"Bearer {api_key}",
+    "Content-Type": "application/json",
+  }
+  try:
+    resp = http_fn(
+      url=_OPENAI_URL, headers=headers, payload=payload,
+      timeout_seconds=timeout_seconds,
+      retryable_status=(429, 500, 502, 503, 504), max_attempts=3,
+    )
+  except Exception as exc:
+    return {"ok": False, "contract": None, "error": f"http_error:{type(exc).__name__}:{str(exc)[:200]}"}
+
+  status = int(getattr(resp, "status_code", 0) or 0)
+  if status != 200:
+    detail = str(getattr(resp, "text", ""))[:300]
+    return {"ok": False, "contract": None, "error": f"http_status_{status}:{detail}"}
+  try:
+    body = resp.json()
+  except Exception:
+    return {"ok": False, "contract": None, "error": "non_json_body"}
+
+  try:
+    choices = body.get("choices") or []
+    message = choices[0].get("message") if choices else None
+    tool_calls = (message or {}).get("tool_calls") or []
+    fn = (tool_calls[0] or {}).get("function") if tool_calls else None
+    args_raw = (fn or {}).get("arguments")
+    contract = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw if isinstance(args_raw, dict) else None)
+  except Exception as exc:
+    return {"ok": False, "contract": None, "error": f"tool_call_parse_failed:{type(exc).__name__}"}
+
+  if not isinstance(contract, dict) or not contract.get("payroll_headcount_grid"):
+    return {"ok": False, "contract": None, "error": "no_contract_in_tool_call"}
+  return {"ok": True, "contract": contract, "error": None}
+
+
+__all__ = ["gpt_author_payroll_contract_once"]

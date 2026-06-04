@@ -234,20 +234,51 @@ def set_payroll_schedule(
   )
 
   if candidate is None:
-    # Round-1 authoring path -- Lineage B deterministic producer. Python
-    # authors a real payroll_headcount_schedule contract from the business's
-    # own per-quarter revenue (the dollar path), REPLACING the prior
-    # build_pending_payroll_stub placeholder. GPT later critiques the output
-    # via the amalgamated responder (this tool's contract!=None revision
-    # path). Authority: docs/architecture/payroll_producer_spec.md.
+    # Round-1 authoring path (Lineage B): the EXECUTIVE (GPT) authors the
+    # payroll_headcount_schedule, GROUNDED by the revenue-driven anchor
+    # (Python's grounding role) and VALIDATED by the canonical validator
+    # below (Python's validation role). On a validation failure the
+    # executive RE-AUTHORS with the validator's structured feedback
+    # (bounded retries). The deterministic producer
+    # (author_round1_payroll_contract) is the NO-EXECUTIVE fallback only
+    # (no OPENAI_API_KEY / hermetic tests). Authority:
+    # docs/architecture/gpt_authors_payroll_anchored_scope.md.
     #
     # The ``_handler_c_author`` test seam remains supported -- when a test
-    # passes a custom callable, we invoke it (the legacy interface) instead
-    # of the deterministic producer, so existing tests that exercise that
-    # contract continue to work.
+    # passes a custom callable, we invoke it (the legacy interface).
     handler_c = _handler_c_author
+    _max_gpt_author_attempts = 4
+
+    from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+      author_round1_payroll_contract,
+      compute_round1_payroll_anchor,
+    )
+
+    def _deterministic_fallback() -> Optional[Dict[str, Any]]:
+      authored_local = author_round1_payroll_contract(
+        business_facts=business_facts or {},
+        ops_json=ops_json or {},
+        people_json=people_json or {},
+        financials_json=financials_json or {},
+        financials_year1_json=financials_year1_json or {},
+        model_input_json=model_input_json or {},
+        finmo_json=finmo_json or {},
+        stage_ramp_contract=stage_ramp_contract or {},
+        policy_code=policy_code,
+      )
+      if isinstance(authored_local, dict):
+        raw = (
+          authored_local.get("payroll_headcount_contract")
+          if isinstance(authored_local.get("payroll_headcount_contract"), dict)
+          else authored_local
+        )
+        if isinstance(raw, dict) and raw:
+          return copy.deepcopy(raw)
+      return None
+
     try:
       if handler_c is not None:
+        # Legacy test seam.
         authored = handler_c(
           business_facts=business_facts or {},
           ops_json=ops_json or {},
@@ -261,11 +292,18 @@ def set_payroll_schedule(
           stage_ramp_contract=stage_ramp_contract or {},
           draft_id=_string(draft_id),
         )
+        if isinstance(authored, dict):
+          raw_contract = (
+            authored.get("payroll_headcount_contract")
+            if isinstance(authored.get("payroll_headcount_contract"), dict)
+            else authored
+          )
+          if isinstance(raw_contract, dict) and raw_contract:
+            candidate = copy.deepcopy(raw_contract)
+        decision_source = "handler_c_internal_authoring"
       else:
-        from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
-          author_round1_payroll_contract,
-        )
-        authored = author_round1_payroll_contract(
+        # GROUND: compute the revenue anchor (always; Python's grounding role).
+        anchor = compute_round1_payroll_anchor(
           business_facts=business_facts or {},
           ops_json=ops_json or {},
           people_json=people_json or {},
@@ -273,9 +311,64 @@ def set_payroll_schedule(
           financials_year1_json=financials_year1_json or {},
           model_input_json=model_input_json or {},
           finmo_json=finmo_json or {},
-          stage_ramp_contract=stage_ramp_contract or {},
           policy_code=policy_code,
         )
+        # EXECUTIVE authors, grounded + validated, with bounded retries.
+        from client_intake_and_finmo.post_intake_headcount.gpt_payroll_author import (  # type: ignore  # noqa: E501
+          gpt_author_payroll_contract_once,
+        )
+        from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
+          _oews_title_catalog_for_business,
+        )
+        try:
+          oews_catalog = _oews_title_catalog_for_business(
+            business_facts=business_facts or {}, ops_json=ops_json or {},
+            people_json=people_json or {},
+          )
+        except Exception:
+          oews_catalog = {}
+        last_violations: Optional[List[Dict[str, Any]]] = None
+        gpt_available = False
+        for _attempt in range(_max_gpt_author_attempts):
+          authored = gpt_author_payroll_contract_once(
+            anchor=anchor, oews_catalog=oews_catalog,
+            previous_violations=last_violations,
+          )
+          if not authored.get("ok"):
+            err = _string(authored.get("error"))
+            if err.startswith("openai_api_key_unset"):
+              break  # no executive available -> deterministic fallback
+            last_violations = [{
+              "code": "payroll_gpt_author_call_failed", "message": err[:400],
+            }]
+            continue
+          gpt_available = True
+          cand = authored.get("contract")
+          # Validate to decide accept/retry (same checks as the commit path below).
+          try:
+            env_v = _check_envelope_violations(cand)
+            norm_try = validator(payload=cand)
+            band_v = _check_band_violations(cand, bands_echoed)
+            vlist = env_v + band_v
+            if not vlist and norm_try is not None:
+              candidate = copy.deepcopy(cand)
+              decision_source = "amalgamated_gpt_authored"
+              break
+            last_violations = vlist or [{
+              "code": "payroll_contract_invalid",
+              "message": "validator produced no normalized contract",
+            }]
+          except Exception as exc:
+            last_violations = _build_violations_from_runtime_error(exc)
+        if candidate is None:
+          # No-executive (no key) or executive could not land a valid
+          # contract within budget -> deterministic producer fallback
+          # (still validated below).
+          candidate = _deterministic_fallback()
+          decision_source = (
+            "deterministic_round1_producer_fallback_after_gpt" if gpt_available
+            else "deterministic_round1_producer"
+          )
     except Exception as exc:
       return {
         "accepted": False,
@@ -292,18 +385,6 @@ def set_payroll_schedule(
           else "deterministic_round1_producer"
         ),
       }
-    if isinstance(authored, dict):
-      raw_contract = (
-        authored.get("payroll_headcount_contract")
-        if isinstance(authored.get("payroll_headcount_contract"), dict)
-        else authored
-      )
-      if isinstance(raw_contract, dict) and raw_contract:
-        candidate = copy.deepcopy(raw_contract)
-    decision_source = (
-      "handler_c_internal_authoring" if handler_c is not None
-      else "deterministic_round1_producer"
-    )
 
   if not isinstance(candidate, dict) or not candidate:
     return {
