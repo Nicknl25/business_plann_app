@@ -30,23 +30,6 @@ def revise_drivers(
   # Test seams.
   _set_drivers: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-  if not isinstance(current_anchors, dict) or not current_anchors:
-    return {
-      "accepted": False,
-      "section": "drivers",
-      "anchors": None,
-      "commit_summary": None,
-      "violations": [{
-        "code": "no_current_driver_anchors",
-        "message": (
-          "revise_drivers requires currently-committed anchors to patch. "
-          "Call set_drivers first."
-        ),
-      }],
-      "bands_echoed": {},
-      "decision_source": "amalgamated_session_pending",
-      "patch_applied": [],
-    }
   if not isinstance(patch, dict) or not patch:
     return {
       "accepted": False,
@@ -62,7 +45,16 @@ def revise_drivers(
       "patch_applied": [],
     }
 
-  merged, applied = deep_merge_patch(current_anchors, patch)
+  # Author-on-empty: drivers are DEFERRED to the cascade (round-1 leaves the
+  # section empty / "amalgamated_session_pending" -- there are no prior
+  # anchors to revise). The FIRST drivers tier (V1) therefore AUTHORS the
+  # proposed levers from the patch; set_drivers accepts a partial anchor set
+  # (it validates + commits whatever lever_ids are supplied). Subsequent
+  # drivers tiers deep-merge onto the now-committed anchors as before.
+  if not isinstance(current_anchors, dict) or not current_anchors:
+    merged, applied = copy.deepcopy(patch), sorted(patch.keys())
+  else:
+    merged, applied = deep_merge_patch(current_anchors, patch)
 
   setter = _set_drivers
   if setter is None:

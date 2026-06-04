@@ -154,6 +154,19 @@ def _build_revise_fn_for_section(
       model_input_json=model_input_json, finmo_json=finmo_json,
     )
 
+  def _operating_model(*, current, patch, proposal, **_):
+    # Fork A B1: apply pricing / utilization / capacity / productivity levers
+    # (was a no-op -- the executive's V3/V4/V5/G2/G3/G4/C1/C2/C3/C5 choices
+    # never mutated the plan).
+    from client_intake_and_finmo.post_intake_amalgamated.tools.revise_operating_model import (  # noqa: E501
+      revise_operating_model,
+    )
+    return revise_operating_model(
+      conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
+      current=current, patch=patch, proposal=proposal,
+      operating_context=operating_context,
+    )
+
   table: Dict[str, Callable[..., Dict[str, Any]]] = {
     "drivers":               _drivers,
     "stage_ramp":            _stage_ramp,
@@ -161,6 +174,7 @@ def _build_revise_fn_for_section(
     "balance_sheet":         _balance_sheet,
     "capex_rd":              _balance_sheet,
     "capex_rd_balance_seed": _balance_sheet,
+    "operating_model":       _operating_model,
   }
 
   def dispatch(section: str) -> Optional[Callable[..., Dict[str, Any]]]:
@@ -285,17 +299,15 @@ def _propagate_committed_section_to_model_input(
         copy.deepcopy(mi), copy.deepcopy(seed), live_count=20,
       )
     elif section == "operating_model" and isinstance(payload, dict):
-      # Wired in B1 (revise_operating_model); until then operating_model is a
-      # cascade no-op and never commits a payload here.
-      updates = [
-        {"lever_id": str(k), "quarter_index": q, "exact_value": float(v)}
-        for k, v in payload.items() if isinstance(v, (int, float))
-        for q in range(1, 21)
-      ]
-      if updates:
-        live_ref["mi"] = apply_exact_lever_updates_to_model_input(
-          model_input_json=mi, exact_updates=updates,
-        )
+      # B1: map operating_model levers (unit_price/utilization_rate/
+      # units_per_week_capacity) onto the live revenue rows by driver, so the
+      # next round's recompute reflects the executive's pricing/util/capacity
+      # move. (per_employee_productivity is carried but not a revenue row;
+      # capacity re-derivation from it is a follow-up.)
+      from client_intake_and_finmo.post_intake_amalgamated.tools.revise_operating_model import (  # noqa: E501
+        apply_operating_model_levers_to_model_input,
+      )
+      live_ref["mi"] = apply_operating_model_levers_to_model_input(mi, payload)
   # stage_ramp propagation: the stage-ramp contract reshapes the revenue/util
   # path through its own builder; per-commit model_input propagation for it is
   # a follow-up (tracked). plan_state IS updated regardless, so the final
