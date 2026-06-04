@@ -46,10 +46,13 @@ class BusinessFactsForSolverContractTest(unittest.TestCase):
     )
     self.assertEqual(bf.fact_template["business_stage"], "growth")
 
-  def test_missing_fact_template_rejected(self) -> None:
-    with self.assertRaises(ValidationError) as ctx:
-      BusinessFactsForSolverContract.model_validate({})
-    self.assertIn("fact_template", str(ctx.exception))
+  def test_missing_fact_template_accepted(self) -> None:
+    # fact_template is now Optional: the runtime business_facts at the
+    # amalgamated->solver boundary is the flat draft-row dict with no
+    # fact_template wrapper, and the orchestrator's reads tolerate its
+    # absence. Making it required broke every live run at this gate.
+    bf = BusinessFactsForSolverContract.model_validate({})
+    self.assertIsNone(bf.fact_template)
 
   def test_extra_top_level_key_ignored(self) -> None:
     """Flag 7: BusinessFactsForSolverContract uses extra=ignore so
@@ -81,33 +84,20 @@ class BusinessFactsForSolverContractTest(unittest.TestCase):
 
 class PlanningModeLiteralTest(unittest.TestCase):
 
-  def test_growth_accepted(self) -> None:
-    payload = valid_solver_input_dict()
-    payload["planning_mode"] = "growth"
-    SolverInputContract.model_validate(payload)
-
-  def test_stability_accepted(self) -> None:
-    payload = valid_solver_input_dict()
-    payload["planning_mode"] = "stability"
-    SolverInputContract.model_validate(payload)
-
-  def test_runway_extension_accepted(self) -> None:
-    payload = valid_solver_input_dict()
-    payload["planning_mode"] = "runway_extension"
-    SolverInputContract.model_validate(payload)
-
-  def test_survival_accepted(self) -> None:
-    payload = valid_solver_input_dict()
-    payload["planning_mode"] = "survival"
-    SolverInputContract.model_validate(payload)
+  def test_canonical_planning_modes_accepted(self) -> None:
+    # The canonical post-intake vocabulary
+    # (post_intake_adaptive_planning.policy.ALLOWED_PLANNING_MODES).
+    for mode in ("normalize", "turnaround", "rebalance", "growth_investment", "preservation"):
+      payload = valid_solver_input_dict()
+      payload["planning_mode"] = mode
+      SolverInputContract.model_validate(payload)
 
   def test_supported_planning_modes_constant_matches_literal(self) -> None:
-    """Constant + Literal must enumerate the same set. If a future
-    member is added to the Literal without updating the constant
-    (or vice versa) this test surfaces the drift."""
+    """Constant + Literal must enumerate the same set, single-sourced from
+    ALLOWED_PLANNING_MODES. Drift between them surfaces here."""
     self.assertEqual(
       set(SUPPORTED_PLANNING_MODES),
-      {"growth", "stability", "runway_extension", "survival"},
+      {"normalize", "turnaround", "rebalance", "growth_investment", "preservation"},
     )
 
   def test_typo_rejected(self) -> None:

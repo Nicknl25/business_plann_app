@@ -329,6 +329,10 @@ class SolverOutputContract(BaseModel):
 
   # Tier E -- Phase-8 bypass artifact
   status: Optional[str] = None
+  # The orchestrator stamps abort_reason when the legacy inner convergence
+  # runner is skipped (e.g. "phase_8_legacy_convergence_runner_skipped") and
+  # as the adaptation-cascade entry trigger. Legitimate solver output.
+  abort_reason: Optional[str] = None
 
   # Tier D -- phantom-read fields (PSL2 (a))
   planning_run_json: Optional[Dict[str, Any]] = None

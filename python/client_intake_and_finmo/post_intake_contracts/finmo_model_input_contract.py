@@ -299,6 +299,10 @@ class RevenueRow(BaseModel):
   lob_slot_index: Optional[int] = None
   product_slot_index: Optional[int] = None
   seed_provenance_json: Optional[Dict[str, Any]] = None
+  # Per-quarter provenance stamped by the target solver / exhaustion handler
+  # when it applies an exact value to this lever row (target_solver.py:547,
+  # handler.py:509): {q: {target_metric, applied_value, tier_used}}.
+  applied_by_target_solver_quarters: Optional[Dict[str, Any]] = None
   # Period-scope fields stamped on every row by the template
   # (``_full_quarter_scope`` at finmo_bridge.py:244).
   valid_quarter_indices: Optional[List[int]] = None
@@ -404,6 +408,9 @@ class ExpenseRow(BaseModel):
       )
     return self
 
+  # Per-quarter provenance stamped by the target solver / exhaustion handler.
+  applied_by_target_solver_quarters: Optional[Dict[str, Any]] = None
+
   model_config = ConfigDict(extra="forbid")
 
 
@@ -484,6 +491,9 @@ class BalanceSheetRow(BaseModel):
       )
     return self
 
+  # Per-quarter provenance stamped by the target solver / exhaustion handler.
+  applied_by_target_solver_quarters: Optional[Dict[str, Any]] = None
+
   model_config = ConfigDict(extra="forbid")
 
 
@@ -545,6 +555,9 @@ class ScheduleRow(BaseModel):
         "derived_driver must be set when controller_write is False"
       )
     return self
+
+  # Per-quarter provenance stamped by the target solver / exhaustion handler.
+  applied_by_target_solver_quarters: Optional[Dict[str, Any]] = None
 
   model_config = ConfigDict(extra="forbid")
 

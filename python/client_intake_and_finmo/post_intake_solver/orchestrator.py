@@ -1135,11 +1135,16 @@ def run_target_seeking_orchestrated_system_run(
                      "planning_mode_reason": planning_mode_reason},
   )
 
-  # Step 9d item 18 — FAIL_TARGET_SEEKING_MODE_UNKNOWN. The four
-  # supported planning modes are growth / stability / runway_extension
-  # / survival; anything else is a contract violation.
-  _VALID_PLANNING_MODES = {"growth", "stability", "runway_extension", "survival"}
-  if str(planning_mode or "").strip() not in _VALID_PLANNING_MODES:
+  # Step 9d item 18 — FAIL_TARGET_SEEKING_MODE_UNKNOWN. The supported
+  # planning modes are the canonical post-intake vocabulary, single-sourced
+  # from post_intake_adaptive_planning.policy.ALLOWED_PLANNING_MODES
+  # (normalize / turnaround / rebalance / growth_investment / preservation).
+  # The prior hardcoded {growth,stability,runway_extension,survival} was a
+  # WRONG taxonomy that rejected every real planning_mode (e.g. "rebalance").
+  from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+    ALLOWED_PLANNING_MODES as _VALID_PLANNING_MODES,
+  )
+  if str(planning_mode or "").strip() not in set(_VALID_PLANNING_MODES):
     from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
       FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
     )
@@ -1864,6 +1869,32 @@ def _run_post_cascade_completion(
   surfaces in the acceptance gate's verdict; this function never
   swallows failures into a fake success.
   """
+  # Step 9c diagnostic emit helper. This function runs as a SEPARATE
+  # top-level call (not nested inside run_target_seeking_orchestrated_system_run),
+  # so it binds its OWN emitter + diag enums from the conn/draft_id/
+  # planning_run_id it receives. (Previously these names were only defined
+  # in the sibling function's scope; reaching this tail end-to-end surfaced
+  # the NameError once the upstream contract walls were cleared.)
+  from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
+    EventCode as _DiagEventCode,
+    PhaseCode as _DiagPhaseCode,
+    Status as _DiagStatus,
+    safe_emit as _diag_safe_emit,
+  )
+  _DIAG_PLANNING_RUN_ID = str(planning_run_id or "").strip()
+  _DIAG_DRAFT_ID = str(draft_id or "").strip()
+
+  def _emit_diag(*, phase, event_code, status=_DiagStatus.COMPLETED, diagnostic_data=None):
+    if not _DIAG_DRAFT_ID or not _DIAG_PLANNING_RUN_ID:
+      return
+    _diag_safe_emit(
+      conn,
+      draft_id=_DIAG_DRAFT_ID,
+      planning_run_id=_DIAG_PLANNING_RUN_ID,
+      phase=phase, event_code=event_code, status=status,
+      diagnostic_data=diagnostic_data,
+    )
+
   completion_trace: Dict[str, Any] = {
     "post_cascade_solver_pass": {"status": "not_run"},
     "cash_pass": {"status": "not_run"},

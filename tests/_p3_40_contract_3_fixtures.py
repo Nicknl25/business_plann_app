@@ -84,7 +84,7 @@ def valid_solver_input_dict(
     "financials_year1_json": {},
     "applied_model_input_json": model_input,
     "applied_finmo_json": valid_finmo_output_dict(),
-    "planning_mode": "growth",
+    "planning_mode": "rebalance",
     "planning_mode_reason": "default for tests",
     "people_json": {},
     "fulfillment_json": {},

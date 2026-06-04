@@ -66,7 +66,7 @@ class ValidPayloadAcceptedTest(unittest.TestCase):
     payload = valid_solver_input_dict()
     contract = validate_solver_input_at_boundary(payload, side=SIDE_CONSUMER)
     self.assertIsInstance(contract, SolverInputContract)
-    self.assertEqual(contract.planning_mode, "growth")
+    self.assertEqual(contract.planning_mode, "rebalance")
 
   def test_gate_accepts_both_producer_and_consumer_sides(self) -> None:
     """side='producer' (used at runner.py:1830) and side='consumer'

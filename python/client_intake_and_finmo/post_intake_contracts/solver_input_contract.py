@@ -119,7 +119,12 @@ SOLVER_STAGE_LABEL = "MODEL_INPUT→SOLVER"
 #: surfaces as a ContractViolation rather than a fail-fast 4 frames
 #: deeper. Lock-via-paired-tests (typo + correct spellings) lands
 #: in Commit 1b.
-SUPPORTED_PLANNING_MODES = ("growth", "stability", "runway_extension", "survival")
+# Canonical post-intake planning_mode vocabulary, single-sourced from
+# post_intake_adaptive_planning.policy.ALLOWED_PLANNING_MODES. The prior
+# tuple ("growth","stability","runway_extension","survival") was a WRONG
+# taxonomy that never matched any value the system produces, so every live
+# run tripped this gate (e.g. planning_mode="rebalance").
+SUPPORTED_PLANNING_MODES = ("normalize", "turnaround", "rebalance", "growth_investment", "preservation")
 
 #: Dict keys that ``prepare_initial_grid_for_draft`` includes in
 #: its return at runner.py:1830-1850 but are NOT part of the
@@ -161,7 +166,13 @@ class BusinessFactsForSolverContract(BaseModel):
   contracts land.
   """
 
-  fact_template: Dict[str, Any]
+  # Optional: the runtime business_facts at the amalgamated->solver boundary
+  # is the flat draft-row dict (name/business_name/address/start_date/...),
+  # which carries no ``fact_template`` wrapper. The orchestrator's reads
+  # tolerate its absence (they did pre-contract); making this required broke
+  # every live run at the MODEL_INPUT->SOLVER gate. Other keys ride
+  # ``extra="ignore"``. Contract 5 will tighten the intake-domain shape.
+  fact_template: Optional[Dict[str, Any]] = None
 
   model_config = ConfigDict(extra="ignore")
 
@@ -228,7 +239,7 @@ class SolverInputContract(BaseModel):
   financials_year1_json: Dict[str, Any]
   applied_model_input_json: FinmoModelInputContract
   applied_finmo_json: FinmoOutputContract
-  planning_mode: Literal["growth", "stability", "runway_extension", "survival"]
+  planning_mode: Literal["normalize", "turnaround", "rebalance", "growth_investment", "preservation"]
   planning_mode_reason: str
 
   # Tier B — closure-only

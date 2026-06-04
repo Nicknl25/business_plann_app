@@ -263,6 +263,7 @@ class PayrollHeadcountRow(BaseModel):
 
   position_title: Optional[str] = None
   person_name: Optional[str] = None
+  staffing_class: Optional[str] = None
   oews_occ_title: Optional[str] = None
   oews_matched_title: Optional[str] = None
   starting_fte: float = Field(ge=0)
@@ -284,6 +285,18 @@ class PayrollHeadcountRow(BaseModel):
 
   @model_validator(mode="after")
   def oews_title_present(self) -> "PayrollHeadcountRow":
+    # Key-person rows are identified by person_name (the owner / named
+    # leadership), not an OEWS occupation title -- Python injects them from
+    # intake and they legitimately carry no oews_occ_title. Supporting-staff
+    # rows still REQUIRE an OEWS title (so a builder bug that dropped it on a
+    # supporting row is NOT masked by this relaxation).
+    is_key_person = (
+      str(self.staffing_class or "").strip().lower() == "key_person"
+      or (bool(self.person_name) and not (self.oews_occ_title or self.oews_matched_title)
+          and not self.position_title)
+    )
+    if is_key_person:
+      return self
     if not (self.oews_occ_title or self.oews_matched_title):
       raise ValueError(
         "payroll row must have oews_occ_title or oews_matched_title"

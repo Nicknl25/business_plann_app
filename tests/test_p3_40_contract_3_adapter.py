@@ -104,7 +104,7 @@ class FromInitialGridStateTest(unittest.TestCase):
     contract = SolverInputContract.from_initial_grid_state(
       state, draft_id=state["draft_id"], planning_run_id=state["planning_run_id"]
     )
-    self.assertEqual(contract.planning_mode, "growth")
+    self.assertEqual(contract.planning_mode, "rebalance")
     self.assertEqual(contract.business_facts.fact_template["business_stage"], "growth")
     self.assertIsNotNone(contract.applied_model_input_json)
     self.assertIsNotNone(contract.applied_finmo_json)
@@ -182,12 +182,12 @@ class RoundTripTest(unittest.TestCase):
   def test_round_trip_preserves_planning_mode_value(self) -> None:
     """Spot-check a Literal-typed value survives round-trip."""
     state = _state_from_fixture()
-    state["planning_mode"] = "stability"
+    state["planning_mode"] = "turnaround"
     contract = SolverInputContract.from_initial_grid_state(
       state, draft_id=state["draft_id"], planning_run_id=state["planning_run_id"]
     )
     round_tripped = contract.to_initial_grid_state()
-    self.assertEqual(round_tripped["planning_mode"], "stability")
+    self.assertEqual(round_tripped["planning_mode"], "turnaround")
 
 
 if __name__ == "__main__":

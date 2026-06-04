@@ -59,7 +59,7 @@ class SolverInputContractTopLevelTest(unittest.TestCase):
     contract = SolverInputContract.model_validate(valid_solver_input_dict())
     self.assertEqual(contract.draft_id, "draft_test_001")
     self.assertEqual(contract.planning_run_id, "run_test_001")
-    self.assertEqual(contract.planning_mode, "growth")
+    self.assertEqual(contract.planning_mode, "rebalance")
 
   def test_extra_top_level_field_forbidden(self) -> None:
     """Flag 7: extra='forbid' on top-level SolverInputContract."""
