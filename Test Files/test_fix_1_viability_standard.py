@@ -629,6 +629,66 @@ def test_assert_payroll_revenue_feasibility_does_not_raise_on_violation() -> Non
     raise AssertionError(f"assert_payroll_revenue_feasibility must be non-fatal now, raised: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# Unit 11 — plan_state alias-sync fix (capex/balance triplet).
+# Canonicalizes to the two CONTRACT-VALID keys (balance_sheet, capex_rd);
+# the v1-legacy capex_rd_balance_seed key is never persisted. Fixes BOTH the
+# write path (set_plan_state_section) and the session-entry build
+# (build_mirror) — the latter is where the real Sunny e2e tripped F5.
+# ---------------------------------------------------------------------------
+
+_ALIAS_ANY = ("balance_sheet", "capex_rd_balance_seed", "capex_rd")
+_ALIAS_IN_ENUM = ("balance_sheet", "capex_rd")
+
+
+def _mirror():
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import Mirror  # noqa: E402
+  return Mirror()
+
+
+def test_alias_synced_from_each_member_to_in_enum_keys() -> None:
+  for writing_key in _ALIAS_ANY:
+    m = _mirror()
+    payload = {"src": writing_key, "val": 42}
+    m.set_plan_state_section(writing_key, payload)
+    for k in _ALIAS_IN_ENUM:
+      assert m.plan_state.get(k) == payload, (
+        f"writing {writing_key} must sync {k}; got {m.plan_state.get(k)!r}"
+      )
+    # the v1-legacy key must NOT persist (contract Literal forbids it)
+    assert "capex_rd_balance_seed" not in m.plan_state
+
+
+def test_alias_canonical_after_write() -> None:
+  # Original bug: writing balance_sheet left capex_rd stale (the F5-violating
+  # state). After the fix the two in-enum keys match and the legacy key is gone.
+  # (The F5 to_dict gate itself is covered end-to-end by the existing
+  # tests/test_p3_40_contract_7_* suite, run alongside this one.)
+  m = _mirror()
+  m.set_plan_state_section("balance_sheet", {"accounts_receivable_days": 30})
+  assert m.plan_state["balance_sheet"] == m.plan_state["capex_rd"] == {"accounts_receivable_days": 30}
+  assert "capex_rd_balance_seed" not in m.plan_state
+
+
+def test_build_mirror_entry_canonicalizes_divergent_aliases() -> None:
+  # The actual Sunny e2e repro: an entry plan_state with balance_sheet
+  # populated but capex_rd empty (divergent aliases) is what tripped F5 at the
+  # INDUSTRY_BASELINE->AMALGAMATED_SESSION boundary. build_mirror must
+  # canonicalize so the two in-enum keys match (and no legacy key persists).
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import build_mirror  # noqa: E402
+  m = build_mirror(plan_state={"balance_sheet": {"ar_days": 30}, "capex_rd": {}}, load_bands=False)
+  assert m.plan_state["balance_sheet"] == m.plan_state["capex_rd"] == {"ar_days": 30}
+  assert "capex_rd_balance_seed" not in m.plan_state
+
+
+def test_non_alias_section_does_not_touch_aliases() -> None:
+  m = _mirror()
+  m.set_plan_state_section("drivers", {"unit_price": 5})
+  assert m.plan_state.get("drivers") == {"unit_price": 5}
+  for k in _ALIAS_ANY:
+    assert k not in m.plan_state  # untouched
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -681,6 +741,10 @@ def main() -> int:
     ("u10_demote_feasibility_advisory", test_demote_payroll_revenue_feasibility_is_advisory),
     ("u10_other_payroll_codes_fatal", test_other_payroll_codes_still_fatal),
     ("u10_assert_non_fatal_on_violation", test_assert_payroll_revenue_feasibility_does_not_raise_on_violation),
+    ("u11_alias_synced_to_in_enum_keys", test_alias_synced_from_each_member_to_in_enum_keys),
+    ("u11_alias_canonical_after_write", test_alias_canonical_after_write),
+    ("u11_build_mirror_entry_canonicalizes", test_build_mirror_entry_canonicalizes_divergent_aliases),
+    ("u11_non_alias_section_untouched", test_non_alias_section_does_not_touch_aliases),
   ]
   for name, fn in tests:
     _run(name, fn)

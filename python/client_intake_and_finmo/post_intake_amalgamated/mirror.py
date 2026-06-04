@@ -67,6 +67,48 @@ _AUTHORITY = (
   "configuration is feasible, use relax_lowest_priority_bound and the manager will record it."
 )
 
+# The balance_sheet / capex_rd / capex_rd_balance_seed alias triplet (Bug 2).
+# `balance_sheet` and `capex_rd` are the two CONTRACT-VALID plan_state keys
+# (MirrorContract's plan_state Literal); `capex_rd_balance_seed` is the
+# v1-legacy alias name (a valid TOOL section, but NOT a valid plan_state key —
+# it would be rejected by the contract's Literal before the F5 invariant runs).
+# The read-side closure (session_factory._build_current_payload_for) resolves
+# a `capex_rd_balance_seed` read to `balance_sheet`, so it never needs to be
+# persisted as a key. The F5 plan_state_alias_sync invariant requires
+# balance_sheet == capex_rd, so both must always carry the same payload.
+_ALIAS_ANY = ("balance_sheet", "capex_rd_balance_seed", "capex_rd")
+_ALIAS_IN_ENUM = ("balance_sheet", "capex_rd")
+
+
+def _sync_capex_balance_aliases(plan_state: Dict[str, Any], *, prefer: Any = None) -> None:
+  """Canonicalize the capex/balance alias triplet in-place so the two
+  contract-valid keys (balance_sheet, capex_rd) hold one identical payload
+  and the v1-legacy capex_rd_balance_seed key is never persisted.
+
+  Satisfies the F5 plan_state_alias_sync invariant at BOTH the session-entry
+  build (build_mirror) and post-commit writes (set_plan_state_section).
+  Chosen payload: ``prefer`` when given, else the first non-empty alias
+  among (balance_sheet, capex_rd_balance_seed, capex_rd); if an alias key is
+  present but all are empty, both keys are set to {} (still F5-consistent).
+  No-op when no alias key is present at all (pre-first-commit state).
+  """
+  if not isinstance(plan_state, dict):
+    return
+  chosen = prefer
+  if chosen is None:
+    if not any(k in plan_state for k in _ALIAS_ANY):
+      return  # no alias section yet — nothing to sync
+    for k in _ALIAS_ANY:
+      v = plan_state.get(k)
+      if v:  # first non-empty alias wins
+        chosen = v
+        break
+    if chosen is None:
+      chosen = {}
+  for k in _ALIAS_IN_ENUM:
+    plan_state[k] = chosen
+  plan_state.pop("capex_rd_balance_seed", None)  # legacy key never persists
+
 
 @dataclass
 class Mirror:
@@ -150,18 +192,21 @@ class Mirror:
 
     Called by SessionDriver after a successful revise_* commit so the
     next cascade tier reads the post-commit payload instead of the
-    session-entry snapshot. Aliases are kept in sync — balance_sheet
-    and capex_rd_balance_seed mirror each other (the read-side closure
-    at session_factory._build_current_payload_for treats them as
-    aliases), so a write to one also writes the other.
+    session-entry snapshot. A commit to ANY member of the capex/balance
+    alias triplet (balance_sheet, capex_rd_balance_seed, capex_rd) is
+    canonicalized via _sync_capex_balance_aliases so the two contract-valid
+    keys (balance_sheet, capex_rd) carry one identical payload and the
+    v1-legacy capex_rd_balance_seed key is never persisted — satisfying the
+    F5 plan_state_alias_sync invariant (which requires balance_sheet ==
+    capex_rd, enforced in to_dict's Contract-7 gate).
     """
     if not isinstance(self.plan_state, dict):
       self.plan_state = {}
     stored = copy.deepcopy(payload) if payload is not None else {}
-    self.plan_state[section] = stored
-    if section in ("balance_sheet", "capex_rd_balance_seed", "capex_rd"):
-      self.plan_state["balance_sheet"] = stored
-      self.plan_state["capex_rd_balance_seed"] = stored
+    if section in _ALIAS_ANY:
+      _sync_capex_balance_aliases(self.plan_state, prefer=stored)
+    else:
+      self.plan_state[section] = stored
 
   def to_dict(self) -> Dict[str, Any]:
     # P3.40 Cleanup 3/6 -- R10 + R11 dropped sequence_position,
@@ -262,11 +307,19 @@ def build_mirror(
       except Exception:
         pass  # observability never breaks the pipeline
 
+  entry_plan_state = {section: dict((plan_state or {}).get(section) or {}) for section in SECTIONS}
+  # Bug 2 — the session-entry snapshot copies balance_sheet and capex_rd
+  # independently, so an upstream alias divergence (one populated, the other
+  # empty/different) would trip the F5 plan_state_alias_sync gate at the
+  # INDUSTRY_BASELINE->AMALGAMATED_SESSION boundary. Canonicalize the alias
+  # triplet here so the entry mirror is F5-consistent, matching the post-commit
+  # sync in set_plan_state_section.
+  _sync_capex_balance_aliases(entry_plan_state)
   mirror = Mirror(
     invariants=dict(_INVARIANTS),
     authority=_AUTHORITY,
     business_facts=dict(business_facts or {}),
-    plan_state={section: dict((plan_state or {}).get(section) or {}) for section in SECTIONS},
+    plan_state=entry_plan_state,
     bands=bands_payload,
     validation_state=dict(validation_state or {}),
   )
