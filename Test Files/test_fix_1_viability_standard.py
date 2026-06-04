@@ -32,6 +32,7 @@ from client_intake_and_finmo.post_intake_viability import policy as _pol  # noqa
 from client_intake_and_finmo.post_intake_viability.cohort_bands import HIGHER_BETTER, LOWER_BETTER  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import standard as _std  # noqa: E402
 from client_intake_and_finmo.post_intake_viability import adapter as _ad  # noqa: E402
+from client_intake_and_finmo.post_intake_headcount import schedule as _sched  # noqa: E402
 from datetime import date as _date  # noqa: E402
 
 
@@ -576,6 +577,58 @@ def test_real_sunny_finmo_flows_to_verdict() -> None:
         f"gateA={r['gates']['gate_a']['passed']} gateB={r['gates']['gate_b']['passed']}")
 
 
+# ---------------------------------------------------------------------------
+# Unit 10 — demote payroll/revenue feasibility assert to advisory (non-gating).
+# ---------------------------------------------------------------------------
+
+
+def test_demote_payroll_revenue_feasibility_is_advisory() -> None:
+  # The single chokepoint: _payroll_fail_fast must NOT raise for this code.
+  r = _sched._payroll_fail_fast(
+    "payroll_revenue_economic_feasibility_failed", "demoted",
+    stage="quarter_grid_applied_after_feasibility_repair_global_payroll_revenue_feasibility",
+    details={"violation_count": 3, "violations": [1, 2, 3]},
+  )
+  assert isinstance(r, dict)
+  assert r.get("status") == "advisory_non_gating"
+  assert r.get("code") == "payroll_revenue_economic_feasibility_failed"
+
+
+def test_other_payroll_codes_still_fatal() -> None:
+  # Demote must be surgical: every OTHER payroll code still hard-fails.
+  raised = False
+  try:
+    _sched._payroll_fail_fast("payroll_headcount_schedule_missing", "still fatal", stage="x")
+  except Exception:
+    raised = True
+  assert raised, "non-feasibility payroll codes must still raise (fatal)"
+
+
+def test_assert_payroll_revenue_feasibility_does_not_raise_on_violation() -> None:
+  # End-to-end at the assert level: a payroll>revenue schedule must NOT raise
+  # (it proceeds advisory). Build a minimal violating schedule + finmo. If the
+  # policy/mapping lookups need the DB and are unreachable, the violations
+  # list is empty and the assert trivially passes — either way: NO raise.
+  _load_env_once()
+  payroll_headcount = {
+    "labor_intensity_class": "expert",
+    "capacity_units_per_supporting_fte": 1000.0,
+    "quarter_totals": [{"quarter_index": q, "ending_fte": 1, "payroll": 34000} for q in range(1, 21)],
+    "rows": [],
+  }
+  finmo_json = _finmo_from_ebitda([-25000] * 20, revenue=23400.0)
+  for r in finmo_json["quarter_rows"]:
+    if int(r.get("quarter_index") or 0) >= 1:
+      r["payroll"] = 34000.0  # 145% of revenue -> out of any band
+  try:
+    _sched.assert_payroll_revenue_feasibility(
+      payroll_headcount=payroll_headcount, finmo_json=finmo_json,
+      stage="quarter_grid_applied_after_feasibility_repair_global_payroll_revenue_feasibility",
+    )
+  except Exception as exc:
+    raise AssertionError(f"assert_payroll_revenue_feasibility must be non-fatal now, raised: {exc}")
+
+
 def main() -> int:
   print("running test_fix_1_viability_standard.py")
   print("-" * 70)
@@ -625,6 +678,9 @@ def main() -> int:
     ("u9_adapter_never_raises", test_adapter_never_raises_on_garbage),
     ("u9_adapter_coherent_verdict", test_adapter_produces_coherent_verdict),
     ("u9_real_sunny_flows_to_verdict", test_real_sunny_finmo_flows_to_verdict),
+    ("u10_demote_feasibility_advisory", test_demote_payroll_revenue_feasibility_is_advisory),
+    ("u10_other_payroll_codes_fatal", test_other_payroll_codes_still_fatal),
+    ("u10_assert_non_fatal_on_violation", test_assert_payroll_revenue_feasibility_does_not_raise_on_violation),
   ]
   for name, fn in tests:
     _run(name, fn)

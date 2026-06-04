@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import requests
@@ -59,6 +60,27 @@ def _assert_payroll_sequence_step(
   )
 
 
+logger = logging.getLogger(__name__)
+
+
+# Fix #1 — payroll/revenue feasibility DEMOTED to advisory (non-gating).
+# The payroll/revenue ratio check is a premature viability/affordability
+# judgment, NOT a mechanical guard (see
+# docs/architecture/payroll_revenue_assert_purpose_trace.md): nothing
+# pre-funding requires payroll <= revenue (finmo computes negative
+# pre-funding cash freely; the cash/funding pass absorbs the shortfall), and
+# economic soundness is now owned by the operating-engine viability standard.
+# So this single code is recorded as advisory and the run PROCEEDS instead of
+# hard-failing — at EVERY firing site (it routes through _payroll_fail_fast
+# from both assert_payroll_revenue_feasibility and the capacity-applied check).
+# The violation signal is preserved: logged here and surfaced durably in the
+# acceptance verdict (post_intake_acceptance.gate, same spirit as the
+# viability standard's advisory wiring). All OTHER payroll codes stay fatal —
+# including the structural malformed-grid checks in
+# validate_payroll_headcount_payload, which still hard-fail at production.
+_ADVISORY_PAYROLL_CODES = frozenset({"payroll_revenue_economic_feasibility_failed"})
+
+
 def _payroll_fail_fast(
   code: str,
   message: str = "",
@@ -66,6 +88,25 @@ def _payroll_fail_fast(
   stage: str = "",
   details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  if code in _ADVISORY_PAYROLL_CODES:
+    detail_payload = details or {}
+    violation_count = (
+      detail_payload.get("violation_count")
+      if isinstance(detail_payload, dict) and detail_payload.get("violation_count") is not None
+      else len((detail_payload or {}).get("violations") or [])
+    )
+    logger.warning(
+      "payroll_revenue_feasibility ADVISORY (non-gating, Fix #1) @ stage=%s "
+      "violation_count=%s message=%s",
+      stage or "payroll_headcount", violation_count, message,
+    )
+    return {
+      "status": "advisory_non_gating",
+      "code": code,
+      "stage": stage or "payroll_headcount",
+      "message": message,
+      "details": detail_payload,
+    }
   return post_intake_fail_fast_raise(
     code,
     message,

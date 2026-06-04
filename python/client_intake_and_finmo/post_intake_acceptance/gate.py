@@ -801,6 +801,27 @@ def verify_run_acceptance(
   except Exception as exc:  # advisory — never break acceptance
     verdict["viability_standard"] = {"verdict": "error", "error": str(exc)}
 
+  # Fix #1 — payroll/revenue feasibility ADVISORY (non-gating). The assert is
+  # demoted to advisory upstream (premature viability/affordability judgment —
+  # docs/architecture/payroll_revenue_assert_purpose_trace.md). Surface the
+  # violation signal here durably for transparency / a possible future
+  # malformed-driver envelope; it does NOT gate `passed`.
+  try:
+    from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
+      payroll_revenue_feasibility_violations,
+    )
+    _pr_payroll = _parse_json(draft.get("payroll_headcount"))
+    _pr_violations = payroll_revenue_feasibility_violations(
+      payroll_headcount=_pr_payroll, finmo_json=finmo_json,
+    )
+    verdict["payroll_revenue_feasibility_advisory"] = {
+      "gating": False,
+      "violation_count": len(_pr_violations),
+      "violations": _pr_violations[:20],
+    }
+  except Exception as exc:  # advisory — never break acceptance
+    verdict["payroll_revenue_feasibility_advisory"] = {"gating": False, "error": str(exc)}
+
   if resolved_run_id:
     try:
       _persist_verdict(conn, planning_run_id=resolved_run_id, verdict=copy.deepcopy(verdict))
