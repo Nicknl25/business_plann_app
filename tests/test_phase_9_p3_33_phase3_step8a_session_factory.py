@@ -109,10 +109,16 @@ class ReviseFnDispatchTest(unittest.TestCase):
   def test_combined_section_name_dispatches(self) -> None:
     self.assertIsNotNone(self._dispatch()("capex_rd_balance_seed"))
 
+  def test_operating_model_now_dispatches(self) -> None:
+    """Fork A B1: operating_model now HAS a revise_* tool
+    (revise_operating_model) so the executive's price/utilization/capacity
+    moves actually apply (was previously a no-op that returned None)."""
+    self.assertIsNotNone(self._dispatch()("operating_model"))
+
   def test_unknown_section_returns_none(self) -> None:
-    """operating_model has no dedicated revise_* tool. The driver
+    """A genuinely unknown section has no revise_* tool; the driver
     handles None gracefully by logging-without-applying and advancing."""
-    self.assertIsNone(self._dispatch()("operating_model"))
+    self.assertIsNone(self._dispatch()("not_a_real_section"))
 
 
 class CurrentPayloadForTest(unittest.TestCase):

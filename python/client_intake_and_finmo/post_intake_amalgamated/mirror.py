@@ -248,12 +248,51 @@ class Mirror:
     return payload
 
 
+# The operating_model_json fields that tell the executive WHAT this business
+# is and HOW it makes money -- the portrait it needs to judge revenue-lever
+# (price/utilization/capacity) choices sensibly for THIS business instead of
+# blindly. Kept compact (token-aware); long free-text is capped.
+_OM_DIGEST_FIELDS = (
+  "business_type", "consumer_type", "business_stage",
+  "unit_name", "unit_description", "unit_cadence",
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+  "utilization_rate", "operating_periods_per_year",
+  "capacity_driver", "primary_growth_lever",
+  "sales_modality", "shipping_method",
+  "geographic_scope", "geographic_coverage",
+  "business_description_summary", "competitive_advantage",
+)
+_OM_DIGEST_TEXT_CAP = 400
+
+
+def build_operating_model_digest(ops_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  """Compact digest of operating_model_json for the executive's Mirror.
+
+  Surfaces the business portrait (what it sells, how it prices, how capacity
+  is driven, how it grows) so GPT's Fork A revenue-lever choices are grounded
+  in the actual business -- it was previously judging price/util/capacity
+  effectively blind (the Mirror carried only thin business_facts + NAICS).
+  A digest, not the raw blob: only the portrait fields, long text capped."""
+  if not isinstance(ops_json, dict):
+    return {}
+  digest: Dict[str, Any] = {}
+  for key in _OM_DIGEST_FIELDS:
+    value = ops_json.get(key)
+    if value is None or value == "":
+      continue
+    if isinstance(value, str) and len(value) > _OM_DIGEST_TEXT_CAP:
+      value = value[:_OM_DIGEST_TEXT_CAP].rstrip() + "…"
+    digest[key] = value
+  return digest
+
+
 def build_mirror(
   conn=None,
   *,
   draft_id: Optional[str] = None,
   planning_run_id: Optional[str] = None,
   business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
   plan_state: Optional[Dict[str, Any]] = None,
   validation_state: Optional[Dict[str, Any]] = None,
   load_bands: bool = True,
@@ -315,10 +354,17 @@ def build_mirror(
   # triplet here so the entry mirror is F5-consistent, matching the post-commit
   # sync in set_plan_state_section.
   _sync_capex_balance_aliases(entry_plan_state)
+  # Carry the operating_model digest in business_facts (opaque Dict[str,Any]
+  # in MirrorContract, so contract-safe) so the executive sees the business
+  # portrait when judging revenue-lever proposals.
+  _business_facts = dict(business_facts or {})
+  _om_digest = build_operating_model_digest(ops_json)
+  if _om_digest:
+    _business_facts["operating_model_digest"] = _om_digest
   mirror = Mirror(
     invariants=dict(_INVARIANTS),
     authority=_AUTHORITY,
-    business_facts=dict(business_facts or {}),
+    business_facts=_business_facts,
     plan_state=entry_plan_state,
     bands=bands_payload,
     validation_state=dict(validation_state or {}),

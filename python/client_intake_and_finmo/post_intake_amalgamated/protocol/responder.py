@@ -170,6 +170,20 @@ _SYSTEM_PROMPT = (
 )
 
 
+# Render order for the operating_model digest (business portrait) in the
+# executive's prompt. Identity/pricing/capacity first, free-text last.
+_OM_DIGEST_RENDER_ORDER = (
+  "business_type", "consumer_type", "business_stage",
+  "unit_name", "unit_description", "unit_cadence",
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+  "utilization_rate", "operating_periods_per_year",
+  "capacity_driver", "primary_growth_lever",
+  "sales_modality", "shipping_method",
+  "geographic_scope", "geographic_coverage",
+  "business_description_summary", "competitive_advantage",
+)
+
+
 def _fmt(value: Any) -> str:
   if value is None:
     return "(unset)"
@@ -260,6 +274,18 @@ def render_mirror_for_proposal(
                 "business_name", "primary_lob"):
         if k in biz:
           lines.append(f"  {k}: {biz[k]}")
+
+    # Business portrait (operating_model digest) — what this business IS and
+    # how it makes money, so revenue-lever judgments (price / utilization /
+    # capacity) are grounded in the actual business, not made blind.
+    om = biz.get("operating_model_digest") if isinstance(biz, dict) else None
+    if isinstance(om, dict) and om:
+      lines.append("")
+      lines.append("Business portrait (operating model):")
+      for k in _OM_DIGEST_RENDER_ORDER:
+        if k in om and om[k] not in (None, ""):
+          label = k.replace("_", " ")
+          lines.append(f"  {label}: {_fmt(om[k])}")
 
     # P3.40 bug 3 fix: render the current standards-check state so the
     # executive sees the failure context the cascade is responding to.
