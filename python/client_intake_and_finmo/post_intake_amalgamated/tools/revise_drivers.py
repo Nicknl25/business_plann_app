@@ -69,6 +69,10 @@ def revise_drivers(
     planning_run_id=planning_run_id,
     anchors=copy.deepcopy(merged),
     operating_context=operating_context,
+    # Cascade commits one driver lever per tier; the live model_input write
+    # is handled per-lever by the session propagation. Skip the all-P&L
+    # writer (it hard-fails on partial commits under CONVERGENCE_TEST_MODE).
+    commit_to_model_input=False,
   )
   envelope = dict(envelope) if isinstance(envelope, dict) else {}
   envelope["patch_applied"] = applied

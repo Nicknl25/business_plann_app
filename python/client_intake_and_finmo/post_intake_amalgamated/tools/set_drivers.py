@@ -151,6 +151,14 @@ def set_drivers(
   # Inputs required to actually commit anchors to model_input (the
   # writer needs the live operating_context):
   operating_context: Optional[Dict[str, Any]] = None,
+  # When False, validate + accept the anchors but DO NOT invoke the all-P&L
+  # writer. Used by the amalgamated cascade (revise_drivers), which commits
+  # ONE driver lever per tier — the writer (_write_gpt_authored_per_quarter_
+  # values) expects a full P&L driver set at once and hard-fails on partial
+  # commits under CONVERGENCE_TEST_MODE. The live model_input write for the
+  # cascade is handled per-lever by session_factory._propagate_committed_
+  # section_to_model_input instead.
+  commit_to_model_input: bool = True,
   # Test seams.
   _writer: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
@@ -216,6 +224,23 @@ def set_drivers(
       "anchors": None,
       "commit_summary": None,
       "violations": combined,
+      "bands_echoed": bands_echoed,
+      "decision_source": "amalgamated_gpt_supplied",
+    }
+
+  # Cascade incremental path: envelope + band validation passed; accept the
+  # anchors WITHOUT the all-P&L writer (which hard-fails on a single-lever
+  # commit). The session propagates this lever into the live model_input.
+  if not commit_to_model_input:
+    return {
+      "accepted": True,
+      "section": "drivers",
+      "anchors": copy.deepcopy(anchors),
+      "commit_summary": {
+        "committed_to_model_input": False,
+        "note": "validated; live model_input write handled by session propagation",
+      },
+      "violations": [],
       "bands_echoed": bands_echoed,
       "decision_source": "amalgamated_gpt_supplied",
     }
