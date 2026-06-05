@@ -179,12 +179,147 @@ def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[fl
 # Lever-margin computation (reads bands from the post_intake_cohort_bands
 # table populated in Phase 3 step 1).
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Fork A keystone — assemble-bands fallback for lever margins.
+# ---------------------------------------------------------------------------
+# The cohort-bands table (post_intake_cohort_bands) is empty for SMB NAICS
+# (resolve_cohort_band has no public-firm coverage), so the cohort path
+# yields no lever_margins -> the proposer emits vacuous (None) proposals ->
+# no deltas. The realism gate enforces a DIFFERENT, populated source
+# (assemble_finmo_output_targets, the phase_3_calibrated industry baselines).
+# This fallback single-sources the cascade's lever margins to THAT SAME band
+# source the plan is judged against, with current values read from the LIVE
+# finmo.
+#
+# DANGER SPOT (verified by eye + a live per-tier correspondence proof): this
+# map aims each lever at the ratio it directly controls. A wrong pair = the
+# cascade chases the wrong band = confident FAKE convergence. Each pair is
+# the % / ratio the lever sets, semantically 1:1.
+_LEVER_TO_TARGET_METRIC_KEY: Dict[str, str] = {
+  # drivers (P&L cost ratios) — the lever IS that % of revenue
+  "expenses::Cost of Goods Sold":       "cogs_percent_of_revenue",
+  "expenses::Marketing":                "marketing_percent_of_revenue",
+  "expenses::General & Administrative": "sga_percent_of_revenue",
+  "expenses::Research & Development":   "r_and_d_percent_of_revenue",
+  # stage_ramp ceilings — cap the same ratios
+  "stage_ramp::cogs_max":      "cogs_percent_of_revenue",
+  "stage_ramp::marketing_max": "marketing_percent_of_revenue",
+  "stage_ramp::ga_max":        "sga_percent_of_revenue",
+  "stage_ramp::rd_max":        "r_and_d_percent_of_revenue",
+  "stage_ramp::ni_floor":      "net_income_margin",
+  # balance_sheet working-capital days
+  "balance_sheet::Accounts Receivable Days": "ar_days_dso",
+  "balance_sheet::Accounts Payable Days":    "ap_days_dpo",
+  "balance_sheet::Inventory Days":           "inventory_days",
+}
+
+_DAYS_IN_QUARTER = 91.25
+
+
+def _section_for_lever(lever_id: str) -> str:
+  if lever_id.startswith("expenses::"):
+    return "drivers"
+  if lever_id.startswith("stage_ramp::"):
+    return "stage_ramp"
+  return "balance_sheet"
+
+
+def _metric_current_from_finmo(metric_key: str, rows: List[Dict[str, Any]]) -> Optional[float]:
+  """Current value of a cascade metric, computed from the LIVE finmo raw
+  fields (the rows carry raw $ values, not ratios), averaged over the live
+  quarters. Definitions match the realism gate's metric definitions so the
+  cascade's 'current' agrees with what the plan is judged against."""
+  def _mean(vals: List[Optional[float]]) -> Optional[float]:
+    clean = [v for v in vals if isinstance(v, (int, float))]
+    return (sum(clean) / len(clean)) if clean else None
+
+  def _ratio(num_key: str, den_key: str) -> Optional[float]:
+    out: List[Optional[float]] = []
+    for r in rows:
+      den = _f(r.get(den_key))
+      num = _f(r.get(num_key))
+      if den and num is not None and den != 0:
+        out.append(num / den)
+    return _mean(out)
+
+  if metric_key == "cogs_percent_of_revenue":
+    return _ratio("cogs", "revenue") if any(r.get("cogs") is not None for r in rows) else _ratio("cost_of_goods_sold", "revenue")
+  if metric_key == "marketing_percent_of_revenue":
+    return _ratio("marketing", "revenue")
+  if metric_key == "sga_percent_of_revenue":
+    return _ratio("general_and_administrative", "revenue") if any(r.get("general_and_administrative") is not None for r in rows) else _ratio("g_and_a", "revenue")
+  if metric_key == "r_and_d_percent_of_revenue":
+    return _ratio("research_and_development", "revenue")
+  if metric_key == "net_income_margin":
+    return _ratio("net_income", "revenue")
+  if metric_key == "ar_days_dso":
+    return _mean([
+      (_f(r.get("accounts_receivable")) / _f(r.get("revenue")) * _DAYS_IN_QUARTER)
+      for r in rows if _f(r.get("revenue"))
+    ])
+  if metric_key == "ap_days_dpo":
+    return _mean([
+      (_f(r.get("accounts_payable")) / _f(r.get("cogs")) * _DAYS_IN_QUARTER)
+      for r in rows if _f(r.get("cogs"))
+    ])
+  if metric_key == "inventory_days":
+    return _mean([
+      (_f(r.get("inventory")) / _f(r.get("cogs")) * _DAYS_IN_QUARTER)
+      for r in rows if _f(r.get("cogs"))
+    ])
+  return None
+
+
+def _assemble_fallback_lever_margins(
+  finmo_json: Optional[Dict[str, Any]],
+  business_naics_6: Optional[str],
+) -> List[LeverMargin]:
+  """Lever margins sourced from assemble_finmo_output_targets (industry
+  baseline bands, the realism-gate source) + current values from the live
+  finmo. Used when the cohort-bands table is empty (SMB NAICS)."""
+  naics = "".join(ch for ch in str(business_naics_6 or "") if ch.isdigit())
+  if not naics or not isinstance(finmo_json, dict):
+    return []
+  try:
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      assemble_finmo_output_targets,
+    )
+    targets = (assemble_finmo_output_targets(business_naics_6=naics) or {}).get("metrics") or {}
+  except Exception:
+    return []
+  rows = [
+    r for r in (finmo_json.get("quarter_rows") or [])
+    if isinstance(r, dict) and 1 <= int(r.get("quarter_index") or 0) <= 20
+  ]
+  if not rows or not targets:
+    return []
+  margins: List[LeverMargin] = []
+  for lever_id, metric_key in _LEVER_TO_TARGET_METRIC_KEY.items():
+    band_row = targets.get(metric_key)
+    if not isinstance(band_row, dict):
+      continue
+    current = _metric_current_from_finmo(metric_key, rows)
+    if current is None:
+      continue
+    band = {
+      "benchmark_min": _f(band_row.get("target_min")),
+      "benchmark_target": _f(band_row.get("target_target")),
+      "benchmark_max": _f(band_row.get("target_max")),
+    }
+    margins.append(_lever_margin_from(
+      _section_for_lever(lever_id), lever_id, None, float(current), band,
+    ))
+  return margins
+
+
 def _compute_lever_margins(
   conn,
   *,
   draft_id: str,
   planning_run_id: str,
   plan_state: Dict[str, Any],
+  finmo_json: Optional[Dict[str, Any]] = None,
+  business_naics_6: Optional[str] = None,
 ) -> List[LeverMargin]:
   from client_intake_and_finmo.post_intake_solver.cohort_bands_table import (  # type: ignore
     get_cohort_bands,
@@ -221,6 +356,19 @@ def _compute_lever_margins(
               margins.append(_lever_margin_from(section, lever_id, q_key, float(q_val), band))
         continue
       margins.append(_lever_margin_from(section, lever_id, None, float(current), band))
+
+  # Fork A keystone: the cohort-bands table is empty for SMB NAICS, so the
+  # loop above produced no banded margins for the cascade's band-having
+  # levers. Source those from assemble_finmo_output_targets (the SAME band
+  # source the realism gate enforces) + current values from the live finmo,
+  # filling only levers the cohort path did not already band.
+  _banded = {
+    m.lever_id for m in margins
+    if getattr(m, "band_min", None) is not None or getattr(m, "band_max", None) is not None
+  }
+  for fm in _assemble_fallback_lever_margins(finmo_json, business_naics_6):
+    if fm.lever_id not in _banded:
+      margins.append(fm)
   return margins
 
 
@@ -530,6 +678,7 @@ def evaluate_plan(
   plan_state: Optional[Dict[str, Any]] = None,
   structural_completeness: bool = False,
   in_cascade: bool = False,
+  business_naics_6: Optional[str] = None,
   round_number: int = 1,
   # Inputs the mini_finmo path needs (caller supplies what it has):
   anchors: Optional[Dict[str, Any]] = None,
@@ -638,6 +787,7 @@ def evaluate_plan(
     try:
       lever_margins = _compute_lever_margins(
         conn, draft_id=draft_id, planning_run_id=planning_run_id, plan_state=plan_state or {},
+        finmo_json=finmo_json, business_naics_6=business_naics_6,
       )
     except Exception as exc:  # never let margin computation break evaluation
       notes.append(f"lever_margins skipped: {exc!r}")

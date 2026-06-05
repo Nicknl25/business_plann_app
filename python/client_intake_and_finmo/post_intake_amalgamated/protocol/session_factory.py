@@ -363,6 +363,7 @@ def _build_evaluate_plan_fn(
   finmo_json: Optional[Dict[str, Any]] = None,
   live_model_input_ref: Optional[Dict[str, Any]] = None,
   build_finmo: Optional[Callable[..., Any]] = None,
+  business_naics_6: Optional[str] = None,
 ) -> Callable[..., EvaluatePlanResult]:
   """Fork A in-cascade standard: each round, rebuild the LIVE finmo from the
   current ``live_model_input`` (mutated per commit) and score the
@@ -412,6 +413,7 @@ def _build_evaluate_plan_fn(
         anchors=None,
         operating_context=operating_context,
         finmo_json=live_finmo,
+        business_naics_6=business_naics_6,
       )
 
   return evaluate_plan_fn
@@ -518,12 +520,21 @@ def make_session_driver(
   # produce REAL per-round finmo deltas.
   live_model_input_ref: Dict[str, Any] = {"mi": copy.deepcopy(model_input_json or {})}
 
+  _session_naics_6 = "".join(
+    ch for ch in str(
+      (ops_json or {}).get("business_naics_6")
+      or (business_facts or {}).get("naics_6")
+      or (business_facts or {}).get("business_naics_6")
+      or ""
+    ) if ch.isdigit()
+  )
   evaluate_plan_fn = _build_evaluate_plan_fn(
     conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
     mirror=mirror, operating_context=operating_context,
     finmo_json=finmo_json,
     live_model_input_ref=live_model_input_ref,
     build_finmo=build_finmo,
+    business_naics_6=_session_naics_6,
   )
   revise_fn_for_section = _build_revise_fn_for_section(
     conn=conn, draft_id=draft_id, planning_run_id=planning_run_id,
