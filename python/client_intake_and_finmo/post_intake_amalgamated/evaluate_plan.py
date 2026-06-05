@@ -159,18 +159,42 @@ def _stage_ramp_violation_distance(check_name: str, violations: List[Dict[str, A
 # Cash-related checks are filtered before classification (see
 # _CASH_RELATED_CHECKS); their distance handlers would be dead code here.
 def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+  # Signed margin to feasibility (negative => infeasible). Reads the ACTUAL
+  # detail keys the Fix #1 acceptance-gate check functions emit + their own
+  # thresholds, so the in-cascade standard and the final gate agree on the
+  # distance. (Earlier this read non-existent keys q11_margin/
+  # coefficient_of_variation and always returned None -> worst_distance was
+  # never measurable -> progress couldn't be detected.)
+  def _n(*keys: str) -> Optional[float]:
+    for k in keys:
+      v = detail.get(k)
+      if isinstance(v, (int, float)):
+        return float(v)
+    return None
   if check_name == "revenue_not_flat_q1_q10":
-    cv = detail.get("coefficient_of_variation"); first = detail.get("q1_to_q10_pct_change")
-    cv_margin = (float(cv) - 0.02) if isinstance(cv, (int, float)) else None
-    growth_margin = (float(first) - 0.05) if isinstance(first, (int, float)) else None
-    candidates = [x for x in (cv_margin, growth_margin) if x is not None]
+    cv = _n("stdev_over_mean", "coefficient_of_variation")
+    cv_thr = _n("stdev_over_mean_threshold")
+    growth = _n("q10_over_q1_delta", "q1_to_q10_pct_change")
+    growth_thr = _n("q10_over_q1_delta_threshold")
+    candidates = []
+    if cv is not None:
+      candidates.append(cv - (cv_thr if cv_thr is not None else 0.02))
+    if growth is not None:
+      candidates.append(growth - (growth_thr if growth_thr is not None else 0.05))
+    # Passes if EITHER path clears its threshold -> nearest-to-feasible is max.
     return (max(candidates) if candidates else None), "dimensionless"
   if check_name == "net_income_trajectory_viable":
-    q11 = detail.get("q11_margin"); q5 = detail.get("q5_margin")
-    if isinstance(q11, (int, float)) and isinstance(q5, (int, float)):
-      # the check requires q11 >= 0 AND q11 > q5 + 2pp; distance is the worse of the two
-      return float(min(q11, (q11 - q5) - 0.02)), "fraction"
-    return None, "fraction"
+    q11 = _n("q11_ni_margin", "q11_margin")
+    req_q11 = _n("min_required_q11_margin")
+    delta = _n("q5_to_q11_delta")
+    req_delta = _n("min_required_delta")
+    candidates = []
+    if q11 is not None:
+      candidates.append(q11 - (req_q11 if req_q11 is not None else 0.0))
+    if delta is not None:
+      candidates.append(delta - (req_delta if req_delta is not None else 0.02))
+    # Requires BOTH conditions -> worst (most negative) is the binding gap.
+    return (min(candidates) if candidates else None), "fraction"
   # For meta and band-source checks, distance isn't meaningful as a scalar.
   return None, None
 
