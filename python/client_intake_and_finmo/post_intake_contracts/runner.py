@@ -1791,6 +1791,17 @@ def _cohort_band_target_and_max(
   max_value = band.get("benchmark_max")
   if max_value is None or float(max_value) < float(target):
     max_value = float(target) * 1.2
+  # SANE-FLOOR GUARD (systemic NAICS-mismatch fix): a resolved cohort band may
+  # RAISE a ceiling above the conservative default, but must never TIGHTEN it
+  # below the default. Without this, a NAICS band that fits a different segment
+  # of the same code manufactures an impossibly tight ceiling — e.g. food
+  # MANUFACTURING (NAICS 311811) carries rent ~1% of revenue, which becomes a
+  # 1% rent ceiling for a retail donut storefront whose real rent is a healthy
+  # double-digit % of revenue. The same pathology (SMB cohort resolves to a
+  # mismatched-segment band and hard-applies it) also produced the empty
+  # margin table and the 72% COGS target; clamp the ceiling here so the
+  # garbage-low case cannot fire a fake violation.
+  max_value = max(float(max_value), float(default_max))
   return float(target), float(max_value)
 
 
