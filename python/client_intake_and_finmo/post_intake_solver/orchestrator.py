@@ -802,8 +802,15 @@ def _apply_restoration_to_model_input(
     return next_input
 
   # Revenue rows
+  # DOCTRINE ANCHOR (FIX 1b): when revenue is GPT-authored, the per-quarter
+  # driver ramps are AUTHORITATIVE — the feasibility-restoration cascade must
+  # NOT flat-overwrite them from raw intake scalars (that is intake/FTE
+  # back-driving the authored capacity anchor, which collapses the authored
+  # revenue, e.g. a 15,600->21,840 ramp flattened to the 1,200 weekly intake
+  # value). Restoration may still adjust payroll/cost rows below. Universal.
+  revenue_authored = bool((next_input.get("solver_input") or {}).get("revenue_authored"))
   revenue_rows = sections.get("revenue")
-  if isinstance(revenue_rows, list):
+  if isinstance(revenue_rows, list) and not revenue_authored:
     new_capacity = (
       _safe_float(adjusted_ops_json.get("units_per_period_capacity"))
       or _safe_float(adjusted_ops_json.get("units_per_week_capacity"))

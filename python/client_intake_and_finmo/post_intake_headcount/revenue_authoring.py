@@ -141,6 +141,21 @@ def apply_authored_revenue_to_model_input(
       continue
     for q in range(1, min(_HORIZON + 1, len(values))):
       values[q] = normalized[q][field]
+  # DOCTRINE ANCHOR: revenue is the ROOT and is now GPT-authored, so the
+  # per-quarter driver ramps written above are AUTHORITATIVE. Mark the
+  # model_input so downstream passes that would otherwise rebuild revenue
+  # drivers from raw intake scalars (e.g. the feasibility-restoration patch,
+  # which flat-overwrites Capacity from ops_json.units_per_period_capacity)
+  # do NOT discard the authored ramp. FTE / intake scalars must never
+  # back-drive the authored capacity. Universal: set for every authored plan.
+  # Carried inside solver_input (Optional[Dict[str,Any]] in
+  # FinmoModelInputContract) so it survives the AMALGAMATED_SESSION->MODEL_INPUT
+  # contract boundary -- a new top-level key is rejected by extra="forbid".
+  si = mi.get("solver_input")
+  if not isinstance(si, dict):
+    si = {}
+    mi["solver_input"] = si
+  si["revenue_authored"] = True
   return mi
 
 
