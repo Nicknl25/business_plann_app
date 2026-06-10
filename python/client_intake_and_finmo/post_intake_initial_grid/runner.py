@@ -1007,6 +1007,43 @@ def prepare_initial_grid_for_draft(
     planning_mode_reason_value=planning_mode_reason,
     prompt_file_value=str(planning_choice.get("prompt_file") or "").strip(),
   )
+  # ----- REVENUE AUTHORING PASS (revenue-authoring design; runs FIRST) -----
+  # Revenue is the ROOT of the plan and cannot be band-derived. Before the
+  # stage_ramp / payroll round-1 build and the cascade, GPT authors the revenue
+  # DRIVERS (unit_price / capacity / utilization across 20 quarters) from the
+  # enriched business compact (ops + team + target market + demand sizing), and
+  # Python computes + writes the resulting revenue line into the model_input
+  # revenue rows. Everything downstream (payroll grounds TO revenue; the
+  # cascade) then derives from a GPT-authored, business-grounded top line. Soft:
+  # a no-key / GPT failure leaves the intake-baseline revenue unchanged.
+  try:
+    from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+      build_operating_model_digest,
+    )
+    from client_intake_and_finmo.post_intake_headcount.revenue_authoring import (  # type: ignore  # noqa: E501
+      run_revenue_authoring_pass,
+    )
+    _rev_compact = build_operating_model_digest(
+      ops_json, people_json, market_json, marketing_model_json,
+    )
+    if _rev_compact:
+      _rev_pass = run_revenue_authoring_pass(
+        compact=_rev_compact, model_input_json=model_input_json,
+      )
+      if _rev_pass.get("ok"):
+        model_input_json = _rev_pass["model_input_json"]
+        _rev_line = _rev_pass.get("revenue_line") or []
+        sequence_trace["revenue_authoring"] = {
+          "ok": True,
+          "revenue_line_total": round(sum(_rev_line), 2),
+          "q1": round(_rev_line[0], 2) if _rev_line else None,
+          "q20": round(_rev_line[-1], 2) if _rev_line else None,
+        }
+      else:
+        sequence_trace["revenue_authoring"] = {"ok": False, "error": _rev_pass.get("error")}
+  except Exception as _rev_exc:  # noqa: BLE001 — soft sink: must not break a run
+    sequence_trace["revenue_authoring"] = {"error": repr(_rev_exc)}
+
   r_and_d_applicability_decision_for_ramp = copy.deepcopy(
     r_and_d_policy_from_model_input(model_input_json)
   )
