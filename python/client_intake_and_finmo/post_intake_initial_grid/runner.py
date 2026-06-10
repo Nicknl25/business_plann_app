@@ -1855,6 +1855,9 @@ def prepare_initial_grid_for_draft(
     planning_run_id=str(active_planning_run_id or "").strip(),
     business_facts=amalgamated_business_facts,
     ops_json=copy.deepcopy(ops_json or {}),
+    people_json=copy.deepcopy(people_json or {}),
+    target_market_json=copy.deepcopy(market_json or {}),
+    marketing_model_json=copy.deepcopy(marketing_model_json or {}),
     plan_state=amalgamated_plan_state,
     load_bands=True,
   )

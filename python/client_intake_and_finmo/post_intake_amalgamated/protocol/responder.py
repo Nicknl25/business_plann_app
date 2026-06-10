@@ -287,6 +287,39 @@ def render_mirror_for_proposal(
           label = k.replace("_", " ")
           lines.append(f"  {label}: {_fmt(om[k])}")
 
+      # Enriched compact: team, target market, and demand sizing — GPT's full
+      # view of business reality (the guardrail for grounded revenue authoring
+      # and lever judgments).
+      team = om.get("team") if isinstance(om, dict) else None
+      if isinstance(team, dict) and team:
+        lines.append("")
+        lines.append("Team:")
+        for person in (team.get("key_people") or []):
+          if isinstance(person, dict):
+            nm = person.get("full_name") or "(unnamed)"
+            role = person.get("role_title") or ""
+            lines.append(f"  - {nm} — {role}".rstrip(" —"))
+        if team.get("planned_roles_summary"):
+          lines.append(f"  planned roles: {_fmt(team['planned_roles_summary'])}")
+
+      tm = om.get("target_market") if isinstance(om, dict) else None
+      if isinstance(tm, dict) and tm:
+        lines.append("")
+        lines.append("Target market:")
+        for k in ("consumer_type", "positioning", "segments",
+                  "audience_demographics", "audience_income",
+                  "b2b_industry_terms", "b2b_naics_6", "b2b_size_bands"):
+          if k in tm and tm[k] not in (None, "", []):
+            lines.append(f"  {k.replace('_', ' ')}: {_fmt(tm[k])}")
+
+      md = om.get("market_demand") if isinstance(om, dict) else None
+      if isinstance(md, dict) and md:
+        lines.append("")
+        lines.append("Market demand (sizing the top line must respect):")
+        for k, v in md.items():
+          if v not in (None, "", []):
+            lines.append(f"  {k.replace('_', ' ')}: {_fmt(v)}")
+
     # P3.40 bug 3 fix: render the current standards-check state so the
     # executive sees the failure context the cascade is responding to.
     # The mirror's validation_state is populated by

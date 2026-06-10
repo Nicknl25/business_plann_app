@@ -263,26 +263,140 @@ _OM_DIGEST_FIELDS = (
   "business_description_summary", "competitive_advantage",
 )
 _OM_DIGEST_TEXT_CAP = 400
+_COMPACT_PEOPLE_CAP = 6   # key people surfaced
+_COMPACT_SEGMENTS_CAP = 8
 
 
-def build_operating_model_digest(ops_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-  """Compact digest of operating_model_json for the executive's Mirror.
+def _cap_text(value: Any, cap: int = _OM_DIGEST_TEXT_CAP) -> Any:
+  if isinstance(value, str) and len(value) > cap:
+    return value[:cap].rstrip() + "…"
+  return value
 
-  Surfaces the business portrait (what it sells, how it prices, how capacity
-  is driven, how it grows) so GPT's Fork A revenue-lever choices are grounded
-  in the actual business -- it was previously judging price/util/capacity
-  effectively blind (the Mirror carried only thin business_facts + NAICS).
-  A digest, not the raw blob: only the portrait fields, long text capped."""
-  if not isinstance(ops_json, dict):
+
+def _build_team_slice(people_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  """Compact people/team slice: who runs the business + planned year-1 roles.
+  Grounds GPT's revenue/capacity authoring in who actually delivers the work."""
+  if not isinstance(people_json, dict):
     return {}
-  digest: Dict[str, Any] = {}
-  for key in _OM_DIGEST_FIELDS:
-    value = ops_json.get(key)
+  slice_: Dict[str, Any] = {}
+  people = people_json.get("people")
+  if isinstance(people, list) and people:
+    key_people = []
+    for p in people[:_COMPACT_PEOPLE_CAP]:
+      if not isinstance(p, dict):
+        continue
+      entry = {
+        k: _cap_text(p.get(k), 200)
+        for k in ("full_name", "role_title", "primary_responsibilities")
+        if p.get(k)
+      }
+      if entry:
+        key_people.append(entry)
+    if key_people:
+      slice_["key_people"] = key_people
+  roles_summary = people_json.get("inferred_roles_summary")
+  if roles_summary:
+    slice_["planned_roles_summary"] = _cap_text(roles_summary)
+  roles = people_json.get("inferred_roles")
+  if isinstance(roles, list) and roles:
+    slice_["planned_roles"] = [
+      {k: r.get(k) for k in ("role_title", "annual_wage", "months_until_hire") if r.get(k) is not None}
+      for r in roles[:_COMPACT_PEOPLE_CAP] if isinstance(r, dict)
+    ]
+  return slice_
+
+
+def _build_target_market_slice(target_market_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  """Compact target-market slice: who the customer is + positioning. Grounds
+  GPT's revenue authoring in the demand the business can actually reach."""
+  if not isinstance(target_market_json, dict):
+    return {}
+  tm = target_market_json
+  slice_: Dict[str, Any] = {}
+  for key in ("consumer_type",):
+    if tm.get(key):
+      slice_[key] = tm[key]
+  if tm.get("marketing_plan_summary"):
+    slice_["positioning"] = _cap_text(tm["marketing_plan_summary"])
+  if tm.get("gender_age_intent"):
+    slice_["audience_demographics"] = tm["gender_age_intent"]
+  if tm.get("income_intent"):
+    slice_["audience_income"] = tm["income_intent"]
+  selections = tm.get("selections")
+  if isinstance(selections, list) and selections:
+    segs = [s.get("segment") for s in selections[:_COMPACT_SEGMENTS_CAP]
+            if isinstance(s, dict) and s.get("segment")]
+    if segs:
+      slice_["segments"] = segs
+  # B2B fields (present + non-null only for B2B businesses).
+  for key in ("b2b_industry_terms", "b2b_naics_6", "b2b_size_bands"):
+    if tm.get(key):
+      slice_[key] = tm[key]
+  return slice_
+
+
+# marketing_model_json carries the DEMAND-SIZING the business was scoped
+# against — how big the reachable market is, how many units/customers it
+# implies, and the revenue that demand supports. This is the single most
+# valuable grounding for revenue authoring: it tells GPT what top line the
+# market can actually bear, so authored price x volume stays believable.
+_MARKET_DEMAND_FIELDS = (
+  "reachable_market", "reachable_market_b2c", "reachable_market_b2b",
+  "expected_units_year1", "required_units_year1",
+  "expected_customers_or_clients_year1",
+  "capture_rate_year1", "marketing_intensity",
+  "demand_supports_required_units",
+  "required_revenue_year1",
+  "marketing_basis_summary",
+)
+
+
+def _build_market_demand_slice(marketing_model_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  """Compact demand-sizing slice from marketing_model_json — reachable market,
+  implied units/customers, and the revenue that demand supports. Grounds the
+  authored top line in what the market can actually bear."""
+  if not isinstance(marketing_model_json, dict):
+    return {}
+  slice_: Dict[str, Any] = {}
+  for key in _MARKET_DEMAND_FIELDS:
+    value = marketing_model_json.get(key)
     if value is None or value == "":
       continue
-    if isinstance(value, str) and len(value) > _OM_DIGEST_TEXT_CAP:
-      value = value[:_OM_DIGEST_TEXT_CAP].rstrip() + "…"
-    digest[key] = value
+    slice_[key] = _cap_text(value) if isinstance(value, str) else value
+  return slice_
+
+
+def build_operating_model_digest(
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]] = None,
+  target_market_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """THE enriched business compact for the Mirror — ONE digest reused for both
+  revenue authoring and the executive's cascade judging.
+
+  Carries the operating-model portrait (what it sells, how it prices, how
+  capacity is driven), PLUS compact slices of the team (people_json) and the
+  target market (target_market_json). This is GPT's full view of business
+  reality and, per the revenue-authoring design, the GUARDRAIL: with ops +
+  people + market in view, GPT authors revenue drivers grounded in what the
+  business can actually do. A digest, not the raw blobs: long text capped."""
+  digest: Dict[str, Any] = {}
+  if isinstance(ops_json, dict):
+    for key in _OM_DIGEST_FIELDS:
+      value = ops_json.get(key)
+      if value is None or value == "":
+        continue
+      digest[key] = _cap_text(value)
+  team = _build_team_slice(people_json)
+  if team:
+    digest["team"] = team
+  target_market = _build_target_market_slice(target_market_json)
+  if target_market:
+    digest["target_market"] = target_market
+  market_demand = _build_market_demand_slice(marketing_model_json)
+  if market_demand:
+    digest["market_demand"] = market_demand
   return digest
 
 
@@ -293,6 +407,9 @@ def build_mirror(
   planning_run_id: Optional[str] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  target_market_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
   plan_state: Optional[Dict[str, Any]] = None,
   validation_state: Optional[Dict[str, Any]] = None,
   load_bands: bool = True,
@@ -358,7 +475,9 @@ def build_mirror(
   # in MirrorContract, so contract-safe) so the executive sees the business
   # portrait when judging revenue-lever proposals.
   _business_facts = dict(business_facts or {})
-  _om_digest = build_operating_model_digest(ops_json)
+  _om_digest = build_operating_model_digest(
+    ops_json, people_json, target_market_json, marketing_model_json,
+  )
   if _om_digest:
     _business_facts["operating_model_digest"] = _om_digest
   mirror = Mirror(
