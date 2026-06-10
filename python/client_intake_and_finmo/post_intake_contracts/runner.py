@@ -810,7 +810,15 @@ def _validate_stage_ramp_contract_payload(
         f"quarter_ramp_grid Q{quarter_index} profitability_posture {profitability_posture!r} conflicts with stage/planning policy "
         f"{policy.get('policy_version')}: allowed={sorted(allowed_postures)}"
       )
-    if bool(validator_rules.get("operational_requires_nonnegative_from_q1")):
+    # Root-disease fix: operational-profitability requirements apply ONLY to
+    # operational/mature stages. A startup/early (e.g. pre-revenue) business
+    # running early losses is CORRECT, not a violation -- the stage is reality,
+    # and a planning-mode rule (operational_requires_nonnegative_from_q1) must
+    # NOT override it and crash a valid loss-tolerant startup ramp. Universal.
+    if (
+      expected_family in ("operational", "mature")
+      and bool(validator_rules.get("operational_requires_nonnegative_from_q1"))
+    ):
       if profitability_posture not in allowed_postures:
         errors.append(
           f"quarter_ramp_grid Q{quarter_index} operational stage cannot use startup loss posture {profitability_posture!r} "
@@ -901,7 +909,11 @@ def _validate_stage_ramp_contract_payload(
       errors.append(
         f"quarter_ramp_grid Q{quarter_index} stage/planning policy requires ni_floor >= {q5_floor} after Q4; received {margin_floor}"
       )
-    if bool(validator_rules.get("operational_requires_positive_from_q5")) and quarter_index >= 5:
+    if (
+      expected_family in ("operational", "mature")
+      and bool(validator_rules.get("operational_requires_positive_from_q5"))
+      and quarter_index >= 5
+    ):
       posture = str(row.get("profitability_posture") or "").strip().lower()
       if posture != "positive":
         errors.append(

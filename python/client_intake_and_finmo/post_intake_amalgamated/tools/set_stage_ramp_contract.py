@@ -282,12 +282,34 @@ def set_stage_ramp_contract(
     )
     candidate = robust_bound_stage_ramp_contract(copy.deepcopy(built))
 
-  expected_family = _string(expected_stage_family) or _string(candidate.get("stage_family")) or "operational"
   business_stage = (
     _string((ops_json or {}).get("business_stage"))
     or _string((business_facts or {}).get("business_stage"))
-    or expected_family
   )
+  # Stage rules must match the business's REAL stage (root-disease fix:
+  # references GROUND, they don't impose a default law). The builder produces a
+  # stage-appropriate grid (e.g. a loss-tolerant startup ramp for a pre-revenue
+  # firm) but doesn't always stamp stage_family onto the contract -- so this tool
+  # used to DEFAULT expected_family to "operational" and then reject the
+  # (correct) loss-tolerant grid against operational-firm profitability rules.
+  # Derive the family from business_stage (pre-revenue/startup/launch ->
+  # "startup"; early/growth -> "early"; else operational), so a pre-revenue
+  # business is graded by a startup posture (negative ni_floor + improving_losses
+  # are VALID for a startup, not a violation). Universal.
+  from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore  # noqa: E501
+    _business_stage_family,
+  )
+  expected_family = (
+    _string(expected_stage_family)
+    or _string(candidate.get("stage_family"))
+    or (_business_stage_family(business_stage) if business_stage else "")
+    or "operational"
+  )
+  business_stage = business_stage or expected_family
+  # Stamp the resolved family onto the candidate so the validator's internal
+  # stage_family-consistency check agrees with the expected family.
+  if not _string(candidate.get("stage_family")):
+    candidate["stage_family"] = expected_family
   r_and_d_enabled = True
   if isinstance(r_and_d_applicability, dict) and isinstance(r_and_d_applicability.get("r_and_d_enabled"), bool):
     r_and_d_enabled = bool(r_and_d_applicability["r_and_d_enabled"])
