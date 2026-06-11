@@ -366,6 +366,50 @@ def _build_market_demand_slice(marketing_model_json: Optional[Dict[str, Any]]) -
   return slice_
 
 
+_COMPACT_LOB_CAP = 12  # distinct revenue lines surfaced (token-aware)
+
+
+def _build_lines_of_business_slice(ops_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  """Per-LOB revenue drivers from ops_json.lob_models[].products[].
+
+  Revenue authoring is PER LINE OF BUSINESS: a multi-LOB business (e.g. a law
+  firm with Corporate at one price and Individual at another) must be authored
+  with each line's DISTINCT price / capacity / utilization — never collapsed
+  into a single top-level blended line (the top-level unit_price is None for
+  multi-LOB, so authoring from the top would lose every line). One entry per
+  (lob, product); single-LOB businesses yield exactly one entry."""
+  if not isinstance(ops_json, dict):
+    return []
+  lob_models = ops_json.get("lob_models")
+  if not isinstance(lob_models, list):
+    return []
+  lines: List[Dict[str, Any]] = []
+  for lob in lob_models:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = lob.get("lob_name")
+    for product in (lob.get("products") or []):
+      if not isinstance(product, dict):
+        continue
+      entry: Dict[str, Any] = {}
+      if lob_name:
+        entry["lob"] = lob_name
+      if product.get("product_name"):
+        entry["unit"] = product["product_name"]
+      for src, dst in (
+        ("unit_price", "unit_price"),
+        ("units_per_period_capacity", "capacity_units_per_period"),
+        ("utilization_rate", "utilization_rate"),
+      ):
+        if product.get(src) is not None:
+          entry[dst] = product[src]
+      if entry:
+        lines.append(entry)
+      if len(lines) >= _COMPACT_LOB_CAP:
+        return lines
+  return lines
+
+
 def build_operating_model_digest(
   ops_json: Optional[Dict[str, Any]],
   people_json: Optional[Dict[str, Any]] = None,
@@ -397,6 +441,9 @@ def build_operating_model_digest(
   market_demand = _build_market_demand_slice(marketing_model_json)
   if market_demand:
     digest["market_demand"] = market_demand
+  lines_of_business = _build_lines_of_business_slice(ops_json)
+  if lines_of_business:
+    digest["lines_of_business"] = lines_of_business
   return digest
 
 

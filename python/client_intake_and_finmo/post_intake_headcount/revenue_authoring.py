@@ -36,6 +36,21 @@ def _f(v: Any) -> Optional[float]:
     return None
 
 
+def _extract_author_lines(drivers: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """Normalize the GPT tool output into a list of per-line driver blocks, each
+  carrying ``lob_name``/``unit_name``/``quarters``. Accepts the multi-line shape
+  (``lines_of_business``) and the legacy single-line shape (top-level
+  ``quarters``) so single-LOB authoring keeps working unchanged."""
+  if not isinstance(drivers, dict):
+    return []
+  lob_list = drivers.get("lines_of_business")
+  if isinstance(lob_list, list) and lob_list:
+    return [e for e in lob_list if isinstance(e, dict) and e.get("quarters")]
+  if drivers.get("quarters"):
+    return [drivers]
+  return []
+
+
 def normalize_revenue_drivers(drivers: Dict[str, Any]) -> Dict[int, Dict[str, float]]:
   """Return {q (1..20): {unit_price, capacity_units_per_period, utilization_rate}}.
 
@@ -93,7 +108,7 @@ def normalize_revenue_drivers(drivers: Dict[str, Any]) -> Dict[int, Dict[str, fl
 
 
 def compute_revenue_line(normalized: Dict[int, Dict[str, float]]) -> List[float]:
-  """Quarterly revenue = capacity x utilization x unit_price."""
+  """Quarterly revenue for ONE line = capacity x utilization x unit_price."""
   return [
     normalized[q]["capacity_units_per_period"]
     * normalized[q]["utilization_rate"]
@@ -102,10 +117,33 @@ def compute_revenue_line(normalized: Dict[int, Dict[str, float]]) -> List[float]
   ]
 
 
-def current_revenue_reference(model_input_json: Dict[str, Any]) -> Dict[str, Any]:
-  """Compact snapshot of the intake-baseline revenue drivers for GPT reference."""
-  ref: Dict[str, Any] = {}
+def compute_total_revenue_line(
+  normalized_lines: List[Dict[int, Dict[str, float]]],
+) -> List[float]:
+  """Total quarterly revenue = SUM of each line's revenue. Multi-LOB businesses
+  (e.g. Corporate Legal + Individual Legal) sum their distinct lines; a
+  single-line business is just that one line."""
+  total = [0.0] * _HORIZON
+  for normalized in normalized_lines:
+    line = compute_revenue_line(normalized)
+    for i in range(_HORIZON):
+      total[i] += line[i]
+  return total
+
+
+def _norm_key(lob: Any, unit: Any) -> Tuple[str, str]:
+  return (str(lob or "").strip().lower(), str(unit or "").strip().lower())
+
+
+def current_revenue_reference(model_input_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """PER-LINE snapshot of the intake-baseline revenue drivers for GPT reference.
+
+  One entry per distinct (lob, product) so GPT sees each line's DISTINCT intake
+  price/capacity (e.g. Corporate $12k vs Individual $6k) and can author each
+  line from its own baseline — never a single collapsed top-level reference."""
   rev = (model_input_json.get("sections", {}) or {}).get("revenue") or []
+  by_group: Dict[Tuple[Any, Any], Dict[str, Any]] = {}
+  order: List[Tuple[Any, Any]] = []
   for row in rev if isinstance(rev, list) else []:
     if not isinstance(row, dict):
       continue
@@ -114,21 +152,76 @@ def current_revenue_reference(model_input_json: Dict[str, Any]) -> Dict[str, Any
     if field is None:
       continue
     vals = row.get("values")
-    if isinstance(vals, list) and len(vals) > 1:
-      ref[field] = {"q1": vals[1], "q20": vals[min(_HORIZON, len(vals) - 1)]}
+    if not (isinstance(vals, list) and len(vals) > 1):
+      continue
+    key = (row.get("lob"), row.get("product"))
+    if key not in by_group:
+      by_group[key] = {}
+      order.append(key)
+    by_group[key][field] = {"q1": vals[1], "q20": vals[min(_HORIZON, len(vals) - 1)]}
+  ref: List[Dict[str, Any]] = []
+  for key in order:
+    entry: Dict[str, Any] = {}
+    if key[0]:
+      entry["lob"] = key[0]
+    if key[1]:
+      entry["unit"] = key[1]
+    entry.update(by_group[key])
+    ref.append(entry)
   return ref
+
+
+def _match_lines_to_groups(
+  lines_normalized: List[Dict[str, Any]],
+  groups: List[Tuple[Any, Any]],
+) -> Dict[Tuple[Any, Any], Dict[int, Dict[str, float]]]:
+  """Map each model_input (lob, product) group to an authored line's normalized
+  ramp. Match by (lob, unit) name first; assign any leftover lines to leftover
+  groups by order (GPT authors lines in the compact's order). Robust to GPT not
+  echoing names exactly while still keeping distinct lines distinct."""
+  assigned: Dict[int, Dict[int, Dict[str, float]]] = {}
+  line_used = [False] * len(lines_normalized)
+  group_keys = [_norm_key(g[0], g[1]) for g in groups]
+  for li, line in enumerate(lines_normalized):
+    lk = _norm_key(line.get("lob"), line.get("unit"))
+    for gi in range(len(groups)):
+      if gi not in assigned and group_keys[gi] == lk:
+        assigned[gi] = line["normalized"]
+        line_used[li] = True
+        break
+  free_g = [gi for gi in range(len(groups)) if gi not in assigned]
+  free_l = [li for li in range(len(lines_normalized)) if not line_used[li]]
+  for gi, li in zip(free_g, free_l):
+    assigned[gi] = lines_normalized[li]["normalized"]
+  return {groups[gi]: assigned[gi] for gi in assigned}
 
 
 def apply_authored_revenue_to_model_input(
   model_input_json: Dict[str, Any],
-  normalized: Dict[int, Dict[str, float]],
+  lines_normalized: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  """Write the authored per-quarter drivers into the revenue rows by driver.
+  """Write each authored line's per-quarter drivers into the revenue rows for
+  its MATCHING (lob, product). ``lines_normalized`` is a list of
+  ``{"lob","unit","normalized": {q: {field: value}}}`` — one per authored line.
+  Multi-LOB businesses write each line into its own rows (so Corporate $12k and
+  Individual $6k stay distinct); a single-line business writes its one line.
   Mutates a deep copy and returns it (index 0 is the stub; quarters 1..20)."""
   mi = copy.deepcopy(model_input_json) if isinstance(model_input_json, dict) else {}
   rev = (mi.get("sections", {}) or {}).get("revenue") or []
-  if not isinstance(rev, list):
+  if not isinstance(rev, list) or not lines_normalized:
     return mi
+  # Distinct (lob, product) groups in row order, then match authored lines to them.
+  groups: List[Tuple[Any, Any]] = []
+  for row in rev:
+    if not isinstance(row, dict):
+      continue
+    key = (row.get("lob"), row.get("product"))
+    if key not in groups:
+      groups.append(key)
+  group_norm = _match_lines_to_groups(lines_normalized, groups)
+  # Single-line fallback: if exactly one line authored, it applies to every row
+  # (covers rows without lob/product identifiers).
+  only_norm = lines_normalized[0]["normalized"] if len(lines_normalized) == 1 else None
   for row in rev:
     if not isinstance(row, dict):
       continue
@@ -138,6 +231,9 @@ def apply_authored_revenue_to_model_input(
       continue
     values = row.get("values")
     if not isinstance(values, list) or not values:
+      continue
+    normalized = group_norm.get((row.get("lob"), row.get("product"))) or only_norm
+    if normalized is None:
       continue
     for q in range(1, min(_HORIZON + 1, len(values))):
       values[q] = normalized[q][field]
@@ -194,18 +290,31 @@ def run_revenue_authoring_pass(
       last_error = result.get("error")
       break  # no key / HTTP error -> don't retry, fall back
     drivers = result.get("drivers") or {}
-    normalized = normalize_revenue_drivers(drivers)
-    revenue_line = compute_revenue_line(normalized)
+    author_lines = _extract_author_lines(drivers)
+    if not author_lines:
+      violations = [{"code": "no_lines_of_business",
+                     "message": "author at least one line of business, each with all 20 quarters."}]
+      last_error = "no_author_lines"
+      continue
+    lines_normalized = [
+      {
+        "lob": ln.get("lob_name") or ln.get("lob"),
+        "unit": ln.get("unit_name") or ln.get("unit"),
+        "normalized": normalize_revenue_drivers(ln),
+      }
+      for ln in author_lines
+    ]
+    revenue_line = compute_total_revenue_line([x["normalized"] for x in lines_normalized])
     if sum(revenue_line) <= 0:
       violations = [{"code": "revenue_line_nonpositive",
-                     "message": "computed revenue line is all zero — author positive price/capacity/utilization."}]
+                     "message": "computed revenue line is all zero — author positive price/capacity/utilization for every line."}]
       last_error = "revenue_line_nonpositive"
       continue
-    applied = apply_authored_revenue_to_model_input(model_input_json, normalized)
+    applied = apply_authored_revenue_to_model_input(model_input_json, lines_normalized)
     return {
       "ok": True,
       "model_input_json": applied,
-      "normalized": normalized,
+      "normalized": lines_normalized,
       "revenue_line": revenue_line,
       "drivers": drivers,
       "error": None,
@@ -224,6 +333,7 @@ __all__ = [
   "run_revenue_authoring_pass",
   "normalize_revenue_drivers",
   "compute_revenue_line",
+  "compute_total_revenue_line",
   "apply_authored_revenue_to_model_input",
   "current_revenue_reference",
 ]

@@ -48,64 +48,91 @@ def _resolve_model(model: Optional[str]) -> str:
   return (os.getenv("OPENAI_MODEL") or "").strip() or _DEFAULT_MODEL
 
 
+_QUARTER_ITEM: Dict[str, Any] = {
+  "type": "object",
+  "properties": {
+    "q": {"type": "integer", "minimum": 1, "maximum": 20},
+    "unit_price": {
+      "type": "number", "minimum": 0,
+      "description": "Price per unit the target market will bear (grounded in positioning).",
+    },
+    "capacity_units_per_period": {
+      "type": "number", "minimum": 0,
+      "description": (
+        "Units the business can PRODUCE/SERVE this quarter at full "
+        "utilization — grounded in staffing/capacity it can actually "
+        "ramp to (labor, equipment, facility). Non-decreasing as it scales."
+      ),
+    },
+    "utilization_rate": {
+      "type": "number", "minimum": 0, "maximum": 1.0,
+      "description": "Fraction of capacity actually sold — bounded by reachable demand.",
+    },
+  },
+  "required": ["q", "unit_price", "capacity_units_per_period", "utilization_rate"],
+}
+
 _SUBMIT_TOOL: Dict[str, Any] = {
   "type": "function",
   "function": {
     "name": "submit_revenue_drivers",
     "description": (
-      "Submit the authored revenue drivers for the primary line of business. "
-      "Call exactly once with a row for every quarter Q1..Q20."
+      "Submit the authored revenue drivers for EVERY line of business. Author "
+      "one entry in lines_of_business for each line listed in the compact's "
+      "lines_of_business, each with its OWN 20-quarter ramp. Call exactly once."
     ),
     "parameters": {
       "type": "object",
       "properties": {
-        "lob_name": {"type": "string", "description": "The line of business this revenue is for."},
-        "unit_name": {"type": "string", "description": "The unit sold (e.g. donut, engagement, subscription-month)."},
-        "quarters": {
+        "lines_of_business": {
           "type": "array",
           "description": (
-            "Exactly 20 rows, one per quarter Q1..Q20, defining the revenue ramp. "
-            "Quarterly revenue = capacity_units_per_period x utilization_rate x unit_price."
+            "One entry per distinct line of business / product the compact "
+            "lists in lines_of_business. A multi-line business (e.g. Corporate "
+            "Legal at one price + Individual Legal at another) MUST have one "
+            "entry per line, each with its own distinct price / capacity / "
+            "utilization ramp — never collapse multiple lines into one blended "
+            "line. A single-line business has exactly one entry."
           ),
           "items": {
             "type": "object",
             "properties": {
-              "q": {"type": "integer", "minimum": 1, "maximum": 20},
-              "unit_price": {
-                "type": "number", "minimum": 0,
-                "description": "Price per unit the target market will bear (grounded in positioning).",
+              "lob_name": {
+                "type": "string",
+                "description": "The line of business this entry is for — echo the 'lob' value from the compact's lines_of_business exactly.",
               },
-              "capacity_units_per_period": {
-                "type": "number", "minimum": 0,
+              "unit_name": {
+                "type": "string",
+                "description": "The unit sold — echo the 'unit' value from the compact's lines_of_business exactly.",
+              },
+              "quarters": {
+                "type": "array",
                 "description": (
-                  "Units the business can PRODUCE/SERVE this quarter at full "
-                  "utilization — grounded in staffing/capacity it can actually "
-                  "ramp to (labor, equipment, facility). Non-decreasing as it scales."
+                  "Exactly 20 rows, one per quarter Q1..Q20, for THIS line. "
+                  "Quarterly revenue for the line = capacity_units_per_period x "
+                  "utilization_rate x unit_price; total revenue sums across lines."
                 ),
-              },
-              "utilization_rate": {
-                "type": "number", "minimum": 0, "maximum": 1.0,
-                "description": "Fraction of capacity actually sold — bounded by reachable demand.",
+                "items": _QUARTER_ITEM,
               },
             },
-            "required": ["q", "unit_price", "capacity_units_per_period", "utilization_rate"],
+            "required": ["lob_name", "unit_name", "quarters"],
           },
         },
         "demand_grounding": {
           "type": "string",
           "description": (
-            "How the ramp respects reachable market / expected units from the "
-            "compact's market_demand (cite the numbers you anchored to)."
+            "How the ramps respect reachable market / expected units from the "
+            "compact's market_demand across all lines (cite the numbers)."
           ),
         },
         "capacity_grounding": {
           "type": "string",
-          "description": "How the capacity ramp is supported by staffing/facility (link to team).",
+          "description": "How each line's capacity ramp is supported by staffing/facility (link to team).",
         },
-        "pricing_rationale": {"type": "string", "description": "Why this price fits the positioning/market."},
+        "pricing_rationale": {"type": "string", "description": "Why each line's price fits the positioning/market."},
       },
       "required": [
-        "lob_name", "unit_name", "quarters",
+        "lines_of_business",
         "demand_grounding", "capacity_grounding", "pricing_rationale",
       ],
     },
@@ -142,6 +169,12 @@ _SYSTEM_PROMPT = (
   "supports.\n"
   "4. Build a believable RAMP: early quarters lower (ramp-up), growing as the "
   "business establishes itself — within demand and capacity limits.\n"
+  "5. PER LINE OF BUSINESS: the compact's lines_of_business lists every distinct "
+  "line/product this business sells, each with its own price and capacity. Author "
+  "ONE entry per line (echo its lob/unit names exactly), each with its OWN distinct "
+  "price / capacity / utilization ramp. A law firm with Corporate matters at $12k and "
+  "Individual matters at $6k has TWO lines with two different prices — never collapse "
+  "them into one blended line. A single-line business has exactly one entry.\n"
   "If you are given a CURRENT FAILING FORECAST, you are being asked to RE-AUTHOR "
   "revenue because cost/structural levers could not make the forecast viable. "
   "Re-author from REAL business changes you can justify from the compact (a price "
@@ -149,7 +182,8 @@ _SYSTEM_PROMPT = (
   "— never 'raise revenue because we need viability.' If the business genuinely "
   "cannot reach viability within what the compact allows, author the most credible "
   "ramp the business can truly achieve.\n"
-  "Call submit_revenue_drivers exactly once with all 20 quarters."
+  "Call submit_revenue_drivers exactly once with one entry per line of business, "
+  "each carrying all 20 quarters."
 )
 
 
@@ -252,7 +286,11 @@ def gpt_author_revenue_drivers_once(
   except Exception as exc:
     return {"ok": False, "drivers": None, "error": f"tool_call_parse_failed:{type(exc).__name__}"}
 
-  if not isinstance(drivers, dict) or not drivers.get("quarters"):
+  # Accept the multi-line shape (lines_of_business) or the legacy single-line
+  # shape (top-level quarters) — the caller normalizes both into per-line ramps.
+  if not isinstance(drivers, dict) or not (
+    drivers.get("lines_of_business") or drivers.get("quarters")
+  ):
     return {"ok": False, "drivers": None, "error": "no_drivers_in_tool_call"}
   return {"ok": True, "drivers": drivers, "error": None}
 
