@@ -618,6 +618,23 @@ _IN_CASCADE_ECONOMIC_CHECKS: Tuple[str, ...] = (
   "revenue_not_flat_q1_q10",
 )
 
+# REQ1 (cascade engages on the SAME viability signal as the final verdict):
+# the universal EBITDA-viability checks the acceptance verdict's
+# viability_timeline reflects. The two economic checks above are loss-tolerant
+# (a negative-but-improving plan passes both), so without these a plan the
+# verdict marks non_viable on EBITDA would slip through the in-loop standard
+# and the cascade would exit at tier 0 UN-ADAPTED. Computed from the SAME live
+# finmo via mini_finmo._eval_viability_checks (single source of truth with the
+# realism gate that feeds the verdict). Cash-side checks are excluded (a
+# downstream pass owns them).
+_IN_CASCADE_VIABILITY_CHECKS: Tuple[str, ...] = (
+  "ebitda_positive_by_q11",
+  "ebitda_recovery_trend_q5_q11",
+  "ebitda_margin_q20_holds_or_improves_vs_q11",
+  "gross_margin_supports_ebitda_recovery",
+  "fixed_cost_burden_reduced_or_scaled_by_q11",
+)
+
 
 def _evaluate_in_cascade(
   *,
@@ -663,6 +680,30 @@ def _evaluate_in_cascade(
         detail={"exception_type": type(exc).__name__,
                 "exception_detail": str(exc)[:480]},
       ))
+  # REQ1: add the universal EBITDA-viability checks from the SAME live finmo so
+  # the in-loop standard agrees with the verdict on whether the plan is viable.
+  try:
+    from client_intake_and_finmo.post_intake_gpt_exhaustion_handler.mini_finmo import (  # type: ignore  # noqa: E501
+      _eval_viability_checks,
+    )
+    viab = _eval_viability_checks(fj)
+    viab_checks = viab.get("viability_checks") or {}
+    for name in _IN_CASCADE_VIABILITY_CHECKS:
+      verdict = viab_checks.get(name)
+      if verdict is None:
+        continue
+      passed = str(verdict).upper() in {"PASS", "SKIPPED"}
+      distance, units = _mini_finmo_distance(name, viab) if not passed else (None, None)
+      results.append(CheckResult(
+        name=name, passed=passed,
+        failure_mode=(None if passed else classify_failure(name)),
+        distance_to_feasibility=distance, distance_units=units,
+        implicated_sections=attribute_to_sections(name) if not passed else [],
+        detail={"raw_verdict": str(verdict)},
+      ))
+  except Exception as exc:
+    exception_count += 1
+    _emit_check_exception(emit_diagnostic_fn, "in_cascade_viability_checks", exc)
   trajectory = _trajectory_from_finmo(fj)
   return results, trajectory, {}, exception_count
 
