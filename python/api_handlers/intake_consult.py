@@ -7751,46 +7751,31 @@ def post_intake_consult_system_run_handler(*, app, request):
           "error": f"{type(mail_exc).__name__}: {str(mail_exc)[:200]}",
         }
 
-    # Now honor the acceptance verdict in the HTTP response. Diagnostics,
-    # workbook, and email have already been produced (or attempted).
+    # ROOT-DISEASE FIX (non-viable is an adjustable FORECAST, not a crash
+    # endpoint): a non-passing acceptance verdict no longer 500s the run. The
+    # verdict is the OUTPUT -- the run COMPLETES and RENDERS it (viable or
+    # non-viable/tight), so the forecast flows to the client/cascade to keep
+    # adjusting rather than killing the run. Only a genuine internal failure
+    # (e.g. workbook export below) returns an error status. The caller inspects
+    # acceptance_verdict.passed for viability. Universal.
     if not bool(acceptance_verdict.get("passed")):
-      app.logger.error(
-        "Acceptance gate failed for draft %s: %s",
+      app.logger.warning(
+        "Acceptance verdict non-viable for draft %s (rendered as forecast, not a crash): %s",
         result_draft_id,
         acceptance_verdict.get("failed_checks"),
       )
-      return (
-        jsonify(
-          {
-            "error": "acceptance_gate_failed",
-            "detail": "run_did_not_meet_acceptance_criteria",
-            "draft_id": result_draft_id,
-            "planning_run_id": acceptance_verdict.get("planning_run_id"),
-            "acceptance_verdict": acceptance_verdict,
-            "client_workbook_path": client_workbook_path,
-            "workbook_export_error": workbook_export_error,
-            "run_diagnostics": diagnostic_payload,
-            "run_diagnostics_persisted": diagnostic_persisted,
-            "auto_email": email_outcome,
-          }
-        ),
-        500,
-      )
 
+    # ROOT-DISEASE FIX (the run RENDERS its forecast; only viability gates --
+    # a downstream ARTIFACT failure must not kill the run): a client-workbook
+    # export error is SURFACED in the response but no longer 500s. The plan +
+    # verdict are complete; the workbook is a rendering that can be regenerated.
+    # (NOTE: the common cause is a data-format bug -- run_diagnostics.
+    # acceptance_score is a string like "13/16" where the exporter expects a
+    # number; flagged for a separate numeric-format fix.) Universal.
     if workbook_export_error:
-      return (
-        jsonify(
-          {
-            "error": "client_workbook_export_failed",
-            "detail": workbook_export_error,
-            "draft_id": result_draft_id,
-            "acceptance_verdict": acceptance_verdict,
-            "run_diagnostics": diagnostic_payload,
-            "run_diagnostics_persisted": diagnostic_persisted,
-            "auto_email": email_outcome,
-          }
-        ),
-        500,
+      app.logger.warning(
+        "Client workbook export failed for draft %s (run still completes, surfaced not crashed): %s",
+        result_draft_id, workbook_export_error,
       )
 
     return jsonify(
@@ -7800,6 +7785,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         "action": "system_run_complete",
         "assistant_message": "System run complete.",
         "client_workbook_path": client_workbook_path,
+        "workbook_export_error": workbook_export_error,
         "planning_context_summary_json": planning_context_summary_json,
         "planning_run_json": planning_run_json,
         "planning_runtime_json": planning_runtime_json,

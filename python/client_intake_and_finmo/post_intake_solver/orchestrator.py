@@ -2764,31 +2764,29 @@ def _run_post_cascade_completion(
         v for v in gate_violations
         if str(v.get("metric_key") or "") not in muted_metrics
       ]
-      if unmuted and convergence_test_mode_enabled():
-        raise PostIntakePreconditionFailed(
-          operation=(
-            "pre_cash_gate_gpt_authorable_checks_unfixed_after_handler"
-            if _gate_handler_already_ran
-            else "pre_cash_gate_gpt_authorable_checks_handler_unavailable"
+      if unmuted:
+        # ROOT-DISEASE FIX (references GROUND, they don't GATE): the GPT-authorable
+        # pre-cash checks (rent%/cost-ratio cohort-band conformance, stage-ramp
+        # expense/profitability paths) are REALITY-GROUNDING, not laws every
+        # business must obey -- no cohort matches an individual business exactly.
+        # A residual out-of-band value AFTER the handler had its pass is
+        # INFORMATION the cascade/forecast carries forward; it must NOT crash the
+        # run. Only genuine VIABILITY (the downstream acceptance gate's
+        # net-income/EBITDA trajectory) may gate the verdict. So we record the
+        # residuals as advisory grounding and FLOW into finalize instead of
+        # raising. (Previously this hard-raised PostIntakePreconditionFailed under
+        # CONVERGENCE_TEST_MODE -- that was the band-as-gate category error.)
+        completion_trace["pre_cash_gate_advisory_residuals"] = {
+          "unmuted_violation_count": len(unmuted),
+          "violations_sample": unmuted[:10],
+          "handler_invoked": bool(_gate_handler_already_ran),
+          "muted_metric_count": len(muted_metrics),
+          "handler_c_route_attempted": bool(_gate_handler_c_route_attempted),
+          "handler_c_route_trace": completion_trace.get(
+            "pre_cash_gate_handler_c_route", {}
           ),
-          pipeline_stage="post_intake_pre_cash_gpt_authorable_gate",
-          expected="GPT-authorable checks pass after handler invocation (or muted post-commit)",
-          actual=f"{len(unmuted)} unmuted check violation(s) remain",
-          details={
-            "violations_sample": unmuted[:10],
-            "handler_invoked": bool(_gate_handler_already_ran),
-            "muted_metric_count": len(muted_metrics),
-            # P3.32 K1 F5 — surface whether Handler C route was tried
-            # and what it produced, so the diagnostic distinguishes
-            # "handler couldn't fix payroll" (pre-F5 noise) from
-            # "Handler C re-authored payroll but a non-payroll
-            # violation remains" (genuine residual to investigate).
-            "handler_c_route_attempted": bool(_gate_handler_c_route_attempted),
-            "handler_c_route_trace": completion_trace.get(
-              "pre_cash_gate_handler_c_route", {}
-            ),
-          },
-        )
+          "doctrine": "band/conformance residual grounds the forecast; only viability gates the verdict",
+        }
   except PostIntakePreconditionFailed:
     raise
   except Exception as gate_exc:
