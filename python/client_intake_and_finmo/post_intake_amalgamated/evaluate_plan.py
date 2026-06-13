@@ -294,6 +294,73 @@ def _metric_current_from_finmo(metric_key: str, rows: List[Dict[str, Any]]) -> O
   return None
 
 
+def _ratio_at_row(metric_key: str, row: Dict[str, Any]) -> Optional[float]:
+  """Per-quarter value of a cascade metric from ONE finmo row (band-fitting is
+  per-quarter, so 'current' must be per-quarter to compare against fitted[q])."""
+  def _r(num_key: str, den_key: str) -> Optional[float]:
+    den = _f(row.get(den_key))
+    num = _f(row.get(num_key))
+    if den and num is not None and den != 0:
+      return num / den
+    return None
+  if metric_key == "cogs_percent_of_revenue":
+    return _r("cogs", "revenue") if row.get("cogs") is not None else _r("cost_of_goods_sold", "revenue")
+  if metric_key == "marketing_percent_of_revenue":
+    return _r("marketing", "revenue")
+  if metric_key == "sga_percent_of_revenue":
+    return _r("general_and_administrative", "revenue") if row.get("general_and_administrative") is not None else _r("g_and_a", "revenue")
+  if metric_key == "r_and_d_percent_of_revenue":
+    return _r("research_and_development", "revenue")
+  if metric_key == "net_income_margin":
+    return _r("net_income", "revenue")
+  return None
+
+
+def _fitted_lever_margins(
+  fitted_payload: Dict[str, Any],
+  finmo_json: Optional[Dict[str, Any]],
+) -> List[LeverMargin]:
+  """Per-quarter lever margins from the BUSINESS-FITTED bands (band_fitting +
+  fitted_bands_store). Each cost-ratio / ni lever gets one margin PER QUARTER:
+  current = the metric's ratio at that quarter; band_target = fitted[metric][q]
+  (the viable, business-scaled target the executive should aim at); band_min/max
+  = the validated envelope. This is the keystone: aiming a lever at its band now
+  means aiming at viable, per quarter, with the Q11 net-income step intact."""
+  fitted = (fitted_payload or {}).get("fitted") or {}
+  envelope = (fitted_payload or {}).get("envelope") or {}
+  if not fitted or not isinstance(finmo_json, dict):
+    return []
+  rows_by_q: Dict[int, Dict[str, Any]] = {}
+  for r in (finmo_json.get("quarter_rows") or []):
+    if isinstance(r, dict):
+      try:
+        qi = int(r.get("quarter_index") or 0)
+      except (TypeError, ValueError):
+        continue
+      if 1 <= qi <= 20:
+        rows_by_q[qi] = r
+  if not rows_by_q:
+    return []
+  margins: List[LeverMargin] = []
+  for lever_id, metric_key in _LEVER_TO_TARGET_METRIC_KEY.items():
+    traj = fitted.get(metric_key)
+    if not isinstance(traj, dict):
+      continue
+    env = envelope.get(metric_key) or {}
+    bmin = _f(env.get("min"))
+    bmax = _f(env.get("max"))
+    section = _section_for_lever(lever_id)
+    for q in range(1, 21):
+      if q not in rows_by_q or q not in traj:
+        continue
+      current = _ratio_at_row(metric_key, rows_by_q[q])
+      if current is None:
+        continue
+      band = {"benchmark_min": bmin, "benchmark_target": _f(traj.get(q)), "benchmark_max": bmax}
+      margins.append(_lever_margin_from(section, lever_id, q, float(current), band))
+  return margins
+
+
 def _assemble_fallback_lever_margins(
   finmo_json: Optional[Dict[str, Any]],
   business_naics_6: Optional[str],
@@ -381,15 +448,29 @@ def _compute_lever_margins(
         continue
       margins.append(_lever_margin_from(section, lever_id, None, float(current), band))
 
-  # Fork A keystone: the cohort-bands table is empty for SMB NAICS, so the
-  # loop above produced no banded margins for the cascade's band-having
-  # levers. Source those from assemble_finmo_output_targets (the SAME band
-  # source the realism gate enforces) + current values from the live finmo,
-  # filling only levers the cohort path did not already band.
+  # Band-fitting keystone: prefer the BUSINESS-FITTED per-quarter bands when the
+  # run has them (band_fitting + fitted_bands_store). These re-point each lever
+  # at a business-scaled, per-quarter VIABLE target (a law firm's R&D at ~0, not
+  # a 74% industry envelope max), with the Q11 net-income step intact, so the
+  # cascade aiming at a band means aiming at viable. Falls back to the raw
+  # industry envelope (assemble_finmo_output_targets) for any lever the fitted /
+  # cohort paths did not band.
   _banded = {
     m.lever_id for m in margins
     if getattr(m, "band_min", None) is not None or getattr(m, "band_max", None) is not None
   }
+  fitted_payload: Dict[str, Any] = {}
+  try:
+    from client_intake_and_finmo.post_intake_solver.fitted_bands_store import (  # type: ignore
+      get_fitted_bands,
+    )
+    fitted_payload = get_fitted_bands(conn, draft_id=draft_id, planning_run_id=planning_run_id)
+  except Exception:
+    fitted_payload = {}
+  if fitted_payload.get("fitted"):
+    for fm in _fitted_lever_margins(fitted_payload, finmo_json):
+      margins.append(fm)
+      _banded.add(fm.lever_id)
   for fm in _assemble_fallback_lever_margins(finmo_json, business_naics_6):
     if fm.lever_id not in _banded:
       margins.append(fm)

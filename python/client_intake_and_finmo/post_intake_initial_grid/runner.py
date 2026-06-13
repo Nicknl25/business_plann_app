@@ -1044,6 +1044,93 @@ def prepare_initial_grid_for_draft(
   except Exception as _rev_exc:  # noqa: BLE001 — soft sink: must not break a run
     sequence_trace["revenue_authoring"] = {"error": repr(_rev_exc)}
 
+  # ----- BAND-FITTING PASS (the keystone; runs after revenue authoring) -----
+  # The cascade + realism gate aim levers at industry bands (assemble_finmo_
+  # output_targets; the cohort table is empty for SMB). Those bands have the
+  # right shape but the wrong SCALE for a specific business, so "move toward the
+  # band" could mean "move away from viable" (a law firm driven toward a 74%-R&D
+  # envelope max). Fit the bands to THIS business FIRST: GPT authors the per-
+  # quarter step trajectory grounded in the compact + authored revenue; Python
+  # validates (envelope + Q11 net-income rule). Persist them so the cascade's
+  # lever_margins (and the realism gate) aim at fitted, viable, per-quarter
+  # targets. Soft: a failure leaves the raw industry bands in place.
+  try:
+    from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+      build_operating_model_digest as _bf_digest,
+    )
+    from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+      run_band_fitting_pass,
+    )
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      assemble_finmo_output_targets,
+    )
+    from client_intake_and_finmo.post_intake_solver.fitted_bands_store import (  # type: ignore  # noqa: E501
+      store_fitted_bands,
+    )
+
+    def _bf_revenue_line(mi: Dict[str, Any]) -> List[float]:
+      rev_rows = ((mi.get("sections") or {}).get("revenue") or []) if isinstance(mi, dict) else []
+      groups: Dict[Any, Dict[str, List[Any]]] = {}
+      for row in rev_rows:
+        if not isinstance(row, dict):
+          continue
+        key = (row.get("lob"), row.get("product"))
+        groups.setdefault(key, {})[str(row.get("driver") or "").strip()] = row.get("values") or []
+      line = [0.0] * 20
+      for drv in groups.values():
+        cap = drv.get("Capacity") or []
+        util = drv.get("Utilization") or []
+        price = drv.get("Unit Price") or []
+        for i in range(20):
+          q = i + 1
+          try:
+            c = float(cap[q]) if q < len(cap) else 0.0
+            u = float(util[q]) if q < len(util) else 0.0
+            p = float(price[q]) if q < len(price) else 0.0
+            line[i] += c * u * p
+          except (TypeError, ValueError, IndexError):
+            pass
+      return line
+
+    _bf_naics = (
+      "".join(ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit())
+      or None
+    ) if isinstance(ops_json, dict) else None
+    _bf_line = _bf_revenue_line(model_input_json)
+    _bf_stage = (
+      (str((ops_json or {}).get("business_stage") or "").strip().lower() or None)
+      if isinstance(ops_json, dict) else None
+    )
+    _bf_targets = assemble_finmo_output_targets(
+      business_naics_6=_bf_naics,
+      business_profile={
+        "naics_6": _bf_naics,
+        "target_annual_revenue": (sum(_bf_line[:4]) or None),
+        "stage": _bf_stage,
+      },
+    )
+    _bf_compact = _bf_digest(ops_json, people_json, market_json, marketing_model_json)
+    _bf_pass = run_band_fitting_pass(
+      compact=_bf_compact, revenue_line=_bf_line, targets_payload=_bf_targets,
+    )
+    if _bf_pass.get("ok"):
+      store_fitted_bands(
+        conn,
+        draft_id=normalized_draft_id,
+        planning_run_id=active_planning_run_id,
+        fitted=_bf_pass["fitted_bands"],
+        envelope=_bf_pass.get("envelope"),
+      )
+      sequence_trace["band_fitting"] = {
+        "ok": True,
+        "metrics": sorted((_bf_pass.get("fitted_bands") or {}).keys()),
+        "violations_resolved": len(_bf_pass.get("violations_resolved") or []),
+      }
+    else:
+      sequence_trace["band_fitting"] = {"ok": False, "error": _bf_pass.get("error")}
+  except Exception as _bf_exc:  # noqa: BLE001 — soft sink: must not break a run
+    sequence_trace["band_fitting"] = {"error": repr(_bf_exc)}
+
   r_and_d_applicability_decision_for_ramp = copy.deepcopy(
     r_and_d_policy_from_model_input(model_input_json)
   )
