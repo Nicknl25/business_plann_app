@@ -69,6 +69,7 @@ class AppliedByEnumTest(unittest.TestCase):
       "floor_primitive",
       "meta_escalation",
       "budget_aware_auto_confirm",
+      "monotonic_guard_reverted",
     })
 
 

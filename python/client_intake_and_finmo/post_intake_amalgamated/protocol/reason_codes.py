@@ -98,6 +98,11 @@ class AppliedBy(str, Enum):
   FLOOR_PRIMITIVE                = "floor_primitive"
   META_ESCALATION                = "meta_escalation"
   BUDGET_AWARE_AUTO_CONFIRM      = "budget_aware_auto_confirm"
+  # A move that was committed but then REVERTED by the monotonic guard
+  # because it worsened the binding worst_distance (a backstop -- the fitted
+  # bands are the primary fix; this catches the residual case where aiming a
+  # lever at its band still degrades the binding viability metric).
+  MONOTONIC_GUARD_REVERTED       = "monotonic_guard_reverted"
 
 
 class StepType(str, Enum):

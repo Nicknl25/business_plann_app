@@ -32,6 +32,7 @@ State machine summary (spec §12):
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field as dc_field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -634,6 +635,20 @@ class SessionDriver:
     )
     return {"re_evaluate": False, "applied": False, "row_id": None}
 
+  @staticmethod
+  def _move_worsened_worst_distance(
+    pre: Optional[float], post: Optional[float],
+  ) -> bool:
+    """True when a committed move pushed the binding worst_distance FURTHER
+    from feasibility (more negative). None on either side (e.g. the move
+    resolved the mode -> no failing distance) is never 'worse'."""
+    if pre is None or post is None:
+      return False
+    try:
+      return float(post) < float(pre) - 1e-6
+    except (TypeError, ValueError):
+      return False
+
   def _commit_proposal(
     self, mode: FailureMode, tier: CascadeTier, proposal: Proposal,
     *, applied_by: AppliedBy,
@@ -644,6 +659,7 @@ class SessionDriver:
     revise_fn = self._revise_fn_for_section(proposal.section)
     accepted = False
     applied_value: Optional[float] = None
+    pre_move_payload: Any = None
     if revise_fn is None:
       # Section has no registered revise_* (e.g. operating_model levers
       # via stage_ramp tools); log as confirmed but not applied here.
@@ -651,6 +667,10 @@ class SessionDriver:
       pass
     else:
       current = self._current_payload_for(proposal.section)
+      # Snapshot the pre-move section payload so the monotonic guard can revert
+      # (re-applying it propagates back to the live model_input via the same
+      # seam that committed the move).
+      pre_move_payload = copy.deepcopy(current)
       patch = _patch_from_proposal(proposal)
       try:
         envelope = revise_fn(current=current, patch=patch, proposal=proposal)
@@ -699,24 +719,55 @@ class SessionDriver:
     # post_result is returned to the caller so _walk_cascade doesn't
     # re-evaluate again.
     post_result: Optional[EvaluatePlanResult] = None
+    reverted = False
     if accepted:
       post_result = self._evaluate()
       post_worst_check = post_result.worst_failing_check
       post_worst_distance = post_result.worst_failing_distance
+      # MONOTONIC GUARD (backstop, not the primary mechanism -- the fitted bands
+      # are). A committed move that pushed the binding worst_distance FURTHER
+      # from feasibility is reverted: we re-apply the snapshotted pre-move
+      # payload (which propagates back to the live model_input) and re-evaluate.
+      # This guarantees worst_distance never grows because a lever was aimed at
+      # a band whose move happened to degrade the binding viability metric.
+      if (pre_move_payload is not None
+          and self._move_worsened_worst_distance(pre_worst_distance, post_worst_distance)):
+        try:
+          self._apply_to_plan_state_fn(proposal.section, pre_move_payload)
+          restored = self._evaluate()
+          reverted = True
+          self._applied_steps = max(0, self._applied_steps - 1)
+          post_result = restored
+          post_worst_check = restored.worst_failing_check
+          post_worst_distance = restored.worst_failing_distance
+          self._emit(
+            phase=PhaseCode.CASCADE_WALK,
+            event_code=EventCode.CASCADE_PROPOSAL_VETOED,
+            diagnostic_data={"mode": mode.value, "tier_id": tier.tier_id,
+                             "tier_name": tier.name,
+                             "monotonic_guard": "reverted",
+                             "section": proposal.section, "field": proposal.field,
+                             "pre_worst_distance": pre_worst_distance,
+                             "worsened_to": post_result and None},
+          )
+        except Exception:
+          reverted = False  # revert failed -> keep the move; never crash
     else:
       post_worst_check = pre_worst_check
       post_worst_distance = pre_worst_distance
     row_id = self._log(
       proposal=proposal,
-      applied_by=applied_by,
-      applied_value=applied_value if accepted else None,
+      applied_by=(AppliedBy.MONOTONIC_GUARD_REVERTED if reverted else applied_by),
+      applied_value=(None if (reverted or not accepted) else applied_value),
+      veto_reason=("worsened_worst_distance" if reverted else ""),
       worst_check_before=pre_worst_check,
       worst_distance_before=pre_worst_distance,
       worst_check_after=post_worst_check,
       worst_distance_after=post_worst_distance,
     )
-    return {"re_evaluate": accepted, "applied": accepted, "row_id": row_id,
-            "post_result": post_result}
+    effective_applied = accepted and not reverted
+    return {"re_evaluate": (accepted or reverted), "applied": effective_applied,
+            "row_id": row_id, "post_result": post_result}
 
   # --- floor ------------------------------------------------------------
 
