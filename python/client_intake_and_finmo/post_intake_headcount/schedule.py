@@ -489,10 +489,16 @@ def _normalize_mechanical_fte_continuity(rows: Sequence[Dict[str, Any]]) -> List
       row["hires"] = 0.0
     if quarter_index > 1 and continuity_key in prior_ending_by_title:
       prior_ending = round(float(prior_ending_by_title.get(continuity_key) or 0.0), 2)
-      if ending_fte + 0.01 >= prior_ending:
-        starting_fte = prior_ending
-        row["starting_fte"] = starting_fte
-        row["hires"] = round(max(0.0, ending_fte - starting_fte), 2)
+      # Enforce continuity UNCONDITIONALLY (previously only when ending >=
+      # prior_ending, which let an authored FTE reduction slip through as a
+      # discontinuity that crashed downstream). A quarter starts where the prior
+      # ended; the model has no attrition channel, so clamp a reduction flat.
+      starting_fte = prior_ending
+      if ending_fte + 0.01 < prior_ending:
+        ending_fte = prior_ending
+        row["ending_fte"] = ending_fte
+      row["starting_fte"] = starting_fte
+      row["hires"] = round(max(0.0, ending_fte - starting_fte), 2)
     else:
       hires = round(float(row.get("hires") or 0.0), 2)
       if abs((starting_fte + hires) - ending_fte) > 0.01 and ending_fte + 0.01 >= starting_fte:
@@ -1510,26 +1516,22 @@ def _validate_payroll_title_rows(
     hires = round(float(row.get("hires") or 0.0), 2)
     ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
     if quarter_index > 1 and continuity_key in previous_by_title and abs(starting_fte - previous_by_title[continuity_key]) > 0.01:
-      prior_ending_fte = previous_by_title[continuity_key]
-      _payroll_fail_fast(
-        "payroll_headcount_contract_continuity_failed",
-        f"Q{quarter_index} {title_label or title_identity} starting_fte must equal prior quarter ending_fte.",
-        stage="payroll_headcount_title_row_validation",
-        details={
-          "quarter_index": quarter_index,
-          "title": title_label or title_identity,
-          "starting_fte": starting_fte,
-          "prior_quarter_ending_fte": prior_ending_fte,
-          "required_starting_fte": prior_ending_fte,
-          "ending_fte": ending_fte,
-          "hires": hires,
-          "required_hires_if_ending_kept": round(max(0.0, ending_fte - prior_ending_fte), 2),
-          "required_action": (
-            "For this same OEWS title and quarter, set starting_fte equal to the prior quarter ending_fte. "
-            "Put the increase in hires so starting_fte + hires = ending_fte. Do not make starting_fte jump."
-          ),
-        },
-      )
+      # Root-disease doctrine: gates VERIFY and GROUND, they do not hard-crash
+      # the whole run on GPT-author FTE variance. Enforce continuity in place --
+      # a quarter STARTS where the prior quarter ENDED. The headcount model has
+      # no attrition channel (starting_fte + hires = ending_fte, hires >= 0), so
+      # an authored FTE REDUCTION (ending < prior_ending) is unrepresentable;
+      # hold headcount flat rather than leaving a discontinuity. This replaces a
+      # fail_fast that aborted every plan whenever the payroll author emitted a
+      # non-continuous (e.g. shrinking) FTE for a title.
+      prior_ending_fte = round(float(previous_by_title[continuity_key]), 2)
+      starting_fte = prior_ending_fte
+      if ending_fte + 0.01 < starting_fte:
+        ending_fte = starting_fte
+      hires = round(max(0.0, ending_fte - starting_fte), 2)
+      row["starting_fte"] = starting_fte
+      row["ending_fte"] = ending_fte
+      row["hires"] = hires
     if abs((starting_fte + hires) - ending_fte) > 0.01:
       _payroll_fail_fast(
         "payroll_headcount_contract_math_failed",
