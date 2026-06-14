@@ -1121,6 +1121,18 @@ def prepare_initial_grid_for_draft(
         fitted=_bf_pass["fitted_bands"],
         envelope=_bf_pass.get("envelope"),
       )
+      # Carry the fitted bands into solver_input so the SOLVER targets the
+      # fitted (viable) levels the cascade was handed -- not the raw industry
+      # bands. Without this the solver re-reaches for the raw cost targets (a
+      # law firm's COGS toward ~43%) and inflates the back half, degrading the
+      # Q11->Q20 viability the cascade achieved. solver_input is the contract-
+      # safe free-form channel (same as the revenue_authored marker).
+      _bf_si = model_input_json.setdefault("solver_input", {})
+      if isinstance(_bf_si, dict):
+        _bf_si["fitted_bands"] = {
+          str(m): {str(q): float(v) for q, v in (traj or {}).items()}
+          for m, traj in (_bf_pass.get("fitted_bands") or {}).items()
+        }
       sequence_trace["band_fitting"] = {
         "ok": True,
         "metrics": sorted((_bf_pass.get("fitted_bands") or {}).keys()),

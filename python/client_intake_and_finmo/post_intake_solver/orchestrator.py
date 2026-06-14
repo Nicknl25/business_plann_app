@@ -896,7 +896,79 @@ def _ensure_solver_inputs(
       live_count=horizon,
       business_profile=business_profile,
     )
+  # Constrain the solver to the FITTED bands the cascade was handed. The solver's
+  # job is precision/convergence WITHIN the cascade's viable plan -- not to
+  # re-reach for the raw industry bands (a law firm's COGS toward ~43%) and
+  # inflate the back half, degrading the Q11->Q20 viability the cascade achieved.
+  # Cap each cost ratio's target at the fitted peak (the highest the cascade
+  # allowed) and floor net-income margin at the fitted floor, so the solver
+  # cannot push viability below what it was handed.
+  _overlay_fitted_bands_onto_targets(
+    solver_input.get(FINMO_OUTPUT_TARGET_KEY),
+    solver_input.get("fitted_bands"),
+  )
   return next_input
+
+
+_FITTED_COST_METRIC_KEYS = (
+  "cogs_percent_of_revenue",
+  "marketing_percent_of_revenue",
+  "sga_percent_of_revenue",
+  "r_and_d_percent_of_revenue",
+)
+_FITTED_NI_METRIC_KEY = "net_income_margin"
+
+
+def _overlay_fitted_bands_onto_targets(
+  targets_payload: Optional[Dict[str, Any]],
+  fitted_bands: Optional[Dict[str, Any]],
+) -> None:
+  """Clamp the solver's output targets to the fitted bands in place. Cost-ratio
+  targets are capped at the fitted PEAK (the solver may converge within the
+  fitted band but not inflate above it); net-income margin is floored at the
+  fitted FLOOR (the solver may not push NI below the viability the cascade
+  landed). No-op when either input is missing -- raw targets stand."""
+  if not isinstance(targets_payload, dict) or not isinstance(fitted_bands, dict):
+    return
+  metrics = targets_payload.get("metrics")
+  if not isinstance(metrics, dict):
+    return
+
+  def _values(traj: Any) -> List[float]:
+    out: List[float] = []
+    if isinstance(traj, dict):
+      for v in traj.values():
+        try:
+          out.append(float(v))
+        except (TypeError, ValueError):
+          continue
+    return out
+
+  for metric_key in _FITTED_COST_METRIC_KEYS:
+    row = metrics.get(metric_key)
+    vals = _values(fitted_bands.get(metric_key))
+    if not isinstance(row, dict) or not vals:
+      continue
+    peak = max(vals)
+    for bound in ("target_max", "target_target", "target_min"):
+      cur = row.get(bound)
+      try:
+        if cur is not None and float(cur) > peak:
+          row[bound] = peak
+      except (TypeError, ValueError):
+        continue
+
+  ni_row = metrics.get(_FITTED_NI_METRIC_KEY)
+  ni_vals = _values(fitted_bands.get(_FITTED_NI_METRIC_KEY))
+  if isinstance(ni_row, dict) and ni_vals:
+    floor = min(ni_vals)
+    for bound in ("target_min", "target_target", "target_max"):
+      cur = ni_row.get(bound)
+      try:
+        if cur is not None and float(cur) < floor:
+          ni_row[bound] = floor
+      except (TypeError, ValueError):
+        continue
 
 
 def _run_target_seeking_pass(
