@@ -917,6 +917,11 @@ _FITTED_COST_METRIC_KEYS = (
   "r_and_d_percent_of_revenue",
 )
 _FITTED_NI_METRIC_KEY = "net_income_margin"
+# Viability-spine margins (outcomes, not cost levers): the realism gate judges
+# these too, so its band must match the FITTED trajectory the cascade/solver
+# produced -- otherwise a business that legitimately runs above the industry-wide
+# ceiling (a law firm's ~20% EBITDA) hard-fails realism against a raw band.
+_FITTED_SPINE_METRIC_KEYS = ("net_income_margin", "ebitda_margin")
 
 
 def _overlay_fitted_bands_onto_targets(
@@ -958,17 +963,36 @@ def _overlay_fitted_bands_onto_targets(
       except (TypeError, ValueError):
         continue
 
-  ni_row = metrics.get(_FITTED_NI_METRIC_KEY)
-  ni_vals = _values(fitted_bands.get(_FITTED_NI_METRIC_KEY))
-  if isinstance(ni_row, dict) and ni_vals:
-    floor = min(ni_vals)
-    for bound in ("target_min", "target_target", "target_max"):
-      cur = ni_row.get(bound)
-      try:
-        if cur is not None and float(cur) < floor:
-          ni_row[bound] = floor
-      except (TypeError, ValueError):
-        continue
+  for spine_key in _FITTED_SPINE_METRIC_KEYS:
+    row = metrics.get(spine_key)
+    vals = _values(fitted_bands.get(spine_key))
+    if not isinstance(row, dict) or not vals:
+      continue
+    floor = min(vals)
+    peak = max(vals)
+    # WIDEN (never narrow) the band to the fitted trajectory: floor the bottom
+    # at the fitted floor (the solver may not push the margin below the
+    # viability the cascade landed) and raise the ceiling to the fitted peak
+    # (the realism gate must accept the viable margin this business actually
+    # reaches). Keep the target inside the widened bounds.
+    tmin = row.get("target_min")
+    try:
+      if tmin is None or float(tmin) > floor:
+        row["target_min"] = floor
+    except (TypeError, ValueError):
+      row["target_min"] = floor
+    tmax = row.get("target_max")
+    try:
+      if tmax is None or float(tmax) < peak:
+        row["target_max"] = peak
+    except (TypeError, ValueError):
+      row["target_max"] = peak
+    ttgt = row.get("target_target")
+    try:
+      if ttgt is not None:
+        row["target_target"] = min(max(float(ttgt), floor), peak)
+    except (TypeError, ValueError):
+      pass
 
 
 def _run_target_seeking_pass(

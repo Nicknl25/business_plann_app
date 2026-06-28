@@ -39,6 +39,7 @@ BAND_METRIC_KEYS = (
   "sga_percent_of_revenue",
   "r_and_d_percent_of_revenue",
   "net_income_margin",
+  "ebitda_margin",
 )
 
 
@@ -115,7 +116,11 @@ _SYSTEM_PROMPT = (
   "are given (1) an enriched business compact (what it sells, team, market, demand), "
   "(2) the business's AUTHORED REVENUE line across 20 quarters (the scaling anchor), "
   "and (3) the INDUSTRY ENVELOPE per metric (min/target/max as a fraction of revenue) "
-  "for cost ratios (COGS, Marketing, G&A, R&D) and the net-income margin.\n"
+  "for cost ratios (COGS, Marketing, G&A, R&D) and the net-income AND EBITDA margins. "
+  "The margin metrics (net_income_margin, ebitda_margin) are VIABILITY SPINES -- author "
+  "them at the level THIS business can really reach (a healthy professional-services firm "
+  "may run well above an industry-wide midpoint); ebitda_margin is always >= net_income_"
+  "margin in the same quarter.\n"
   "The industry envelope has the right SHAPE but is a broad band for the whole "
   "industry — it is NOT automatically right for THIS business. Author, per metric, "
   "the per-quarter TARGET TRAJECTORY that actually fits this business.\n"

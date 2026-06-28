@@ -39,7 +39,11 @@ _COST_RATIO_KEYS = (
   "sga_percent_of_revenue",
   "r_and_d_percent_of_revenue",
 )
+# Viability-spine margins: loss-tolerant early, non-decreasing through Q11 and
+# >= 0 from Q11 (the hard Q11 net-income rule). EBITDA margin tracks the same
+# spine (it is always >= net income in a quarter).
 _NI_KEY = "net_income_margin"
+_VIABILITY_SPINE_KEYS = ("net_income_margin", "ebitda_margin")
 
 
 def _f(v: Any) -> Optional[float]:
@@ -161,7 +165,7 @@ def validate_and_clip(
                              "value": series[q], "prev": prev})
           series[q] = prev
         prev = series[q]
-    elif key == _NI_KEY:
+    elif key in _VIABILITY_SPINE_KEYS:
       # non-decreasing through Q11 (climbing into the checkpoint)
       prev = None
       for q in range(1, _Q11 + 1):
