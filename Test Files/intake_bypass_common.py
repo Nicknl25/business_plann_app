@@ -322,3 +322,134 @@ def load_baseline(baselines_dir: Path, name: str) -> Dict[str, Any]:
   if not isinstance(data, dict) or "structured" not in data:
     raise RuntimeError(f"Baseline file {path} is malformed (missing 'structured').")
   return data
+
+
+# ---------------------------------------------------------------------------
+# Harness-side coherence shaping + validation.
+#
+# DESIGN CONSTRAINT: the harness is a PRODUCER of valid SQL draft rows. Every
+# bit of coherence cleanup and validation happens HERE, before the SQL write,
+# so the app pipeline reads SQL exactly as it does for real intake. The app is
+# NEVER modified to tolerate hand-authored input. Delete Test Files/ and the app
+# is unchanged.
+# ---------------------------------------------------------------------------
+
+
+def mirror_and_shape_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> None:
+  """Apply the two coherence gotchas IN PLACE before the SQL write so the
+  app pipeline never sees an incoherent hand-authored draft:
+
+    1. NAICS mirror -- people_json.business_naics_6 is the PRIMARY NAICS source
+       post-intake reads (before operating_model). Force it to equal the
+       operating-model NAICS so the two can never disagree.
+    2. financials_year1 derive -- post-intake recomputes year1 revenue from the
+       operating_model LOBs, and discards an injected year1 that disagrees. Omit
+       it ({}) so it is always cleanly derived from ops.
+  """
+  om = structured.get("operating_model_json")
+  ppl = structured.get("people_json")
+  naics = om.get("business_naics_6") if isinstance(om, dict) else None
+  if isinstance(ppl, dict) and naics:
+    ppl["business_naics_6"] = naics
+  structured["financials_year1_json"] = {}
+
+  # Type coherence for NEW array elements (added LOBs / people have no baseline
+  # leaf to anchor the cell type, so a numeric-looking string can land as a
+  # float). The app contract types these exactly; we shape the harness output to
+  # match it -- never the reverse.
+  if isinstance(om, dict):
+    for lob in om.get("lob_models") or []:
+      if not isinstance(lob, dict):
+        continue
+      for prod in lob.get("products") or []:
+        if not isinstance(prod, dict):
+          continue
+        pname = prod.get("product_name")
+        # unit_name / unit_description default to the product name when a newly
+        # added product omits them (both are required strings).
+        if pname and not prod.get("unit_name"):
+          prod["unit_name"] = pname
+        if pname and not prod.get("unit_description"):
+          prod["unit_description"] = pname
+  if isinstance(ppl, dict):
+    for person in ppl.get("people") or []:
+      if isinstance(person, dict) and person.get("experience_years") is not None:
+        # experience_years is a STRING in the contract (e.g. "7"), not a number.
+        ey = person["experience_years"]
+        if isinstance(ey, float) and ey.is_integer():
+          ey = int(ey)
+        person["experience_years"] = str(ey)
+
+
+_CONFIDENCE_PATHS = (
+  ("operating_model_json", "confidence"),
+  ("people_json", "confidence"),
+  ("target_market_json", "confidence"),
+)
+
+
+def validate_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> List[str]:
+  """Return human-readable problems that would make this draft invalid at the
+  INTAKE->POST_INTAKE contract or trip a coherence gotcha. Empty list == OK.
+
+  Run in the harness BEFORE the SQL write so a missing required field, a string
+  confidence, or an unfilled template placeholder surfaces with a clear message
+  up front -- instead of a 500 mid-pipeline. This imports the app's contract for
+  validation only; it never modifies it."""
+  problems: List[str] = []
+
+  # 1. Confidence-as-float (clearer than the raw pydantic message).
+  for payload_key, field in _CONFIDENCE_PATHS:
+    val = (structured.get(payload_key) or {}).get(field)
+    if val is not None and not isinstance(val, (int, float)):
+      problems.append(
+        f"{payload_key}.{field} must be a NUMBER 0-1 (e.g. 0.7), got {val!r} -- not 'high'/'medium'."
+      )
+
+  # 2. The INTAKE->POST_INTAKE contract (the real gatekeeper).
+  try:
+    import sys as _sys
+    _py = str(ROOT / "python")
+    if _py not in _sys.path:
+      _sys.path.insert(0, _py)
+    from client_intake_and_finmo.post_intake_contracts.intake_draft_contract import (  # type: ignore
+      IntakeDraftContract,
+    )
+    import pydantic  # type: ignore
+    payload = {k: structured.get(k) for k in STRUCTURED_PAYLOADS}
+    try:
+      IntakeDraftContract.model_validate(payload)
+    except pydantic.ValidationError as exc:
+      for err in exc.errors():
+        loc = ".".join(str(x) for x in err.get("loc", ()))
+        # planning_context_summary_json is written by the runner, not the sheet.
+        if "planning_context_summary_json" in loc:
+          continue
+        problems.append(f"{loc}: {err.get('msg')} (got {err.get('input')!r})")
+  except Exception as exc:  # contract import/parse issue -- never crash the harness
+    problems.append(f"contract check could not run: {type(exc).__name__}: {exc}")
+
+  # 3. Unfilled template placeholders ("<...>" sentinels / 000000 NAICS).
+  placeholders: List[str] = []
+
+  def _scan(prefix: str, obj: Any) -> None:
+    if isinstance(obj, dict):
+      for k, v in obj.items():
+        _scan(f"{prefix}.{k}", v)
+    elif isinstance(obj, list):
+      for i, v in enumerate(obj):
+        _scan(f"{prefix}[{i}]", v)
+    elif isinstance(obj, str):
+      s = obj.strip()
+      if s.startswith("<") and s.endswith(">"):
+        placeholders.append(prefix)
+
+  for key in STRUCTURED_PAYLOADS:
+    _scan(key, structured.get(key))
+  naics = (structured.get("operating_model_json") or {}).get("business_naics_6")
+  if naics in (None, "", "000000"):
+    placeholders.append("operating_model_json.business_naics_6 (still the 000000 placeholder)")
+  if placeholders:
+    problems.append("Unfilled template placeholders: " + ", ".join(placeholders[:15]))
+
+  return problems

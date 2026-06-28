@@ -91,16 +91,25 @@ def _safe_bool(value: Any) -> Optional[bool]:
 # ----------------------------------------------------------------------------
 
 
-def _acceptance_score(verdict: Optional[Dict[str, Any]]) -> Tuple[Optional[bool], Optional[str]]:
+def _acceptance_score(
+  verdict: Optional[Dict[str, Any]],
+) -> Tuple[Optional[bool], Optional[float], Optional[str]]:
+  """Return (passed, score_value, score_label).
+
+  ``score_value`` is the NUMERIC passed-check count (the FINMO_BUILD->WORKBOOK
+  contract types acceptance_score as Optional[float]); ``score_label`` is the
+  human "ok/total" form ("15/16") kept for display. Splitting these fixes the
+  ship-blocker where a string score threw ContractViolation and swallowed the
+  client workbook export."""
   if not isinstance(verdict, dict):
-    return None, None
+    return None, None, None
   passed = _safe_bool(verdict.get("passed"))
   checks = verdict.get("checks") or []
   if not isinstance(checks, list):
-    return passed, None
+    return passed, None, None
   total = len(checks)
   ok = sum(1 for c in checks if isinstance(c, dict) and bool(c.get("passed")))
-  return passed, f"{ok}/{total}"
+  return passed, float(ok), f"{ok}/{total}"
 
 
 def _per_metric_summary(
@@ -235,7 +244,7 @@ def build_run_diagnostics_payload(
       or _text(cash_pass.get("strategy"))
     )
 
-  passed, score = _acceptance_score(acceptance_verdict)
+  passed, score, score_label = _acceptance_score(acceptance_verdict)
   realism_checks = _per_metric_summary(realism_memo_json)
 
   handler_fired = bool(geh)
@@ -263,7 +272,8 @@ def build_run_diagnostics_payload(
     "planning_mode": planning_mode or None,
     "cash_strategy_name": cs_name or None,
     "acceptance_passed": passed,
-    "acceptance_score": score,
+    "acceptance_score": score,            # numeric (contract: Optional[float])
+    "acceptance_score_label": score_label,  # "ok/total" display form ("15/16")
     "realism_checks": realism_checks,
     "handler_fired": handler_fired,
     "handler_status": handler_status,

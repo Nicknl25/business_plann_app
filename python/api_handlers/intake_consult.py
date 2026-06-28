@@ -367,7 +367,8 @@ def _dispatch_post_intake_failure_alert(
     "planning_run_id": planning_run_id or None,
     "business_name": business_name or None,
     "acceptance_passed": False,
-    "acceptance_score": "FAILED",
+    "acceptance_score": None,            # numeric contract field (no score on failure)
+    "acceptance_score_label": "FAILED",  # display form
     "handler_fired": False,
     "failure_exception_class": type(exception).__name__,
     "failure_detail": str(failure_detail or "")[:4000],
@@ -7724,7 +7725,11 @@ def post_intake_consult_system_run_handler(*, app, request):
           send_workbook_alert, build_run_email_body,
         )
         biz_name = (diagnostic_payload or {}).get("business_name") or result_draft_id
-        score = (diagnostic_payload or {}).get("acceptance_score") or "?/?"
+        score = (
+          (diagnostic_payload or {}).get("acceptance_score_label")
+          or (diagnostic_payload or {}).get("acceptance_score")
+          or "?/?"
+        )
         passed = (diagnostic_payload or {}).get("acceptance_passed")
         verdict_label = (
           "PASSED" if passed is True
@@ -7769,9 +7774,10 @@ def post_intake_consult_system_run_handler(*, app, request):
     # a downstream ARTIFACT failure must not kill the run): a client-workbook
     # export error is SURFACED in the response but no longer 500s. The plan +
     # verdict are complete; the workbook is a rendering that can be regenerated.
-    # (NOTE: the common cause is a data-format bug -- run_diagnostics.
-    # acceptance_score is a string like "13/16" where the exporter expects a
-    # number; flagged for a separate numeric-format fix.) Universal.
+    # (The former common cause -- run_diagnostics.acceptance_score a string like
+    # "13/16" where the FINMO_BUILD->WORKBOOK contract expects a number -- is
+    # fixed at the source: acceptance_score is now numeric and the "ok/total"
+    # form lives in acceptance_score_label.) Universal.
     if workbook_export_error:
       app.logger.warning(
         "Client workbook export failed for draft %s (run still completes, surfaced not crashed): %s",

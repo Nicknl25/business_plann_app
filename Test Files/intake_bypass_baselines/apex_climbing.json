@@ -1,0 +1,205 @@
+{
+  "_meta": {
+    "name": "apex_climbing",
+    "business": "Apex Indoor Climbing Gym",
+    "from_scratch_proof": true
+  },
+  "flat": {
+    "business_name": "Apex Indoor Climbing Gym",
+    "business_address": "1200 Boulder Way, Denver, CO 80205, USA",
+    "address_street": "1200 Boulder Way",
+    "address_city": "Denver",
+    "address_state": "CO",
+    "address_zip": "80205",
+    "address_country": "USA",
+    "business_start_date": "03/01/2024"
+  },
+  "structured": {
+    "messages_json": [],
+    "operating_model_json": {
+      "consumer_type": "b2c",
+      "business_type": "Indoor rock climbing and fitness gym",
+      "business_stage": "operating",
+      "business_description_summary": "Indoor climbing gym selling memberships, day passes, and gear rental.",
+      "lob_models": [
+        {
+          "lob_name": "Memberships",
+          "products": [
+            {
+              "product_name": "Monthly membership",
+              "unit_name": "Monthly membership",
+              "unit_description": "Monthly membership",
+              "unit_cadence": "monthly",
+              "units_per_week_capacity": 208.0,
+              "units_per_period_capacity": 900.0,
+              "operating_periods_per_year": 12,
+              "utilization_rate": 0.72,
+              "unit_price": 89.0
+            }
+          ]
+        },
+        {
+          "lob_name": "Day Passes",
+          "products": [
+            {
+              "product_name": "Day pass",
+              "unit_name": "Day pass",
+              "unit_description": "Day pass",
+              "unit_cadence": "monthly",
+              "units_per_week_capacity": 600.0,
+              "units_per_period_capacity": 2600.0,
+              "operating_periods_per_year": 12,
+              "utilization_rate": 0.55,
+              "unit_price": 25.0
+            }
+          ]
+        },
+        {
+          "lob_name": "Gear Rental",
+          "products": [
+            {
+              "product_name": "Gear rental",
+              "unit_name": "Gear rental",
+              "unit_description": "Gear rental",
+              "unit_cadence": "monthly",
+              "units_per_week_capacity": 415.0,
+              "units_per_period_capacity": 1800.0,
+              "operating_periods_per_year": 12,
+              "utilization_rate": 0.5,
+              "unit_price": 12.0
+            }
+          ]
+        }
+      ],
+      "unit_name": "Monthly membership",
+      "unit_description": "one freshly made classic or specialty donut sold to a walk-in customer at the shop",
+      "unit_cadence": "weekly",
+      "units_per_week_capacity": null,
+      "units_per_period_capacity": null,
+      "operating_periods_per_year": 52,
+      "utilization_rate": null,
+      "unit_price": null,
+      "shipping_method": "in-person pickup at counter",
+      "sales_modality": "physical",
+      "geographic_scope": "local",
+      "geographic_coverage": "Denver metro",
+      "countries": [
+        "USA"
+      ],
+      "milestones": [
+        {
+          "description": "Consistently sell around 1,000 donuts per week",
+          "timing": "Within the next 12 months",
+          "timing_months_max": 12
+        }
+      ],
+      "capacity_driver": "facility",
+      "primary_growth_lever": "membership_growth",
+      "legal_entity": "LLC",
+      "confidence": 0.99,
+      "competitive_advantage": "Largest bouldering wall in the metro; route-setting refreshed weekly.",
+      "business_naics_6": "713940",
+      "initial_assets": 350000,
+      "initial_equity": 250000,
+      "initial_lease": 600000,
+      "total_debt_outstanding": 120000
+    },
+    "target_market_json": {
+      "consumer_type": "b2c",
+      "marketing_plan_summary": "Local memberships via social + community events; day-pass walk-ins.",
+      "selections": [],
+      "gender_age_intent": null,
+      "income_intent": null,
+      "confidence": 0.7
+    },
+    "people_json": {
+      "business_naics_6": "713940",
+      "confidence": 0.8,
+      "inferred_roles": [],
+      "inferred_roles_summary": "",
+      "people": [
+        {
+          "full_name": "Dana Cole",
+          "role_title": "Owner / General Manager",
+          "primary_responsibilities": "Runs daily operations, finance, staffing, and member experience.",
+          "relevant_background": "12 years managing climbing and fitness facilities.",
+          "experience_years": "12",
+          "why_strengthens_business": "Proven operator who scaled two gyms to profitability.",
+          "paragraph": "Dana leads operations and growth strategy.",
+          "annual_wage": 82000.0,
+          "wage_source": "client_override",
+          "months_until_hire": 0
+        },
+        {
+          "full_name": "Marcus Reed",
+          "role_title": "Head Route Setter",
+          "primary_responsibilities": "Designs and refreshes climbing routes weekly; manages setting crew.",
+          "relevant_background": "9 years competitive setting and coaching.",
+          "experience_years": "9",
+          "why_strengthens_business": "Route quality is the gym's core draw; Marcus is regionally known.",
+          "paragraph": "Marcus owns the climbing product members come back for.",
+          "annual_wage": 54000.0,
+          "wage_source": "client_override",
+          "months_until_hire": 0
+        },
+        {
+          "full_name": "Priya Shah",
+          "role_title": "Climbing Coach",
+          "primary_responsibilities": "Runs youth and adult coaching programs and clinics.",
+          "relevant_background": "6 years coaching and personal training.",
+          "experience_years": "6",
+          "why_strengthens_business": "Coaching drives membership retention and ancillary revenue.",
+          "paragraph": "Priya builds the community programming that retains members.",
+          "annual_wage": 46000.0,
+          "wage_source": "client_override",
+          "months_until_hire": 0
+        },
+        {
+          "full_name": "Sam Ortiz",
+          "role_title": "Front Desk Associate",
+          "primary_responsibilities": "Member check-in, retail, day-pass sales, facility upkeep.",
+          "relevant_background": "3 years customer-facing retail/fitness.",
+          "experience_years": "3",
+          "why_strengthens_business": "First point of contact; keeps day-pass conversion high.",
+          "paragraph": "Sam runs the front-of-house experience.",
+          "annual_wage": 34000.0,
+          "wage_source": "client_override",
+          "months_until_hire": 3
+        }
+      ]
+    },
+    "financials_json": {
+      "_financials_revenue_intro_done": true,
+      "cogs_total_year1": null,
+      "current_cogs": null,
+      "cogs_percent_of_revenue": 0.14,
+      "payroll_total_year1": 216000,
+      "current_payroll": 183322.5,
+      "marketing_total_year1": 6552.000000000001,
+      "marketing_percent_of_revenue": 0.027027027027027032,
+      "monthly_rent_expense": 2000.0,
+      "future_rent_expected": true,
+      "owner_compensation": 4000,
+      "other_operating_expense": 1200,
+      "current_num_employees": null,
+      "initial_assets": 350000,
+      "ap_balance": 3000,
+      "current_capex": 3000,
+      "initial_lease": 600000,
+      "initial_equity": 250000,
+      "total_debt_outstanding": 120000,
+      "other_monthly_debt_payments": 0,
+      "annual_interest_payment": 0,
+      "annual_principal_payment": 0,
+      "cash_on_hand": 180000,
+      "ar_balance": 0,
+      "inventory_balance": 800,
+      "current_revenue": 1180000
+    },
+    "marketing_model_json": {},
+    "financials_year1_json": {},
+    "realism_memo_json": {},
+    "pending_ops_milestone_json": {},
+    "fulfillment_json": {}
+  }
+}

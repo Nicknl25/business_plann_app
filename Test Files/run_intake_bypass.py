@@ -276,6 +276,20 @@ def _run_scenario(
   for entry in diffs:
     print(f"    - {entry['field']}: {entry['old']!r} -> {entry['new']!r}")
 
+  # Harness-side coherence shaping + validation, BEFORE any SQL write, so the
+  # app pipeline only ever reads a coherent, contract-valid draft (the app is
+  # never changed to accommodate hand-authored input).
+  C.mirror_and_shape_scenario(flat, structured)
+  problems = C.validate_scenario(flat, structured)
+  if problems:
+    print(f"  SCENARIO INVALID -- {len(problems)} problem(s); NOT written to SQL:")
+    for p in problems:
+      print(f"    - {p}")
+    raise RuntimeError(
+      f"Scenario {scenario_name!r} failed harness validation "
+      f"({len(problems)} problem(s)); fix the sheet and re-run."
+    )
+
   # 1. Mint a fresh draft. Dry-run inserts directly (fully offline); a real run
   #    uses the session endpoint so the row is initialized exactly as intake does.
   if dry_run:

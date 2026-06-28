@@ -1,0 +1,749 @@
+{
+  "_meta": {
+    "source_draft_id": "25b8e17eda804fa7a46adf72a3503900",
+    "source_client_id": "$_PXISENG36251894944",
+    "business_name": "Luna Boutique",
+    "captured_at": "2026-06-28T20:02:13.272726+00:00",
+    "note": "Structured intake output captured for the intake-bypass runner. Safe to edit by hand."
+  },
+  "flat": {
+    "business_name": "Luna Boutique",
+    "business_address": "245 Willow Lane, Suite 101, Austin, TX 78701, USA",
+    "address_street": "245 Willow Lane, Suite 101",
+    "address_city": "Austin",
+    "address_state": "TX",
+    "address_zip": "78701",
+    "address_country": "USA",
+    "business_start_date": "8/5/2024"
+  },
+  "structured": {
+    "messages_json": [
+      {
+        "role": "assistant",
+        "content": "To get us started, could you describe in plain language what \"Luna Boutique\" does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like \"women’s clothing store\", \"online boutique\", \"gift shop\", etc.)?"
+      },
+      {
+        "role": "user",
+        "content": "Luna Boutique is a women's clothing store in downtown Austin, selling trendy and affordable apparel and accessories to urban women aged 25-40. We sell in-person at our store and customers pay at checkout, primarily by card or mobile payments."
+      },
+      {
+        "role": "assistant",
+        "content": "Here’s how I understand Luna Boutique operationally: it’s a physical women’s clothing and accessories shop in downtown Austin, where you stock trendy, affordable items and sell them directly to walk‑in customers who pay at checkout (mostly by card/mobile). Operationally, the natural “unit” for planning is a single retail transaction (one customer checkout), and we’ll treat this on a weekly cadence—how many transactions you can realistically handle in a typical week is your core capacity, and revenue comes from the average spend per transaction. It’s a brick‑and‑mortar retail store, not a custom design studio or subscription service.\n\nIs this description accurate as the main way Luna Boutique operates?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that description is accurate. Luna Boutique operates as a physical retail store focusing on walk-in customers who pay mostly by card or mobile at checkout."
+      },
+      {
+        "role": "assistant",
+        "content": "Based on the start date you provided, I'm treating this as an operating business for planning context. If that's off, tell me and I'll adjust.\n\nNext, just to anchor things: do you primarily sell to individual consumers, to other businesses (e.g., wholesale), or a mix of both?"
+      },
+      {
+        "role": "user",
+        "content": "We primarily sell to individual consumers, focusing on walk-in customers at our physical store. We don't do wholesale or business-to-business sales at this time."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, that keeps things straightforward—we’ll treat Luna Boutique as selling to individual consumers only.\n\nNext, I’d like to pin down your practical weekly capacity. Thinking about a typical busy-but-manageable week in the store, about how many customer checkouts (transactions) can you realistically handle, given your current space, staffing, and hours?"
+      },
+      {
+        "role": "user",
+        "content": "In a typical busy-but-manageable week, we can handle around 350 customer checkouts. Our space and staffing are optimized for that volume during our regular hours."
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect, I’ll use 350 customer checkouts as your full practical weekly capacity.\n\nFor planning Year 1, a realistic assumption is that you won’t be at 100% of that every week. I’d suggest we start with using about 70% of that capacity on average (so not every hour is slammed). Does using roughly 70% of your weekly capacity as a Year‑1 utilization assumption feel about right, or would you say closer to 60% or 80%?"
+      },
+      {
+        "role": "user",
+        "content": "70% sounds about right for Year 1 utilization. It's a reasonable expectation given our current marketing and foot traffic."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it, we’ll use 70% of your 350 checkouts per week as the Year‑1 utilization assumption.\n\nNext, let’s lock in your average spend per transaction: on a typical checkout (mix of apparel and accessories), about how much does a customer usually spend in total, in dollars?"
+      },
+      {
+        "role": "user",
+        "content": "On average, customers spend about $75 per transaction at Luna Boutique, combining apparel and accessories."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll use $75 as the average spend per transaction.\n\nTo confirm the basics of how people buy from you: it sounds like customers come into the store in person and complete their purchase at your register/point-of-sale (card or mobile), so fulfillment is entirely in‑store. Is that accurate as your primary way that customers receive their purchases?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's correct. Customers primarily come into the store and complete their purchase and receive their items in person at the checkout."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that matches what I’d expect for a boutique like yours—primary fulfillment is in‑store, same visit.\n\nGiven that setup, I’ll assume fulfillment works like this: you (the owner) and your in‑store staff handle all sales on the floor and at the POS, customers typically browse and buy within the same visit, and your main operational constraint is staff time and attention during open hours (rather than systems or demand). That is how fulfillment typically works for this kind of business – does this look right?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's exactly right. We, the owner and staff, handle all sales and customer service in the store, and the main limit is how much time and attention staff can give during open hours. Customers usually shop and buy during the same visit."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood, that fulfillment model fits Luna Boutique well.\n\nSince you’re operating as a local physical store in downtown Austin, I’ll assume your main customer reach is local—something like Austin and nearby areas in Travis County. For planning, does it feel right to say your geographic focus is local, with coverage like \"Austin and nearby communities in Travis County\"?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's accurate. Our geographic focus is local, primarily serving Austin and nearby communities within Travis County."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that gives us a clear local footprint for Luna Boutique.\n\nOne more structural item: how is Luna Boutique currently set up legally — would you describe it as a Sole proprietor, LLC, Partnership, S-corp, or C-corp?"
+      },
+      {
+        "role": "user",
+        "content": "Luna Boutique is currently set up as an LLC."
+      },
+      {
+        "role": "assistant",
+        "content": "Proposed competitive advantage: Luna Boutique’s competitive advantage is tight, owner-led curation of a small, fast-turning inventory that’s purchased in frequent, small batches based on direct observation of what downtown Austin walk-in customers actually buy each week. Because buying decisions are made in-store by the same person who works the floor (vs. a distant buyer using seasonal catalogs), the shop consistently carries “just-right-now” items with fewer misses and markdowns, giving customers a sense that the rack always feels new while Luna keeps better margins and lower inventory risk than typical boutiques.\n\nDoes this accurately reflect what truly sets the business apart?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that description perfectly captures what makes Luna Boutique unique and competitive in our market."
+      },
+      {
+        "role": "assistant",
+        "content": "Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?"
+      },
+      {
+        "role": "user",
+        "content": "Our main goal for the next 12 months is to increase monthly revenue to $30,000 by steadily building our local customer base and optimizing inventory turnover."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Target Market.\n\nLet’s start with gender: for Luna Boutique’s target market, do you want to focus only on women, or keep it open to all genders (for example, women as the core buyer but anyone is welcome)?"
+      },
+      {
+        "role": "user",
+        "content": "We focus only on women for Luna Boutique's target market, as our inventory and branding are tailored specifically to women's fashion."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it, we’ll treat your core target as women only for Luna Boutique.\n\nNext, thinking about your ideal paying customers walking into the store, what age range of women are you primarily targeting (for example, “25–40” as you mentioned, or a slightly broader band)?"
+      },
+      {
+        "role": "user",
+        "content": "Our primary target age range is 25 to 40 years old, which matches the style and price points of our clothing collections."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll keep your core target as women aged 25 to 40.\n\nNow, thinking about those women in downtown Austin buying trendy but affordable pieces, what *household income range* are you mainly designing for (for example, mid-range incomes like roughly $40,000–$90,000, higher incomes, or truly any income as long as they like the style)?"
+      },
+      {
+        "role": "user",
+        "content": "We are primarily designing for women with mid-range household incomes, approximately $40,000 to $90,000, as our price points and styles aim to be affordable yet fashionable for that segment."
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect, we’ll treat your core as women 25–40 with mid-range household incomes around $40,000–$90,000.\n\nNext, thinking about education level for your ideal customers (not a requirement to shop, just who you picture most often): are you mainly targeting women with some college/college degree and above, or is education level not something you really want to define (open to all)?"
+      },
+      {
+        "role": "user",
+        "content": "We mainly target women with some college education or a college degree and above, as they tend to be the shoppers most interested in our styles and price points."
+      },
+      {
+        "role": "assistant",
+        "content": "That makes sense for an urban, style-conscious customer base like yours—so we’ll picture women 25–40, mid-range incomes, with at least some college as the core.\n\nGiven how Luna Boutique operates (local, in-person shopping, lifestyle-driven fashion), it *could* be useful—but not mandatory—to also think about:\n- Household structure (e.g., single, roommates, partnered, with/without kids)\n- Employment (e.g., young professionals, service workers, creatives)\n- Housing economics (e.g., renters vs. owners, typical rent/mortgage levels)\n\nWhich of these, if any, would you like to include in your target market definition: Household structure, Employment, Housing economics, any combination of those, or skip all three?"
+      },
+      {
+        "role": "user",
+        "content": "Let's include Household structure and Employment in our target market definition, as they influence shopping habits and style preferences. We can skip Housing economics for now."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll include Household structure and Employment, and skip Housing economics.\n\nFirst, on Household structure: thinking about your ideal customers, are you mostly targeting women who are single / living with roommates, women who are partnered/married without kids, women with kids, or a mix of these with any one group being the primary focus?"
+      },
+      {
+        "role": "user",
+        "content": "We are targeting a mix of household structures, but with a primary focus on single women and those living with roommates, as they tend to shop more frequently for trendy and affordable fashion."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood: your primary household focus is single women and those living with roommates, with others still welcome.\n\nNow for Employment: among your ideal customers, which group best describes who you’re mainly targeting—young professionals in office/creative/tech roles, service/retail/hospitality workers, students/grad students, or a mix with one of these as the main focus?"
+      },
+      {
+        "role": "user",
+        "content": "Our main focus is on young professionals in office, creative, and tech roles, although we do welcome a mix including some students and service workers."
+      },
+      {
+        "role": "assistant",
+        "content": "Luna Boutique will position itself as a local, brick-and-mortar women’s fashion boutique serving style-conscious urban women ages 25–40 in Austin and nearby communities, with a mid-market price tier anchored around an average spend of $75 per retail transaction. The business model is per-transaction, in-person retail, with same-visit fulfillment and capacity primarily constrained by labor on the sales floor rather than by inventory systems or demand. Core customers are women with mid-range household incomes, at least some college education, and lifestyles centered around young professional office, creative, and tech roles, particularly those who are single or living with roommates and who seek fast-changing, on-trend pieces that still feel affordable. The boutique’s owner-led, high-frequency buying and tight curation support a “just-right-now” inventory feel that differentiates Luna Boutique from larger, less nimble competitors in the local market.\n\nTo attract and grow this audience at the current operating stage, the acquisition architecture will focus on a small set of high-fit channels. Instagram will showcase new arrivals and frequent, style-forward looks that match the habits of young professional women who browse social media for outfit inspiration between work and social activities. Google Search will ensure that women looking for “women’s boutique near me” and similar queries in the Austin area can easily find Luna Boutique when they are already in a shopping mindset. Google Maps/Business Profile will capture local foot-traffic intent, helping nearby residents and office workers discover the store while planning errands or evenings out. Local partnerships and cross-promotions with nearby salons, coffee shops, fitness studios, and creative workplaces will tap into existing flows of the same demographic and drive referral visits. Select influencer or micro-influencer collaborations focused on Austin-based lifestyle and fashion will provide social proof and contextual styling ideas that align with the boutique’s mid-market price point and fast-turning selection. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\n\nDoes this look right before we move on to Human Resources?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that summary captures our target market and marketing approach perfectly. We can proceed to Human Resources now."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Human Resources.\n\nAt this stage, many businesses highlight just a few pivotal roles (like leadership, operations, any technical/licensed roles, and key client-facing people); since Luna Boutique is already operating, we’ll treat what we capture as the team that runs and supports the current store, not a full rebuild.\n\nLet’s start with you as the owner:  \nWhat is your full name, your title/role at Luna Boutique, how many years of relevant experience you have in retail/fashion or small business (number of years), and any relevant education or credentials (formal degrees, fashion/merchandising training, business courses, etc.; if none or unsure, just say “none”)?"
+      },
+      {
+        "role": "user",
+        "content": "My name is Emily Rodriguez, and I am the Owner and Store Manager at Luna Boutique. I have about 8 years of experience in retail and fashion, including running this store for the past 3 years. I hold a bachelor's degree in business administration and have also completed a few short courses in fashion merchandising."
+      },
+      {
+        "role": "assistant",
+        "content": "Thank you, that’s clear and helpful.\n\nWould you like to add another person who is important to running Luna Boutique today (for example, an assistant manager, a key stylist/sales lead, a bookkeeper, or anyone else regularly involved)?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, I have a part-time assistant manager named Sarah Lee. She has about 5 years of experience in retail and focuses on sales floor management and customer service during peak hours."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, thank you.\n\nFor Sarah Lee, could you please confirm her exact title at Luna Boutique, roughly how many years of relevant experience she has (you mentioned about 5; we’ll anchor it as a number), and any relevant education or credentials you’d like noted (if none or you’re not sure, you can just say “none”)?  \n\nAfter that, we’ll see if you want to add anyone else."
+      },
+      {
+        "role": "user",
+        "content": "Sarah Lee's exact title is Assistant Manager. She has 5 years of relevant experience in retail. She does not have any formal education or credentials related to fashion or business beyond her work experience."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it on Sarah Lee as Assistant Manager with 5 years of retail experience and no formal related education.\n\nWould you like to add another person who is important to Luna Boutique today (for example, a regular part‑time sales associate, a bookkeeper, or anyone else consistently involved), or are Emily and Sarah the main ongoing people you want captured?"
+      },
+      {
+        "role": "user",
+        "content": "Emily and Sarah are the main ongoing people I want captured for now. We do have part-time sales associates, but they come and go frequently and aren't central to the business plan at this stage."
+      },
+      {
+        "role": "assistant",
+        "content": "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes.\n\nEmily Rodriguez serves as Owner & Store Manager, overseeing buying, merchandising, sales floor leadership, and staff management to keep daily operations running smoothly and inventory turning quickly. With 8 years in retail and fashion, including 3 years running Luna Boutique, plus a bachelor’s degree in Business Administration and targeted fashion merchandising coursework, she brings both practical and analytical strength to decisions about assortment, pricing, and scheduling. Because Emily works directly on the floor and controls the buy, she can quickly translate what customers respond to into focused purchasing and merchandising adjustments, which is critical to sustaining Luna Boutique’s “just-right-now” inventory feel while maintaining margins and managing risk. Estimated annual wage: $43,980/year.\n\nSarah Lee is the Assistant Manager, providing experienced coverage on the sales floor during peak hours, overseeing part-time associates, and ensuring that customer service, styling support, and checkout remain consistent when traffic is highest. Drawing on 5 years of hands-on retail experience focused on floor management and customer interactions, she is able to quickly resolve customer issues, keep transactions flowing efficiently, and uphold merchandising standards without constant owner oversight. This dependable operational support allows Emily to protect time for buying, planning, and strategic tasks while still maintaining a strong in-store experience, which is essential for Luna Boutique to operate near its weekly capacity as demand grows. Estimated annual wage: $43,980/year.\n\nSuggested year-1 roles and estimated annual wages:\n- Lead Sales Associate / Stylist: $43,980/year (in ~6 months) - As weekly transaction volume builds toward the store’s capacity, a consistent lead on the floor will be needed to anchor customer styling support and supervise part-time associates when the owner or assistant manager are not present.\n- Bookkeeper / Part-Time Admin Support: $44,530/year (in ~9 months) - With growing revenue and inventory turnover, a part-time bookkeeping/admin role will help take routine financial tracking, payroll prep, and basic compliance tasks off the owner’s plate to reduce bottlenecks.\n- Marketing & Social Media Coordinator (Part-Time): $59,900/year (in ~6 months) - To sustain high foot traffic and reach revenue goals, a part-time marketing coordinator will be needed to consistently manage Instagram content, local collaborations, and Google/Maps presence so these efforts are not sporadic or owner-dependent.\n\nDoes this look right before we move on to Financials?"
+      },
+      {
+        "role": "user",
+        "content": "This looks accurate and reflects our current staffing and plans well. No changes from my side. Ready to move on to Financials."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Financials.\n\nYear 1 revenue:\n\n| Line of Business | Product / Unit | Capacity | Load / Utilization | Price | Periods / Year | Year-1 Revenue |\n| --- | --- | --- | --- | --- | --- | --- |\n| Primary line of business | In‑store sale | 350 retail transaction/week | 70% | $75 | 52 | $955,500 |\n| **Primary line of business total** |  |  |  |  |  | **$955,500** |\n| **Company Total** |  |  |  |  |  | **$955,500** |\n\nThis plan has Luna Boutique’s single Austin store handling about 245 in‑store transactions per week (70% of a 350‑transaction practical capacity), at an average of $75 per checkout, over 52 operating weeks, which adds up to roughly $955,500 in Year‑1 revenue; for an already operating boutique with an established customer base, a clear marketing plan to drive foot traffic, and staffing aligned to this “busy but sustainable” level of weekly volume, this is a solid, realistic baseline, and we’ll treat it as locked in for the rest of the financial planning.\n\nA reasonable Year-1 COGS baseline is about 60% of revenue, which puts your projected Year-1 direct costs around $574,438.\n\nDoes that broadly match how your business works, or should we adjust it because your direct costs are materially different?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that matches well with our current cost structure. Our direct costs typically run close to 60% of revenue, so the $574,438 estimate for Year-1 COGS seems accurate to me."
+      },
+      {
+        "role": "assistant",
+        "content": "Based on the people plan already defined, a reasonable Year-1 payroll baseline is about $151,032 across 5 roles in the plan.\n\nThis payroll estimate reflects the existing team plus any incremental additions from the staffing plan; it is not replacing the team already in place. That includes 2 current team roles and 3 additional planned roles.\n\nDoes that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
+      },
+      {
+        "role": "user",
+        "content": "That payroll estimate sounds about right for us. It aligns well with what we expect to spend on staffing, considering Emily, Sarah, and the planned new roles over the year. No need to adjust it."
+      },
+      {
+        "role": "assistant",
+        "content": "A reasonable Year-1 marketing baseline is about 12% of revenue, which puts your projected Year-1 marketing spend around $114,660.\n\nDoes that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?"
+      },
+      {
+        "role": "user",
+        "content": "That marketing spend aligns well with our plans. We expect to invest heavily in marketing to build our customer base in the first year, so no adjustment is needed."
+      },
+      {
+        "role": "assistant",
+        "content": "What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?"
+      },
+      {
+        "role": "user",
+        "content": "We pay $4,500 per month for the storefront space in downtown Austin where Luna Boutique operates."
+      },
+      {
+        "role": "assistant",
+        "content": "Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, we definitely expect to continue leasing our dedicated storefront space as it is central to our business model and customer experience."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that’s clear.\n\nAs of last month, about how much money did you pay yourself from the business in total (including any owner salary, wages on payroll, or draws/transfers you took out for yourself)?"
+      },
+      {
+        "role": "user",
+        "content": "Last month, I paid myself approximately $3,500 from the business, which includes both owner draws and payroll wages."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $3,500 for owner compensation.\n\nNow I’d like to capture your other regular bills.\n\nAs of last month, about how much did you spend on other ongoing business expenses besides payroll, marketing, and rent — things like utilities, software/POS, insurance, shipping, office/supplies, bookkeeping services, etc., in total for the month?"
+      },
+      {
+        "role": "user",
+        "content": "Last month, our other ongoing business expenses totaled around $1,200, covering utilities, software subscriptions, insurance, shipping, office supplies, and bookkeeping services."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $1,200 for other operating expense.\n\nAs of last month, how many people were on payroll at Luna Boutique, including you if you’re paid through payroll rather than only by draws?"
+      },
+      {
+        "role": "user",
+        "content": "As of last month, there were 15 people on payroll at Luna Boutique, including myself since I receive a portion of my pay through payroll."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use 15 for current employee count.\n\nFor this next piece, I’m only looking at bigger one-time purchases, not your regular monthly bills.\n\nAs of last month, about how much did you spend in the *past year* on larger, one-time investments for Luna Boutique—things like build-out, furniture/fixtures, POS hardware, computers, or major equipment/renovations (a rough total is fine; if there weren’t any, say so and I’ll record 0)?"
+      },
+      {
+        "role": "user",
+        "content": "In the past year, we spent approximately $25,000 on build-out costs, furniture, fixtures, and POS hardware to set up Luna Boutique."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $25,000 for current capital spending.\n\nThanks, that’s helpful.\n\nNow I’d like to capture what you already have in place to run the boutique.\n\nAs of last month, thinking about the main equipment, furniture/fixtures, POS hardware, and other tools you currently use to operate Luna Boutique (racks, displays, checkout counter, POS/iPad, backroom equipment, etc.), what’s your rough estimate of their total value today if you had to put one number on it?"
+      },
+      {
+        "role": "user",
+        "content": "The total value of the equipment, furniture, fixtures, POS hardware, and other tools currently in place is roughly $20,000."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $20,000 for initial assets already in the business.\n\nThanks, that’s clear — I’ll use $20,000 as the rough value of the operating assets.\n\nNow I need to capture any leases for equipment or space beyond your main rent:\n\nAs of last month, besides your regular store rent, did you have any other leased or rented equipment or space you pay for (for example, separately leased POS hardware, a storage unit, rented equipment, or similar)? If yes, what do you pay for that and how often (e.g., “$200/month for storage unit”); if not, I’ll record 0."
+      },
+      {
+        "role": "user",
+        "content": "No, we do not have any other leased or rented equipment or space beyond our regular store rent."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, I’ll record no additional leased equipment or space beyond your main rent.\n\nNow, as of last month, thinking about money or value already put into Luna Boutique so far (your own cash, any investor money, plus any paid-for gear or build-out you funded), what’s your rough best guess for the total amount invested into the business up to this point?"
+      },
+      {
+        "role": "user",
+        "content": "So far, the rough total amount invested into Luna Boutique is about $70,000. This includes the $25,000 in one-time build-out costs and the estimated $20,000 value of current assets, plus other cash investments we've made to cover initial operating expenses and inventory."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $0 for money invested so far.\n\nAs of last month, roughly how much did Luna Boutique still owe in total on any business loans, credit lines, or credit cards (not the monthly payment, but the total balance you’d need to pay off to be debt‑free)?"
+      },
+      {
+        "role": "user",
+        "content": "Actually, I did mention before that the total invested in the business is about $70,000, including one-time costs and current assets. To answer your current question, as of last month, Luna Boutique doesn't owe anything on loans, credit lines, or credit cards; we're debt-free."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $70,000 for total debt outstanding.\n\nThanks for clarifying that you’re currently debt‑free — that helps a lot.\n\nSince there’s no loan or credit balance, as of last month how much were you paying each month on any business debt (loan or credit card) — if there truly were no payments because you had no debt, I’ll record this as 0 and move on.\n\nSince you’re debt‑free, I’ll record your other monthly debt payments as 0.\n\nAs of last month, about how much cash did the business have on hand — meaning money in your business bank accounts (and cash in the register, if any), just a single rough total?"
+      },
+      {
+        "role": "user",
+        "content": "As of last month, Luna Boutique had approximately $15,000 in cash on hand in business bank accounts and cash register combined."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $15,000 for other monthly debt payments.\n\nThanks, that’s clear — I’ll use $0 for cash on hand and keep the debt-free status in mind.\n\nSince you’ve said the business has no loans or credit balances, I’m going to record your annual interest payment as 0 and move on.\n\nNo need to change anything here unless you actually do have a loan or line of credit with interest charges that we haven’t captured yet.\n\nAs of last month, about how much did Luna Boutique pay in *interest only* on any business loans, credit lines, or credit cards over the past year (if you truly have no debt and paid no interest, I’ll record this as 0)?"
+      },
+      {
+        "role": "user",
+        "content": "We have not paid any interest on loans or credit lines over the past year since we're debt-free."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $0 for annual interest payment.\n\nSince you’re debt‑free and haven’t been paying anything toward loan balances, I’m going to record your annual **principal** payment as 0.\n\nNo action needed on your side here—this just keeps the model consistent.\n\nBefore we move on, can you confirm that you *don’t* have any installment-style purchases hiding as “loans” (for example, financed POS hardware, equipment on payment plans, or buy‑now‑pay‑later inventory) that require paying down a balance over time? If not, I’ll keep principal payments at 0."
+      },
+      {
+        "role": "user",
+        "content": "Yes, I confirm that we do not have any installment-style purchases or financed equipment. We have no outstanding balances that require principal payments over time."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $0 for annual principal payment.\n\nThanks, that’s helpful.\n\nAs of last month, about how much cash did the business actually have on hand — meaning money in your business bank accounts plus any cash in the register, all together as one rough total?"
+      },
+      {
+        "role": "user",
+        "content": "I already mentioned that Luna Boutique had about $15,000 in cash on hand last month in total across bank accounts and register."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $15,000 for cash on hand.\n\nThanks for the reminder—that $15,000 cash figure fits well with everything else you’ve shared, so I’ll keep $15,000 recorded at that level.\n\nNext, I’d like to capture any money customers still owed you.\n\nAs of last month, about how much money were customers still due to pay you for past sales—things like unpaid invoices, buy-now-pay-later balances you’re carrying, or store charge accounts (if you don’t extend credit and everything is paid at checkout, I’ll record this as 0)?"
+      },
+      {
+        "role": "user",
+        "content": "As of last month, customers did not owe us any money. We don’t offer credit or payment plans, so all sales are paid in full at checkout."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $0 for accounts receivable.\n\nGot it — I’ll record {fact:financials.ar_balance} as 0 since all your sales are paid in full at checkout.\n\nNow, as of last month, about how much did Luna Boutique still owe to others on regular business bills — things like unpaid vendor invoices for inventory, outstanding utility bills, or business credit card balances you hadn’t paid off yet (if you either pay everything immediately or don’t really track this, tell me and I’ll record 0)?"
+      },
+      {
+        "role": "user",
+        "content": "As of last month, Luna Boutique did not have any unpaid bills or outstanding balances. We pay our vendors and utility bills promptly, so I’d say $0 for unpaid business bills."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use $0 for accounts payable.\n\nGot it - I'll use $0 for accounts payable.\n\nLast one for this section: as of last month, thinking about all the products and inventory on your racks, backroom storage, and any other locations, what’s your rough estimate of the total value of that inventory at cost (what you paid for it, not the price you sell it for)?"
+      },
+      {
+        "role": "user",
+        "content": "As of last month, the total value of our inventory at cost was approximately $25,000."
+      },
+      {
+        "role": "assistant",
+        "content": "15 shows a relatively large team for a single-location boutique, but only two specific employees ({'full_name': 'Emily Rodriguez', 'role_title': 'Owner & Store Manager', 'primary_responsibilities': 'Leads overall store operations, including buying and merchandising, sales floor leadership, staff scheduling and supervision, and ensuring a high-quality in-store customer experience that keeps inventory turning and margins healthy.', 'relevant_background': '8 years in retail and fashion, including 3 years running Luna Boutique, with a bachelor’s degree in Business Administration and short courses in fashion merchandising.', 'experience_years': '8', 'why_strengthens_business': 'Combining day-to-day floor experience with formal business training and hands-on merchandising skills, Emily directly connects what sells each week to what gets bought, which underpins Luna Boutique’s fast-turning, tightly curated inventory model and keeps the store operating smoothly at high utilization.', 'paragraph': 'Emily Rodriguez serves as Owner & Store Manager, overseeing buying, merchandising, sales floor leadership, and staff management to keep daily operations running smoothly and inventory turning quickly. With 8 years in retail and fashion, including 3 years running Luna Boutique, plus a bachelor’s degree in Business Administration and targeted fashion merchandising coursework, she brings both practical and analytical strength to decisions about assortment, pricing, and scheduling. Because Emily works directly on the floor and controls the buy, she can quickly translate what customers respond to into focused purchasing and merchandising adjustments, which is critical to sustaining Luna Boutique’s “just-right-now” inventory feel while maintaining margins and managing risk.', 'annual_wage': 43980.0, 'wage_source': 'oews_median'}, {'full_name': 'Sarah Lee', 'role_title': 'Assistant Manager', 'primary_responsibilities': 'Supports day-to-day store operations by managing the sales floor during peak hours, coaching part-time associates, handling customer service and checkout, and helping maintain merchandising standards when the store is busy.', 'relevant_background': '5 years of retail experience focused on sales floor management and customer service in boutique and store environments, with on-the-job training in styling, POS, and team support.', 'experience_years': '5', 'why_strengthens_business': 'Sarah provides reliable, experienced coverage during peak periods so that core customer service, styling support, and checkout stay strong even when the store is busy, freeing the owner to focus on buying, merchandising, and higher-level decisions that support growth.', 'paragraph': 'Sarah Lee is the Assistant Manager, providing experienced coverage on the sales floor during peak hours, overseeing part-time associates, and ensuring that customer service, styling support, and checkout remain consistent when traffic is highest. Drawing on 5 years of hands-on retail experience focused on floor management and customer interactions, she is able to quickly resolve customer issues, keep transactions flowing efficiently, and uphold merchandising standards without constant owner oversight. This dependable operational support allows Emily to protect time for buying, planning, and strategic tasks while still maintaining a strong in-store experience, which is essential for Luna Boutique to operate near its weekly capacity as demand grows.', 'annual_wage': 43980.0, 'wage_source': 'oews_median'}) are listed with wages driving .\n\nIs 15 intended to reflect the *actual current headcount today* (including all part-time sales associates), or is it just a rough/incorrect placeholder that should instead match the two named staff plus the three inferred future roles?"
+      },
+      {
+        "role": "user",
+        "content": "The 15 count was a rough placeholder. Currently, we have only the two named staff members, Emily and Sarah. The additional three roles you inferred are future planned hires, not current employees."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that clears up the headcount issue — I’ll treat 2 as 2, with the three additional roles only coming in as future hires per the staffing plan.\n\nOne remaining inconsistency: the balance sheet pieces around funding and debt don’t line up. You’ve said:\n- Roughly $70,000 has been invested into Luna so far\n- The business is debt‑free (no loans, no credit lines, no principal/interest, no BNPL/installments)\nbut the intake still shows $70,000 as a nonzero amount.\n\nTo reconcile this: should $0 be set to $70,000 and $70,000 set to $0, with all that funding treated as owner equity rather than debt?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, please treat the $70,000 as owner equity and set any debt amount to $0, reflecting that the business is debt-free and the funds are from owner investment."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood — I’ll treat $70,000 as $70,000 and $0 as $0, with no related interest or principal payments.\n\nWith that correction and the updated current headcount of 2 (plus 3 future hires from the staffing plan), the intake is now internally consistent on funding, balance sheet items, payroll, and operating structure."
+      }
+    ],
+    "operating_model_json": {
+      "consumer_type": "consumer",
+      "business_type": "Clothing Store",
+      "business_stage": "operating",
+      "business_description_summary": "Luna Boutique operates as a brick-and-mortar women’s clothing and accessories boutique in downtown Austin, serving primarily local walk-in consumers. The core planning unit is a single retail transaction on a weekly cadence, with revenue driven by the average spend per transaction of $75. Day-to-day fulfillment is same-visit, in-store checkout: customers browse on the floor, staff assist with sizing and styling, and purchases are completed at the POS with in-person pickup at store checkout.\n\nOperationally, the owner and in-store staff handle merchandising, customer service, and checkout, so practical throughput is constrained mainly by labor and attention during open hours. At full practical capacity the team can handle about 350 retail transaction per week (350 per planning period), and Year-1 planning assumes utilization around  of that capacity. The local geographic focus is Austin and nearby communities in Travis County, with customers typically traveling from within the metro area to shop in person.\n\nFor compliance, the operating model assumes LLC status with standard retail business requirements in place (e.g., local business registration, sales tax collection and remittance, any required city or state retail permits, and appropriate general liability coverage). Exact licensing, permit, zoning, and insurance requirements can vary by jurisdiction, so this plan assumes those location-specific obligations for a downtown Austin clothing retailer are identified and built into normal operations.",
+      "lob_models": [
+        {
+          "lob_name": "Primary line of business",
+          "products": [
+            {
+              "product_name": "In‑store sale",
+              "unit_name": "retail transaction",
+              "unit_description": "a single in‑store customer checkout for women’s clothing and/or accessories",
+              "unit_cadence": "weekly",
+              "units_per_week_capacity": 350,
+              "units_per_period_capacity": 350,
+              "operating_periods_per_year": 52,
+              "utilization_rate": 0.7,
+              "unit_price": 75
+            }
+          ]
+        }
+      ],
+      "unit_name": null,
+      "unit_description": null,
+      "unit_cadence": null,
+      "units_per_week_capacity": null,
+      "units_per_period_capacity": null,
+      "operating_periods_per_year": null,
+      "utilization_rate": null,
+      "unit_price": null,
+      "shipping_method": "in-person pickup at store checkout",
+      "sales_modality": "physical",
+      "geographic_scope": "local",
+      "geographic_coverage": "Austin and nearby communities in Travis County",
+      "countries": [
+        "USA"
+      ],
+      "milestones": [
+        {
+          "description": "Increase Luna Boutique’s monthly revenue to $30,000 by growing the local customer base and improving inventory turnover",
+          "timing": "Over the next 12 months",
+          "timing_months_max": 12
+        }
+      ],
+      "capacity_driver": "labor",
+      "primary_growth_lever": "increase utilization of existing weekly capacity through more marketing and foot traffic",
+      "legal_entity": "LLC",
+      "confidence": 1,
+      "competitive_advantage": "Luna Boutique’s competitive advantage is tight, owner-led curation of a small, fast-turning inventory that’s purchased in frequent, small batches based on direct observation of what downtown Austin walk-in customers actually buy each week. Because buying decisions are made in-store by the same person who works the floor (vs. a distant buyer using seasonal catalogs), the shop consistently carries “just-right-now” items with fewer misses and markdowns, giving customers a sense that the rack always feels new while Luna keeps better margins and lower inventory risk than typical boutiques.",
+      "business_naics_6": "458110"
+    },
+    "target_market_json": {
+      "consumer_type": "consumer",
+      "gender_age_intent": [
+        {
+          "gender_focus": "female",
+          "age_min": 25,
+          "age_max": 40
+        }
+      ],
+      "income_intent": [
+        {
+          "income_min": 40000,
+          "income_max": 90000
+        }
+      ],
+      "selections": [
+        {
+          "segment": "Education",
+          "acs_codes": [
+            "B15003_017E",
+            "B15003_022E",
+            "B15003_023E"
+          ]
+        },
+        {
+          "segment": "Household Structure",
+          "acs_codes": [
+            "B11001_002E",
+            "B11001_007E"
+          ]
+        },
+        {
+          "segment": "Employment",
+          "acs_codes": [
+            "B23025_003E",
+            "B23025_004E"
+          ]
+        }
+      ],
+      "b2b_industry_terms": null,
+      "b2b_naics_6": null,
+      "b2b_size_bands": null,
+      "b2b_age_bands": null,
+      "marketing_plan_summary": "Luna Boutique will position itself as a local, brick-and-mortar women’s fashion boutique serving style-conscious urban women ages 25–40 in Austin and nearby communities, with a mid-market price tier anchored around an average spend of $75 per retail transaction. The business model is per-transaction, in-person retail, with same-visit fulfillment and capacity primarily constrained by labor on the sales floor rather than by inventory systems or demand. Core customers are women with mid-range household incomes, at least some college education, and lifestyles centered around young professional office, creative, and tech roles, particularly those who are single or living with roommates and who seek fast-changing, on-trend pieces that still feel affordable. The boutique’s owner-led, high-frequency buying and tight curation support a “just-right-now” inventory feel that differentiates Luna Boutique from larger, less nimble competitors in the local market.\n\nTo attract and grow this audience at the current operating stage, the acquisition architecture will focus on a small set of high-fit channels. Instagram will showcase new arrivals and frequent, style-forward looks that match the habits of young professional women who browse social media for outfit inspiration between work and social activities. Google Search will ensure that women looking for “women’s boutique near me” and similar queries in the Austin area can easily find Luna Boutique when they are already in a shopping mindset. Google Maps/Business Profile will capture local foot-traffic intent, helping nearby residents and office workers discover the store while planning errands or evenings out. Local partnerships and cross-promotions with nearby salons, coffee shops, fitness studios, and creative workplaces will tap into existing flows of the same demographic and drive referral visits. Select influencer or micro-influencer collaborations focused on Austin-based lifestyle and fashion will provide social proof and contextual styling ideas that align with the boutique’s mid-market price point and fast-turning selection. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.",
+      "confidence": 0.95
+    },
+    "people_json": {
+      "people": [
+        {
+          "full_name": "Emily Rodriguez",
+          "role_title": "Owner & Store Manager",
+          "primary_responsibilities": "Leads overall store operations, including buying and merchandising, sales floor leadership, staff scheduling and supervision, and ensuring a high-quality in-store customer experience that keeps inventory turning and margins healthy.",
+          "relevant_background": "8 years in retail and fashion, including 3 years running Luna Boutique, with a bachelor’s degree in Business Administration and short courses in fashion merchandising.",
+          "experience_years": "8",
+          "why_strengthens_business": "Combining day-to-day floor experience with formal business training and hands-on merchandising skills, Emily directly connects what sells each week to what gets bought, which underpins Luna Boutique’s fast-turning, tightly curated inventory model and keeps the store operating smoothly at high utilization.",
+          "paragraph": "Emily Rodriguez serves as Owner & Store Manager, overseeing buying, merchandising, sales floor leadership, and staff management to keep daily operations running smoothly and inventory turning quickly. With 8 years in retail and fashion, including 3 years running Luna Boutique, plus a bachelor’s degree in Business Administration and targeted fashion merchandising coursework, she brings both practical and analytical strength to decisions about assortment, pricing, and scheduling. Because Emily works directly on the floor and controls the buy, she can quickly translate what customers respond to into focused purchasing and merchandising adjustments, which is critical to sustaining Luna Boutique’s “just-right-now” inventory feel while maintaining margins and managing risk.",
+          "annual_wage": 43980.0,
+          "wage_source": "oews_median"
+        },
+        {
+          "full_name": "Sarah Lee",
+          "role_title": "Assistant Manager",
+          "primary_responsibilities": "Supports day-to-day store operations by managing the sales floor during peak hours, coaching part-time associates, handling customer service and checkout, and helping maintain merchandising standards when the store is busy.",
+          "relevant_background": "5 years of retail experience focused on sales floor management and customer service in boutique and store environments, with on-the-job training in styling, POS, and team support.",
+          "experience_years": "5",
+          "why_strengthens_business": "Sarah provides reliable, experienced coverage during peak periods so that core customer service, styling support, and checkout stay strong even when the store is busy, freeing the owner to focus on buying, merchandising, and higher-level decisions that support growth.",
+          "paragraph": "Sarah Lee is the Assistant Manager, providing experienced coverage on the sales floor during peak hours, overseeing part-time associates, and ensuring that customer service, styling support, and checkout remain consistent when traffic is highest. Drawing on 5 years of hands-on retail experience focused on floor management and customer interactions, she is able to quickly resolve customer issues, keep transactions flowing efficiently, and uphold merchandising standards without constant owner oversight. This dependable operational support allows Emily to protect time for buying, planning, and strategic tasks while still maintaining a strong in-store experience, which is essential for Luna Boutique to operate near its weekly capacity as demand grows.",
+          "annual_wage": 43980.0,
+          "wage_source": "oews_median"
+        }
+      ],
+      "inferred_roles": [
+        {
+          "role_title": "Lead Sales Associate / Stylist",
+          "annual_wage": 43980.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 6,
+          "notes": "As weekly transaction volume builds toward the store’s capacity, a consistent lead on the floor will be needed to anchor customer styling support and supervise part-time associates when the owner or assistant manager are not present."
+        },
+        {
+          "role_title": "Bookkeeper / Part-Time Admin Support",
+          "annual_wage": 44530.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 9,
+          "notes": "With growing revenue and inventory turnover, a part-time bookkeeping/admin role will help take routine financial tracking, payroll prep, and basic compliance tasks off the owner’s plate to reduce bottlenecks."
+        },
+        {
+          "role_title": "Marketing & Social Media Coordinator (Part-Time)",
+          "annual_wage": 59900.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 6,
+          "notes": "To sustain high foot traffic and reach revenue goals, a part-time marketing coordinator will be needed to consistently manage Instagram content, local collaborations, and Google/Maps presence so these efforts are not sporadic or owner-dependent."
+        }
+      ],
+      "inferred_roles_summary": "Suggested year-1 roles and estimated annual wages:\n- Lead Sales Associate / Stylist: $43,980/year (in ~6 months) - As weekly transaction volume builds toward the store’s capacity, a consistent lead on the floor will be needed to anchor customer styling support and supervise part-time associates when the owner or assistant manager are not present.\n- Bookkeeper / Part-Time Admin Support: $44,530/year (in ~9 months) - With growing revenue and inventory turnover, a part-time bookkeeping/admin role will help take routine financial tracking, payroll prep, and basic compliance tasks off the owner’s plate to reduce bottlenecks.\n- Marketing & Social Media Coordinator (Part-Time): $59,900/year (in ~6 months) - To sustain high foot traffic and reach revenue goals, a part-time marketing coordinator will be needed to consistently manage Instagram content, local collaborations, and Google/Maps presence so these efforts are not sporadic or owner-dependent.",
+      "business_naics_6": "458110",
+      "confidence": 0.93
+    },
+    "financials_json": {
+      "_financials_revenue_intro_done": true,
+      "baseline_cogs_percent": 0.601191,
+      "baseline_cogs": 574438.0005,
+      "cogs_adjustment": 0.0,
+      "cogs_total_year1": 574438.0005,
+      "cogs_basis_naics": "458110",
+      "cogs_basis_years_used": [
+        "2025"
+      ],
+      "cogs_basis_rationale": "",
+      "current_cogs": 574438.0005,
+      "cogs_percent_of_revenue": 0.601191,
+      "baseline_payroll_year1": 151032.5,
+      "payroll_adjustment": 0.0,
+      "payroll_total_year1": 151032.5,
+      "payroll_basis_people_roles": [
+        {
+          "source": "person",
+          "full_name": "Emily Rodriguez",
+          "role_title": "Owner & Store Manager",
+          "annual_wage": 43980.0,
+          "months_counted_year1": 12,
+          "year1_payroll_amount": 43980.0
+        },
+        {
+          "source": "person",
+          "full_name": "Sarah Lee",
+          "role_title": "Assistant Manager",
+          "annual_wage": 43980.0,
+          "months_counted_year1": 12,
+          "year1_payroll_amount": 43980.0
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Lead Sales Associate / Stylist",
+          "annual_wage": 43980.0,
+          "months_until_hire": 6,
+          "months_counted_year1": 6,
+          "year1_payroll_amount": 21990.0
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Bookkeeper / Part-Time Admin Support",
+          "annual_wage": 44530.0,
+          "months_until_hire": 9,
+          "months_counted_year1": 3,
+          "year1_payroll_amount": 11132.5
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Marketing & Social Media Coordinator (Part-Time)",
+          "annual_wage": 59900.0,
+          "months_until_hire": 6,
+          "months_counted_year1": 6,
+          "year1_payroll_amount": 29950.0
+        }
+      ],
+      "current_payroll": 151032.5,
+      "baseline_marketing_percent": 0.12,
+      "baseline_marketing": 114660.0,
+      "marketing_adjustment": 0.0,
+      "marketing_total_year1": 114660.0,
+      "marketing_percent_of_revenue": 0.12000000000000001,
+      "monthly_rent_expense": 4500.0,
+      "future_rent_expected": true,
+      "owner_compensation": 3500.0,
+      "other_operating_expense": 1200.0,
+      "current_num_employees": 2,
+      "current_capex": 25000.0,
+      "initial_assets": 20000.0,
+      "initial_lease": "0,none",
+      "initial_equity": 70000,
+      "total_debt_outstanding": 0,
+      "other_monthly_debt_payments": 0,
+      "annual_interest_payment": 0,
+      "annual_principal_payment": 0,
+      "cash_on_hand": 15000.0,
+      "ar_balance": 0.0,
+      "ap_balance": 0.0,
+      "inventory_balance": 25000.0
+    },
+    "marketing_model_json": {
+      "ready": true,
+      "version": 3,
+      "signature": "{\"business\": {\"address_country\": \"USA\", \"address_state\": \"TX\", \"address_zip\": \"78701\"}, \"market\": {\"b2b_age_bands\": [], \"b2b_naics_6\": [], \"b2b_size_bands\": [], \"consumer_type\": \"consumer\", \"marketing_plan_summary\": \"Luna Boutique will position itself as a local, brick-and-mortar women’s fashion boutique serving style-conscious urban women ages 25–40 in Austin and nearby communities, with a mid-market price tier anchored around an average spend of $75 per retail transaction. The business model is per-transaction, in-person retail, with same-visit fulfillment and capacity primarily constrained by labor on the sales floor rather than by inventory systems or demand. Core customers are women with mid-range household incomes, at least some college education, and lifestyles centered around young professional office, creative, and tech roles, particularly those who are single or living with roommates and who seek fast-changing, on-trend pieces that still feel affordable. The boutique’s owner-led, high-frequency buying and tight curation support a “just-right-now” inventory feel that differentiates Luna Boutique from larger, less nimble competitors in the local market.\\n\\nTo attract and grow this audience at the current operating stage, the acquisition architecture will focus on a small set of high-fit channels. Instagram will showcase new arrivals and frequent, style-forward looks that match the habits of young professional women who browse social media for outfit inspiration between work and social activities. Google Search will ensure that women looking for “women’s boutique near me” and similar queries in the Austin area can easily find Luna Boutique when they are already in a shopping mindset. Google Maps/Business Profile will capture local foot-traffic intent, helping nearby residents and office workers discover the store while planning errands or evenings out. Local partnerships and cross-promotions with nearby salons, coffee shops, fitness studios, and creative workplaces will tap into existing flows of the same demographic and drive referral visits. Select influencer or micro-influencer collaborations focused on Austin-based lifestyle and fashion will provide social proof and contextual styling ideas that align with the boutique’s mid-market price point and fast-turning selection. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\", \"selections\": [{\"acs_codes\": [\"B15003_017E\", \"B15003_022E\", \"B15003_023E\"], \"segment\": \"Education\"}, {\"acs_codes\": [\"B11001_002E\", \"B11001_007E\"], \"segment\": \"Household Structure\"}, {\"acs_codes\": [\"B23025_003E\", \"B23025_004E\"], \"segment\": \"Employment\"}], \"target_market_summary\": \"\"}, \"ops\": {\"business_naics_6\": \"458110\", \"business_type\": \"Clothing Store\", \"capacity_driver\": \"labor\", \"competitive_advantage\": \"Luna Boutique’s competitive advantage is tight, owner-led curation of a small, fast-turning inventory that’s purchased in frequent, small batches based on direct observation of what downtown Austin walk-in customers actually buy each week. Because buying decisions are made in-store by the same person who works the floor (vs. a distant buyer using seasonal catalogs), the shop consistently carries “just-right-now” items with fewer misses and markdowns, giving customers a sense that the rack always feels new while Luna keeps better margins and lower inventory risk than typical boutiques.\", \"consumer_type\": \"consumer\", \"countries\": [\"USA\"], \"geographic_coverage\": \"Austin and nearby communities in Travis County\", \"geographic_scope\": \"local\", \"operating_periods_per_year\": null, \"primary_growth_lever\": \"increase utilization of existing weekly capacity through more marketing and foot traffic\", \"sales_modality\": \"physical\", \"shipping_method\": \"in-person pickup at store checkout\", \"unit_cadence\": \"\", \"unit_description\": \"\", \"unit_name\": \"\", \"unit_price\": null, \"units_per_period_capacity\": null, \"units_per_week_capacity\": null, \"utilization_rate\": null}, \"year1\": {\"company_revenue_total_year1\": 955499.9999999999, \"lobs\": [{\"lob_name\": \"Primary line of business\", \"products\": [{\"annual_units_year1\": 12739.999999999998, \"avg_units_per_period_year1\": 244.99999999999997, \"avg_units_per_week_year1\": 244.99999999999997, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_week_year1\", \"authoritative_capacity_field\": \"units_per_week_capacity\", \"authoritative_periods_field\": \"operating_weeks_per_year\", \"cadence_type\": \"weekly\", \"capacity_interpretation\": \"weekly throughput capacity\", \"operating_periods_per_year\": 52.0, \"volume_semantics\": \"average weekly delivered units\"}, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"weekly\", \"capacity_semantics\": \"max units per week\", \"periods_semantics\": \"operating weeks per year\", \"realized_units_semantics\": \"average units per week during year 1\", \"revenue_semantics\": \"avg units/week x price x weeks/year\"}, \"operating_periods_per_year\": 52.0, \"operating_weeks_per_year\": 52.0, \"product_name\": \"In‑store sale\", \"revenue_total_year1\": 955499.9999999999, \"unit_cadence\": \"weekly\", \"unit_description\": \"a single in‑store customer checkout for women’s clothing and/or accessories\", \"unit_name\": \"retail transaction\", \"unit_price\": 75.0, \"units_per_period_capacity\": 350.0, \"units_per_week_capacity\": 350.0, \"utilization_rate\": 0.7}], \"revenue_total_year1\": 955499.9999999999}]}}",
+      "geography_basis": {
+        "scope": "local",
+        "zip_basis": [],
+        "anchor_zip": "78701",
+        "state_fips": [
+          "48"
+        ],
+        "county_geoids": [
+          "48453"
+        ],
+        "coverage_summary": "Austin and nearby communities in Travis County",
+        "explicit_zip_basis": []
+      },
+      "b2b_basis_counts": {},
+      "b2c_basis_counts": [
+        {
+          "segment": "Education",
+          "acs_codes": [
+            "B15003_017E",
+            "B15003_022E",
+            "B15003_023E"
+          ],
+          "basis_count": 541497.1462000001,
+          "weight_basis": "population"
+        },
+        {
+          "segment": "Household Structure",
+          "acs_codes": [
+            "B11001_002E",
+            "B11001_007E"
+          ],
+          "basis_count": 539668.9177,
+          "weight_basis": "housing"
+        },
+        {
+          "segment": "Employment",
+          "acs_codes": [
+            "B23025_003E",
+            "B23025_004E"
+          ],
+          "basis_count": 1512157.3856000002,
+          "weight_basis": "population"
+        }
+      ],
+      "reachable_market": 35000.0,
+      "market_basis_type": "consumer",
+      "baseline_marketing": 114660.0,
+      "capture_rate_year1": 0.36,
+      "marketing_intensity": "high",
+      "expected_units_year1": 12740.0,
+      "missing_dependencies": [],
+      "reachable_market_b2b": 0.0,
+      "reachable_market_b2c": 35000.0,
+      "required_units_year1": 12739.999999999998,
+      "required_revenue_year1": 955500.0,
+      "marketing_basis_summary": "Reachable-market framing (planning only, not literal TAM):\n\nB2C people-based reach: The ACS basis counts (roughly 0.5M–1.5M adults on relevant education, household, and employment dimensions across Travis County) are a ceiling, not the actual audience. Luna targets style‑conscious urban women 25–40 with mid-range incomes, some college, and young-professional/creative/tech lifestyles who are also willing to shop at a downtown boutique. That’s a much narrower behavioral slice of the total adult population. Within the Austin/Travis County footprint, it’s reasonable to treat on the order of tens of thousands—not hundreds of thousands—as realistically reachable in Year 1 given a single physical location, Instagram + Google + Maps, and local partnerships. For planning, we assume a reachable-market proxy of ~35,000 qualified women who either live, work, or socialize in and around downtown and are open to boutique shopping at Luna’s price point.\n\nFrom reach to units and capture rate: The Year‑1 plan requires ~12,740 retail transactions at ~$75 each (~$955k revenue). A boutique like this depends heavily on repeat visits and multi-visit customers, not a one-time adoption rate across the whole reachable audience. If we assume on the order of ~10,000 unique customers in Year 1, that implies many customers only visit once while a smaller core visits multiple times; this easily supports the required 12,740 transactions (average ~1.27 purchases per unique customer). Relative to a planning reach of ~35,000 qualified women, that’s effectively ~0.36 units per reachable person (capture_rate_year1 ≈ 0.36). This is high as a one-time adoption metric, but realistic once you recognize (a) repeat visits, (b) that the *effective* reached subset is tighter than the planning reach (e.g., office workers near 78701), and (c) that many transactions will come from the same high-fit micro‑segment.\n\nB2B firm-based reach: Not applicable here. Luna is strictly B2C retail with in‑person pickup at the store. No separate B2B selling or firm-level account model is present, so reachable_market_b2b is 0 and the combined reachable_market is effectively the B2C planning view.\n\nMarketing intensity and baseline percent: This is a pre‑revenue/early-traction local boutique that must (1) build initial awareness, (2) show up reliably in intent channels (Google Search/Maps), and (3) maintain a strong visual presence on Instagram while layering in local partnerships and some influencer collaborations. Brick‑and‑mortar fashion retail often needs substantial marketing in early years to drive consistent foot traffic, especially with a downtown rent/cost structure and an almost $1M Year‑1 revenue target. Given the channels described (paid + organic search/maps, content and potentially paid boosts on Instagram, local sponsorships/partnership materials, and some paid influencer or micro‑influencer fees), a **high** marketing intensity assumption is warranted for Year 1. \n\nTranslating that into a baseline, a **~12% of revenue** marketing budget (~$115k on $955k projected revenue) is a realistic, defensible Year‑1 planning level. It’s materially above a mature retail steady‑state (often 3–8%) but appropriate for an early-stage, single-location boutique that needs to create brand awareness, show up in key discovery channels, and test/iterate its acquisition mix to achieve ~70% utilization of existing weekly capacity. This 12% baseline should be revisited after observing actual CAC, repeat visit behavior, and channel performance in the first operating months.",
+      "baseline_marketing_percent": 0.12,
+      "demand_supports_required_units": true,
+      "expected_customers_or_clients_year1": 10000.0
+    },
+    "financials_year1_json": {
+      "lobs": [
+        {
+          "lob_name": "Primary line of business",
+          "products": [
+            {
+              "product_name": "In‑store sale",
+              "unit_name": "retail transaction",
+              "unit_description": "a single in‑store customer checkout for women’s clothing and/or accessories",
+              "unit_cadence": "weekly",
+              "unit_price": 75.0,
+              "units_per_week_capacity": 350.0,
+              "units_per_period_capacity": 350.0,
+              "avg_units_per_period_year1": 244.99999999999997,
+              "operating_periods_per_year": 52.0,
+              "utilization_rate": 0.7,
+              "annual_units_year1": 12739.999999999998,
+              "revenue_total_year1": 955499.9999999999,
+              "driver_schema": {
+                "cadence_type": "weekly",
+                "capacity_semantics": "max units per week",
+                "realized_units_semantics": "average units per week during year 1",
+                "periods_semantics": "operating weeks per year",
+                "annual_units_semantics": "annual delivered units",
+                "revenue_semantics": "avg units/week x price x weeks/year"
+              },
+              "cadence_metadata": {
+                "cadence_type": "weekly",
+                "authoritative_avg_units_field": "avg_units_per_week_year1",
+                "authoritative_periods_field": "operating_weeks_per_year",
+                "authoritative_capacity_field": "units_per_week_capacity",
+                "capacity_interpretation": "weekly throughput capacity",
+                "volume_semantics": "average weekly delivered units",
+                "operating_periods_per_year": 52.0
+              },
+              "avg_units_per_week_year1": 244.99999999999997,
+              "operating_weeks_per_year": 52.0
+            }
+          ],
+          "revenue_total_year1": 955499.9999999999
+        }
+      ],
+      "company_revenue_total_year1": 955499.9999999999
+    },
+    "realism_memo_json": null,
+    "pending_ops_milestone_json": true,
+    "fulfillment_json": {
+      "time": "same-visit, in-store checkout",
+      "personnel": "owner and in-store staff"
+    }
+  }
+}

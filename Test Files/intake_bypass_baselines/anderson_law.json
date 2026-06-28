@@ -1,0 +1,977 @@
+{
+  "_meta": {
+    "source_draft_id": "25f746500d1d456da638ee216669b78e",
+    "source_client_id": "&@YPBSCIN65757163111",
+    "business_name": "Anderson & Blake Legal Associates",
+    "captured_at": "2026-06-28T20:02:12.914473+00:00",
+    "note": "Structured intake output captured for the intake-bypass runner. Safe to edit by hand."
+  },
+  "flat": {
+    "business_name": "Anderson & Blake Legal Associates",
+    "business_address": "4321 Summit Avenue, Suite 210, Denver, CO 80202",
+    "address_street": "4321 Summit Avenue, Suite 210",
+    "address_city": "Denver",
+    "address_state": "CO",
+    "address_zip": "80202",
+    "address_country": "USA",
+    "business_start_date": "06/19/2026"
+  },
+  "structured": {
+    "messages_json": [
+      {
+        "role": "assistant",
+        "content": "To get us started, could you describe in plain language what \"Anderson & Blake Legal Associates\" does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like \"immigration law firm\", \"family law practice\", \"business law firm\", etc.)?"
+      },
+      {
+        "role": "user",
+        "content": "Anderson & Blake Legal Associates is a Denver-based law firm specializing in two main areas: Corporate Legal Services for startups and SMEs, and Individual Legal Services focusing on family law and estate planning. We offer contract law, compliance, and M&A support on the corporate side, and legal assistance for families with matters like divorce and wills. We generate revenue primarily through client fees, with about 60% coming from business clients and 40% from individuals."
+      },
+      {
+        "role": "assistant",
+        "content": "Here’s how I’m understanding {{fact:business.name}} operationally:\n\nAnderson & Blake Legal Associates will operate as a Denver-based law firm that delivers legal advice and representation to two main client types: (1) businesses (startups and SMEs) needing ongoing and project-based corporate legal services (contracts, compliance, M&A support), and (2) individuals needing family law and estate planning help (divorce, custody, wills, trusts). Revenue is generated through client legal fees, typically structured as matter-based engagements and/or recurring retainers, so it makes sense to treat each signed legal matter/engagement (or retainer period) as a contract-based unit rather than a weekly or monthly subscription. This is a professional services law firm (not a legal-tech platform or document-only download site), where the core value is attorney time and expertise delivered through direct client work on defined matters.\n\nIs this an accurate high-level description of what you’re building?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's an accurate description of our operations and revenue model for Anderson & Blake Legal Associates. We focus on personal attorney time and expertise for tailored client engagements rather than automated or subscription-based services."
+      },
+      {
+        "role": "assistant",
+        "content": "Based on the start date you provided, I'm treating this as pre-revenue for planning context. If that's off, tell me and I'll adjust.\n\nNext, who do you primarily sell to: consumers/individuals, businesses, or is it a fairly even mix of both?"
+      },
+      {
+        "role": "user",
+        "content": "We are currently pre-revenue as we are just starting out. Our client mix is approximately 60% businesses and 40% individual consumers, consistent with our two lines of business."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it—so it’s a mixed client base with a tilt toward businesses.\n\nBecause you clearly have two distinct lines of business (Corporate Legal Services and Individual Legal Services), we’ll keep treating those as two separate service lines with their own units and pricing.\n\nNext, I’ll keep the legal-structure question simple: what legal structure are you using (or planning to use) for Anderson & Blake Legal Associates—Sole proprietor, LLC, LLP, S-corp, C-corp, or Partnership?"
+      },
+      {
+        "role": "user",
+        "content": "We are planning to operate as an LLP (Limited Liability Partnership), which suits our collaborative law practice model and provides liability protection for the partners."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, LLP it is.\n\nLet’s start by tightening up the \"unit\" for your Corporate Legal Services line. For the corporate side, does it make the most sense to treat **one signed corporate legal matter/engagement** (for example, a contract review project, a compliance matter, or a defined M&A support engagement, including any hours worked under the agreed scope) as a single unit for planning and pricing purposes?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that makes sense. We will treat each signed corporate legal matter or engagement as a single unit for planning and pricing purposes, encompassing all agreed work within that matter."
+      },
+      {
+        "role": "assistant",
+        "content": "Great. For corporate matters, I’ll treat one signed engagement (covering the full agreed scope for that matter) as a single unit on a contract cadence.\n\nNext, thinking just about Corporate Legal Services: at any one time, how many active corporate matters do you think the firm can realistically handle concurrently once you’re up and running (across all partners/attorneys)?"
+      },
+      {
+        "role": "user",
+        "content": "We anticipate being able to handle about 10 active corporate legal matters concurrently once we're fully operational, balancing workload across our partners and attorneys."
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect, we’ll use 10 concurrent active corporate matters as your practical capacity for that line once you’re up and running.\n\nFor Year 1 planning, it’s rare to run at full theoretical capacity the whole time. A reasonable starting assumption might be using about 70% of that corporate capacity on average in Year 1 (so you’re not fully booked every day). Does 70% utilization for Corporate Legal Services in Year 1 feel about right, or would you lean higher or lower?"
+      },
+      {
+        "role": "user",
+        "content": "70% utilization for Corporate Legal Services in Year 1 feels right to us. It reflects a realistic ramp-up period without overcommitting our resources early on."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll keep Corporate Legal Services at 10 concurrent corporate matters with an assumed 70% average utilization in Year 1.\n\nNow let’s pin down pricing for a typical corporate matter. Thinking across your mix (contract work, compliance projects, M&A support), what would you consider a reasonable **average total fee per corporate legal engagement**—the full matter from intake through completion?"
+      },
+      {
+        "role": "user",
+        "content": "We'd consider an average total fee of $12,000 per corporate legal engagement to be reasonable, balancing complexity and typical client budgets across that mix of services."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it, we’ll use an average total fee of $12,000 per corporate legal engagement for planning.\n\nNow let’s define the unit on the Individual Legal Services side: does it make the most sense to treat **one signed individual/family legal matter** (for example, a divorce case, custody matter, or estate planning package like wills and trusts for a household) as a single unit, running on the same contract-style cadence as the corporate matters (measured as how many active matters you can handle at once)?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, we will treat one signed individual or family legal matter as a single unit for planning and pricing, similar to the corporate matters, with each matter representing a full engagement until completion."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, so on the individual side one unit is one full family/estate matter from intake through completion, on the same contract-style cadence.\n\nFor Individual Legal Services specifically, at any one time how many active individual/family matters do you think you can realistically handle concurrently once you’re up and running (across the firm), assuming you’re also running your corporate matters at the levels we discussed?"
+      },
+      {
+        "role": "user",
+        "content": "We estimate being able to handle about 8 active individual or family legal matters concurrently once fully operational, considering the 10 concurrent corporate matters alongside."
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect, we’ll use capacity of 8 concurrent active individual/family matters alongside the 10 corporate matters once you’re fully operational.\n\nFor Year 1 planning on the individual/family side, would you be comfortable using the same assumption of about 70% average utilization of that 8‑matter capacity (so you’re not fully booked all the time), or would you rather plan on a different utilization level for those matters?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, 70% utilization for the individual/family legal matters in Year 1 sounds reasonable to us, matching the corporate side's approach and allowing for a balanced ramp-up."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll mirror that: 8 concurrent individual/family matters at about 70% average utilization in Year 1.\n\nNext, let’s pin down pricing on the Individual Legal Services side: thinking across a typical mix of divorces, custody matters, and estate planning packages, what do you want to use as the **average total fee per individual/family legal matter** (from intake through completion)?"
+      },
+      {
+        "role": "user",
+        "content": "We consider an average total fee of $6,000 per individual/family legal matter appropriate, reflecting the varied complexity and client budgets across those types of cases."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll use an average total fee of $6,000 per individual/family legal matter for planning.\n\nNext, I’d like to confirm how clients actually receive your services. For both corporate and individual matters, is the main delivery model in-person and virtual attorney services (meetings in your Denver office and/or via phone/video, with documents exchanged electronically)—rather than anything being physically shipped? Is that accurate?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's accurate. Our services are primarily delivered through in-person meetings at our Denver office and virtual meetings via phone or video, with all documents exchanged electronically. We do not rely on any physical shipping of materials."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that matches what I’d expect for your model, so we’ll treat delivery as in‑person and virtual legal services with electronic document exchange and no physical shipping.\n\nNow let’s confirm your overall sales model: do you expect most new clients to come through a **physical, relationship-driven channel** (referrals, in-person networking, your Denver office, etc.), through a primarily **online/digital channel** (website leads, online ads, intake forms), or a **hybrid** of both?"
+      },
+      {
+        "role": "user",
+        "content": "We expect a hybrid sales model. Most clients initially find us through referrals and in-person networking, but we also have an increasingly strong online presence generating leads via our website and digital ads."
+      },
+      {
+        "role": "assistant",
+        "content": "That makes sense—we’ll treat your client acquisition as a hybrid model (relationship-driven plus online leads).\n\nGiven you’re Denver-based and primarily serving clients in and around the metro area, I’d like to confirm scope: are you planning to focus locally (Denver and nearby communities in Denver County and the broader Denver metro), or do you expect to market and routinely serve clients across all of Colorado or beyond?"
+      },
+      {
+        "role": "user",
+        "content": "We are planning to focus primarily on the Denver metro area and nearby communities for now, but with some marketing reach across all of Colorado. Most clients will still come from the local region, but we want the option to serve statewide if opportunities arise."
+      },
+      {
+        "role": "assistant",
+        "content": "Given that, I’ll frame your scope as primarily local with broader Colorado reach. To make it concrete for planning, does this description fit: “Denver metro (including Denver County and nearby communities) as the core service area, with the ability and willingness to serve clients anywhere in Colorado when appropriate”?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that description fits perfectly for our service area focus."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that’s clear—we’ll treat your core coverage as Denver metro (Denver County and nearby communities) with the ability to serve clients anywhere in Colorado.\n\nNext, thinking about what most limits how many matters you can take on in Year 1, is your biggest constraint primarily the **available attorney and staff time** (labor capacity), your **systems/processes and tools** (like document management, scheduling, etc.), or simply **having enough client demand** to fully book your available capacity?"
+      },
+      {
+        "role": "user",
+        "content": "The biggest constraint for us in Year 1 will be available attorney and staff time. We have solid systems and a good client pipeline, but capacity to handle matters is the main limiter right now."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood—we’ll treat attorney and staff time as your primary operational constraint for planning.\n\nFor a firm like yours, fulfillment typically looks like this: partners and associate attorneys (supported by paralegals/staff) personally handle each legal matter from intake through resolution, with work delivered via scheduled in‑person and virtual meetings plus ongoing email/phone communication and electronic document exchange. Matters are worked continuously over weeks or months depending on complexity, and your ability to take on more work is mainly constrained by available attorney hours rather than technology or demand. That is how fulfillment typically works for this kind of business – does this look right?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's exactly how our fulfillment process works across both business lines—the partners and associates handle cases from start to finish, supported by our staff, using in-person and virtual meetings and electronic communication throughout."
+      },
+      {
+        "role": "assistant",
+        "content": "One last lever to confirm for planning: thinking about how you’ll grow beyond Year 1, what do you see as your **primary growth focus**—mainly increasing client demand and lead flow, expanding attorney/paralegal capacity to handle more matters at once, or improving your systems/processes so each attorney can handle more matters without burning out?"
+      },
+      {
+        "role": "user",
+        "content": "Our primary growth focus beyond Year 1 will be expanding attorney and paralegal capacity to handle more matters simultaneously, while maintaining service quality and avoiding burnout."
+      },
+      {
+        "role": "assistant",
+        "content": "Proposed competitive advantage: Anderson & Blake’s core competitive advantage is a dual‑track staffing and matter‑design model that structurally separates corporate and individual matters into distinct “lanes,” each with standardized workflows, document templates, and role definitions, so attorneys and staff stay within a narrow band of work types instead of context‑switching across the entire practice. Operationally, this allows the firm to run higher, more predictable utilization on scarce attorney hours (especially mid‑level and partner time) while still offering two practice areas, which lowers effective cost per matter and shortens time‑to‑resolution for clients compared with generalist small firms that mix all work on the same calendars and staff. Because this depends on deliberate practice‑lane design, templated processes, and disciplined intake/triage across two very different client types, it is meaningfully harder for typical small firms—organized around individual attorneys rather than lanes and workflows—to replicate without reworking their entire staffing and case management approach.\n\nDoes this accurately reflect what truly sets the business apart?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that description fits our competitive advantage perfectly. Our dual-track model is central to how we manage workload efficiently and maintain high service quality across both business lines."
+      },
+      {
+        "role": "assistant",
+        "content": "Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?"
+      },
+      {
+        "role": "user",
+        "content": "In the next 12 months, we aim to increase our attorney and paralegal capacity by 25%, enabling us to handle at least 40% more matters simultaneously while maintaining our service quality standards."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Target Market.\n\nWe’ll start with the consumer side. For your individual/family law and estate planning clients, do you want to focus on any particular gender (for example, mostly women, mostly men), or keep it open to all genders?"
+      },
+      {
+        "role": "user",
+        "content": "We want to keep it open to all genders for our individual and family law and estate planning clients. Our services are designed to be inclusive and supportive for everyone."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it—we’ll treat your consumer services as open and inclusive to all genders, without a specific gender focus.\n\nNext, thinking just about your individual and family/estate planning clients, what age range do you expect will make up the bulk of your ideal clients (for example, “late 20s to early 40s” or “35–65 and up”)?"
+      },
+      {
+        "role": "user",
+        "content": "Our ideal individual and family law clients mainly fall in the 30 to 55 age range, as they tend to be establishing families or managing significant life transitions. For estate planning, we see a broader range from around 45 to 70+, since that captures people planning for retirement and legacy."
+      },
+      {
+        "role": "assistant",
+        "content": "That makes sense for your mix of family law and estate planning.\n\nTo translate this into planning ranges, I’m inclined to treat your core consumer age focus as roughly 30–70 years old, which comfortably covers both the 30–55 family law cluster and the 45–70+ estate planning cluster. Does 30 to 70 as your main target age band feel right, or would you prefer to narrow or broaden that a bit?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, 30 to 70 is a good main target age band for our consumer clients, as it aligns well with both our family law and estate planning services."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, we’ll anchor your consumer side on all genders, primarily ages 30–70.\n\nNext, thinking about your individual/family law and estate planning clients only, what general household income levels are you aiming at in the Denver/Colorado market—for example, more middle-income households, more upper-middle/affluent, or truly any income level as long as they can afford your typical fees?"
+      },
+      {
+        "role": "user",
+        "content": "We primarily target upper-middle-income to affluent households in the Denver/Colorado market. These clients are more likely to engage our specialized individual and family law and estate planning services, given the complexity and cost involved."
+      },
+      {
+        "role": "assistant",
+        "content": "That fits well with your typical matter values and the type of work you’re doing, so we’ll treat your consumer focus as upper‑middle income and affluent households who can realistically afford your fees.\n\nTo ground this a bit more for planning: in today’s dollars for the Denver/Colorado market, would you say you’re mainly aiming at households earning roughly around $100,000 and up, or would you push that threshold lower or higher?"
+      },
+      {
+        "role": "user",
+        "content": "We’re comfortable focusing on households earning around $100,000 and up—that aligns well with our typical client base for individual and family law and estate planning services in the Denver market."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that aligns with your positioning and fees, so we’ll anchor your consumer income focus at roughly $100,000 and up.\n\nStaying on the consumer side for a moment: thinking about your ideal individual/family and estate planning clients, do you want to focus on any particular education level (for example, mostly college-educated and above), or are you open to all education levels as long as they can afford and value your services?"
+      },
+      {
+        "role": "user",
+        "content": "We prefer to focus primarily on clients who are college-educated and above for our individual/family and estate planning services. This tends to correlate with their ability to understand and value the complexities involved in these legal matters."
+      },
+      {
+        "role": "assistant",
+        "content": "That makes sense—we’ll assume your typical individual and family/estate planning clients are primarily college‑educated and above, which fits your upper‑middle and affluent household focus.\n\nGiven your mix of family law and estate planning, a bit of extra detail on household and work patterns could help, but we don’t have to go deep. For the consumer side, would you like to add any of these optional targeting details: household structure (e.g., couples with kids, divorced/separated), employment (e.g., professionals, business owners), or housing economics (e.g., homeowners vs renters); or would you prefer to skip these and keep things simpler?"
+      },
+      {
+        "role": "user",
+        "content": "Let's keep it simpler for now and skip the additional targeting details like household structure or employment specifics. Focusing on age, income, and education gives us a solid foundation."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it, we’ll keep the consumer side focused on age, income, and education only and skip the extra household, employment, and housing details.\n\nSwitching to your business clients now: on the Corporate Legal Services side, what broad types of businesses are you mainly targeting—for example, primarily tech and professional-services startups/SMEs, a wide mix of local small businesses across many industries, or something more niche like healthcare and regulated industries?"
+      },
+      {
+        "role": "user",
+        "content": "We mainly target a wide mix of local small businesses across various industries for our Corporate Legal Services. This helps diversify our client base and leverage our expertise in multiple sectors."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, so on the B2B side you’re aiming at a broad mix of local small businesses across many industries, rather than a narrow niche. I’ll treat that as “general small-business and startup SMEs across common local sectors” for planning.\n\nFor those business clients, what size firms are you primarily targeting in terms of employee count—for example, mostly very small teams (under 20 employees), more established small firms (say 20–99 employees), or are you open to everything from solo founders up through larger mid-sized companies?"
+      },
+      {
+        "role": "user",
+        "content": "We primarily target very small teams with under 20 employees and solo founders in the local small business segment. This aligns well with our capacity and the typical legal needs we serve for startups and small enterprises."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that’s clear—you’re mainly focused on solo founders and very small teams under 20 employees for your Corporate Legal Services.\n\nFor those business clients, do you have any preference on how established they are—are you mostly aiming at very young companies and startups (say, in their first few years), more established small businesses that have been around longer, or are you open to both early‑stage and mature small firms?"
+      },
+      {
+        "role": "user",
+        "content": "We’re open to both early-stage startups and more established small businesses. Our services are designed to cater to the legal needs of companies at various stages, as long as they fit within the under 20 employees size range."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it—you’re targeting solo founders and very small teams (under 20 employees) across a mix of local industries, and you’re open to both early‑stage startups and more established small businesses, as long as they’re in that smaller size band.\n\nTo translate “open to both early-stage and more established” into something usable for planning, are you comfortable saying you’re targeting everything from brand‑new firms through long‑standing small businesses (so no real preference on company age), or would you like to emphasize either younger firms (say, first 10 years) or older firms (10+ years in business)?"
+      },
+      {
+        "role": "user",
+        "content": "We're comfortable targeting all small businesses under 20 employees regardless of their age, so from brand-new startups to long-standing firms. That broad approach fits well with our service capabilities."
+      },
+      {
+        "role": "assistant",
+        "content": "Anderson & Blake Legal Associates will position itself as a locally focused, premium yet accessible mixed-model law firm serving two distinct but complementary segments: upper-middle-income and affluent individual clients (all genders, primarily ages 30–70) needing family law and estate planning, and small business clients (solo founders and firms under 20 employees across common local industries) needing corporate legal services. Operating on a contract-style engagement model at a premium professional-services tier anchored around $6,000-$12,000 per corporate legal matter, individual legal matter, the firm will concentrate on the Denver metro and broader Colorado market, where attorney and staff labor is the primary capacity driver. In this pre-revenue phase, the firm’s dual-lane structure—separating corporate and individual matters into distinct workflows—will be emphasized to appeal to time-sensitive business owners and households that value predictable, well-managed legal matters over ad hoc representation.\nAcquisition will be structured around a small set of high-fit channels suited to a pre-revenue professional services launch. Google Search will be used so both small businesses and higher-income households actively seeking corporate, family law, or estate planning help in Denver can find the firm at the moment of need. A robust Google Business Profile/Maps presence will support local discovery and social proof when prospects check legitimacy and proximity. LinkedIn will focus on reaching founders and small-business decision-makers through professional profiles and networking in the local startup and SME ecosystem. Instagram will support light brand presence and trust-building for individual and family clients who often research firms socially before reaching out. Curated referral partnerships (such as with financial advisors, accountants, and other professionals) will provide warm introductions to both affluent households and small-business owners who are already primed to purchase legal services. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\n\nDoes this look right before we move on to Human Resources?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, this summary accurately captures our market positioning, client segments, pricing model, geographic focus, and marketing channels. It looks good to proceed to discussing Human Resources."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Human Resources.\n\nFor this stage, businesses often highlight just a few pivotal roles (leadership, operations, licensed/technical, and key client-facing people). Since {{fact:business.name}} is pre‑revenue, we’ll treat these as the core team for launch and early operations.\n\nLet’s start with the first key person:  \nWhat is their full name, current title/role in {{fact:business.name}}, how many years of relevant legal/business experience do they have (number of years), and what are their key degrees or credentials (e.g., JD, bar admissions, other certifications—if you’re not sure, you can say “none”)?"
+      },
+      {
+        "role": "user",
+        "content": "The first key person is Emily Anderson, Managing Partner. She has 15 years of legal experience focused on family law and estate planning. She holds a JD from the University of Colorado and is admitted to the Colorado Bar."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that’s helpful.\n\nWould you like to add another key person now (for example another partner, an associate attorney, or a pivotal operations/staff role)? If yes, please share their full name, current title/role at {{fact:business.name}}, years of relevant experience (number), and key degrees/credentials."
+      },
+      {
+        "role": "user",
+        "content": "Yes, the second key person is Michael Blake, Partner. He has 12 years of legal experience primarily in corporate law and startups. He holds a JD from the University of Denver and is admitted to the Colorado Bar."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it, thank you.\n\nWould you like to add another key person beyond Emily Anderson and Michael Blake (for example, any planned associate attorney, senior paralegal, or operations/office manager who is important to how {{fact:business.name}} will run), or are you done adding people for now?"
+      },
+      {
+        "role": "user",
+        "content": "We are done adding people for now; Emily Anderson and Michael Blake are the core leadership team at this stage."
+      },
+      {
+        "role": "assistant",
+        "content": "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes.\n\nEmily Anderson, Managing Partner, brings 15 years of specialized experience in family law and estate planning, backed by a JD from the University of Colorado and admission to the Colorado Bar. She leads the Individual Legal Services lane for Anderson & Blake Legal Associates, designing and overseeing the standardized workflows, quality controls, and client experience for divorce, custody, and estate planning matters. By combining hands-on case management with strategic leadership of attorneys and staff, she anchors the firm’s ability to deliver consistent, high-quality outcomes for individual clients while building the repeatable processes needed to scale that practice area as demand grows. Estimated annual wage: $143,470/year.\n\nMichael Blake, Partner, brings 12 years of corporate law and startup-focused experience, with a JD from the University of Denver and admission to the Colorado Bar. He leads the Corporate Legal Services lane for Anderson & Blake Legal Associates, shaping the contract, compliance, and M&A support offerings that serve local startups and SMEs. By building and refining standardized templates, engagement structures, and matter workflows for business clients, he enables the firm to deliver efficient, repeatable corporate work at scale while preserving the high-touch advisory support that small-business owners expect from a premium law firm. Estimated annual wage: $143,470/year.\n\nSuggested year-1 roles and estimated annual wages:\n- Senior Paralegal (Shared Corporate and Individual Lanes): $59,800/year (in ~0 months) - Needed at launch to handle document preparation, filings, and routine communications so partner attorney time is focused on higher-value legal analysis and client strategy across both practice lanes.\n- Associate Attorney – Corporate: $143,470/year (in ~6 months) - Brought on within the first 6 months to absorb growing corporate-matter volume, support standardized contract and compliance work, and prevent Michael Blake from becoming a bottleneck as business demand ramps.\n- Associate Attorney – Family/Estate: $143,470/year (in ~9 months) - Added later in Year 1 to increase throughput on family law and estate planning matters and allow Emily Anderson to shift more time to lane design, quality oversight, and high-complexity cases.\n- Office Manager / Legal Operations Coordinator: $111,660/year (in ~3 months) - Hired early in Year 1 to centralize intake, scheduling, billing, and basic HR/operations so attorneys and paralegals can focus on fee-earning work as the pre-revenue firm moves into steady operations.\n\nDoes this look right before we move on to Financials?"
+      },
+      {
+        "role": "user",
+        "content": "This looks great and aligns well with our vision and needs. No changes from my side. Let's proceed to Financials."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, let's move on to Financials.\n\nYear 1 revenue:\n\n| Line of Business | Product / Unit | Capacity | Utilization | Price | Periods / Year | Year-1 Revenue |\n| --- | --- | --- | --- | --- | --- | --- |\n| Corporate Legal Services | Corporate legal matter/engagement | 10 corporate legal matter | 70% | $12,000 | ~52 turns/year | $4,368,000 |\n| **Corporate Legal Services total** |  |  |  |  |  | **$4,368,000** |\n| Individual Legal Services | Family/estate legal matter | 8 individual legal matter | 70% | $6,000 | ~52 turns/year | $1,747,200 |\n| **Individual Legal Services total** |  |  |  |  |  | **$1,747,200** |\n| **Company Total** |  |  |  |  |  | **$6,115,200** |\n\nThis Year 1 revenue plan assumes that once Anderson & Blake launches, you steadily ramp to working at about 70% of your available attorney/paralegal capacity, handling around 7 corporate matters and 5–6 individual/family matters per week on average across the year. At your planned fee levels of $12,000 per corporate engagement and $6,000 per individual/family matter, and with matters turning over continuously through the year, this translates into roughly 655 total matters and about $6.1M in revenue in your first 12 months. That outlook fits your pre-revenue status, the planned hiring of support staff and associates over the year, and the marketing plan that’s designed to keep your two practice lanes consistently but not fully loaded, so we’ll use this $6.1M as the locked Year 1 revenue baseline for the rest of the plan.\n\nA reasonable Year-1 COGS baseline is about 16% of revenue, which puts your projected Year-1 direct costs around $978,432.\n\nDoes that broadly match how your business works, or should we adjust it because your direct costs are materially different?"
+      },
+      {
+        "role": "user",
+        "content": "This projection matches our expectations well. The utilization rates and fee structures fit our planned approach, and the COGS estimate at 16% of revenue seems reasonable given typical legal direct costs like outsourced research and filing fees. No adjustments needed on our end."
+      },
+      {
+        "role": "assistant",
+        "content": "Based on the people plan already defined, a reasonable Year-1 payroll baseline is about $538,088 across 6 roles in the plan.\n\nThis payroll estimate reflects the team needed to launch and operate in Year 1, including any planned hires from the staffing plan. That includes 2 current team roles and 4 additional planned roles.\n\nDoes that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
+      },
+      {
+        "role": "user",
+        "content": "This payroll estimate is slightly lower than our internal projections, as we budgeted closer to $600,000 in total payroll expenses for Year 1 to cover some additional benefits and potential overtime costs. However, it is fairly close and reasonable to proceed with this figure for planning purposes."
+      },
+      {
+        "role": "assistant",
+        "content": "A reasonable Year-1 marketing baseline is about 18% of revenue, which puts your projected Year-1 marketing spend around $1,100,736.\n\nDoes that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?"
+      },
+      {
+        "role": "user",
+        "content": "That marketing spend estimate is a bit higher than our initial budget. We planned to allocate closer to 12% of revenue for marketing in Year 1, so around $730,000. We think this level is sufficient given our targeted B2B and B2C strategies and focus on referrals and networking in the legal community."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it - I'll use a Year-1 marketing budget of $733,824 (12% of revenue).\n\nFor rent: as of last month, how much are you paying for your office space on a regular basis, and is that amount per month (for example, “$3,500 per month”)?  \n\n- If you don’t have a lease or rent payment yet, just say so and I’ll record this as 0 and move on."
+      },
+      {
+        "role": "user",
+        "content": "We currently have a lease for our office space at $4,200 per month, starting this year."
+      },
+      {
+        "role": "assistant",
+        "content": "For owner compensation: as of last month, how much did the business actually pay you (and any other owners) in total, whether as salary, draw, or distributions?  \n\n- If you haven’t started paying yourselves yet and are effectively at $0 so far, just say that and I’ll record owner compensation as 0."
+      },
+      {
+        "role": "user",
+        "content": "We haven't started paying ourselves yet, so owner compensation is currently at $0."
+      },
+      {
+        "role": "assistant",
+        "content": "For “other operating expenses”: as of last month, about how much were you spending per month on your regular business bills besides payroll, marketing, and rent (things like utilities, software subscriptions, malpractice insurance, bar dues, phone/internet, office supplies, bookkeeping, etc.)?  \n\n- A single rough monthly total is perfect (for example, “around $3,000 per month”).  \n- If you truly don’t have any of these yet, say so and I’ll record 0."
+      },
+      {
+        "role": "user",
+        "content": "We're currently spending around $2,800 per month on other operating expenses like those you mentioned."
+      },
+      {
+        "role": "assistant",
+        "content": "As of last month, how many people were actually on payroll for the firm (including you and your partner if you’re taking wages through the business, plus any staff or contractors treated like employees)?  \n\n- If it was just you and your co‑founder, say “2”.  \n- If no one is on payroll yet, say “0” and I’ll record that."
+      },
+      {
+        "role": "user",
+        "content": "There are currently 2 people on payroll, myself and my co-founder."
+      },
+      {
+        "role": "assistant",
+        "content": "For larger one-time investments: as of last month, about how much have you spent so far on bigger, one-time purchases to get the firm set up—things like office build‑out, furniture, computers, servers, major software licenses paid upfront, or other equipment (not the recurring monthly bills)?  \n\n- A single rough total is fine (e.g., “about $25,000 so far”).  \n- If you haven’t really had any meaningful one‑time setup spend yet, tell me and I’ll record this as 0."
+      },
+      {
+        "role": "user",
+        "content": "We've spent about $15,000 so far on one-time setup expenses including furniture, computers, and software licenses."
+      },
+      {
+        "role": "assistant",
+        "content": "For the assets you already use to run the firm: as of last month, thinking about the main equipment, furniture, computers, and other tools you have in place for Anderson & Blake (whether or not you bought them all this year), what’s a rough total value you’d put on those operating assets?  \n\n- Examples: office furniture, laptops/desktops, conference room setup, printers/scanners, key software you’ve paid up for.  \n- A single ballpark number is perfect (e.g., “around $40,000 total”).  \n- If you truly don’t have any meaningful assets beyond trivial items, say so and I’ll record 0."
+      },
+      {
+        "role": "user",
+        "content": "The total value of our operating assets is around $40,000, including office furniture, computers, and essential software."
+      },
+      {
+        "role": "assistant",
+        "content": "Now let's capture any leased or rented equipment or space beyond your main rent. Do you pay to use any equipment, vehicles, servers, or other space you do not own, and if so, about how much and how often (for example, $5,000 per month or $20,000 per year)?"
+      },
+      {
+        "role": "user",
+        "content": "No, we do not currently lease or rent any equipment, vehicles, servers, or additional space beyond our main office lease."
+      },
+      {
+        "role": "assistant",
+        "content": "Now I’d like to capture how much money has already been put into the business.  \n\nAs of last month, roughly how much total funding has gone into Anderson & Blake so far from you and your partner and/or any outside investors (cash you’ve put in, plus any equipment or assets contributed personally)?  \n\n- A single rough total is fine (e.g., “about $50,000 so far”).  \n- If you haven’t put any money or value in yet beyond trivial amounts, tell me and I’ll record this as 0."
+      },
+      {
+        "role": "user",
+        "content": "We have put in about $100,000 total so far, including cash investments and contributed assets."
+      },
+      {
+        "role": "assistant",
+        "content": "Now let’s capture any debt. As of last month, roughly how much does the business still owe in total on any loans, credit lines, or business credit cards (just a single total for all debt tied to the firm)?  \n\n- If you don’t have any business debt yet and have funded everything with owner money, please say “no debt” and I’ll record this as 0 and move on."
+      },
+      {
+        "role": "user",
+        "content": "We have no business debt; everything has been funded with owner money so far."
+      },
+      {
+        "role": "assistant",
+        "content": "As of last month, about how much cash did the business have on hand in total—meaning money in your business bank accounts (and any petty cash in the office), after paying whatever bills you had paid by then?  \n\n- A single rough number is perfect (for example, “about $25,000 in cash right now”).  \n- If the balance was essentially $0, say that and I’ll record 0."
+      },
+      {
+        "role": "user",
+        "content": "As of last month, we had about $80,000 in cash on hand in our business accounts."
+      },
+      {
+        "role": "assistant",
+        "content": "For accounts receivable: as of last month, about how much money did clients still owe you for work you’d already billed but not yet collected (outstanding invoices)?  \n\n- If you haven’t billed any clients yet or everyone has paid in full so far, say that and I’ll record this as 0."
+      },
+      {
+        "role": "user",
+        "content": "As of last month, we had about $12,000 in accounts receivable, money that clients owed us for work already billed."
+      },
+      {
+        "role": "assistant",
+        "content": "For accounts payable: as of last month, about how much did the business still owe to others for past bills—things like unpaid invoices to vendors, your landlord, utilities, or your business credit card balance for operating expenses?  \n\n- If you didn’t have any unpaid bills hanging out (everything was current and paid), say that and I’ll record this as 0."
+      },
+      {
+        "role": "user",
+        "content": "As of last month, we had no unpaid bills or accounts payable; everything was current and paid."
+      },
+      {
+        "role": "assistant",
+        "content": "For inventory: as of last month, did the business have any products or materials on hand that you hold in stock to sell (like physical goods or resale items), and if so, about what was the total value?  \n\n- For a law firm, this is usually $0 since you mainly sell services.  \n- If you don’t carry any inventory, just confirm that and I’ll record 0."
+      },
+      {
+        "role": "user",
+        "content": "We do not carry any inventory; our law firm only provides services."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that’s exactly what I’d expect for a firm like yours—I’ll record inventory as 0 and treat everything as service-based.\n\nAt this point, we’ve captured your Year‑1 revenue model, direct costs, payroll, marketing, rent, owner pay, other operating expenses, capex, assets, lease details, equity/funding, debt (none), cash, AR, AP, and inventory. That gives us a complete financial intake picture for Anderson & Blake Legal Associates."
+      },
+      {
+        "role": "user",
+        "content": "Great, let me know if you need any additional details or clarifications on our financials or business operations."
+      },
+      {
+        "role": "assistant",
+        "content": "{{fact:business.name}} is modeled to generate Year‑1 revenue of {{fact:financials.current_revenue}} with direct COGS of {{fact:financials.current_cogs}} (largely matter-related tools, research, and fees), marketing spend of {{fact:financials.marketing_total_year1}}, other operating expenses of {{fact:financials.other_operating_expense}}, payroll of {{fact:financials.current_payroll}}, owner compensation of {{fact:financials.owner_compensation}}, interest of {{fact:financials.annual_interest_payment}}, principal repayments of {{fact:financials.annual_principal_payment}}, and capital expenditures of {{fact:financials.current_capex}} in Year 1. The firm’s current rent is {{fact:financials.monthly_rent_expense}} per month, with other monthly debt payments of {{fact:financials.other_monthly_debt_payments}}. As of last month, the business had {{fact:financials.cash_on_hand}} in cash, accounts receivable of {{fact:financials.ar_balance}}, accounts payable of {{fact:financials.ap_balance}}, inventory of {{fact:financials.inventory_balance}}, and operating assets valued at {{fact:financials.initial_assets}} supported by lease commitments of {{fact:financials.initial_lease}} and owner/investor funding to date of {{fact:financials.initial_equity}}. Total debt outstanding is {{fact:financials.total_debt_outstanding}}, with a current team size of {{fact:financials.current_num_employees}} and a Year‑1 marketing plan set at {{fact:financials.marketing_total_year1}} ({{fact:financials.marketing_percent_of_revenue}} of revenue).\n\nDoes this look right before we move on to Submit intake?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that summary looks accurate based on the information I provided. You can go ahead with the submission."
+      },
+      {
+        "role": "assistant",
+        "content": "Great, I'm going to do a quick consistency check before submission.\n\n is set to pre-revenue, but {{fact:financials.current_revenue}} is already populated as if the firm is currently generating that full Year‑1 revenue level, and you also have non‑trivial {{fact:financials.ar_balance}} and {{fact:financials.cash_on_hand}}.\n\nTo reconcile this: should {{fact:financials.current_revenue}} be interpreted as a **planned/target Year‑1 revenue forecast**, with the firm still effectively **pre‑revenue today** (i.e., no meaningful realized revenue yet)?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's correct. The $6,115,200 is our planned Year-1 revenue forecast. We are currently pre-revenue today, but we have some cash and accounts receivable from initial client commitments or retainers."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, that interpretation works.\n\nNext key inconsistency:  is pre‑revenue, but the model currently shows {{fact:financials.current_payroll}} across {{fact:financials.current_num_employees}} people as if that’s the **current** annual payroll already in place, even though you’ve said you’re just starting out and much of that staffing plan (associates, office manager, etc.) is future/Year‑1.\n\nTo keep things coherent: should {{fact:financials.current_payroll}} be treated as a **planned total Year‑1 payroll budget** rather than what you are actually paying today (where today’s real payroll is just the two partners)?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, that’s right. The $538,087.5 is our planned total Year-1 payroll budget, not the payroll we’re paying currently. Right now, only the two partners draw salaries, and the rest is planned as we grow."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood—I’ll treat {{fact:financials.current_payroll}} as the planned total Year‑1 payroll, with current actual payroll limited to the two partners.\n\nLast major check: the model currently uses {{fact:financials.current_cogs}} and {{fact:financials.marketing_total_year1}} as if they are **current actuals**, but from your answers it sounds like these are also **planned Year‑1 totals**, not costs you’re already incurring at that level today.\n\nCan you confirm that both {{fact:financials.current_cogs}} and {{fact:financials.marketing_total_year1}} should be interpreted as **planned Year‑1 amounts**, while your current actual spend in both categories is still much lower?"
+      },
+      {
+        "role": "user",
+        "content": "Yes, both $978,432 for direct costs and $733,824 for marketing are planned Year-1 amounts. Our current actual spending in these areas is much lower as we're still in the startup phase."
+      },
+      {
+        "role": "assistant",
+        "content": "The model is now coherent if we interpret:\n\n- {{fact:financials.current_revenue}}, {{fact:financials.current_cogs}}, {{fact:financials.current_payroll}}, and {{fact:financials.marketing_total_year1}} as **planned Year‑1 totals**,  \n- while cash, AR, AP, assets, equity, rent, and headcount reflect your **current pre‑revenue reality**.\n\nWith that interpretation, your operations, target market, people plan, and financials are internally consistent enough to proceed.\n\nClick \"Submit intake\" to finish."
+      }
+    ],
+    "operating_model_json": {
+      "consumer_type": "mixed",
+      "business_type": "Law Firm",
+      "business_stage": "pre-revenue",
+      "business_description_summary": "Anderson & Blake Legal Associates is a Denver-based LLP law firm with two structured practice lanes: Corporate Legal Services for startups and SMEs, and Individual Legal Services for family law and estate planning. Work is fulfilled by partners and associate attorneys, supported by paralegals and staff, who personally manage each corporate legal matter, individual legal matter from intake through completion via a mix of in‑person meetings at the Denver office, virtual phone/video conferences, and electronic document exchange. Matters typically run continuously over weeks or months depending on complexity, with attorney and staff hours as the primary capacity constraint (rather than systems or demand), so total annual throughput is driven by how many corporate legal matter, individual legal matter the team can actively manage at once at a target utilization of . Operationally, the firm is designed around predictable, contract‑style contract units and average matter values of $6,000-$12,000, with corporate and individual matters each having their own standardized workflows, templates, and staffing patterns. For planning, we assume the firm primarily serves clients in the Denver metro area and nearby communities within Colorado (core coverage: Denver metro and broader Colorado), with the option to support qualified clients statewide via virtual channels. Standard law firm regulatory, licensing, professional-responsibility, and malpractice-insurance requirements for this business type are assumed to be incorporated into operations; exact licensing, trust-accounting, and compliance obligations depend on Colorado and any other applicable jurisdictions and will need to be confirmed with local bar rules and advisors.",
+      "lob_models": [
+        {
+          "lob_name": "Corporate Legal Services",
+          "products": [
+            {
+              "product_name": "Corporate legal matter/engagement",
+              "unit_name": "corporate legal matter",
+              "unit_description": "One signed corporate legal engagement covering the full agreed scope for that specific matter (e.g., contract work, compliance project, or M&A support) from intake through completion.",
+              "unit_cadence": "contract",
+              "units_per_week_capacity": 10,
+              "units_per_period_capacity": 10,
+              "operating_periods_per_year": 52,
+              "utilization_rate": 0.7,
+              "unit_price": 12000
+            }
+          ]
+        },
+        {
+          "lob_name": "Individual Legal Services",
+          "products": [
+            {
+              "product_name": "Family/estate legal matter",
+              "unit_name": "individual legal matter",
+              "unit_description": "One signed individual or family legal matter (e.g., divorce, custody, or estate planning package for a household) counted as a full engagement from intake through completion.",
+              "unit_cadence": "contract",
+              "units_per_week_capacity": 8,
+              "units_per_period_capacity": 8,
+              "operating_periods_per_year": 52,
+              "utilization_rate": 0.7,
+              "unit_price": 6000
+            }
+          ]
+        }
+      ],
+      "unit_name": null,
+      "unit_description": null,
+      "unit_cadence": null,
+      "units_per_week_capacity": null,
+      "units_per_period_capacity": null,
+      "operating_periods_per_year": null,
+      "utilization_rate": null,
+      "unit_price": null,
+      "shipping_method": "none/virtual delivery (no physical shipping)",
+      "sales_modality": "hybrid",
+      "geographic_scope": "local",
+      "geographic_coverage": "Denver metro (including Denver County and nearby communities) with ability to serve clients across Colorado",
+      "countries": [
+        "USA"
+      ],
+      "milestones": [
+        {
+          "description": "Increase attorney and paralegal capacity by 25% to handle at least 40% more matters simultaneously while maintaining service quality standards",
+          "timing": "In the next 12 months",
+          "timing_months_max": 12
+        }
+      ],
+      "capacity_driver": "labor",
+      "primary_growth_lever": "expand attorney and paralegal capacity to handle more matters simultaneously while maintaining quality",
+      "legal_entity": "LLP",
+      "confidence": 0.99,
+      "competitive_advantage": "Anderson & Blake’s core competitive advantage is a dual‑track staffing and matter‑design model that structurally separates corporate and individual matters into distinct “lanes,” each with standardized workflows, document templates, and role definitions, so attorneys and staff stay within a narrow band of work types instead of context‑switching across the entire practice. Operationally, this allows the firm to run higher, more predictable utilization on scarce attorney hours (especially mid‑level and partner time) while still offering two practice areas, which lowers effective cost per matter and shortens time‑to‑resolution for clients compared with generalist small firms that mix all work on the same calendars and staff. Because this depends on deliberate practice‑lane design, templated processes, and disciplined intake/triage across two very different client types, it is meaningfully harder for typical small firms—organized around individual attorneys rather than lanes and workflows—to replicate without reworking their entire staffing and case management approach.",
+      "business_naics_6": "541110"
+    },
+    "target_market_json": {
+      "consumer_type": "mixed",
+      "gender_age_intent": [
+        {
+          "gender_focus": "all",
+          "age_min": 30,
+          "age_max": 70
+        }
+      ],
+      "income_intent": [
+        {
+          "income_min": 100000,
+          "income_max": 1000000
+        }
+      ],
+      "selections": [
+        {
+          "segment": "Education",
+          "acs_codes": [
+            "B15003_022E",
+            "B15003_023E",
+            "B15003_025E"
+          ]
+        }
+      ],
+      "b2b_industry_terms": [
+        "local small businesses across various industries",
+        "startups",
+        "SMEs"
+      ],
+      "b2b_naics_6": [
+        "541110",
+        "541611",
+        "541612",
+        "541613",
+        "541430",
+        "541810",
+        "541820",
+        "541513",
+        "541519",
+        "541310",
+        "541990",
+        "621111",
+        "621399",
+        "621498",
+        "522320",
+        "522298",
+        "523930",
+        "524210",
+        "531110",
+        "531120"
+      ],
+      "b2b_size_bands": [
+        "1-4",
+        "5-9",
+        "10-19"
+      ],
+      "b2b_age_bands": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6-10",
+        "11-15",
+        "16-20",
+        "21-25",
+        "26+"
+      ],
+      "marketing_plan_summary": "Anderson & Blake Legal Associates will position itself as a locally focused, premium yet accessible mixed-model law firm serving two distinct but complementary segments: upper-middle-income and affluent individual clients (all genders, primarily ages 30–70) needing family law and estate planning, and small business clients (solo founders and firms under 20 employees across common local industries) needing corporate legal services. Operating on a contract-style engagement model at a premium professional-services tier anchored around $6,000-$12,000 per corporate legal matter, individual legal matter, the firm will concentrate on the Denver metro and broader Colorado market, where attorney and staff labor is the primary capacity driver. In this pre-revenue phase, the firm’s dual-lane structure—separating corporate and individual matters into distinct workflows—will be emphasized to appeal to time-sensitive business owners and households that value predictable, well-managed legal matters over ad hoc representation.\nAcquisition will be structured around a small set of high-fit channels suited to a pre-revenue professional services launch. Google Search will be used so both small businesses and higher-income households actively seeking corporate, family law, or estate planning help in Denver can find the firm at the moment of need. A robust Google Business Profile/Maps presence will support local discovery and social proof when prospects check legitimacy and proximity. LinkedIn will focus on reaching founders and small-business decision-makers through professional profiles and networking in the local startup and SME ecosystem. Instagram will support light brand presence and trust-building for individual and family clients who often research firms socially before reaching out. Curated referral partnerships (such as with financial advisors, accountants, and other professionals) will provide warm introductions to both affluent households and small-business owners who are already primed to purchase legal services. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.",
+      "confidence": 0.93
+    },
+    "people_json": {
+      "people": [
+        {
+          "full_name": "Emily Anderson",
+          "role_title": "Managing Partner",
+          "primary_responsibilities": "Leads overall strategy and operations for the firm, oversees the Individual Legal Services lane, manages complex family law and estate planning matters, sets service standards and workflows, supervises attorneys and staff on individual matters, and drives business development and referral relationships on the consumer side.",
+          "relevant_background": "15 years of legal experience in family law and estate planning; JD from the University of Colorado; admitted to the Colorado Bar",
+          "experience_years": "15",
+          "why_strengthens_business": "Her deep subject-matter expertise and leadership in family and estate matters provide the foundation for building a reliable, process-driven consumer practice lane that can be scaled without sacrificing quality or client trust.",
+          "paragraph": "Emily Anderson, Managing Partner, brings 15 years of specialized experience in family law and estate planning, backed by a JD from the University of Colorado and admission to the Colorado Bar. She leads the Individual Legal Services lane for Anderson & Blake Legal Associates, designing and overseeing the standardized workflows, quality controls, and client experience for divorce, custody, and estate planning matters. By combining hands-on case management with strategic leadership of attorneys and staff, she anchors the firm’s ability to deliver consistent, high-quality outcomes for individual clients while building the repeatable processes needed to scale that practice area as demand grows.",
+          "annual_wage": 143470.0,
+          "wage_source": "oews_median"
+        },
+        {
+          "full_name": "Michael Blake",
+          "role_title": "Partner",
+          "primary_responsibilities": "Leads the Corporate Legal Services lane for startups and SMEs, manages complex corporate matters including contracts, compliance, and M&A support, develops standardized templates and processes for corporate engagements, mentors attorneys on corporate work, and supports business development and relationship management with small-business clients and referral partners.",
+          "relevant_background": "12 years of legal experience primarily in corporate law and startups; JD from the University of Denver; admitted to the Colorado Bar",
+          "experience_years": "12",
+          "why_strengthens_business": "His corporate and startup-focused background allows the firm to offer sophisticated business counsel within a structured lane, making it possible to handle a higher volume of matters for small-business clients while maintaining precision and responsiveness.",
+          "paragraph": "Michael Blake, Partner, brings 12 years of corporate law and startup-focused experience, with a JD from the University of Denver and admission to the Colorado Bar. He leads the Corporate Legal Services lane for Anderson & Blake Legal Associates, shaping the contract, compliance, and M&A support offerings that serve local startups and SMEs. By building and refining standardized templates, engagement structures, and matter workflows for business clients, he enables the firm to deliver efficient, repeatable corporate work at scale while preserving the high-touch advisory support that small-business owners expect from a premium law firm.",
+          "annual_wage": 143470.0,
+          "wage_source": "oews_median"
+        }
+      ],
+      "inferred_roles": [
+        {
+          "role_title": "Senior Paralegal (Shared Corporate and Individual Lanes)",
+          "annual_wage": 59800.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 0,
+          "notes": "Needed at launch to handle document preparation, filings, and routine communications so partner attorney time is focused on higher-value legal analysis and client strategy across both practice lanes."
+        },
+        {
+          "role_title": "Associate Attorney – Corporate",
+          "annual_wage": 143470.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 6,
+          "notes": "Brought on within the first 6 months to absorb growing corporate-matter volume, support standardized contract and compliance work, and prevent Michael Blake from becoming a bottleneck as business demand ramps."
+        },
+        {
+          "role_title": "Associate Attorney – Family/Estate",
+          "annual_wage": 143470.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 9,
+          "notes": "Added later in Year 1 to increase throughput on family law and estate planning matters and allow Emily Anderson to shift more time to lane design, quality oversight, and high-complexity cases."
+        },
+        {
+          "role_title": "Office Manager / Legal Operations Coordinator",
+          "annual_wage": 111660.0,
+          "wage_source": "oews_median",
+          "months_until_hire": 3,
+          "notes": "Hired early in Year 1 to centralize intake, scheduling, billing, and basic HR/operations so attorneys and paralegals can focus on fee-earning work as the pre-revenue firm moves into steady operations."
+        }
+      ],
+      "inferred_roles_summary": "Suggested year-1 roles and estimated annual wages:\n- Senior Paralegal (Shared Corporate and Individual Lanes): $59,800/year (in ~0 months) - Needed at launch to handle document preparation, filings, and routine communications so partner attorney time is focused on higher-value legal analysis and client strategy across both practice lanes.\n- Associate Attorney – Corporate: $143,470/year (in ~6 months) - Brought on within the first 6 months to absorb growing corporate-matter volume, support standardized contract and compliance work, and prevent Michael Blake from becoming a bottleneck as business demand ramps.\n- Associate Attorney – Family/Estate: $143,470/year (in ~9 months) - Added later in Year 1 to increase throughput on family law and estate planning matters and allow Emily Anderson to shift more time to lane design, quality oversight, and high-complexity cases.\n- Office Manager / Legal Operations Coordinator: $111,660/year (in ~3 months) - Hired early in Year 1 to centralize intake, scheduling, billing, and basic HR/operations so attorneys and paralegals can focus on fee-earning work as the pre-revenue firm moves into steady operations.",
+      "business_naics_6": "541110",
+      "confidence": 0.86
+    },
+    "financials_json": {
+      "current_revenue": 0,
+      "current_cogs": 978432,
+      "marketing_total_year1": 733824.0,
+      "marketing_percent_of_revenue": 0.12,
+      "other_operating_expense": 2800,
+      "monthly_rent_expense": 4200,
+      "other_monthly_debt_payments": 0,
+      "current_payroll": 286940,
+      "current_num_employees": 2,
+      "current_capex": 15000,
+      "ar_balance": 12000,
+      "ap_balance": 0,
+      "inventory_balance": 0,
+      "initial_assets": 40000,
+      "initial_lease": "0,none",
+      "initial_equity": 100000,
+      "total_debt_outstanding": 0,
+      "annual_interest_payment": 0,
+      "annual_principal_payment": 0,
+      "owner_compensation": 0,
+      "cash_on_hand": 80000,
+      "confidence": 0.99,
+      "baseline_cogs_percent": 0.16,
+      "baseline_cogs": 978432.0,
+      "cogs_adjustment": 0.0,
+      "cogs_total_year1": 978432.0,
+      "cogs_basis_naics": "541110",
+      "cogs_basis_years_used": [],
+      "cogs_basis_rationale": "For a small, process-optimized law firm with virtual/hybrid delivery, direct fulfillment costs consist mainly of matter-specific software/tools, e-filing and court fees paid on behalf of clients (net of reimbursements), legal research platforms, document services, and modest matter-related subcontracting or expert costs. Attorney and staff wages are typically treated as operating expenses rather than COGS in law-firm financials, unless explicitly modeled as per-matter direct labor, which they are not here (they’re fixed salaried roles). The dual‑lane, templated model reduces per‑matter research and drafting time and thus keeps variable fulfillment costs relatively lean compared with less standardized firms. Given the high-fee, low-COGS nature of legal services and the lack of inventory or shipping, a reasonable Year‑1 direct cost estimate is in the mid-teens of revenue. I estimate 16% of revenue as direct fulfillment COGS for this firm in Year 1.",
+      "baseline_payroll_year1": 538087.5,
+      "payroll_adjustment": 0.0,
+      "payroll_total_year1": 538087.5,
+      "payroll_basis_people_roles": [
+        {
+          "source": "person",
+          "full_name": "Emily Anderson",
+          "role_title": "Managing Partner",
+          "annual_wage": 143470.0,
+          "months_counted_year1": 12,
+          "year1_payroll_amount": 143470.0
+        },
+        {
+          "source": "person",
+          "full_name": "Michael Blake",
+          "role_title": "Partner",
+          "annual_wage": 143470.0,
+          "months_counted_year1": 12,
+          "year1_payroll_amount": 143470.0
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Senior Paralegal (Shared Corporate and Individual Lanes)",
+          "annual_wage": 59800.0,
+          "months_until_hire": 0,
+          "months_counted_year1": 12,
+          "year1_payroll_amount": 59800.0
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Associate Attorney – Corporate",
+          "annual_wage": 143470.0,
+          "months_until_hire": 6,
+          "months_counted_year1": 6,
+          "year1_payroll_amount": 71735.0
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Associate Attorney – Family/Estate",
+          "annual_wage": 143470.0,
+          "months_until_hire": 9,
+          "months_counted_year1": 3,
+          "year1_payroll_amount": 35867.5
+        },
+        {
+          "source": "inferred_role",
+          "role_title": "Office Manager / Legal Operations Coordinator",
+          "annual_wage": 111660.0,
+          "months_until_hire": 3,
+          "months_counted_year1": 9,
+          "year1_payroll_amount": 83745.0
+        }
+      ],
+      "baseline_marketing_percent": 0.18,
+      "baseline_marketing": 1100736.0,
+      "marketing_adjustment": -366912.0
+    },
+    "marketing_model_json": {
+      "ready": true,
+      "version": 3,
+      "signature": "{\"business\": {\"address_country\": \"USA\", \"address_state\": \"CO\", \"address_zip\": \"80202\"}, \"market\": {\"b2b_age_bands\": [\"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6-10\", \"11-15\", \"16-20\", \"21-25\", \"26+\"], \"b2b_naics_6\": [\"541110\", \"541611\", \"541612\", \"541613\", \"541430\", \"541810\", \"541820\", \"541513\", \"541519\", \"541310\", \"541990\", \"621111\", \"621399\", \"621498\", \"522320\", \"522298\", \"523930\", \"524210\", \"531110\", \"531120\"], \"b2b_size_bands\": [\"1-4\", \"5-9\", \"10-19\"], \"consumer_type\": \"mixed\", \"marketing_plan_summary\": \"Anderson & Blake Legal Associates will position itself as a locally focused, premium yet accessible mixed-model law firm serving two distinct but complementary segments: upper-middle-income and affluent individual clients (all genders, primarily ages 30–70) needing family law and estate planning, and small business clients (solo founders and firms under 20 employees across common local industries) needing corporate legal services. Operating on a contract-style engagement model at a premium professional-services tier anchored around $6,000-$12,000 per corporate legal matter, individual legal matter, the firm will concentrate on the Denver metro and broader Colorado market, where attorney and staff labor is the primary capacity driver. In this pre-revenue phase, the firm’s dual-lane structure—separating corporate and individual matters into distinct workflows—will be emphasized to appeal to time-sensitive business owners and households that value predictable, well-managed legal matters over ad hoc representation.\\nAcquisition will be structured around a small set of high-fit channels suited to a pre-revenue professional services launch. Google Search will be used so both small businesses and higher-income households actively seeking corporate, family law, or estate planning help in Denver can find the firm at the moment of need. A robust Google Business Profile/Maps presence will support local discovery and social proof when prospects check legitimacy and proximity. LinkedIn will focus on reaching founders and small-business decision-makers through professional profiles and networking in the local startup and SME ecosystem. Instagram will support light brand presence and trust-building for individual and family clients who often research firms socially before reaching out. Curated referral partnerships (such as with financial advisors, accountants, and other professionals) will provide warm introductions to both affluent households and small-business owners who are already primed to purchase legal services. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\", \"selections\": [{\"acs_codes\": [\"B15003_022E\", \"B15003_023E\", \"B15003_025E\"], \"segment\": \"Education\"}], \"target_market_summary\": \"\"}, \"ops\": {\"business_naics_6\": \"541110\", \"business_type\": \"Law Firm\", \"capacity_driver\": \"labor\", \"competitive_advantage\": \"Anderson & Blake’s core competitive advantage is a dual‑track staffing and matter‑design model that structurally separates corporate and individual matters into distinct “lanes,” each with standardized workflows, document templates, and role definitions, so attorneys and staff stay within a narrow band of work types instead of context‑switching across the entire practice. Operationally, this allows the firm to run higher, more predictable utilization on scarce attorney hours (especially mid‑level and partner time) while still offering two practice areas, which lowers effective cost per matter and shortens time‑to‑resolution for clients compared with generalist small firms that mix all work on the same calendars and staff. Because this depends on deliberate practice‑lane design, templated processes, and disciplined intake/triage across two very different client types, it is meaningfully harder for typical small firms—organized around individual attorneys rather than lanes and workflows—to replicate without reworking their entire staffing and case management approach.\", \"consumer_type\": \"mixed\", \"countries\": [\"USA\"], \"geographic_coverage\": \"Denver metro (including Denver County and nearby communities) with ability to serve clients across Colorado\", \"geographic_scope\": \"local\", \"operating_periods_per_year\": null, \"primary_growth_lever\": \"expand attorney and paralegal capacity to handle more matters simultaneously while maintaining quality\", \"sales_modality\": \"hybrid\", \"shipping_method\": \"none/virtual delivery (no physical shipping)\", \"unit_cadence\": \"\", \"unit_description\": \"\", \"unit_name\": \"\", \"unit_price\": null, \"units_per_period_capacity\": null, \"units_per_week_capacity\": null, \"utilization_rate\": null}, \"year1\": {\"company_revenue_total_year1\": 6115200.0, \"lobs\": [{\"lob_name\": \"Corporate Legal Services\", \"products\": [{\"avg_units_per_period_year1\": 7.0, \"avg_units_per_week_year1\": 7.0, \"operating_periods_per_year\": 52.0, \"operating_weeks_per_year\": 52.0, \"product_name\": \"Corporate legal matter/engagement\", \"revenue_total_year1\": 4368000.0, \"unit_cadence\": \"contract\", \"unit_description\": \"One signed corporate legal engagement covering the full agreed scope for that specific matter (e.g., contract work, compliance project, or M&A support) from intake through completion.\", \"unit_name\": \"corporate legal matter\", \"unit_price\": 12000.0, \"units_per_period_capacity\": 10.0, \"units_per_week_capacity\": 10.0, \"utilization_rate\": 0.7}], \"revenue_total_year1\": 4368000.0}, {\"lob_name\": \"Individual Legal Services\", \"products\": [{\"avg_units_per_period_year1\": 5.6, \"avg_units_per_week_year1\": 5.6, \"operating_periods_per_year\": 52.0, \"operating_weeks_per_year\": 52.0, \"product_name\": \"Family/estate legal matter\", \"revenue_total_year1\": 1747200.0, \"unit_cadence\": \"contract\", \"unit_description\": \"One signed individual or family legal matter (e.g., divorce, custody, or estate planning package for a household) counted as a full engagement from intake through completion.\", \"unit_name\": \"individual legal matter\", \"unit_price\": 6000.0, \"units_per_period_capacity\": 8.0, \"units_per_week_capacity\": 8.0, \"utilization_rate\": 0.7}], \"revenue_total_year1\": 1747200.0}]}}",
+      "geography_basis": {
+        "scope": "local",
+        "zip_basis": [],
+        "anchor_zip": "80202",
+        "state_fips": [
+          "08"
+        ],
+        "county_geoids": [
+          "08031"
+        ],
+        "coverage_summary": "Denver metro (including Denver County and nearby communities) with ability to serve clients across Colorado",
+        "explicit_zip_basis": []
+      },
+      "b2b_basis_counts": {
+        "cbp_basis": {
+          "match_level": 6,
+          "source_codes": [
+            "522298",
+            "522320",
+            "523930",
+            "524210",
+            "531110",
+            "531120",
+            "541110",
+            "541310",
+            "541430",
+            "541513",
+            "541519",
+            "541611",
+            "541612",
+            "541613",
+            "541810",
+            "541820",
+            "541990",
+            "621111",
+            "621399",
+            "621498"
+          ],
+          "employees_total": 148146.0,
+          "establishments_total": 22073.0
+        },
+        "age_signal": {
+          "latest_year": 2023,
+          "total_firms": 1223777.0,
+          "selected_firms": 1223777.0,
+          "selected_share": 1.0,
+          "selected_buckets": [
+            "a) 0",
+            "b) 1",
+            "c) 2",
+            "d) 3",
+            "e) 4",
+            "f) 5",
+            "g) 6 to 10",
+            "h) 11 to 15",
+            "i) 16 to 20",
+            "j) 21 to 25",
+            "k) 26+"
+          ]
+        },
+        "state_fips": [
+          "08"
+        ],
+        "size_signal": {
+          "latest_year": 2023,
+          "total_firms": 1204475.0,
+          "selected_firms": 1109084.0,
+          "selected_share": 0.9208028394113618,
+          "selected_buckets": [
+            "a) 1 to 4",
+            "b) 5 to 9",
+            "c) 10 to 19"
+          ]
+        },
+        "selected_naics_4": [
+          "5222",
+          "5223",
+          "5239",
+          "5242",
+          "5311",
+          "5411",
+          "5413",
+          "5414",
+          "5415",
+          "5416",
+          "5418",
+          "5419",
+          "6211",
+          "6213",
+          "6214"
+        ],
+        "selected_naics_6": [
+          "541110",
+          "541611",
+          "541612",
+          "541613",
+          "541430",
+          "541810",
+          "541820",
+          "541513",
+          "541519",
+          "541310",
+          "541990",
+          "621111",
+          "621399",
+          "621498",
+          "522320",
+          "522298",
+          "523930",
+          "524210",
+          "531110",
+          "531120"
+        ]
+      },
+      "b2c_basis_counts": [
+        {
+          "segment": "Education",
+          "acs_codes": [
+            "B15003_022E",
+            "B15003_023E",
+            "B15003_025E"
+          ],
+          "basis_count": 257161.51520000005,
+          "weight_basis": "population"
+        }
+      ],
+      "reachable_market": 8000.0,
+      "market_basis_type": "mixed",
+      "baseline_marketing": 1100736.0,
+      "capture_rate_year1": 0.0819,
+      "marketing_intensity": "high",
+      "expected_units_year1": 655.2,
+      "missing_dependencies": [],
+      "reachable_market_b2b": 250.0,
+      "reachable_market_b2c": 6500.0,
+      "required_units_year1": 655.2,
+      "required_revenue_year1": 6115200.0,
+      "marketing_basis_summary": "Business stage: pre‑revenue, mixed B2C/B2B, premium professional‑services positioning, local Denver‑metro focus with ability (but not mandate) to serve clients across Colorado.\n\nB2C (individual / household) reach narrowing:\n- ACS basis for “Education” segment (bachelor’s and above) in the relevant geography is ~257k adults. That is only a ceiling for potentially higher‑income, more legally engaged residents.\n- Actual user type for Year 1: upper‑middle‑income and affluent individuals/households age ~30–70 in or near Denver who are (a) actively experiencing a family‑law issue or (b) ready to act on estate planning in the next 12 months.\n- Only a small fraction of educated adults will both (1) have an actionable legal need this year and (2) be reachable via Anderson & Blake’s launch channels (Google Search + GBP/Maps, light social, and curated professional referrals) at a premium price point.\n- For planning, a reachable B2C pool of ~6,500 people is assumed. This implicitly filters down to:\n  • adults in the right age/income band;\n  • within or tightly around Denver metro (not the whole state); and\n  • who are realistically touchable via search, social presence, and advisor/referral networks in Year 1.\n- This is a planning abstraction, not a claim that exactly 6,500 unique individuals will see ads; it represents a realistic slice of the broader, much larger metro population that could reasonably be brought into awareness/consideration in Year 1 at the stated spend level.\n\nB2B (small‑business) reach narrowing and feedback incorporation:\n- Observed CBP basis: 22,073 establishments across selected NAICS in Colorado (professional services, medical, finance/insurance, real estate, etc.). This is the *statewide* universe, not all locally reachable in Year 1.\n- Sales/marketing model: hybrid but still fundamentally relationship and intent‑search driven, typical for a local law firm. No large outbound SDR engine or broad statewide campaigns.\n- Estimate feedback explicitly notes that a 1,500‑firm reachable set (~7% of the entire CBP universe) is too large for a pre‑revenue, Denver‑local law firm under this model.\n- Tightening to a realistic Denver‑metro subset:\n  • Focus on high‑fit industries (professional services, healthcare practices, financial advisors, real‑estate related businesses, select SMEs) that commonly purchase corporate counsel on a matter basis.\n  • Focus on very small firms (1–19 employees) and local founders, aligning with the size‑band selection.\n  • Limit to what can actually be surfaced and nurtured via Google Search, LinkedIn presence/networking, and curated referrals in one year.\n- A reachable B2B market of ~250 firms is adopted for Year 1 planning. This keeps B2B reach firmly in the “low hundreds,” as guided by the feedback, and represents:\n  • a small, realistic share of Denver‑area high‑fit firms, not the whole Colorado CBP basis; and\n  • a set that could plausibly become aware of or interact with the firm’s brand via search, networking, or advisor introductions in the first year.\n- This is a planning/reporting view, not an assertion that every one of these firms becomes a live lead.\n\nCombined reachable_market (planning only):\n- reachable_market = 8,000 is a high‑level planning construct that bundles:\n  • ~6,500 B2C individuals/households; and\n  • ~250 B2B firms;\n  plus implicit room for a modest additional halo of awareness (e.g., secondary exposure in metro and some statewide reach through search) without treating the two bases as one literal homogeneous TAM.\n- It is not meant to be interpreted as “8,000 uniform buyers.” Instead, it is a convenient reporting field summarizing a mixed model with separable B2C people and B2B firm reach.\n\nYear‑1 required demand and capture_rate_year1:\n- Required revenue Year 1: $6,115,200.\n- Required units Year 1: 655.2 matters (about 364 corporate at $12k and 291 individual at $6k, based on provided averages).\n- With reachable_market ≈ 8,000 entities (mostly people, plus a smaller number of firms), capture_rate_year1 ≈ 655.2 / 8,000 ≈ 0.0819.\n- This *capture rate* is units per reachable entity, not a one‑time adoption percentage.\n  • Each B2B firm can generate multiple legal matters over time; each B2C household might generate more than one matter in the medium term.\n  • Year 1 reality is likely heavily skewed toward single‑matter engagements per entity, but the metric is used here as a planning ratio, not as “8.19% of the market fully adopts Anderson & Blake.”\n\nBaseline marketing percent of revenue:\n- Context: pre‑revenue, professional‑services firm, premium price point, competitive local legal market, and a need to acquire 655+ relatively high‑ticket matters in Year 1.\n- Channels are performance‑heavy (Google Search + GBP/Maps), relationship‑oriented (referrals, LinkedIn), and brand‑supportive (Instagram), all of which require meaningful but not hyper‑scale spend.\n- Law firms often under‑invest in marketing; however, meeting a >$6M Year‑1 revenue target from zero requires aggressive early acquisition, especially with a dual‑segment model (B2B corporate and B2C individual) and intent‑based search competition.\n- A high, but not extreme, baseline marketing intensity is therefore appropriate.\n- Recommended baseline_marketing_percent: 0.18 (18% of revenue), implying:\n  • Marketing budget ≈ 0.18 × $6,115,200 ≈ $1.1M in Year 1.\n  • This supports: sustained Google Ads in Denver metro, strong GBP/SEO work, professional brand/website, ongoing LinkedIn presence and networking activity, content production, and some structured referral‑partner development.\n- This level reflects:\n  • pre‑revenue discovery and brand‑building needs;\n  • the premium professional‑services price point (meaning higher allowable CAC per client);\n  • and the operational requirement to keep the matter pipeline consistently filled across both lanes.\n\nIn summary: the reachable market is intentionally conservative on the B2B side (250 firms from a 22,073‑establishment Colorado basis) and narrowed on the B2C side to a high‑intent, higher‑income slice of the Denver‑metro adult population (~6,500 people). The combined 8,000‑entity planning base can realistically support 655 Year‑1 matters under a high‑intensity launch strategy funded at roughly 18% of revenue for marketing.",
+      "baseline_marketing_percent": 0.18,
+      "demand_supports_required_units": true,
+      "expected_customers_or_clients_year1": 655.0
+    },
+    "financials_year1_json": {
+      "lobs": [
+        {
+          "lob_name": "Corporate Legal Services",
+          "products": [
+            {
+              "product_name": "Corporate legal matter/engagement",
+              "unit_name": "corporate legal matter",
+              "unit_description": "One signed corporate legal engagement covering the full agreed scope for that specific matter (e.g., contract work, compliance project, or M&A support) from intake through completion.",
+              "unit_cadence": "contract",
+              "unit_price": 12000.0,
+              "units_per_week_capacity": 10.0,
+              "units_per_period_capacity": 10.0,
+              "operating_periods_per_year": 52.0,
+              "utilization_rate": 0.7,
+              "avg_units_per_period_year1": 7.0,
+              "avg_units_per_week_year1": 7.0,
+              "operating_weeks_per_year": 52.0,
+              "revenue_total_year1": 4368000.0
+            }
+          ],
+          "revenue_total_year1": 4368000.0
+        },
+        {
+          "lob_name": "Individual Legal Services",
+          "products": [
+            {
+              "product_name": "Family/estate legal matter",
+              "unit_name": "individual legal matter",
+              "unit_description": "One signed individual or family legal matter (e.g., divorce, custody, or estate planning package for a household) counted as a full engagement from intake through completion.",
+              "unit_cadence": "contract",
+              "unit_price": 6000.0,
+              "units_per_week_capacity": 8.0,
+              "units_per_period_capacity": 8.0,
+              "operating_periods_per_year": 52.0,
+              "utilization_rate": 0.7,
+              "avg_units_per_period_year1": 5.6,
+              "avg_units_per_week_year1": 5.6,
+              "operating_weeks_per_year": 52.0,
+              "revenue_total_year1": 1747200.0
+            }
+          ],
+          "revenue_total_year1": 1747200.0
+        }
+      ],
+      "company_revenue_total_year1": 6115200.0
+    },
+    "realism_memo_json": null,
+    "pending_ops_milestone_json": true,
+    "fulfillment_json": {
+      "time": "matters worked continuously over weeks or months with ongoing in-person/virtual meetings and electronic communication until resolution",
+      "personnel": "partners and associate attorneys, supported by paralegals and staff"
+    }
+  }
+}

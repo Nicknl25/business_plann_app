@@ -61,12 +61,14 @@ README_LINES: List[Tuple[str, str]] = [
   ("operating_model_json (top-level AND each product) and financials_year1_json", ""),
   ("products. To change price/capacity/util coherently, edit every occurrence.", ""),
   ("", ""),
-  ("LIMITATION", ""),
-  ("Editing existing leaves is supported. To ADD a brand-new array element", ""),
-  ("(e.g. a 3rd product or an 8th person), edit the baseline JSON in", ""),
-  ("intake_bypass_baselines/ directly, or capture a baseline that already has it.", ""),
-  ("(For headcount scale, financials_json.current_num_employees / payroll_total_year1", ""),
-  (" are usually the right knobs — post-intake authors the full headcount grid.)", ""),
+  ("ADDING NEW ARRAY ELEMENTS", ""),
+  ("You CAN add a brand-new array element by adding a row whose path indexes", ""),
+  ("past the baseline (the applier builds the structure). E.g. add a 2nd LOB:", ""),
+  ("operating_model_json.lob_models[1].lob_name  +  ...[1].products[0].unit_price etc.", ""),
+  ("Fill every leaf of the new element you care about; keep it coherent with", ""),
+  ("financials_year1_json.lobs (denormalized). (For headcount scale,", ""),
+  ("financials_json.current_num_employees / payroll_total_year1 are the knobs —", ""),
+  (" post-intake authors the full headcount grid.)", ""),
 ]
 
 SECTION_FILL = PatternFill(start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid")
@@ -141,19 +143,40 @@ def main(argv=None) -> int:
   parser.add_argument("--sheet", default="Sunny_Glaze_Donuts")
   parser.add_argument("--baselines-dir", default=str(C.DEFAULT_BASELINES_DIR))
   parser.add_argument("--out", default=str(C.DEFAULT_SCENARIOS_XLSX))
+  parser.add_argument(
+    "--append", action="store_true",
+    help="Add/replace this sheet in the EXISTING workbook (keeps other scenario "
+         "sheets) instead of overwriting the file with a single sheet.",
+  )
   args = parser.parse_args(argv)
 
   baseline = C.load_baseline(Path(args.baselines_dir), args.baseline)
   rows = _build_rows(baseline)
   leaf_count = sum(1 for _, _, h in rows if not h)
 
-  wb = openpyxl.Workbook()
-  _write_readme(wb.active)
-  wb.active.title = "_README"
-  _write_scenario(wb.create_sheet(args.sheet), args.baseline, rows)
-  wb.save(args.out)
-  print(f"Wrote {args.out}")
+  out_path = Path(args.out)
+  if args.append and out_path.exists():
+    wb = openpyxl.load_workbook(str(out_path))
+    # Refresh the _README (kept first) so the conventions stay current.
+    if "_README" in wb.sheetnames:
+      del wb["_README"]
+    _write_readme(wb.create_sheet("_README", 0))
+    # Replace an existing sheet of the same name; otherwise append a new one.
+    if args.sheet in wb.sheetnames:
+      del wb[args.sheet]
+    _write_scenario(wb.create_sheet(args.sheet), args.baseline, rows)
+    mode = "appended to"
+  else:
+    wb = openpyxl.Workbook()
+    _write_readme(wb.active)
+    wb.active.title = "_README"
+    _write_scenario(wb.create_sheet(args.sheet), args.baseline, rows)
+    mode = "wrote"
+  wb.save(str(out_path))
+  sheets = [s for s in wb.sheetnames if not s.startswith("_")]
+  print(f"{mode} {out_path}")
   print(f"  scenario sheet {args.sheet!r}: {leaf_count} editable fields (baseline={args.baseline})")
+  print(f"  scenario sheets now in workbook: {sheets}")
   return 0
 
 

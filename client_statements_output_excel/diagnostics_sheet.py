@@ -140,7 +140,8 @@ def build_diagnostics_sheet(
 
   # Section 2 -- Acceptance gate.
   row = _section_header(ws, row, "Acceptance Gate")
-  score = payload.get("acceptance_score")
+  # Prefer the human "ok/total" label ("15/16"); fall back to the numeric.
+  score = payload.get("acceptance_score_label") or payload.get("acceptance_score")
   passed = payload.get("acceptance_passed")
   verdict_text = (
     "PASSED" if passed is True

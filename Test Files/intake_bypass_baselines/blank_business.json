@@ -1,0 +1,117 @@
+{
+  "_meta": {
+    "name": "blank_business",
+    "note": "FROM-SCRATCH TEMPLATE. Fill the fields; synthesized payloads are recomputed."
+  },
+  "flat": {
+    "business_name": "New Business",
+    "business_address": "100 Main St, Springfield, IL 62701, USA",
+    "address_street": "100 Main St",
+    "address_city": "Springfield",
+    "address_state": "IL",
+    "address_zip": "62701",
+    "address_country": "USA",
+    "business_start_date": "01/01/2024"
+  },
+  "structured": {
+    "operating_model_json": {
+      "consumer_type": "b2c",
+      "business_type": "<your business type>",
+      "business_stage": "operating",
+      "business_description_summary": "<one-line description of what you sell>",
+      "competitive_advantage": "<why you win>",
+      "geographic_scope": "local",
+      "geographic_coverage": "<your market area>",
+      "primary_growth_lever": "<main growth lever>",
+      "capacity_driver": "labor",
+      "business_naics_6": "000000",
+      "unit_name": null,
+      "unit_price": null,
+      "units_per_week_capacity": null,
+      "units_per_period_capacity": null,
+      "utilization_rate": null,
+      "operating_periods_per_year": 12,
+      "initial_assets": 100000,
+      "initial_equity": 80000,
+      "initial_lease": 0,
+      "total_debt_outstanding": 0,
+      "lob_models": [
+        {
+          "lob_name": "Line of business A",
+          "products": [
+            {
+              "product_name": "Product / service A",
+              "unit_name": "Product / service A",
+              "unit_description": "Product / service A",
+              "unit_cadence": "monthly",
+              "units_per_week_capacity": 200.0,
+              "units_per_period_capacity": 2400.0,
+              "operating_periods_per_year": 12,
+              "utilization_rate": 0.6,
+              "unit_price": 100.0
+            }
+          ]
+        }
+      ],
+      "shipping_method": "none",
+      "sales_modality": "in_person",
+      "countries": [
+        "USA"
+      ],
+      "milestones": [],
+      "legal_entity": "LLC",
+      "confidence": 0.7
+    },
+    "people_json": {
+      "business_naics_6": "000000",
+      "confidence": 0.7,
+      "inferred_roles": [],
+      "inferred_roles_summary": "",
+      "people": [
+        {
+          "full_name": "<founder name>",
+          "role_title": "Owner / Operator",
+          "primary_responsibilities": "<what they do day to day>",
+          "relevant_background": "<relevant experience>",
+          "experience_years": "5",
+          "why_strengthens_business": "<why they make this business work>",
+          "paragraph": "<short bio>",
+          "annual_wage": 60000.0,
+          "wage_source": "client_override",
+          "months_until_hire": 0
+        }
+      ]
+    },
+    "financials_json": {
+      "cogs_percent_of_revenue": 0.3,
+      "payroll_total_year1": 60000,
+      "current_revenue": 300000,
+      "cash_on_hand": 50000,
+      "initial_assets": 100000,
+      "initial_equity": 80000,
+      "initial_lease": 0,
+      "total_debt_outstanding": 0,
+      "other_operating_expense": 24000,
+      "marketing_total_year1": 15000,
+      "monthly_rent_expense": 2000,
+      "current_capex": 5000,
+      "current_cogs": 90000,
+      "current_payroll": 60000,
+      "current_num_employees": 3
+    },
+    "target_market_json": {
+      "consumer_type": "b2c",
+      "marketing_plan_summary": "<how you reach customers>",
+      "confidence": 0.7,
+      "selections": [],
+      "gender_age_intent": null,
+      "income_intent": null
+    },
+    "marketing_model_json": {},
+    "financials_year1_json": {},
+    "messages_json": [],
+    "realism_memo_json": {},
+    "pending_ops_milestone_json": {},
+    "fulfillment_json": {}
+  }
+}
