@@ -3238,31 +3238,64 @@ def _build_model_input_overlay(
     value = entry.get("default_value")
     return float(value) if value is not None else None
 
+  # PROPORTIONAL BAND-SCALING (round-1 seeding half): when band-fitting produced
+  # an operator-rescaled envelope (cohort SHAPE at the business's real LEVEL),
+  # seed the round-1 cost ratios from ITS target -- not the raw cohort envelope.
+  # Otherwise the actual finmo costs sit at a mismatched large-public-company
+  # cohort's level (a dental office at 15% marketing / 45% COGS) even though the
+  # cascade aims at the rescaled bands, and the business can never reach viable.
+  _fitted_envelope = (
+    _existing_solver_input.get("fitted_envelope")
+    if isinstance(_existing_solver_input, dict) else None
+  )
+
+  def _rescaled_target(metric_key: str) -> Optional[float]:
+    if not isinstance(_fitted_envelope, dict):
+      return None
+    band = _fitted_envelope.get(metric_key)
+    if isinstance(band, dict) and band.get("target") is not None:
+      try:
+        return float(band["target"])
+      except (TypeError, ValueError):
+        return None
+    return None
+
   baseline_substitution_provenance: Dict[str, Dict[str, Any]] = {}
   cogs_ratio_forecast = cogs_ratio_baseline
   if cogs_ratio_forecast <= 0.0:
-    envelope_value = _envelope_default("expenses::Cost of Goods Sold")
+    rescaled = _rescaled_target("cogs_percent_of_revenue")
+    envelope_value = rescaled if rescaled is not None else _envelope_default("expenses::Cost of Goods Sold")
     if envelope_value is not None:
       cogs_ratio_forecast = float(envelope_value)
       baseline_substitution_provenance["cogs_percent_of_revenue"] = {
-        "calibration_source": "driver_movement_envelope",
+        "calibration_source": "operator_rescaled_band" if rescaled is not None else "driver_movement_envelope",
         "default_value": cogs_ratio_forecast,
       }
-  marketing_ratio_baseline = (
-    _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
-    if isinstance(marketing_model_json, dict) else None
-  )
-  if marketing_ratio_baseline is None:
-    marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
-  marketing_ratio_forecast = marketing_ratio_baseline
-  if not marketing_ratio_forecast:
-    envelope_value = _envelope_default("expenses::Marketing")
-    if envelope_value is not None:
-      marketing_ratio_forecast = float(envelope_value)
-      baseline_substitution_provenance["marketing_percent_of_revenue"] = {
-        "calibration_source": "driver_movement_envelope",
-        "default_value": marketing_ratio_forecast,
-      }
+  # The operator-rescaled marketing band (anchored to the operator's filled
+  # marketing spend) WINS over the recomputed marketing_model default, which is
+  # a NAICS-derived figure that ignores what the operator told us.
+  marketing_ratio_forecast = _rescaled_target("marketing_percent_of_revenue")
+  if marketing_ratio_forecast is not None:
+    baseline_substitution_provenance["marketing_percent_of_revenue"] = {
+      "calibration_source": "operator_rescaled_band",
+      "default_value": marketing_ratio_forecast,
+    }
+  else:
+    marketing_ratio_baseline = (
+      _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
+      if isinstance(marketing_model_json, dict) else None
+    )
+    if marketing_ratio_baseline is None:
+      marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
+    marketing_ratio_forecast = marketing_ratio_baseline
+    if not marketing_ratio_forecast:
+      envelope_value = _envelope_default("expenses::Marketing")
+      if envelope_value is not None:
+        marketing_ratio_forecast = float(envelope_value)
+        baseline_substitution_provenance["marketing_percent_of_revenue"] = {
+          "calibration_source": "driver_movement_envelope",
+          "default_value": marketing_ratio_forecast,
+        }
   r_and_d_ratio_baseline = (
     _safe_ratio((financials_json or {}).get("r_and_d_percent"))
     or _safe_ratio((financials_json or {}).get("research_and_development_percent"))
@@ -3282,12 +3315,19 @@ def _build_model_input_overlay(
     )
   quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
   non_rent_opex_year1 = _non_rent_g_and_a_year1(financials_json or {})
-  g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
-    "expenses::General & Administrative",
-    financials_json=financials_json or {},
-    annual_revenue=revenue_total_year1,
-    default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
-  )
+  # Prefer the operator-rescaled G&A band (cohort shape at the business's level)
+  # over the cohort table seed -- the rescaled target is anchored to the
+  # operator's filled overhead, so the actual finmo G&A sits at the real level.
+  _rescaled_ga = _rescaled_target("sga_percent_of_revenue")
+  if _rescaled_ga is not None and _rescaled_ga > 0.0:
+    g_and_a_ratio_baseline = _rescaled_ga
+  else:
+    g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
+      "expenses::General & Administrative",
+      financials_json=financials_json or {},
+      annual_revenue=revenue_total_year1,
+      default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
+    )
   intake_interest_rate_stub = _ratio(
     (financials_json or {}).get("annual_interest_payment"),
     (financials_json or {}).get("total_debt_outstanding"),

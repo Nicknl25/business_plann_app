@@ -77,6 +77,79 @@ def industry_envelope_from_targets(targets_payload: Dict[str, Any]) -> Dict[str,
   return envelope
 
 
+# Operator-filled financials -> the LEVEL this specific business runs each cost
+# line at. The cohort gives the SHAPE (relative spread / trajectory); these give
+# the LEVEL. A $1M dental office is not a hospital system, so a hospital cohort's
+# raw levels must be scaled to the operator's reality -- floor included.
+def operator_cost_levels(
+  financials_json: Optional[Dict[str, Any]],
+  revenue_year1: Optional[float],
+) -> Dict[str, float]:
+  """Per-metric cost LEVELS (fraction of revenue) from the operator's filled
+  financials, for the metrics a human authors. Empty when nothing is fillable."""
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  rev = _f(revenue_year1)
+  levels: Dict[str, float] = {}
+
+  cogs = _f(fin.get("cogs_percent_of_revenue"))
+  if cogs is None and rev:
+    c = _f(fin.get("cogs_total_year1"))
+    if c is None:
+      c = _f(fin.get("current_cogs"))
+    if c is not None:
+      cogs = c / rev
+  if cogs is not None and cogs >= 0:
+    levels["cogs_percent_of_revenue"] = cogs
+
+  mkp = _f(fin.get("marketing_percent_of_revenue"))
+  if mkp is None and rev:
+    mk = _f(fin.get("marketing_total_year1"))
+    if mk is None:
+      mk = _f(fin.get("baseline_marketing"))
+    if mk is not None:
+      mkp = mk / rev
+  if mkp is not None and mkp >= 0:
+    levels["marketing_percent_of_revenue"] = mkp
+
+  if rev:
+    ga = _f(fin.get("other_operating_expense"))
+    if ga is None:
+      ga = _f(fin.get("other_opex_absolute"))
+    if ga is not None and ga >= 0:
+      levels["sga_percent_of_revenue"] = ga / rev
+  return levels
+
+
+def rescale_envelope_to_operator(
+  envelope: Dict[str, Dict[str, float]],
+  operator_levels: Dict[str, float],
+) -> Dict[str, Dict[str, float]]:
+  """Proportional band-scaling: keep the cohort SHAPE, move the LEVEL to the
+  operator's reality. For each metric the operator filled, anchor the target to
+  the operator level and scale the floor AND ceiling by the same factor so the
+  relative spread (the cohort's shape) is preserved. This frees a small private
+  business from being floored at a large-public-company's minimum -- the whole
+  envelope (min/target/max) shifts to the business's scale, not just the target.
+  Metrics with no operator anchor keep the raw cohort band."""
+  out: Dict[str, Dict[str, float]] = {}
+  for metric, band in (envelope or {}).items():
+    lvl = operator_levels.get(metric) if operator_levels else None
+    tgt = _f(band.get("target"))
+    if lvl is not None and tgt is not None and tgt > 1e-9 and lvl >= 0:
+      scale = lvl / tgt
+      nb: Dict[str, float] = {"target": lvl}
+      mn = _f(band.get("min"))
+      mx = _f(band.get("max"))
+      if mn is not None:
+        nb["min"] = max(0.0, mn * scale)
+      if mx is not None:
+        nb["max"] = max(nb.get("min", 0.0), mx * scale)
+      out[metric] = nb
+    else:
+      out[metric] = dict(band)
+  return out
+
+
 def normalize_band_trajectories(bands: Any) -> Dict[str, Dict[int, float]]:
   """GPT band output -> {metric_key: {q (1..20): value}}, forward/backward filled."""
   out: Dict[str, Dict[int, float]] = {}
@@ -195,17 +268,26 @@ def run_band_fitting_pass(
   compact: Dict[str, Any],
   revenue_line: List[float],
   targets_payload: Dict[str, Any],
+  operator_levels: Optional[Dict[str, float]] = None,
   model: Optional[str] = None,
   max_attempts: int = 2,
   _author_fn=None,
 ) -> Dict[str, Any]:
   """Fit the industry bands to this business. Returns
-  ``{ok, fitted_bands, envelope, violations_resolved, raw_targets, error}``.
-  ``fitted_bands`` is ``{metric_key: {q: value}}`` (per-quarter). ok=False ->
-  caller keeps the raw industry bands unchanged."""
+  ``{ok, fitted_bands, envelope, operator_levels, violations_resolved,
+  raw_targets, error}``. ``fitted_bands`` is ``{metric_key: {q: value}}``
+  (per-quarter). ok=False -> caller keeps the raw industry bands unchanged."""
   envelope = industry_envelope_from_targets(targets_payload)
   if not envelope:
     return {"ok": False, "fitted_bands": None, "envelope": {}, "error": "no_industry_envelope"}
+
+  # PROPORTIONAL BAND-SCALING: rescale the WHOLE envelope (floor/target/max) to
+  # the operator's real level, keeping the cohort's shape. Without this, a small
+  # private business is floored at a large-public-company cohort's minimum and
+  # the cascade is trapped above its real economics by construction.
+  raw_envelope = {k: dict(v) for k, v in envelope.items()}
+  if operator_levels:
+    envelope = rescale_envelope_to_operator(envelope, operator_levels)
 
   author_fn = _author_fn
   if author_fn is None:
@@ -240,6 +322,8 @@ def run_band_fitting_pass(
       "ok": True,
       "fitted_bands": fitted,
       "envelope": envelope,
+      "raw_envelope": raw_envelope,
+      "operator_levels": operator_levels or {},
       "violations_resolved": violations,
       "raw_targets": targets_payload,
       "error": None,

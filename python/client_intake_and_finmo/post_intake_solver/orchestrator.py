@@ -906,6 +906,7 @@ def _ensure_solver_inputs(
   _overlay_fitted_bands_onto_targets(
     solver_input.get(FINMO_OUTPUT_TARGET_KEY),
     solver_input.get("fitted_bands"),
+    solver_input.get("fitted_envelope"),
   )
   return next_input
 
@@ -927,16 +928,39 @@ _FITTED_SPINE_METRIC_KEYS = ("net_income_margin", "ebitda_margin")
 def _overlay_fitted_bands_onto_targets(
   targets_payload: Optional[Dict[str, Any]],
   fitted_bands: Optional[Dict[str, Any]],
+  fitted_envelope: Optional[Dict[str, Any]] = None,
 ) -> None:
   """Clamp the solver's output targets to the fitted bands in place. Cost-ratio
   targets are capped at the fitted PEAK (the solver may converge within the
   fitted band but not inflate above it); net-income margin is floored at the
   fitted FLOOR (the solver may not push NI below the viability the cascade
   landed). No-op when either input is missing -- raw targets stand."""
-  if not isinstance(targets_payload, dict) or not isinstance(fitted_bands, dict):
+  if not isinstance(targets_payload, dict):
     return
   metrics = targets_payload.get("metrics")
   if not isinstance(metrics, dict):
+    return
+
+  # PROPORTIONAL BAND-SCALING: replace the raw cohort band (min/target/max) with
+  # the operator-rescaled envelope so the solver AND the realism gate judge
+  # against the business's real-level bands -- floor included. Without this the
+  # realism gate hard-fails the operator's real cost (a dental office's ~3%
+  # marketing) against a large-public-company cohort floor (~10%).
+  if isinstance(fitted_envelope, dict):
+    _BAND_KEY = {"min": "target_min", "target": "target_target", "max": "target_max"}
+    for metric_key, band in fitted_envelope.items():
+      row = metrics.get(metric_key)
+      if not isinstance(row, dict) or not isinstance(band, dict):
+        continue
+      for env_key, tgt_key in _BAND_KEY.items():
+        val = band.get(env_key)
+        if val is not None:
+          try:
+            row[tgt_key] = float(val)
+          except (TypeError, ValueError):
+            continue
+
+  if not isinstance(fitted_bands, dict):
     return
 
   def _values(traj: Any) -> List[float]:

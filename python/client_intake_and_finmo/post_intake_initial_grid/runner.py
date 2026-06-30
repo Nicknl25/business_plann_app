@@ -1110,8 +1110,16 @@ def prepare_initial_grid_for_draft(
       },
     )
     _bf_compact = _bf_digest(ops_json, people_json, market_json, marketing_model_json)
+    # Operator-filled cost LEVELS anchor the proportional band-scaling (cohort =
+    # shape, operator = level), so the whole envelope -- floor included -- sits
+    # at THIS business's scale, not a mismatched large-public-company cohort's.
+    from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+      operator_cost_levels,
+    )
+    _bf_operator_levels = operator_cost_levels(financials_json, sum(_bf_line[:4]) or None)
     _bf_pass = run_band_fitting_pass(
       compact=_bf_compact, revenue_line=_bf_line, targets_payload=_bf_targets,
+      operator_levels=_bf_operator_levels,
     )
     if _bf_pass.get("ok"):
       store_fitted_bands(
@@ -1133,9 +1141,17 @@ def prepare_initial_grid_for_draft(
           str(m): {str(q): float(v) for q, v in (traj or {}).items()}
           for m, traj in (_bf_pass.get("fitted_bands") or {}).items()
         }
+        # The operator-rescaled envelope (floor/target/max at the business's
+        # real level) so the SOLVER and the realism gate judge against the same
+        # business-scaled bands -- not the raw cohort floor.
+        _bf_si["fitted_envelope"] = {
+          str(m): {str(b): float(val) for b, val in (band or {}).items()}
+          for m, band in (_bf_pass.get("envelope") or {}).items()
+        }
       sequence_trace["band_fitting"] = {
         "ok": True,
         "metrics": sorted((_bf_pass.get("fitted_bands") or {}).keys()),
+        "operator_levels": _bf_pass.get("operator_levels") or {},
         "violations_resolved": len(_bf_pass.get("violations_resolved") or []),
       }
     else:
