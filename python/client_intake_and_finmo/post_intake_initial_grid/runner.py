@@ -1982,6 +1982,15 @@ def prepare_initial_grid_for_draft(
   # planning_run failure (matching the existing initial-grid failure-
   # handling pattern). The audit row has already landed inside the
   # wrapper's best-effort log_restructure call.
+  #
+  # NOTE: the cost rows are NOT grounded to the fitted bands here. Grounding the
+  # model_input before the mirror would break the Fork A round-1 parity assertion
+  # (the entry finmo was built from the cohort-scale rows; a grounded model_input
+  # would make the in-cascade recompute diverge on an "unchanged" plan_state).
+  # The operator-rescaled cost grounding is applied once, deterministically, in
+  # the post-cascade completion (after the solver pass, before the cash pass) so
+  # the final plan's costs and targets agree -- see
+  # orchestrator._run_post_cascade_completion / apply_fitted_cost_bands_to_model_input.
   from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
     build_mirror,
   )

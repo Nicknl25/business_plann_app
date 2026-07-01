@@ -2921,6 +2921,54 @@ def _run_post_cascade_completion(
       "error": f"{type(gate_exc).__name__}: {str(gate_exc)[:500]}",
     }
 
+  # ----- GROUND THE ACTUAL COST ROWS IN THE FITTED (OPERATOR-RESCALED) BANDS -----
+  # The target-seeking solver above aims levers AT the fitted bands, but the
+  # actual cost-ratio rows it leaves behind still carry cohort scale: the lever->
+  # ratio seeding reads the public-cohort sga column, so (for example) Marketing
+  # and G&A come back byte-identical near 15% while their operator-anchored
+  # targets sit near 3% and 9%. That gap is exactly what keeps otherwise-fundable
+  # plans EBITDA-negative. Close it HERE -- after the solver, before the cash pass
+  # -- so cash sizing, the realism gate, and finalize all evaluate ONE coherent
+  # plan whose costs match its operator-anchored targets. Dropping costs can only
+  # add cash, never introduce insolvency, so the cash pass stays sound.
+  try:
+    from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+      apply_fitted_cost_bands_to_model_input as _ground_cost_bands,
+    )
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope as _ground_scope,
+    )
+    _fitted_bands_for_ground = (
+      ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_bands")
+    )
+    if isinstance(_fitted_bands_for_ground, dict) and _fitted_bands_for_ground:
+      final_model_input_json = _ground_cost_bands(
+        final_model_input_json, _fitted_bands_for_ground,
+      )
+      # Rebuild the finmo from the grounded rows so downstream steps see the
+      # operator-scale costs immediately (the cash pass would rebuild anyway,
+      # but keeping final_finmo_json coherent here avoids a stale snapshot).
+      # build_python_finmo_json requires an active sequence-controller scope.
+      if callable(build_finmo_callable):
+        with _ground_scope(
+          step_key="post_intake_target_seeking_post_cascade_cost_grounding",
+          executor_function="apply_fitted_cost_bands_to_model_input",
+        ):
+          final_finmo_json = build_finmo_callable(final_model_input_json)
+      next_result["model_input_json"] = final_model_input_json
+      next_result["finmo_json"] = final_finmo_json
+      completion_trace["fitted_cost_band_grounding"] = {
+        "status": "applied",
+        "metrics": sorted(str(k) for k in _fitted_bands_for_ground.keys()),
+      }
+    else:
+      completion_trace["fitted_cost_band_grounding"] = {"status": "no_fitted_bands"}
+  except Exception as _ground_exc:  # pragma: no cover - defensive
+    completion_trace["fitted_cost_band_grounding"] = {
+      "status": "failed",
+      "error": f"{type(_ground_exc).__name__}: {str(_ground_exc)[:300]}",
+    }
+
   # 2. Cash pass — Phase 9 Phase F mode-based cash strategy.
   #
   # Replaces the Phase 8 minimal cash strategy (Q1 lump-sum dump) with

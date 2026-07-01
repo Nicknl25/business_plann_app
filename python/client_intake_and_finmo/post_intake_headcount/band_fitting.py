@@ -150,6 +150,62 @@ def rescale_envelope_to_operator(
   return out
 
 
+# Maps the model_input expense-row labels to the fitted-band metric keys. The
+# fitted bands are the cohort envelope rescaled to THIS operator's level; writing
+# them onto the actual cost rows is what makes a viable plan REAL -- the plan's
+# actual costs and the targets it aims at finally agree, instead of the actuals
+# sitting at cohort scale while the targets sit at operator scale (an unclosable
+# gap no amount of lever-moving can fix).
+FITTED_BAND_ROW_LABEL_TO_METRIC = {
+  "Cost of Goods Sold": "cogs_percent_of_revenue",
+  "Marketing": "marketing_percent_of_revenue",
+  "General & Administrative": "sga_percent_of_revenue",
+  "Research & Development": "r_and_d_percent_of_revenue",
+}
+
+
+def apply_fitted_cost_bands_to_model_input(
+  model_input: Optional[Dict[str, Any]],
+  fitted_bands: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """Write the fitted (operator-rescaled) per-quarter cost ratios onto the
+  model_input expense-ratio rows, in place.
+
+  ``fitted_bands`` is ``{metric_key: {quarter: ratio}}`` (quarter keys may be
+  int or str) as produced by the band-fitting pass. Only ratio-kind rows whose
+  label maps to a fitted cost metric are touched; every other row -- and any run
+  where band-fitting produced no bands -- is left exactly as-is. Universal: this
+  is the same grounding every real intake run gets, independent of any harness."""
+  if not isinstance(model_input, dict) or not isinstance(fitted_bands, dict) or not fitted_bands:
+    return model_input
+  rows = (model_input.get("sections") or {}).get("expenses") or []
+  if not isinstance(rows, list):
+    return model_input
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    metric = FITTED_BAND_ROW_LABEL_TO_METRIC.get(str(row.get("label") or ""))
+    if not metric:
+      continue
+    if str(row.get("value_kind") or "").strip().lower() != "ratio":
+      continue
+    traj = fitted_bands.get(metric)
+    if not isinstance(traj, dict) or not traj:
+      continue
+    values = row.get("values")
+    if not isinstance(values, list) or not values:
+      continue
+    for q in range(1, len(values)):
+      ratio = traj.get(q, traj.get(str(q)))
+      if ratio is None:
+        continue
+      try:
+        values[q] = max(0.0, float(ratio))
+      except (TypeError, ValueError):
+        continue
+  return model_input
+
+
 def normalize_band_trajectories(bands: Any) -> Dict[str, Dict[int, float]]:
   """GPT band output -> {metric_key: {q (1..20): value}}, forward/backward filled."""
   out: Dict[str, Dict[int, float]] = {}
