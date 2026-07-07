@@ -1023,12 +1023,38 @@ def prepare_initial_grid_for_draft(
     from client_intake_and_finmo.post_intake_headcount.revenue_authoring import (  # type: ignore  # noqa: E501
       run_revenue_authoring_pass,
     )
+    # DETERMINISM: the revenue trajectory is PROPOSED deterministically by Python
+    # (anchored to the intake-baseline/operator level, growth tapered within the
+    # QoQ cap) instead of authored from scratch by gpt-5.1 -- a reasoning model
+    # that ignores `seed`, so free authoring drifts off the operator's real
+    # revenue and swings ~3.4x run-to-run. The existing revenue_authored lock
+    # then carries this deterministic trajectory through the solver to the final
+    # finmo. (GPT review-only critique is layered separately; it must not
+    # reintroduce level drift.)
+    from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (  # type: ignore  # noqa: E501
+      propose_revenue_drivers_deterministic,
+    )
+    import functools as _functools
+    # Anchor Q1 to the operator's STATED current revenue (annual / 4), not the
+    # intake baseline (which can over-state it) -- the plan starts at the level
+    # the operator actually reported.
+    _anchor_q1 = None
+    try:
+      _cur_rev_annual = float((financials_json or {}).get("current_revenue") or 0.0)
+      if _cur_rev_annual > 0.0:
+        _anchor_q1 = _cur_rev_annual / 4.0
+    except (TypeError, ValueError):
+      _anchor_q1 = None
+    _deterministic_author = _functools.partial(
+      propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
+    )
     _rev_compact = build_operating_model_digest(
       ops_json, people_json, market_json, marketing_model_json,
     )
     if _rev_compact:
       _rev_pass = run_revenue_authoring_pass(
         compact=_rev_compact, model_input_json=model_input_json,
+        _author_fn=_deterministic_author,
       )
       if _rev_pass.get("ok"):
         model_input_json = _rev_pass["model_input_json"]
