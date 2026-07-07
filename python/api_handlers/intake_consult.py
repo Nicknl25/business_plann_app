@@ -7717,6 +7717,33 @@ def post_intake_consult_system_run_handler(*, app, request):
         # surfaces as a 500 rather than shipping a bad workbook.
         assert_workbook_model_status_ok(client_workbook_path)
 
+    # Deliver a copy of the generated finmo model workbook to a configured
+    # folder (e.g. a OneDrive-synced Client Plans directory) IN ADDITION to the
+    # auto-email. Env-configured via FINMO_MODEL_DELIVERY_DIR so no machine-
+    # specific path is hardcoded in app code; unset -> skip. Best-effort: a copy
+    # failure never blocks the run (log a warning only).
+    if client_workbook_path:
+      try:
+        import os as _delivery_os
+        import shutil as _delivery_shutil
+        _delivery_dir = (_delivery_os.getenv("FINMO_MODEL_DELIVERY_DIR") or "").strip()
+        if _delivery_dir and _delivery_os.path.isfile(client_workbook_path):
+          _delivery_os.makedirs(_delivery_dir, exist_ok=True)
+          _delivery_dest = _delivery_os.path.join(
+            _delivery_dir, _delivery_os.path.basename(client_workbook_path)
+          )
+          _delivery_shutil.copy2(client_workbook_path, _delivery_dest)
+          app.logger.info(
+            "finmo model workbook delivered to %s for draft %s",
+            _delivery_dest, result_draft_id,
+          )
+      except Exception as _delivery_exc:
+        app.logger.warning(
+          "finmo model workbook delivery to FINMO_MODEL_DELIVERY_DIR failed "
+          "for draft %s: %s: %s",
+          result_draft_id, type(_delivery_exc).__name__, str(_delivery_exc)[:300],
+        )
+
     # Auto-email the workbook (if export succeeded). Never block the
     # response on email outcome -- log warnings only.
     if client_workbook_path:
