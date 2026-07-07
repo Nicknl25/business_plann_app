@@ -89,7 +89,7 @@
       "cash_on_hand": 50000,
       "initial_assets": 100000,
       "initial_equity": 80000,
-      "initial_lease": 0,
+      "initial_lease": "0,none",
       "total_debt_outstanding": 0,
       "other_operating_expense": 24000,
       "marketing_total_year1": 15000,

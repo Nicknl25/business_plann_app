@@ -335,6 +335,68 @@ def load_baseline(baselines_dir: Path, name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# initial_lease is a RECURRING lease payment beyond main rent. Real intake stores
+# it as an "amount,period" string (financials_consultant intake prompt: "store as
+# 'amount,period'... If none, record '0,none'"). The app's finmo bridge annualizes
+# it into a capital-lease ROU asset; a BARE number silently defaults to MONTHLY
+# (x12), so a total/one-time value dropped into this monthly field becomes a 12x-
+# inflated ROU asset (the $290k -> $3.48M dental bug). The template/baselines store
+# a bare 0, and an invented business can fill a bare number -- so normalize the unit
+# HERE (harness), matching real intake, and flag implausible values before SQL.
+_LEASE_PERIOD_MULTIPLIER = {
+  "daily": 365.0, "weekly": 52.0, "monthly": 12.0, "quarterly": 4.0,
+  "yearly": 1.0, "annual": 1.0, "one-time": 1.0, "unknown": 1.0, "none": 0.0,
+}
+
+
+def _annualized_initial_lease(value: Any) -> Optional[float]:
+  """Annual lease commitment implied by an initial_lease value, mirroring the
+  app's _annualized_lease_commitment (bare number => monthly x12)."""
+  if value is None or value == "":
+    return None
+  if isinstance(value, (int, float)) and not isinstance(value, bool):
+    return max(0.0, float(value)) * 12.0
+  raw = str(value).strip().lower()
+  if not raw or raw in {"0", "0,none", "none", "no", "n/a", "na", "zero"}:
+    return 0.0
+  amount_part, _, period_part = raw.partition(",")
+  try:
+    amount = max(0.0, _to_number(amount_part))
+  except (TypeError, ValueError):
+    return None
+  period_part = period_part.strip()
+  if not period_part:
+    return amount * 12.0  # app default for a bare amount
+  return amount * _LEASE_PERIOD_MULTIPLIER.get(period_part, 1.0)
+
+
+def _canonicalize_initial_lease(value: Any) -> Any:
+  """Return initial_lease in real-intake's explicit "amount,period" form so the
+  app can never silently read a bare number as monthly. 0/empty -> "0,none";
+  a bare amount -> "<amount>,monthly" (the app's own default, made visible);
+  an already-"amount,period" string is passed through normalized. Non-numeric
+  junk is left untouched for validate_scenario to flag."""
+  if value is None or value == "":
+    return "0,none"
+  if isinstance(value, str) and "," in value:
+    amount_part, _, period_part = value.strip().partition(",")
+    period_part = period_part.strip().lower() or "monthly"
+    try:
+      amt = max(0.0, _to_number(amount_part))
+    except (TypeError, ValueError):
+      return value
+    if amt == 0.0 or period_part == "none":
+      return "0,none"
+    return f"{int(amt) if float(amt).is_integer() else amt},{period_part}"
+  try:
+    amt = max(0.0, _to_number(value))
+  except (TypeError, ValueError):
+    return value
+  if amt == 0.0:
+    return "0,none"
+  return f"{int(amt) if float(amt).is_integer() else amt},monthly"
+
+
 def mirror_and_shape_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> None:
   """Apply the two coherence gotchas IN PLACE before the SQL write so the
   app pipeline never sees an incoherent hand-authored draft:
@@ -352,6 +414,12 @@ def mirror_and_shape_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) 
   if isinstance(ppl, dict) and naics:
     ppl["business_naics_6"] = naics
   structured["financials_year1_json"] = {}
+
+  # initial_lease unit coherence -- make the monthly-vs-total unit explicit so a
+  # bare number can never be silently annualized as $X/month by the app.
+  fin = structured.get("financials_json")
+  if isinstance(fin, dict) and "initial_lease" in fin:
+    fin["initial_lease"] = _canonicalize_initial_lease(fin.get("initial_lease"))
 
   # Type coherence for NEW array elements (added LOBs / people have no baseline
   # leaf to anchor the cell type, so a numeric-looking string can land as a
@@ -451,5 +519,23 @@ def validate_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> List[
     placeholders.append("operating_model_json.business_naics_6 (still the 000000 placeholder)")
   if placeholders:
     problems.append("Unfilled template placeholders: " + ", ".join(placeholders[:15]))
+
+  # 4. initial_lease sanity -- a recurring lease payment can't exceed revenue.
+  # Catches a total/one-time value dropped into the monthly lease field (the
+  # $290k -> $3.48M/yr ROU-asset bug) before it silently crushes net income.
+  fin = structured.get("financials_json") or {}
+  if isinstance(fin, dict):
+    annualized_lease = _annualized_initial_lease(fin.get("initial_lease"))
+    try:
+      revenue = _to_number(fin.get("current_revenue")) if fin.get("current_revenue") not in (None, "") else None
+    except (TypeError, ValueError):
+      revenue = None
+    if annualized_lease and revenue and annualized_lease > revenue:
+      problems.append(
+        f"financials.initial_lease annualizes to ${annualized_lease:,.0f}, which EXCEEDS "
+        f"current_revenue ${revenue:,.0f} -- this is a monthly lease-payment field, so a "
+        f"total/one-time value here inflates the capital-lease ROU asset ~12x. Use "
+        f"\"amount,period\" (e.g. \"4800,monthly\", \"58000,yearly\", or \"0,none\")."
+      )
 
   return problems
