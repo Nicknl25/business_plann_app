@@ -2061,6 +2061,111 @@ def _build_payroll_headcount_payload_from_contract(
   return payload
 
 
+def enforce_labor_scaling_on_payload(
+  payload: Optional[Dict[str, Any]],
+  anchor: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """Make payroll SCALE with revenue for a labor-bound business.
+
+  The executive judged this business labor-bound (revenue growth needs
+  proportional staff: a dental practice doubling patients hires hygienists).
+  But the authored schedule can hold headcount ~flat while revenue grows, so
+  payroll%-of-revenue collapses and EBITDA is inflated by an operating-leverage
+  ARTIFACT the business does not actually have. Scale each title's FTE trajectory
+  UP (never down -- keep it non-decreasing) so each quarter's total payroll
+  tracks the anchor's revenue-scaled target (``per_quarter[q].payroll_budget`` =
+  revenue_q x target_payroll%). Continuity, wage math, and quarter_totals are all
+  recomputed so the payload stays internally coherent. Mutates ``payload`` in
+  place; returns a summary of what scaled, or None if nothing needed scaling.
+  """
+  if not isinstance(payload, dict) or not isinstance(anchor, dict):
+    return None
+  horizon = int(_safe_float(payload.get("schedule_horizon_quarters")) or 20)
+  target_by_q: Dict[int, float] = {}
+  for pq in (anchor.get("per_quarter") or []):
+    if not isinstance(pq, dict):
+      continue
+    q = int(_safe_float(pq.get("q")) or 0)
+    budget = _safe_float(pq.get("payroll_budget"))
+    if q >= 1 and budget is not None:
+      target_by_q[q] = float(budget)
+  qt_by_q = {
+    int(_safe_float(qt.get("quarter_index")) or 0): qt
+    for qt in (payload.get("quarter_totals") or [])
+    if isinstance(qt, dict)
+  }
+  # Per-quarter scale factor: raise flat payroll up to the revenue-scaled target;
+  # clamp to non-decreasing so a title's FTE never gets cut (staffing rule).
+  factor_by_q: Dict[int, float] = {}
+  prev = 1.0
+  for q in range(1, horizon + 1):
+    authored = _safe_float((qt_by_q.get(q) or {}).get("payroll")) or 0.0
+    target = target_by_q.get(q)
+    f = 1.0
+    if target is not None and authored > 0.0 and target > authored:
+      f = target / authored
+    f = max(f, prev)
+    factor_by_q[q] = f
+    prev = f
+  if all(abs(f - 1.0) < 1e-6 for f in factor_by_q.values()):
+    return None
+
+  # Scale each title's ending_fte by its quarter factor, then re-derive
+  # continuity (starting_fte = prior ending) and the wage math per row.
+  rows = [r for r in (payload.get("rows") or []) if isinstance(r, dict)]
+  by_title: Dict[Any, Dict[int, Dict[str, Any]]] = {}
+  for r in rows:
+    key = (
+      str(r.get("position_title") or ""),
+      str(r.get("person_name") or ""),
+      str(r.get("oews_occ_title") or r.get("oews_matched_title") or ""),
+    )
+    by_title.setdefault(key, {})[int(_safe_float(r.get("quarter_index")) or 0)] = r
+  for _key, qrows in by_title.items():
+    prev_end: Optional[float] = None
+    for q in sorted(qrows):
+      r = qrows[q]
+      f = factor_by_q.get(q, 1.0)
+      new_end = round((_safe_float(r.get("ending_fte")) or 0.0) * f, 2)
+      if prev_end is None:
+        new_start = round((_safe_float(r.get("starting_fte")) or 0.0) * f, 2)
+      else:
+        new_start = prev_end
+      new_hires = round(max(0.0, new_end - new_start), 2)
+      wage = _round_currency(r.get("annual_wage"))
+      benefits_pct = round(float(_safe_ratio(r.get("payroll_taxes_benefits_percent")) or 0.0), 2)
+      average_fte = round((new_start + new_end) / 2.0, 2)
+      quarterly_wage_cost = _round_currency((average_fte * wage) / 4.0)
+      quarterly_taxes_benefits = _round_currency(quarterly_wage_cost * benefits_pct)
+      r["starting_fte"] = new_start
+      r["hires"] = new_hires
+      r["ending_fte"] = new_end
+      r["average_fte"] = average_fte
+      r["quarterly_wage_cost"] = quarterly_wage_cost
+      r["quarterly_taxes_benefits"] = quarterly_taxes_benefits
+      r["total_quarterly_payroll"] = int(quarterly_wage_cost + quarterly_taxes_benefits)
+      prev_end = new_end
+
+  # Recompute quarter_totals from the scaled rows.
+  totals: Dict[int, Dict[str, Any]] = {
+    q: {"quarter_index": q, "ending_fte": 0.0, "payroll": 0}
+    for q in range(1, horizon + 1)
+  }
+  for r in rows:
+    q = int(_safe_float(r.get("quarter_index")) or 0)
+    if q in totals:
+      totals[q]["ending_fte"] = round(totals[q]["ending_fte"] + (_safe_float(r.get("ending_fte")) or 0.0), 2)
+      totals[q]["payroll"] = int(totals[q]["payroll"]) + int(_safe_float(r.get("total_quarterly_payroll")) or 0)
+  payload["quarter_totals"] = [totals[q] for q in range(1, horizon + 1)]
+  scaled_quarters = sorted(q for q, f in factor_by_q.items() if f > 1.0 + 1e-6)
+  return {
+    "scaled": True,
+    "scaled_quarter_count": len(scaled_quarters),
+    "first_scaled_quarter": scaled_quarters[0] if scaled_quarters else None,
+    "max_scale_factor": round(max(factor_by_q.values()), 4),
+  }
+
+
 def build_payroll_headcount_payload_from_contract(
   payroll_headcount_contract: Optional[Dict[str, Any]],
   *,

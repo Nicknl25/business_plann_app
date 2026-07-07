@@ -2921,6 +2921,107 @@ def _run_post_cascade_completion(
       "error": f"{type(gate_exc).__name__}: {str(gate_exc)[:500]}",
     }
 
+  # ----- SCALE PAYROLL WITH REVENUE FOR A LABOR-BOUND BUSINESS (executive judged) -----
+  # At round-1 the revenue trajectory is not yet grown (the solver drives revenue
+  # up afterwards), so the round-1 payroll pass staffs to a flat anchor and payroll
+  # ends up ~flat. Against the SOLVER-GROWN revenue that makes payroll%-of-revenue
+  # collapse and inflates EBITDA with operating leverage the business does not have
+  # (a dental practice doubling patients must hire clinical staff). The executive's
+  # labor-model judgment rides on payroll_headcount.labor_scaling; when labor-bound,
+  # re-scale the payroll FTE/$ UP so each quarter tracks revenue x target_payroll%,
+  # write it back, and rebuild -- so the ebitda band + cash + realism all see the
+  # REAL margin, and the cascade's earlier levers are judged against it.
+  try:
+    _ls = ((final_model_input_json or {}).get("solver_input") or {}).get("labor_scaling_directive")
+    _ls = _ls if isinstance(_ls, dict) else {}
+    _target_pct = _safe_float(_ls.get("target_payroll_percent"))
+    if _target_pct is None and isinstance(payroll_headcount, dict):
+      _target_pct = _safe_float(payroll_headcount.get("target_payroll_percent_of_revenue"))
+    if _ls.get("revenue_scales_with_labor") and _target_pct and isinstance(payroll_headcount, dict):
+      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
+        enforce_labor_scaling_on_payload as _enforce_labor_scaling,
+      )
+      from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore  # noqa: E501
+        apply_payroll_schedule_to_state as _apply_payroll_to_state,
+      )
+      _fin_rows = (final_finmo_json or {}).get("quarter_rows") or []
+      _synth_anchor = {
+        "labor_intensity_class": payroll_headcount.get("labor_intensity_class"),
+        "per_quarter": [
+          {
+            "q": int(_safe_float(r.get("quarter_index")) or 0),
+            "payroll_budget": (_safe_float(r.get("revenue")) or 0.0) * float(_target_pct),
+          }
+          for r in _fin_rows
+          if isinstance(r, dict) and int(_safe_float(r.get("quarter_index")) or 0) >= 1
+        ],
+      }
+      _pay_summary = _enforce_labor_scaling(payroll_headcount, _synth_anchor)
+      if _pay_summary:
+        # Re-apply through the CANONICAL chain so all three payroll surfaces
+        # (payroll_headcount.quarter_totals, model_input.expenses.Payroll.values,
+        # model_input.derived_driver_runtime) stay in sync -- the K1 F6 invariant
+        # rejects a payroll write that bypasses this chain.
+        _live_count = len([
+          r for r in ((final_finmo_json or {}).get("quarter_rows") or [])
+          if isinstance(r, dict) and int(_safe_float(r.get("quarter_index")) or 0) >= 1
+          and (_safe_float(r.get("revenue")) or 0.0) > 0.0
+        ]) or int(horizon or 20)
+        final_model_input_json, final_finmo_json = _apply_payroll_to_state(
+          schedule_payload=payroll_headcount,
+          model_input_json=final_model_input_json,
+          finmo_json=final_finmo_json,
+          live_count=_live_count,
+          stage_prefix="post_cascade_labor_scaling",
+        )
+        next_result["payroll_headcount"] = payroll_headcount
+        next_result["model_input_json"] = final_model_input_json
+        next_result["finmo_json"] = final_finmo_json
+        # Persist the scaled schedule to the CANONICAL SQL payroll_headcount
+        # column so the F6 re-sync + workbook headcount trajectory read the
+        # scaled FTE (same immediate-persist pattern as the Handler-C route);
+        # otherwise the column stays at the round-1 (flat) schedule and the
+        # workbook shows flat headcount while the finmo shows scaled payroll.
+        if conn is not None:
+          try:
+            import json as _labor_persist_json
+            _lp_cur = conn.cursor()
+            try:
+              _lp_cur.execute(
+                "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                (
+                  _labor_persist_json.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                  str(draft_id or "").strip(),
+                ),
+              )
+              conn.commit()
+            finally:
+              try:
+                _lp_cur.close()
+              except Exception:
+                pass
+          except Exception:
+            pass
+        completion_trace["labor_scaling_post_solver"] = {
+          "applied": True,
+          "rationale": _ls.get("rationale"),
+          "judgment_source": _ls.get("judgment_source"),
+          **_pay_summary,
+        }
+      else:
+        completion_trace["labor_scaling_post_solver"] = {"applied": False, "reason": "already tracks target"}
+    else:
+      completion_trace["labor_scaling_post_solver"] = {
+        "applied": False,
+        "reason": "not labor-bound or no target%",
+        "revenue_scales_with_labor": _ls.get("revenue_scales_with_labor"),
+      }
+  except Exception as _pay_exc:  # pragma: no cover - defensive
+    completion_trace["labor_scaling_post_solver"] = {
+      "applied": False,
+      "error": f"{type(_pay_exc).__name__}: {str(_pay_exc)[:300]}",
+    }
+
   # ----- GROUND THE ACTUAL COST ROWS IN THE FITTED (OPERATOR-RESCALED) BANDS -----
   # The target-seeking solver above aims levers AT the fitted bands, but the
   # actual cost-ratio rows it leaves behind still carry cohort scale: the lever->

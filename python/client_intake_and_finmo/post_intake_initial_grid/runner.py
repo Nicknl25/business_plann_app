@@ -1389,6 +1389,20 @@ def prepare_initial_grid_for_draft(
       or payroll_envelope.get("contract")
       or {}
     )
+    # Thread the executive's labor-model judgment to the post-solver stage via
+    # solver_input (the free-form channel; the payroll payload has a strict
+    # text-field whitelist). At round-1 revenue is not yet grown, so payroll is
+    # re-scaled against the SOLVER-GROWN revenue in _run_post_cascade_completion.
+    _ls_env = payroll_envelope.get("labor_scaling") if isinstance(payroll_envelope, dict) else None
+    if isinstance(_ls_env, dict) and isinstance(current_model_input_json, dict):
+      _si_ls = current_model_input_json.setdefault("solver_input", {})
+      if isinstance(_si_ls, dict):
+        _si_ls["labor_scaling_directive"] = {
+          "revenue_scales_with_labor": bool(_ls_env.get("revenue_scales_with_labor")),
+          "target_payroll_percent": _ls_env.get("target_payroll_percent"),
+          "rationale": _ls_env.get("rationale"),
+          "judgment_source": _ls_env.get("judgment_source"),
+        }
     # Step 9d item 7 — FAIL_ROUND1_PLAN_STATE_INCOMPLETE. After all
     # three round-1 set_* calls succeeded, the section payloads must
     # be non-empty so the SessionDriver can read them. Drivers are

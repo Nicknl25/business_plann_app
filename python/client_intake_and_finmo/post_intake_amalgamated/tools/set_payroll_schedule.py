@@ -232,6 +232,11 @@ def set_payroll_schedule(
   candidate: Optional[Dict[str, Any]] = (
     copy.deepcopy(contract) if isinstance(contract, dict) and contract else None
   )
+  # Labor-scaling enforcement context (round-1 authoring path only): the anchor
+  # (revenue-scaled payroll target) + the executive's labor-model judgment.
+  _anchor_for_enforcement: Optional[Dict[str, Any]] = None
+  _labor_scaling_judgment: Optional[bool] = None
+  _labor_scaling_rationale: Optional[str] = None
 
   if candidate is None:
     # Round-1 authoring path (Lineage B): the EXECUTIVE (GPT) authors the
@@ -313,6 +318,7 @@ def set_payroll_schedule(
           finmo_json=finmo_json or {},
           policy_code=policy_code,
         )
+        _anchor_for_enforcement = anchor
         # EXECUTIVE authors, grounded + validated, with bounded retries.
         from client_intake_and_finmo.post_intake_headcount.gpt_payroll_author import (  # type: ignore  # noqa: E501
           gpt_author_payroll_contract_once,
@@ -353,6 +359,11 @@ def set_payroll_schedule(
             if not vlist and norm_try is not None:
               candidate = copy.deepcopy(cand)
               decision_source = "amalgamated_gpt_authored"
+              # The executive's labor-model judgment rides in the author's
+              # return envelope (not the validated contract).
+              if isinstance(authored.get("revenue_scales_with_labor"), bool):
+                _labor_scaling_judgment = authored.get("revenue_scales_with_labor")
+                _labor_scaling_rationale = authored.get("labor_scaling_rationale")
               break
             last_violations = vlist or [{
               "code": "payroll_contract_invalid",
@@ -473,6 +484,48 @@ def set_payroll_schedule(
       "decision_source": decision_source,
     }
 
+  # ----- ENFORCE LABOR-SCALING (round-1 path; executive judged the labor model) -----
+  # A labor-bound business must meet revenue growth with proportional staffing, or
+  # payroll%-of-revenue collapses and EBITDA is inflated by operating leverage the
+  # business does not actually have. Resolve the executive's judgment (GPT's
+  # revenue_scales_with_labor, else a labor-intensity default) and, if labor-bound,
+  # scale the authored payroll UP so each quarter tracks the anchor's revenue-scaled
+  # target. Runs only on the round-1 authoring path (where the anchor exists); the
+  # downstream cascade then re-solves other levers against the real margin.
+  labor_scaling_trace: Optional[Dict[str, Any]] = None
+  if isinstance(_anchor_for_enforcement, dict) and isinstance(payload, dict):
+    labor_bound = _labor_scaling_judgment
+    judgment_source = "executive_gpt" if isinstance(_labor_scaling_judgment, bool) else None
+    if labor_bound is None:
+      cls = str(_anchor_for_enforcement.get("labor_intensity_class") or "").strip().lower()
+      labor_bound = cls in ("medium", "high", "expert")
+      judgment_source = "labor_intensity_class_default"
+    if labor_bound:
+      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+        enforce_labor_scaling_on_payload,
+      )
+      summary = enforce_labor_scaling_on_payload(payload, _anchor_for_enforcement)
+      labor_scaling_trace = {
+        "revenue_scales_with_labor": True,
+        "applied": bool(summary),
+        "judgment_source": judgment_source,
+        "rationale": _labor_scaling_rationale,
+        "target_payroll_percent": (
+          float(payload.get("target_payroll_percent_of_revenue"))
+          if isinstance(payload.get("target_payroll_percent_of_revenue"), (int, float))
+          else None
+        ),
+        **(summary or {"scaled": False, "reason": "authored payroll already tracks target"}),
+      }
+    else:
+      labor_scaling_trace = {
+        "revenue_scales_with_labor": False,
+        "applied": False,
+        "judgment_source": judgment_source,
+        "rationale": _labor_scaling_rationale,
+        "reason": "executive judged operating leverage (payroll may stay ~fixed as revenue grows)",
+      }
+
   # Step 9b-ii — emit ROUND1_PAYROLL_OK on the contract=None round-1 path.
   # Cascade revisions pass a contract directly and are observed via the
   # SessionDriver's CASCADE_PROPOSAL_* emits.
@@ -497,4 +550,5 @@ def set_payroll_schedule(
     "violations": [],
     "bands_echoed": bands_echoed,
     "decision_source": decision_source,
+    "labor_scaling": labor_scaling_trace,
   }

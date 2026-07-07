@@ -89,12 +89,31 @@ _SUBMIT_TOOL: Dict[str, Any] = {
         "wage_positioning_multiplier": {"type": "number", "minimum": 1.0, "maximum": 3.0},
         "capacity_units_per_supporting_fte": {"type": "number", "minimum": 0.0001},
         "target_payroll_percent_of_revenue": {"type": "number", "minimum": 0.06, "maximum": 0.80},
+        "revenue_scales_with_labor": {
+          "type": "boolean",
+          "description": (
+            "YOUR JUDGMENT for THIS business: does growing revenue REQUIRE adding "
+            "staff roughly in proportion? true = labor-bound (a dental practice, "
+            "restaurant, salon, clinic, agency: more patients/covers/clients need "
+            "more hygienists/servers/stylists/staff, so payroll must GROW with "
+            "revenue and payroll%-of-revenue stays ~flat). false = genuine "
+            "operating leverage (software, licensing, rentals, franchising: revenue "
+            "can multiply on a ~fixed team, so payroll%-of-revenue falls as you "
+            "scale). Ground this in what the business actually does -- do not "
+            "default to true; some businesses genuinely have leverage."
+          ),
+        },
+        "labor_scaling_rationale": {
+          "type": "string",
+          "description": "One sentence: why this business is labor-bound or has operating leverage.",
+        },
         "rationale": {"type": "string"},
       },
       "required": [
         "payroll_headcount_grid", "capacity_labor_model", "labor_intensity_class",
         "wage_positioning_tier", "wage_positioning_multiplier",
-        "capacity_units_per_supporting_fte", "target_payroll_percent_of_revenue", "rationale",
+        "capacity_units_per_supporting_fte", "target_payroll_percent_of_revenue",
+        "revenue_scales_with_labor", "labor_scaling_rationale", "rationale",
       ],
     },
   },
@@ -124,6 +143,14 @@ _SYSTEM_PROMPT = (
   "6. Set the root scalars from the anchor (labor_intensity_class, capacity_labor_model, "
   "wage_positioning_tier, wage_positioning_multiplier, target_payroll_percent_of_revenue) "
   "unless business judgment dictates an in-band adjustment.\n"
+  "7. JUDGE the labor model for THIS business and set revenue_scales_with_labor. A "
+  "labor-bound business (dental, restaurant, salon, clinic, agency) must ADD staff as "
+  "revenue grows -- more patients/covers/clients need more hygienists/servers/stylists -- "
+  "so its payroll grows with revenue and payroll%-of-revenue stays roughly flat; staff "
+  "the per-quarter grid so total ending FTE RISES with the anchor's per-quarter revenue "
+  "(do NOT hold headcount flat while revenue doubles). A leverage business (software, "
+  "licensing, rentals) can grow revenue on a ~fixed team; payroll%-of-revenue falls. "
+  "Ground the judgment in what the business does; do not default to either.\n"
   "Call submit_payroll_headcount_schedule exactly once with the complete contract."
 )
 
@@ -248,7 +275,23 @@ def gpt_author_payroll_contract_once(
 
   if not isinstance(contract, dict) or not contract.get("payroll_headcount_grid"):
     return {"ok": False, "contract": None, "error": "no_contract_in_tool_call"}
-  return {"ok": True, "contract": contract, "error": None}
+  # The labor-model judgment rides in the RETURN ENVELOPE, not the validated
+  # contract: the payroll contract table is strict and would reject unknown
+  # fields. Pop it off the contract so the validator sees only its known shape;
+  # the caller (set_payroll_schedule) enforces payroll scaling from the envelope.
+  revenue_scales = contract.pop("revenue_scales_with_labor", None)
+  labor_scaling_rationale = contract.pop("labor_scaling_rationale", None)
+  return {
+    "ok": True,
+    "contract": contract,
+    "error": None,
+    "revenue_scales_with_labor": (
+      bool(revenue_scales) if isinstance(revenue_scales, bool) else None
+    ),
+    "labor_scaling_rationale": (
+      str(labor_scaling_rationale) if labor_scaling_rationale else None
+    ),
+  }
 
 
 __all__ = ["gpt_author_payroll_contract_once"]
