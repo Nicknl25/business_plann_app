@@ -206,6 +206,98 @@ def apply_fitted_cost_bands_to_model_input(
   return model_input
 
 
+# The cost metrics that arithmetically compose EBITDA (revenue minus these):
+# cogs + marketing + G&A are the fitted-band cost lines; payroll + rent are the
+# plan's own actual per-quarter lines. There is no R&D line in the EBITDA build
+# for these businesses. EBITDA = revenue - cogs - marketing - G&A - payroll - rent
+# (verified against the finmo to the dollar).
+_EBITDA_FITTED_COST_METRICS = (
+  "cogs_percent_of_revenue",
+  "marketing_percent_of_revenue",
+  "sga_percent_of_revenue",
+)
+
+
+def derive_ebitda_margin_band_from_costs(
+  fitted_envelope: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  horizon: int = 20,
+) -> Optional[Dict[str, float]]:
+  """Derive the EBITDA-margin realism band FROM the grounded cost bands + the
+  plan's own payroll/rent, instead of judging a derived number (EBITDA) against
+  an independent public-cohort band (the two-sources-of-truth bug).
+
+  EBITDA margin = 1 - cogs% - marketing% - G&A% - payroll% - rent%. The banded
+  costs (cogs/marketing/G&A) supply their operator-rescaled min/target/max from
+  ``fitted_envelope``; payroll% and rent% are the plan's actual per-quarter
+  values from ``finmo_json``. The band edges take the cost floors with the
+  lightest payroll+rent quarter (max achievable EBITDA) and the cost ceilings
+  with the heaviest payroll+rent quarter (min EBITDA), so EVERY quarter's actual
+  EBITDA is contained by construction whenever the actual costs sit inside their
+  bands. Returns ``{target_min, target_target, target_max}`` (the shape the
+  realism gate reads from ``solver_input.finmo_output_targets``) or None when the
+  inputs are missing.
+  """
+  if not isinstance(fitted_envelope, dict) or not isinstance(finmo_json, dict):
+    return None
+  sum_min = sum_target = sum_max = 0.0
+  metrics_used: List[str] = []
+  for metric in _EBITDA_FITTED_COST_METRICS:
+    band = fitted_envelope.get(metric)
+    if not isinstance(band, dict):
+      continue
+    mn = _f(band.get("min"))
+    tg = _f(band.get("target"))
+    mx = _f(band.get("max"))
+    if mn is None or tg is None or mx is None:
+      continue
+    sum_min += mn
+    sum_target += tg
+    sum_max += mx
+    metrics_used.append(metric)
+  if not metrics_used:
+    return None
+
+  rows = finmo_json.get("quarter_rows") or []
+  if not isinstance(rows, list) or not rows:
+    return None
+  payroll_rent_ratios: List[float] = []
+  last_q = min(int(horizon or 20), len(rows) - 1)
+  for q in range(1, last_q + 1):
+    row = rows[q] if q < len(rows) else None
+    if not isinstance(row, dict):
+      continue
+    rev = _f(row.get("revenue"))
+    if rev is None or rev <= 0:
+      continue
+    payroll = _f(row.get("payroll")) or 0.0
+    rent = _f(row.get("lease_rent")) or 0.0
+    payroll_rent_ratios.append((payroll + rent) / rev)
+  if not payroll_rent_ratios:
+    return None
+  pr_min = min(payroll_rent_ratios)
+  pr_max = max(payroll_rent_ratios)
+  pr_avg = sum(payroll_rent_ratios) / len(payroll_rent_ratios)
+
+  band_max = 1.0 - sum_min - pr_min   # cost floors + lightest payroll -> most EBITDA
+  band_min = 1.0 - sum_max - pr_max   # cost ceilings + heaviest payroll -> least EBITDA
+  band_target = 1.0 - sum_target - pr_avg
+  # Keep ordering sane even if the envelope is degenerate.
+  band_min = min(band_min, band_target, band_max)
+  band_max = max(band_min, band_target, band_max)
+  return {
+    "target_min": band_min,
+    "target_target": band_target,
+    "target_max": band_max,
+    "provenance": {
+      "calibration_source": "derived_from_grounded_cost_bands",
+      "cost_metrics": metrics_used,
+      "payroll_rent_ratio_min": pr_min,
+      "payroll_rent_ratio_max": pr_max,
+    },
+  }
+
+
 def normalize_band_trajectories(bands: Any) -> Dict[str, Dict[int, float]]:
   """GPT band output -> {metric_key: {q (1..20): value}}, forward/backward filled."""
   out: Dict[str, Dict[int, float]] = {}

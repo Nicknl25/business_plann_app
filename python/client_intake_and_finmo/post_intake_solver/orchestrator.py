@@ -2934,9 +2934,13 @@ def _run_post_cascade_completion(
   try:
     from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
       apply_fitted_cost_bands_to_model_input as _ground_cost_bands,
+      derive_ebitda_margin_band_from_costs as _derive_ebitda_band,
     )
     from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
       post_intake_sequence_step_scope as _ground_scope,
+    )
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      FINMO_OUTPUT_TARGET_KEY as _FOT_KEY,
     )
     _fitted_bands_for_ground = (
       ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_bands")
@@ -2955,11 +2959,35 @@ def _run_post_cascade_completion(
           executor_function="apply_fitted_cost_bands_to_model_input",
         ):
           final_finmo_json = build_finmo_callable(final_model_input_json)
+      # Derive the EBITDA-margin realism band FROM the grounded costs + the
+      # plan's own payroll/rent, and overlay it onto finmo_output_targets so the
+      # realism gate judges EBITDA against what its own costs produce -- not an
+      # independent public-cohort band (the two-sources-of-truth bug that flagged
+      # a lean-but-real practice for beating public-company margins). If the costs
+      # are in-band, EBITDA is in-band by construction.
+      _ebitda_grounding_status = "no_envelope_or_finmo"
+      _fitted_env = (
+        ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope")
+      )
+      _derived_ebitda = _derive_ebitda_band(
+        _fitted_env, final_finmo_json, horizon=int(horizon or 20),
+      )
+      if isinstance(_derived_ebitda, dict):
+        _si = (final_model_input_json or {}).get("solver_input")
+        if isinstance(_si, dict):
+          _fot = _si.setdefault(_FOT_KEY, {})
+          if isinstance(_fot, dict):
+            _fot_metrics = _fot.setdefault("metrics", {})
+            if isinstance(_fot_metrics, dict):
+              _fot_metrics["ebitda_margin"] = _derived_ebitda
+              _ebitda_grounding_status = "applied"
       next_result["model_input_json"] = final_model_input_json
       next_result["finmo_json"] = final_finmo_json
       completion_trace["fitted_cost_band_grounding"] = {
         "status": "applied",
         "metrics": sorted(str(k) for k in _fitted_bands_for_ground.keys()),
+        "ebitda_band_derivation": _ebitda_grounding_status,
+        "ebitda_band": _derived_ebitda if isinstance(_derived_ebitda, dict) else None,
       }
     else:
       completion_trace["fitted_cost_band_grounding"] = {"status": "no_fitted_bands"}
