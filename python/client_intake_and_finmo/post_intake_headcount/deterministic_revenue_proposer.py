@@ -144,6 +144,7 @@ def propose_revenue_drivers_deterministic(
     revenue_q1 = capacity1 * price1 * util1
     quarters: List[Dict[str, Any]] = []
     revenue = revenue_q1
+    prev_capacity = 0.0
     for q in range(1, _HORIZON + 1):
       if q > 1:
         revenue = revenue * (1.0 + growth[q - 1])
@@ -158,12 +159,25 @@ def propose_revenue_drivers_deterministic(
       util = min(1.0, max(0.0, util))
       # capacity absorbs the remainder so capacity*price*util == revenue exactly.
       denom = price * util
-      capacity = (revenue / denom) if denom > 0.0 else capacity1
+      # capacity absorbs the remainder so capacity x price x util == revenue
+      # EXACTLY -- but capacity must be non-decreasing (the driver contract).
+      # For a line whose price*utilization drifts faster than the revenue
+      # growth (e.g. a low-anchor-utilization line whose utilization ramp
+      # alone exceeds the QoQ cap), the exact capacity would DIP; if we let
+      # the normalizer clamp it back up, the line's revenue would grow above
+      # the cap. Instead hold capacity flat and absorb the difference into
+      # UTILIZATION (free to move in [0, 1]) so revenue stays exactly on the
+      # capped trajectory.
+      exact_capacity = (revenue / denom) if denom > 0.0 else capacity1
+      capacity = max(prev_capacity, exact_capacity) if q > 1 else exact_capacity
+      if capacity > exact_capacity and capacity * price > 0.0:
+        util = revenue / (capacity * price)
+      prev_capacity = capacity
       quarters.append({
         "q": q,
         "unit_price": round(price, 6),
         "capacity_units_per_period": round(capacity, 6),
-        "utilization_rate": round(util, 6),
+        "utilization_rate": round(min(1.0, max(0.0, util)), 6),
       })
     line: Dict[str, Any] = {"quarters": quarters}
     if entry.get("lob"):

@@ -1045,9 +1045,25 @@ def prepare_initial_grid_for_draft(
         _anchor_q1 = _cur_rev_annual / 4.0
     except (TypeError, ValueError):
       _anchor_q1 = None
-    _deterministic_author = _functools.partial(
+    _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
     )
+    # GPT REVIEW-ONLY critique on top of the deterministic proposal: Python
+    # proposes and owns the anchor; GPT nudges within [0.90, 1.10] per quarter
+    # (Q1 forced to 1.0, QoQ cap re-enforced); the ENFORCED critique is locked
+    # in post_intake_revenue_critique_store keyed by a content hash, so
+    # identical inputs reuse it byte-for-byte -- determinism holds.
+    from client_intake_and_finmo.post_intake_headcount.revenue_critique import (  # type: ignore  # noqa: E501
+      review_revenue_proposal,
+    )
+
+    def _deterministic_author(**_author_kwargs):
+      _proposal = _deterministic_proposer(**_author_kwargs)
+      return review_revenue_proposal(
+        conn=conn,
+        compact=_author_kwargs.get("compact") or {},
+        proposal=_proposal,
+      )
     _rev_compact = build_operating_model_digest(
       ops_json, people_json, market_json, marketing_model_json,
     )
@@ -1064,6 +1080,9 @@ def prepare_initial_grid_for_draft(
           "revenue_line_total": round(sum(_rev_line), 2),
           "q1": round(_rev_line[0], 2) if _rev_line else None,
           "q20": round(_rev_line[-1], 2) if _rev_line else None,
+          "critique": copy.deepcopy(
+            (_rev_pass.get("drivers") or {}).get("_critique_trace") or {}
+          ),
         }
       else:
         sequence_trace["revenue_authoring"] = {"ok": False, "error": _rev_pass.get("error")}
