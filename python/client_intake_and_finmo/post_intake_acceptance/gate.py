@@ -408,13 +408,33 @@ def _check_cash_legitimate(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, 
 # fields correctly; Phase G verifies that the assembled plan is sellable.
 # ----------------------------------------------------------------------------
 
-_NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11 = 0.02  # 2pp minimum recovery
+_NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11 = 0.02  # 2pp minimum recovery (ramping shape)
+# Minimum Q11 net-income margin for the FLAT-margin shape to count as healthy.
+# Matches the strictest non-zero Q11 profitability floors in the planning-mode
+# policy table (rebalance startup / turnaround mature = 0.02) — a level the
+# doctrine already treats as the minimum sellable mature margin. Flat-near-zero
+# stays non-viable.
+_NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR = 0.02
 _INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT = 0.05  # 5% of revenue (NAICS-tunable later)
 _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD = 5.0  # cash/AR/inv may grow up to 5x opex
 
 
 def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
-  """Phase 9 G1 — Q11 NI margin >= 0 AND Q11 > Q5 by the doctrine floor."""
+  """Phase 9 G1 recalibrated — the Q11 net-income position must be genuinely
+  viable in EITHER of the two real shapes:
+
+    (a) RAMPING: Q11 margin >= 0 and improving >= 2pp over Q5 (the original
+        rule — an early-stage plan still climbing toward maturity), OR
+    (b) FLAT-HEALTHY: Q11 margin >= the healthy floor (2%), no ramp required.
+
+  The original rule demanded shape (a) only. That "margin must RAMP" pattern
+  was an artifact of the fixed-payroll operating-leverage bug: margins ramped
+  because payroll stayed flat while revenue grew. With payroll correctly
+  scaling for labor-bound businesses, a mature plan holds a FLAT margin — the
+  business gets BIGGER at the same margin, not more profitable — and shape (b)
+  is the honest viable outcome. The guard still rejects what it must: a
+  flat-NEGATIVE margin fails both shapes, and flat-near-zero (below the
+  healthy floor, not ramping) fails both shapes."""
   rows = _quarter_rows_by_index(finmo_json or {})
   q5 = rows.get(5) or {}
   q11 = rows.get(11) or {}
@@ -431,13 +451,17 @@ def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[boo
   q5_margin = (q5_ni or 0.0) / float(q5_rev)
   q11_margin = (q11_ni or 0.0) / float(q11_rev)
   delta = q11_margin - q5_margin
-  passed = (q11_margin >= 0.0) and (delta >= _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11)
+  ramping_viable = (q11_margin >= 0.0) and (delta >= _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11)
+  flat_healthy_viable = q11_margin >= _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR
+  passed = ramping_viable or flat_healthy_viable
   return passed, {
     "q5_ni_margin": round(q5_margin, 4),
     "q11_ni_margin": round(q11_margin, 4),
     "q5_to_q11_delta": round(delta, 4),
-    "min_required_delta": _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11,
-    "min_required_q11_margin": 0.0,
+    "ramping_viable": ramping_viable,
+    "flat_healthy_viable": flat_healthy_viable,
+    "min_required_delta_ramping": _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11,
+    "min_required_q11_margin_flat": _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR,
   }
 
 

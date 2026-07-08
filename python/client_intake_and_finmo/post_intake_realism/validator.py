@@ -323,27 +323,62 @@ _REALISM_METRIC_BELOW_BAND_TO_ISSUE_CODE: Dict[str, str] = {
 def _profitability_floor_for_quarter(
   policy: Optional[Dict[str, Any]], quarter_index: Optional[int],
 ) -> Optional[float]:
-  """Return the planning_mode_policy.profitability_floor_q* value that
-  applies for the given quarter index, or None when no floor applies for
-  the active mode (e.g., turnaround Q1-Q10 where all floors are NULL).
+  """Ramp-aware profitability floor for the given quarter.
+
+  Q11+ : the mode's Q11-Q20 floor unchanged — the universal viability rule
+  (recovered to >= 0 by Q11 and holding; the mature business must be
+  genuinely profitable).
+
+  Q1-Q10: a RECOVERY GLIDEPATH instead of the legacy flat column. The flat
+  early floor (0.0 / +0.02 for rebalance & normalize) encoded an artifact-era
+  assumption — "profitable from Q1" — that only held while the inflated
+  revenue base masked the ramp. Real businesses lose money early while
+  ramping. But the loss must be BOUNDED and RECOVERING, not unlimited: the
+  allowed loss starts at the mode's own deepest tolerated early depth (the
+  startup Q1-Q4 floor — the loosest bound the planning-mode policy table
+  grants any stage of that mode) and shrinks linearly to the Q11 floor. A
+  plan on a recovering trajectory passes; one bleeding too deep (below the
+  mode's depth bound) or too long (still deeply negative near Q11) still
+  hard-fails. Recovery itself is additionally enforced by the universal
+  viability timeline checks (ebitda_positive_by_q11,
+  ebitda_margin_q20_holds_or_improves_vs_q11), which are unchanged.
+
+  Returns None only when the mode grants no bound at all (no legacy column
+  and no stage-shifted depth — not the case for any shipped mode).
   """
   if not isinstance(policy, dict) or quarter_index is None:
     return None
   q = int(quarter_index)
   if q <= 0:
     return None
-  if q <= 4:
-    raw = policy.get("profitability_floor_q1_q4")
-  elif q <= 10:
-    raw = policy.get("profitability_floor_q5_q10")
-  else:
-    raw = policy.get("profitability_floor_q11_q20")
-  if raw is None:
+
+  def _f(value: Any) -> Optional[float]:
+    if value is None:
+      return None
+    try:
+      return float(value)
+    except Exception:
+      return None
+
+  q11_floor = _f(policy.get("profitability_floor_q11_q20"))
+  if q >= 11:
+    return q11_floor
+
+  # Early window (Q1-Q10): glidepath from the mode's deepest early depth to
+  # the Q11 floor. Depth = the loosest (most negative) of the stage-shifted
+  # startup floor and the legacy column, so the bound is the one the mode's
+  # own policy table already tolerates — no new magic constant.
+  depth_candidates = [
+    _f(policy.get("profitability_floor_q1_q4_startup")),
+    _f(policy.get("profitability_floor_q1_q4")),
+  ]
+  depths = [value for value in depth_candidates if value is not None]
+  if not depths:
     return None
-  try:
-    return float(raw)
-  except Exception:
-    return None
+  depth = min(depths)
+  anchor = q11_floor if q11_floor is not None else 0.0
+  fraction = (11 - q) / 10.0  # 1.0 at Q1 -> 0.1 at Q10 -> 0 at Q11
+  return anchor + (depth - anchor) * fraction
 
 
 def _phase_3_calibrated_band(
