@@ -237,9 +237,18 @@ def coerce_to_type(raw: Any, baseline_value: Any) -> Any:
       return raw
     return str(raw).strip().lower() in ("true", "1", "yes", "y")
   if isinstance(baseline_value, int) and not isinstance(baseline_value, bool):
-    return int(round(_to_number(raw)))
+    # A non-numeric string (e.g. the "amount,period" lease format like "0,none")
+    # cannot be an int -- keep it as a string so mirror_and_shape/validate handle
+    # it, instead of crashing the whole harness in _to_number.
+    try:
+      return int(round(_to_number(raw)))
+    except (TypeError, ValueError):
+      return str(raw)
   if isinstance(baseline_value, float):
-    return _to_number(raw)
+    try:
+      return _to_number(raw)
+    except (TypeError, ValueError):
+      return str(raw)
   if baseline_value is None or baseline_value is _MISSING:
     # Unknown target type: try number, else string.
     try:
