@@ -1939,6 +1939,7 @@ def run_target_seeking_orchestrated_system_run(
   return next_result
 
 
+
 def _run_post_cascade_completion(
   *,
   conn,
@@ -2403,6 +2404,9 @@ def _run_post_cascade_completion(
           if isinstance(targets_payload_post, dict)
           and targets_payload_post.get("metrics")
           else (targets_payload or None)
+        ),
+        revenue_authored=bool(
+          ((final_model_input_json or {}).get("solver_input") or {}).get("revenue_authored")
         ),
       )
       # Rebuild FINMO so subsequent steps (cash strategy, realism gate,

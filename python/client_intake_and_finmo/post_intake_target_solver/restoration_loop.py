@@ -987,6 +987,7 @@ def run_restoration_loop(
   ops_json: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
   solver_targets_payload: Optional[Dict[str, Any]] = None,
+  revenue_authored: bool = False,
 ) -> RestorationResult:
   """Outer loop over the 4 solver targets in priority order.
 
@@ -1019,6 +1020,20 @@ def run_restoration_loop(
       target_metric=target_metric, business_naics_6=business_naics_6,
       model_input=intake_snapshot, build_finmo=build_finmo, horizon=horizon,
     )
+
+  # DETERMINISM: when revenue was authored deterministically (revenue is the
+  # ROOT of the plan, anchored to the operator's stated current_revenue), the
+  # restoration loop must NOT move the revenue drivers (revenue::Unit Price /
+  # Capacity / Utilization) to hit margin targets. Lifting price/utilization to
+  # improve ebitda_margin inflates the authored level off its anchor and lands
+  # as a lumpy per-quarter step (the ~30% Q6 cliff). Margins are restored via
+  # the cost/working-capital drivers only; revenue stays the authored trajectory.
+  if revenue_authored:
+    for _tm in list(bounds_by_target.keys()):
+      bounds_by_target[_tm] = {
+        _k: _v for _k, _v in (bounds_by_target[_tm] or {}).items()
+        if not str(_k).strip().startswith("revenue::")
+      }
 
   for outer_pass in range(1, max_outer_passes + 1):
     outer_passes_used = outer_pass

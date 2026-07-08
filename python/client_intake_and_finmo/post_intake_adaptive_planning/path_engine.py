@@ -694,6 +694,19 @@ def apply_path_stamp_pass(
       "reason": "no_model_input_sections",
     }
 
+  # DETERMINISM: when revenue was authored deterministically (revenue is the
+  # ROOT of the plan, anchored to the operator's stated current_revenue and
+  # already shaped smoothly within the QoQ cap), the path stamp must NOT
+  # re-shape the revenue drivers (Capacity / Unit Price / Utilization). Re-
+  # stamping them would overwrite the authored trajectory with an industry-
+  # target-anchored curve (q1 = stage_fraction x target), inflating the level
+  # off the operator anchor and re-introducing single-quarter driver steps
+  # (the ~30% Q6 cliff). The authored revenue is already non-flat, so the
+  # tier-0 un-flattening this pass exists for does not apply to it.
+  revenue_authored = bool(
+    ((model_input_json or {}).get("solver_input") or {}).get("revenue_authored")
+  )
+
   exact_updates: List[Dict[str, Any]] = []
   rows_stamped: List[Dict[str, Any]] = []
   rows_skipped: List[Dict[str, Any]] = []
@@ -701,6 +714,15 @@ def apply_path_stamp_pass(
 
   for section_name, rows in sections.items():
     if not isinstance(rows, list):
+      continue
+    if revenue_authored and str(section_name).strip().lower() == "revenue":
+      # Authored revenue is the deterministic root -- leave its drivers alone.
+      for row in rows:
+        if isinstance(row, dict) and str(row.get("lever_id") or "").strip():
+          rows_skipped.append({
+            "lever_id": str(row.get("lever_id")).strip(),
+            "reason": "revenue_authored_deterministic_root",
+          })
       continue
     for row in rows:
       if not isinstance(row, dict):
