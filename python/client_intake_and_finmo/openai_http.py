@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import time
 from typing import Any, Dict, Iterable, Optional
 
@@ -8,6 +11,150 @@ import requests
 
 
 _TRANSIENT_EDGE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+# ----------------------------------------------------------------------------
+# GPT RESPONSE LOCK — full-pipeline determinism (run-once-and-lock).
+#
+# gpt-5.1 is a reasoning model that does not honor `seed`, so every live call
+# re-rolls: identical business inputs produced cost sides differing 50-62%
+# run-to-run (Luna EBITDA, Ironwood net income) while revenue was already
+# deterministic. Same disease we killed on revenue, so the same cure, applied
+# ONCE at the shared HTTP layer every GPT call flows through: the first run's
+# response for a given request is persisted keyed by a content hash of the
+# request; identical requests on later runs replay it byte-for-byte. By
+# induction the entire pipeline becomes reproducible: deterministic inputs ->
+# identical first request -> locked response -> identical downstream state ->
+# identical next request -> ...
+#
+# This locks the DECISION, not the decider: the executive's per-business
+# judgments (labor-bound vs leverage, band trajectories, cascade lever moves)
+# are made live on the first run with full context and replayed verbatim after
+# -- never flattened into something generic.
+#
+# Hash hygiene (the revenue-critique lesson): run-minted tokens must not leak
+# into the key or it re-rolls every run. The canonical request string is
+# normalized before hashing: 32-hex ids / dashed UUIDs (draft_id,
+# planning_run_id) and date-WITH-TIME stamps become placeholders. Bare dates
+# are kept -- they are business content (start dates), not run artifacts.
+#
+# Best-effort by design: any store failure (no DB, bad table) -> live call,
+# exactly as before. Kill switch: GPT_RESPONSE_LOCK=0.
+# ----------------------------------------------------------------------------
+
+GPT_RESPONSE_LOCK_TABLE = "post_intake_gpt_response_store"
+
+_VOLATILE_TOKEN_RE = re.compile(
+  r"[0-9a-f]{32}"                                                # 32-hex ids
+  r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"  # dashed UUIDs
+  r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?"      # datetimes (not bare dates)
+)
+
+_lock_table_ready = False
+
+
+def _gpt_lock_enabled() -> bool:
+  return (os.getenv("GPT_RESPONSE_LOCK") or "1").strip().lower() not in ("0", "false", "off")
+
+
+def gpt_request_lock_key(url: str, payload: Dict[str, Any]) -> str:
+  canonical = json.dumps(
+    {"url": str(url), "payload": payload},
+    sort_keys=True, ensure_ascii=False, default=str,
+  )
+  normalized = _VOLATILE_TOKEN_RE.sub("<VOLATILE>", canonical)
+  return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+class _LockedResponse:
+  """Minimal stand-in for requests.Response replaying a locked body. Callers
+  in this codebase use .status_code / .json() / .text / .headers only."""
+
+  status_code = 200
+
+  def __init__(self, body_text: str) -> None:
+    self.text = body_text
+    self.headers: Dict[str, str] = {"content-type": "application/json", "x-gpt-response-lock": "replay"}
+
+  def json(self) -> Any:
+    return json.loads(self.text)
+
+
+def _lock_connection():
+  import mysql.connector  # type: ignore
+  return mysql.connector.connect(
+    host=os.getenv("MYSQL_HOST"),
+    user=os.getenv("MYSQL_USER"),
+    password=os.getenv("MYSQL_PASSWORD"),
+    database=os.getenv("MYSQL_DB"),
+    port=int(os.getenv("MYSQL_PORT") or 3306),
+  )
+
+
+def _lock_ensure_table(conn) -> None:
+  global _lock_table_ready
+  if _lock_table_ready:
+    return
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"""
+      CREATE TABLE IF NOT EXISTS {GPT_RESPONSE_LOCK_TABLE} (
+        input_hash VARCHAR(64) NOT NULL PRIMARY KEY,
+        response_text LONGTEXT NOT NULL,
+        url VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+      """
+    )
+    conn.commit()
+    _lock_table_ready = True
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
+def _lock_lookup(key: str) -> Optional[str]:
+  try:
+    conn = _lock_connection()
+    try:
+      _lock_ensure_table(conn)
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          f"SELECT response_text FROM {GPT_RESPONSE_LOCK_TABLE} WHERE input_hash = %s",
+          (key,),
+        )
+        row = cur.fetchone()
+      finally:
+        cur.close()
+    finally:
+      conn.close()
+    return row[0] if row and row[0] else None
+  except Exception:
+    return None
+
+
+def _lock_save(key: str, url: str, body_text: str) -> None:
+  try:
+    conn = _lock_connection()
+    try:
+      _lock_ensure_table(conn)
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          f"INSERT IGNORE INTO {GPT_RESPONSE_LOCK_TABLE} (input_hash, response_text, url) VALUES (%s, %s, %s)",
+          (key, body_text, str(url)[:255]),
+        )
+        conn.commit()
+      finally:
+        cur.close()
+    finally:
+      conn.close()
+  except Exception:
+    pass
 
 
 def _openai_session() -> requests.Session:
@@ -56,6 +203,18 @@ def post_openai_with_retries(
   retryable_status: Iterable[int],
   max_attempts: int = 3,
 ) -> requests.Response:
+  # GPT response lock: replay the locked response for an identical request
+  # (see module comment). Miss / disabled / store failure -> live call.
+  lock_key: Optional[str] = None
+  if _gpt_lock_enabled():
+    try:
+      lock_key = gpt_request_lock_key(url, payload)
+      locked_body = _lock_lookup(lock_key)
+      if locked_body is not None:
+        return _LockedResponse(locked_body)  # type: ignore[return-value]
+    except Exception:
+      lock_key = None
+
   retryable = {int(item) for item in retryable_status}
   retryable.update(_TRANSIENT_EDGE_STATUS)
   resolved_timeout_seconds = _resolve_timeout_seconds(timeout_seconds)
@@ -70,6 +229,14 @@ def post_openai_with_retries(
       ):
         time.sleep(0.75 * (2**attempt))
         continue
+      # Lock only clean, parseable successes -- a cached failure would
+      # freeze an outage into determinism.
+      if lock_key is not None and int(getattr(resp, "status_code", 0) or 0) == 200:
+        try:
+          resp.json()
+          _lock_save(lock_key, url, resp.text)
+        except Exception:
+          pass
       return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc

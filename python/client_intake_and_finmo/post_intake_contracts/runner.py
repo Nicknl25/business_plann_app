@@ -174,7 +174,15 @@ def _openai_model() -> str:
 
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]):
-  return requests.post(url, headers=headers, json=payload, timeout=180)
+  # Routed through the shared OpenAI HTTP helper so these calls get the same
+  # retry policy AND the GPT response lock (full-pipeline determinism) as
+  # every other GPT call site. Same (url, headers, payload) -> response shape.
+  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+  return post_openai_with_retries(
+    url=url, headers=headers, payload=payload,
+    timeout_seconds=180.0,
+    retryable_status=(429, 500, 502, 503, 504), max_attempts=3,
+  )
 
 
 def _parse_responses_text(data: Dict[str, Any]) -> str:
