@@ -906,6 +906,42 @@ def _oews_rows_for_business(
     rows = _fetch_oews_rows_with_fallback(conn, state_abbrev=state_abbrev, naics_value=naics_6) if naics_6 else []
     if not rows and state_abbrev != "US" and naics_6:
       rows = _fetch_oews_rows_with_fallback(conn, state_abbrev="US", naics_value=naics_6)
+    # LOCATION-ACCURATE WAGE OVERLAY. Industry-detailed OEWS rows exist only
+    # nationally (state rows are cross-industry naics='000000'), so the
+    # industry fetch above almost always lands on US wages -- location-blind.
+    # Titles and staffing mix stay industry-driven (that is what the catalog
+    # is for), but the WAGES for those occupations are overlaid from the
+    # business's own state where present: a Portland counter wage is set by
+    # the Portland labor market, not by national bakeries. Every row is
+    # stamped with its wage_geo so downstream floors and audits know which
+    # geography priced it.
+    if rows and state_abbrev != "US":
+      try:
+        from client_intake_and_finmo.people_roles import (  # type: ignore
+          _fetch_oews_state_cross_industry_rows,
+        )
+        state_rows = _fetch_oews_state_cross_industry_rows(conn, state_abbrev=state_abbrev)
+        state_by_occ = {
+          str(s.get("occ_code") or "").strip(): s
+          for s in state_rows
+          if str(s.get("occ_code") or "").strip()
+        }
+        for row in rows:
+          overlay = state_by_occ.get(str(row.get("occ_code") or "").strip())
+          applied = False
+          if overlay:
+            for stat in ("a_median", "a_pct10"):
+              value = _safe_float(overlay.get(stat))
+              if value is not None and value > 0:
+                row[stat] = value
+                applied = True
+          row["wage_geo"] = f"state:{state_abbrev}" if applied else "us_national"
+      except Exception:
+        for row in rows:
+          row.setdefault("wage_geo", "us_national")
+    else:
+      for row in rows:
+        row.setdefault("wage_geo", "us_national")
   finally:
     try:
       conn.close()
@@ -944,8 +980,13 @@ def _compact_payroll_gpt_context(user_context: Dict[str, Any]) -> Dict[str, Any]
   if isinstance(catalog, dict):
     cands = catalog.get("title_candidates")
     if isinstance(cands, list):
+      # wage_source is a constant; a_pct10/wage_geo are Python's wage-floor
+      # grounding inputs, not staffing-decision inputs -- GPT picks titles and
+      # FTE from occ_title/annual_wage/tot_emp only. Stripping them keeps the
+      # prompt lean and the GPT-response lock key stable against non-decision
+      # fields.
       catalog["title_candidates"] = [
-        {k: v for k, v in c.items() if k != "wage_source"}
+        {k: v for k, v in c.items() if k not in ("wage_source", "a_pct10", "wage_geo")}
         if isinstance(c, dict) else c
         for c in cands
       ]
@@ -1002,6 +1043,7 @@ def _oews_title_catalog_from_rows(
     # aggregate rows). GPT-facing context already drops wage_source via
     # _compact_payroll_gpt_context; these two are small additive fields.
     tot_emp_value = _safe_float(row.get("tot_emp"))
+    pct10_value = _safe_float(row.get("a_pct10"))
     candidates.append(
       {
         "occ_title": occ_title,
@@ -1010,6 +1052,11 @@ def _oews_title_catalog_from_rows(
         "wage_source": source or "oews_median",
         "o_group": str(row.get("o_group") or "").strip().lower(),
         "tot_emp": round(float(tot_emp_value), 2) if tot_emp_value is not None else None,
+        # 10th-percentile wage = the occupation's empirical market/legal floor
+        # (used by the wage-floor grounding); wage_geo records which geography
+        # priced this row (state overlay vs national fallback).
+        "a_pct10": _round_currency(pct10_value) if pct10_value is not None and pct10_value > 0 else None,
+        "wage_geo": str(row.get("wage_geo") or "us_national"),
       }
     )
   candidates.sort(key=lambda item: (str(item.get("occ_code") or ""), str(item.get("occ_title") or "").lower()))
@@ -1335,19 +1382,16 @@ def _resolve_supporting_staff_wages(
             "wage_rule": "OEWS title catalog is required; no policy default wage fallback exists.",
           },
         )
-      if annual_wage < min_wage:
-        _payroll_fail_fast(
-          "payroll_headcount_resolved_wage_below_policy_floor",
-          f"Selected oews_occ_title='{declared_oews_title}' resolved annual_wage={annual_wage}; min={min_wage}.",
-          stage="payroll_headcount_wage_resolution",
-          details={
-            "position_title": position_title,
-            "annual_wage": annual_wage,
-            "min_annual_wage": min_wage,
-            "wage_source": wage_source,
-            "business_naics_6": naics_6,
-          },
-        )
+      # Ground-don't-crash: a resolved OEWS wage under the floor is ADAPTED up,
+      # never fatal. Floor ladder: the occupation's own 10th-percentile wage
+      # (state-overlaid upstream when the business has a state) first -- real
+      # data -- with the flat policy floor only as the last-resort backstop
+      # when no p10 exists for the row.
+      row_p10 = _safe_float((matched_row or {}).get("a_pct10"))
+      row_floor = _round_currency(row_p10) if row_p10 is not None and row_p10 > 0 else min_wage
+      if annual_wage < row_floor:
+        annual_wage = int(row_floor)
+        wage_source = f"{wage_source}|floor_adapted"
       wage_info = {
         "base_annual_wage": annual_wage,
         "wage_source": wage_source,
@@ -1471,6 +1515,8 @@ def _validate_payroll_title_rows(
   *,
   policy: Dict[str, Any],
   require_annual_wage: bool = True,
+  wage_floor_by_key: Optional[Dict[str, int]] = None,
+  wage_adaptations: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
   horizon = _contract_horizon_quarters()
   quarters = {int(row.get("quarter_index") or 0) for row in rows}
@@ -1533,20 +1579,18 @@ def _validate_payroll_title_rows(
       row["ending_fte"] = ending_fte
       row["hires"] = hires
     if abs((starting_fte + hires) - ending_fte) > 0.01:
-      _payroll_fail_fast(
-        "payroll_headcount_contract_math_failed",
-        f"Q{quarter_index} {title_label or title_identity} starting_fte + hires must equal ending_fte.",
-        stage="payroll_headcount_title_row_validation",
-        details={
-          "quarter_index": quarter_index,
-          "title": title_label or title_identity,
-          "starting_fte": starting_fte,
-          "hires": hires,
-          "ending_fte": ending_fte,
-          "required_hires": round(max(0.0, ending_fte - starting_fte), 2),
-          "required_action": "Set hires so starting_fte + hires exactly equals ending_fte for this row.",
-        },
-      )
+      # Ground-don't-crash: hires is purely DERIVED (ending - starting), so an
+      # author emitting inconsistent hires is a small coherence problem to
+      # repair in place -- never a reason to abort the plan. An authored FTE
+      # CUT (ending < starting) is unrepresentable in this model (no attrition
+      # channel; same rule as the continuity block above), so ending is held
+      # at starting. This replaces a fail_fast whose own remediation text was
+      # the derivation.
+      if ending_fte < starting_fte:  # any cut, no epsilon -- a 0.01-FTE cut
+        ending_fte = starting_fte    # slips between epsilon'd comparisons and
+        row["ending_fte"] = ending_fte  # is unfixable by hires >= 0
+      hires = round(max(0.0, ending_fte - starting_fte), 2)
+      row["hires"] = hires
     benefits_pct = round(float(_safe_ratio(row.get("payroll_taxes_benefits_percent")) or 0.0), 2)
     if benefits_pct < min_benefits or benefits_pct > max_benefits:
       _payroll_fail_fast(
@@ -1561,12 +1605,42 @@ def _validate_payroll_title_rows(
         f"Q{quarter_index} {title_label or title_identity} annual_wage must be resolved by the payroll schedule builder.",
         stage="payroll_headcount_title_row_validation",
       )
-    if require_annual_wage and annual_wage < min_annual_wage:
-      _payroll_fail_fast(
-        "payroll_headcount_schedule_wage_below_policy_floor",
-        f"Q{quarter_index} {title_label or title_identity} annual_wage={annual_wage}; min={min_annual_wage} from post_intake_headcount_policy_lookup.",
-        stage="payroll_headcount_title_row_validation",
-      )
+    if require_annual_wage and annual_wage > 0:
+      # Root-disease doctrine (same as the FTE-continuity block above): gates
+      # VERIFY and GROUND, they do not hard-crash the run. A wage sitting under
+      # its floor is a small, fixable coherence problem -- GROUND it up to the
+      # floor and continue; never abort a whole plan over a $1k wage gap. The
+      # floor itself is data-first: the matched occupation's OEWS 10th-
+      # percentile wage in the business's state (overlaid upstream), else the
+      # occupation's national p10, else -- for key people with no OEWS match --
+      # the state's minimum observed p10 (the empirical state wage floor), and
+      # only as the last-resort backstop the flat policy min_annual_wage.
+      floor_map = wage_floor_by_key or {}
+      row_floor = 0
+      occ_code = str(row.get("oews_occ_code") or row.get("wage_source_code") or "").strip()
+      if occ_code and occ_code in floor_map:
+        row_floor = int(floor_map[occ_code])
+      elif title_identity and f"title::{title_identity}" in floor_map:
+        row_floor = int(floor_map[f"title::{title_identity}"])
+      elif staffing_class == "key_person" and "__state_min_p10__" in floor_map:
+        row_floor = int(floor_map["__state_min_p10__"])
+      if row_floor <= 0:
+        row_floor = min_annual_wage
+      if annual_wage < row_floor:
+        row["annual_wage"] = int(row_floor)
+        row["wage_source"] = f"{str(row.get('wage_source') or '').strip() or 'unspecified'}|floor_adapted"
+        if wage_adaptations is not None:
+          wage_adaptations.append({
+            "quarter_index": quarter_index,
+            "title": title_label or title_identity,
+            "staffing_class": staffing_class,
+            "wage_before": annual_wage,
+            "wage_after": int(row_floor),
+            "floor_source": (
+              "occupation_p10" if (occ_code and occ_code in floor_map) or (title_identity and f"title::{title_identity}" in floor_map)
+              else ("state_min_p10" if staffing_class == "key_person" and "__state_min_p10__" in floor_map else "policy_backstop")
+            ),
+          })
     previous_by_title[continuity_key] = ending_fte
 
 
@@ -1992,7 +2066,54 @@ def _build_payroll_headcount_payload_from_contract(
     *key_people_rows,
     *resolved_supporting_rows,
   ]
-  _validate_payroll_title_rows(rows, policy=policy, require_annual_wage=True)
+  # Data-grounded wage floors for the coming validation: per-occupation OEWS
+  # 10th-percentile wages (state-overlaid upstream where the business has a
+  # state) keyed by occ_code AND catalog title, plus the state's minimum
+  # observed p10 as the key-person fallback when no occupation match exists.
+  # Best-effort: any lookup failure leaves the map empty and the validator
+  # falls back to the flat policy floor -- floor derivation must never be the
+  # thing that kills a payload build.
+  wage_floor_by_key: Dict[str, int] = {}
+  try:
+    _floor_rows, _ = _oews_rows_for_business(
+      business_facts=business_facts, ops_json=ops_json, people_json=people_json,
+    )
+    p10_values: List[int] = []
+    _floor_geo: Dict[str, bool] = {}  # key -> already sourced from state?
+    for _fr in _floor_rows or []:
+      p10 = _safe_float(_fr.get("a_pct10"))
+      if p10 is None or p10 <= 0:
+        continue
+      p10_int = int(_round_currency(p10))
+      is_state = str(_fr.get("wage_geo") or "").startswith("state:")
+      if is_state:
+        p10_values.append(p10_int)
+      occ = str(_fr.get("occ_code") or "").strip()
+      for key in ([occ] if occ else []) + ([f"title::{_title_key(_fr.get('occ_title'))}"] if _title_key(_fr.get("occ_title")) else []):
+        # State-priced rows are the location truth; a national row never
+        # overwrites a state entry for the same occupation/title.
+        if key not in wage_floor_by_key or (is_state and not _floor_geo.get(key)):
+          wage_floor_by_key[key] = p10_int
+          _floor_geo[key] = is_state
+    if p10_values:
+      # Minimum observed STATE p10 = the empirical state wage floor (used for
+      # key people with no occupation match).
+      wage_floor_by_key["__state_min_p10__"] = min(p10_values)
+  except Exception:
+    wage_floor_by_key = {}
+  wage_adaptations: List[Dict[str, Any]] = []
+  _validate_payroll_title_rows(
+    rows, policy=policy, require_annual_wage=True,
+    wage_floor_by_key=wage_floor_by_key, wage_adaptations=wage_adaptations,
+  )
+  if wage_adaptations:
+    _adapted_titles = sorted({str(a.get("title")) for a in wage_adaptations})
+    logging.getLogger(__name__).info(
+      "payroll_wage_floor_adapted: %d row(s) grounded up to their wage floor "
+      "(titles=%s, floor_sources=%s) -- run continues per ground-don't-crash doctrine.",
+      len(wage_adaptations), _adapted_titles[:6],
+      sorted({str(a.get("floor_source")) for a in wage_adaptations}),
+    )
   normalized_rows: List[Dict[str, Any]] = []
   quarter_totals_by_index: Dict[int, Dict[str, Any]] = {
     quarter: {"quarter_index": quarter, "ending_fte": 0.0, "payroll": 0}

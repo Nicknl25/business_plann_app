@@ -529,6 +529,11 @@ def validate_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> List[
   if placeholders:
     problems.append("Unfilled template placeholders: " + ", ".join(placeholders[:15]))
 
+  # (A former check 4 blocked sub-floor wages here. Removed: the app now
+  # GROUNDS sub-floor wages up to the data-derived OEWS floor and continues --
+  # ground-don't-crash -- so blocking at the harness would diverge from real
+  # production behavior instead of replicating it.)
+
   # 4. initial_lease sanity -- a recurring lease payment can't exceed revenue.
   # Catches a total/one-time value dropped into the monthly lease field (the
   # $290k -> $3.48M/yr ROU-asset bug) before it silently crushes net income.

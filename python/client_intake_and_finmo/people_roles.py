@@ -339,6 +339,34 @@ def _fetch_oews_rows_exact(conn, *, state_abbrev: str, naics_6: str) -> List[Dic
   return rows
 
 
+def _fetch_oews_state_cross_industry_rows(conn, *, state_abbrev: str) -> List[Dict[str, Any]]:
+  """State-level OEWS wage rows. The oews_state_wages table carries INDUSTRY
+  detail (6-digit NAICS) only for prim_state='US'; state rows exist solely as
+  cross-industry aggregates (naics='000000'). This is the location-accurate
+  wage source: occupation wages set by the STATE labor market, overlaid onto
+  the industry-selected titles by the payroll catalog."""
+  if not state_abbrev or state_abbrev == "US":
+    return []
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      """
+      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
+      FROM oews_state_wages
+      WHERE prim_state = %s
+        AND naics = '000000'
+        AND occ_title IS NOT NULL
+      """,
+      (state_abbrev,),
+    )
+    return list(cur.fetchall() or [])
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
 def _fetch_oews_rows_with_fallback(conn, *, state_abbrev: str, naics_value: str) -> List[Dict[str, Any]]:
   if not naics_value:
     return []
