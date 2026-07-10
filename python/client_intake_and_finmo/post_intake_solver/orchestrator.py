@@ -3140,6 +3140,436 @@ def _run_post_cascade_completion(
       "error": f"{type(_ground_exc).__name__}: {str(_ground_exc)[:300]}",
     }
 
+  # ----- PHASE B: FULL-CONFIGURATION SEARCH UNDER EXECUTIVE CEILINGS -----
+  # The cost-row search alone cannot save a plan whose blocker is revenue
+  # (Luna: honest bands leave Q11 EBITDA deeply negative) or payroll (dental:
+  # 48-57% of revenue). Phase B re-admits unit price / capacity / utilization
+  # and the payroll target% to the search -- but ONLY behind the executive's
+  # per-business, lender-believability ceilings (identity-judged, rail-
+  # clamped, response-locked). Levers and ceilings ship together: without a
+  # ceilings verdict the levers stay closed and the honest failure stands.
+  #
+  # ENGAGEMENT GATE: the realism validator (the same judgment the acceptance
+  # gate reads) runs on the healed state (post clamp + ebitda-band overlay).
+  # Only a plan failing the EBITDA-viability family engages; a plan that is
+  # already viable is left byte-identical (no new GPT calls, no new moves).
+  try:
+    _pb_trace: Dict[str, Any] = {"engaged": False}
+    completion_trace["phase_b_lever_search"] = _pb_trace
+
+    def _pb_failing_viability_metrics(
+      _mi: Optional[Dict[str, Any]] = None,
+      _fj: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+      from client_intake_and_finmo.post_intake_realism.validator import (  # type: ignore
+        validate_industry_realism_bands,
+      )
+      _pb_payload = validate_industry_realism_bands(
+        model_input_json=(_mi if _mi is not None else final_model_input_json) or {},
+        finmo_json=(_fj if _fj is not None else final_finmo_json) or {},
+        business_naics_6=business_naics_6 or None,
+        ops_json=ops_json or {},
+        financials_json=financials_json or {},
+        solver_input_targets_payload=(
+          targets_payload_post
+          if isinstance(targets_payload_post, dict) and targets_payload_post.get("metrics")
+          else (targets_payload or None)
+        ),
+        planning_mode=planning_mode,
+      )
+      _viol = (_pb_payload or {}).get("hard_fail_violations") or []
+      out: List[str] = []
+      for _v in _viol:
+        _mk = str((_v or {}).get("metric_key") or "").strip() if isinstance(_v, dict) else str(_v)
+        if not _mk:
+          continue
+        if "ebitda" in _mk or "fixed_cost_burden" in _mk or "net_income" in _mk:
+          out.append(_mk)
+      # The acceptance gate's NI-trajectory rule (ramping OR flat-healthy) is
+      # STRICTER than the realism validator's hard-fail set -- a plan can clear
+      # every realism band and still fail it (Ironwood: Q11 NI -2%, delta
+      # +1.4pp). Evaluate the same rule here so the engagement signal matches
+      # what the verdict will actually judge. Pure function of the finmo.
+      try:
+        from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore  # noqa: E501
+          _check_net_income_trajectory_viable as _pb_ni_check,
+        )
+        _ni_ok, _ = _pb_ni_check((_fj if _fj is not None else final_finmo_json) or {})
+        if not _ni_ok:
+          out.append("net_income_trajectory_viable")
+      except Exception:
+        pass
+      return sorted(set(out))
+
+    def _pb_lever_snapshot() -> Dict[str, Dict[str, float]]:
+      """Average per-lever q1/q11/q20 across LOB rows, for the move log."""
+      snap: Dict[str, Dict[str, float]] = {}
+      _rows = ((final_model_input_json or {}).get("sections") or {}).get("revenue") or []
+      agg: Dict[str, List[List[float]]] = {}
+      for _row in _rows:
+        if not isinstance(_row, dict):
+          continue
+        _drv = str(_row.get("driver") or "").strip()
+        if _drv not in ("Unit Price", "Capacity", "Utilization"):
+          continue
+        _vals = _row.get("values") or []
+        def _at(i: int) -> float:
+          try:
+            return float(_vals[i]) if i < len(_vals) and _vals[i] is not None else 0.0
+          except (TypeError, ValueError):
+            return 0.0
+        agg.setdefault(_drv, []).append([_at(1), _at(11), _at(20)])
+      for _drv, _entries in agg.items():
+        _n = max(1, len(_entries))
+        snap[_drv] = {
+          "q1": round(sum(e[0] for e in _entries) / _n, 6),
+          "q11": round(sum(e[1] for e in _entries) / _n, 6),
+          "q20": round(sum(e[2] for e in _entries) / _n, 6),
+        }
+      return snap
+
+    def _pb_q11_ebitda_margin(_fj: Optional[Dict[str, Any]]) -> Optional[float]:
+      for _r in ((_fj or {}).get("quarter_rows") or []):
+        if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) == 11:
+          _rev = _safe_float(_r.get("revenue")) or 0.0
+          if _rev > 0:
+            return (_safe_float(_r.get("ebitda")) or 0.0) / _rev
+      return None
+
+    _pb_failing = _pb_failing_viability_metrics()
+    _pb_trace["failing_metrics_before"] = _pb_failing
+    if _pb_failing:
+      from client_intake_and_finmo.post_intake_target_solver.gpt_lever_ceilings import (  # type: ignore  # noqa: E501
+        gpt_author_lever_ceilings_once,
+      )
+      from client_intake_and_finmo.post_intake_target_solver import (  # type: ignore
+        run_restoration_loop as _pb_run_restoration,
+      )
+      from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+        build_python_finmo_json as _pb_build_finmo_raw,
+      )
+      from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+        post_intake_sequence_step_scope as _pb_scope,
+      )
+      from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+        clamp_cost_rows_to_envelope as _pb_clamp_cost_rows,
+        derive_ebitda_margin_band_from_costs as _pb_derive_ebitda_band,
+      )
+
+      def _pb_build_finmo(mi: Dict[str, Any]) -> Dict[str, Any]:
+        _p = _pb_build_finmo_raw(model_input_json=copy.deepcopy(mi or {}))
+        return _p if isinstance(_p, dict) else {}
+
+      # -- Executive ceilings (identity-judged, locked, rail-clamped). --
+      _pb_ops = ops_json if isinstance(ops_json, dict) else {}
+      _pb_identity = {
+        "business_type": _pb_ops.get("business_type"),
+        "business_description": (
+          str(
+            _pb_ops.get("business_description_summary")
+            or _pb_ops.get("business_description") or ""
+          ).strip()[:220] or None
+        ),
+        "sales_modality": _pb_ops.get("sales_modality"),
+        "consumer_type": _pb_ops.get("consumer_type"),
+      }
+      _pb_ls = ((final_model_input_json or {}).get("solver_input") or {}).get("labor_scaling_directive")
+      _pb_ls = _pb_ls if isinstance(_pb_ls, dict) else {}
+      _pb_authored_payroll_pct = _safe_float(_pb_ls.get("target_payroll_percent"))
+      if _pb_authored_payroll_pct is None and isinstance(payroll_headcount, dict):
+        _pb_authored_payroll_pct = _safe_float(
+          payroll_headcount.get("target_payroll_percent_of_revenue")
+        )
+      _pb_labor_bound = bool(_pb_ls.get("revenue_scales_with_labor"))
+      _pb_anchors: Dict[str, Any] = {"levers": _pb_lever_snapshot()}
+      if isinstance(payroll_headcount, dict):
+        _pb_anchors["payroll"] = {
+          "target_percent_of_revenue": _pb_authored_payroll_pct,
+          "labor_intensity_class": payroll_headcount.get("labor_intensity_class"),
+          "revenue_scales_with_labor": _pb_labor_bound,
+          "q11_actual_percent_of_revenue": None,
+        }
+        for _r in ((final_finmo_json or {}).get("quarter_rows") or []):
+          if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) == 11:
+            _rev11 = _safe_float(_r.get("revenue")) or 0.0
+            if _rev11 > 0:
+              _pb_anchors["payroll"]["q11_actual_percent_of_revenue"] = round(
+                (_safe_float(_r.get("payroll")) or 0.0) / _rev11, 4,
+              )
+      _pb_ceil_result = gpt_author_lever_ceilings_once(
+        business_identity=_pb_identity, lever_anchors=_pb_anchors,
+      )
+      if not _pb_ceil_result.get("ok"):
+        # No ceilings verdict -> levers stay CLOSED. Never open a lever naked.
+        _pb_trace.update({
+          "engaged": False,
+          "reason": "ceilings_unavailable_levers_stay_closed",
+          "ceilings_error": _pb_ceil_result.get("error"),
+        })
+      else:
+        _pb_ceilings = _pb_ceil_result["ceilings"]
+        _pb_trace["engaged"] = True
+        _pb_trace["ceilings"] = _pb_ceilings
+        _pb_before = _pb_lever_snapshot()
+        _pb_q11_before = _pb_q11_ebitda_margin(final_finmo_json)
+
+        # -- Holistic search: revenue + cost levers under the ceilings. --
+        with _pb_scope(
+          step_key="post_intake_target_seeking_restoration_loop",
+          executor_function="phase_b_ceilinged_restoration",
+        ):
+          _pb_restoration = _pb_run_restoration(
+            model_input=final_model_input_json or {},
+            build_finmo=_pb_build_finmo,
+            business_naics_6=business_naics_6 or None,
+            horizon=int(horizon or 20),
+            planning_mode=planning_mode,
+            ops_json=ops_json or {},
+            financials_json=financials_json or {},
+            solver_targets_payload=(
+              targets_payload_post
+              if isinstance(targets_payload_post, dict) and targets_payload_post.get("metrics")
+              else (targets_payload or None)
+            ),
+            revenue_authored=True,
+            revenue_lever_ceilings=_pb_ceilings,
+          )
+          final_finmo_json = _pb_build_finmo(final_model_input_json or {})
+          next_result["finmo_json"] = final_finmo_json
+          next_result["model_input_json"] = final_model_input_json
+        _pb_trace["restoration_status"] = str(
+          getattr(_pb_restoration, "status", None).value
+          if getattr(_pb_restoration, "status", None) is not None else "unknown"
+        )
+
+        # -- Labor refresh: payroll must track the SEARCHED revenue for a
+        #    labor-bound business (no free operating leverage from the raise).
+        if _pb_labor_bound and _pb_authored_payroll_pct and isinstance(payroll_headcount, dict):
+          from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
+            enforce_labor_scaling_on_payload as _pb_enforce_labor,
+          )
+          from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore  # noqa: E501
+            apply_payroll_schedule_to_state as _pb_apply_payroll,
+          )
+
+          def _pb_live_count() -> int:
+            return len([
+              _r for _r in ((final_finmo_json or {}).get("quarter_rows") or [])
+              if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) >= 1
+              and (_safe_float(_r.get("revenue")) or 0.0) > 0.0
+            ]) or int(horizon or 20)
+
+          def _pb_synth_anchor(_pct: float) -> Dict[str, Any]:
+            return {
+              "labor_intensity_class": payroll_headcount.get("labor_intensity_class"),
+              "per_quarter": [
+                {
+                  "q": int(_safe_float(_r.get("quarter_index")) or 0),
+                  "payroll_budget": (_safe_float(_r.get("revenue")) or 0.0) * float(_pct),
+                }
+                for _r in ((final_finmo_json or {}).get("quarter_rows") or [])
+                if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) >= 1
+              ],
+            }
+
+          _pb_refresh_schedule = copy.deepcopy(payroll_headcount)
+          _pb_refresh_summary = _pb_enforce_labor(
+            _pb_refresh_schedule, _pb_synth_anchor(float(_pb_authored_payroll_pct)),
+          )
+          if _pb_refresh_summary:
+            final_model_input_json, final_finmo_json = _pb_apply_payroll(
+              schedule_payload=_pb_refresh_schedule,
+              model_input_json=final_model_input_json,
+              finmo_json=final_finmo_json,
+              live_count=_pb_live_count(),
+              stage_prefix="phase_b_labor_refresh",
+            )
+            payroll_headcount = _pb_refresh_schedule
+            next_result["payroll_headcount"] = payroll_headcount
+            next_result["model_input_json"] = final_model_input_json
+            next_result["finmo_json"] = final_finmo_json
+            _pb_trace["labor_refresh"] = _pb_refresh_summary
+
+          # -- Payroll lever: trim the payroll target% toward the executive
+          #    floor ONLY as far as viability requires. Deterministic
+          #    descending trial; never below the floor; existing staff are
+          #    never cut (the trim defers planned hires). If no candidate
+          #    reaches viability the authored staffing stands -- an honest
+          #    failure, not an understaffed fake pass.
+          _pb_floor = _safe_float(_pb_ceilings.get("payroll_min_percent_of_revenue"))
+          # A candidate is viable when the realism validator itself — the same
+          # judgment the acceptance gate reads — reports NO failing viability
+          # metrics on the candidate state. A cheaper Q11-margin proxy misses
+          # shape gates (ebitda_q20_holds, fixed_cost_burden), which are
+          # exactly what a payroll-heavy business fails.
+          _pb_still_failing = _pb_failing_viability_metrics()
+          if (
+            _pb_floor is not None
+            and float(_pb_floor) < float(_pb_authored_payroll_pct) - 1e-9
+            and _pb_still_failing
+          ):
+            _pb_candidates: List[float] = []
+            _pct = float(_pb_authored_payroll_pct) - 0.02
+            while _pct > float(_pb_floor) + 1e-9:
+              _pb_candidates.append(round(_pct, 4))
+              _pct -= 0.02
+            _pb_candidates.append(round(float(_pb_floor), 4))
+            _pb_tried: List[Dict[str, Any]] = []
+            _pb_chosen = None
+            _pb_chosen_ni_deferred = False
+            # The NI-trajectory rule depends on the financing structure the
+            # CASH PASS has not built yet (dental: pre-cash NI fails, post-
+            # restructure NI passes) -- at trial time it is ADVISORY only.
+            # The LEAST-TRIM candidate clearing every CASH-INDEPENDENT
+            # realism metric is adopted; the real NI check judges the
+            # finished plan at the gate. Preferring a deeper-trim candidate
+            # just because its pre-cash NI forecast looks better would
+            # understaff the business on a financing-sensitive signal.
+            for _cand in _pb_candidates:
+              _cand_schedule = copy.deepcopy(payroll_headcount)
+              _cand_summary = _pb_enforce_labor(
+                _cand_schedule, _pb_synth_anchor(_cand), allow_scale_down=True,
+              )
+              if not _cand_summary:
+                _pb_tried.append({"percent": _cand, "result": "no_scaling_needed"})
+                continue
+              try:
+                _cand_model, _cand_finmo = _pb_apply_payroll(
+                  schedule_payload=_cand_schedule,
+                  model_input_json=copy.deepcopy(final_model_input_json),
+                  finmo_json=copy.deepcopy(final_finmo_json),
+                  live_count=_pb_live_count(),
+                  stage_prefix="phase_b_payroll_lever_trial",
+                )
+              except Exception as _cand_exc:
+                _pb_tried.append({
+                  "percent": _cand,
+                  "result": f"apply_failed: {type(_cand_exc).__name__}: {str(_cand_exc)[:150]}",
+                })
+                continue
+              # Judge the candidate against ITS OWN derived ebitda band --
+              # trimming payroll moves the band the realism gate reads.
+              _cand_env = (
+                ((_cand_model or {}).get("solver_input") or {}).get("fitted_envelope")
+              )
+              _cand_band = _pb_derive_ebitda_band(
+                _cand_env, _cand_finmo, horizon=int(horizon or 20),
+              )
+              if isinstance(_cand_band, dict):
+                _cand_si = (_cand_model or {}).get("solver_input")
+                if isinstance(_cand_si, dict):
+                  _cand_fot = _cand_si.setdefault(_FOT_KEY, {})
+                  if isinstance(_cand_fot, dict):
+                    _cand_fot_metrics = _cand_fot.setdefault("metrics", {})
+                    if isinstance(_cand_fot_metrics, dict):
+                      _cand_fot_metrics["ebitda_margin"] = _cand_band
+              _cand_failing = _pb_failing_viability_metrics(_cand_model, _cand_finmo)
+              _cand_soft_ok = not [
+                _m for _m in _cand_failing if _m != "net_income_trajectory_viable"
+              ]
+              _pb_tried.append({
+                "percent": _cand,
+                "q11_ebitda_margin": _pb_q11_ebitda_margin(_cand_finmo),
+                "failing_metrics": _cand_failing,
+                "viable": _cand_soft_ok,
+              })
+              if _cand_soft_ok:
+                _pb_chosen_ni_deferred = "net_income_trajectory_viable" in _cand_failing
+                final_model_input_json = _cand_model
+                final_finmo_json = _cand_finmo
+                payroll_headcount = _cand_schedule
+                next_result["payroll_headcount"] = payroll_headcount
+                next_result["model_input_json"] = final_model_input_json
+                next_result["finmo_json"] = final_finmo_json
+                _pb_chosen = _cand
+                if conn is not None:
+                  try:
+                    import json as _pb_json
+                    _pb_cur = conn.cursor()
+                    try:
+                      _pb_cur.execute(
+                        "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                        (
+                          _pb_json.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                          str(draft_id or "").strip(),
+                        ),
+                      )
+                      conn.commit()
+                    finally:
+                      try:
+                        _pb_cur.close()
+                      except Exception:
+                        pass
+                  except Exception:
+                    pass
+                break
+            if _pb_chosen is None:
+              _pb_note = "authored staffing kept (no candidate reached viability)"
+            elif _pb_chosen_ni_deferred:
+              _pb_note = (
+                "least-trim candidate clearing cash-independent metrics "
+                "adopted (NI trajectory deferred to the post-cash gate)"
+              )
+            else:
+              _pb_note = "least-trim viable candidate adopted"
+            _pb_trace["payroll_lever"] = {
+              "authored_percent": _pb_authored_payroll_pct,
+              "executive_floor_percent": _pb_floor,
+              "candidates_tried": _pb_tried,
+              "chosen_percent": _pb_chosen,
+              "note": _pb_note,
+            }
+
+        # -- Re-ground: the search may have moved cost rows; clamp back into
+        #    the envelope and re-derive the ebitda band off the final state.
+        _pb_env = (
+          ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope")
+        )
+        _pb_reclamped = _pb_clamp_cost_rows(final_model_input_json, _pb_env)
+        # build_python_finmo_json requires an active sequence-controller scope.
+        with _pb_scope(
+          step_key="post_intake_target_seeking_post_cascade_cost_grounding",
+          executor_function="phase_b_lever_search_reground",
+        ):
+          final_finmo_json = _pb_build_finmo(final_model_input_json or {})
+        _pb_band2 = _pb_derive_ebitda_band(_pb_env, final_finmo_json, horizon=int(horizon or 20))
+        if isinstance(_pb_band2, dict):
+          _pb_si = (final_model_input_json or {}).get("solver_input")
+          if isinstance(_pb_si, dict):
+            _pb_fot = _pb_si.setdefault(_FOT_KEY, {})
+            if isinstance(_pb_fot, dict):
+              _pb_fot_metrics = _pb_fot.setdefault("metrics", {})
+              if isinstance(_pb_fot_metrics, dict):
+                _pb_fot_metrics["ebitda_margin"] = _pb_band2
+        next_result["model_input_json"] = final_model_input_json
+        next_result["finmo_json"] = final_finmo_json
+
+        # -- Move log: what moved, and the ceiling that bounded it. --
+        _pb_after = _pb_lever_snapshot()
+        _pb_moves: Dict[str, Any] = {}
+        for _drv in sorted(set(_pb_before) | set(_pb_after)):
+          _b = _pb_before.get(_drv) or {}
+          _a = _pb_after.get(_drv) or {}
+          _pb_moves[_drv] = {
+            "q1": [_b.get("q1"), _a.get("q1")],
+            "q11": [_b.get("q11"), _a.get("q11")],
+            "q20": [_b.get("q20"), _a.get("q20")],
+          }
+        _pb_trace["revenue_moves_before_after"] = _pb_moves
+        _pb_trace["reclamped_rows"] = _pb_reclamped
+        _pb_trace["q11_ebitda_margin"] = [
+          _pb_q11_before, _pb_q11_ebitda_margin(final_finmo_json),
+        ]
+        _pb_trace["failing_metrics_after"] = _pb_failing_viability_metrics()
+  except Exception as _pb_exc:  # pragma: no cover - defensive
+    # PRESERVE the partial trace (ceilings, moves already made) -- an error
+    # after mutations must stay diagnosable, not vanish behind a bare flag.
+    _pb_err_trace = completion_trace.get("phase_b_lever_search")
+    if not isinstance(_pb_err_trace, dict):
+      _pb_err_trace = {"engaged": False}
+      completion_trace["phase_b_lever_search"] = _pb_err_trace
+    _pb_err_trace["error"] = f"{type(_pb_exc).__name__}: {str(_pb_exc)[:400]}"
+
   # 2. Cash pass — Phase 9 Phase F mode-based cash strategy.
   #
   # Replaces the Phase 8 minimal cash strategy (Q1 lump-sum dump) with

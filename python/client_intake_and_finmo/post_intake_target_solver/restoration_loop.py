@@ -606,6 +606,71 @@ def _current_revenue_lever_value(
   return sum(values) / len(values)
 
 
+def _ceiling_bound_for_revenue_lever(
+  *,
+  lever_id: str,
+  ceilings: Dict[str, Any],
+  model_input: Dict[str, Any],
+  horizon: int,
+) -> Optional[DriverBound]:
+  """Phase B — build the PER-QUARTER executive-ceiling bound for one
+  revenue-side lever off its AUTHORED trajectory.
+
+  lower_per_q = authored value (the search may only raise revenue above
+  the authored plan, never shrink it); upper_per_q = authored x ceiling
+  multiplier for price/capacity, absolute min(ceiling, rail) for
+  utilization. Q1 is anchored on every lever (upper_q1 = authored_q1):
+  today's price / capacity / utilization are operator facts, not levers.
+  Returns None when the lever has no authored trajectory (solver then has
+  no authority over it)."""
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+  rows = _find_rows_for_lever(model_input or {}, lever_id)
+  if not rows:
+    return None
+  authored: List[float] = [0.0] * horizon
+  for row in rows:
+    vals = row.get("values") or []
+    for q_idx in range(horizon):
+      live_idx = 1 + q_idx
+      if live_idx < len(vals) and vals[live_idx] is not None:
+        try:
+          authored[q_idx] += float(vals[live_idx])
+        except (TypeError, ValueError):
+          pass
+  authored = [v / max(1, len(rows)) for v in authored]
+  if all(v <= 0.0 for v in authored):
+    return None
+
+  lid = str(lever_id)
+  lower_per_q = list(authored)
+  if "Unit Price" in lid:
+    mult = float(ceilings.get("unit_price_max_multiplier") or 1.0)
+    upper_per_q = [v * mult for v in authored]
+    label = f"unit_price_max_multiplier={mult:.4f}"
+  elif "Capacity" in lid:
+    mult = float(ceilings.get("capacity_max_multiplier") or 1.0)
+    upper_per_q = [v * mult for v in authored]
+    label = f"capacity_max_multiplier={mult:.4f}"
+  elif "Utilization" in lid:
+    util_max = float(ceilings.get("utilization_max") or 0.0)
+    upper_per_q = [max(v, min(util_max, _REVENUE_UTILIZATION_UPPER)) for v in authored]
+    label = f"utilization_max={util_max:.4f}"
+  else:
+    return None
+  # Q1 anchored: the search may not rewrite the operator's present.
+  upper_per_q[0] = authored[0]
+  return DriverBound(
+    lower=min(lower_per_q),
+    upper=max(upper_per_q),
+    driver_kind="revenue_unit",
+    bound_source=f"executive_ceiling ({label}, q1_anchored)",
+    lower_per_q=lower_per_q,
+    upper_per_q=upper_per_q,
+  )
+
+
 def _driver_bounds_for_target(
   *,
   target_metric: str,
@@ -988,6 +1053,7 @@ def run_restoration_loop(
   financials_json: Optional[Dict[str, Any]] = None,
   solver_targets_payload: Optional[Dict[str, Any]] = None,
   revenue_authored: bool = False,
+  revenue_lever_ceilings: Optional[Dict[str, Any]] = None,
 ) -> RestorationResult:
   """Outer loop over the 4 solver targets in priority order.
 
@@ -1028,12 +1094,38 @@ def run_restoration_loop(
   # improve ebitda_margin inflates the authored level off its anchor and lands
   # as a lumpy per-quarter step (the ~30% Q6 cliff). Margins are restored via
   # the cost/working-capital drivers only; revenue stays the authored trajectory.
+  #
+  # PHASE B EXCEPTION: when the caller supplies EXECUTIVE LEVER CEILINGS
+  # (identity-judged, rail-clamped, response-locked), the revenue levers are
+  # re-admitted to the search WITH per-quarter bounds derived from the
+  # authored trajectory: lower = the authored value (the search may only add
+  # revenue, never shrink the operator's plan), upper = authored x ceiling
+  # multiplier (utilization: min(ceiling, physical rail), absolute). Q1 stays
+  # anchored on every lever -- today's price/capacity/utilization are facts,
+  # not levers. The search itself remains deterministic Python.
   if revenue_authored:
-    for _tm in list(bounds_by_target.keys()):
-      bounds_by_target[_tm] = {
-        _k: _v for _k, _v in (bounds_by_target[_tm] or {}).items()
-        if not str(_k).strip().startswith("revenue::")
-      }
+    _ceil = revenue_lever_ceilings if isinstance(revenue_lever_ceilings, dict) else None
+    if not _ceil:
+      for _tm in list(bounds_by_target.keys()):
+        bounds_by_target[_tm] = {
+          _k: _v for _k, _v in (bounds_by_target[_tm] or {}).items()
+          if not str(_k).strip().startswith("revenue::")
+        }
+    else:
+      for _tm in list(bounds_by_target.keys()):
+        for _k in list((bounds_by_target[_tm] or {}).keys()):
+          if not str(_k).strip().startswith("revenue::"):
+            continue
+          _ceiling_bound = _ceiling_bound_for_revenue_lever(
+            lever_id=str(_k),
+            ceilings=_ceil,
+            model_input=intake_snapshot,
+            horizon=horizon,
+          )
+          if _ceiling_bound is None:
+            bounds_by_target[_tm].pop(_k, None)
+          else:
+            bounds_by_target[_tm][_k] = _ceiling_bound
 
   for outer_pass in range(1, max_outer_passes + 1):
     outer_passes_used = outer_pass

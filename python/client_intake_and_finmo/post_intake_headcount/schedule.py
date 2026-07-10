@@ -2185,6 +2185,8 @@ def _build_payroll_headcount_payload_from_contract(
 def enforce_labor_scaling_on_payload(
   payload: Optional[Dict[str, Any]],
   anchor: Optional[Dict[str, Any]],
+  *,
+  allow_scale_down: bool = False,
 ) -> Optional[Dict[str, Any]]:
   """Make payroll SCALE with revenue for a labor-bound business.
 
@@ -2217,15 +2219,27 @@ def enforce_labor_scaling_on_payload(
   }
   # Per-quarter scale factor: raise flat payroll up to the revenue-scaled target;
   # clamp to non-decreasing so a title's FTE never gets cut (staffing rule).
+  #
+  # Phase B (``allow_scale_down=True``): the payroll LEVER may also scale the
+  # trajectory DOWN toward a lower target (trimming PLANNED HIRES for
+  # efficiency). The per-title continuity clamp below still guarantees no
+  # title's FTE ever dips quarter-over-quarter, and the first quarter's
+  # starting FTE is held (existing staff are never cut) -- the trim can only
+  # defer growth, never fire anyone. The up-only ratchet (f = max(f, prev))
+  # is skipped in this mode; continuity is enforced at the FTE level instead.
   factor_by_q: Dict[int, float] = {}
   prev = 1.0
   for q in range(1, horizon + 1):
     authored = _safe_float((qt_by_q.get(q) or {}).get("payroll")) or 0.0
     target = target_by_q.get(q)
     f = 1.0
-    if target is not None and authored > 0.0 and target > authored:
-      f = target / authored
-    f = max(f, prev)
+    if target is not None and authored > 0.0:
+      if target > authored:
+        f = target / authored
+      elif allow_scale_down and target < authored:
+        f = max(target / authored, 1e-3)
+    if not allow_scale_down:
+      f = max(f, prev)
     factor_by_q[q] = f
     prev = f
   if all(abs(f - 1.0) < 1e-6 for f in factor_by_q.values()):
@@ -2249,7 +2263,11 @@ def enforce_labor_scaling_on_payload(
       f = factor_by_q.get(q, 1.0)
       new_end = round((_safe_float(r.get("ending_fte")) or 0.0) * f, 2)
       if prev_end is None:
-        new_start = round((_safe_float(r.get("starting_fte")) or 0.0) * f, 2)
+        # First quarter: existing staff are a FLOOR. An up-scale may add
+        # day-one hires; a down-scale must never cut the people already
+        # on the team (the trim defers growth, it does not fire anyone).
+        _start_f = f if f >= 1.0 else 1.0
+        new_start = round((_safe_float(r.get("starting_fte")) or 0.0) * _start_f, 2)
       else:
         new_start = prev_end
       if new_end < new_start:
@@ -2282,12 +2300,13 @@ def enforce_labor_scaling_on_payload(
       totals[q]["ending_fte"] = round(totals[q]["ending_fte"] + (_safe_float(r.get("ending_fte")) or 0.0), 2)
       totals[q]["payroll"] = int(totals[q]["payroll"]) + int(_safe_float(r.get("total_quarterly_payroll")) or 0)
   payload["quarter_totals"] = [totals[q] for q in range(1, horizon + 1)]
-  scaled_quarters = sorted(q for q, f in factor_by_q.items() if f > 1.0 + 1e-6)
+  scaled_quarters = sorted(q for q, f in factor_by_q.items() if abs(f - 1.0) > 1e-6)
   return {
     "scaled": True,
     "scaled_quarter_count": len(scaled_quarters),
     "first_scaled_quarter": scaled_quarters[0] if scaled_quarters else None,
     "max_scale_factor": round(max(factor_by_q.values()), 4),
+    "min_scale_factor": round(min(factor_by_q.values()), 4),
   }
 
 

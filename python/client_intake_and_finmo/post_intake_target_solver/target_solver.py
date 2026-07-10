@@ -208,6 +208,24 @@ class DriverBound:
   upper: float
   driver_kind: str  # "percent_of_revenue" | "days" | "quarter_currency" | "revenue_unit"
   bound_source: str = ""
+  # Phase B — optional PER-QUARTER bounds. Revenue-side levers carry an
+  # authored trajectory (price ramps with inflation, capacity ramps with
+  # stage), so one scalar bound either strands late quarters above it or
+  # lets early quarters jump to late-quarter levels. When present these
+  # arrays (length = horizon) take precedence over the scalars; the
+  # scalars remain the summary envelope (min of lowers / max of uppers).
+  lower_per_q: Optional[List[float]] = None
+  upper_per_q: Optional[List[float]] = None
+
+  def lower_at(self, q_idx: int) -> float:
+    if self.lower_per_q is not None and 0 <= q_idx < len(self.lower_per_q):
+      return float(self.lower_per_q[q_idx])
+    return float(self.lower)
+
+  def upper_at(self, q_idx: int) -> float:
+    if self.upper_per_q is not None and 0 <= q_idx < len(self.upper_per_q):
+      return float(self.upper_per_q[q_idx])
+    return float(self.upper)
 
 
 @dataclass
@@ -232,17 +250,17 @@ class _DriverState:
     """
     cur = self.current_per_q[q_idx]
     if direction == "raise":
-      return max(0.0, float(self.bound.upper) - float(cur))
+      return max(0.0, self.bound.upper_at(q_idx) - float(cur))
     if direction == "lower":
-      return max(0.0, float(cur) - float(self.bound.lower))
+      return max(0.0, float(cur) - self.bound.lower_at(q_idx))
     return 0.0
 
   def is_pinned_at_bound_for_direction(self, direction: str, eps: float = 1e-9) -> bool:
     """True when EVERY quarter is at the relevant bound in ``direction``."""
-    for cur in self.current_per_q:
-      if direction == "raise" and float(cur) < float(self.bound.upper) - eps:
+    for q_idx, cur in enumerate(self.current_per_q):
+      if direction == "raise" and float(cur) < self.bound.upper_at(q_idx) - eps:
         return False
-      if direction == "lower" and float(cur) > float(self.bound.lower) + eps:
+      if direction == "lower" and float(cur) > self.bound.lower_at(q_idx) + eps:
         return False
     return True
 
@@ -524,9 +542,22 @@ def _write_driver_value_at_quarter(
   provenance so the derived-driver policy layer skips the per-quarter
   re-shape for solver-authored quarters (Phase 9 P3 exclusion path).
   """
-  clamped = max(float(driver_state.bound.lower), min(float(driver_state.bound.upper), float(new_value)))
+  clamped = max(driver_state.bound.lower_at(q_idx), min(driver_state.bound.upper_at(q_idx), float(new_value)))
   live_idx = 1 + int(q_idx)  # skip stub at index 0
   quarter_index_1based = int(q_idx) + 1
+  # Phase B — multi-LOB revenue levers write MULTIPLICATIVELY. The driver
+  # state's per-q value is the AVERAGE across LOB rows; writing the same
+  # absolute value to every row would collapse the per-LOB price/capacity
+  # structure (a $12k corporate engagement and a $6k individual engagement
+  # both forced to $9k). Scale each row by (new_avg / old_avg) instead so
+  # relative LOB structure is preserved. Utilization rows stay physical
+  # (clamped to [0, 1]).
+  _is_multi_row_revenue = (
+    driver_state.driver_kind == "revenue_unit" and len(driver_state.rows) > 1
+  )
+  _old_avg = float(driver_state.current_per_q[q_idx]) if q_idx < len(driver_state.current_per_q) else 0.0
+  _row_scale = (float(clamped) / _old_avg) if (_is_multi_row_revenue and _old_avg > 1e-12) else None
+  _achieved_sum = 0.0
   for row in driver_state.rows:
     vals = row.get("values")
     if not isinstance(vals, list):
@@ -535,7 +566,18 @@ def _write_driver_value_at_quarter(
       row["values"] = vals
     while len(vals) <= live_idx:
       vals.append(0.0)
-    vals[live_idx] = float(clamped)
+    if _row_scale is not None:
+      try:
+        _old_row_val = float(vals[live_idx] or 0.0)
+      except (TypeError, ValueError):
+        _old_row_val = 0.0
+      _new_row_val = _old_row_val * _row_scale
+    else:
+      _new_row_val = float(clamped)
+    if "utilization" in str(row.get("driver") or "").strip().lower():
+      _new_row_val = min(1.0, max(0.0, _new_row_val))
+    vals[live_idx] = float(_new_row_val)
+    _achieved_sum += float(_new_row_val)
     # Provenance tag for the derived-driver policy exclusion path.
     # Stamps which quarters the target solver authored, and for which
     # target. apply_balance_sheet_contextual_seed_to_model_input,
@@ -549,7 +591,12 @@ def _write_driver_value_at_quarter(
       "target_metric": target_metric,
       "applied_value": float(clamped),
     }
-  driver_state.current_per_q[q_idx] = float(clamped)
+  if _is_multi_row_revenue and driver_state.rows:
+    # Utilization clamps on individual rows can shift the achieved average
+    # off the requested value — track what the rows actually hold.
+    driver_state.current_per_q[q_idx] = float(_achieved_sum) / float(len(driver_state.rows))
+  else:
+    driver_state.current_per_q[q_idx] = float(clamped)
 
 
 # ----------------------------------------------------------------------------
@@ -933,9 +980,9 @@ def solve_for_target(
     drivers_moved[lid] = list(ds.current_per_q)
     # Determine if pinned at lower or upper across all quarters.
     eps = 1e-9
-    if all(float(v) <= float(ds.bound.lower) + eps for v in ds.current_per_q):
+    if all(float(v) <= ds.bound.lower_at(i) + eps for i, v in enumerate(ds.current_per_q)):
       drivers_at_bounds[lid] = "lower"
-    elif all(float(v) >= float(ds.bound.upper) - eps for v in ds.current_per_q):
+    elif all(float(v) >= ds.bound.upper_at(i) - eps for i, v in enumerate(ds.current_per_q)):
       drivers_at_bounds[lid] = "upper"
 
   return SolverResult(
