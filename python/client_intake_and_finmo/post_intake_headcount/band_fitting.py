@@ -44,6 +44,11 @@ _COST_RATIO_KEYS = (
 # spine (it is always >= net income in a quarter).
 _NI_KEY = "net_income_margin"
 _VIABILITY_SPINE_KEYS = ("net_income_margin", "ebitda_margin")
+# The viability search may FINE-TUNE a cost line at most this far (relative)
+# from the manager's defended path -- and only at the far end of the horizon
+# (the corridor scales linearly from zero width at Q1). Larger deviations are
+# a different plan and belong to the manager's judgment, not the solver.
+_MAX_SEARCH_DEVIATION = 0.10
 
 
 def _f(v: Any) -> Optional[float]:
@@ -276,6 +281,7 @@ def apply_fitted_cost_bands_to_model_input(
 def clamp_cost_rows_to_envelope(
   model_input: Optional[Dict[str, Any]],
   fitted_envelope: Optional[Dict[str, Any]],
+  fitted_envelope_per_q: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, int]:
   """Coherence CLAMP, not an overwrite: keep whatever value the viability
   search chose for each cost row, clamped into the operator-rescaled fitted
@@ -312,6 +318,13 @@ def clamp_cost_rows_to_envelope(
     band_max = _f(band.get("max"))
     if band_min is None or band_max is None or band_max < band_min:
       continue
+    # Per-quarter walls (managerial shaping): when present they take
+    # precedence over the flat scalar box, so out-of-range values pin to
+    # the MATURING path's wall at that quarter -- not one flat edge that
+    # freezes the ratio for five years.
+    per_q_band = (fitted_envelope_per_q or {}).get(metric)
+    per_q_min = (per_q_band or {}).get("min") if isinstance(per_q_band, dict) else None
+    per_q_max = (per_q_band or {}).get("max") if isinstance(per_q_band, dict) else None
     values = row.get("values")
     if not isinstance(values, list) or not values:
       continue
@@ -320,7 +333,13 @@ def clamp_cost_rows_to_envelope(
       value = _f(values[q])
       if value is None:
         continue
-      pinned = min(max(value, band_min), band_max)
+      lo, hi = band_min, band_max
+      if isinstance(per_q_min, dict) and isinstance(per_q_max, dict):
+        q_lo = _f(per_q_min.get(str(q)))
+        q_hi = _f(per_q_max.get(str(q)))
+        if q_lo is not None and q_hi is not None and q_hi >= q_lo:
+          lo, hi = q_lo, q_hi
+      pinned = min(max(value, lo), hi)
       if abs(pinned - value) > 1e-9:
         values[q] = pinned
         count += 1
@@ -421,117 +440,142 @@ def derive_ebitda_margin_band_from_costs(
   }
 
 
-def normalize_band_trajectories(bands: Any) -> Dict[str, Dict[int, float]]:
-  """GPT band output -> {metric_key: {q (1..20): value}}, forward/backward filled."""
-  out: Dict[str, Dict[int, float]] = {}
-  if not isinstance(bands, list):
-    return out
-  for entry in bands:
-    if not isinstance(entry, dict):
-      continue
-    key = str(entry.get("metric_key") or "").strip()
-    if key not in BAND_METRIC_KEYS:
-      continue
-    by_q: Dict[int, float] = {}
-    for row in entry.get("quarters") or []:
-      if not isinstance(row, dict):
-        continue
-      try:
-        q = int(row.get("q"))
-      except (TypeError, ValueError):
-        continue
-      val = _f(row.get("value"))
-      if 1 <= q <= _HORIZON and val is not None:
-        by_q[q] = val
-    if not by_q:
-      continue
-    # forward fill, then backfill any leading gap
-    filled: Dict[int, float] = {}
-    last: Optional[float] = None
-    for q in range(1, _HORIZON + 1):
-      if q in by_q:
-        last = by_q[q]
-      if last is not None:
-        filled[q] = last
-    first = next((q for q in range(1, _HORIZON + 1) if q in filled), None)
-    if first is not None:
-      for q in range(1, first):
-        filled[q] = filled[first]
-    if filled:
-      out[key] = filled
-  return out
+
+def _interpolate_anchors(q1: float, q11: float, q20: float) -> Dict[int, float]:
+  """Linear glide Q1->Q11->Q20: the manager sets the anchors, Python draws
+  the smooth deterministic path between them (no free-form 20-point authoring
+  to drift run-to-run; smoothness is by construction, not by cap)."""
+  series: Dict[int, float] = {}
+  for q in range(1, _Q11 + 1):
+    frac = (q - 1) / float(_Q11 - 1)
+    series[q] = q1 + (q11 - q1) * frac
+  for q in range(_Q11 + 1, _HORIZON + 1):
+    frac = (q - _Q11) / float(_HORIZON - _Q11)
+    series[q] = q11 + (q20 - q11) * frac
+  return series
 
 
-def validate_and_clip(
-  normalized: Dict[str, Dict[int, float]],
+def validate_manager_forecast(
+  forecast_rows: Optional[List[Dict[str, Any]]],
+  *,
   envelope: Dict[str, Dict[str, float]],
-) -> Tuple[Dict[str, Dict[int, float]], List[Dict[str, Any]]]:
-  """Enforce the bounds GPT must author within:
-    - every quarter value clipped to its metric's [min, max] envelope
-    - cost ratios are non-increasing (step DOWN toward viability)
-    - net_income_margin is non-decreasing through Q11 (provably climbing),
-      and >= 0 for Q11..Q20 (the hard Q11 net-income rule)
-  Returns (fitted, violations). Violations describe what GPT must fix on retry;
-  the returned `fitted` is always bound-safe (Python enforces regardless)."""
+  credible_facts: Dict[str, float],
+) -> Tuple[Dict[str, Dict[int, float]], Dict[str, bool], List[Dict[str, Any]], Dict[str, str]]:
+  """Turn the manager's anchor forecast into per-quarter trajectories,
+  enforcing FACTS and hard viability rules -- not cohort boxes.
+
+  Enforced (grounded in place, each logged as a violation for the retry
+  prompt):
+    - Q1 FACT-GROUNDING: where the operator stated a credible present-day
+      level, the manager's Q1 must sit within [0.8, 1.2] x that fact; outside
+      it snaps to the fact. Forecasting the future never edits the present.
+    - KILL GUARD: a line with a credible stated level > 0 cannot be killed
+      (the operator pays it today); the kill is rejected and the line kept.
+    - Cost ratios live in [0, 0.95]; killed lines are zero across the horizon.
+    - Spine rules (unchanged doctrine): net income climbs into the Q11
+      checkpoint (q1 <= q11), q11 >= 0, non-decreasing after (q20 >= q11);
+      ebitda >= net income every quarter.
+
+  Returns ``(fitted, applicability, violations, rationales)``."""
   fitted: Dict[str, Dict[int, float]] = {}
+  applicability: Dict[str, bool] = {}
   violations: List[Dict[str, Any]] = []
+  rationales: Dict[str, str] = {}
+  rows_by_metric: Dict[str, Dict[str, Any]] = {}
+  for row in (forecast_rows or []):
+    if isinstance(row, dict):
+      mk = str(row.get("metric_key") or "").strip()
+      if mk:
+        rows_by_metric[mk] = row
 
-  for key in BAND_METRIC_KEYS:
-    traj = normalized.get(key)
-    if not traj:
+  for metric in BAND_METRIC_KEYS:
+    if metric not in envelope:
       continue
-    env = envelope.get(key) or {}
-    lo = env.get("min")
-    hi = env.get("max")
-    series: Dict[int, float] = {}
-    for q in range(1, _HORIZON + 1):
-      v = traj.get(q)
-      if v is None:
-        continue
-      clipped = v
-      if lo is not None:
-        clipped = max(clipped, lo)
-      if hi is not None:
-        clipped = min(clipped, hi)
-      if abs(clipped - v) > 1e-9:
-        violations.append({"metric_key": key, "q": q, "code": "outside_envelope",
-                           "authored": v, "envelope": [lo, hi]})
-      series[q] = clipped
+    row = rows_by_metric.get(metric)
+    if row is None:
+      violations.append({
+        "metric_key": metric, "code": "metric_missing",
+        "message": "forecast every metric listed in the reference bands",
+      })
+      continue
+    q1 = _f(row.get("q1_level"))
+    q11 = _f(row.get("q11_level"))
+    q20 = _f(row.get("q20_level"))
+    if q1 is None or q11 is None or q20 is None:
+      violations.append({
+        "metric_key": metric, "code": "anchors_missing",
+        "message": "q1_level, q11_level and q20_level are all required numbers",
+      })
+      continue
+    rationales[metric] = str(row.get("rationale") or "")[:400]
+    applicable = bool(row.get("applicable", True))
 
-    if key in _COST_RATIO_KEYS:
-      # non-increasing: a cost ratio may step down but not climb back up
-      prev: Optional[float] = None
-      for q in range(1, _HORIZON + 1):
-        if q not in series:
+    if metric in _COST_RATIO_KEYS:
+      fact = credible_facts.get(metric)
+      if not applicable:
+        if fact is not None and fact > 1e-6:
+          violations.append({
+            "metric_key": metric, "code": "killed_stated_cost",
+            "message": (
+              f"the operator reported paying this line today ({fact:.4f} of "
+              "revenue); it cannot be killed -- forecast its maturation instead"
+            ),
+          })
+          applicable = True
+        else:
+          applicability[metric] = False
+          fitted[metric] = {q: 0.0 for q in range(1, _HORIZON + 1)}
           continue
-        if prev is not None and series[q] > prev + 1e-9:
-          violations.append({"metric_key": key, "q": q, "code": "cost_ratio_increased",
-                             "value": series[q], "prev": prev})
-          series[q] = prev
-        prev = series[q]
-    elif key in _VIABILITY_SPINE_KEYS:
-      # non-decreasing through Q11 (climbing into the checkpoint)
-      prev = None
-      for q in range(1, _Q11 + 1):
-        if q not in series:
-          continue
-        if prev is not None and series[q] < prev - 1e-9:
-          violations.append({"metric_key": key, "q": q, "code": "ni_not_climbing_to_q11",
-                             "value": series[q], "prev": prev})
-          series[q] = prev
-        prev = series[q]
-      # hard Q11 rule: >= 0 from Q11 onward, and non-decreasing floor afterward
-      ni_floor_after = 0.0
-      for q in range(_Q11, _HORIZON + 1):
-        if q not in series:
-          continue
-        if series[q] < ni_floor_after - 1e-9:
-          violations.append({"metric_key": key, "q": q, "code": "ni_negative_after_q11",
-                             "value": series[q]})
-          series[q] = ni_floor_after
-        ni_floor_after = max(ni_floor_after, series[q])
-    fitted[key] = series
-  return fitted, violations
+      if fact is not None and fact > 1e-9:
+        lo, hi = fact * 0.8, fact * 1.2
+        if not (lo <= q1 <= hi):
+          violations.append({
+            "metric_key": metric, "code": "q1_off_stated_fact",
+            "message": (
+              f"Q1 must reflect the operator's stated present-day level "
+              f"{fact:.4f} (authored {q1:.4f}); snapped to the fact"
+            ),
+          })
+          q1 = fact
+      q1 = min(max(q1, 0.0), 0.95)
+      q11 = min(max(q11, 0.0), 0.95)
+      q20 = min(max(q20, 0.0), 0.95)
+      applicability[metric] = True
+      fitted[metric] = _interpolate_anchors(q1, q11, q20)
+      continue
+
+    # Margin spines: always applicable; enforce the Q11 doctrine on anchors.
+    applicability[metric] = True
+    if metric == _NI_KEY or metric in _VIABILITY_SPINE_KEYS:
+      if q11 < 0.0:
+        violations.append({
+          "metric_key": metric, "code": "spine_negative_at_q11",
+          "message": f"by Q11 the margin must be leading into positive (authored {q11:.4f}); snapped to 0",
+        })
+        q11 = 0.0
+      if q20 < q11:
+        violations.append({
+          "metric_key": metric, "code": "spine_declines_after_q11",
+          "message": f"the margin may not decay after Q11 (q20 {q20:.4f} < q11 {q11:.4f}); snapped",
+        })
+        q20 = q11
+      if q1 > q11:
+        violations.append({
+          "metric_key": metric, "code": "spine_not_climbing_to_q11",
+          "message": f"the margin must climb into the Q11 checkpoint (q1 {q1:.4f} > q11 {q11:.4f}); snapped",
+        })
+        q1 = q11
+    fitted[metric] = _interpolate_anchors(q1, q11, q20)
+
+  # ebitda >= net income in every quarter (arithmetic identity of the P&L).
+  ni = fitted.get("net_income_margin")
+  eb = fitted.get("ebitda_margin")
+  if ni and eb:
+    for q in range(1, _HORIZON + 1):
+      if eb.get(q, 0.0) < ni.get(q, 0.0):
+        eb[q] = ni[q]
+
+  return fitted, applicability, violations, rationales
 
 
 def run_band_fitting_pass(
@@ -644,36 +688,144 @@ def run_band_fitting_pass(
     )
     author_fn = gpt_author_fitted_bands_once
 
+  # OPERATOR FACTS for the manager: the stated present-day cost levels, with
+  # a credibility verdict from the anchor arbitration. Credible facts pin the
+  # manager's Q1 (the present is a fact, not a lever); non-credible ones
+  # (arbitrated data errors) are context only.
+  operator_facts: Dict[str, Any] = {}
+  for _mk, _lvl in (operator_levels or {}).items():
+    _deg = degenerate_anchors.get(_mk) or {}
+    _arb = (_deg.get("arbitration") or {}) if _deg else {}
+    _verdict = str(_arb.get("verdict_applied") or "")
+    if not _deg:
+      operator_facts[_mk] = {"level": float(_lvl), "credible": True}
+    elif _verdict == "operator":
+      operator_facts[_mk] = {
+        "level": float(_lvl), "credible": True,
+        "note": "anchor disputed vs cohort; executive judged the operator level real",
+      }
+    elif _verdict == "custom":
+      _cl = _f(_arb.get("custom_level_enforced"))
+      operator_facts[_mk] = {
+        "level": float(_cl) if _cl is not None else float(_lvl),
+        "credible": _cl is not None,
+        "note": "stated level judged not credible; executive substituted a defensible level",
+      }
+    else:
+      operator_facts[_mk] = {
+        "level": float(_lvl), "credible": False,
+        "note": "stated level judged a data error (cohort band governs)",
+      }
+
+  credible_facts: Dict[str, float] = {
+    mk: float(v["level"]) for mk, v in operator_facts.items()
+    if v.get("credible") and _f(v.get("level")) is not None
+  }
+
   previous_violations: Optional[List[Dict[str, Any]]] = None
   last_error: Optional[str] = None
+  forecast_rows: Optional[List[Dict[str, Any]]] = None
   for _attempt in range(max(1, int(max_attempts))):
     result = author_fn(
       compact=compact,
       revenue_line=revenue_line,
       industry_envelope=envelope,
       previous_violations=previous_violations,
+      operator_facts=operator_facts or None,
       model=model,
     )
     if not result.get("ok"):
       last_error = result.get("error")
       break
-    normalized = normalize_band_trajectories(result.get("bands"))
-    if not normalized:
-      previous_violations = [{"code": "no_metrics", "message": "author all metrics x 20 quarters."}]
-      last_error = "no_metrics_authored"
+    forecast_rows = result.get("forecast")
+    fitted, applicability, violations, rationales = validate_manager_forecast(
+      forecast_rows, envelope=envelope, credible_facts=credible_facts,
+    )
+    if violations and _attempt + 1 < max(1, int(max_attempts)):
+      # Give the manager one shot to fix its own submission; the final
+      # attempt is GROUNDED in place (facts snap, rules enforce) instead
+      # of failing the pass.
+      previous_violations = violations
+      last_error = "manager_forecast_violations"
       continue
-    fitted, violations = validate_and_clip(normalized, envelope)
-    # Python has already enforced the bounds in `fitted`; surface violations so
-    # GPT can re-author a shape that does not need clamping, but the fitted
-    # bands are always returned bound-safe.
+    if not fitted:
+      last_error = "no_metrics_authored"
+      break
+    # PER-QUARTER WALLS around the manager's maturation path. The manager's
+    # judgment IS the plan; the viability search only FINE-TUNES it. The
+    # corridor is +/- _MAX_SEARCH_DEVIATION relative, scaled by forecast
+    # distance: ZERO width at Q1 (the present is a fact -- the first
+    # corridor attempt used the cohort's own relative spread and the search
+    # promptly priced Luna's Q1 COGS 18 points below her stated reality) and
+    # the full +/-10% only by Q20, where genuine forecast uncertainty lives.
+    # A bigger deviation than that is a different plan and needs the
+    # manager's judgment, not a solver's. Killed lines get zero-width walls
+    # at zero. The Phase A clamp pins back into these walls per quarter, so
+    # the maturation shape survives the whole pipeline.
+    envelope_per_q: Dict[str, Dict[str, Dict[str, float]]] = {}
+    new_scalar_envelope: Dict[str, Dict[str, float]] = {}
+    for _mk, _series in fitted.items():
+      _cohort = envelope.get(_mk) or {}
+      _mn = _f(_cohort.get("min"))
+      _mx = _f(_cohort.get("max"))
+      _mins: Dict[str, float] = {}
+      _maxs: Dict[str, float] = {}
+      for _q in range(1, _HORIZON + 1):
+        _v = float(_series.get(_q, 0.0))
+        _wf = (_q - 1) / float(_HORIZON - 1)  # 0 at Q1 -> 1 at Q20
+        if _mk in _COST_RATIO_KEYS and not applicability.get(_mk, True):
+          _mins[str(_q)] = 0.0
+          _maxs[str(_q)] = 0.0
+        elif _mk in _COST_RATIO_KEYS:
+          _dev = _MAX_SEARCH_DEVIATION * _wf
+          _mins[str(_q)] = max(0.0, _v * (1.0 - _dev))
+          _maxs[str(_q)] = _v * (1.0 + _dev)
+        else:
+          # Margin spines: symmetric absolute spread off the cohort band
+          # width (margins cross zero; relative spread is meaningless).
+          # The realism gate ultimately judges EBITDA against the band
+          # DERIVED from the cost walls, so these stay wide.
+          _half = abs((_mx - _mn) / 2.0) if (_mn is not None and _mx is not None) else 0.1
+          _mins[str(_q)] = _v - _half
+          _maxs[str(_q)] = _v + _half
+      envelope_per_q[_mk] = {"min": _mins, "max": _maxs}
+      _all_mins = [float(x) for x in _mins.values()]
+      _all_maxs = [float(x) for x in _maxs.values()]
+      _path_vals = [float(_series.get(_q, 0.0)) for _q in range(1, _HORIZON + 1)]
+      new_scalar_envelope[_mk] = {
+        "min": min(_all_mins) if _all_mins else 0.0,
+        "target": (sum(_path_vals) / len(_path_vals)) if _path_vals else 0.0,
+        "max": max(_all_maxs) if _all_maxs else 0.0,
+      }
+    # Metrics the manager did not forecast (not in BAND_METRIC_KEYS) keep
+    # their arbitrated cohort band as the scalar envelope.
+    for _mk, _band in envelope.items():
+      if _mk not in new_scalar_envelope:
+        new_scalar_envelope[_mk] = dict(_band)
     return {
       "ok": True,
       "fitted_bands": fitted,
-      "envelope": envelope,
+      "envelope": new_scalar_envelope,
+      "envelope_per_q": envelope_per_q,
+      "cohort_reference_envelope": envelope,
       "raw_envelope": raw_envelope,
       "operator_levels": operator_levels or {},
+      "operator_facts": operator_facts,
       "degenerate_anchors": degenerate_anchors,
       "anchor_arbitration": anchor_arbitration,
+      "managerial_forecast": {
+        "applicability": applicability,
+        "rationales": rationales,
+        "anchors": {
+          str((r or {}).get("metric_key") or ""): {
+            "applicable": bool((r or {}).get("applicable", True)),
+            "q1": _f((r or {}).get("q1_level")),
+            "q11": _f((r or {}).get("q11_level")),
+            "q20": _f((r or {}).get("q20_level")),
+          }
+          for r in (forecast_rows or []) if isinstance(r, dict)
+        },
+      },
       "violations_resolved": violations,
       "raw_targets": targets_payload,
       "error": None,
@@ -689,6 +841,5 @@ def run_band_fitting_pass(
 __all__ = [
   "run_band_fitting_pass",
   "industry_envelope_from_targets",
-  "normalize_band_trajectories",
-  "validate_and_clip",
+  "validate_manager_forecast",
 ]

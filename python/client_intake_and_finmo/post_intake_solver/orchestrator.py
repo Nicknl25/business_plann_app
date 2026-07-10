@@ -3090,8 +3090,13 @@ def _run_post_cascade_completion(
     _fitted_env_for_clamp = (
       ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope")
     )
+    _fitted_env_per_q_for_clamp = (
+      ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope_per_q")
+    )
     if isinstance(_fitted_bands_for_ground, dict) and _fitted_bands_for_ground:
-      _clamped_rows = _clamp_cost_rows(final_model_input_json, _fitted_env_for_clamp)
+      _clamped_rows = _clamp_cost_rows(
+        final_model_input_json, _fitted_env_for_clamp, _fitted_env_per_q_for_clamp,
+      )
       # Rebuild the finmo so downstream steps (cash sizing, realism, finalize)
       # see the searched-and-clamped costs immediately.
       # build_python_finmo_json requires an active sequence-controller scope.
@@ -3525,7 +3530,10 @@ def _run_post_cascade_completion(
         _pb_env = (
           ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope")
         )
-        _pb_reclamped = _pb_clamp_cost_rows(final_model_input_json, _pb_env)
+        _pb_env_per_q = (
+          ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope_per_q")
+        )
+        _pb_reclamped = _pb_clamp_cost_rows(final_model_input_json, _pb_env, _pb_env_per_q)
         # build_python_finmo_json requires an active sequence-controller scope.
         with _pb_scope(
           step_key="post_intake_target_seeking_post_cascade_cost_grounding",

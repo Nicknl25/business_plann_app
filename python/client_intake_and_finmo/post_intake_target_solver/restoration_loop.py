@@ -803,6 +803,28 @@ def _driver_bounds_for_target(
       naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
       if not naics_metric:
         continue
+      # MANAGERIAL SHAPING: when the executive-manager authored a maturation
+      # forecast for this cost line, its per-quarter walls ARE the search
+      # range -- the search moves within the maturing path's uncertainty,
+      # not inside one flat cohort box (which froze ratios at box edges for
+      # 20 quarters). Killed lines get zero-width walls (no authority).
+      _mgr_walls = (
+        ((model_input or {}).get("solver_input") or {}).get("fitted_envelope_per_q") or {}
+      ).get(naics_metric)
+      if isinstance(_mgr_walls, dict):
+        _w_min = _mgr_walls.get("min") or {}
+        _w_max = _mgr_walls.get("max") or {}
+        lower_per_q = [float(_w_min.get(str(q), 0.0) or 0.0) for q in range(1, horizon + 1)]
+        upper_per_q = [float(_w_max.get(str(q), 0.0) or 0.0) for q in range(1, horizon + 1)]
+        if any(u > 1e-12 for u in upper_per_q):
+          bounds[lid] = DriverBound(
+            lower=min(lower_per_q), upper=max(upper_per_q),
+            driver_kind="percent_of_revenue",
+            bound_source="managerial_forecast_walls_per_quarter",
+            lower_per_q=lower_per_q, upper_per_q=upper_per_q,
+          )
+        # Zero-width walls (killed line) -> no entry: solver has no authority.
+        continue
       band = _band(naics_metric)
       if band is None:
         continue

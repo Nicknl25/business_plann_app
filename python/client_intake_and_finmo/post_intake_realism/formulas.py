@@ -787,19 +787,44 @@ def _formula_trajectory_ebitda_positive_at_quarter(
   return _quarter_ebitda_margin(finmo_json, 11)
 
 
+# A business already healthily profitable at Q5 has nothing to RECOVER --
+# the recovery-trend check exists to prove a loss-making start genuinely
+# climbs out, not to forbid a healthy operation from maturing its cost
+# structure (Apex: 47% EBITDA at Q5 gliding to 45% at Q11 as admin staffing
+# normalizes is lender-defensible; demanding it climb further is not).
+# Same recalibration doctrine as the NI flat-healthy rule: healthy-flat
+# passes; never-recovers still fails; a healthy start COLLAPSING (losing
+# more than half its margin, or dropping below the healthy floor) still
+# fails.
+_EBITDA_HEALTHY_FLAT_FLOOR = 0.02
+_EBITDA_HEALTHY_RETENTION_FRACTION = 0.5
+
+
 def _formula_trajectory_ebitda_recovery_trend(
   *,
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
 ) -> Optional[float]:
-  """Q11 EBITDA margin minus Q5 EBITDA margin. Positive = real recovery."""
+  """Q11 EBITDA margin minus Q5 EBITDA margin. Positive = real recovery.
+
+  Healthy-flat exception: when Q5 is already at/above the healthy floor AND
+  Q11 retains both the floor and at least half the Q5 margin, the business
+  needed no recovery -- the value floors at 0.0 (pass). Every other shape
+  returns the raw delta, so a loss-making start that never climbs, or a
+  healthy start that collapses, still fails."""
   _ = (model_input_json, quarter_index)
   q5 = _quarter_ebitda_margin(finmo_json, 5)
   q11 = _quarter_ebitda_margin(finmo_json, 11)
   if q5 is None or q11 is None:
     return None
-  return float(q11) - float(q5)
+  raw = float(q11) - float(q5)
+  if (
+    float(q5) >= _EBITDA_HEALTHY_FLAT_FLOOR
+    and float(q11) >= max(_EBITDA_HEALTHY_FLAT_FLOOR, float(q5) * _EBITDA_HEALTHY_RETENTION_FRACTION)
+  ):
+    return max(raw, 0.0)
+  return raw
 
 
 def _formula_trajectory_loss_window_funded(

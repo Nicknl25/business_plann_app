@@ -383,8 +383,20 @@ def _eval_viability_checks(
   ebitda_positive_by_q11 = (
     q11_em is not None and q11_em >= 0.0
   )
+  # Mirrors the realism formula's healthy-flat exception: a business already
+  # healthily profitable at Q5 that RETAINS its health through Q11 needed no
+  # recovery (Apex 47% -> 45% is maturation, not relapse). Collapse still
+  # fails (below the healthy floor or losing over half the Q5 margin).
+  _rt_healthy_floor = 0.02
+  _rt_retention = 0.5
   ebitda_recovery_trend_q5_q11 = (
-    q5_em is not None and q11_em is not None and q11_em > q5_em
+    q5_em is not None and q11_em is not None and (
+      q11_em > q5_em
+      or (
+        q5_em >= _rt_healthy_floor
+        and q11_em >= max(_rt_healthy_floor, q5_em * _rt_retention)
+      )
+    )
   )
   ebitda_margin_q20_holds_or_improves_vs_q11 = (
     q11_em is not None

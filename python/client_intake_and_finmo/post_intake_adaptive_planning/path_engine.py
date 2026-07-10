@@ -706,6 +706,24 @@ def apply_path_stamp_pass(
   revenue_authored = bool(
     ((model_input_json or {}).get("solver_input") or {}).get("revenue_authored")
   )
+  # Cost lines the executive-manager forecast (maturation walls persisted in
+  # solver_input.fitted_envelope_per_q) are equally authoritative -- the
+  # manager's shape must not be re-stamped with an industry glidepath.
+  managerial_metrics = set(
+    (((model_input_json or {}).get("solver_input") or {}).get("fitted_envelope_per_q") or {}).keys()
+  )
+
+  _EXPENSE_ROW_LABEL_TO_MANAGERIAL_METRIC = {
+    "Cost of Goods Sold": "cogs_percent_of_revenue",
+    "Marketing": "marketing_percent_of_revenue",
+    "General & Administrative": "sga_percent_of_revenue",
+    "Research & Development": "r_and_d_percent_of_revenue",
+  }
+
+  def _managerial_metric_for_expense_row(row: Dict[str, Any]) -> Optional[str]:
+    return _EXPENSE_ROW_LABEL_TO_MANAGERIAL_METRIC.get(
+      str((row or {}).get("label") or "").strip()
+    )
 
   exact_updates: List[Dict[str, Any]] = []
   rows_stamped: List[Dict[str, Any]] = []
@@ -729,6 +747,19 @@ def apply_path_stamp_pass(
         continue
       lever_id = str(row.get("lever_id") or "").strip()
       if not lever_id:
+        continue
+      if (
+        str(section_name).strip().lower() == "expenses"
+        and _managerial_metric_for_expense_row(row) in managerial_metrics
+      ):
+        # The executive-manager authored this cost line's maturation path
+        # (band-fitting; walls in solver_input.fitted_envelope_per_q). An
+        # industry-profile glidepath must not overwrite the manager's
+        # judgment -- same doctrine as the revenue_authored skip above.
+        rows_skipped.append({
+          "lever_id": lever_id,
+          "reason": "managerial_cost_forecast_authoritative",
+        })
         continue
       shape = lookup_shape_for_lever(lever_id)
       if shape not in WRITABLE_SHAPES:

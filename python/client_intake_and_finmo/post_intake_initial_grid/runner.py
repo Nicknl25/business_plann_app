@@ -1216,12 +1216,19 @@ def prepare_initial_grid_for_draft(
           str(m): {str(b): float(val) for b, val in (band or {}).items()}
           for m, band in (_bf_pass.get("envelope") or {}).items()
         }
+        # PER-QUARTER walls around the manager's maturation path -- the
+        # search range and the clamp both follow the maturing shape, so
+        # the forecast can never be frozen flat at one box edge again.
+        _bf_per_q = _bf_pass.get("envelope_per_q")
+        if isinstance(_bf_per_q, dict) and _bf_per_q:
+          _bf_si["fitted_envelope_per_q"] = _bf_per_q
       sequence_trace["band_fitting"] = {
         "ok": True,
         "metrics": sorted((_bf_pass.get("fitted_bands") or {}).keys()),
         "operator_levels": _bf_pass.get("operator_levels") or {},
         "degenerate_anchors": _bf_pass.get("degenerate_anchors") or {},
         "anchor_arbitration": _bf_pass.get("anchor_arbitration") or {},
+        "managerial_forecast": _bf_pass.get("managerial_forecast") or {},
         "violations_resolved": len(_bf_pass.get("violations_resolved") or []),
       }
     else:
