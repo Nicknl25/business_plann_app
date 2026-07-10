@@ -2252,6 +2252,10 @@ def enforce_labor_scaling_on_payload(
         new_start = round((_safe_float(r.get("starting_fte")) or 0.0) * f, 2)
       else:
         new_start = prev_end
+      if new_end < new_start:
+        # No attrition channel: a scaled trajectory must never dip, or the
+        # canonical apply chain rejects the row (starting + hires != ending).
+        new_end = new_start
       new_hires = round(max(0.0, new_end - new_start), 2)
       wage = _round_currency(r.get("annual_wage"))
       benefits_pct = round(float(_safe_ratio(r.get("payroll_taxes_benefits_percent")) or 0.0), 2)

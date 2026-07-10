@@ -150,7 +150,10 @@ _SYSTEM_PROMPT = (
   "the per-quarter grid so total ending FTE RISES with the anchor's per-quarter revenue "
   "(do NOT hold headcount flat while revenue doubles). A leverage business (software, "
   "licensing, rentals) can grow revenue on a ~fixed team; payroll%-of-revenue falls. "
-  "Ground the judgment in what the business does; do not default to either.\n"
+  "Ground the judgment in what the business does; do not default to either. Judge from "
+  "what the business DOES at the point of sale (the BUSINESS IDENTITY block), NOT from "
+  "the OEWS occupation list -- the occupation mix can be manufacturing-flavored even for "
+  "a walk-in counter shop.\n"
   "Call submit_payroll_headcount_schedule exactly once with the complete contract."
 )
 
@@ -160,6 +163,7 @@ def _build_user_prompt(
   anchor: Dict[str, Any],
   oews_catalog: Dict[str, Any],
   previous_violations: Optional[List[Dict[str, Any]]],
+  business_identity: Optional[Dict[str, Any]] = None,
 ) -> str:
   candidates = [
     {
@@ -175,6 +179,22 @@ def _build_user_prompt(
   # suggested_oews_mix already surfaces the highest-employment titles.
   candidates = candidates[:60]
   lines: List[str] = []
+  # BUSINESS IDENTITY comes FIRST (context before numbers). Without it the
+  # labor-model judgment is made blind, and the only identity-flavored signal
+  # left -- the OEWS occupation mix -- can be manufacturing-flavored even for a
+  # walk-in counter shop (NAICS 311811 "Retail Bakeries" lists Food
+  # Batchmakers / Packers / Industrial Machinery Mechanics), which flipped an
+  # obviously labor-bound donut shop to "leverage". A ~60-token block, not the
+  # full compact: just what the business IS.
+  if isinstance(business_identity, dict) and any(business_identity.values()):
+    lines.append(
+      "BUSINESS IDENTITY (what this business IS -- judge revenue_scales_with_labor from this):"
+    )
+    lines.append(json.dumps(
+      {k: v for k, v in business_identity.items() if v},
+      ensure_ascii=False, default=str,
+    ))
+    lines.append("")
   lines.append("PAYROLL ANCHOR (revenue-grounded reference; non-binding):")
   lines.append(json.dumps({
     "horizon": anchor.get("horizon"),
@@ -206,6 +226,7 @@ def gpt_author_payroll_contract_once(
   anchor: Dict[str, Any],
   oews_catalog: Dict[str, Any],
   previous_violations: Optional[List[Dict[str, Any]]] = None,
+  business_identity: Optional[Dict[str, Any]] = None,
   model: Optional[str] = None,
   seed: int = 1729,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -235,6 +256,7 @@ def gpt_author_payroll_contract_once(
       {"role": "user", "content": _build_user_prompt(
         anchor=anchor, oews_catalog=oews_catalog,
         previous_violations=previous_violations,
+        business_identity=business_identity,
       )},
     ],
     "tools": [_SUBMIT_TOOL],

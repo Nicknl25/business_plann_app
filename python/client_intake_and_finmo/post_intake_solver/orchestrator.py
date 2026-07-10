@@ -1940,6 +1940,7 @@ def run_target_seeking_orchestrated_system_run(
 
 
 
+
 def _run_post_cascade_completion(
   *,
   conn,
@@ -2960,7 +2961,14 @@ def _run_post_cascade_completion(
           if isinstance(r, dict) and int(_safe_float(r.get("quarter_index")) or 0) >= 1
         ],
       }
-      _pay_summary = _enforce_labor_scaling(payroll_headcount, _synth_anchor)
+      # TRANSACTIONAL: enforce on a COPY; adopt + persist only after the
+      # canonical apply succeeds. Mutating the live schedule before the apply
+      # was known-good split the three payroll surfaces when the apply raised
+      # (scaled schedule in memory at the pre-finalize persist vs unscaled
+      # model_input) and blew the K1 F6 invariant. On failure everything stays
+      # at the pre-scaling state -- consistent surfaces, honest trace.
+      _scaled_schedule = copy.deepcopy(payroll_headcount)
+      _pay_summary = _enforce_labor_scaling(_scaled_schedule, _synth_anchor)
       if _pay_summary:
         # Re-apply through the CANONICAL chain so all three payroll surfaces
         # (payroll_headcount.quarter_totals, model_input.expenses.Payroll.values,
@@ -2972,12 +2980,13 @@ def _run_post_cascade_completion(
           and (_safe_float(r.get("revenue")) or 0.0) > 0.0
         ]) or int(horizon or 20)
         final_model_input_json, final_finmo_json = _apply_payroll_to_state(
-          schedule_payload=payroll_headcount,
+          schedule_payload=_scaled_schedule,
           model_input_json=final_model_input_json,
           finmo_json=final_finmo_json,
           live_count=_live_count,
           stage_prefix="post_cascade_labor_scaling",
         )
+        payroll_headcount = _scaled_schedule
         next_result["payroll_headcount"] = payroll_headcount
         next_result["model_input_json"] = final_model_input_json
         next_result["finmo_json"] = final_finmo_json

@@ -324,8 +324,29 @@ def set_payroll_schedule(
           gpt_author_payroll_contract_once,
         )
         from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
+          _business_context_text_for_payroll,
           _oews_title_catalog_for_business,
         )
+        # LEAN business-identity block for the labor-model judgment (~60
+        # tokens): what the business IS at the point of sale. Without it the
+        # author judged revenue_scales_with_labor blind and the NAICS OEWS
+        # occupation mix (factory-flavored for e.g. Retail Bakeries) misled it.
+        _ops = ops_json if isinstance(ops_json, dict) else {}
+        business_identity = {
+          "business_type": str(_ops.get("business_type") or "").strip(),
+          "business_description": str(
+            _ops.get("business_description_summary") or _ops.get("business_description") or ""
+          ).strip()[:220],
+          "sales_modality": str(_ops.get("sales_modality") or "").strip(),
+          "consumer_type": str(_ops.get("consumer_type") or "").strip(),
+        }
+        if not any(business_identity.values()):
+          # Fallback: the (previously unused) payroll business-context helper.
+          business_identity = {
+            "business_context": _business_context_text_for_payroll(
+              business_facts=business_facts, ops_json=_ops,
+            )[:220]
+          }
         try:
           oews_catalog = _oews_title_catalog_for_business(
             business_facts=business_facts or {}, ops_json=ops_json or {},
@@ -339,6 +360,7 @@ def set_payroll_schedule(
           authored = gpt_author_payroll_contract_once(
             anchor=anchor, oews_catalog=oews_catalog,
             previous_violations=last_violations,
+            business_identity=business_identity,
           )
           if not authored.get("ok"):
             err = _string(authored.get("error"))
