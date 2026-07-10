@@ -123,23 +123,69 @@ def operator_cost_levels(
 def rescale_envelope_to_operator(
   envelope: Dict[str, Dict[str, float]],
   operator_levels: Dict[str, float],
-) -> Dict[str, Dict[str, float]]:
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, Any]]]:
   """Proportional band-scaling: keep the cohort SHAPE, move the LEVEL to the
   operator's reality. For each metric the operator filled, anchor the target to
   the operator level and scale the floor AND ceiling by the same factor so the
   relative spread (the cohort's shape) is preserved. This frees a small private
   business from being floored at a large-public-company's minimum -- the whole
   envelope (min/target/max) shifts to the business's scale, not just the target.
-  Metrics with no operator anchor keep the raw cohort band."""
+  Metrics with no operator anchor keep the raw cohort band.
+
+  DEGENERATE-ANCHOR SANITY GUARD: bounds are only as real as their anchors. An
+  operator anchor so far from the cohort that the RESCALED band no longer even
+  OVERLAPS the raw cohort band contradicts every business the cohort has seen
+  (Luna: $1,200/yr opex -> a 0.07-0.18% SGA band no retailer on earth runs at).
+  The credibility test is derived from the cohort's own spread -- no tuned
+  threshold. Low-side degeneracy (the viability-manufacturing direction) falls
+  back to the raw cohort band; high-side (operator spends MORE than the cohort
+  ceiling -- conservative, lender-believable) keeps the operator level and is
+  flagged only. Returns ``(rescaled_envelope, degenerate_anchors)`` where
+  ``degenerate_anchors`` is ``{metric: {operator_level, cohort_min, cohort_max,
+  side, action}}``."""
   out: Dict[str, Dict[str, float]] = {}
+  degenerate: Dict[str, Dict[str, Any]] = {}
   for metric, band in (envelope or {}).items():
     lvl = operator_levels.get(metric) if operator_levels else None
     tgt = _f(band.get("target"))
     if lvl is not None and tgt is not None and tgt > 1e-9 and lvl >= 0:
       scale = lvl / tgt
-      nb: Dict[str, float] = {"target": lvl}
       mn = _f(band.get("min"))
       mx = _f(band.get("max"))
+      if (
+        mn is not None and mx is not None
+        and mn > 1e-12 and mx >= mn
+        and (mx * scale) < mn
+      ):
+        # Rescaled band sits entirely BELOW the cohort floor: even the
+        # rescaled ceiling is leaner than the leanest cohort business. The
+        # anchor is not credible; treat it as absent (raw cohort band) so the
+        # search ranges stay real.
+        degenerate[metric] = {
+          "operator_level": lvl,
+          "cohort_min": mn,
+          "cohort_max": mx,
+          "side": "below_cohort_floor",
+          "action": "kept_raw_cohort_band",
+        }
+        out[metric] = dict(band)
+        continue
+      if (
+        mn is not None and mx is not None
+        and mn > 1e-12 and mx >= mn
+        and (mn * scale) > mx
+      ):
+        # Rescaled band sits entirely ABOVE the cohort ceiling. High costs are
+        # the conservative direction (they only make viability harder), so the
+        # operator's stated reality stands -- but flag it for the trace.
+        degenerate[metric] = {
+          "operator_level": lvl,
+          "cohort_min": mn,
+          "cohort_max": mx,
+          "side": "above_cohort_ceiling",
+          "action": "kept_operator_level",
+        }
+      nb: Dict[str, float] = {"target": lvl}
       if mn is not None:
         nb["min"] = max(0.0, mn * scale)
       if mx is not None:
@@ -147,7 +193,28 @@ def rescale_envelope_to_operator(
       out[metric] = nb
     else:
       out[metric] = dict(band)
-  return out
+  return out, degenerate
+
+
+def _rescale_band_to_level(
+  raw_band: Dict[str, Any], level: Optional[float],
+) -> Dict[str, float]:
+  """Rescale ONE raw cohort band to an arbitrated level, preserving the
+  cohort's shape -- the same proportional math as
+  ``rescale_envelope_to_operator`` for a single metric."""
+  tgt = _f((raw_band or {}).get("target"))
+  lvl = _f(level)
+  if tgt is None or tgt <= 1e-9 or lvl is None or lvl < 0:
+    return dict(raw_band or {})
+  scale = lvl / tgt
+  nb: Dict[str, float] = {"target": lvl}
+  mn = _f(raw_band.get("min"))
+  mx = _f(raw_band.get("max"))
+  if mn is not None:
+    nb["min"] = max(0.0, mn * scale)
+  if mx is not None:
+    nb["max"] = max(nb.get("min", 0.0), mx * scale)
+  return nb
 
 
 # Maps the model_input expense-row labels to the fitted-band metric keys. The
@@ -490,8 +557,85 @@ def run_band_fitting_pass(
   # private business is floored at a large-public-company cohort's minimum and
   # the cascade is trapped above its real economics by construction.
   raw_envelope = {k: dict(v) for k, v in envelope.items()}
+  degenerate_anchors: Dict[str, Dict[str, Any]] = {}
   if operator_levels:
-    envelope = rescale_envelope_to_operator(envelope, operator_levels)
+    envelope, degenerate_anchors = rescale_envelope_to_operator(
+      envelope, operator_levels,
+    )
+
+  # DEGENERATE-ANCHOR ARBITRATION: Python detected that the operator anchor
+  # and the cohort band radically disagree (no overlap). Which side is wrong
+  # is an identity judgment (Luna's $1,200/yr opex = garbage anchor; Golden
+  # Ring's 28% COGS vs a factory cohort = garbage cohort), so the identity-
+  # aware executive arbitrates -- ONE locked call per business, verdicts
+  # enforced by Python inside the disagreement interval. A failed call keeps
+  # the conservative side already placed by the rescale guard (low-side ->
+  # raw cohort band, high-side -> operator level; both are the expensive
+  # direction, so a failure can never manufacture viability).
+  anchor_arbitration: Dict[str, Any] = {}
+  if degenerate_anchors:
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_anchor_arbiter import (  # type: ignore  # noqa: E501
+        gpt_arbitrate_cost_anchors_once,
+      )
+      year1_revenue = sum(float(v or 0.0) for v in (revenue_line or [])[:4])
+      disagreements: List[Dict[str, Any]] = []
+      for mk in sorted(degenerate_anchors.keys()):
+        d = degenerate_anchors[mk]
+        lvl = float(d.get("operator_level") or 0.0)
+        disagreements.append({
+          "metric_key": mk,
+          "operator_level": lvl,
+          "operator_implied_annual_dollars": (
+            round(lvl * year1_revenue, 2) if year1_revenue > 0.0 else None
+          ),
+          "cohort_band": {
+            "min": d.get("cohort_min"),
+            "target": _f((raw_envelope.get(mk) or {}).get("target")),
+            "max": d.get("cohort_max"),
+          },
+          "side": d.get("side"),
+        })
+      arb = gpt_arbitrate_cost_anchors_once(
+        compact=compact, disagreements=disagreements, model=model,
+      )
+      verdicts = (arb.get("verdicts") or {}) if arb.get("ok") else {}
+      for mk, d in degenerate_anchors.items():
+        v = dict(verdicts.get(mk) or {})
+        verdict = str(v.get("verdict") or "")
+        raw_band = raw_envelope.get(mk) or {}
+        lvl = float(d.get("operator_level") or 0.0)
+        if verdict == "custom":
+          custom = _f(v.get("custom_level"))
+          lo = min(lvl, float(d.get("cohort_min") or 0.0))
+          hi = max(lvl, float(d.get("cohort_max") or 0.0))
+          if custom is None:
+            verdict = "conservative_default"
+          else:
+            enforced = min(max(custom, lo), hi)
+            v["custom_level_enforced"] = enforced
+            envelope[mk] = _rescale_band_to_level(raw_band, enforced)
+        if verdict == "operator":
+          envelope[mk] = _rescale_band_to_level(raw_band, lvl)
+        elif verdict == "cohort":
+          envelope[mk] = dict(raw_band)
+        elif verdict not in ("custom",):
+          # No/invalid verdict: the rescale guard already left the
+          # conservative side in `envelope`; just record it.
+          verdict = "conservative_default"
+        v["verdict_applied"] = verdict
+        d["arbitration"] = v
+      anchor_arbitration = {
+        "ok": bool(arb.get("ok")),
+        "error": arb.get("error"),
+        "disputed_metrics": sorted(degenerate_anchors.keys()),
+      }
+    except Exception as _arb_exc:  # noqa: BLE001 — conservative side already placed
+      anchor_arbitration = {
+        "ok": False,
+        "error": f"{type(_arb_exc).__name__}: {str(_arb_exc)[:200]}",
+        "disputed_metrics": sorted(degenerate_anchors.keys()),
+      }
 
   author_fn = _author_fn
   if author_fn is None:
@@ -528,6 +672,8 @@ def run_band_fitting_pass(
       "envelope": envelope,
       "raw_envelope": raw_envelope,
       "operator_levels": operator_levels or {},
+      "degenerate_anchors": degenerate_anchors,
+      "anchor_arbitration": anchor_arbitration,
       "violations_resolved": violations,
       "raw_targets": targets_payload,
       "error": None,

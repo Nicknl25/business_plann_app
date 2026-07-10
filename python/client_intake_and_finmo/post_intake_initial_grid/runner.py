@@ -1039,12 +1039,34 @@ def prepare_initial_grid_for_draft(
     # intake baseline (which can over-state it) -- the plan starts at the level
     # the operator actually reported.
     _anchor_q1 = None
+    _anchor_q1_source = None
     try:
       _cur_rev_annual = float((financials_json or {}).get("current_revenue") or 0.0)
       if _cur_rev_annual > 0.0:
         _anchor_q1 = _cur_rev_annual / 4.0
+        _anchor_q1_source = "stated_current_revenue"
     except (TypeError, ValueError):
       _anchor_q1 = None
+    if _anchor_q1 is None:
+      # THIN-INPUT FALLBACK: no stated current_revenue. Rather than let the
+      # plan's scale rest on the intake-baseline drivers alone, derive the
+      # implied annual revenue from an absolute+ratio pair the operator DID
+      # state (cogs dollars / cogs% first -- the larger, more load-bearing
+      # pair -- else marketing dollars / marketing%). Reading the data the
+      # app already has, not inventing a default.
+      for _abs_key, _pct_key in (
+        ("current_cogs", "cogs_percent_of_revenue"),
+        ("marketing_total_year1", "marketing_percent_of_revenue"),
+      ):
+        try:
+          _abs_v = float((financials_json or {}).get(_abs_key) or 0.0)
+          _pct_v = float((financials_json or {}).get(_pct_key) or 0.0)
+        except (TypeError, ValueError):
+          continue
+        if _abs_v > 0.0 and _pct_v > 0.0:
+          _anchor_q1 = (_abs_v / _pct_v) / 4.0
+          _anchor_q1_source = f"derived_{_abs_key}_over_{_pct_key}"
+          break
     _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
     )
@@ -1080,6 +1102,7 @@ def prepare_initial_grid_for_draft(
           "revenue_line_total": round(sum(_rev_line), 2),
           "q1": round(_rev_line[0], 2) if _rev_line else None,
           "q20": round(_rev_line[-1], 2) if _rev_line else None,
+          "q1_anchor_source": _anchor_q1_source or "intake_baseline_drivers",
           "critique": copy.deepcopy(
             (_rev_pass.get("drivers") or {}).get("_critique_trace") or {}
           ),
@@ -1197,6 +1220,8 @@ def prepare_initial_grid_for_draft(
         "ok": True,
         "metrics": sorted((_bf_pass.get("fitted_bands") or {}).keys()),
         "operator_levels": _bf_pass.get("operator_levels") or {},
+        "degenerate_anchors": _bf_pass.get("degenerate_anchors") or {},
+        "anchor_arbitration": _bf_pass.get("anchor_arbitration") or {},
         "violations_resolved": len(_bf_pass.get("violations_resolved") or []),
       }
     else:

@@ -130,6 +130,12 @@ def propose_revenue_drivers_deterministic(
           reference_total_q1 += a["capacity_units_per_period"] * a["unit_price"] * a["utilization_rate"]
     if reference_total_q1 > 0.0:
       anchor_scale = target_total / reference_total_q1
+      # Float hygiene: an anchor that already matches the intake baseline
+      # (e.g. derived from the same stated cogs/marketing pair the baseline
+      # was built from) must not perturb the drivers by an ulp and re-key
+      # the downstream response locks.
+      if abs(anchor_scale - 1.0) <= 1e-9:
+        anchor_scale = 1.0
 
   lines: List[Dict[str, Any]] = []
   for entry in reference:
