@@ -2172,6 +2172,33 @@ def _run_post_cascade_completion(
       "error": f"{type(_resync_exc).__name__}: {str(_resync_exc)[:300]}",
     }
 
+  # 0.5. BASELINE cost grounding — stamp the fitted (operator-rescaled) band
+  # TARGET trajectory onto the cost rows BEFORE the solver/restoration search
+  # runs. This fixes the round-1 raw-cohort seeding (actuals start where the
+  # targets say a business of this size starts) while leaving the bands as
+  # SEARCH RANGES: the solver and restoration loop may move any cost lever
+  # within its envelope from this baseline, and their result SURVIVES to the
+  # verdict (a coherence clamp after the search replaces the old end-of-
+  # pipeline overwrite that erased the search). Businesses whose gates pass
+  # without any search land exactly on this trajectory — identical to the old
+  # behavior.
+  try:
+    from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+      apply_fitted_cost_bands_to_model_input as _baseline_cost_stamp,
+    )
+    _fb = ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_bands")
+    if isinstance(_fb, dict) and _fb:
+      final_model_input_json = _baseline_cost_stamp(final_model_input_json, _fb)
+      next_result["model_input_json"] = final_model_input_json
+      completion_trace["fitted_cost_baseline_stamp"] = {"status": "applied"}
+    else:
+      completion_trace["fitted_cost_baseline_stamp"] = {"status": "no_fitted_bands"}
+  except Exception as _stamp_exc:  # pragma: no cover - defensive
+    completion_trace["fitted_cost_baseline_stamp"] = {
+      "status": "failed",
+      "error": f"{type(_stamp_exc).__name__}: {str(_stamp_exc)[:300]}",
+    }
+
   # 1. Target-seeking solver pass — drives model_input toward the
   # cascade's final calibrated targets using single-driver bisection
   # (with inner joint fit available for multi-lever fitting). The
@@ -3035,19 +3062,20 @@ def _run_post_cascade_completion(
       "error": f"{type(_pay_exc).__name__}: {str(_pay_exc)[:300]}",
     }
 
-  # ----- GROUND THE ACTUAL COST ROWS IN THE FITTED (OPERATOR-RESCALED) BANDS -----
-  # The target-seeking solver above aims levers AT the fitted bands, but the
-  # actual cost-ratio rows it leaves behind still carry cohort scale: the lever->
-  # ratio seeding reads the public-cohort sga column, so (for example) Marketing
-  # and G&A come back byte-identical near 15% while their operator-anchored
-  # targets sit near 3% and 9%. That gap is exactly what keeps otherwise-fundable
-  # plans EBITDA-negative. Close it HERE -- after the solver, before the cash pass
-  # -- so cash sizing, the realism gate, and finalize all evaluate ONE coherent
-  # plan whose costs match its operator-anchored targets. Dropping costs can only
-  # add cash, never introduce insolvency, so the cash pass stays sound.
+  # ----- CLAMP THE SEARCHED COST ROWS INTO THE FITTED ENVELOPE -----
+  # The fitted bands are SEARCH RANGES, not final values. The baseline stamp
+  # (step 0.5 above, pre-search) put the actuals on the operator-anchored
+  # trajectory; the solver + restoration loop were then free to move any cost
+  # lever WITHIN its envelope toward viability, and their result must SURVIVE
+  # to the verdict. The old design re-stamped the band TARGET here, erasing
+  # the search (Luna: COGS searched to the 42.8% band minimum, stamped back
+  # to the 60-65% target trajectory before the gates measured it). Now this
+  # step only CLAMPS each searched value into [band min, band max] -- a
+  # defensibility guard, never an overwrite -- so cash sizing, the realism
+  # gate, and finalize evaluate the plan the search actually found.
   try:
     from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
-      apply_fitted_cost_bands_to_model_input as _ground_cost_bands,
+      clamp_cost_rows_to_envelope as _clamp_cost_rows,
       derive_ebitda_margin_band_from_costs as _derive_ebitda_band,
     )
     from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
@@ -3059,13 +3087,13 @@ def _run_post_cascade_completion(
     _fitted_bands_for_ground = (
       ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_bands")
     )
+    _fitted_env_for_clamp = (
+      ((final_model_input_json or {}).get("solver_input") or {}).get("fitted_envelope")
+    )
     if isinstance(_fitted_bands_for_ground, dict) and _fitted_bands_for_ground:
-      final_model_input_json = _ground_cost_bands(
-        final_model_input_json, _fitted_bands_for_ground,
-      )
-      # Rebuild the finmo from the grounded rows so downstream steps see the
-      # operator-scale costs immediately (the cash pass would rebuild anyway,
-      # but keeping final_finmo_json coherent here avoids a stale snapshot).
+      _clamped_rows = _clamp_cost_rows(final_model_input_json, _fitted_env_for_clamp)
+      # Rebuild the finmo so downstream steps (cash sizing, realism, finalize)
+      # see the searched-and-clamped costs immediately.
       # build_python_finmo_json requires an active sequence-controller scope.
       if callable(build_finmo_callable):
         with _ground_scope(
@@ -3098,7 +3126,8 @@ def _run_post_cascade_completion(
       next_result["model_input_json"] = final_model_input_json
       next_result["finmo_json"] = final_finmo_json
       completion_trace["fitted_cost_band_grounding"] = {
-        "status": "applied",
+        "status": "search_preserved_clamped",
+        "clamped_rows": _clamped_rows,
         "metrics": sorted(str(k) for k in _fitted_bands_for_ground.keys()),
         "ebitda_band_derivation": _ebitda_grounding_status,
         "ebitda_band": _derived_ebitda if isinstance(_derived_ebitda, dict) else None,

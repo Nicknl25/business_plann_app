@@ -206,6 +206,62 @@ def apply_fitted_cost_bands_to_model_input(
   return model_input
 
 
+def clamp_cost_rows_to_envelope(
+  model_input: Optional[Dict[str, Any]],
+  fitted_envelope: Optional[Dict[str, Any]],
+) -> Dict[str, int]:
+  """Coherence CLAMP, not an overwrite: keep whatever value the viability
+  search chose for each cost row, clamped into the operator-rescaled fitted
+  envelope [min, max].
+
+  The fitted bands are SEARCH RANGES. The earlier design stamped the band
+  TARGET trajectory onto the cost rows at the end of the pipeline, which
+  ERASED the restoration loop's search (Luna: COGS searched down to the band
+  minimum 42.8%, then stamped back to the 60-65% target trajectory before the
+  gates measured it). Now the target trajectory is stamped only as the
+  BASELINE before the search runs; afterwards this clamp guarantees the final
+  point still lies inside the defensible band without undoing the search.
+  Mutates ``model_input`` in place; returns {row_label: clamped_quarter_count}
+  (empty when nothing needed clamping)."""
+  clamped: Dict[str, int] = {}
+  if not isinstance(model_input, dict) or not isinstance(fitted_envelope, dict) or not fitted_envelope:
+    return clamped
+  rows = (model_input.get("sections") or {}).get("expenses") or []
+  if not isinstance(rows, list):
+    return clamped
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    label = str(row.get("label") or "")
+    metric = FITTED_BAND_ROW_LABEL_TO_METRIC.get(label)
+    if not metric:
+      continue
+    if str(row.get("value_kind") or "").strip().lower() != "ratio":
+      continue
+    band = fitted_envelope.get(metric)
+    if not isinstance(band, dict):
+      continue
+    band_min = _f(band.get("min"))
+    band_max = _f(band.get("max"))
+    if band_min is None or band_max is None or band_max < band_min:
+      continue
+    values = row.get("values")
+    if not isinstance(values, list) or not values:
+      continue
+    count = 0
+    for q in range(1, len(values)):
+      value = _f(values[q])
+      if value is None:
+        continue
+      pinned = min(max(value, band_min), band_max)
+      if abs(pinned - value) > 1e-9:
+        values[q] = pinned
+        count += 1
+    if count:
+      clamped[label] = count
+  return clamped
+
+
 # The cost metrics that arithmetically compose EBITDA (revenue minus these):
 # cogs + marketing + G&A are the fitted-band cost lines; payroll + rent are the
 # plan's own actual per-quarter lines. There is no R&D line in the EBITDA build
