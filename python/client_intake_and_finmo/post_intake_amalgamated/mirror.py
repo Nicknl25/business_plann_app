@@ -348,6 +348,37 @@ _MARKET_DEMAND_FIELDS = (
   "demand_supports_required_units",
   "required_revenue_year1",
   "marketing_basis_summary",
+  "geography_basis",
+)
+
+
+# HOW TO READ THE MARKET DATA — the comprehension layer for every GPT
+# decision that reasons about growth, pricing, or market. The intake codes
+# carry deep market meaning (b2b vs b2c dynamics, income -> pricing power,
+# reachable market -> growth ceiling), but a bare token teaches nothing:
+# handed "consumer_type: business" with no semantics, the judgment falls
+# back to generic curves. This primer travels WITH the market slices into
+# the prompts that need them (revenue growth, lever ceilings, cost
+# maturation). Concise by design (~150 tokens) — meaning, not a data dump.
+MARKET_SEMANTICS_PRIMER = (
+  "HOW TO READ THE MARKET DATA:\n"
+  "- consumer_type 'consumer' (B2C) = many small customers; growth comes "
+  "from reach, foot traffic, and repeat purchase; pricing power is bounded "
+  "by the audience income band. 'business' (B2B) = fewer, larger accounts "
+  "won through relationships and longer sales cycles; growth is lumpier "
+  "and account-based (a handful of wins or losses moves the year); pricing "
+  "follows value delivered per account, not consumer incomes.\n"
+  "- audience_income is the customer base's household income range — it "
+  "BOUNDS pricing power (a $40-90k audience cannot absorb luxury pricing; "
+  "a high-income base can).\n"
+  "- reachable_market is how many people/accounts the business can "
+  "realistically address — the CEILING all growth must respect. "
+  "capture_rate is the share of that market the plan ALREADY assumes "
+  "captured; a high rate leaves little headroom to grow by share, so "
+  "further growth must come from price, frequency, or expanding reach.\n"
+  "- marketing_basis_summary, audience_demographics, and segments DEFINE "
+  "who the actual customer base is — reason from them, not from the "
+  "industry label."
 )
 
 

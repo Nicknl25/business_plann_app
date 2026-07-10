@@ -1067,8 +1067,61 @@ def prepare_initial_grid_for_draft(
           _anchor_q1 = (_abs_v / _pct_v) / 4.0
           _anchor_q1_source = f"derived_{_abs_key}_over_{_pct_key}"
           break
+    # HOLISTIC REVENUE — the manager JUDGES growth, the machine EXECUTES it.
+    # The proposer's mechanics (Q1 anchor to stated revenue, smooth taper,
+    # QoQ cap, driver allocation) stay Python-owned; the executive-manager
+    # supplies only the JUDGMENT the machine lacks: how fast THIS business
+    # realistically grows in ITS market. The judgment is viability-blind
+    # (the prompt never sees pass/fail), response-locked (deterministic),
+    # and rail-clamped: judged QoQ rates live in [0, qoq cap] — the
+    # manager can only TIGHTEN the curve relative to the mechanical
+    # ceiling, never widen it. A failed call keeps today's universal
+    # defaults exactly.
+    _growth_kwargs: Dict[str, Any] = {}
+    _growth_trace: Dict[str, Any] = {"ok": False, "source": "mechanical_defaults"}
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_growth_judgment import (  # type: ignore  # noqa: E501
+        gpt_author_growth_judgment_once,
+        annual_to_qoq,
+      )
+      from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (  # type: ignore  # noqa: E501
+        _DEFAULT_QOQ_MAX as _GROWTH_RAIL_QOQ,
+      )
+      _growth_compact = build_operating_model_digest(
+        ops_json, people_json, market_json, marketing_model_json,
+      )
+      if _growth_compact:
+        _gj = gpt_author_growth_judgment_once(
+          compact=_growth_compact,
+          current_annual_revenue=(
+            (_anchor_q1 * 4.0) if _anchor_q1 else None
+          ),
+        )
+        if _gj.get("ok"):
+          _j = _gj["judgment"]
+          _qoq_start = min(max(annual_to_qoq(_j["year1_annual_growth"]), 0.0), float(_GROWTH_RAIL_QOQ))
+          _qoq_end = min(max(annual_to_qoq(_j["mature_annual_growth"]), 0.0), float(_GROWTH_RAIL_QOQ))
+          _growth_kwargs = {"qoq_start": _qoq_start, "qoq_end": _qoq_end}
+          _growth_trace = {
+            "ok": True,
+            "source": "managerial_growth_judgment",
+            "year1_annual_growth": _j["year1_annual_growth"],
+            "mature_annual_growth": _j["mature_annual_growth"],
+            "qoq_start_applied": round(_qoq_start, 6),
+            "qoq_end_applied": round(_qoq_end, 6),
+            "rail_qoq_max": float(_GROWTH_RAIL_QOQ),
+            "rationale": _j.get("rationale"),
+          }
+        else:
+          _growth_trace = {"ok": False, "source": "mechanical_defaults", "error": _gj.get("error")}
+    except Exception as _gj_exc:  # noqa: BLE001 — soft: defaults stand
+      _growth_trace = {
+        "ok": False, "source": "mechanical_defaults",
+        "error": f"{type(_gj_exc).__name__}: {str(_gj_exc)[:200]}",
+      }
     _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
+      **_growth_kwargs,
     )
     # GPT REVIEW-ONLY critique on top of the deterministic proposal: Python
     # proposes and owns the anchor; GPT nudges within [0.90, 1.10] per quarter
@@ -1103,6 +1156,7 @@ def prepare_initial_grid_for_draft(
           "q1": round(_rev_line[0], 2) if _rev_line else None,
           "q20": round(_rev_line[-1], 2) if _rev_line else None,
           "q1_anchor_source": _anchor_q1_source or "intake_baseline_drivers",
+          "growth_judgment": _growth_trace,
           "critique": copy.deepcopy(
             (_rev_pass.get("drivers") or {}).get("_critique_trace") or {}
           ),

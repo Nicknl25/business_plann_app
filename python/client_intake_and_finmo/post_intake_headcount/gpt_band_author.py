@@ -177,10 +177,29 @@ def _build_user_prompt(
   industry_envelope: Dict[str, Any],
   operator_facts: Optional[Dict[str, Any]] = None,
 ) -> str:
+  _compact = dict(compact or {})
+  _market_reality = {
+    k: _compact.pop(k) for k in ("target_market", "market_demand") if k in _compact
+  }
   lines: List[str] = []
   lines.append("ENRICHED BUSINESS COMPACT (what this business IS — judge from this):")
-  lines.append(json.dumps(compact, ensure_ascii=False, default=str))
+  lines.append(json.dumps(_compact, ensure_ascii=False, default=str))
   lines.append("")
+  if _market_reality:
+    lines.append(
+      "MARKET REALITY (who the customers are and what the market bears — "
+      "marketing and pricing-adjacent cost calls must respect this):"
+    )
+    lines.append(json.dumps(_market_reality, ensure_ascii=False, default=str))
+    lines.append("")
+    try:
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
+        MARKET_SEMANTICS_PRIMER,
+      )
+      lines.append(MARKET_SEMANTICS_PRIMER)
+      lines.append("")
+    except Exception:
+      pass
   lines.append("AUTHORED REVENUE LINE (quarterly; the scale your ratios apply to):")
   lines.append(json.dumps([round(float(v), 2) for v in (revenue_line or [])], default=str))
   lines.append("")

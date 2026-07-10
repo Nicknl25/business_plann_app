@@ -3301,8 +3301,28 @@ def _run_post_cascade_completion(
               _pb_anchors["payroll"]["q11_actual_percent_of_revenue"] = round(
                 (_safe_float(_r.get("payroll")) or 0.0) / _rev11, 4,
               )
+      # MARKET REALITY for the ceilings judgment: how far price / throughput
+      # can move before a lender balks is a MARKET question (audience income
+      # bounds pricing power; reachable market + assumed capture bound
+      # volume). The identity-only version inferred pricing power from four
+      # fields; now it reads the same demand model the growth judgment uses.
+      _pb_market_context: Dict[str, Any] = {}
+      try:
+        from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+          _build_target_market_slice as _pb_tm_slice,
+          _build_market_demand_slice as _pb_md_slice,
+        )
+        _pb_tm = _pb_tm_slice(target_market_json if isinstance(target_market_json, dict) else {})
+        _pb_md = _pb_md_slice(marketing_model_json if isinstance(marketing_model_json, dict) else {})
+        if _pb_tm:
+          _pb_market_context["target_market"] = _pb_tm
+        if _pb_md:
+          _pb_market_context["market_demand"] = _pb_md
+      except Exception:
+        _pb_market_context = {}
       _pb_ceil_result = gpt_author_lever_ceilings_once(
         business_identity=_pb_identity, lever_anchors=_pb_anchors,
+        market_context=_pb_market_context or None,
       )
       if not _pb_ceil_result.get("ok"):
         # No ceilings verdict -> levers stay CLOSED. Never open a lever naked.

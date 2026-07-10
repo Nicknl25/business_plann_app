@@ -143,11 +143,32 @@ def _build_user_prompt(
   *,
   business_identity: Dict[str, Any],
   lever_anchors: Dict[str, Any],
+  market_context: Optional[Dict[str, Any]] = None,
 ) -> str:
   lines: List[str] = []
   lines.append("BUSINESS IDENTITY (judge from this):")
   lines.append(json.dumps(business_identity, ensure_ascii=False, default=str))
   lines.append("")
+  if market_context:
+    # The ceilings this call sets — how far price / throughput / staffing can
+    # move before a lender stops believing — are MARKET questions. Blind to
+    # the audience's income band and the reachable market, the judgment was
+    # inferring pricing power from a four-field identity.
+    lines.append(
+      "MARKET REALITY (the ceilings are bounded by this — who the customers "
+      "are, their income band, how many are reachable, what the plan already "
+      "assumes captured):"
+    )
+    lines.append(json.dumps(market_context, ensure_ascii=False, default=str))
+    lines.append("")
+    try:
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
+        MARKET_SEMANTICS_PRIMER,
+      )
+      lines.append(MARKET_SEMANTICS_PRIMER)
+      lines.append("")
+    except Exception:
+      pass
   lines.append(
     "CURRENT AUTHORED PLAN ANCHORS (the trajectories the search would move; "
     "multipliers you set apply ON TOP of these):"
@@ -160,6 +181,7 @@ def gpt_author_lever_ceilings_once(
   *,
   business_identity: Dict[str, Any],
   lever_anchors: Dict[str, Any],
+  market_context: Optional[Dict[str, Any]] = None,
   model: Optional[str] = None,
   seed: int = 1733,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -188,6 +210,7 @@ def gpt_author_lever_ceilings_once(
       {"role": "system", "content": _SYSTEM_PROMPT},
       {"role": "user", "content": _build_user_prompt(
         business_identity=business_identity, lever_anchors=lever_anchors,
+        market_context=market_context,
       )},
     ],
     "tools": [_SUBMIT_TOOL],
