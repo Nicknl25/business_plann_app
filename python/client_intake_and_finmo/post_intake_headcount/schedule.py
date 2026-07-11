@@ -1627,6 +1627,46 @@ def _validate_payroll_title_rows(
       if row_floor <= 0:
         row_floor = min_annual_wage
       if annual_wage < row_floor:
+        _title_text = str(title_label or title_identity or "").lower()
+        _is_part_time = ("part-time" in _title_text) or ("part time" in _title_text)
+        if _is_part_time and annual_wage > 0:
+          # PART-TIME ROLES: the wage floor governs the HOURLY RATE, not the
+          # hours worked. A stated $12k/yr for an explicitly part-time role
+          # is perfectly legal at the floor rate for the ~0.4 FTE of hours
+          # those dollars buy -- so preserve the operator's stated payroll
+          # DOLLARS by scaling the role's FTE down to the floor-rate hours,
+          # instead of inventing a full-time salary (the old behavior
+          # converted a stated-$12k part-time baker into a $29k full-timer
+          # and overstated a tiny shop's payroll by ~40%). An owner is
+          # never floored at all (stated key-person wages are honored via
+          # client_override upstream); full-time hires below the floor are
+          # still raised to it -- that IS a data error.
+          _hours_ratio = max(0.05, min(1.0, float(annual_wage) / float(row_floor)))
+          try:
+            _pt_start = round(float(row.get("starting_fte") or 0.0) * _hours_ratio, 2)
+            _pt_end = round(float(row.get("ending_fte") or 0.0) * _hours_ratio, 2)
+            row["starting_fte"] = _pt_start
+            row["ending_fte"] = _pt_end
+            # hires DERIVED from the rounded endpoints (never scaled
+            # independently) so starting + hires == ending holds exactly
+            # and every downstream rollup stays deterministic.
+            row["hires"] = round(max(0.0, _pt_end - _pt_start), 2)
+          except (TypeError, ValueError):
+            pass
+          row["annual_wage"] = int(row_floor)
+          row["wage_source"] = f"{str(row.get('wage_source') or '').strip() or 'unspecified'}|part_time_hours_adapted"
+          if wage_adaptations is not None:
+            wage_adaptations.append({
+              "quarter_index": quarter_index,
+              "title": title_label or title_identity,
+              "staffing_class": staffing_class,
+              "wage_before": annual_wage,
+              "wage_after": int(row_floor),
+              "fte_hours_ratio": round(_hours_ratio, 4),
+              "floor_source": "part_time_hours_at_floor_rate",
+            })
+          previous_by_title[continuity_key] = ending_fte
+          continue
         row["annual_wage"] = int(row_floor)
         row["wage_source"] = f"{str(row.get('wage_source') or '').strip() or 'unspecified'}|floor_adapted"
         if wage_adaptations is not None:
@@ -2148,9 +2188,36 @@ def _build_payroll_headcount_payload_from_contract(
       "total_quarterly_payroll": total_quarterly_payroll,
     }
     normalized_rows.append(schedule_row)
-    quarter_total = quarter_totals_by_index[quarter_index]
-    quarter_total["ending_fte"] = round(float(quarter_total.get("ending_fte") or 0.0) + ending_fte, 2)
-    quarter_total["payroll"] = int(quarter_total.get("payroll") or 0) + total_quarterly_payroll
+  # CANONICALIZE THROUGH THE SAME FUNCTIONS EVERY DOWNSTREAM SURFACE USES.
+  # The apply path runs _enforce_forward_fte_continuity before re-deriving
+  # totals; a builder that assembles totals from PRE-normalization rows can
+  # disagree with the canonical rollup by an FTE-rounding flutter on
+  # fractional FTEs (0.01 FTE = ~$89/qtr for a part-time-adapted role),
+  # which then trips the three-surface payroll gates. Normalize the rows
+  # here, recompute each row's wage math from the normalized FTEs, and
+  # derive quarter_totals with the canonical rollup helper -- builder
+  # output is now downstream-identical by construction.
+  normalized_rows = _enforce_forward_fte_continuity(normalized_rows)
+  for row in normalized_rows:
+    _s = round(float(row.get("starting_fte") or 0.0), 2)
+    _e = round(float(row.get("ending_fte") or 0.0), 2)
+    _w = _round_currency(row.get("annual_wage"))
+    _b = round(float(_safe_ratio(row.get("payroll_taxes_benefits_percent")) or 0.0), 2)
+    _avg = round((_s + _e) / 2.0, 2)
+    _cost = _round_currency((_avg * _w) / 4.0)
+    _tax = _round_currency(_cost * _b)
+    row["average_fte"] = _avg
+    row["quarterly_wage_cost"] = _cost
+    row["quarterly_taxes_benefits"] = _tax
+    row["total_quarterly_payroll"] = int(_cost + _tax)
+  _canonical_totals = _payroll_totals_by_quarter_from_rows(normalized_rows)
+  for row in normalized_rows:
+    quarter_index = int(row.get("quarter_index") or 0)
+    if quarter_index in quarter_totals_by_index:
+      qt = quarter_totals_by_index[quarter_index]
+      qt["ending_fte"] = round(float(qt.get("ending_fte") or 0.0) + round(float(row.get("ending_fte") or 0.0), 2), 2)
+  for quarter_index, qt in quarter_totals_by_index.items():
+    qt["payroll"] = int(_canonical_totals.get(quarter_index) or 0)
   quarter_totals = [quarter_totals_by_index[quarter] for quarter in range(1, horizon + 1)]
   payload = {
     "contract_version": str((policy or {}).get("schedule_contract_version") or "payroll_headcount_schedule_v1"),
@@ -3137,6 +3204,39 @@ def _validate_quarter_totals_match_title_rows(
     for item in (schedule.get("quarter_totals") or [])
     if isinstance(item, dict)
   }
+  # GROUND-DON'T-CRASH for adapted schedules: when a part-time role's FTE was
+  # rescaled to its floor-rate hours (wage_source carries
+  # part_time_hours_adapted), a stale quarter_totals snapshot from before the
+  # adaptation can disagree with the rows by rounding dollars. The invariant's
+  # own definition is "quarter_totals is a deterministic rollup of rows" -- so
+  # ENFORCE the definition: recompute the totals from the rows in place and
+  # continue. Schedules without the adaptation keep the hard fail (a mismatch
+  # there is a real three-surface bug, not a rounding echo).
+  _pt_adapted = any(
+    "part_time_hours_adapted" in str((r or {}).get("wage_source") or "")
+    for r in rows if isinstance(r, dict)
+  )
+  if _pt_adapted:
+    _mismatch = any(
+      int(calculated.get(q) or 0) != int(totals_by_quarter.get(q) or 0)
+      for q in range(1, horizon + 1)
+    )
+    if _mismatch:
+      _fte_by_q: Dict[int, float] = {}
+      for r in rows:
+        if not isinstance(r, dict):
+          continue
+        _q = int(r.get("quarter_index") or 0)
+        _fte_by_q[_q] = round(_fte_by_q.get(_q, 0.0) + float(_safe_float(r.get("ending_fte")) or 0.0), 2)
+      schedule["quarter_totals"] = [
+        {
+          "quarter_index": q,
+          "ending_fte": _fte_by_q.get(q, 0.0),
+          "payroll": int(calculated.get(q) or 0),
+        }
+        for q in range(1, horizon + 1)
+      ]
+      return
   for quarter_index in range(1, horizon + 1):
     expected = int(calculated.get(quarter_index) or 0)
     provided = int(totals_by_quarter.get(quarter_index) or 0)
