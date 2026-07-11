@@ -3546,6 +3546,179 @@ def _run_post_cascade_completion(
               "note": _pb_note,
             }
 
+        # -- OWNER DEFERRED-DRAW (the LAST escalation, quintuple-fenced).
+        #    A founder routinely takes a reduced draw during the ramp and
+        #    recovers to stated comp once the business supports it. The
+        #    JUDGMENT (how much THIS founder could realistically defer, for
+        #    how long, recovering how fast) is GPT, viability-blind and
+        #    response-locked; Python rails bound it (<=75%, <=12 quarters,
+        #    mandatory recovery ramp, full stated comp by Q16). The trial
+        #    then adopts the LEAST deferral that clears every cash-
+        #    independent metric -- within the judged bounds a deferral can
+        #    never save a business that is non-viable for real reasons.
+        try:
+          _od_still_failing = _pb_failing_viability_metrics()
+          _od_owner_rows = []
+          if isinstance(payroll_headcount, dict):
+            from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
+              _is_owner_row as _od_is_owner_row,
+              apply_owner_draw_deferral_to_schedule as _od_apply_deferral,
+            )
+            _od_owner_rows = [
+              r for r in (payroll_headcount.get("rows") or [])
+              if isinstance(r, dict) and _od_is_owner_row(r)
+              and int(_safe_float(r.get("quarter_index")) or 0) == 1
+            ]
+          if _od_still_failing and _od_owner_rows:
+            from client_intake_and_finmo.post_intake_target_solver.gpt_owner_draw_judgment import (  # type: ignore  # noqa: E501
+              gpt_author_owner_draw_judgment_once,
+              owner_draw_factors_by_quarter,
+            )
+            from client_intake_and_finmo.post_intake_headcount.feasibility_repair import (  # type: ignore  # noqa: E501
+              apply_payroll_schedule_to_state as _od_apply_payroll,
+            )
+            _od_context = {
+              "owners": [
+                {
+                  "name": r.get("person_name"),
+                  "title": r.get("position_title"),
+                  "stated_annual_draw": r.get("annual_wage"),
+                }
+                for r in _od_owner_rows
+              ],
+              "stated_current_annual_revenue": _safe_float(
+                (financials_json or {}).get("current_revenue")
+              ),
+              "business_stage": (ops_json or {}).get("business_stage"),
+            }
+            _od_result = gpt_author_owner_draw_judgment_once(
+              business_identity=_pb_identity, owner_context=_od_context,
+            )
+            _od_trace: Dict[str, Any] = {
+              "judgment_ok": bool(_od_result.get("ok")),
+              "error": _od_result.get("error"),
+            }
+            _pb_trace["owner_draw_lever"] = _od_trace
+            if _od_result.get("ok"):
+              _od_j = _od_result["judgment"]
+              _od_trace["judgment"] = _od_j
+              _od_max = float(_od_j.get("max_deferral_fraction") or 0.0)
+              _od_window = int(_od_j.get("deferral_quarters") or 0)
+              _od_recovery = int(_od_j.get("recovery_quarters") or 2)
+              _od_live = len([
+                _r for _r in ((final_finmo_json or {}).get("quarter_rows") or [])
+                if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) >= 1
+                and (_safe_float(_r.get("revenue")) or 0.0) > 0.0
+              ]) or int(horizon or 20)
+              _od_tried: List[Dict[str, Any]] = []
+              _od_chosen = None
+              if _od_max > 1e-6 and _od_window > 0:
+                _od_step = 0.1
+                _od_cands = []
+                _d = _od_step
+                while _d < _od_max - 1e-9:
+                  _od_cands.append(round(_d, 2))
+                  _d += _od_step
+                _od_cands.append(round(_od_max, 2))
+                for _cand_d in _od_cands:
+                  _cand_sched = copy.deepcopy(payroll_headcount)
+                  _cand_factors = owner_draw_factors_by_quarter(
+                    deferral_fraction=_cand_d,
+                    deferral_quarters=_od_window,
+                    recovery_quarters=_od_recovery,
+                    horizon=int(horizon or 20),
+                  )
+                  _cand_summary = _od_apply_deferral(_cand_sched, _cand_factors)
+                  if not _cand_summary:
+                    _od_tried.append({"deferral": _cand_d, "result": "no_effect"})
+                    continue
+                  try:
+                    _cand_model, _cand_finmo = _od_apply_payroll(
+                      schedule_payload=_cand_sched,
+                      model_input_json=copy.deepcopy(final_model_input_json),
+                      finmo_json=copy.deepcopy(final_finmo_json),
+                      live_count=_od_live,
+                      stage_prefix="phase_b_owner_draw_trial",
+                    )
+                  except Exception as _cand_exc:
+                    _od_tried.append({
+                      "deferral": _cand_d,
+                      "result": f"apply_failed: {type(_cand_exc).__name__}: {str(_cand_exc)[:120]}",
+                    })
+                    continue
+                  _cand_env2 = (
+                    ((_cand_model or {}).get("solver_input") or {}).get("fitted_envelope")
+                  )
+                  _cand_band2 = _pb_derive_ebitda_band(
+                    _cand_env2, _cand_finmo, horizon=int(horizon or 20),
+                  )
+                  if isinstance(_cand_band2, dict):
+                    _cand_si2 = (_cand_model or {}).get("solver_input")
+                    if isinstance(_cand_si2, dict):
+                      _cand_fot2 = _cand_si2.setdefault(_FOT_KEY, {})
+                      if isinstance(_cand_fot2, dict):
+                        _cand_fm2 = _cand_fot2.setdefault("metrics", {})
+                        if isinstance(_cand_fm2, dict):
+                          _cand_fm2["ebitda_margin"] = _cand_band2
+                  _cand_failing2 = _pb_failing_viability_metrics(_cand_model, _cand_finmo)
+                  _cand_soft2 = not [
+                    _m for _m in _cand_failing2 if _m != "net_income_trajectory_viable"
+                  ]
+                  _od_tried.append({
+                    "deferral": _cand_d,
+                    "q11_ebitda_margin": _pb_q11_ebitda_margin(_cand_finmo),
+                    "failing_metrics": _cand_failing2,
+                    "viable": _cand_soft2,
+                  })
+                  if _cand_soft2:
+                    final_model_input_json = _cand_model
+                    final_finmo_json = _cand_finmo
+                    payroll_headcount = _cand_sched
+                    next_result["payroll_headcount"] = payroll_headcount
+                    next_result["model_input_json"] = final_model_input_json
+                    next_result["finmo_json"] = final_finmo_json
+                    _od_chosen = _cand_d
+                    if conn is not None:
+                      try:
+                        import json as _od_json
+                        _od_cur = conn.cursor()
+                        try:
+                          _od_cur.execute(
+                            "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                            (
+                              _od_json.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                              str(draft_id or "").strip(),
+                            ),
+                          )
+                          conn.commit()
+                        finally:
+                          try:
+                            _od_cur.close()
+                          except Exception:
+                            pass
+                      except Exception:
+                        pass
+                    break
+              _od_trace.update({
+                "candidates_tried": _od_tried,
+                "chosen_deferral": _od_chosen,
+                "note": (
+                  "least-deferral clearing candidate adopted (recovery to "
+                  "stated comp explicit in trajectory)"
+                  if _od_chosen is not None else
+                  "no realistic deferral reaches viability -- stated draw kept"
+                ),
+              })
+          elif _od_still_failing:
+            _pb_trace["owner_draw_lever"] = {
+              "judgment_ok": None, "note": "no owner rows in schedule",
+            }
+        except Exception as _od_exc:  # noqa: BLE001 -- lever failure never breaks the run
+          _pb_trace["owner_draw_lever"] = {
+            "judgment_ok": False,
+            "error": f"{type(_od_exc).__name__}: {str(_od_exc)[:300]}",
+          }
+
         # -- Re-ground: the search may have moved cost rows; clamp back into
         #    the envelope and re-derive the ebitda band off the final state.
         _pb_env = (

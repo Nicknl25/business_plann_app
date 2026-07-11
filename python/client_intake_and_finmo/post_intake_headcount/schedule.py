@@ -2377,6 +2377,88 @@ def enforce_labor_scaling_on_payload(
   }
 
 
+_OWNER_TITLE_TOKENS = ("owner", "founder", "co-founder", "principal", "ceo", "president")
+
+
+def _is_owner_row(row: Dict[str, Any]) -> bool:
+  """A key-person row whose title marks the FOUNDER/OWNER. Only these rows
+  are eligible for the deferred-draw schedule -- hired employees' comp is
+  never deferred."""
+  if str(row.get("staffing_class") or "").strip().lower() != "key_person":
+    return False
+  text = " ".join(
+    str(row.get(k) or "") for k in ("position_title", "role_title", "person_name")
+  ).lower()
+  return any(tok in text for tok in _OWNER_TITLE_TOKENS)
+
+
+def apply_owner_draw_deferral_to_schedule(
+  payload: Optional[Dict[str, Any]],
+  factors_by_quarter: Dict[int, float],
+) -> Optional[Dict[str, Any]]:
+  """Apply the founder's deferred-draw SCHEDULE to the owner rows: each
+  quarter's owner wage = stated wage x that quarter's comp factor (deferral
+  window -> recovery ramp -> full stated comp; the catch-up is explicit in
+  the trajectory). Employee rows are untouched. Mutates ``payload`` in
+  place, recomputing row wage math and quarter totals through the SAME
+  canonical helpers the downstream surfaces use. Returns a summary or None
+  when there is no owner row / no effective deferral."""
+  if not isinstance(payload, dict) or not factors_by_quarter:
+    return None
+  rows = [r for r in (payload.get("rows") or []) if isinstance(r, dict)]
+  owner_rows = [r for r in rows if _is_owner_row(r)]
+  if not owner_rows:
+    return None
+  if all(abs(float(f) - 1.0) < 1e-9 for f in factors_by_quarter.values()):
+    return None
+  horizon = int(_safe_float(payload.get("schedule_horizon_quarters")) or 20)
+  owners_touched = set()
+  deferred_dollars_total = 0.0
+  for r in owner_rows:
+    q = int(_safe_float(r.get("quarter_index")) or 0)
+    factor = float(factors_by_quarter.get(q, 1.0))
+    stated_wage = _round_currency(r.get("annual_wage"))
+    if stated_wage <= 0:
+      continue
+    new_wage = int(round(stated_wage * min(max(factor, 0.0), 1.0)))
+    if new_wage == stated_wage:
+      continue
+    deferred_dollars_total += (stated_wage - new_wage) / 4.0
+    r["stated_annual_wage_before_deferral"] = stated_wage
+    r["annual_wage"] = new_wage
+    r["wage_source"] = f"{str(r.get('wage_source') or '').strip() or 'unspecified'}|owner_draw_deferred"
+    owners_touched.add(str(r.get("person_name") or r.get("position_title") or "owner"))
+    # Recompute this row's wage math canonically.
+    _s = round(float(_safe_float(r.get("starting_fte")) or 0.0), 2)
+    _e = round(float(_safe_float(r.get("ending_fte")) or 0.0), 2)
+    _b = round(float(_safe_ratio(r.get("payroll_taxes_benefits_percent")) or 0.0), 2)
+    _avg = round((_s + _e) / 2.0, 2)
+    _cost = _round_currency((_avg * new_wage) / 4.0)
+    _tax = _round_currency(_cost * _b)
+    r["average_fte"] = _avg
+    r["quarterly_wage_cost"] = _cost
+    r["quarterly_taxes_benefits"] = _tax
+    r["total_quarterly_payroll"] = int(_cost + _tax)
+  if not owners_touched:
+    return None
+  # Quarter totals = the canonical rollup of the (now deferred) rows.
+  canonical = _payroll_totals_by_quarter_from_rows(rows)
+  fte_by_q: Dict[int, float] = {}
+  for r in rows:
+    q = int(_safe_float(r.get("quarter_index")) or 0)
+    fte_by_q[q] = round(fte_by_q.get(q, 0.0) + float(_safe_float(r.get("ending_fte")) or 0.0), 2)
+  payload["quarter_totals"] = [
+    {"quarter_index": q, "ending_fte": fte_by_q.get(q, 0.0), "payroll": int(canonical.get(q) or 0)}
+    for q in range(1, horizon + 1)
+  ]
+  return {
+    "applied": True,
+    "owners": sorted(owners_touched),
+    "deferred_dollars_per_deferral_quarter": round(deferred_dollars_total, 2),
+    "min_factor": round(min(float(f) for f in factors_by_quarter.values()), 4),
+  }
+
+
 def build_payroll_headcount_payload_from_contract(
   payroll_headcount_contract: Optional[Dict[str, Any]],
   *,
