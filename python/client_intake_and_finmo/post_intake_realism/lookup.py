@@ -608,15 +608,22 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     issue_family="turnaround_recovery_q5_q11",
     remediation_family="turnaround_recovery_q5_q11",
     # Phase 9 P3.32 K1 F4: removed "expenses::Payroll" — Handler C
-    # canonical writer. Solver runs on the remaining 5 levers.
+    # canonical writer. Solver runs on the remaining levers.
+    # EXHAUST-ADAPTATION doctrine: revenue::Capacity promoted from
+    # secondary_levers -- the solver only reads primary_levers, so
+    # "secondary" meant FROZEN: the executive judged a capacity ceiling
+    # (capacity_max_multiplier, Q1 anchored) that the search could never
+    # use. The tier system keeps the discipline: revenue:: levers are
+    # Tier 2, engaged only after the cheap cost levers pin.
     primary_levers=[
       "expenses::Cost of Goods Sold",
       "expenses::Marketing",
       "expenses::General & Administrative",
       "revenue::Unit Price",
       "revenue::Utilization",
+      "revenue::Capacity",
     ],
-    secondary_levers=["revenue::Capacity"],
+    secondary_levers=[],
     stage_sensitivity=_STAGE_SENSITIVITY_PROFITABILITY,
     deadline_quarter=11,
     notes=(

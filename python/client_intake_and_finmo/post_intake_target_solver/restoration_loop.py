@@ -645,17 +645,34 @@ def _ceiling_bound_for_revenue_lever(
 
   lid = str(lever_id)
   lower_per_q = list(authored)
+  # FORECAST-DISTANCE SCALING: the ceiling headroom opens GRADUALLY across
+  # the horizon (zero at Q1 -> full multiplier only by Q20), exactly like
+  # the cost-corridor discipline. Full headroom from Q2 let the search slam
+  # the second quarter to every wall at once (Luna: utilization 0.70->0.84
+  # + price +10% = a +33% single-quarter revenue cliff no lender believes,
+  # destroying the manager's judged smooth growth). Growth the search adds
+  # must ARRIVE like growth -- gradually -- so the judged shape survives.
+  def _wf(q_idx: int) -> float:
+    return q_idx / float(max(1, horizon - 1))  # 0.0 at Q1 -> 1.0 at Q20
+
   if "Unit Price" in lid:
     mult = float(ceilings.get("unit_price_max_multiplier") or 1.0)
-    upper_per_q = [v * mult for v in authored]
+    upper_per_q = [
+      v * (1.0 + (mult - 1.0) * _wf(i)) for i, v in enumerate(authored)
+    ]
     label = f"unit_price_max_multiplier={mult:.4f}"
   elif "Capacity" in lid:
     mult = float(ceilings.get("capacity_max_multiplier") or 1.0)
-    upper_per_q = [v * mult for v in authored]
+    upper_per_q = [
+      v * (1.0 + (mult - 1.0) * _wf(i)) for i, v in enumerate(authored)
+    ]
     label = f"capacity_max_multiplier={mult:.4f}"
   elif "Utilization" in lid:
     util_max = float(ceilings.get("utilization_max") or 0.0)
-    upper_per_q = [max(v, min(util_max, _REVENUE_UTILIZATION_UPPER)) for v in authored]
+    _util_cap = min(util_max, _REVENUE_UTILIZATION_UPPER)
+    upper_per_q = [
+      max(v, v + (_util_cap - v) * _wf(i)) for i, v in enumerate(authored)
+    ]
     label = f"utilization_max={util_max:.4f}"
   else:
     return None

@@ -154,6 +154,13 @@ _SYSTEM_PROMPT = (
   "what the business DOES at the point of sale (the BUSINESS IDENTITY block), NOT from "
   "the OEWS occupation list -- the occupation mix can be manufacturing-flavored even for "
   "a walk-in counter shop.\n"
+  "8. Q1 IS A FACT: when the BUSINESS IDENTITY block carries "
+  "stated_current_annual_payroll / stated_current_employees, the Q1 roster must "
+  "RECONCILE to them -- the present staffing is what the operator told us they pay "
+  "today, not a plan. Named key people already FILL their roles: never add an OEWS "
+  "occupational row that duplicates a named person's function (an Owner/Dentist IS "
+  "the practice's dentist; do not hire a second 'Dentists, General' for the same "
+  "chair). Growth hires belong in later quarters, budgeted by the anchor.\n"
   "Call submit_payroll_headcount_schedule exactly once with the complete contract."
 )
 

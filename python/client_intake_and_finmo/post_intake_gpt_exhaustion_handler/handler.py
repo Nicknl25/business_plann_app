@@ -700,30 +700,34 @@ def reconcile_revenue_to_stage_ramp(
 
 
 def _cost_lever_targets_by_quarter(stage_ramp_contract: Optional[Dict[str, Any]]) -> Dict[str, Dict[int, float]]:
-  """Per-quarter realistic cost-ratio targets the viability floor pulls
-  DOWN to. cogs uses the contract's per-quarter cogs_target; marketing /
-  sga / r&d use conservative deterministic targets (the same defaults
-  the Python stage-ramp builder uses) since the grid carries only their
-  maxes. These are the realistic viable envelope H4 intends — the floor
-  never goes below them (that would be unrealistic), it only pulls an
-  over-target committed ratio down to the target."""
+  """Per-quarter cost-ratio CEILINGS the viability floor pulls DOWN to,
+  read from the stage-ramp grid — which now carries the executive-
+  manager's fitted bands (cogs_target follows the manager's maturation
+  path; marketing/ga/rd maxes follow the manager's per-quarter walls).
+  The old hardcoded universal flats (marketing 8%, G&A 12%, R&D 4% for
+  every business on earth) are GONE: the floor pulls an over-ceiling
+  committed ratio down to the manager's defensible level, never to a
+  magic number."""
   grid = _stage_ramp_grid_by_quarter(stage_ramp_contract)
-  cogs_t: Dict[int, float] = {}
-  for q, row in grid.items():
-    for k in ("cogs_target", "cogs_percent_of_revenue_target"):
-      v = row.get(k)
-      if v is not None:
-        try:
-          cogs_t[q] = float(v)
-        except (TypeError, ValueError):
-          pass
-        break
-  flat = {q: 0.08 for q in range(1, 21)}
+
+  def _per_q(keys: Tuple[str, ...]) -> Dict[int, float]:
+    out: Dict[int, float] = {}
+    for q, row in grid.items():
+      for k in keys:
+        v = row.get(k)
+        if v is not None:
+          try:
+            out[q] = float(v)
+          except (TypeError, ValueError):
+            pass
+          break
+    return out
+
   return {
-    "expenses::Cost of Goods Sold": cogs_t,
-    "expenses::Marketing": {q: 0.08 for q in range(1, 21)},
-    "expenses::General & Administrative": {q: 0.12 for q in range(1, 21)},
-    "expenses::Research & Development": {q: 0.04 for q in range(1, 21)},
+    "expenses::Cost of Goods Sold": _per_q(("cogs_target", "cogs_percent_of_revenue_target")),
+    "expenses::Marketing": _per_q(("marketing_max", "marketing_percent_of_revenue_max")),
+    "expenses::General & Administrative": _per_q(("ga_max", "g_and_a_percent_of_revenue_max")),
+    "expenses::Research & Development": _per_q(("rd_max", "rd_percent_of_revenue_max")),
   }
 
 
@@ -792,35 +796,14 @@ def apply_viability_floor(
         vals[q] = round(min(cur, float(per_q[q])), 6)  # pull DOWN only
   summary["applied"] = True
 
-  # Step 2 — if the reconciled revenue + realistic targets still are not
-  # viable (e.g. Fix 4 lowered revenue to respect the ramp ceiling), step
-  # COGS DOWN (the dominant viability lever) toward its schema floor (0.20)
-  # until Q11 EBITDA turns positive or the floor is reached. Only COGS is
-  # stepped: marketing/sga/rd are kept at their realistic step-1 targets
-  # (>0) because the finalize mapping-formula validator disallows driving
-  # a required cost ratio to <=0. The loop STOPS the moment viability is
-  # reached (minimal reduction = lock-on-viability), so the committed
-  # config is the least-aggressive COGS cut that achieves it.
-  cogs_floor, cogs_step = 0.20, 0.03
-  for step in range(1, 26):
-    if _viable():
-      break
-    moved = False
-    for row in _find_rows_for_lever(model_input or {}, "expenses::Cost of Goods Sold"):
-      vals = row.get("values")
-      if not isinstance(vals, list):
-        continue
-      for q in range(1, min(21, len(vals))):
-        try:
-          cur = float(vals[q])
-        except (TypeError, ValueError):
-          continue
-        if cur > cogs_floor + 1e-9:
-          vals[q] = round(max(cogs_floor, cur - cogs_step), 6)
-          moved = True
-    summary["steps"] = step
-    if not moved:
-      break  # COGS at its floor — best feasible committed
+  # Step 2 DELETED (exhaust-adaptation doctrine, fake-viable purge): the
+  # old loop stepped COGS down 3pp at a time toward a 0.20 schema floor
+  # UNTIL Q11 EBITDA turned positive -- forcing the number the verdict
+  # needed instead of the number the business runs at (a boutique with
+  # stated 60% COGS walked to 20% because the plan wanted a pass). Cost
+  # levels belong to the executive-manager's forecast + the bounded
+  # viability search; this floor only pulls committed ratios down to the
+  # manager's own ceilings (step 1) and reports viability honestly.
   summary["viable_after"] = _viable()
   return summary
 

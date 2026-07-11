@@ -2082,6 +2082,33 @@ def build_python_stage_ramp_contract(
     validator_rules=validator_rules,
   )
 
+  # MANAGERIAL BANDS ARE THE RAMP'S COST AUTHORITY when present. The raw
+  # cohort caps above are the FALLBACK: before the executive-manager
+  # authored maturation forecasts, this grid froze raw cohort flats (COGS
+  # 65% / Marketing 40% / R&D 10% held for 20 quarters) onto the Stage
+  # Ramp surface -- the workbook showed a plan the manager had already
+  # rejected, and the K13 floor pulled costs toward those stale targets.
+  # Now each quarter's target follows the manager's fitted path and each
+  # max follows the manager's per-quarter wall (killed lines -> 0).
+  _si = (model_input_json or {}).get("solver_input") if isinstance(model_input_json, dict) else None
+  _fb = (_si or {}).get("fitted_bands") if isinstance(_si, dict) else None
+  _fw = (_si or {}).get("fitted_envelope_per_q") if isinstance(_si, dict) else None
+
+  def _mgr_target(metric: str, q: int, fallback: float) -> float:
+    try:
+      v = (( _fb or {}).get(metric) or {}).get(str(q))
+      return float(v) if v is not None else float(fallback)
+    except (TypeError, ValueError):
+      return float(fallback)
+
+  def _mgr_max(metric: str, q: int, fallback: float) -> float:
+    try:
+      v = ((( _fw or {}).get(metric) or {}).get("max") or {}).get(str(q))
+      return float(v) if v is not None else float(fallback)
+    except (TypeError, ValueError):
+      return float(fallback)
+
+  _mgr_bands_active = bool(_fb)
   quarter_ramp_grid: List[Dict[str, Any]] = []
   for q in range(1, 21):
     quarter_ramp_grid.append({
@@ -2091,11 +2118,13 @@ def build_python_stage_ramp_contract(
       "rev_spike": False,
       "rev_spike_max": round(qoq_max, 2),
       "max_util": utilization_curve[q - 1],
-      "cogs_target": round(cogs_target, 2),
-      "cogs_max": round(cogs_max, 2),
-      "marketing_max": round(marketing_max, 2),
-      "rd_max": round(rd_max, 2),
-      "ga_max": round(ga_max, 2),
+      "cogs_target": round(_mgr_target("cogs_percent_of_revenue", q, cogs_target), 2),
+      "cogs_max": round(_mgr_max("cogs_percent_of_revenue", q, cogs_max), 2),
+      "marketing_max": round(_mgr_max("marketing_percent_of_revenue", q, marketing_max), 2),
+      "rd_max": round(
+        _mgr_max("r_and_d_percent_of_revenue", q, rd_max) if _mgr_bands_active else rd_max, 2,
+      ),
+      "ga_max": round(_mgr_max("sga_percent_of_revenue", q, ga_max), 2),
       "lease_max": round(lease_max, 2),
       "ni_floor": round(ni_floors[q - 1], 2),
       "posture": postures[q - 1],

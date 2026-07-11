@@ -932,7 +932,21 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
     return None
   fixed = float(payroll or 0.0) + float(rent or 0.0) + float(ga or 0.0)
   slack = float(revenue - fixed) / float(revenue)
-  return slack - (1.0 - _FIXED_COST_BURDEN_INDUSTRY_MAX)
+  result = slack - (1.0 - _FIXED_COST_BURDEN_INDUSTRY_MAX)
+  if result < 0.0:
+    # HEALTHY-PROFITABILITY EXCEPTION (same recalibration doctrine as the
+    # recovery-trend and NI flat-healthy rules): the ceiling exists to catch
+    # fixed-cost structures that CRUSH viability, not to fail a labor-heavy
+    # service business that is healthily profitable (a dental practice at
+    # 66% payroll+rent+G&A with Q11 EBITDA +11.6% and positive net income
+    # is a normal expert-labor P&L, not a burden failure). When Q11 EBITDA
+    # margin clears the healthy floor, the burden is by definition
+    # supportable -- the value floors at 0 (pass). A high burden WITH weak
+    # margins still fails on the raw slack.
+    q11_ebitda = _quarter_ebitda_margin(finmo_json, 11)
+    if q11_ebitda is not None and float(q11_ebitda) >= _EBITDA_HEALTHY_FLAT_FLOOR:
+      return 0.0
+  return result
 
 
 # ----------------------------------------------------------------------------

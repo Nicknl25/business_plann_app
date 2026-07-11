@@ -714,7 +714,11 @@ def run_band_fitting_pass(
     else:
       operator_facts[_mk] = {
         "level": float(_lvl), "credible": False,
-        "note": "stated level judged a data error (cohort band governs)",
+        "note": (
+          "stated level judged a data error; no credible stated level "
+          "exists -- judge the honest level from the business itself and "
+          "the dollar test, not from the cohort statistic"
+        ),
       }
 
   credible_facts: Dict[str, float] = {

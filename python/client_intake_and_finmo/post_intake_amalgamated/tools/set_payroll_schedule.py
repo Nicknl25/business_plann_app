@@ -31,6 +31,71 @@ def _is_finite_number(v: Any) -> bool:
   return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+# The operator's stated payroll is a Q1 FACT with the same authority as
+# stated revenue: the schedule's PRESENT must reconcile to it. The band is a
+# documented margin (staffing plans legitimately differ from a stated total
+# by benefits treatment, rounding, and planned day-one adjustments), not a
+# tuned threshold: outside it the author has either invented staff the
+# business does not pay (duplicating a named owner with an OEWS row) or
+# erased staff it does.
+_Q1_PAYROLL_FACT_LOWER_FRAC = 0.70
+_Q1_PAYROLL_FACT_UPPER_FRAC = 1.30
+
+
+def _check_q1_payroll_fact_violations(
+  contract: Dict[str, Any],
+  financials_json: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  """Q1 fact-grounding: the authored Q1 roster's annualized wage bill must
+  reconcile to the operator's stated current_payroll (when stated)."""
+  violations: List[Dict[str, Any]] = []
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  try:
+    stated = float(fin.get("current_payroll") or 0.0)
+  except (TypeError, ValueError):
+    stated = 0.0
+  if stated <= 0.0 or not isinstance(contract, dict):
+    return violations
+  annual_wages = 0.0
+  saw_q1 = False
+  for row in (contract.get("payroll_headcount_grid") or []):
+    if not isinstance(row, dict):
+      continue
+    try:
+      if int(float(row.get("quarter_index") or 0)) != 1:
+        continue
+      fte = float(
+        row.get("ending_fte") if row.get("ending_fte") is not None
+        else (row.get("starting_fte") or 0.0)
+      )
+      wage = float(row.get("annual_wage") or 0.0)
+    except (TypeError, ValueError):
+      continue
+    saw_q1 = True
+    annual_wages += max(0.0, fte) * max(0.0, wage)
+  if not saw_q1:
+    return violations
+  lo = stated * _Q1_PAYROLL_FACT_LOWER_FRAC
+  hi = stated * _Q1_PAYROLL_FACT_UPPER_FRAC
+  if annual_wages < lo or annual_wages > hi:
+    violations.append({
+      "code": "q1_payroll_off_stated_fact",
+      "message": (
+        f"the Q1 roster annualizes to ${annual_wages:,.0f} in wages but the "
+        f"operator STATED current payroll is ${stated:,.0f} -- the present "
+        "is a fact, not a plan. If over: you have likely invented staff the "
+        "business does not pay (e.g. adding an OEWS occupational row that "
+        "duplicates a NAMED key person -- an Owner/Dentist IS the dentist). "
+        "If under: you erased staff it does pay. Re-author the Q1 roster to "
+        "reconcile with the stated payroll; growth hires belong in LATER "
+        "quarters."
+      ),
+      "stated_current_payroll": stated,
+      "authored_q1_annual_wages": round(annual_wages, 2),
+    })
+  return violations
+
+
 def _check_envelope_violations(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
   """B6 — economic envelope check for payroll contracts. Catches
   malformations the per-class band check misses:
@@ -340,6 +405,21 @@ def set_payroll_schedule(
           "sales_modality": str(_ops.get("sales_modality") or "").strip(),
           "consumer_type": str(_ops.get("consumer_type") or "").strip(),
         }
+        # Q1 PAYROLL FACTS: the operator's stated current payroll/headcount
+        # anchor the schedule's PRESENT the same way stated revenue anchors
+        # Q1 revenue. Without them the author staffed the present from OEWS
+        # imagination (dental: a duplicate "Dentists, General" on top of the
+        # named Owner/Dentist -> $828k/yr scheduled vs $482k stated).
+        _fin_facts = financials_json if isinstance(financials_json, dict) else {}
+        try:
+          _stated_pay = float(_fin_facts.get("current_payroll") or 0.0)
+        except (TypeError, ValueError):
+          _stated_pay = 0.0
+        if _stated_pay > 0.0:
+          business_identity["stated_current_annual_payroll"] = _stated_pay
+        _stated_emp = _fin_facts.get("current_num_employees")
+        if _stated_emp is not None:
+          business_identity["stated_current_employees"] = _stated_emp
         if not any(business_identity.values()):
           # Fallback: the (previously unused) payroll business-context helper.
           business_identity = {
@@ -377,7 +457,8 @@ def set_payroll_schedule(
             env_v = _check_envelope_violations(cand)
             norm_try = validator(payload=cand)
             band_v = _check_band_violations(cand, bands_echoed)
-            vlist = env_v + band_v
+            fact_v = _check_q1_payroll_fact_violations(cand, financials_json)
+            vlist = env_v + band_v + fact_v
             if not vlist and norm_try is not None:
               candidate = copy.deepcopy(cand)
               decision_source = "amalgamated_gpt_authored"
