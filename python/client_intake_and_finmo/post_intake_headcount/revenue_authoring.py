@@ -275,6 +275,10 @@ def run_revenue_authoring_pass(
     )
     author_fn = gpt_author_revenue_drivers_once
 
+  # NOTE: the model-row reference is the CORRECT anchor source -- the K10
+  # grid normalizes ops product anchors to QUARTERLY units (ops entries can
+  # be per-week; using them raw here would mis-scale Q1 by the cadence
+  # factor). Do not "helpfully" re-anchor from ops_json product entries.
   reference = current_revenue_reference(model_input_json)
   violations: Optional[List[Dict[str, Any]]] = None
   last_error: Optional[str] = None

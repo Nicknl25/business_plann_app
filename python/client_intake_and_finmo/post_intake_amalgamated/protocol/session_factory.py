@@ -274,6 +274,17 @@ def _propagate_committed_section_to_model_input(
   ):
     if section == "drivers" and isinstance(payload, dict):
       updates = _drivers_anchors_to_exact_updates(payload)
+      # REVENUE IS NOT THE CASCADE'S LEVER when deterministically authored:
+      # the market-grounded growth judgment owns the trajectory and the
+      # ceilinged viability search owns adaptation above it. Without this
+      # guard the executive's set_drivers anchors re-authored per-LOB
+      # utilization ramps (Anderson: judged 8->4%/yr rewritten to ~34%/yr
+      # via Q1/Q11/Q20 anchors interpolated onto the revenue rows).
+      if bool(((mi or {}).get("solver_input") or {}).get("revenue_authored")):
+        updates = [
+          u for u in (updates or [])
+          if not str((u or {}).get("lever_id") or "").strip().startswith("revenue::")
+        ]
       if updates:
         live_ref["mi"] = apply_exact_lever_updates_to_model_input(
           model_input_json=mi, exact_updates=updates,

@@ -216,7 +216,28 @@ def set_drivers(
   envelope_violations = _check_envelope_violations(anchors)
   # Band check — cheap, no mutation.
   band_violations = _check_anchor_band_violations(anchors, bands_echoed)
-  combined = envelope_violations + band_violations
+  # REVENUE AUTHORITY check: when the revenue trajectory is
+  # deterministically authored (market-grounded growth judgment), the
+  # executive may not re-author revenue driver anchors here -- growth
+  # belongs to the judgment and to the ceilinged viability search, not to
+  # unbounded anchor authoring (Anderson: judged 8->4%/yr rewritten to
+  # ~34%/yr through revenue::Utilization anchors). Cost and working-
+  # capital anchors remain fully authorable.
+  revenue_authority_violations: List[Dict[str, Any]] = []
+  _oc_mi = (operating_context or {}).get("model_input_template") if isinstance(operating_context, dict) else None
+  if bool(((_oc_mi or {}).get("solver_input") or {}).get("revenue_authored")):
+    for _lever_id in (anchors or {}):
+      if str(_lever_id or "").strip().startswith("revenue::"):
+        revenue_authority_violations.append({
+          "code": "revenue_authored_lever_not_authorable",
+          "lever_id": str(_lever_id),
+          "message": (
+            "revenue is deterministically authored from the market-grounded "
+            "growth judgment; its adaptation happens in the ceilinged "
+            "viability search. Author cost / working-capital anchors instead."
+          ),
+        })
+  combined = envelope_violations + band_violations + revenue_authority_violations
   if combined:
     return {
       "accepted": False,

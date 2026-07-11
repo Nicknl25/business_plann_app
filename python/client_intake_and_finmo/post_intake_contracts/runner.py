@@ -2062,26 +2062,6 @@ def build_python_stage_ramp_contract(
   # (mature/operating) stages ramp slightly slower, which is conservative
   # (lower utilization -> lower implied revenue). Rounding is floored when
   # rounding-up would breach the growth bound.
-  q1_util = _STAGE_FAMILY_Q1_UTILIZATION.get(expected_family, 0.5)
-  utilization_curve = _clamped_utilization_curve(
-    q1_util=q1_util,
-    mature_cap=_MATURE_UTILIZATION_CAP,
-    # The validator compares the ROUNDED grid utilization_cap QoQ growth
-    # to the ROUNDED grid rev_max (= round(qoq_max, 2)); clamp to that
-    # exact bound, not the unrounded qoq_max, or a 2dp round-up re-breaches.
-    rev_growth_bound=round(qoq_max, 2),
-  )
-
-  postures = _stage_family_q_postures(
-    stage_family=expected_family,
-    validator_rules=validator_rules,
-    r_and_d_enabled=rd_enabled,
-  )
-  ni_floors = _stage_family_ni_floors(
-    stage_family=expected_family,
-    validator_rules=validator_rules,
-  )
-
   # MANAGERIAL BANDS ARE THE RAMP'S COST AUTHORITY when present. The raw
   # cohort caps above are the FALLBACK: before the executive-manager
   # authored maturation forecasts, this grid froze raw cohort flats (COGS
@@ -2093,6 +2073,57 @@ def build_python_stage_ramp_contract(
   _si = (model_input_json or {}).get("solver_input") if isinstance(model_input_json, dict) else None
   _fb = (_si or {}).get("fitted_bands") if isinstance(_si, dict) else None
   _fw = (_si or {}).get("fitted_envelope_per_q") if isinstance(_si, dict) else None
+
+  # THE MANAGER'S JUDGED GROWTH IS THE REVENUE AUTHORITY. rev_target is a
+  # HARD MINIMUM multiplier (quarter_grid raises utilization/capacity/price
+  # until composite revenue meets it), so a stage-policy target above the
+  # judged rate FORCE-FEEDS growth the manager never sanctioned. When the
+  # judged growth is present, rev_target per quarter follows the proposer's
+  # own taper (qoq_start -> qoq_end, linear over Q2..Q20) so the minimum
+  # reproduces the authored path -- a coherence floor, never an override.
+  _jg = (_si or {}).get("judged_growth") if isinstance(_si, dict) else None
+  _jg_qoq_by_q: Dict[int, float] = {}
+  if isinstance(_jg, dict):
+    try:
+      _jg_start = max(0.0, float(_jg.get("qoq_start")))
+      _jg_end = max(0.0, float(_jg.get("qoq_end")))
+      _jg_span = 18.0  # q2 -> q20
+      for _q in range(2, 21):
+        _frac = (_q - 2) / _jg_span
+        _jg_qoq_by_q[_q] = _jg_start * (1.0 - _frac) + _jg_end * _frac
+    except (TypeError, ValueError):
+      _jg_qoq_by_q = {}
+
+  def _rev_target_for_q(q: int) -> float:
+    if _jg_qoq_by_q:
+      # Q1 has no prior quarter (enforcement loops start at Q2); ground its
+      # vestigial target to the earliest judged rate so the validator's
+      # rev_max >= rev_target self-heal cannot re-break monotonicity.
+      _fallback = _jg_qoq_by_q.get(2, qoq_target)
+      return min(_jg_qoq_by_q.get(q, _fallback), qoq_max)
+    return qoq_target
+
+  # rev_max is judged-derived too: the ramp is the ONE choke point every
+  # revenue writer passes (the in-cascade executive, the solver, Phase B --
+  # reconcile scales down to rev_max and the finalize validator asserts it).
+  # Before this, a loose stage-policy rev_max (0.75/qtr for some families)
+  # let the cascade double a firm's utilization -- ~34%/yr growth over a
+  # judged 8%->4%/yr market call. The +0.03/qtr allowance above the judged
+  # rate is the adaptation headroom matching the Phase B ceiling walls'
+  # maximum per-quarter revenue addition (price/capacity/utilization rails
+  # spread across the horizon) -- adaptation may ADD growth within honest
+  # lever room, never rewrite the market judgment wholesale.
+  _JUDGED_REV_MAX_HEADROOM_QOQ = 0.03
+
+  def _rev_max_for_q(q: int) -> float:
+    # rev_max must be monotonic non-decreasing per the contract validator
+    # (a tapering ceiling was rejected as envelope_violation_rev_max_non_
+    # monotonic), so the judged ceiling is FLAT at the judged path's peak
+    # rate plus the adaptation headroom.
+    del q
+    if _jg_qoq_by_q:
+      return min(qoq_max, max(_jg_qoq_by_q.values()) + _JUDGED_REV_MAX_HEADROOM_QOQ)
+    return qoq_max
 
   def _mgr_target(metric: str, q: int, fallback: float) -> float:
     try:
@@ -2109,14 +2140,36 @@ def build_python_stage_ramp_contract(
       return float(fallback)
 
   _mgr_bands_active = bool(_fb)
+
+  q1_util = _STAGE_FAMILY_Q1_UTILIZATION.get(expected_family, 0.5)
+  utilization_curve = _clamped_utilization_curve(
+    q1_util=q1_util,
+    mature_cap=_MATURE_UTILIZATION_CAP,
+    # The validator compares the ROUNDED grid utilization_cap QoQ growth
+    # to the ROUNDED grid rev_max; clamp to the TIGHTEST per-quarter
+    # rev_max (judged-derived when present) so the util curve never
+    # implies growth above the ramp ceiling.
+    rev_growth_bound=round(min(_rev_max_for_q(q) for q in range(2, 21)), 2),
+  )
+
+  postures = _stage_family_q_postures(
+    stage_family=expected_family,
+    validator_rules=validator_rules,
+    r_and_d_enabled=rd_enabled,
+  )
+  ni_floors = _stage_family_ni_floors(
+    stage_family=expected_family,
+    validator_rules=validator_rules,
+  )
+
   quarter_ramp_grid: List[Dict[str, Any]] = []
   for q in range(1, 21):
     quarter_ramp_grid.append({
       "q": q,
-      "rev_target": round(qoq_target, 2),
-      "rev_max": round(qoq_max, 2),
+      "rev_target": round(_rev_target_for_q(q), 2),
+      "rev_max": round(_rev_max_for_q(q), 2),
       "rev_spike": False,
-      "rev_spike_max": round(qoq_max, 2),
+      "rev_spike_max": round(_rev_max_for_q(q), 2),
       "max_util": utilization_curve[q - 1],
       "cogs_target": round(_mgr_target("cogs_percent_of_revenue", q, cogs_target), 2),
       "cogs_max": round(_mgr_max("cogs_percent_of_revenue", q, cogs_max), 2),

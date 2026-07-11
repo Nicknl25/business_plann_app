@@ -1795,6 +1795,18 @@ def apply_live_quarter_grid_plan(
       continue
     if lever_id not in writable_levers:
       continue
+    if (
+      driver_name in {"Unit Price", "Utilization", "Capacity"}
+      and bool(((baseline_model_input_json or {}).get("solver_input") or {}).get("revenue_authored"))
+    ):
+      # REVENUE IS THE AUTHORED DETERMINISTIC ROOT. The quarter-grid GPT
+      # (whose repair pass enforces an EARLY stage-ramp estimate as a
+      # composite-revenue MINIMUM) must not overwrite the authored revenue
+      # drivers -- this exact application was rewriting the market-grounded
+      # judged growth (Anderson: 8->4%/yr authored, replaced by a grid-
+      # enforced ~34%/yr utilization ramp AFTER revenue authoring ran).
+      # Same doctrine as the path-stamp and adjusted-state skips.
+      continue
     if driver_name in {"Unit Price", "Utilization"}:
       post_intake_assert_process_object_control(
         step_key="quarter_grid_generation",

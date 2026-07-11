@@ -27,6 +27,8 @@ from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
 )
 
 
+
+
 def prepare_initial_grid_for_draft(
   *,
   conn: Any,
@@ -1149,6 +1151,27 @@ def prepare_initial_grid_for_draft(
       )
       if _rev_pass.get("ok"):
         model_input_json = _rev_pass["model_input_json"]
+        # Persist the growth rates the proposer ACTUALLY used (judged or
+        # fallback defaults) as the plan's revenue-growth authority. The
+        # stage-ramp builder reads this so its rev_target minimum IS the
+        # judged path -- without it the ramp carried stage-policy growth
+        # minimums that quarter_grid enforces UPWARD by raising
+        # utilization/capacity/price (Anderson: judged 8%->4%/yr force-fed
+        # to a ~12%-taper the manager never sanctioned).
+        try:
+          from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (  # type: ignore  # noqa: E501
+            _DEFAULT_QOQ_START as _JG_DEF_START,
+            _DEFAULT_QOQ_END as _JG_DEF_END,
+          )
+          _jg_si = model_input_json.setdefault("solver_input", {})
+          if isinstance(_jg_si, dict):
+            _jg_si["judged_growth"] = {
+              "qoq_start": float(_growth_kwargs.get("qoq_start", _JG_DEF_START)),
+              "qoq_end": float(_growth_kwargs.get("qoq_end", _JG_DEF_END)),
+              "source": _growth_trace.get("source"),
+            }
+        except Exception:
+          pass
         _rev_line = _rev_pass.get("revenue_line") or []
         sequence_trace["revenue_authoring"] = {
           "ok": True,
