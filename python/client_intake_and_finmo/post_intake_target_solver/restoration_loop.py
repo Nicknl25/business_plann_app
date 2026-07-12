@@ -688,6 +688,185 @@ def _ceiling_bound_for_revenue_lever(
   )
 
 
+_MONOTONE_REPAIR_LEVERS = (
+  "revenue::Unit Price",
+  "revenue::Capacity",
+  "revenue::Utilization",
+)
+_MONOTONE_REL_TOL = 1e-6
+
+
+def enforce_revenue_monotone_after_search(
+  *,
+  model_input: Dict[str, Any],
+  ceilings: Dict[str, Any],
+  build_finmo: Callable[[Dict[str, Any]], Dict[str, Any]],
+  bounds_model_input: Optional[Dict[str, Any]] = None,
+  horizon: int = HORIZON_QUARTERS_DEFAULT,
+  max_passes: int = 3,
+) -> Dict[str, Any]:
+  """Phase B — post-search SHAPE repair: revenue may not DECLINE after
+  the search's peak.
+
+  The ceilinged search pushes revenue levers hardest where the Q11 gate
+  binds and its boosts taper with forecast distance, so the searched
+  revenue can peak near Q11 and drift DOWN through Q20 — a shape no
+  lender believes for a stable business ("why does revenue shrink in the
+  mature years?"). A price raised / capacity added / utilization earned
+  to clear Q11 does not spontaneously un-happen.
+
+  Rule: monotone NON-DECREASING within the honest bounds. Each quarter
+  is raised to at least the running peak by scaling the three revenue
+  levers multiplicatively (per-row scaling preserves LOB structure,
+  identical to the solver's own write discipline), each lever clamped to
+  its EXECUTIVE-CEILING per-quarter upper (Q1 anchored, forecast-
+  distance-scaled — the same bounds the search itself ran under). If
+  holding flat would breach a ceiling, the quarter HOLDS AT the ceiling
+  and the residual decline stands, on record — "don't decline" never
+  becomes "inflate past the ceiling". Never lowers anything; Q1 is
+  never touched. Deterministic (pure arithmetic, no GPT).
+  """
+  from client_intake_and_finmo.post_intake_target_solver.target_solver import (  # type: ignore
+    _find_rows_for_lever,
+  )
+
+  trace: Dict[str, Any] = {"engaged": False, "passes": 0}
+  # Ceiling bounds MUST resolve against the PRE-SEARCH (authored) state —
+  # the live model_input already carries the searched values, and a
+  # ceiling computed off searched values compounds (searched x multiplier
+  # instead of authored x multiplier). Same snapshot discipline as the
+  # restoration loop itself.
+  _bounds_mi = bounds_model_input if isinstance(bounds_model_input, dict) else model_input
+  lever_rows: Dict[str, List[Dict[str, Any]]] = {}
+  lever_upper: Dict[str, List[float]] = {}
+  for lid in _MONOTONE_REPAIR_LEVERS:
+    bound = _ceiling_bound_for_revenue_lever(
+      lever_id=lid, ceilings=ceilings or {},
+      model_input=_bounds_mi or {}, horizon=horizon,
+    )
+    rows = _find_rows_for_lever(model_input or {}, lid)
+    if bound is None or bound.upper_per_q is None or not rows:
+      continue
+    lever_rows[lid] = rows
+    lever_upper[lid] = list(bound.upper_per_q)
+  if not lever_rows:
+    trace["note"] = "no ceilinged revenue levers resolvable — repair skipped"
+    return trace
+
+  def _lever_avg_at(lid: str, q_idx: int) -> float:
+    total = 0.0
+    rows = lever_rows[lid]
+    for row in rows:
+      vals = row.get("values") or []
+      live_idx = 1 + q_idx
+      if live_idx < len(vals) and vals[live_idx] is not None:
+        try:
+          total += float(vals[live_idx])
+        except (TypeError, ValueError):
+          pass
+    return total / max(1, len(rows))
+
+  def _scale_lever_at(lid: str, q_idx: int, factor: float) -> None:
+    live_idx = 1 + q_idx
+    is_util = "Utilization" in lid
+    for row in lever_rows[lid]:
+      vals = row.get("values")
+      if not isinstance(vals, list) or live_idx >= len(vals):
+        continue
+      try:
+        old = float(vals[live_idx] or 0.0)
+      except (TypeError, ValueError):
+        continue
+      new = old * factor
+      if is_util:
+        new = min(1.0, max(0.0, new))
+      vals[live_idx] = float(new)
+
+  def _revenue_per_q(finmo: Dict[str, Any]) -> List[float]:
+    rows = (finmo or {}).get("quarter_rows") or []
+    out: List[float] = []
+    for q in range(1, horizon + 1):
+      v = 0.0
+      if q < len(rows) and isinstance(rows[q], dict):
+        try:
+          v = float(rows[q].get("revenue") or 0.0)
+        except (TypeError, ValueError):
+          v = 0.0
+      out.append(v)
+    return out
+
+  raised: Dict[str, float] = {}
+  held_at_ceiling: List[int] = []
+  for _pass in range(max_passes):
+    rev = _revenue_per_q(build_finmo(model_input))
+    running = rev[0] if rev else 0.0
+    any_repair = False
+    for q_idx in range(1, horizon):
+      r = rev[q_idx]
+      if r <= 0.0:
+        continue
+      if r >= running * (1.0 - _MONOTONE_REL_TOL):
+        running = max(running, r)
+        continue
+      needed = running / r
+      remaining = needed
+      for _ in range(4):
+        if remaining <= 1.0 + _MONOTONE_REL_TOL:
+          break
+        free = []
+        for lid in lever_rows:
+          cur = _lever_avg_at(lid, q_idx)
+          up = lever_upper[lid][q_idx] if q_idx < len(lever_upper[lid]) else cur
+          if cur > 1e-12 and up / cur > 1.0 + _MONOTONE_REL_TOL:
+            free.append((lid, up / cur))
+        if not free:
+          break
+        g_even = remaining ** (1.0 / len(free))
+        for lid, headroom in free:
+          g = min(g_even, headroom)
+          if g <= 1.0 + _MONOTONE_REL_TOL:
+            continue
+          _scale_lever_at(lid, q_idx, g)
+          remaining /= g
+      applied = needed / max(remaining, 1e-12)
+      if applied > 1.0 + _MONOTONE_REL_TOL:
+        any_repair = True
+        qk = f"q{q_idx + 1}"
+        raised[qk] = round(raised.get(qk, 1.0) * applied, 6)
+      if remaining > 1.0 + 1e-4:
+        # Ceilings exhausted — this quarter holds AT the ceiling, on
+        # record. The running peak is NOT lowered: later quarters get
+        # wider forecast-distance headroom and keep chasing it.
+        if (q_idx + 1) not in held_at_ceiling:
+          held_at_ceiling.append(q_idx + 1)
+      running = max(running, r * applied)
+    trace["passes"] = _pass + 1
+    if not any_repair:
+      break
+
+  rev_final = _revenue_per_q(build_finmo(model_input))
+  residual: List[Dict[str, Any]] = []
+  running = rev_final[0] if rev_final else 0.0
+  for q_idx in range(1, horizon):
+    r = rev_final[q_idx]
+    if r <= 0.0:
+      continue
+    if r < running * (1.0 - 1e-4):
+      residual.append({
+        "quarter": q_idx + 1,
+        "revenue": round(r, 2),
+        "running_peak": round(running, 2),
+      })
+    running = max(running, r)
+  trace.update({
+    "engaged": bool(raised),
+    "raised_quarters": raised,
+    "held_at_ceiling": held_at_ceiling,
+    "residual_declines_at_ceiling": residual,
+  })
+  return trace
+
+
 def _driver_bounds_for_target(
   *,
   target_metric: str,

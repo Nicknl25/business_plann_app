@@ -3340,6 +3340,9 @@ def _run_post_cascade_completion(
         _pb_q11_before = _pb_q11_ebitda_margin(final_finmo_json)
 
         # -- Holistic search: revenue + cost levers under the ceilings. --
+        # Pre-search snapshot: the monotone repair below must resolve its
+        # ceiling bounds against the AUTHORED state, not the searched one.
+        _pb_presearch_mi = copy.deepcopy(final_model_input_json or {})
         with _pb_scope(
           step_key="post_intake_target_seeking_restoration_loop",
           executor_function="phase_b_ceilinged_restoration",
@@ -3359,6 +3362,23 @@ def _run_post_cascade_completion(
             ),
             revenue_authored=True,
             revenue_lever_ceilings=_pb_ceilings,
+          )
+          # -- SHAPE repair: the search boosts revenue hardest where the
+          #    Q11 gate binds and tapers with forecast distance, which can
+          #    leave revenue PEAKING near Q11 and drifting down through
+          #    Q20 — an unexplainable decline for a stable business. Hold
+          #    the searched gains monotone non-decreasing WITHIN the same
+          #    executive ceilings (never breach a ceiling to hold flat;
+          #    Q1 untouched; pure deterministic arithmetic).
+          from client_intake_and_finmo.post_intake_target_solver.restoration_loop import (  # type: ignore  # noqa: E501
+            enforce_revenue_monotone_after_search as _pb_monotone_repair,
+          )
+          _pb_trace["revenue_monotone_repair"] = _pb_monotone_repair(
+            model_input=final_model_input_json or {},
+            ceilings=_pb_ceilings,
+            build_finmo=_pb_build_finmo,
+            bounds_model_input=_pb_presearch_mi,
+            horizon=int(horizon or 20),
           )
           final_finmo_json = _pb_build_finmo(final_model_input_json or {})
           next_result["finmo_json"] = final_finmo_json
