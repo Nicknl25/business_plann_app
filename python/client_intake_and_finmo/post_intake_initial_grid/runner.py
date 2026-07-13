@@ -905,7 +905,7 @@ def prepare_initial_grid_for_draft(
           )
           _wc_qrev = (float(_wc_ann) / 4.0) if _wc_ann else 0.0
         _wc_qcogs = _wcf("cogs")
-        _wc_qopex = sum(_wcf(k) for k in ("marketing", "r_and_d", "lease_rent", "payroll", "g_and_a"))
+        _wc_qopex = sum(_wcf(k) for k in ("marketing", "research_and_development", "lease_rent", "payroll", "g_and_a"))
         def _wc_implied(balance_key: str, base: float) -> Optional[float]:
           try:
             bal = float((financials_json or {}).get(balance_key))

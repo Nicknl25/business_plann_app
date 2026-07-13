@@ -135,6 +135,18 @@ _SYSTEM_PROMPT = (
   "specific to THIS business, not the industry average. Tight ceilings are "
   "fine -- 1.0 means 'this lever must not move'. Never widen a ceiling to "
   "help the plan pass; the ceiling is what is TRUE, not what is needed.\n"
+  "PRICING POWER COMES FROM THE BUSINESS MODEL, not from one retail "
+  "instinct applied everywhere: commodity and walk-in goods live near "
+  "competitor prices (tight ceiling), while differentiated IP -- software, "
+  "specialized services, products with switching costs or contractual "
+  "lock-in -- holds real headroom through tiering, value-based packaging, "
+  "and renewal repricing. Judge how much pricing power THIS model actually "
+  "has in THIS market; a tight retail-style price ceiling on a "
+  "differentiated-IP business understates the honest lever exactly the "
+  "way a loose one on a corner shop overstates it. The same for capacity: "
+  "a room has a physical throughput cap; digital capacity is bounded by "
+  "sales, onboarding, and support coverage instead -- name the REAL "
+  "binding constraint for this model and set the ceiling from it.\n"
   "Call submit_lever_ceilings exactly once."
 )
 

@@ -349,14 +349,22 @@ def clamp_cost_rows_to_envelope(
 
 
 # The cost metrics that arithmetically compose EBITDA (revenue minus these):
-# cogs + marketing + G&A are the fitted-band cost lines; payroll + rent are the
-# plan's own actual per-quarter lines. There is no R&D line in the EBITDA build
-# for these businesses. EBITDA = revenue - cogs - marketing - G&A - payroll - rent
-# (verified against the finmo to the dollar).
+# cogs + marketing + G&A + R&D are the fitted-band cost lines; payroll + rent
+# are the plan's own actual per-quarter lines. The engine's EBITDA subtracts
+# ALL of them: EBITDA = revenue - cogs - marketing - R&D - G&A - payroll - rent.
+# R&D was originally omitted here under the assumption "there is no R&D line
+# for these businesses" — true while the executive killed R&D fleet-wide, and
+# catastrophically false for the first business with a REAL R&D line (Orion:
+# 19% of revenue): the derived band demanded EBITDA >= 33.7% for a P&L the
+# derivation pretended had no R&D spend, hard-failing a plan that sat exactly
+# ON the manager's own coherent EBITDA forecast (Q11 forecast 22%, actual
+# 21.5%). A killed R&D line is absent from the envelope (or zero-width), so
+# including the metric costs the no-R&D fleet nothing.
 _EBITDA_FITTED_COST_METRICS = (
   "cogs_percent_of_revenue",
   "marketing_percent_of_revenue",
   "sga_percent_of_revenue",
+  "r_and_d_percent_of_revenue",
 )
 
 
