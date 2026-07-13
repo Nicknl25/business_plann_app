@@ -3170,17 +3170,41 @@ def _run_post_cascade_completion(
       from client_intake_and_finmo.post_intake_realism.validator import (  # type: ignore
         validate_industry_realism_bands,
       )
+      # THE ENGAGEMENT GATE MUST JUDGE AGAINST THE SAME BANDS AS THE
+      # VERDICT. The final realism gate resolves its targets payload from
+      # the model_input's LIVE solver_input[FINMO_OUTPUT_TARGET_KEY] —
+      # which carries the derived-from-cost-bands ebitda overlay written
+      # before this block. Passing the stale function-scope
+      # targets_payload_post here judged Orion against the original
+      # phase-3 band (no failure seen -> Phase B never engaged) while the
+      # verdict judged the overlay (hard fail all 20 quarters) — a false
+      # non-viable with NO adaptation attempted, the Ironwood-NI blind
+      # spot class. Resolve from the CURRENT model_input first, exactly
+      # like the verdict does; the local payloads are only the fallback
+      # when the model_input carries no targets at all.
+      from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+        FINMO_OUTPUT_TARGET_KEY as _PB_FOT_KEY,
+      )
+      _pb_gate_mi = (_mi if _mi is not None else final_model_input_json) or {}
+      _pb_gate_targets: Optional[Dict[str, Any]] = None
+      _pb_gate_si = _pb_gate_mi.get("solver_input")
+      if isinstance(_pb_gate_si, dict):
+        _pb_gate_candidate = _pb_gate_si.get(_PB_FOT_KEY)
+        if isinstance(_pb_gate_candidate, dict) and _pb_gate_candidate.get("metrics"):
+          _pb_gate_targets = _pb_gate_candidate
+      if _pb_gate_targets is None:
+        _pb_gate_targets = (
+          targets_payload_post
+          if isinstance(targets_payload_post, dict) and targets_payload_post.get("metrics")
+          else (targets_payload or None)
+        )
       _pb_payload = validate_industry_realism_bands(
-        model_input_json=(_mi if _mi is not None else final_model_input_json) or {},
+        model_input_json=_pb_gate_mi,
         finmo_json=(_fj if _fj is not None else final_finmo_json) or {},
         business_naics_6=business_naics_6 or None,
         ops_json=ops_json or {},
         financials_json=financials_json or {},
-        solver_input_targets_payload=(
-          targets_payload_post
-          if isinstance(targets_payload_post, dict) and targets_payload_post.get("metrics")
-          else (targets_payload or None)
-        ),
+        solver_input_targets_payload=_pb_gate_targets,
         planning_mode=planning_mode,
       )
       _viol = (_pb_payload or {}).get("hard_fail_violations") or []
@@ -3390,7 +3414,16 @@ def _run_post_cascade_completion(
 
         # -- Labor refresh: payroll must track the SEARCHED revenue for a
         #    labor-bound business (no free operating leverage from the raise).
-        if _pb_labor_bound and _pb_authored_payroll_pct and isinstance(payroll_headcount, dict):
+        # Payroll machinery gates on an authored payroll target + a real
+        # schedule ONLY. The labor REFRESH below is additionally gated on
+        # labor-boundness (payroll tracks searched revenue only when revenue
+        # scales with labor) — but the payroll TRIM lever must NOT be: a
+        # payroll-heavy business whose revenue does not scale with labor
+        # (Orion: 36% payroll software, revenue_scales_with_labor=false)
+        # still has planned hires the executive floor allows deferring.
+        # Nesting the trial inside the labor-bound branch silently skipped
+        # the lever for exactly those businesses — an exhaustion gap.
+        if _pb_authored_payroll_pct and isinstance(payroll_headcount, dict):
           from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore  # noqa: E501
             enforce_labor_scaling_on_payload as _pb_enforce_labor,
           )
@@ -3418,23 +3451,24 @@ def _run_post_cascade_completion(
               ],
             }
 
-          _pb_refresh_schedule = copy.deepcopy(payroll_headcount)
-          _pb_refresh_summary = _pb_enforce_labor(
-            _pb_refresh_schedule, _pb_synth_anchor(float(_pb_authored_payroll_pct)),
-          )
-          if _pb_refresh_summary:
-            final_model_input_json, final_finmo_json = _pb_apply_payroll(
-              schedule_payload=_pb_refresh_schedule,
-              model_input_json=final_model_input_json,
-              finmo_json=final_finmo_json,
-              live_count=_pb_live_count(),
-              stage_prefix="phase_b_labor_refresh",
+          if _pb_labor_bound:
+            _pb_refresh_schedule = copy.deepcopy(payroll_headcount)
+            _pb_refresh_summary = _pb_enforce_labor(
+              _pb_refresh_schedule, _pb_synth_anchor(float(_pb_authored_payroll_pct)),
             )
-            payroll_headcount = _pb_refresh_schedule
-            next_result["payroll_headcount"] = payroll_headcount
-            next_result["model_input_json"] = final_model_input_json
-            next_result["finmo_json"] = final_finmo_json
-            _pb_trace["labor_refresh"] = _pb_refresh_summary
+            if _pb_refresh_summary:
+              final_model_input_json, final_finmo_json = _pb_apply_payroll(
+                schedule_payload=_pb_refresh_schedule,
+                model_input_json=final_model_input_json,
+                finmo_json=final_finmo_json,
+                live_count=_pb_live_count(),
+                stage_prefix="phase_b_labor_refresh",
+              )
+              payroll_headcount = _pb_refresh_schedule
+              next_result["payroll_headcount"] = payroll_headcount
+              next_result["model_input_json"] = final_model_input_json
+              next_result["finmo_json"] = final_finmo_json
+              _pb_trace["labor_refresh"] = _pb_refresh_summary
 
           # -- Payroll lever: trim the payroll target% toward the executive
           #    floor ONLY as far as viability requires. Deterministic
