@@ -45,22 +45,39 @@ _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-5.1"
 _DEFAULT_TIMEOUT_SECONDS = 60.0
 
-_WC_DRIVER_KEYS = ("ar_days", "inventory_days", "ap_days")
+_WC_DRIVER_KEYS = (
+  "ar_days", "inventory_days", "ap_days", "prepaid_pct", "deferred_pct",
+)
 
-# Python rails — mirror of the mapping table's live bounds for the three
-# days rows (minimum_live_value=1.0, maximum 90/180/90). The executive
-# judges WITHIN these; a rogue judgment cannot stretch DPO to 180 or
-# promise negative collection days.
+# Python rails — mirror of the mapping table's live bounds (days rows:
+# minimum_live_value=1.0, maximum 90/180/90; percent rows: [0.01, 0.20]
+# prepaid / [0.01, 0.75] deferred). The executive judges WITHIN these;
+# a rogue judgment cannot stretch DPO to 180, promise negative collection
+# days, or defer more revenue than the mapping table itself allows.
 WC_RAILS: Dict[str, Any] = {
   "ar_days": (1.0, 90.0),
   "inventory_days": (1.0, 180.0),
   "ap_days": (1.0, 90.0),
+  "prepaid_pct": (0.01, 0.20),
+  "deferred_pct": (0.01, 0.75),
 }
 
 _LEVER_ID_FOR_DRIVER: Dict[str, str] = {
   "ar_days": "balance_sheet::Accounts Receivable Days",
   "inventory_days": "balance_sheet::Inventory Days",
   "ap_days": "balance_sheet::Accounts Payable Days",
+  "prepaid_pct": "balance_sheet::Prepaid Expenses (% of Revenue)",
+  "deferred_pct": "balance_sheet::Deferred Revenue (% of Revenue)",
+}
+
+# Anchor field names in the submit tool, per driver unit.
+_ANCHOR_FIELDS: Dict[str, Any] = {
+  "days": (("q1_days", "q1"), ("q11_days", "q11"), ("q20_days", "q20")),
+  "pct": (("q1_pct", "q1"), ("q11_pct", "q11"), ("q20_pct", "q20")),
+}
+_DRIVER_UNIT: Dict[str, str] = {
+  "ar_days": "days", "inventory_days": "days", "ap_days": "days",
+  "prepaid_pct": "pct", "deferred_pct": "pct",
 }
 
 
@@ -70,27 +87,35 @@ def _resolve_model(model: Optional[str]) -> str:
   return (os.getenv("OPENAI_MODEL") or "").strip() or _DEFAULT_MODEL
 
 
-def _driver_schema(label: str, extra: str = "") -> Dict[str, Any]:
+def _driver_schema(label: str, unit: str = "days", extra: str = "") -> Dict[str, Any]:
+  fields = _ANCHOR_FIELDS[unit]
+  unit_note = (
+    "days" if unit == "days"
+    else "a FRACTION of quarterly revenue (0.03 = 3%)"
+  )
+  props: Dict[str, Any] = {
+    "applicable": {
+      "type": "boolean",
+      "description": f"Whether {label} applies to this business at all.{extra}",
+    },
+  }
+  for field_name, when in ((fields[0][0], "today (Q1)"), (fields[1][0], "by year 3 (Q11)"), (fields[2][0], "at maturity (Q20)")):
+    props[field_name] = {
+      "type": "number",
+      "description": f"{label} {when}, in {unit_note}.",
+    }
+  props["rationale"] = {
+    "type": "string",
+    "description": (
+      "The lender-facing defense of this driver for THIS business: how it "
+      "actually collects / stocks / pays / prepays, and why the trajectory "
+      "moves (or stays flat). 1-3 sentences."
+    ),
+  }
   return {
     "type": "object",
-    "properties": {
-      "applicable": {
-        "type": "boolean",
-        "description": f"Whether {label} applies to this business at all.{extra}",
-      },
-      "q1_days": {"type": "number", "description": f"{label} today (Q1)."},
-      "q11_days": {"type": "number", "description": f"{label} by year 3 (Q11)."},
-      "q20_days": {"type": "number", "description": f"{label} at maturity (Q20)."},
-      "rationale": {
-        "type": "string",
-        "description": (
-          "The lender-facing defense of this driver for THIS business: how it "
-          "actually collects / stocks / pays, and why the trajectory moves "
-          "(or stays flat). 1-3 sentences."
-        ),
-      },
-    },
-    "required": ["applicable", "q1_days", "q11_days", "q20_days", "rationale"],
+    "properties": props,
+    "required": ["applicable"] + [f for f, _ in fields] + ["rationale"],
   }
 
 
@@ -99,8 +124,8 @@ _SUBMIT_TOOL: Dict[str, Any] = {
   "function": {
     "name": "submit_wc_judgment",
     "description": (
-      "Submit the working-capital judgment (DSO / DIO / DPO trajectories) "
-      "for this business. Call exactly once."
+      "Submit the working-capital judgment (DSO / DIO / DPO / prepaid / "
+      "deferred-revenue trajectories) for this business. Call exactly once."
     ),
     "parameters": {
       "type": "object",
@@ -108,11 +133,25 @@ _SUBMIT_TOOL: Dict[str, Any] = {
         "ar_days": _driver_schema("Accounts Receivable Days (DSO)"),
         "inventory_days": _driver_schema(
           "Inventory Days (DIO)",
-          " Pure service businesses hold no inventory (applicable=false).",
+          extra=" Pure service businesses hold no inventory (applicable=false).",
         ),
         "ap_days": _driver_schema("Accounts Payable Days (DPO, blended)"),
+        "prepaid_pct": _driver_schema(
+          "Prepaid Expenses (% of quarterly revenue)", unit="pct",
+        ),
+        "deferred_pct": _driver_schema(
+          "Deferred Revenue (% of quarterly revenue)", unit="pct",
+          extra=(
+            " ONLY businesses that genuinely collect cash BEFORE earning it "
+            "(memberships, retainers, subscriptions, annual contracts billed "
+            "upfront). Point-of-sale / bill-after-delivery businesses: "
+            "applicable=false."
+          ),
+        ),
       },
-      "required": ["ar_days", "inventory_days", "ap_days"],
+      "required": [
+        "ar_days", "inventory_days", "ap_days", "prepaid_pct", "deferred_pct",
+      ],
     },
   },
 }
@@ -138,9 +177,26 @@ _SYSTEM_PROMPT = (
   "immediately, so you must judge the BLENDED days across that whole "
   "base: a shop with net-30 vendor terms on a quarter of its spend has a "
   "blended DPO nearer 7-12 days than 30. Do NOT submit pure vendor terms.\n"
+  "4. PREPAID EXPENSES (fraction of quarterly revenue): cash this business "
+  "pays in advance and holds as an asset — insurance premiums, annual "
+  "software licenses, deposits, prepaid rent. Most small businesses hold "
+  "a small, stable 1-5% of quarterly revenue.\n"
+  "5. DEFERRED REVENUE (fraction of quarterly revenue) — THE MOST "
+  "FAKEABLE NUMBER IN THE MODEL, JUDGE IT HARSHLY: this is cash COLLECTED "
+  "BEFORE the work is earned (prepaid memberships, retainers, "
+  "subscriptions, annual contracts billed upfront). Assuming customers "
+  "prepay frees cash exactly like paying suppliers slower — so you may "
+  "credit deferred revenue ONLY to a business whose model genuinely "
+  "collects upfront TODAY. A point-of-sale or bill-after-delivery "
+  "business (a donut shop, a boutique, a job shop invoicing on delivery) "
+  "carries zero or near-zero: mark it applicable=false. Never invent a "
+  "prepay model the operator did not describe. Note the revenue LINE is "
+  "untouched by this judgment — only the balance and cash timing move; "
+  "recognition stays with the revenue trajectory.\n"
   "VIABILITY-BLIND: you are never told whether any plan passes or fails. "
   "Working capital is the easiest place to fake cash into a plan (collect "
-  "faster, pay slower) — you judge only what is REAL for this business.\n"
+  "faster, pay slower, assume prepayment) — you judge only what is REAL "
+  "for this business.\n"
   "Q1 IS A FACT where the operator stated actual AR / inventory / AP "
   "balances (given below when stated) — the machine anchors Q1 to the "
   "stated fact; your Q1 should match it and your job is the TRAJECTORY. "
@@ -268,14 +324,15 @@ def gpt_author_wc_judgment_once(
     entry = parsed.get(key)
     if not isinstance(entry, dict):
       return {"ok": False, "judgment": None, "error": f"driver_missing:{key}"}
+    fields = _ANCHOR_FIELDS[_DRIVER_UNIT[key]]
     try:
-      judgment[key] = {
+      normalized: Dict[str, Any] = {
         "applicable": bool(entry.get("applicable")),
-        "q1_days": float(entry.get("q1_days")),
-        "q11_days": float(entry.get("q11_days")),
-        "q20_days": float(entry.get("q20_days")),
         "rationale": str(entry.get("rationale") or "")[:500],
       }
+      for field_name, canon in fields:
+        normalized[canon] = float(entry.get(field_name))
+      judgment[key] = normalized
     except (TypeError, ValueError):
       return {"ok": False, "judgment": None, "error": f"driver_not_numeric:{key}"}
   return {"ok": True, "judgment": judgment, "error": None}
@@ -286,6 +343,7 @@ def validate_wc_judgment(
   judgment: Dict[str, Any],
   implied_q1_days: Optional[Dict[str, Optional[float]]] = None,
   inventory_naics_applicable: Optional[bool] = None,
+  deferred_naics_applicable: Optional[bool] = None,
   stated_balance_positive: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, Any]:
   """Rail the raw judgment into a validated, executable form.
@@ -293,17 +351,20 @@ def validate_wc_judgment(
   Precedence: STATED FACT > NAICS gate > judgment.
 
   - Every anchor clamped into WC_RAILS (lender-defensible bounds).
-  - Q1 FACT OVERRIDE: where an operator-stated balance implies Q1 days,
+  - Q1 FACT OVERRIDE: where an operator-stated balance implies a Q1
+    level (days, or fraction of quarterly revenue for prepaid/deferred),
     that fact replaces the judged Q1 anchor (clamped to the rail).
   - STATED-BALANCE APPLICABILITY: a positive stated balance FORCES
     applicable=True regardless of the judgment or the sector gate — the
     operator holding $800 of inventory IS inventory, and zeroing the row
     would both contradict a stated fact and break balance-sheet stub
     continuity (nonzero opening balances may not vanish in live quarters).
-  - Inventory NAICS gate: when the sector gate says no inventory
-    (``inventory_naics_applicable=False``) and NO balance was stated,
-    applicable is FORCED false — an executive cannot invent inventory
-    for a law firm.
+  - NAICS gates (inventory AND deferred revenue): when the sector gate
+    says no and NO balance was stated, applicable is FORCED false. The
+    deferred gate is the structural anti-fake fence: an executive cannot
+    credit an upfront-collection model to a sector that does not bill
+    that way, no matter how the judgment rolls — "assume customers
+    prepay" is the cheapest fake-cash move in the model.
   - applicable=False -> all anchors 0 (the row seeds to zero).
 
   Returns {drivers: {key: {applicable,q1,q11,q20,rationale}}, notes: [...]}.
@@ -317,12 +378,14 @@ def validate_wc_judgment(
     lo, hi = WC_RAILS[key]
     applicable = bool(entry.get("applicable"))
     has_stated_balance = bool(stated.get(key))
-    if (
-      key == "inventory_days" and inventory_naics_applicable is False
-      and applicable and not has_stated_balance
-    ):
+    gate = None
+    if key == "inventory_days":
+      gate = inventory_naics_applicable
+    elif key == "deferred_pct":
+      gate = deferred_naics_applicable
+    if gate is False and applicable and not has_stated_balance:
       applicable = False
-      notes.append("inventory_forced_non_applicable_by_naics_gate")
+      notes.append(f"{key}_forced_non_applicable_by_naics_gate")
     if has_stated_balance and not applicable:
       applicable = True
       notes.append(f"{key}_forced_applicable_by_stated_balance")
@@ -333,21 +396,21 @@ def validate_wc_judgment(
       }
       continue
     anchors: Dict[str, float] = {}
-    for anchor_key, out_key in (("q1_days", "q1"), ("q11_days", "q11"), ("q20_days", "q20")):
+    for out_key in ("q1", "q11", "q20"):
       try:
-        raw = float(entry.get(anchor_key))
+        raw = float(entry.get(out_key))
       except (TypeError, ValueError):
         raw = lo
       clamped = max(lo, min(hi, raw))
       if abs(clamped - raw) > 1e-9:
-        notes.append(f"{key}.{anchor_key}_clamped_{raw:.2f}->{clamped:.2f}")
-      anchors[out_key] = round(clamped, 4)
+        notes.append(f"{key}.{out_key}_clamped_{raw:.4f}->{clamped:.4f}")
+      anchors[out_key] = round(clamped, 6)
     fact = implied.get(key)
     if fact is not None and float(fact) > 0.0:
-      fact_clamped = round(max(lo, min(hi, float(fact))), 4)
+      fact_clamped = round(max(lo, min(hi, float(fact))), 6)
       if abs(fact_clamped - anchors["q1"]) > 1e-9:
         notes.append(
-          f"{key}.q1_overridden_to_stated_fact_{anchors['q1']:.2f}->{fact_clamped:.2f}"
+          f"{key}.q1_overridden_to_stated_fact_{anchors['q1']:.4f}->{fact_clamped:.4f}"
         )
       anchors["q1"] = fact_clamped
     drivers[key] = {

@@ -996,6 +996,40 @@ def _driver_bounds_for_target(
     driver_kind = _driver_kind_for_lever(lid)
 
     if driver_kind == "percent_of_revenue":
+      # EXECUTIVE WC AUTHORITY — prepaid / deferred-revenue percent rows
+      # judged by the WC judgment get the same forecast-distance corridor
+      # as the judged days rows (zero width at Q1). Deferred revenue is
+      # the model's cheapest fake-cash lever ("assume customers prepay");
+      # the search may only fine-tune the judged collection model, never
+      # swap in a cohort band around it.
+      _wcj_pct = (
+        ((model_input or {}).get("solver_input") or {}).get("wc_judgment")
+      )
+      if isinstance(_wcj_pct, dict) and isinstance(_wcj_pct.get("drivers"), dict):
+        from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore
+          _LEVER_ID_FOR_DRIVER as _WC_PCT_LID_MAP,
+          wc_trajectory_per_q as _wc_pct_traj,
+        )
+        _pct_entry = None
+        for _dk, _lv in _WC_PCT_LID_MAP.items():
+          if _lv == lid:
+            _pct_entry = _wcj_pct["drivers"].get(_dk)
+            break
+        if isinstance(_pct_entry, dict):
+          if not _pct_entry.get("applicable"):
+            # Judged non-applicable (row is zero) -> no solver authority.
+            continue
+          _pt = _wc_pct_traj(_pct_entry, horizon=horizon)
+          _pw = 0.10
+          bounds[lid] = DriverBound(
+            lower=min(v * (1.0 - _pw * (i / float(max(1, horizon - 1)))) for i, v in enumerate(_pt)),
+            upper=max(v * (1.0 + _pw * (i / float(max(1, horizon - 1)))) for i, v in enumerate(_pt)),
+            driver_kind="percent_of_revenue",
+            bound_source="executive_wc_judgment (q1_anchored_corridor)",
+            lower_per_q=[v * (1.0 - _pw * (i / float(max(1, horizon - 1)))) for i, v in enumerate(_pt)],
+            upper_per_q=[v * (1.0 + _pw * (i / float(max(1, horizon - 1)))) for i, v in enumerate(_pt)],
+          )
+          continue
       naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
       if not naics_metric:
         continue

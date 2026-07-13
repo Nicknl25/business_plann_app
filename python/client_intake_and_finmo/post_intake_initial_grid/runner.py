@@ -914,10 +914,22 @@ def prepare_initial_grid_for_draft(
           if bal <= 0.0 or base <= 0.0:
             return None
           return round(bal / base * 90.0, 4)
+        def _wc_implied_pct(balance_key: str) -> Optional[float]:
+          # Prepaid / deferred: stated balance as a FRACTION of quarterly
+          # revenue (the engine's own formula: balance = pct x revenue).
+          try:
+            bal = float((financials_json or {}).get(balance_key))
+          except (TypeError, ValueError):
+            return None
+          if bal <= 0.0 or _wc_qrev <= 0.0:
+            return None
+          return round(bal / _wc_qrev, 6)
         _wc_implied_days = {
           "ar_days": _wc_implied("ar_balance", _wc_qrev),
           "inventory_days": _wc_implied("inventory_balance", _wc_qcogs),
           "ap_days": _wc_implied("ap_balance", _wc_qopex),
+          "prepaid_pct": _wc_implied_pct("prepaid_expenses"),
+          "deferred_pct": _wc_implied_pct("deferred_revenue"),
         }
         def _wc_stated(balance_key: str) -> bool:
           try:
@@ -928,22 +940,30 @@ def prepare_initial_grid_for_draft(
           "ar_days": _wc_stated("ar_balance"),
           "inventory_days": _wc_stated("inventory_balance"),
           "ap_days": _wc_stated("ap_balance"),
+          "prepaid_pct": _wc_stated("prepaid_expenses"),
+          "deferred_pct": _wc_stated("deferred_revenue"),
         }
         _wc_facts_prompt = {
           k: {"implied_q1_days": v}
           for k, v in _wc_implied_days.items() if v is not None
         } or None
         _wc_cohort_ref: Dict[str, Any] = {}
-        for _wc_key, _wc_lid in (
-          ("ar_days", "balance_sheet::Accounts Receivable Days"),
-          ("inventory_days", "balance_sheet::Inventory Days"),
-          ("ap_days", "balance_sheet::Accounts Payable Days"),
+        for _wc_key, _wc_lid, _wc_unit in (
+          ("ar_days", "balance_sheet::Accounts Receivable Days", "benchmark_days"),
+          ("inventory_days", "balance_sheet::Inventory Days", "benchmark_days"),
+          ("ap_days", "balance_sheet::Accounts Payable Days", "benchmark_days"),
+          ("prepaid_pct", "balance_sheet::Prepaid Expenses (% of Revenue)", "benchmark_fraction_of_quarterly_revenue"),
+          ("deferred_pct", "balance_sheet::Deferred Revenue (% of Revenue)", "benchmark_fraction_of_quarterly_revenue"),
         ):
           _wc_band = _wc_naics_seed(lever_id=_wc_lid, business_naics_6=_wc_naics6)
           if _wc_band:
-            _wc_cohort_ref[_wc_key] = {"benchmark_days": _wc_band.get("benchmark_target")}
+            _wc_cohort_ref[_wc_key] = {_wc_unit: _wc_band.get("benchmark_target")}
         _wc_inv_gate = _wc_naics_applicability(
           lever_id="balance_sheet::Inventory Days", business_naics_6=_wc_naics6,
+        )
+        _wc_def_gate = _wc_naics_applicability(
+          lever_id="balance_sheet::Deferred Revenue (% of Revenue)",
+          business_naics_6=_wc_naics6,
         )
         _wc_result = gpt_author_wc_judgment_once(
           compact=_wc_compact,
@@ -955,6 +975,7 @@ def prepare_initial_grid_for_draft(
             judgment=_wc_result["judgment"],
             implied_q1_days=_wc_implied_days,
             inventory_naics_applicable=bool(_wc_inv_gate.get("applicable")),
+            deferred_naics_applicable=bool(_wc_def_gate.get("applicable")),
             stated_balance_positive=_wc_stated_balances,
           )
           if isinstance(model_input_json, dict):
