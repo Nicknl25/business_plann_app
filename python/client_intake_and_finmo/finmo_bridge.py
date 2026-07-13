@@ -3765,8 +3765,30 @@ def _build_model_input_overlay(
         live_values=[explicit_capex_overrides.get(idx, 0.0) for idx in range(1, len(slots) + 1)],
       )
     elif label == "Less: Principal Repayments":
-      annual_principal = _safe_float((financials_json or {}).get("annual_principal_payment")) or 0.0
-      quarterly = round(max(0.0, annual_principal) / 4.0, 6) if annual_principal else 0.0
+      # CAPITAL-LEASE principal — default straight-line amortization of the
+      # lease seed over the same quarters as the ROU depreciation, so the
+      # obligation pays down IN STEP with the asset. Without this, a lease
+      # seed produced a perpetual interest-only obligation: ROU depreciated
+      # to $0 while the liability sat frozen at opening balance forever,
+      # interest ~2x on the never-declining balance, cash overstated by
+      # the entire unspent principal stream. The engine clips principal to
+      # the available balance, so seed/N lands the obligation at exactly
+      # $0 alongside the asset. The K10 grid may still author a
+      # business-specific schedule on top of this default.
+      # NOTE: financials.annual_principal_payment is the operator's
+      # TERM-DEBT principal fact (consumed by the cash pass's
+      # debt_min_principal_source_priority policy) — it was previously
+      # mis-routed into this capital-LEASE row and is no longer read here.
+      from financial_model_engine.finmo_model import (  # type: ignore
+        CAPITAL_LEASE_DEPRECIATION_QUARTERS as _LEASE_AMORT_QUARTERS,
+      )
+      _lease_amort_seed = _annualized_lease_commitment(
+        (financials_json or {}).get("initial_lease")
+      ) or 0.0
+      quarterly = (
+        round(max(0.0, _lease_amort_seed) / float(max(1, _LEASE_AMORT_QUARTERS)), 6)
+        if _lease_amort_seed > 0.0 else 0.0
+      )
       row["values"] = _compose_period_values(
         stub_value=base_stub_value,
         live_values=[quarterly for _ in slots],

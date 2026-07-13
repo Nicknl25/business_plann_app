@@ -1004,6 +1004,31 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
   # family so the cascade picks the right adaptation.
   # ============================================================
   _row(
+    metric_key="capital_lease_amortizes",
+    finmo_line_label="Capital Leases Schedule / Closing Balance (Total)",
+    derivation_formula_key="trajectory_capital_lease_amortizes",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["schedules::Less: Principal Repayments"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes=(
+      "Statement-coherence rule: a capital-lease obligation must amortize "
+      "over the horizon (Q20 closing < 95% of opening seed), never sit "
+      "frozen interest-only while the ROU asset depreciates to zero. The "
+      "frozen-balance class ties by construction (equity absorbs the asset "
+      "decline, cash keeps the unpaid principal) so only this check "
+      "catches it. No lease trivially passes."
+    ),
+  ),
+  _row(
     metric_key="ebitda_positive_by_q11",
     finmo_line_label="EBITDA",
     derivation_formula_key="trajectory_ebitda_positive_at_quarter",

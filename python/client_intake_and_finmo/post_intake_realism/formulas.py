@@ -771,6 +771,44 @@ def _quarter_ending_cash(finmo_json: Dict[str, Any], quarter_index: int) -> Opti
   return None
 
 
+def _formula_trajectory_capital_lease_amortizes(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Universal statement-coherence rule — a capital-lease obligation must
+  actually AMORTIZE over the horizon, not sit frozen at opening balance.
+
+  The frozen-balance failure class (caught on Big_Shipper): a lease seed
+  with no principal schedule left a $960M liability at Q20 against a $0
+  ROU asset — interest-only forever, cash overstated by the entire unpaid
+  principal stream, and the balance sheet TIES by construction so nothing
+  else catches it.
+
+  Returns (0.95 x opening_seed - q20_closing) / opening_seed: >= 0 passes.
+  A frozen balance (closing >= 95% of seed) fails; a stated or authored
+  SLOWER-but-real schedule (e.g. a 10-year equipment lease ~50% paid by
+  Q20) passes — the rule is "it amortizes", not "it must reach zero".
+  No lease (seed <= 0) trivially passes.
+  """
+  _ = (model_input_json, quarter_index)
+  rows = (finmo_json or {}).get("quarter_rows") or []
+  def _f(q: int, key: str) -> float:
+    try:
+      return float((rows[q] or {}).get(key) or 0.0)
+    except (TypeError, ValueError, IndexError):
+      return 0.0
+  if len(rows) < 2:
+    return None
+  seed = _f(1, "lease_opening_balance_total")
+  if seed <= 0.0:
+    return 0.0
+  last_q = min(20, len(rows) - 1)
+  closing = _f(last_q, "lease_closing_balance_total")
+  return (0.95 * seed - closing) / seed
+
+
 def _formula_trajectory_ebitda_positive_at_quarter(
   *,
   model_input_json: Dict[str, Any],
@@ -997,6 +1035,7 @@ _FORMULA_REGISTRY: Dict[str, Callable[..., Optional[float]]] = {
   "total_assets_div_revenue_per_year": _formula_total_assets_div_revenue_per_year,
   "owners_capital_div_total_assets_per_year": _formula_owners_capital_div_total_assets_per_year,
   # Phase 9 Phase D — universal viability timeline trajectory checks.
+  "trajectory_capital_lease_amortizes": _formula_trajectory_capital_lease_amortizes,
   "trajectory_ebitda_positive_at_quarter": _formula_trajectory_ebitda_positive_at_quarter,
   "trajectory_ebitda_recovery_trend": _formula_trajectory_ebitda_recovery_trend,
   "trajectory_loss_window_funded": _formula_trajectory_loss_window_funded,
