@@ -712,6 +712,22 @@ def apply_path_stamp_pass(
   managerial_metrics = set(
     (((model_input_json or {}).get("solver_input") or {}).get("fitted_envelope_per_q") or {}).keys()
   )
+  # WC-days rows the executive judged (trajectory stamped at the seed step
+  # from solver_input.wc_judgment) are equally authoritative — an industry
+  # glidepath must not re-shape the judged cash-conversion cycle.
+  _wc_judgment = (
+    ((model_input_json or {}).get("solver_input") or {}).get("wc_judgment")
+  )
+  wc_judged_lever_ids: set = set()
+  if isinstance(_wc_judgment, dict) and isinstance(_wc_judgment.get("drivers"), dict):
+    from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore
+      _LEVER_ID_FOR_DRIVER as _WC_LEVER_ID_FOR_DRIVER,
+    )
+    wc_judged_lever_ids = {
+      _WC_LEVER_ID_FOR_DRIVER[k]
+      for k in _wc_judgment["drivers"]
+      if k in _WC_LEVER_ID_FOR_DRIVER
+    }
 
   _EXPENSE_ROW_LABEL_TO_MANAGERIAL_METRIC = {
     "Cost of Goods Sold": "cogs_percent_of_revenue",
@@ -759,6 +775,14 @@ def apply_path_stamp_pass(
         rows_skipped.append({
           "lever_id": lever_id,
           "reason": "managerial_cost_forecast_authoritative",
+        })
+        continue
+      if lever_id in wc_judged_lever_ids:
+        # The executive judged this business's cash-conversion cycle
+        # (DSO/DIO/DPO trajectory); the judged path is authoritative.
+        rows_skipped.append({
+          "lever_id": lever_id,
+          "reason": "executive_wc_judgment_authoritative",
         })
         continue
       shape = lookup_shape_for_lever(lever_id)

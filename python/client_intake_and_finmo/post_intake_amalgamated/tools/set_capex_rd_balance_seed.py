@@ -449,15 +449,35 @@ def set_capex_rd_balance_seed(
   if overrides:
     wc_overrides = overrides.get("working_capital_days")
     if isinstance(wc_overrides, dict) and wc_overrides:
-      bands_for_bs = _echo_balance_sheet_bands(
-        conn,
-        draft_id=_string(draft_id),
-        planning_run_id=_string(planning_run_id),
+      # EXECUTIVE WC AUTHORITY — when the locked, viability-blind WC
+      # judgment is stamped on the model_input, the cascade may NOT
+      # nudge the days scalars (same doctrine as set_drivers rejecting
+      # revenue:: anchors under revenue_authored): the judgment was made
+      # on what is REAL for the business; a cascade override is by
+      # construction viability-motivated.
+      _wc_judged = (
+        ((model_input_json or {}).get("solver_input") or {}).get("wc_judgment")
+        if isinstance((model_input_json or {}).get("solver_input"), dict) else None
       )
-      wc_audit, wc_violations = _apply_wc_overrides(
-        bs_payload, wc_overrides, bands_for_bs,
-      )
-      overrides_audit.extend(wc_audit)
+      if isinstance(_wc_judged, dict) and _wc_judged.get("drivers"):
+        wc_violations = [{
+          "code": "wc_override_rejected_judged_authority",
+          "lever_id": lever,
+          "message": (
+            "working-capital days are authored by the executive WC judgment "
+            "(solver_input.wc_judgment); cascade overrides are rejected"
+          ),
+        } for lever in wc_overrides]
+      else:
+        bands_for_bs = _echo_balance_sheet_bands(
+          conn,
+          draft_id=_string(draft_id),
+          planning_run_id=_string(planning_run_id),
+        )
+        wc_audit, wc_violations = _apply_wc_overrides(
+          bs_payload, wc_overrides, bands_for_bs,
+        )
+        overrides_audit.extend(wc_audit)
 
   # Step 9b-ii — emit a ROUND1_AUTHORING diagnostic for the round-1
   # path (overrides=None). Cascade-revision callers pass overrides

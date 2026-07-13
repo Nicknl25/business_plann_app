@@ -1032,6 +1032,45 @@ def _driver_bounds_for_target(
       continue
 
     if driver_kind == "days":
+      # EXECUTIVE WC AUTHORITY — when the WC judgment authored this days
+      # row, the solver's search corridor is a forecast-distance-scaled
+      # band around the JUDGED trajectory (zero width at Q1, +/-10% by
+      # Q20 — the cost-wall discipline), never the raw cohort band. WC is
+      # a powerful fake-viable lever (collect faster / pay slower = free
+      # cash); the search may only fine-tune the judged reality.
+      _wcj = (
+        ((model_input or {}).get("solver_input") or {}).get("wc_judgment")
+      )
+      _wc_entry = None
+      if isinstance(_wcj, dict) and isinstance(_wcj.get("drivers"), dict):
+        from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore
+          _LEVER_ID_FOR_DRIVER as _WC_LID_MAP,
+          wc_trajectory_per_q as _wc_traj,
+        )
+        for _dk, _lv in _WC_LID_MAP.items():
+          if _lv == lid:
+            _wc_entry = _wcj["drivers"].get(_dk)
+            break
+      if isinstance(_wc_entry, dict):
+        if not _wc_entry.get("applicable"):
+          # Judged non-applicable (row is zero) -> solver has no authority.
+          continue
+        _traj = _wc_traj(_wc_entry, horizon=horizon)
+        _wf_max = 0.10
+        lower_per_q = [
+          v * (1.0 - _wf_max * (i / float(max(1, horizon - 1))))
+          for i, v in enumerate(_traj)
+        ]
+        upper_per_q = [
+          v * (1.0 + _wf_max * (i / float(max(1, horizon - 1))))
+          for i, v in enumerate(_traj)
+        ]
+        bounds[lid] = DriverBound(
+          lower=min(lower_per_q), upper=max(upper_per_q), driver_kind="days",
+          bound_source="executive_wc_judgment (q1_anchored_corridor)",
+          lower_per_q=lower_per_q, upper_per_q=upper_per_q,
+        )
+        continue
       naics_metric = _LEVER_TO_NAICS_METRIC_KEY.get(lid)
       if not naics_metric:
         continue

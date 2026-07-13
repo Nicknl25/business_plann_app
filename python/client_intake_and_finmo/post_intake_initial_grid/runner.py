@@ -858,6 +858,124 @@ def prepare_initial_grid_for_draft(
     # Python per P3.10; propose_balance_sheet_contextual_seed_payload
     # is the deterministic balance-sheet proposer). The apply_*
     # utilities still write each authored payload to model_input.
+    # -- EXECUTIVE WORKING-CAPITAL JUDGMENT (DSO / DIO / DPO) --
+    # The manager judges the cash-conversion cycle for THIS business
+    # (viability-blind, locked, Python-railed); the validated judgment is
+    # stamped into solver_input.wc_judgment BEFORE the seed step so every
+    # downstream consumer (seed apply, cascade override guard, path stamp,
+    # solver bounds) reads the same single authority. A failed call leaves
+    # the flat NAICS seed exactly as before.
+    _wc_trace: Dict[str, Any] = {"ok": False, "source": "naics_flat_seed"}
+    try:
+      from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore  # noqa: E501
+        gpt_author_wc_judgment_once,
+        validate_wc_judgment,
+      )
+      from client_intake_and_finmo.post_intake_balance_sheet.contextual_seed import (  # type: ignore  # noqa: E501
+        _proposer_naics_seed as _wc_naics_seed,
+        _proposer_applicability_for_lever as _wc_naics_applicability,
+      )
+      from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore  # noqa: E501
+        authoritative_annual_revenue as _wc_annual_revenue,
+      )
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+        build_operating_model_digest as _wc_build_digest,
+      )
+      _wc_compact = _wc_build_digest(
+        ops_json, people_json, market_json, marketing_model_json,
+      )
+      if _wc_compact:
+        _wc_naics6 = "".join(
+          ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit()
+        )
+        # Q1 FACT ANCHORS — implied days from operator-stated balances over
+        # the engine's own Q1 bases (AR/revenue, Inventory/COGS, AP/opex).
+        _wc_q1_rows = ((finmo_json or {}).get("quarter_rows") or [])
+        _wc_q1 = _wc_q1_rows[1] if len(_wc_q1_rows) > 1 and isinstance(_wc_q1_rows[1], dict) else {}
+        def _wcf(key: str) -> float:
+          try:
+            return max(0.0, float(_wc_q1.get(key) or 0.0))
+          except (TypeError, ValueError):
+            return 0.0
+        _wc_qrev = _wcf("revenue")
+        if _wc_qrev <= 0.0:
+          _wc_ann = _wc_annual_revenue(
+            ops_json=ops_json, financials_year1_json=financials_year1_json,
+            financials_json=financials_json,
+          )
+          _wc_qrev = (float(_wc_ann) / 4.0) if _wc_ann else 0.0
+        _wc_qcogs = _wcf("cogs")
+        _wc_qopex = sum(_wcf(k) for k in ("marketing", "r_and_d", "lease_rent", "payroll", "g_and_a"))
+        def _wc_implied(balance_key: str, base: float) -> Optional[float]:
+          try:
+            bal = float((financials_json or {}).get(balance_key))
+          except (TypeError, ValueError):
+            return None
+          if bal <= 0.0 or base <= 0.0:
+            return None
+          return round(bal / base * 90.0, 4)
+        _wc_implied_days = {
+          "ar_days": _wc_implied("ar_balance", _wc_qrev),
+          "inventory_days": _wc_implied("inventory_balance", _wc_qcogs),
+          "ap_days": _wc_implied("ap_balance", _wc_qopex),
+        }
+        def _wc_stated(balance_key: str) -> bool:
+          try:
+            return float((financials_json or {}).get(balance_key)) > 0.0
+          except (TypeError, ValueError):
+            return False
+        _wc_stated_balances = {
+          "ar_days": _wc_stated("ar_balance"),
+          "inventory_days": _wc_stated("inventory_balance"),
+          "ap_days": _wc_stated("ap_balance"),
+        }
+        _wc_facts_prompt = {
+          k: {"implied_q1_days": v}
+          for k, v in _wc_implied_days.items() if v is not None
+        } or None
+        _wc_cohort_ref: Dict[str, Any] = {}
+        for _wc_key, _wc_lid in (
+          ("ar_days", "balance_sheet::Accounts Receivable Days"),
+          ("inventory_days", "balance_sheet::Inventory Days"),
+          ("ap_days", "balance_sheet::Accounts Payable Days"),
+        ):
+          _wc_band = _wc_naics_seed(lever_id=_wc_lid, business_naics_6=_wc_naics6)
+          if _wc_band:
+            _wc_cohort_ref[_wc_key] = {"benchmark_days": _wc_band.get("benchmark_target")}
+        _wc_inv_gate = _wc_naics_applicability(
+          lever_id="balance_sheet::Inventory Days", business_naics_6=_wc_naics6,
+        )
+        _wc_result = gpt_author_wc_judgment_once(
+          compact=_wc_compact,
+          operator_wc_facts=_wc_facts_prompt,
+          cohort_reference=_wc_cohort_ref or None,
+        )
+        if _wc_result.get("ok"):
+          _wc_validated = validate_wc_judgment(
+            judgment=_wc_result["judgment"],
+            implied_q1_days=_wc_implied_days,
+            inventory_naics_applicable=bool(_wc_inv_gate.get("applicable")),
+            stated_balance_positive=_wc_stated_balances,
+          )
+          if isinstance(model_input_json, dict):
+            model_input_json.setdefault("solver_input", {})
+            if isinstance(model_input_json["solver_input"], dict):
+              model_input_json["solver_input"]["wc_judgment"] = _wc_validated
+              _wc_trace = {
+                "ok": True, "source": "executive_wc_judgment",
+                "drivers": copy.deepcopy(_wc_validated.get("drivers")),
+                "notes": list(_wc_validated.get("notes") or []),
+                "implied_q1_days": _wc_implied_days,
+              }
+        else:
+          _wc_trace["error"] = _wc_result.get("error")
+    except Exception as _wc_exc:  # noqa: BLE001 — soft: NAICS seed stands
+      _wc_trace = {
+        "ok": False, "source": "naics_flat_seed",
+        "error": f"{type(_wc_exc).__name__}: {str(_wc_exc)[:200]}",
+      }
+    shared_context["wc_judgment_trace"] = _wc_trace
+
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
       set_capex_rd_balance_seed,
     )

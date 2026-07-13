@@ -545,6 +545,25 @@ def validate_industry_realism_bands(
     # so the audit trail records WHY this metric isn't binding (the
     # GPT exhaustion handler authored its drivers).
     is_muted_for_this_draft = (metric_key in muted_metric_keys)
+    mute_status = "muted_gpt_post_exhaustion"
+
+    # EXECUTIVE WC AUTHORITY — the two hard-gated WC-STRUCTURE composites
+    # exist to keep cohort-defaulted working capital realistic. When the
+    # executive WC judgment authored the days drivers (viability-blind,
+    # locked, Python-railed, Q1 anchored to stated balances), the judged
+    # structure IS the realistic one for THIS business — a cash donut
+    # shop's near-zero AR legitimately sits below the sector band a
+    # receivables-heavy cohort implies. The cohort shape may not overrule
+    # the judgment; the check stays in the memo as observable provenance.
+    if metric_key in ("current_assets_minus_cash", "current_liabilities_to_revenue"):
+      _wcj_authority = (
+        ((model_input_json or {}).get("solver_input") or {}).get("wc_judgment")
+        if isinstance((model_input_json or {}).get("solver_input"), dict) else None
+      )
+      if isinstance(_wcj_authority, dict) and _wcj_authority.get("drivers"):
+        is_muted_for_this_draft = True
+        mute_status = "muted_wc_judgment_authoritative"
+        muted_metric_keys.add(metric_key)
 
     # Phase 9 Phase D — trajectory_check rows (universal viability
     # timeline) are evaluated separately from the band-comparison loop.
@@ -615,7 +634,7 @@ def validate_industry_realism_bands(
         # Phase 9 P3.5 — drivers behind this metric are GPT-authored
         # for this draft; band-check evaluation muted, value still
         # computed for the audit trail.
-        status = "muted_gpt_post_exhaustion"
+        status = mute_status
       else:
         status = "in_band" if passed else "out_of_band_hard_fail"
       trajectory_reason = (
@@ -1052,7 +1071,7 @@ def validate_industry_realism_bands(
           # Phase 9 P3.5 — drivers behind this metric are GPT-authored
           # for this draft; band-check muted, value still computed
           # for the audit trail.
-          status = "muted_gpt_post_exhaustion"
+          status = mute_status
         elif (
           gate_kind == "hard_fail"
           and derived_issue_code is not None

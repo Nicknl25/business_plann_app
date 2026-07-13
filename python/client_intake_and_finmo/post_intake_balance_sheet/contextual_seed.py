@@ -205,12 +205,38 @@ def apply_balance_sheet_contextual_seed_to_model_input(
   *,
   live_count: int = HORIZON,
 ) -> Dict[str, Any]:
-  """Apply validated contextual seed values to balance-sheet model-input rows."""
+  """Apply validated contextual seed values to balance-sheet model-input rows.
+
+  EXECUTIVE WC AUTHORITY: when ``solver_input.wc_judgment`` is present on
+  the model_input (stamped by the initial-grid runner from the locked,
+  viability-blind executive judgment), the three WC-days rows receive the
+  JUDGED per-quarter trajectory (linear Q1->Q11->Q20) instead of the flat
+  NAICS seed — the manager's cash-conversion judgment is the authority,
+  the seed is only its fallback. All other seed rows are unaffected.
+  """
   validated = validate_balance_sheet_contextual_seed_payload(payload)
   next_payload = copy.deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
   sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
   if not isinstance(sections, dict):
     raise RuntimeError("balance_sheet_contextual_seed_model_input_sections_missing")
+  wc_trajectories: Dict[str, List[float]] = {}
+  _wc_judgment = (
+    (next_payload.get("solver_input") or {}).get("wc_judgment")
+    if isinstance(next_payload.get("solver_input"), dict) else None
+  )
+  if isinstance(_wc_judgment, dict) and isinstance(_wc_judgment.get("drivers"), dict):
+    from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore
+      wc_trajectory_per_q,
+      _LEVER_ID_FOR_DRIVER,
+    )
+    for _dkey, _entry in _wc_judgment["drivers"].items():
+      _lid = _LEVER_ID_FOR_DRIVER.get(_dkey)
+      if not _lid or not isinstance(_entry, dict):
+        continue
+      if _entry.get("applicable"):
+        wc_trajectories[_lid] = wc_trajectory_per_q(_entry, horizon=live_count)
+      else:
+        wc_trajectories[_lid] = [0.0] * live_count
   applied_rows: List[Dict[str, Any]] = []
   for seed_row in validated["balance_sheet_seed_grid"]:
     lever_id = _clean(seed_row.get("lever_id"))
@@ -221,6 +247,7 @@ def apply_balance_sheet_contextual_seed_to_model_input(
     stub_value = values[0] if values else 0.0
     existing_live = _live_values(model_row, horizon=live_count)
     seed_value = float(_safe_float(seed_row.get("seed_value")) or 0.0)
+    judged_trajectory = wc_trajectories.get(lever_id)
     # Phase 9 P3 — exclusion path for target-solver-authored quarters.
     # When the target-driven restoration loop has tagged a quarter on
     # this row with `applied_by_target_solver_quarters[q] = {...}`, the
@@ -244,6 +271,10 @@ def apply_balance_sheet_contextual_seed_to_model_input(
       if quarter_index_1based in solver_authored_qs:
         # Solver-authored quarter — preserve the existing live value.
         live_values.append(round(float(existing or 0.0), 6))
+      elif judged_trajectory is not None:
+        # Executive WC judgment — the judged per-quarter trajectory is
+        # the authority for this row (applicable=False -> zeros).
+        live_values.append(round(float(judged_trajectory[idx]), 6))
       elif bool(seed_row.get("applicable")):
         live_values.append(round(seed_value, 6))
       else:
@@ -256,6 +287,7 @@ def apply_balance_sheet_contextual_seed_to_model_input(
         "lever_id": lever_id,
         "applicable": bool(seed_row.get("applicable")),
         "seed_value": round(seed_value, 6),
+        "wc_judged": judged_trajectory is not None,
       }
     )
   next_payload.setdefault("derived_driver_policies", {})
