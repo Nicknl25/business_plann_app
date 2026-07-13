@@ -961,10 +961,10 @@ def prepare_initial_grid_for_draft(
         _wc_inv_gate = _wc_naics_applicability(
           lever_id="balance_sheet::Inventory Days", business_naics_6=_wc_naics6,
         )
-        _wc_def_gate = _wc_naics_applicability(
-          lever_id="balance_sheet::Deferred Revenue (% of Revenue)",
-          business_naics_6=_wc_naics6,
-        )
+        # NO deferred-revenue sector gate: whether a business collects
+        # upfront is the executive's business-grounded call (see
+        # validate_wc_judgment docstring — the whitelist zeroed Apex's
+        # real membership-prepay model).
         _wc_result = gpt_author_wc_judgment_once(
           compact=_wc_compact,
           operator_wc_facts=_wc_facts_prompt,
@@ -975,7 +975,6 @@ def prepare_initial_grid_for_draft(
             judgment=_wc_result["judgment"],
             implied_q1_days=_wc_implied_days,
             inventory_naics_applicable=bool(_wc_inv_gate.get("applicable")),
-            deferred_naics_applicable=bool(_wc_def_gate.get("applicable")),
             stated_balance_positive=_wc_stated_balances,
           )
           if isinstance(model_input_json, dict):

@@ -343,12 +343,11 @@ def validate_wc_judgment(
   judgment: Dict[str, Any],
   implied_q1_days: Optional[Dict[str, Optional[float]]] = None,
   inventory_naics_applicable: Optional[bool] = None,
-  deferred_naics_applicable: Optional[bool] = None,
   stated_balance_positive: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, Any]:
   """Rail the raw judgment into a validated, executable form.
 
-  Precedence: STATED FACT > NAICS gate > judgment.
+  Precedence: STATED FACT > NAICS gate (inventory only) > judgment.
 
   - Every anchor clamped into WC_RAILS (lender-defensible bounds).
   - Q1 FACT OVERRIDE: where an operator-stated balance implies a Q1
@@ -359,12 +358,21 @@ def validate_wc_judgment(
     operator holding $800 of inventory IS inventory, and zeroing the row
     would both contradict a stated fact and break balance-sheet stub
     continuity (nonzero opening balances may not vanish in live quarters).
-  - NAICS gates (inventory AND deferred revenue): when the sector gate
-    says no and NO balance was stated, applicable is FORCED false. The
-    deferred gate is the structural anti-fake fence: an executive cannot
-    credit an upfront-collection model to a sector that does not bill
-    that way, no matter how the judgment rolls — "assume customers
-    prepay" is the cheapest fake-cash move in the model.
+  - Inventory NAICS gate: when the sector gate says no inventory and NO
+    balance was stated, applicable is FORCED false — a physical-stock
+    line for a sector that holds none is a data error, not a judgment.
+  - DEFERRED REVENUE HAS NO SECTOR GATE. The old NAICS whitelist
+    ({51,52,53,54,62}) zeroed a CORRECT executive call — Apex's gym
+    memberships are genuinely billed in advance, judged real by the
+    viability-blind executive, killed only because recreation isn't on
+    a list. Whether a business truly collects upfront is a question
+    about WHAT THE BUSINESS DOES, and the judgment already carries the
+    anti-fake guard: it is viability-blind (it zeroed every POS
+    business and the doomed shop on reasoning alone, without ever
+    seeing a verdict), prompt-hardened ("never invent a prepay model
+    the operator did not describe"), railed, and response-locked. The
+    sector whitelist survives only in the NO-JUDGMENT fallback seed —
+    it never overrides a judgment again.
   - applicable=False -> all anchors 0 (the row seeds to zero).
 
   Returns {drivers: {key: {applicable,q1,q11,q20,rationale}}, notes: [...]}.
@@ -378,12 +386,10 @@ def validate_wc_judgment(
     lo, hi = WC_RAILS[key]
     applicable = bool(entry.get("applicable"))
     has_stated_balance = bool(stated.get(key))
-    gate = None
-    if key == "inventory_days":
-      gate = inventory_naics_applicable
-    elif key == "deferred_pct":
-      gate = deferred_naics_applicable
-    if gate is False and applicable and not has_stated_balance:
+    if (
+      key == "inventory_days" and inventory_naics_applicable is False
+      and applicable and not has_stated_balance
+    ):
       applicable = False
       notes.append(f"{key}_forced_non_applicable_by_naics_gate")
     if has_stated_balance and not applicable:
