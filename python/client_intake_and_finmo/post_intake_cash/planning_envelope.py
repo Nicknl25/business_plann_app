@@ -106,8 +106,40 @@ def build_cash_planning_envelope(
       default_buffer_months=default_buffer_months,
       months_per_quarter=months_per_quarter,
     )
-    buffer_required = int(components.get("cash_buffer_required") or 0)
-    cash_ceiling = int(components.get("cash_ceiling") or buffer_required)
+    # JUDGED BUFFER = RETENTION TARGET, HARD FLOOR = FUNDING TARGET —
+    # identical split to the validation envelope: funding gaps target
+    # the machinery's proven rail (min of judged, current-strategy
+    # policy, and balanced-default policy months), while the judged
+    # buffer/ceiling govern retention (distribution blocks, surplus
+    # deployment). A judged-rich buffer must never become a borrowing
+    # target (the debt-only borrow-to-hoard spiral).
+    _policy_floor_months_p = float(safe_float(cash_policy.get("cash_floor_months")) or default_buffer_months)
+    try:
+      _balanced_policy_p = post_intake_cash_policy_for(
+        cash_strategy="balanced", debt_to_equity=debt_to_equity, required=False,
+      ) or {}
+      _policy_floor_balanced_p = float(
+        safe_float(_balanced_policy_p.get("cash_floor_months")) or _policy_floor_months_p
+      )
+    except Exception:
+      _policy_floor_balanced_p = _policy_floor_months_p
+    _hard_floor_months_p = min(
+      float(_judged_floor) if _judged_floor else float("inf"),
+      _policy_floor_months_p,
+      _policy_floor_balanced_p,
+    )
+    _hard_components_p = buffer_components(
+      row,
+      cash_floor_months=_hard_floor_months_p,
+      cash_ceiling_months=_hard_floor_months_p,
+      default_buffer_months=default_buffer_months,
+      months_per_quarter=months_per_quarter,
+    )
+    # Same fund-to-hard-floor / retain-to-judged split as the
+    # validation envelope (see the comment there).
+    retention_buffer = int(components.get("cash_buffer_required") or 0)
+    buffer_required = int(_hard_components_p.get("cash_buffer_required") or 0)
+    cash_ceiling = int(components.get("cash_ceiling") or retention_buffer)
     ending_cash = int(round(float(safe_float(row.get("ending_cash")) or 0.0)))
     current_distribution = int(distributions_series[quarter_index - 1] if quarter_index - 1 < len(distributions_series) else 0)
     current_debt_repayment = int(debt_repayment_series[quarter_index - 1] if quarter_index - 1 < len(debt_repayment_series) else 0)
@@ -119,13 +151,13 @@ def build_cash_planning_envelope(
       quarter_index=quarter_index,
     )
 
-    distribution_violation = bool(current_distribution > 0 and ending_cash <= buffer_required)
+    distribution_violation = bool(current_distribution > 0 and ending_cash <= retention_buffer)
     buffer_violation = bool(ending_cash < buffer_required)
-    hard_rule_distribution_removed = int(current_distribution if ending_cash <= buffer_required and current_distribution > 0 else 0)
+    hard_rule_distribution_removed = int(current_distribution if ending_cash <= retention_buffer and current_distribution > 0 else 0)
     hard_rule_distribution_value = int(0 if hard_rule_distribution_removed > 0 else current_distribution)
     hard_rule_other_equity_value = int(
       previous_effective_other_equity
-      if ending_cash <= buffer_required and current_other_equity < previous_effective_other_equity
+      if ending_cash <= retention_buffer and current_other_equity < previous_effective_other_equity
       else current_other_equity
     )
     hard_rule_equity_payback_removed = int(max(0, hard_rule_other_equity_value - current_other_equity))
@@ -139,7 +171,7 @@ def build_cash_planning_envelope(
       else 0
     )
     max_additional_distribution = int(
-      max(0, effective_ending_cash - buffer_required)
+      max(0, effective_ending_cash - retention_buffer)
       if residual_funding_gap <= 0
       else 0
     )
@@ -200,6 +232,8 @@ def build_cash_planning_envelope(
         "date": row.get("date"),
         "ending_cash": ending_cash,
         "buffer": buffer_required,
+        "hard_floor_buffer": int(_hard_components_p.get("cash_buffer_required") or 0),
+        "retention_buffer": retention_buffer,
         "cash_floor": buffer_required,
         "cash_ceiling": cash_ceiling,
         "cash_policy": copy.deepcopy(cash_policy),

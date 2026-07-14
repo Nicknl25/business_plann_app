@@ -521,6 +521,18 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     # Horizon clip (`if next_q > QUARTER_COUNT: break`) is the iter 8
     # fix — without it, ControllerWriteRow._storage_index clamps OOB
     # indices to QUARTER_COUNT and silently returns the LAST quarter.
+    # STD covers only debt that EXISTS TODAY — the forward sim excludes
+    # future issuance. Pre-fix it added `_requested_issuance` to the
+    # available balance, so repayments of not-yet-borrowed money counted
+    # as a CURRENT liability: with a borrow-later plan (Cedar: cleanup
+    # repaid the $20M to ~zero while the funding plan still issued in
+    # later quarters) STD hit $2.4M against $165k closing debt, LTD
+    # floored at zero, and the balance sheet carried phantom debt of
+    # (STD - closing) — reconciliation broke by exactly that amount.
+    # Excluding future issuance makes STD <= debt_closing BY
+    # CONSTRUCTION (each repayment clips against the remaining existing
+    # balance), so STD + LTD = debt_closing always. Plans with no
+    # future issuance are byte-identical to the old math.
     _simulated_closing = debt_closing
     _short_term_debt_components = []
     short_term_debt = 0.0
@@ -528,12 +540,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       if next_q > QUARTER_COUNT:
         break
       _requested_repayment = max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, next_q))
-      _requested_issuance = max(0.0, _row_value(model_inputs, "schedules", DEBT_ISSUANCE_LABEL, next_q))
-      _available = max(0.0, _simulated_closing + _requested_issuance)
-      _actual_clipped = min(_requested_repayment, _available)
+      _actual_clipped = min(_requested_repayment, max(0.0, _simulated_closing))
       short_term_debt += _actual_clipped
       _short_term_debt_components.append((next_q, _actual_clipped))
-      _simulated_closing = max(0.0, _available - _actual_clipped)
+      _simulated_closing = max(0.0, _simulated_closing - _actual_clipped)
     _logger.warning(
       "finmo_std_layer1_trace q=%s window=%s value=%s",
       quarter.quarter_index,

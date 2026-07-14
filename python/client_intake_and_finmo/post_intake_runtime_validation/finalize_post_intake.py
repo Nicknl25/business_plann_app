@@ -611,7 +611,14 @@ def run_finalize_post_intake_validation(
         payroll_headcount=copy.deepcopy(payroll_headcount or {}),
         debt_schedule=copy.deepcopy(debt_schedule or {}),
         financials_json=copy.deepcopy(financials_json or {}),
-        enforce_cash_buffer=True,
+        # DOCTRINE: a business that honestly cannot hold its cash-buffer
+        # floor under its JUDGED funding access must render a NON-VIABLE
+        # VERDICT with the exhaustion on record — never a dead run. The
+        # buffer check is evaluated below (advisory logging); the
+        # acceptance gate's cash checks (cash_legitimate_q1_q10 et al.)
+        # judge the final state and fail the verdict when cash is
+        # genuinely broken.
+        enforce_cash_buffer=False,
         stage="post_intake_finalize_validation_global",
         contract_name=contract_name,
       )
@@ -645,7 +652,14 @@ def run_finalize_post_intake_validation(
       stage="post_intake_finalize_validation_cash_buffer",
     )
   except Exception as exc:
-    errors.append(f"cash_buffer_invalid: {exc}")
+    # ADVISORY, not run-killing — see the enforce_cash_buffer=False note
+    # above: honest inability to hold the buffer floor is a VERDICT
+    # (rendered by the acceptance gate's cash checks on this same
+    # state), not a crash. Logged loudly so it never disappears.
+    _logger.warning(
+      "post_intake_finalize_cash_buffer_advisory (verdict-not-crash): %s",
+      str(exc)[:800],
+    )
 
   if not isinstance(payroll_headcount, dict) or not payroll_headcount:
     errors.append("payroll_headcount_schedule_missing_at_finalize")

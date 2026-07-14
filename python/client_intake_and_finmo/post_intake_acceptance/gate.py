@@ -465,12 +465,53 @@ def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[boo
   }
 
 
-def _check_cash_health_operational_not_debt_funded(
+def _check_cash_never_negative(
   finmo_json: Dict[str, Any],
 ) -> Tuple[bool, Dict[str, Any]]:
-  """Phase 9 G2 — interest expense / revenue at Q11 must be under industry-typical
-  threshold (default 5%). Catches plans that fund growth purely with debt at
-  ratios that would consume operating profit."""
+  """A plan whose ending cash goes NEGATIVE in any live quarter is not a
+  fundable plan — no lender reads a negative cash balance as anything but
+  insolvency. This is the verdict-side replacement for the finalize cash-
+  buffer CRASH (demoted to advisory): a business that honestly cannot keep
+  cash positive under its JUDGED funding access renders an honest
+  NON-VIABLE with the record intact, instead of a dead run (Cedar: debt-
+  only access, every funding leg exhausted, cash -$2.9M by Q20 — the
+  machinery tried proposer + handler + minimum-debt floors and the drag
+  arithmetic genuinely does not close)."""
+  rows = _quarter_rows_by_index(finmo_json or {})
+  negative_quarters = []
+  for q in range(1, 21):
+    row = rows.get(q) or {}
+    ending = _safe_float(row.get("ending_cash"))
+    if ending is None:
+      continue
+    if float(ending) < 0.0:
+      negative_quarters.append({"q": q, "ending_cash": round(float(ending), 2)})
+  return (not negative_quarters), {
+    "negative_cash_quarters": negative_quarters[:10],
+    "negative_quarter_count": len(negative_quarters),
+  }
+
+
+def _check_cash_health_operational_not_debt_funded(
+  finmo_json: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, Dict[str, Any]]:
+  """Phase 9 G2 — the plan must not fund growth with debt it cannot carry.
+
+  DEFAULT RAIL (no cash judgment): interest / revenue at Q11 <= 5% — the
+  small-business lender's rule of thumb.
+
+  JUDGMENT-AWARE RAIL: when the executive cash judgment authored this
+  business's capital structure (viability-blind, fundability-not-need),
+  a flat percent-of-revenue rail misjudges honestly debt-financed
+  models — a project-financed plant with contracted PPA revenue runs
+  15%+ interest/revenue and real lenders underwrite it on COVERAGE.
+  The test becomes Q11 EBITDA / Q11 interest >= 2.0x (the standard
+  lender coverage floor). This CANNOT rescue a doomed business: negative
+  or thin EBITDA fails coverage automatically, and the judgment that
+  unlocks this rail is the same one that refuses funding to unfundable
+  businesses. No debt (zero interest) passes trivially under either rail.
+  """
   rows = _quarter_rows_by_index(finmo_json or {})
   q11 = rows.get(11) or {}
   interest = _safe_float(q11.get("debt_interest_expense"))
@@ -480,6 +521,39 @@ def _check_cash_health_operational_not_debt_funded(
   if revenue is None or revenue <= 0:
     return False, {"reason": "missing_q11_revenue", "interest_q11": interest}
   ratio = float(interest or 0.0) / float(revenue)
+
+  _judgment = None
+  try:
+    from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+      cash_judgment_from_model_input,
+    )
+    _judgment = cash_judgment_from_model_input(model_input_json)
+  except Exception:
+    _judgment = None
+  if isinstance(_judgment, dict):
+    # 1.5x interest coverage — conservative against real lender norms
+    # (SBA's own DSCR minimum is 1.15x; 1.25-1.5x is the conventional
+    # small-business floor). A 2.0x floor failed an otherwise-viable
+    # shop carrying a small buffer revolver at 1.9x — a loan any
+    # community lender writes. Negative/thin EBITDA still fails
+    # automatically, so a doomed business cannot pass this rail.
+    _COVERAGE_FLOOR = 1.5
+    ebitda = _safe_float(q11.get("ebitda")) or 0.0
+    if float(interest or 0.0) <= 0.0:
+      coverage = float("inf")
+      passed = True
+    else:
+      coverage = float(ebitda) / float(interest)
+      passed = coverage >= _COVERAGE_FLOOR
+    return passed, {
+      "rail": "judged_capital_structure_interest_coverage",
+      "q11_interest": round(float(interest or 0.0), 2),
+      "q11_ebitda": round(float(ebitda), 2),
+      "interest_coverage": (round(coverage, 2) if coverage != float("inf") else "no_debt"),
+      "coverage_floor": _COVERAGE_FLOOR,
+      "interest_revenue_ratio_informational": round(ratio, 4),
+    }
+
   passed = ratio <= _INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT
   return passed, {
     "q11_interest": round(float(interest or 0.0), 2),
@@ -768,8 +842,13 @@ def verify_run_acceptance(
   passed, detail = _check_net_income_trajectory_viable(finmo_json)
   _record("net_income_trajectory_viable", passed, detail)
 
-  passed, detail = _check_cash_health_operational_not_debt_funded(finmo_json)
+  passed, detail = _check_cash_health_operational_not_debt_funded(
+    finmo_json, _parse_json(draft.get("model_input_json")),
+  )
   _record("cash_health_operational_not_debt_funded", passed, detail)
+
+  passed, detail = _check_cash_never_negative(finmo_json)
+  _record("cash_never_negative", passed, detail)
 
   passed, detail = _check_cascade_exercised_or_documented(planning_run, planning_run_json, realism_memo)
   _record("cascade_exercised_or_documented", passed, detail)

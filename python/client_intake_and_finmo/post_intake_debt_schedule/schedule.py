@@ -299,17 +299,37 @@ def build_debt_schedule_plan(
         _judged_term_quarters = int(round(_dbt_term))
   except Exception:
     _judged_term_quarters = None
+  # TERM / REVOLVER SPLIT — the STATED opening debt is a TERM LOAN and
+  # amortizes on the (judged) term; gap-funding draws the cash pass
+  # issues are a REVOLVER: continuous draw/repay to smooth operating
+  # cash carries NO forced amortization (surplus deleverage repays it).
+  # Pre-split, every new draw joined the amortizing balance, so the
+  # minimum-principal pace forced repayments of money the plan re-drew
+  # the next quarter — revolver behavior shoved through a term-debt
+  # schedule (Orion: simultaneous issue/repay every quarter). Repayment
+  # applies to the revolver first (the flexible instrument), then term.
+  term_balance = int(opening_debt_seed)
+  revolver_balance = 0
   for quarter_index in range(1, horizon_count + 1):
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
     current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
-    available_debt = int(max(0, opening_debt + current_issuance))
+    revolver_balance = int(max(0, revolver_balance + current_issuance))
+    available_debt = int(max(0, term_balance + revolver_balance))
     if _judged_term_quarters is not None:
       remaining_quarters = max(1, _judged_term_quarters - quarter_index + 1)
     else:
       remaining_quarters = max(1, horizon_count - quarter_index + 1)
-    amortizing_minimum = int(math.ceil(float(available_debt) / float(remaining_quarters))) if available_debt > 0 else 0
-    minimum_principal = int(min(available_debt, amortizing_minimum))
+    amortizing_minimum = int(math.ceil(float(term_balance) / float(remaining_quarters))) if term_balance > 0 else 0
+    minimum_principal = int(min(term_balance, amortizing_minimum))
     scheduled_principal = int(min(available_debt, max(current_repayment, minimum_principal)))
+    _repay_revolver = int(min(revolver_balance, max(0, scheduled_principal - minimum_principal)))
+    _repay_term = int(min(term_balance, scheduled_principal - _repay_revolver))
+    _repay_leftover = int(max(0, scheduled_principal - _repay_revolver - _repay_term))
+    if _repay_leftover > 0:
+      _extra_rev = int(min(revolver_balance - _repay_revolver, _repay_leftover))
+      _repay_revolver += _extra_rev
+    revolver_balance = int(max(0, revolver_balance - _repay_revolver))
+    term_balance = int(max(0, term_balance - _repay_term))
     closing_debt = int(max(0, available_debt - scheduled_principal))
     interest_rate = forecast_interest_rate
     if available_debt > 0 and interest_rate <= 0.0:
@@ -350,6 +370,13 @@ def build_debt_schedule_plan(
       "actual_debt_repayment": scheduled_principal,
       "closing_debt": closing_debt,
       "closing_principal_balance": closing_debt,
+      # Instrument labeling — the schedule is a TERM LOAN (stated
+      # opening debt, amortizing) plus a REVOLVER (gap-funding draws,
+      # no forced amortization, repaid from surplus).
+      "term_loan_closing_balance": term_balance,
+      "revolver_closing_balance": revolver_balance,
+      "revolver_repayment": _repay_revolver,
+      "term_principal_payment": _repay_term,
       "annual_interest_rate": interest_rate,
       "interest_rate": interest_rate,
       "estimated_interest_expense": interest_expense,
@@ -389,6 +416,25 @@ def build_debt_schedule_snapshot(
   debt_issuance_series = [int(round(float(_safe_float(value) or 0.0))) for value in (lever_map.get(DEBT_ISSUANCE_LEVER_ID) or [])]
   debt_repayment_series = [int(round(float(_safe_float(value) or 0.0))) for value in (lever_map.get(DEBT_REPAYMENT_LEVER_ID) or [])]
   interest_rate_series = [round(float(_safe_float(value) or 0.0), 6) for value in (lever_map.get(INTEREST_RATE_LEVER_ID) or [])]
+  # TERM/REVOLVER split — mirror the plan builder's walk on the ACTUALS
+  # so the persisted snapshot rows carry the same instrument labeling
+  # the declining-balance validator reads (a flat revolver balance is
+  # legal; a live term balance must pay principal).
+  _judged_term_q: Optional[int] = None
+  try:
+    from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+      cash_judgment_from_model_input as _snap_judged_cash,
+    )
+    _snap_j = _snap_judged_cash(model_input_json)
+    if isinstance(_snap_j, dict):
+      _snap_t = _safe_float(_snap_j.get("debt_term_quarters"))
+      if _snap_t and _snap_t >= 1:
+        _judged_term_q = int(round(_snap_t))
+  except Exception:
+    _judged_term_q = None
+  _first_row = rows_by_quarter.get(1) or {}
+  _snap_term_balance = _safe_int(_first_row.get("debt_opening_balance"))
+  _snap_revolver_balance = 0
   schedule_rows: List[Dict[str, Any]] = []
   for quarter_index in range(1, horizon_count + 1):
     row = rows_by_quarter.get(quarter_index) or {}
@@ -397,6 +443,19 @@ def build_debt_schedule_snapshot(
     requested_repayment = int(debt_repayment_series[quarter_index - 1] if quarter_index - 1 < len(debt_repayment_series) else 0)
     actual_issuance = _safe_int(row.get("debt_issuance"))
     actual_repayment = _safe_int(row.get("debt_repayment"))
+    _snap_revolver_balance = int(max(0, _snap_revolver_balance + actual_issuance))
+    if _judged_term_q is not None:
+      _snap_remaining = max(1, _judged_term_q - quarter_index + 1)
+    else:
+      _snap_remaining = max(1, horizon_count - quarter_index + 1)
+    _snap_term_min = int(min(_snap_term_balance, math.ceil(float(_snap_term_balance) / float(_snap_remaining)))) if _snap_term_balance > 0 else 0
+    _snap_repay_rev = int(min(_snap_revolver_balance, max(0, actual_repayment - _snap_term_min)))
+    _snap_repay_term = int(min(_snap_term_balance, actual_repayment - _snap_repay_rev))
+    _snap_leftover = int(max(0, actual_repayment - _snap_repay_rev - _snap_repay_term))
+    if _snap_leftover > 0:
+      _snap_repay_rev += int(min(_snap_revolver_balance - _snap_repay_rev, _snap_leftover))
+    _snap_revolver_balance = int(max(0, _snap_revolver_balance - _snap_repay_rev))
+    _snap_term_balance = int(max(0, _snap_term_balance - _snap_repay_term))
     closing_debt = _safe_int(row.get("debt_closing_balance") if _safe_float(row.get("debt_closing_balance")) is not None else row.get("long_term_debt"))
     interest_rate = round(
       float(_safe_float(row.get("debt_interest_rate")) if _safe_float(row.get("debt_interest_rate")) is not None else (interest_rate_series[quarter_index - 1] if quarter_index - 1 < len(interest_rate_series) else 0.0)),
@@ -423,6 +482,10 @@ def build_debt_schedule_snapshot(
         "available_debt_before_repayment": int(max(0, opening_debt + actual_issuance)),
         "available_principal_before_payment": int(max(0, opening_debt + actual_issuance)),
         "total_debt_service": int(actual_repayment + interest_expense),
+        "term_loan_closing_balance": _snap_term_balance,
+        "revolver_closing_balance": _snap_revolver_balance,
+        "revolver_repayment": _snap_repay_rev,
+        "term_principal_payment": _snap_repay_term,
         "finmo_formula": "closing_debt = max(0, opening_debt + debt_issuance - debt_repayment); interest = average(opening_debt, closing_debt) * interest_rate",
       }
     )
@@ -532,7 +595,27 @@ def validate_debt_schedule_payload(
     if (opening > 0 or closing > 0 or issuance > 0) and interest < 0:
       violations.append({"quarter_index": quarter, "reason": "interest_negative", "interest": interest})
     if opening > 0 and issuance <= 0 and closing >= opening:
-      violations.append({"quarter_index": quarter, "reason": "principal_balance_not_declining_without_new_borrowing", "opening": opening, "closing": closing})
+      # TERM/REVOLVER split — the declining-balance rule applies to the
+      # TERM LOAN portion only. A revolver balance (gap-funding draws,
+      # no forced amortization, repaid from surplus) legitimately sits
+      # flat between draw and repayment; demanding it amortize is what
+      # forced revolver draws through term-debt mechanics (the
+      # simultaneous issue/repay churn). When the row carries the
+      # instrument split, flag only a non-declining TERM balance.
+      _term_closing = row.get("term_loan_closing_balance")
+      if _term_closing is not None:
+        # A live TERM balance must pay principal each quarter; a flat
+        # REVOLVER balance is legal by construction.
+        if _safe_int(_term_closing) > 0 and _safe_int(row.get("term_principal_payment")) <= 0:
+          violations.append({
+            "quarter_index": quarter,
+            "reason": "term_principal_balance_not_declining_without_new_borrowing",
+            "opening": opening, "closing": closing,
+            "term_closing": _safe_int(_term_closing),
+            "revolver_closing": _safe_int(row.get("revolver_closing_balance")),
+          })
+      else:
+        violations.append({"quarter_index": quarter, "reason": "principal_balance_not_declining_without_new_borrowing", "opening": opening, "closing": closing})
   return violations
 
 

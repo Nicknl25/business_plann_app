@@ -1186,10 +1186,19 @@ def _cash_strategy_funding_source_policy(
   if isinstance(cash_judgment, dict) and isinstance(cash_judgment.get("funding_access"), dict):
     _fa = cash_judgment["funding_access"]
     _rationale = str(((cash_judgment.get("rationales") or {}).get("funding_access")) or "")[:500]
+    # THE CASH PASS ALWAYS FUNDS THE GAPS — that is its one job, and the
+    # funding request IS the plan (the app writes loan plans). DEBT
+    # ISSUANCE (the gap-cover / revolver instrument) is therefore NEVER
+    # excluded: the executive judges HOW to fund (instrument mix, terms,
+    # whether equity is genuinely reachable), never WHETHER. A judged
+    # debt_available=false stays on record as the executive's lender-
+    # skepticism note; the acceptance gates (coverage, P&L, cash) judge
+    # whether the funded plan is lender-worthy. Equity sources remain
+    # judgment-gated (an investor cannot be invented).
     judged_allowed: List[str] = []
     judged_excluded: List[str] = []
     for lever_id, available in (
-      (_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID, bool(_fa.get("debt_available"))),
+      (_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID, True),
       (_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID, bool(_fa.get("owner_equity_available"))),
       (_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID, bool(_fa.get("outside_equity_available"))),
     ):
@@ -1197,15 +1206,25 @@ def _cash_strategy_funding_source_policy(
       if not lid or lid not in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS:
         continue
       (judged_allowed if available else judged_excluded).append(lid)
+    _reasons = [
+      "Executive cash judgment (viability-blind, fundability-not-need): " + (
+        _rationale or "funding access judged per business type/stage."
+      ),
+      "Debt issuance always available for gap coverage: the funding request "
+      "is the plan; the executive judges structure, the acceptance gates "
+      "judge lender-worthiness.",
+    ]
+    if not bool(_fa.get("debt_available")):
+      _reasons.append(
+        "NOTE: the executive judged conventional debt access DOUBTFUL for "
+        "this business — recorded for the lender narrative; gap coverage "
+        "still modeled so the plan is complete."
+      )
     return {
       "contract_version": "cash_strategy_funding_source_policy_v2_executive_judged",
       "allowed_funding_source_lever_ids": judged_allowed,
       "excluded_funding_source_lever_ids": judged_excluded,
-      "policy_reasons": [
-        "Executive cash judgment (viability-blind, fundability-not-need): " + (
-          _rationale or "funding access judged per business type/stage."
-        ),
-      ],
+      "policy_reasons": _reasons,
       "decision_source": "executive_cash_judgment",
     }
   envelope = violation_envelope if isinstance(violation_envelope, dict) else {}

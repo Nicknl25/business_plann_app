@@ -589,6 +589,17 @@ def balance_sheet_driver_finalize_errors(
         closing_debt = float(_safe_float(schedule_row_current.get("closing_debt")) or 0.0)
         if closing_debt <= 0.0 and not applicable:
           continue
+        # STD covers only debt that EXISTS TODAY — mirror the engine's
+        # exclude-future-issuance clipping (finmo_model STD sim): each
+        # next quarter's repayment counts only up to the remaining
+        # balance of the CURRENT quarter's closing debt. Schedule rows'
+        # total_principal_payment includes repayments backed by future
+        # borrowings; summing them raw let "expected" exceed today's
+        # balance (Cedar: expected $2.64M vs closing $0 after the
+        # deleverage-first cleanup) — phantom current liability, two
+        # sources of truth. Plans with no future issuance are unchanged
+        # (repayments never exceed the declining existing balance).
+        _sim_remaining = max(0.0, closing_debt)
         next_four_repayments = 0
         for next_q in range(quarter_index + 1, quarter_index + 5):
           next_row = next(
@@ -602,7 +613,9 @@ def balance_sheet_driver_finalize_errors(
               else next_row.get("actual_debt_repayment")
             ) or 0.0
           )
-          next_four_repayments += int(round(repayment))
+          _clipped = min(max(0.0, repayment), _sim_remaining)
+          _sim_remaining = max(0.0, _sim_remaining - _clipped)
+          next_four_repayments += int(round(_clipped))
         expected = next_four_repayments
         actual = int(round(float(_safe_float(finmo_row.get("short_term_debt")) or 0.0)))
         if expected != actual:
