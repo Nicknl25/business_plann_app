@@ -280,11 +280,33 @@ def build_debt_schedule_plan(
       "exact_updates": exact_updates,
     }
   opening_debt = int(opening_debt_seed)
+  # EXECUTIVE CASH JUDGMENT — the amortization pace follows the loan
+  # TERM a real lender would extend to this business (judged, railed
+  # [4, 40] quarters) instead of forcing every note to zero by the
+  # horizon end. A judged 40-quarter asset-backed/project term leaves a
+  # legitimate residual balance at Q20; a judged short working-capital
+  # note pays down faster. No judgment -> today's pay-off-by-horizon
+  # pace stands. The SBA policy rate is the rail either way.
+  _judged_term_quarters: Optional[int] = None
+  try:
+    from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+      cash_judgment_from_model_input as _dbt_judged_cash,
+    )
+    _dbt_judgment = _dbt_judged_cash(model_input_json)
+    if isinstance(_dbt_judgment, dict):
+      _dbt_term = _safe_float(_dbt_judgment.get("debt_term_quarters"))
+      if _dbt_term and _dbt_term >= 1:
+        _judged_term_quarters = int(round(_dbt_term))
+  except Exception:
+    _judged_term_quarters = None
   for quarter_index in range(1, horizon_count + 1):
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
     current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
     available_debt = int(max(0, opening_debt + current_issuance))
-    remaining_quarters = max(1, horizon_count - quarter_index + 1)
+    if _judged_term_quarters is not None:
+      remaining_quarters = max(1, _judged_term_quarters - quarter_index + 1)
+    else:
+      remaining_quarters = max(1, horizon_count - quarter_index + 1)
     amortizing_minimum = int(math.ceil(float(available_debt) / float(remaining_quarters))) if available_debt > 0 else 0
     minimum_principal = int(min(available_debt, amortizing_minimum))
     scheduled_principal = int(min(available_debt, max(current_repayment, minimum_principal)))

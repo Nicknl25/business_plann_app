@@ -70,6 +70,16 @@ def build_cash_planning_envelope(
   deterministic_update_keys: set[Tuple[str, int]] = set()
   cumulative_prior_surplus_deployment = 0
 
+  # EXECUTIVE CASH JUDGMENT — same judged buffer override as the
+  # validation envelope (single authority; SQL policy months are the
+  # no-judgment fallback).
+  from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+    cash_judgment_from_model_input as _judged_cash,
+  )
+  _cash_judgment = _judged_cash(model_input_json)
+  _judged_floor = safe_float((_cash_judgment or {}).get("buffer_months"))
+  _judged_ceiling = safe_float((_cash_judgment or {}).get("ceiling_months"))
+
   for quarter_index in live_quarters:
     row = rows_by_quarter.get(quarter_index) or {}
     capital_structure = capital_structure_snapshot(
@@ -85,8 +95,14 @@ def build_cash_planning_envelope(
     ) or {}
     components = buffer_components(
       row,
-      cash_floor_months=float(safe_float(cash_policy.get("cash_floor_months")) or default_buffer_months),
-      cash_ceiling_months=float(safe_float(cash_policy.get("cash_ceiling_months")) or default_buffer_months),
+      cash_floor_months=(
+        float(_judged_floor) if _judged_floor
+        else float(safe_float(cash_policy.get("cash_floor_months")) or default_buffer_months)
+      ),
+      cash_ceiling_months=(
+        float(_judged_ceiling) if _judged_ceiling
+        else float(safe_float(cash_policy.get("cash_ceiling_months")) or default_buffer_months)
+      ),
       default_buffer_months=default_buffer_months,
       months_per_quarter=months_per_quarter,
     )

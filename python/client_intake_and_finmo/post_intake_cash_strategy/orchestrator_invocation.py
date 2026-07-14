@@ -70,13 +70,19 @@ class CashStrategyResult:
 def _ensure_cash_strategy_on_financials(
   financials_json: Optional[Dict[str, Any]],
   adaptive_policy: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Return a deep-copied financials_json with ``cash_strategy`` set.
 
   ``runner._resolved_cash_strategy`` reads ``cash_strategy`` /
-  ``selected_cash_strategy`` off financials_json. The intake captures
-  the operator's selection on financials, but if it's missing we copy
-  the value from adaptive_policy so the runner sees a non-empty mode.
+  ``selected_cash_strategy`` off financials_json. Precedence:
+    1. The OPERATOR'S intake selection (a stated fact — never overridden).
+    2. adaptive_policy's carried value.
+    3. EXECUTIVE CASH JUDGMENT posture — the manager's coherent-for-this-
+       stage-and-leverage call, applied ONLY when intake left the posture
+       empty (posture_applies is stamped False by the validator whenever
+       the operator selected).
+    4. The runner's own "balanced" default (no-judgment fallback).
   """
   out = copy.deepcopy(financials_json) if isinstance(financials_json, dict) else {}
   if str(out.get("cash_strategy") or "").strip() or str(out.get("selected_cash_strategy") or "").strip():
@@ -89,6 +95,20 @@ def _ensure_cash_strategy_on_financials(
     )
     if str(raw or "").strip():
       out["cash_strategy"] = str(raw).strip()
+      return out
+  try:
+    from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+      cash_judgment_from_model_input,
+    )
+    judgment = cash_judgment_from_model_input(model_input_json)
+    if (
+      isinstance(judgment, dict)
+      and bool(judgment.get("posture_applies"))
+      and str(judgment.get("posture") or "").strip()
+    ):
+      out["cash_strategy"] = str(judgment["posture"]).strip()
+  except Exception:
+    pass
   return out
 
 
@@ -179,7 +199,9 @@ def run_mode_based_cash_strategy(
   from client_intake_and_finmo.post_intake_cash import runner as _cash_runner  # type: ignore
   from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
 
-  financials_for_runner = _ensure_cash_strategy_on_financials(financials_json, adaptive_policy)
+  financials_for_runner = _ensure_cash_strategy_on_financials(
+    financials_json, adaptive_policy, model_input_json=model_input_json,
+  )
   cash_strategy_mode = _cash_runner._resolved_cash_strategy(financials_for_runner, adaptive_policy or {})
 
   pre_cash_model_input_json = copy.deepcopy(model_input_json or {})

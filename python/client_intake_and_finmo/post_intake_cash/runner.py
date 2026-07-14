@@ -1164,14 +1164,50 @@ def _cash_strategy_funding_source_policy(
   *,
   violation_envelope: Optional[Dict[str, Any]],
   debt_schedule_snapshot: Optional[Dict[str, Any]],
+  cash_judgment: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Scope cash funding sources before GPT chooses the source mix.
+
+  EXECUTIVE CASH JUDGMENT — when present, FUNDING ACCESS is the
+  manager's business-grounded call (would a real lender/investor fund
+  THIS business at this stage?) instead of the universal chronic-gap /
+  rate / leverage thresholds: a scaled software company has outside-
+  equity access a donut shop does not; an SBA-eligible main-street
+  business has debt access a pre-revenue startup does not. The judgment
+  is viability-blind and never sizes a dollar — it only opens or closes
+  sources; the gap machinery still does all sizing. The threshold
+  arithmetic below survives as the NO-JUDGMENT fallback.
 
   Debt is a valid funding tool for short bridge needs, but chronic liquidity
   gaps funded with debt can reopen the cash buffer through FINMO interest drag.
   This policy narrows the source surface deterministically; GPT still chooses
   among the remaining mapped funding levers.
   """
+  if isinstance(cash_judgment, dict) and isinstance(cash_judgment.get("funding_access"), dict):
+    _fa = cash_judgment["funding_access"]
+    _rationale = str(((cash_judgment.get("rationales") or {}).get("funding_access")) or "")[:500]
+    judged_allowed: List[str] = []
+    judged_excluded: List[str] = []
+    for lever_id, available in (
+      (_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID, bool(_fa.get("debt_available"))),
+      (_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID, bool(_fa.get("owner_equity_available"))),
+      (_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID, bool(_fa.get("outside_equity_available"))),
+    ):
+      lid = str(lever_id or "").strip()
+      if not lid or lid not in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS:
+        continue
+      (judged_allowed if available else judged_excluded).append(lid)
+    return {
+      "contract_version": "cash_strategy_funding_source_policy_v2_executive_judged",
+      "allowed_funding_source_lever_ids": judged_allowed,
+      "excluded_funding_source_lever_ids": judged_excluded,
+      "policy_reasons": [
+        "Executive cash judgment (viability-blind, fundability-not-need): " + (
+          _rationale or "funding access judged per business type/stage."
+        ),
+      ],
+      "decision_source": "executive_cash_judgment",
+    }
   envelope = violation_envelope if isinstance(violation_envelope, dict) else {}
   schedule = debt_schedule_snapshot if isinstance(debt_schedule_snapshot, dict) else {}
   residual_gap_quarters = [
@@ -1449,9 +1485,13 @@ def _build_cash_strategy_review_context_payload(
     financials_json=copy.deepcopy(financials),
     selected_cash_strategy=selected_cash_strategy,
   )
+  from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+    cash_judgment_from_model_input as _fsp_judged_cash,
+  )
   funding_source_policy = _cash_strategy_funding_source_policy(
     violation_envelope=copy.deepcopy(violation_envelope),
     debt_schedule_snapshot=copy.deepcopy(debt_schedule_snapshot),
+    cash_judgment=_fsp_judged_cash(model_input),
   )
   allowed_quarters = [
     int(_safe_float(item) or 0)
@@ -3709,6 +3749,13 @@ def _apply_cash_policy_surplus_cleanup(
   selected_cash_strategy = _resolved_cash_strategy(financials_json)
   live_quarter_count = len(_cash_strategy_live_quarter_rows(finmo_json)) or 20
   cleanup_pass_limit = max(max(1, int(max_passes)), live_quarter_count * 2)
+  from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+    cash_judgment_from_model_input as _surplus_judged_cash,
+  )
+  _surplus_judgment = _surplus_judged_cash(model_input_json)
+  _surplus_judged_priority = str(
+    (_surplus_judgment or {}).get("surplus_priority") or ""
+  ).strip().lower()
   for pass_index in range(1, cleanup_pass_limit + 1):
     envelope = _cash_strategy_validation_violation_envelope(
       selected_cash_strategy=selected_cash_strategy,
@@ -3747,6 +3794,15 @@ def _apply_cash_policy_surplus_cleanup(
       cash_policy = quarter_payload.get("cash_policy") if isinstance(quarter_payload.get("cash_policy"), dict) else {}
       distribution_weight = max(0.0, float(_safe_float(cash_policy.get("distribution_weight")) or 0.0))
       debt_paydown_weight = max(0.0, float(_safe_float(cash_policy.get("debt_paydown_weight")) or 0.0))
+      # EXECUTIVE CASH JUDGMENT — surplus deployment as a judgment, not a
+      # static policy weight: a leveraged business pays debt down before
+      # paying anyone out (deleverage_first routes the full surplus to
+      # debt repayment; only what exceeds the remaining balance can then
+      # flow to distributions via the spillover below). distribute_ok
+      # keeps the strategy's normal split. No judgment -> policy weights.
+      if _surplus_judged_priority == "deleverage_first":
+        distribution_weight = 0.0
+        debt_paydown_weight = 1.0
       weight_total = distribution_weight + debt_paydown_weight
       if weight_total <= 0.0:
         distribution_weight = 1.0
