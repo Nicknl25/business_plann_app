@@ -996,6 +996,71 @@ def prepare_initial_grid_for_draft(
       }
     shared_context["wc_judgment_trace"] = _wc_trace
 
+    # -- EXECUTIVE CASH & CAPITAL-STRUCTURE JUDGMENT --
+    # Authored ONCE here (viability-blind, locked, Python-railed) and
+    # stamped to solver_input.cash_judgment; the existing cash pass reads
+    # it as its parameters (buffer months, funding access, debt term,
+    # posture fill, surplus priority) with today's constants surviving
+    # only as the no-judgment fallback. A failed call changes nothing.
+    _cash_trace: Dict[str, Any] = {"ok": False, "source": "mechanical_constants"}
+    try:
+      from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore  # noqa: E501
+        gpt_author_cash_judgment_once,
+        validate_cash_judgment,
+      )
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+        build_operating_model_digest as _cash_build_digest,
+      )
+      _cash_compact = _cash_build_digest(
+        ops_json, people_json, market_json, marketing_model_json,
+      )
+      if _cash_compact:
+        def _cash_fact(key: str) -> Optional[float]:
+          try:
+            v = float((financials_json or {}).get(key))
+            return v
+          except (TypeError, ValueError):
+            return None
+        _cash_selected_posture = str(
+          (financials_json or {}).get("cash_strategy")
+          or (financials_json or {}).get("selected_cash_strategy") or ""
+        ).strip()
+        _cash_stated = {
+          "current_annual_revenue": _cash_fact("current_revenue"),
+          "cash_on_hand": _cash_fact("cash_on_hand"),
+          "total_debt_outstanding": _cash_fact("total_debt_outstanding"),
+          "initial_equity": _cash_fact("initial_equity"),
+          "initial_assets": _cash_fact("initial_assets"),
+          "annual_interest_payment": _cash_fact("annual_interest_payment"),
+          "owner_compensation": _cash_fact("owner_compensation"),
+          "operator_selected_cash_strategy": _cash_selected_posture or None,
+        }
+        _cash_result = gpt_author_cash_judgment_once(
+          compact=_cash_compact,
+          stated_facts={k: v for k, v in _cash_stated.items() if v is not None},
+        )
+        if _cash_result.get("ok"):
+          _cash_validated = validate_cash_judgment(
+            judgment=_cash_result["judgment"],
+            operator_selected_posture=bool(_cash_selected_posture),
+          )
+          if isinstance(model_input_json, dict):
+            model_input_json.setdefault("solver_input", {})
+            if isinstance(model_input_json["solver_input"], dict):
+              model_input_json["solver_input"]["cash_judgment"] = _cash_validated
+              _cash_trace = {
+                "ok": True, "source": "executive_cash_judgment",
+                "judgment": copy.deepcopy(_cash_validated),
+              }
+        else:
+          _cash_trace["error"] = _cash_result.get("error")
+    except Exception as _cash_exc:  # noqa: BLE001 — soft: constants stand
+      _cash_trace = {
+        "ok": False, "source": "mechanical_constants",
+        "error": f"{type(_cash_exc).__name__}: {str(_cash_exc)[:200]}",
+      }
+    shared_context["cash_judgment_trace"] = _cash_trace
+
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
       set_capex_rd_balance_seed,
     )

@@ -150,6 +150,19 @@ def build_diagnostics_sheet(
   )
   row = _kv_row(ws, row, "Score", score)
   row = _kv_row(ws, row, "Verdict", verdict_text)
+  # EVERY acceptance check with its own pass/fail mark — a FAILED verdict
+  # must show its red X here. The old sheet listed only REALISM metrics,
+  # so a failing acceptance check (e.g. cash_never_negative) was
+  # invisible: "FAILED 16/17" over an all-green list.
+  acceptance_checks = payload.get("acceptance_checks") or []
+  if isinstance(acceptance_checks, list) and acceptance_checks:
+    for idx, entry in enumerate(acceptance_checks):
+      if not isinstance(entry, dict):
+        continue
+      name = str(entry.get("name") or "").strip()
+      if not name:
+        continue
+      row = _check_row(ws, row, name, bool(entry.get("passed")), alt=(idx % 2 == 1))
   row += 1
 
   # Section 2b -- Handler summary (only when handler fired).

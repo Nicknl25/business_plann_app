@@ -1908,17 +1908,30 @@ def assert_post_intake_cash_buffer_integrity(
       details={"exception": str(exc)},
     )
     return
+  # EXECUTIVE CASH JUDGMENT — the crash-level invariant enforces the
+  # HARD FLOOR (min of judged and SQL-policy buffer months, stamped on
+  # the envelope rows as `hard_floor_buffer`), not the judged planning
+  # target: the judgment steers how much the funding machinery AIMS to
+  # hold, but a judged-rich buffer must not turn a cumulative-interest-
+  # drag epsilon into a dead run. Rows without the field (no judgment /
+  # legacy envelopes) fall back to `buffer` — today's exact behavior.
+  def _required_floor(item: Dict[str, Any]) -> int:
+    hard = _safe_float(item.get("hard_floor_buffer"))
+    if hard is not None:
+      return int(round(float(hard)))
+    return int(round(float(_safe_float(item.get("buffer")) or 0.0)))
+
   violations = [
     {
       "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
       "ending_cash": int(round(float(_safe_float(item.get("ending_cash")) or 0.0))),
-      "required_cash_buffer": int(round(float(_safe_float(item.get("buffer")) or 0.0))),
+      "required_cash_buffer": _required_floor(item),
       "cash_strategy": envelope.get("selected_cash_strategy"),
     }
     for item in (envelope.get("quarter_envelopes") or [])
     if isinstance(item, dict)
     and int(round(float(_safe_float(item.get("ending_cash")) or 0.0)))
-    < int(round(float(_safe_float(item.get("buffer")) or 0.0)))
+    < _required_floor(item)
   ]
   _raise_if_violations(
     "post_intake_cash_buffer_violation",

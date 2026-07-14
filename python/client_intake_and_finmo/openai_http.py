@@ -117,44 +117,67 @@ def _lock_ensure_table(conn) -> None:
 
 
 def _lock_lookup(key: str) -> Optional[str]:
-  try:
-    conn = _lock_connection()
+  # DETERMINISM — a lock lookup that silently swallows a DB hiccup falls
+  # back to an UNLOCKED live call, reintroducing nondeterminism anywhere
+  # in the app (any run where the hiccup lands rolls fresh). Retry the DB
+  # op; if it still fails, RAISE — the caller must never proceed unlocked
+  # while the lock is enabled. Same discipline for _lock_save: a swallowed
+  # save failure means the NEXT run re-rolls a call this run made live.
+  _last_exc: Optional[Exception] = None
+  for _attempt in range(3):
     try:
-      _lock_ensure_table(conn)
-      cur = conn.cursor()
+      conn = _lock_connection()
       try:
-        cur.execute(
-          f"SELECT response_text FROM {GPT_RESPONSE_LOCK_TABLE} WHERE input_hash = %s",
-          (key,),
-        )
-        row = cur.fetchone()
+        _lock_ensure_table(conn)
+        cur = conn.cursor()
+        try:
+          cur.execute(
+            f"SELECT response_text FROM {GPT_RESPONSE_LOCK_TABLE} WHERE input_hash = %s",
+            (key,),
+          )
+          row = cur.fetchone()
+        finally:
+          cur.close()
       finally:
-        cur.close()
-    finally:
-      conn.close()
-    return row[0] if row and row[0] else None
-  except Exception:
-    return None
+        conn.close()
+      return row[0] if row and row[0] else None
+    except Exception as exc:
+      _last_exc = exc
+      time.sleep(0.25 * (_attempt + 1))
+  raise RuntimeError(
+    f"gpt_response_lock_lookup_failed: the response-lock store is unreachable "
+    f"after 3 attempts; refusing to fall back to an unlocked live call. "
+    f"cause={type(_last_exc).__name__}: {str(_last_exc)[:200]}"
+  )
 
 
 def _lock_save(key: str, url: str, body_text: str) -> None:
-  try:
-    conn = _lock_connection()
+  _last_exc: Optional[Exception] = None
+  for _attempt in range(3):
     try:
-      _lock_ensure_table(conn)
-      cur = conn.cursor()
+      conn = _lock_connection()
       try:
-        cur.execute(
-          f"INSERT IGNORE INTO {GPT_RESPONSE_LOCK_TABLE} (input_hash, response_text, url) VALUES (%s, %s, %s)",
-          (key, body_text, str(url)[:255]),
-        )
-        conn.commit()
+        _lock_ensure_table(conn)
+        cur = conn.cursor()
+        try:
+          cur.execute(
+            f"INSERT IGNORE INTO {GPT_RESPONSE_LOCK_TABLE} (input_hash, response_text, url) VALUES (%s, %s, %s)",
+            (key, body_text, str(url)[:255]),
+          )
+          conn.commit()
+        finally:
+          cur.close()
       finally:
-        cur.close()
-    finally:
-      conn.close()
-  except Exception:
-    pass
+        conn.close()
+      return
+    except Exception as exc:
+      _last_exc = exc
+      time.sleep(0.25 * (_attempt + 1))
+  raise RuntimeError(
+    f"gpt_response_lock_save_failed: could not persist a live GPT response "
+    f"after 3 attempts; the next identical run would re-roll it. "
+    f"cause={type(_last_exc).__name__}: {str(_last_exc)[:200]}"
+  )
 
 
 def _openai_session() -> requests.Session:
@@ -204,16 +227,15 @@ def post_openai_with_retries(
   max_attempts: int = 3,
 ) -> requests.Response:
   # GPT response lock: replay the locked response for an identical request
-  # (see module comment). Miss / disabled / store failure -> live call.
+  # (see module comment). Miss -> live call (then saved). A store FAILURE
+  # is fatal by design — _lock_lookup retries and raises; silently falling
+  # back to an unlocked live call here was a system-wide determinism hole.
   lock_key: Optional[str] = None
   if _gpt_lock_enabled():
-    try:
-      lock_key = gpt_request_lock_key(url, payload)
-      locked_body = _lock_lookup(lock_key)
-      if locked_body is not None:
-        return _LockedResponse(locked_body)  # type: ignore[return-value]
-    except Exception:
-      lock_key = None
+    lock_key = gpt_request_lock_key(url, payload)
+    locked_body = _lock_lookup(lock_key)
+    if locked_body is not None:
+      return _LockedResponse(locked_body)  # type: ignore[return-value]
 
   retryable = {int(item) for item in retryable_status}
   retryable.update(_TRANSIENT_EDGE_STATUS)
@@ -230,13 +252,19 @@ def post_openai_with_retries(
         time.sleep(0.75 * (2**attempt))
         continue
       # Lock only clean, parseable successes -- a cached failure would
-      # freeze an outage into determinism.
+      # freeze an outage into determinism. The parse check stays
+      # non-fatal (an unparseable 200 is returned to the caller to
+      # handle); a SAVE failure raises (see _lock_save) — proceeding
+      # with an unsaved live response means the next identical run
+      # re-rolls it.
       if lock_key is not None and int(getattr(resp, "status_code", 0) or 0) == 200:
+        _parse_ok = True
         try:
           resp.json()
-          _lock_save(lock_key, url, resp.text)
         except Exception:
-          pass
+          _parse_ok = False
+        if _parse_ok:
+          _lock_save(lock_key, url, resp.text)
       return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc

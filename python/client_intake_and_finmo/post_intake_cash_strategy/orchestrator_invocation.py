@@ -70,13 +70,19 @@ class CashStrategyResult:
 def _ensure_cash_strategy_on_financials(
   financials_json: Optional[Dict[str, Any]],
   adaptive_policy: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Return a deep-copied financials_json with ``cash_strategy`` set.
 
   ``runner._resolved_cash_strategy`` reads ``cash_strategy`` /
-  ``selected_cash_strategy`` off financials_json. The intake captures
-  the operator's selection on financials, but if it's missing we copy
-  the value from adaptive_policy so the runner sees a non-empty mode.
+  ``selected_cash_strategy`` off financials_json. Precedence:
+    1. The OPERATOR'S intake selection (a stated fact — never overridden).
+    2. adaptive_policy's carried value.
+    3. EXECUTIVE CASH JUDGMENT posture — the manager's coherent-for-this-
+       stage-and-leverage call, applied ONLY when intake left the posture
+       empty (posture_applies is stamped False by the validator whenever
+       the operator selected).
+    4. The runner's own "balanced" default (no-judgment fallback).
   """
   out = copy.deepcopy(financials_json) if isinstance(financials_json, dict) else {}
   if str(out.get("cash_strategy") or "").strip() or str(out.get("selected_cash_strategy") or "").strip():
@@ -89,6 +95,20 @@ def _ensure_cash_strategy_on_financials(
     )
     if str(raw or "").strip():
       out["cash_strategy"] = str(raw).strip()
+      return out
+  try:
+    from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+      cash_judgment_from_model_input,
+    )
+    judgment = cash_judgment_from_model_input(model_input_json)
+    if (
+      isinstance(judgment, dict)
+      and bool(judgment.get("posture_applies"))
+      and str(judgment.get("posture") or "").strip()
+    ):
+      out["cash_strategy"] = str(judgment["posture"]).strip()
+  except Exception:
+    pass
   return out
 
 
@@ -179,7 +199,9 @@ def run_mode_based_cash_strategy(
   from client_intake_and_finmo.post_intake_cash import runner as _cash_runner  # type: ignore
   from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
 
-  financials_for_runner = _ensure_cash_strategy_on_financials(financials_json, adaptive_policy)
+  financials_for_runner = _ensure_cash_strategy_on_financials(
+    financials_json, adaptive_policy, model_input_json=model_input_json,
+  )
   cash_strategy_mode = _cash_runner._resolved_cash_strategy(financials_for_runner, adaptive_policy or {})
 
   pre_cash_model_input_json = copy.deepcopy(model_input_json or {})
@@ -585,6 +607,32 @@ def run_mode_based_cash_strategy(
     )
     if not isinstance(lever_bounds_payload, dict):
       lever_bounds_payload = {}
+    # THE JUDGED FUNDING ACCESS GATES EVERY FUNDING LEG. The funding-
+    # source policy (executive judgment when present) narrowed the
+    # PROPOSER's sources, but the handler received the RAW lever bounds
+    # and could fund with sources the executive judged unavailable —
+    # Cedar's handler injected ~$21M of Owner's Capital against a
+    # judgment of owner_equity_available=false ("owners of a capital-
+    # intensive infrastructure asset cannot realistically add capital"),
+    # a fundability-not-need breach that made the plan pass dishonestly.
+    # Filter the handler's bounds to the policy's allowed FUNDING
+    # sources; non-source levers (debt repayment, distributions) pass
+    # through untouched.
+    _fsp = (
+      cash_strategy_review_context.get("funding_source_policy")
+      if isinstance(cash_strategy_review_context, dict) else {}
+    ) or {}
+    _fsp_excluded = {
+      str(item).strip()
+      for item in (_fsp.get("excluded_funding_source_lever_ids") or [])
+      if str(item or "").strip()
+    }
+    if _fsp_excluded:
+      lever_bounds_payload = {
+        lever_id: rows
+        for lever_id, rows in lever_bounds_payload.items()
+        if str(lever_id).strip() not in _fsp_excluded
+      }
     buffer_by_q: Dict[int, float] = {}
     cve = (
       cash_post_validation.get("cash_validation_envelope") or {}
@@ -667,6 +715,235 @@ def run_mode_based_cash_strategy(
         )
         cash_post_validation = post_handler_post_validation
         keep_changes = True
+        # ORDERING HOLE — the handler runs AFTER Step 9's surplus
+        # cleanup, so its adopted state (which may inject funding that
+        # CREATES surplus, or simply carry the pre-cleanup cash) never
+        # got a surplus pass: Orion parked $21B (7.95x opex) that the
+        # cleanup, run on this exact state, deploys correctly (debt to
+        # zero, cash to 3.1x). Re-run Step 9 on the handler's state,
+        # rebuild FINMO once (Stage-3 discipline), and re-validate so
+        # the recorded verdict matches the state downstream consumes.
+        cash_strategy_second_pass_result = _cash_runner._apply_cash_policy_surplus_cleanup(
+          cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+          financials_json=copy.deepcopy(financials_for_runner),
+        )
+        try:
+          from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+            build_python_finmo_json as _post_handler_rebuild,
+          )
+          _rebuilt_post_handler = _post_handler_rebuild(
+            model_input_json=copy.deepcopy(
+              cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+            )
+          )
+          if isinstance(_rebuilt_post_handler, dict) and _rebuilt_post_handler:
+            cash_strategy_second_pass_result["updated_finmo_json"] = _rebuilt_post_handler
+        except Exception:
+          from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+            convergence_test_mode_enabled as _ph_test_mode,
+          )
+          if _ph_test_mode():
+            raise
+        try:
+          _post_cleanup_validation = _cash_runner._validate_cash_strategy_post_pass(
+            ops_json=ops_json_dict,
+            financials_json=copy.deepcopy(financials_for_runner),
+            baseline_issue_ledger=[],
+            candidate_model_input_json=copy.deepcopy(
+              cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+            ),
+            candidate_finmo_json=copy.deepcopy(
+              cash_strategy_second_pass_result.get("updated_finmo_json") or {}
+            ),
+            iteration=3,
+            planning_mode=planning_mode_str or None,
+          )
+          if isinstance(_post_cleanup_validation, dict):
+            cash_post_validation = _post_cleanup_validation
+        except Exception:
+          pass
+
+  # FUNDING HANDSHAKE — the cash pass's ONE JOB is that a fundable
+  # business never ends a quarter with negative cash, and an unfundable
+  # one fails on an explicit verdict, never a silent negative balance.
+  # The single-pass plan (and the handler) size gaps on a pre-funding
+  # snapshot, so cumulative interest drag leaves residual gaps the old
+  # machinery silently shipped (Cedar: judged debt ACCESS AVAILABLE with
+  # per-quarter headroom, yet cash ran to -$2.9M). This bounded
+  # deterministic refill loop closes the handshake: re-measure gaps on
+  # the REBUILT state, fund them through the JUDGED-allowed sources
+  # only (the executive's fundability call gates every dollar), repeat
+  # until cash holds or the allowed sources are truly exhausted — in
+  # which case the trace records UNFUNDABLE and the acceptance gate's
+  # cash_never_negative check renders the honest non-viable verdict.
+  try:
+    _refill_trace: List[Dict[str, Any]] = []
+    _refill_unfundable = False
+    _fsp_refill = (
+      cash_strategy_review_context.get("funding_source_policy")
+      if isinstance(cash_strategy_review_context, dict) else {}
+    ) or {}
+    _refill_allowed = [
+      str(item).strip()
+      for item in (_fsp_refill.get("allowed_funding_source_lever_ids") or [])
+      if str(item or "").strip()
+    ]
+    _refill_bounds = (
+      (cash_strategy_review_context.get("lever_bounds") or {}).get("lever_bounds")
+      if isinstance(cash_strategy_review_context, dict) else {}
+    ) or {}
+    _refill_bound_max: Dict[tuple, float] = {}
+    for _rb_lever, _rb_rows in _refill_bounds.items():
+      for _rb_row in (_rb_rows or []):
+        if not isinstance(_rb_row, dict):
+          continue
+        try:
+          _rb_q = int(float(_rb_row.get("quarter_index") or 0))
+          _rb_max = float(_rb_row.get("max_value") or 0.0)
+        except Exception:
+          continue
+        if _rb_q >= 1:
+          _refill_bound_max[(str(_rb_lever).strip(), _rb_q)] = _rb_max
+    if _refill_allowed:
+      from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
+      for _refill_pass in range(1, 7):
+        _refill_mi = cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+        _refill_fj = cash_strategy_second_pass_result.get("updated_finmo_json") or {}
+        _refill_env = _cash_runner._cash_strategy_validation_violation_envelope(
+          selected_cash_strategy=cash_strategy_mode,
+          finmo_payload=copy.deepcopy(_refill_fj),
+          model_input_json=copy.deepcopy(_refill_mi),
+        )
+        _refill_gaps = []
+        for _rq in (_refill_env.get("quarter_envelopes") or []):
+          if not isinstance(_rq, dict):
+            continue
+          _rq_i = int(float(_rq.get("quarter_index") or 0))
+          _rq_gap = int(round(float(_rq.get("residual_funding_gap") or 0.0)))
+          _rq_end = int(round(float(_rq.get("ending_cash") or 0.0)))
+          if _rq_i >= 1 and (_rq_gap > 0 or _rq_end < 0):
+            _refill_gaps.append((_rq_i, max(_rq_gap, -_rq_end)))
+        if not _refill_gaps:
+          break
+        _refill_lever_values = _cash_runner._solved_lever_value_map(_refill_mi)
+        _refill_updates: List[Dict[str, Any]] = []
+        # CARRY-FORWARD: funding a quarter lifts every later quarter's
+        # ending cash, so each gap is funded only INCREMENTALLY beyond
+        # what earlier fills already carry forward — funding every
+        # quarter's full standalone gap over-funds the tail massively
+        # (Cedar: cash ballooned to 9.7x opex in one pass).
+        _carry_forward = 0.0
+        for _rq_i, _rq_gap in _refill_gaps:
+          _remaining_gap = max(0.0, float(_rq_gap) - _carry_forward)
+          if _remaining_gap <= 0:
+            continue
+          for _lever in _refill_allowed:
+            if _remaining_gap <= 0:
+              break
+            _cur_series = _refill_lever_values.get(_lever) or []
+            _cur = float(_cur_series[_rq_i - 1]) if _rq_i - 1 < len(_cur_series) else 0.0
+            _maxv = _refill_bound_max.get((_lever, _rq_i))
+            _headroom = (float(_maxv) - _cur) if _maxv is not None else 0.0
+            if _headroom <= 0:
+              continue
+            _mult = 1.0
+            if _lever == _cash_runner._CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID:
+              _mult = _cash_runner._cash_strategy_debt_cash_support_multiplier(
+                lever_map=_refill_lever_values, quarter_index=_rq_i,
+              ) or 1.0
+            _need = _remaining_gap / max(0.5, float(_mult))
+            _add = min(_headroom, _need)
+            if _add < 1.0:
+              continue
+            _refill_updates.append({
+              "lever_id": _lever,
+              "quarter_index": _rq_i,
+              "exact_value": int(round(_cur + _add)),
+              "issue_codes": ["liquidity_failure"],
+              "rationale": (
+                "Funding handshake refill: residual liquidity gap after "
+                "drag, funded through executive-judged available sources."
+              ),
+            })
+            _remaining_gap -= _add * float(_mult)
+            _carry_forward += _add * float(_mult)
+        if not _refill_updates:
+          _refill_unfundable = True
+          break
+        _refill_exec = execute_numeric_plan(
+          model_input_json=copy.deepcopy(_refill_mi),
+          exact_updates=copy.deepcopy(_refill_updates),
+          numeric_solver_contract={
+            "pass_name": "cash_strategy_review",
+            "contract_scope": "cash_pass_funding_handshake_refill",
+            "solver_phase_status": "phase_6_cash_strategy_solver_live",
+            "solver_settings": {"max_solver_attempts_per_pass": 1},
+          },
+          review_plan=None,
+          phase_status="phase_6_cash_strategy_solver_live",
+          executor_context={
+            "source": "post_intake_cash_strategy.funding_handshake_refill",
+            "execution_mode": "deterministic_refill",
+          },
+        )
+        if isinstance(_refill_exec.get("updated_model_input_json"), dict):
+          cash_strategy_second_pass_result["updated_model_input_json"] = (
+            _refill_exec["updated_model_input_json"]
+          )
+        if isinstance(_refill_exec.get("updated_finmo_json"), dict):
+          cash_strategy_second_pass_result["updated_finmo_json"] = (
+            _refill_exec["updated_finmo_json"]
+          )
+        _refill_trace.append({
+          "pass": _refill_pass,
+          "gaps": len(_refill_gaps),
+          "updates": len(_refill_updates),
+        })
+      else:
+        # Loop exhausted its passes with gaps still present.
+        _refill_unfundable = True
+    if _refill_trace:
+      # The refill can still overshoot (drag gross-up + integer floors);
+      # a final surplus pass deploys the excess back — for a judged
+      # deleverage-first business that means repaying the revolver, so
+      # the cash the refill parked above the ceiling never sits idle.
+      cash_strategy_second_pass_result = _cash_runner._apply_cash_policy_surplus_cleanup(
+        cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+        financials_json=copy.deepcopy(financials_for_runner),
+      )
+      # New issuance needs its amortization floor + a canonical rebuild
+      # so downstream validators see coherent schedule rows.
+      cash_strategy_second_pass_result = _cash_runner._apply_cash_pass_minimum_debt_schedule(
+        cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+        financials_json=copy.deepcopy(financials_for_runner),
+      )
+      try:
+        from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+          build_python_finmo_json as _refill_rebuild,
+        )
+        _refill_rebuilt = _refill_rebuild(
+          model_input_json=copy.deepcopy(
+            cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+          )
+        )
+        if isinstance(_refill_rebuilt, dict) and _refill_rebuilt:
+          cash_strategy_second_pass_result["updated_finmo_json"] = _refill_rebuilt
+      except Exception:
+        pass
+    cash_strategy_second_pass_result["funding_handshake_refill"] = {
+      "passes": _refill_trace,
+      "allowed_sources": _refill_allowed,
+      "unfundable_under_judged_access": _refill_unfundable,
+    }
+  except Exception as _refill_exc:
+    from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+      convergence_test_mode_enabled as _refill_test_mode,
+    )
+    if _refill_test_mode():
+      raise
+    cash_strategy_second_pass_result["funding_handshake_refill"] = {
+      "error": f"{type(_refill_exc).__name__}: {str(_refill_exc)[:300]}",
+    }
 
   # Phase 9 P3.20 Part 3 Stage 1 -- NEVER revert. The cash strategy
   # proposer + (optional) funding handler outputs ALWAYS become the

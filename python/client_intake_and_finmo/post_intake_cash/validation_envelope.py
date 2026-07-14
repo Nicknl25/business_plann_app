@@ -65,6 +65,17 @@ def build_cash_validation_envelope(
   previous_effective_other_equity = int(round(float(safe_float(stub_value_map.get(other_equity_lever_id)) or 0.0)))
   deterministic_update_keys: set[Tuple[str, int]] = set()
 
+  # EXECUTIVE CASH JUDGMENT — buffer floor/ceiling months are the
+  # manager's business-reasoned cushion when present (a PPA-contracted
+  # plant runs leaner than a seasonal walk-in shop); the SQL cash-policy
+  # months survive as the no-judgment fallback.
+  from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
+    cash_judgment_from_model_input as _judged_cash,
+  )
+  _cash_judgment = _judged_cash(model_input_json)
+  _judged_floor = safe_float((_cash_judgment or {}).get("buffer_months"))
+  _judged_ceiling = safe_float((_cash_judgment or {}).get("ceiling_months"))
+
   for quarter_index in live_quarters:
     row = rows_by_quarter.get(quarter_index) or {}
     capital_structure = capital_structure_snapshot(
@@ -78,15 +89,67 @@ def build_cash_validation_envelope(
       debt_to_equity=debt_to_equity,
       required=True,
     ) or {}
+    _policy_floor_months = float(safe_float(cash_policy.get("cash_floor_months")) or default_buffer_months)
     components = buffer_components(
       row,
-      cash_floor_months=float(safe_float(cash_policy.get("cash_floor_months")) or default_buffer_months),
-      cash_ceiling_months=float(safe_float(cash_policy.get("cash_ceiling_months")) or default_buffer_months),
+      cash_floor_months=(
+        float(_judged_floor) if _judged_floor else _policy_floor_months
+      ),
+      cash_ceiling_months=(
+        float(_judged_ceiling) if _judged_ceiling
+        else float(safe_float(cash_policy.get("cash_ceiling_months")) or default_buffer_months)
+      ),
       default_buffer_months=default_buffer_months,
       months_per_quarter=months_per_quarter,
     )
-    buffer_required = int(components.get("cash_buffer_required") or 0)
-    cash_ceiling = int(components.get("cash_ceiling") or buffer_required)
+    # HARD-FLOOR split: the judged buffer is the PLANNING target (funding
+    # aims at it, surplus retention honors it), but the finalize crash
+    # gate enforces the MACHINERY'S PROVEN RAIL — never stricter than the
+    # judgment, the current strategy's policy floor, OR the app's
+    # historical balanced-default floor. Two failure modes this kills:
+    # (a) a judged-rich buffer turning the funding machinery's cumulative-
+    # interest-drag undershoot into a dead run (V3: funded toward a
+    # judged $47.0k, landed $45.6k, old proven floor $35.2k — healthy,
+    # not invalid); (b) the judged POSTURE fill itself raising the policy
+    # floor (preserve_cash rows are stricter than balanced), which would
+    # sneak a stricter crash gate in through the strategy key. A
+    # judged-LEAN buffer still genuinely relaxes the gate.
+    _policy_floor_balanced = _policy_floor_months
+    try:
+      _balanced_policy = post_intake_cash_policy_for(
+        cash_strategy="balanced", debt_to_equity=debt_to_equity, required=False,
+      ) or {}
+      _policy_floor_balanced = float(
+        safe_float(_balanced_policy.get("cash_floor_months")) or _policy_floor_months
+      )
+    except Exception:
+      _policy_floor_balanced = _policy_floor_months
+    _hard_floor_months = min(
+      float(_judged_floor) if _judged_floor else float("inf"),
+      _policy_floor_months,
+      _policy_floor_balanced,
+    )
+    _hard_components = buffer_components(
+      row,
+      cash_floor_months=_hard_floor_months,
+      cash_ceiling_months=_hard_floor_months,
+      default_buffer_months=default_buffer_months,
+      months_per_quarter=months_per_quarter,
+    )
+    # FUND TO THE HARD FLOOR, RETAIN TO THE JUDGED BUFFER, DEPLOY ABOVE
+    # THE JUDGED CEILING. Borrowing never chases prudence: funding a
+    # judged-rich cushion with debt costs interest the business's own
+    # EBITDA must then cover (V4: $103k borrowed to hold a 2.5-month
+    # buffer pushed coverage to 1.9x and failed an otherwise-viable
+    # shop). Gaps are funded only to the hard floor — the deterministic
+    # REFILL loop re-measures on the rebuilt state, so floor-funding
+    # converges without a drag margin (the reason an earlier version of
+    # this split failed). The judged buffer governs RETENTION
+    # (distributions blocked below it); the judged ceiling governs
+    # DEPLOYMENT.
+    retention_buffer = int(components.get("cash_buffer_required") or 0)
+    buffer_required = int(_hard_components.get("cash_buffer_required") or 0)
+    cash_ceiling = int(components.get("cash_ceiling") or retention_buffer)
     ending_cash = int(round(float(safe_float(row.get("ending_cash")) or 0.0)))
     current_distribution = int(distributions_series[quarter_index - 1] if quarter_index - 1 < len(distributions_series) else 0)
     current_debt_repayment = int(debt_repayment_series[quarter_index - 1] if quarter_index - 1 < len(debt_repayment_series) else 0)
@@ -98,13 +161,16 @@ def build_cash_validation_envelope(
       quarter_index=quarter_index,
     )
 
-    distribution_violation = bool(current_distribution > 0 and ending_cash <= buffer_required)
+    distribution_violation = bool(current_distribution > 0 and ending_cash <= retention_buffer)
     buffer_violation = bool(ending_cash < buffer_required)
-    hard_rule_distribution_removed = int(current_distribution if ending_cash <= buffer_required and current_distribution > 0 else 0)
+    # RETENTION discipline: distributions are blocked and equity paybacks
+    # restored below the JUDGED retention buffer (prudence you keep when
+    # you have it) — while funding gaps target only the hard floor.
+    hard_rule_distribution_removed = int(current_distribution if ending_cash <= retention_buffer and current_distribution > 0 else 0)
     hard_rule_distribution_value = int(0 if hard_rule_distribution_removed > 0 else current_distribution)
     hard_rule_other_equity_value = int(
       previous_effective_other_equity
-      if ending_cash <= buffer_required and current_other_equity < previous_effective_other_equity
+      if ending_cash <= retention_buffer and current_other_equity < previous_effective_other_equity
       else current_other_equity
     )
     hard_rule_equity_payback_removed = int(max(0, hard_rule_other_equity_value - current_other_equity))
@@ -123,7 +189,7 @@ def build_cash_validation_envelope(
       else 0
     )
     max_additional_distribution = int(
-      max(0, effective_ending_cash - buffer_required)
+      max(0, effective_ending_cash - retention_buffer)
       if residual_funding_gap <= 0
       else 0
     )
@@ -187,6 +253,8 @@ def build_cash_validation_envelope(
         "date": row.get("date"),
         "ending_cash": ending_cash,
         "buffer": buffer_required,
+        "hard_floor_buffer": int(_hard_components.get("cash_buffer_required") or 0),
+        "retention_buffer": retention_buffer,
         "cash_floor": buffer_required,
         "cash_ceiling": cash_ceiling,
         "cash_policy": copy.deepcopy(cash_policy),

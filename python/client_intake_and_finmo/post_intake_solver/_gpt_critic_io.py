@@ -328,17 +328,28 @@ def call_gpt_with_schema_or_fallback(
   )
 
   def _do_request():
-    from client_intake_and_finmo.openai_http import _openai_session  # type: ignore
-    from client_intake_and_finmo.openai_http import _resolve_timeout_seconds  # type: ignore
-
-    resolved_timeout = _resolve_timeout_seconds(float(timeout_seconds))
-    with _openai_session() as session:
-      return session.post(
-        _DEFAULT_OPENAI_RESPONSES_URL,
-        headers=headers,
-        json=payload,
-        timeout=resolved_timeout,
-      )
+    # DETERMINISM — route through post_openai_with_retries so this call
+    # rides the GPT RESPONSE LOCK (run-once-and-lock). This IO layer
+    # previously posted directly via session.post, BYPASSING the lock —
+    # every handler/critic built on it (funding handler tool sessions,
+    # exhaustion-handler critics) made a fresh live GPT call on every
+    # run. Invisible for years because these paths only engage when a
+    # validator pops, and healthy businesses never popped; Cedar's
+    # judged capital structure engaged the funding handler and produced
+    # three different outcomes from three byte-identical runs.
+    # max_attempts=1: the outer call_with_retries owns retry semantics;
+    # the inner call contributes only lock lookup/replay/save.
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      post_openai_with_retries as _locked_post,
+    )
+    return _locked_post(
+      url=_DEFAULT_OPENAI_RESPONSES_URL,
+      headers=headers,
+      payload=payload,
+      timeout_seconds=float(timeout_seconds),
+      retryable_status=(),
+      max_attempts=1,
+    )
 
   try:
     resp = call_with_retries(
@@ -567,17 +578,28 @@ def call_gpt_responses_api_turn(
   )
 
   def _do_request():
-    from client_intake_and_finmo.openai_http import _openai_session  # type: ignore
-    from client_intake_and_finmo.openai_http import _resolve_timeout_seconds  # type: ignore
-
-    resolved_timeout = _resolve_timeout_seconds(float(timeout_seconds))
-    with _openai_session() as session:
-      return session.post(
-        _DEFAULT_OPENAI_RESPONSES_URL,
-        headers=headers,
-        json=payload,
-        timeout=resolved_timeout,
-      )
+    # DETERMINISM — route through post_openai_with_retries so this call
+    # rides the GPT RESPONSE LOCK (run-once-and-lock). This IO layer
+    # previously posted directly via session.post, BYPASSING the lock —
+    # every handler/critic built on it (funding handler tool sessions,
+    # exhaustion-handler critics) made a fresh live GPT call on every
+    # run. Invisible for years because these paths only engage when a
+    # validator pops, and healthy businesses never popped; Cedar's
+    # judged capital structure engaged the funding handler and produced
+    # three different outcomes from three byte-identical runs.
+    # max_attempts=1: the outer call_with_retries owns retry semantics;
+    # the inner call contributes only lock lookup/replay/save.
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      post_openai_with_retries as _locked_post,
+    )
+    return _locked_post(
+      url=_DEFAULT_OPENAI_RESPONSES_URL,
+      headers=headers,
+      payload=payload,
+      timeout_seconds=float(timeout_seconds),
+      retryable_status=(),
+      max_attempts=1,
+    )
 
   _io_t0 = time.monotonic()
   _io_request_summary = {

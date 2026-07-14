@@ -246,6 +246,17 @@ def build_run_diagnostics_payload(
 
   passed, score, score_label = _acceptance_score(acceptance_verdict)
   realism_checks = _per_metric_summary(realism_memo_json)
+  # EVERY acceptance check, name + pass/fail — the Diagnostics sheet must
+  # show the failing check with a red X. A FAILED verdict whose sub-check
+  # list renders all-green (the old sheet only listed REALISM metrics,
+  # never the acceptance gate's own checks) is a silent failure.
+  acceptance_checks: List[Dict[str, Any]] = []
+  for _chk in ((acceptance_verdict or {}).get("checks") or []):
+    if isinstance(_chk, dict) and _text(_chk.get("name")):
+      acceptance_checks.append({
+        "name": _text(_chk.get("name")),
+        "passed": bool(_chk.get("passed")),
+      })
 
   handler_fired = bool(geh)
   handler_status = _text(geh.get("status")) if handler_fired else None
@@ -274,6 +285,7 @@ def build_run_diagnostics_payload(
     "acceptance_passed": passed,
     "acceptance_score": score,            # numeric (contract: Optional[float])
     "acceptance_score_label": score_label,  # "ok/total" display form ("15/16")
+    "acceptance_checks": acceptance_checks,
     "realism_checks": realism_checks,
     "handler_fired": handler_fired,
     "handler_status": handler_status,
