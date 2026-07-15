@@ -206,6 +206,7 @@ def _build_user_prompt(
   revenue_line: List[float],
   industry_envelope: Dict[str, Any],
   operator_facts: Optional[Dict[str, Any]] = None,
+  judged_margin_band: Optional[Dict[str, Any]] = None,
 ) -> str:
   _compact = dict(compact or {})
   _market_reality = {
@@ -241,6 +242,30 @@ def _build_user_prompt(
     )
     lines.append(json.dumps(operator_facts, ensure_ascii=False, default=str))
     lines.append("")
+  if judged_margin_band:
+    lines.append(
+      "EXECUTIVE-JUDGED HEALTHY EBITDA BAND (the standard this plan will be "
+      "judged against — judged from the business's identity and structural "
+      "economics, NOT from any plan): Q11 [low, high] and Q20 [low, high] "
+      "below. YOUR COST ANCHORS MUST ARITHMETICALLY PRODUCE AN EBITDA MARGIN "
+      "INSIDE THIS BAND at Q11 and Q20: EBITDA = 1 - cogs% - marketing% - "
+      "sga% - r&d% - payroll% - rent%. Account for this business's real "
+      "payroll and rent burden when you set the cost anchors; a cost path "
+      "whose arithmetic cannot reach the band low forecasts an unhealthy "
+      "business, and margins above the band high are not believable for the "
+      "type. Reach the band through defensible cost maturation on the "
+      "merits — never by asserting spine margins the costs cannot produce."
+    )
+    lines.append(json.dumps(
+      {
+        "q11_ebitda_band": judged_margin_band.get("q11"),
+        "q20_ebitda_band": judged_margin_band.get("q20"),
+        "margin_character": judged_margin_band.get("margin_character"),
+        "rationale": judged_margin_band.get("rationale"),
+      },
+      ensure_ascii=False, default=str,
+    ))
+    lines.append("")
   lines.append(
     "COHORT REFERENCE BANDS per metric (fraction of revenue; {min,target,max}). "
     "REFERENCE CONTEXT ONLY — not walls. Forecast every metric listed here:"
@@ -256,6 +281,7 @@ def gpt_author_fitted_bands_once(
   industry_envelope: Dict[str, Any],
   previous_violations: Optional[List[Dict[str, Any]]] = None,
   operator_facts: Optional[Dict[str, Any]] = None,
+  judged_margin_band: Optional[Dict[str, Any]] = None,
   model: Optional[str] = None,
   seed: int = 1733,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -281,6 +307,7 @@ def gpt_author_fitted_bands_once(
   user_prompt = _build_user_prompt(
     compact=compact, revenue_line=revenue_line,
     industry_envelope=industry_envelope, operator_facts=operator_facts,
+    judged_margin_band=judged_margin_band,
   )
   if previous_violations:
     user_prompt += (

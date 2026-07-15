@@ -3120,7 +3120,42 @@ def _run_post_cascade_completion(
       _derived_ebitda = _derive_ebitda_band(
         _fitted_env, final_finmo_json, horizon=int(horizon or 20),
       )
+      # EXECUTIVE MARGIN BAND — when the executive judged the healthy
+      # band for this business (viability-blind, railed), the judgment
+      # anchors the TARGET (the level the search aims at — the derived
+      # band's own target can sit deeply negative when cost targets sum
+      # past 100%, leaving the search nothing positive to chase) and the
+      # band TOP. The derived band keeps the FLOOR: it arithmetically
+      # contains the early-ramp losses the per-quarter check must not
+      # hard-fail; the judged band's mature floor is enforced Q11+ by the
+      # realism validator's ramp-aware glide, not by this scalar min.
       if isinstance(_derived_ebitda, dict):
+        try:
+          from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+            margin_band_from_model_input as _judged_margin_read,
+          )
+          _judged_margin = _judged_margin_read(final_model_input_json)
+        except Exception:
+          _judged_margin = None
+        if isinstance(_judged_margin, dict):
+          _jm_q11 = _judged_margin.get("q11") or {}
+          _jm_q20 = _judged_margin.get("q20") or {}
+          _jm_target = _safe_float(_jm_q11.get("target"))
+          _jm_high = _safe_float(_jm_q20.get("high"))
+          if _jm_target is not None:
+            _derived_ebitda["target_target"] = float(_jm_target)
+          if _jm_high is not None:
+            _derived_ebitda["target_max"] = max(
+              float(_safe_float(_derived_ebitda.get("target_max")) or 0.0),
+              float(_jm_high),
+            )
+          _prov = _derived_ebitda.setdefault("provenance", {})
+          if isinstance(_prov, dict):
+            _prov["calibration_source"] = "executive_margin_band_judgment"
+            _prov["judged_margin_band"] = {
+              "q11": dict(_jm_q11), "q20": dict(_jm_q20),
+              "margin_character": _judged_margin.get("margin_character"),
+            }
         _si = (final_model_input_json or {}).get("solver_input")
         if isinstance(_si, dict):
           _fot = _si.setdefault(_FOT_KEY, {})
@@ -3227,6 +3262,78 @@ def _run_post_cascade_completion(
         _ni_ok, _ = _pb_ni_check((_fj if _fj is not None else final_finmo_json) or {})
         if not _ni_ok:
           out.append("net_income_trajectory_viable")
+      except Exception:
+        pass
+      # FUNDING-DRAG-AWARE ENGAGEMENT — Phase B runs BEFORE the cash pass,
+      # so at engagement time the plan carries only its STATED debt. The
+      # cash pass then funds the working-capital build and buffer (the
+      # funding request IS the plan — it always funds), and the funded
+      # interest lands on the P&L AFTER the last adaptation point: a
+      # dealer carrying 60 days of inventory engaged nothing pre-cash
+      # (Q11 NI +3%), then failed the VERDICT's NI and coverage checks on
+      # the funded interest (NI -0.4%, coverage 1.38) with ceiling
+      # headroom unused — a false non-viable by under-adaptation, the
+      # Ironwood blind-spot class one stage later. The gate must judge
+      # the plan the verdict will see: project the funding balance the
+      # cash pass will draw (buffer shortfall proxy on the CURRENT
+      # finmo, SBA policy rate) and re-test the NI-trajectory ramp and
+      # the coverage rail WITH that drag. Deterministic, engagement-only
+      # (the verdict itself still measures the real funded plan).
+      try:
+        _fd_fj = (_fj if _fj is not None else final_finmo_json) or {}
+        _fd_rows = {
+          int(_safe_float(_r.get("quarter_index")) or 0): _r
+          for _r in (_fd_fj.get("quarter_rows") or [])
+          if isinstance(_r, dict) and int(_safe_float(_r.get("quarter_index")) or 0) >= 1
+        }
+        from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore  # noqa: E501
+          cash_judgment_from_model_input as _fd_judged_cash,
+        )
+        from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+          buffer_components as _fd_buffer_components,
+        )
+        from client_intake_and_finmo.post_intake_debt_schedule.schedule import (  # type: ignore  # noqa: E501
+          sba_forecast_interest_rate_policy as _fd_sba_policy,
+        )
+        _fd_judgment = _fd_judged_cash(_pb_gate_mi)
+        _fd_months = float(_safe_float((_fd_judgment or {}).get("buffer_months")) or 1.0)
+        _fd_rate = float(_safe_float(
+          (_fd_sba_policy(_pb_gate_mi) or {}).get("quarterly_rate_decimal")
+        ) or 0.0)
+        if _fd_rows and _fd_rate > 0.0:
+          _fd_balance = 0.0
+          _fd_proxy_by_q: Dict[int, float] = {}
+          for _fd_q in range(1, 21):
+            _fd_row = _fd_rows.get(_fd_q)
+            if _fd_row is None:
+              continue
+            _fd_buf = float(_fd_buffer_components(
+              _fd_row,
+              cash_floor_months=_fd_months,
+              cash_ceiling_months=_fd_months,
+              default_buffer_months=_fd_months,
+              months_per_quarter=3.0,
+            ).get("cash_buffer_required") or 0)
+            _fd_end = float(_safe_float(_fd_row.get("ending_cash")) or 0.0)
+            # Draws persist: the projected balance is the deepest
+            # buffer shortfall seen so far (steady paydown may later
+            # shrink it, so this proxy over-engages, never under).
+            _fd_balance = max(_fd_balance, _fd_buf - _fd_end)
+            _fd_proxy_by_q[_fd_q] = max(0.0, _fd_balance) * _fd_rate
+          _fd_q11 = _fd_rows.get(11) or {}
+          _fd_rev11 = float(_safe_float(_fd_q11.get("revenue")) or 0.0)
+          _fd_proxy11 = float(_fd_proxy_by_q.get(11) or 0.0)
+          if _fd_rev11 > 0.0 and _fd_proxy11 > 0.0:
+            _fd_ni11 = float(_safe_float(_fd_q11.get("net_income")) or 0.0)
+            if (_fd_ni11 - _fd_proxy11) / _fd_rev11 < 0.0:
+              out.append("net_income_trajectory_viable")
+            if isinstance(_fd_judgment, dict):
+              _fd_int11 = float(_safe_float(_fd_q11.get("debt_interest_expense")) or 0.0)
+              _fd_ebitda11 = float(_safe_float(_fd_q11.get("ebitda")) or 0.0)
+              if (_fd_int11 + _fd_proxy11) > 0.0 and (
+                _fd_ebitda11 / (_fd_int11 + _fd_proxy11)
+              ) < 1.5:
+                out.append("cash_health_operational_not_debt_funded")
       except Exception:
         pass
       return sorted(set(out))

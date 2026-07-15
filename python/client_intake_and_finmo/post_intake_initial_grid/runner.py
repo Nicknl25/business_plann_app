@@ -1061,6 +1061,80 @@ def prepare_initial_grid_for_draft(
       }
     shared_context["cash_judgment_trace"] = _cash_trace
 
+    # -- EXECUTIVE HEALTHY-MARGIN BAND JUDGMENT --
+    # The band is the pass/fail STANDARD, so it is the highest-stakes
+    # judgment the executive holds: authored ONCE here (viability-blind,
+    # locked, Python-railed — the prompt sees identity + structural cost
+    # facts, NEVER the plan's margins) and stamped to
+    # solver_input.margin_band_judgment. Consumers: the band-fitting
+    # manager (cost maturation must arithmetically aim at the judged
+    # healthy band), the post-search ebitda_margin target overlay, and
+    # the realism gate's mature-quarter floor. A failed call leaves the
+    # mechanically derived band exactly as it is today.
+    _mb_trace: Dict[str, Any] = {"ok": False, "source": "derived_cost_band_only"}
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+        gpt_author_margin_band_once,
+        validate_margin_band_judgment,
+      )
+      from client_intake_and_finmo.post_intake_headcount.band_fitting import (  # type: ignore  # noqa: E501
+        operator_cost_levels as _mb_operator_levels,
+      )
+      from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore  # noqa: E501
+        authoritative_annual_revenue as _mb_annual_revenue,
+      )
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+        build_operating_model_digest as _mb_build_digest,
+      )
+      _mb_compact = _mb_build_digest(
+        ops_json, people_json, market_json, marketing_model_json,
+      )
+      if _mb_compact:
+        _mb_ann = _mb_annual_revenue(
+          ops_json=ops_json, financials_year1_json=financials_year1_json,
+          financials_json=financials_json,
+        )
+        _mb_facts = dict(_mb_operator_levels(financials_json, float(_mb_ann) if _mb_ann else None) or {})
+        # PAYROLL + RENT are the heaviest structural lines and the band
+        # judgment must see them (a 33%-of-revenue owner-operator payroll
+        # caps the reachable margin as hard as an 86% COGS does) — from
+        # the engine's own Q1 row, same source the WC judgment anchors to.
+        _mb_q1_rows = ((finmo_json or {}).get("quarter_rows") or [])
+        _mb_q1 = _mb_q1_rows[1] if len(_mb_q1_rows) > 1 and isinstance(_mb_q1_rows[1], dict) else {}
+        def _mbf(key: str) -> float:
+          try:
+            return max(0.0, float(_mb_q1.get(key) or 0.0))
+          except (TypeError, ValueError):
+            return 0.0
+        _mb_q1_rev = _mbf("revenue")
+        if _mb_q1_rev > 0.0:
+          if _mbf("payroll") > 0.0:
+            _mb_facts["payroll_percent_of_revenue"] = round(_mbf("payroll") / _mb_q1_rev, 4)
+          if _mbf("lease_rent") > 0.0:
+            _mb_facts["rent_percent_of_revenue"] = round(_mbf("lease_rent") / _mb_q1_rev, 4)
+        _mb_result = gpt_author_margin_band_once(
+          compact=_mb_compact,
+          stated_cost_facts=_mb_facts or None,
+        )
+        if _mb_result.get("ok"):
+          _mb_validated = validate_margin_band_judgment(judgment=_mb_result["judgment"])
+          if isinstance(model_input_json, dict):
+            model_input_json.setdefault("solver_input", {})
+            if isinstance(model_input_json["solver_input"], dict):
+              model_input_json["solver_input"]["margin_band_judgment"] = _mb_validated
+              _mb_trace = {
+                "ok": True, "source": "executive_margin_band_judgment",
+                "judgment": copy.deepcopy(_mb_validated),
+              }
+        else:
+          _mb_trace["error"] = _mb_result.get("error")
+    except Exception as _mb_exc:  # noqa: BLE001 — soft: derived band stands
+      _mb_trace = {
+        "ok": False, "source": "derived_cost_band_only",
+        "error": f"{type(_mb_exc).__name__}: {str(_mb_exc)[:200]}",
+      }
+    shared_context["margin_band_trace"] = _mb_trace
+
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
       set_capex_rd_balance_seed,
     )
@@ -1465,9 +1539,21 @@ def prepare_initial_grid_for_draft(
       operator_cost_levels,
     )
     _bf_operator_levels = operator_cost_levels(financials_json, sum(_bf_line[:4]) or None)
+    # EXECUTIVE MARGIN BAND — the manager's cost maturation must aim its
+    # arithmetic at the judged healthy band (stamped upstream, viability-
+    # blind); absent judgment, the pass behaves exactly as before.
+    _bf_margin_band = None
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+        margin_band_from_model_input as _bf_margin_band_read,
+      )
+      _bf_margin_band = _bf_margin_band_read(model_input_json)
+    except Exception:
+      _bf_margin_band = None
     _bf_pass = run_band_fitting_pass(
       compact=_bf_compact, revenue_line=_bf_line, targets_payload=_bf_targets,
       operator_levels=_bf_operator_levels,
+      margin_band_judgment=_bf_margin_band,
     )
     if _bf_pass.get("ok"):
       store_fitted_bands(

@@ -565,6 +565,30 @@ def validate_industry_realism_bands(
         mute_status = "muted_wc_judgment_authoritative"
         muted_metric_keys.add(metric_key)
 
+    # EXECUTIVE MARGIN-BAND AUTHORITY — gross_margin_supports_ebitda_
+    # recovery is a hardcoded 20%-GM PROXY for "gross margin must leave
+    # room for EBITDA >= 0 under TYPICAL opex ratios" (its own comment
+    # defers the NAICS-keyed floor to a Phase E that predates the
+    # executive band). A structurally thin-GM reseller (used-vehicle
+    # retail runs 14-19% GM and is healthy on volume) is exactly the
+    # class the universal proxy misjudges — Riverbend hard-failed at
+    # GM 19.0% while its ACTUAL Q11 EBITDA sat at +7%, already measured
+    # directly by ebitda_positive_by_q11 and the judged mature floor.
+    # When the executive judged this business's healthy margin band from
+    # its real cost structure, the judgment (plus the direct EBITDA
+    # doctrine checks) IS the authority; the proxy stays in the memo as
+    # observable provenance. A doomed business still fails the direct
+    # checks — the proxy never protected anything they don't measure.
+    if metric_key == "gross_margin_supports_ebitda_recovery":
+      _mbj_authority = (
+        ((model_input_json or {}).get("solver_input") or {}).get("margin_band_judgment")
+        if isinstance((model_input_json or {}).get("solver_input"), dict) else None
+      )
+      if isinstance(_mbj_authority, dict) and _mbj_authority.get("q11"):
+        is_muted_for_this_draft = True
+        mute_status = "muted_margin_band_judgment_authoritative"
+        muted_metric_keys.add(metric_key)
+
     # Phase 9 Phase D — trajectory_check rows (universal viability
     # timeline) are evaluated separately from the band-comparison loop.
     # The formula returns a value where >= 0.0 = pass, < 0.0 = fail.
@@ -1046,6 +1070,32 @@ def validate_industry_realism_bands(
           lower = float(floor)
           planning_mode_floor = float(floor)
           effective_band_source = f"{row_band_source}_with_planning_mode_floor"
+
+      # EXECUTIVE MARGIN BAND — the judged healthy band (viability-blind,
+      # railed, authored from the business's identity and structural
+      # economics) is the MATURE standard for EBITDA margin: from Q11 the
+      # effective floor glides from the judged Q11 band low to the judged
+      # Q20 band low. Early quarters (the ramp) keep the planning-mode
+      # recovery glidepath — the judgment sizes the bar for the
+      # ESTABLISHED business, it never waives the climb's discipline nor
+      # lowers any floor already in force (max, never min).
+      if metric_key == "ebitda_margin":
+        try:
+          from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+            judged_ebitda_floor_for_quarter,
+            margin_band_from_model_input,
+          )
+          _judged_mb = margin_band_from_model_input(model_input_json)
+          _judged_floor = judged_ebitda_floor_for_quarter(_judged_mb, q)
+        except Exception:
+          _judged_floor = None
+        if _judged_floor is not None:
+          # The judged floor gets the same tolerance every band edge gets
+          # (the raw band low above became `lower` minus tolerance_units).
+          _judged_floor_with_tol = float(_judged_floor) - tolerance_units
+          if _judged_floor_with_tol > lower:
+            lower = _judged_floor_with_tol
+            effective_band_source = f"{effective_band_source}_with_executive_margin_band"
 
       in_band = lower <= float(actual) <= upper
 

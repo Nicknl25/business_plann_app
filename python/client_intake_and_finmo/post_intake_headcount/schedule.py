@@ -2597,6 +2597,37 @@ def _round1_resolve_labor_intensity_class(
   return best_class, f"intake_implied_payroll_pct={round(float(implied), 4)}"
 
 
+def _round1_target_payroll_pct(
+  *,
+  band: Dict[str, float],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+) -> Tuple[float, str]:
+  """The payroll/revenue TARGET the round-1 producer budgets against.
+
+  STATED PAYROLL IS A FACT: when the intake reports payroll and revenue,
+  the target is the operator's own ratio, clamped into the resolved
+  intensity class's sanity band (the honesty rail against understated
+  ghost payroll). Pre-fix the intake-implied ratio was used only to PICK
+  the class and then discarded — the budget snapped to the class-band
+  MIDPOINT: a $3.03M used-car lot stating $205k for its complete 4-person
+  team (6.8%, inside the low band [6%, 45%]) was budgeted at the 25.5%
+  midpoint — 3.7x the stated team, ~10 phantom supporting FTEs, and a
+  structurally negative EBITDA for a business whose stated economics
+  already ran a healthy thin margin. The midpoint survives only as the
+  fallback when intake states no payroll/revenue.
+  """
+  pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
+  implied = _intake_implied_operating_intensity(
+    financials=financials_json if isinstance(financials_json, dict) else {},
+    year1=financials_year1_json if isinstance(financials_year1_json, dict) else {},
+  ).get("implied_payroll_percent_of_revenue")
+  if implied is not None and float(implied) > 0.0:
+    pct = round(min(max(float(implied), float(band["min_pct"])), float(band["max_pct"])), 4)
+    return pct, f"intake_stated_payroll_ratio_clamped(stated={float(implied):.4f})"
+  return pct_mid, "class_band_midpoint_intake_silent"
+
+
 def compute_round1_payroll_anchor(
   *,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -2647,7 +2678,11 @@ def compute_round1_payroll_anchor(
     headcount_payroll_revenue_sanity_bounds,
   )
   band = headcount_payroll_revenue_sanity_bounds(policy, labor_intensity_class=labor_intensity_class)
-  pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
+  pct_mid, pct_mid_source = _round1_target_payroll_pct(
+    band=band,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
 
   capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
     labor_intensity_class,
@@ -2761,6 +2796,7 @@ def compute_round1_payroll_anchor(
     "labor_intensity_class": labor_intensity_class,
     "intensity_source": intensity_source,
     "target_payroll_percent_of_revenue": pct_mid,
+    "target_payroll_percent_source": pct_mid_source,
     "benefits_pct": benefits_pct,
     "capacity_labor_model": capacity_labor_model,
     "wage_positioning_tier": ROUND1_DEFAULT_WAGE_POSITIONING_TIER,
@@ -2826,7 +2862,11 @@ def author_round1_payroll_contract(
     headcount_payroll_revenue_sanity_bounds,
   )
   band = headcount_payroll_revenue_sanity_bounds(policy, labor_intensity_class=labor_intensity_class)
-  pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
+  pct_mid, _pct_mid_source = _round1_target_payroll_pct(
+    band=band,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
 
   capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
     labor_intensity_class,

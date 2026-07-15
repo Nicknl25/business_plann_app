@@ -468,6 +468,7 @@ def validate_manager_forecast(
   *,
   envelope: Dict[str, Dict[str, float]],
   credible_facts: Dict[str, float],
+  judged_margin_band: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Dict[int, float]], Dict[str, bool], List[Dict[str, Any]], Dict[str, str]]:
   """Turn the manager's anchor forecast into per-quarter trajectories,
   enforcing FACTS and hard viability rules -- not cohort boxes.
@@ -573,6 +574,35 @@ def validate_manager_forecast(
           "message": f"the margin must climb into the Q11 checkpoint (q1 {q1:.4f} > q11 {q11:.4f}); snapped",
         })
         q1 = q11
+    # EXECUTIVE MARGIN BAND — the judged healthy band (viability-blind,
+    # railed) is the standard the plan will be judged against, so the
+    # manager's own EBITDA spine anchors must land inside it: a spine
+    # below the band forecasts an unhealthy business as the PLAN; a spine
+    # above it forecasts a margin the type cannot believably earn.
+    if metric == "ebitda_margin" and isinstance(judged_margin_band, dict):
+      for _anchor_name, _anchor_band_key in (("q11", "q11"), ("q20", "q20")):
+        _jband = judged_margin_band.get(_anchor_band_key) or {}
+        _jlo = _f(_jband.get("low"))
+        _jhi = _f(_jband.get("high"))
+        if _jlo is None or _jhi is None:
+          continue
+        _val = q11 if _anchor_name == "q11" else q20
+        _snapped = min(max(_val, _jlo), _jhi)
+        if abs(_snapped - _val) > 1e-9:
+          violations.append({
+            "metric_key": metric, "code": f"spine_outside_judged_band_{_anchor_name}",
+            "message": (
+              f"the executive judged this business's healthy EBITDA band at "
+              f"{_anchor_name.upper()} as [{_jlo:.4f}, {_jhi:.4f}] (authored "
+              f"{_val:.4f}); your cost path must arithmetically produce a "
+              f"margin inside it — rework the COST anchors, not just this spine"
+            ),
+          })
+          if _anchor_name == "q11":
+            q11 = _snapped
+            q20 = max(q20, q11)
+          else:
+            q20 = max(_snapped, q11)
     fitted[metric] = _interpolate_anchors(q1, q11, q20)
 
   # ebitda >= net income in every quarter (arithmetic identity of the P&L).
@@ -583,6 +613,38 @@ def validate_manager_forecast(
       if eb.get(q, 0.0) < ni.get(q, 0.0):
         eb[q] = ni[q]
 
+  # EXECUTIVE MARGIN BAND — arithmetic coherence of the COST anchors with
+  # the judged healthy band. EBITDA = 1 - costs - payroll - rent, so even
+  # BEFORE payroll and rent, 1 - (sum of authored cost anchors) must clear
+  # the judged band low at the mature checkpoints; when it cannot, the
+  # cost path arithmetically forecloses the healthy margin the executive
+  # judged for this business type and the manager must rework the COSTS
+  # (this is a retry signal — the final attempt keeps the manager's path
+  # and the search/verdict machinery renders the honest outcome).
+  if isinstance(judged_margin_band, dict):
+    for _cq, _ckey in ((11, "q11"), (20, "q20")):
+      _cjlo = _f((judged_margin_band.get(_ckey) or {}).get("low"))
+      if _cjlo is None:
+        continue
+      _cost_sum = sum(
+        float((fitted.get(_cm) or {}).get(_cq, 0.0))
+        for _cm in _COST_RATIO_KEYS
+        if applicability.get(_cm, False)
+      )
+      if (1.0 - _cost_sum) < _cjlo:
+        violations.append({
+          "metric_key": "ebitda_margin",
+          "code": f"cost_anchors_foreclose_judged_band_q{_cq}",
+          "message": (
+            f"your cost anchors sum to {_cost_sum:.4f} of revenue at Q{_cq}, "
+            f"leaving at most {1.0 - _cost_sum:.4f} EBITDA BEFORE payroll and "
+            f"rent — arithmetically below the executive's judged healthy band "
+            f"low of {_cjlo:.4f}. Mature the cost lines to levels a healthy "
+            f"business of this type actually runs (defensible on merits), or "
+            f"the plan cannot reach the margin the type is judged against"
+          ),
+        })
+
   return fitted, applicability, violations, rationales
 
 
@@ -592,6 +654,7 @@ def run_band_fitting_pass(
   revenue_line: List[float],
   targets_payload: Dict[str, Any],
   operator_levels: Optional[Dict[str, float]] = None,
+  margin_band_judgment: Optional[Dict[str, Any]] = None,
   model: Optional[str] = None,
   max_attempts: int = 2,
   _author_fn=None,
@@ -744,6 +807,7 @@ def run_band_fitting_pass(
       industry_envelope=envelope,
       previous_violations=previous_violations,
       operator_facts=operator_facts or None,
+      judged_margin_band=margin_band_judgment,
       model=model,
     )
     if not result.get("ok"):
@@ -752,6 +816,7 @@ def run_band_fitting_pass(
     forecast_rows = result.get("forecast")
     fitted, applicability, violations, rationales = validate_manager_forecast(
       forecast_rows, envelope=envelope, credible_facts=credible_facts,
+      judged_margin_band=margin_band_judgment,
     )
     if violations and _attempt + 1 < max(1, int(max_attempts)):
       # Give the manager one shot to fix its own submission; the final

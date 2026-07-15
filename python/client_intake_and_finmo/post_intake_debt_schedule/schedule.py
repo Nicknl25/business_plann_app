@@ -288,6 +288,7 @@ def build_debt_schedule_plan(
   # note pays down faster. No judgment -> today's pay-off-by-horizon
   # pace stands. The SBA policy rate is the rail either way.
   _judged_term_quarters: Optional[int] = None
+  _judged_buffer_months: Optional[float] = None
   try:
     from client_intake_and_finmo.post_intake_cash.gpt_cash_judgment import (  # type: ignore
       cash_judgment_from_model_input as _dbt_judged_cash,
@@ -297,8 +298,95 @@ def build_debt_schedule_plan(
       _dbt_term = _safe_float(_dbt_judgment.get("debt_term_quarters"))
       if _dbt_term and _dbt_term >= 1:
         _judged_term_quarters = int(round(_dbt_term))
+      _dbt_buf = _safe_float(_dbt_judgment.get("buffer_months"))
+      if _dbt_buf and _dbt_buf > 0:
+        _judged_buffer_months = float(_dbt_buf)
   except Exception:
     _judged_term_quarters = None
+    _judged_buffer_months = None
+  # STEADY REVOLVER PAYDOWN — a revolver is drawn when cash is short and
+  # repaid AS SOON AS CASH ALLOWS. The term/revolver split correctly freed
+  # gap draws from forced term amortization, but it left the revolver with
+  # NO repayment discipline at all: unless surplus cleanup happened to
+  # deleverage, draws sat idle for years and were lump-swept late (or never
+  # repaid) — behavior no lender reads as a working-capital line. Here the
+  # schedule itself amortizes the revolver from SURPLUS: each quarter, cash
+  # above the HARD FLOOR repays the outstanding revolver. The floor is the
+  # same one the funding machinery funds to (min of judged buffer, current
+  # strategy policy, balanced-default policy) — NOT the judged retention
+  # buffer: a business slowly building toward its judged 3-month cushion
+  # never crosses it and would carry an $11k line untouched for 5 years,
+  # while every dollar above the hard floor is cash the machinery itself
+  # calls surplus (funding never targets more). Retention keeps governing
+  # DISTRIBUTIONS (shareholder outflows); paying the lender's line down is
+  # deleverage the lender expects first. The repayment is capped by the
+  # SUFFIX-MINIMUM of future headroom, so scheduling a paydown today can
+  # never push any later quarter below the floor the refill funds to.
+  _paydown_floor_months: Optional[float] = None
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_cash_policy_for as _pd_policy_for,
+    )
+    _pd_rows = _live_quarter_rows(finmo_payload)
+    _pd_cap = _capital_structure_snapshot(_pd_rows[0] if _pd_rows else {})
+    _pd_policy = _pd_policy_for(
+      cash_strategy=str(selected_cash_strategy or "balanced").strip().lower() or "balanced",
+      debt_to_equity=_pd_cap.get("debt_to_equity"),
+      required=False,
+    ) or {}
+    _pd_policy_floor = float(_safe_float(_pd_policy.get("cash_floor_months")) or 1.0)
+    try:
+      _pd_balanced = _pd_policy_for(
+        cash_strategy="balanced",
+        debt_to_equity=_pd_cap.get("debt_to_equity"),
+        required=False,
+      ) or {}
+      _pd_balanced_floor = float(_safe_float(_pd_balanced.get("cash_floor_months")) or _pd_policy_floor)
+    except Exception:
+      _pd_balanced_floor = _pd_policy_floor
+    _paydown_floor_months = min(
+      float(_judged_buffer_months) if _judged_buffer_months else float("inf"),
+      _pd_policy_floor,
+      _pd_balanced_floor,
+    )
+  except Exception:
+    _paydown_floor_months = float(_judged_buffer_months) if _judged_buffer_months else 1.0
+  _paydown_headroom: Dict[int, float] = {}
+  try:
+    from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+      buffer_components as _pd_buffer_components,
+    )
+    _pd_rows_by_q = {
+      int(_safe_float(r.get("quarter_index")) or 0): r
+      for r in _live_quarter_rows(finmo_payload)
+    }
+    _raw_headroom: Dict[int, float] = {}
+    for _pd_q in range(1, horizon_count + 1):
+      _pd_row = _pd_rows_by_q.get(_pd_q)
+      _pd_cash = _safe_float((_pd_row or {}).get("ending_cash"))
+      if _pd_row is None or _pd_cash is None:
+        _raw_headroom = {}
+        break
+      _pd_comp = _pd_buffer_components(
+        _pd_row,
+        cash_floor_months=float(_paydown_floor_months),
+        cash_ceiling_months=float(_paydown_floor_months),
+        default_buffer_months=float(_paydown_floor_months),
+        # Calendar fact: FINMO quarter rows are quarterly amounts.
+        months_per_quarter=3.0,
+      )
+      _raw_headroom[_pd_q] = float(_pd_cash) - float(_pd_comp.get("cash_buffer_required") or 0)
+    if _raw_headroom:
+      _suffix_min = float("inf")
+      for _pd_q in range(horizon_count, 0, -1):
+        _suffix_min = min(_suffix_min, _raw_headroom.get(_pd_q, float("inf")))
+        _paydown_headroom[_pd_q] = _suffix_min
+  except Exception:
+    _paydown_headroom = {}
+  # Deltas vs the CURRENT repayment lever (the values ending cash already
+  # reflects) accumulate as the walk schedules more principal, shrinking
+  # the surplus available to later quarters.
+  _paydown_cum_delta = 0.0
   # TERM / REVOLVER SPLIT — the STATED opening debt is a TERM LOAN and
   # amortizes on the (judged) term; gap-funding draws the cash pass
   # issues are a REVOLVER: continuous draw/repay to smooth operating
@@ -321,7 +409,21 @@ def build_debt_schedule_plan(
       remaining_quarters = max(1, horizon_count - quarter_index + 1)
     amortizing_minimum = int(math.ceil(float(term_balance) / float(remaining_quarters))) if term_balance > 0 else 0
     minimum_principal = int(min(term_balance, amortizing_minimum))
-    scheduled_principal = int(min(available_debt, max(current_repayment, minimum_principal)))
+    _base_scheduled = int(min(available_debt, max(current_repayment, minimum_principal)))
+    # STEADY REVOLVER PAYDOWN — surplus above the retention buffer repays
+    # the revolver THIS quarter (bounded by the suffix-min headroom so no
+    # later quarter dips below its buffer, and net of principal already
+    # scheduled beyond what ending cash reflects).
+    _base_delta = float(max(0, _base_scheduled - current_repayment))
+    _revolver_paydown = 0
+    if revolver_balance > 0 and _paydown_headroom:
+      _rev_repaid_in_base = int(min(revolver_balance, max(0, _base_scheduled - minimum_principal)))
+      _rev_unpaid = int(max(0, revolver_balance - _rev_repaid_in_base))
+      _surplus_capacity = _paydown_headroom.get(quarter_index, float("-inf")) - _paydown_cum_delta - _base_delta
+      if _rev_unpaid > 0 and _surplus_capacity > 0:
+        _revolver_paydown = int(min(_rev_unpaid, math.floor(_surplus_capacity)))
+    scheduled_principal = int(min(available_debt, _base_scheduled + _revolver_paydown))
+    _paydown_cum_delta += _base_delta + float(max(0, scheduled_principal - _base_scheduled))
     _repay_revolver = int(min(revolver_balance, max(0, scheduled_principal - minimum_principal)))
     _repay_term = int(min(term_balance, scheduled_principal - _repay_revolver))
     _repay_leftover = int(max(0, scheduled_principal - _repay_revolver - _repay_term))
@@ -377,6 +479,10 @@ def build_debt_schedule_plan(
       "revolver_closing_balance": revolver_balance,
       "revolver_repayment": _repay_revolver,
       "term_principal_payment": _repay_term,
+      # Steady paydown scheduled THIS pass from surplus above the
+      # retention buffer (zero when cash has no headroom or no draws
+      # remain outstanding).
+      "revolver_scheduled_paydown": _revolver_paydown,
       "annual_interest_rate": interest_rate,
       "interest_rate": interest_rate,
       "estimated_interest_expense": interest_expense,
