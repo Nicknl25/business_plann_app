@@ -1139,6 +1139,92 @@ def prepare_initial_grid_for_draft(
       }
     shared_context["margin_band_trace"] = _mb_trace
 
+    # -- EXECUTIVE HEADCOUNT-COHERENCE JUDGMENT (right-sizing) --
+    # Authored ONCE (viability-blind, locked, Python-railed) and stamped
+    # to solver_input.headcount_coherence. PURELY ADDITIVE to the labor
+    # system: when the judgment is inert (correctly-staffed team, failed
+    # call, or rails zero it out) nothing anywhere changes. When it
+    # fires, the payroll producers scale the NON-OWNER stated team and
+    # the anchor budget toward the coherent structure a real operator
+    # runs at this revenue — right-sizing overstaffing, never
+    # understaffing-to-pass (the judgment cannot see the verdict; the
+    # rails cap the cut at 60% and never below the owner's wage).
+    _hc_trace: Dict[str, Any] = {"ok": False, "source": "stated_team_stands"}
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_headcount_coherence import (  # type: ignore  # noqa: E501
+        gpt_author_headcount_coherence_once,
+        validate_headcount_coherence,
+      )
+      from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore  # noqa: E501
+        build_operating_model_digest as _hc_build_digest,
+      )
+      _hc_compact = _hc_build_digest(
+        ops_json, people_json, market_json, marketing_model_json,
+      )
+      def _hc_num(value: Any) -> Optional[float]:
+        try:
+          _v = float(value)
+          return _v if _v == _v else None
+        except (TypeError, ValueError):
+          return None
+      _hc_stated_payroll = _hc_num((financials_json or {}).get("payroll_total_year1"))
+      _hc_revenue = _hc_num((financials_json or {}).get("current_revenue"))
+      if _hc_compact and _hc_stated_payroll and _hc_stated_payroll > 0:
+        _hc_roster = []
+        _hc_owner_wage = 0.0
+        _HC_OWNER_TOKENS = ("owner", "founder", "principal", "proprietor", "member")
+        for _p in ((people_json or {}).get("people") or []):
+          if not isinstance(_p, dict):
+            continue
+          _p_title = str(_p.get("role_title") or _p.get("role") or _p.get("title") or "").strip()
+          _p_wage = _hc_num(_p.get("annual_wage")) or 0.0
+          _hc_roster.append({"role_title": _p_title, "annual_wage": _p_wage})
+          if any(tok in _p_title.lower() for tok in _HC_OWNER_TOKENS):
+            _hc_owner_wage += float(_p_wage)
+        _hc_stated_staffing = {
+          "stated_annual_revenue": _hc_revenue,
+          "stated_annual_payroll": _hc_stated_payroll,
+          "stated_employee_count": (financials_json or {}).get("current_num_employees"),
+          "revenue_per_employee": (
+            round(float(_hc_revenue) / float(_hc_num((financials_json or {}).get("current_num_employees")) or 1.0), 0)
+            if _hc_revenue else None
+          ),
+          "payroll_percent_of_revenue": (
+            round(float(_hc_stated_payroll) / float(_hc_revenue), 4) if _hc_revenue else None
+          ),
+          "team_roster": _hc_roster,
+        }
+        _hc_result = gpt_author_headcount_coherence_once(
+          compact=_hc_compact,
+          stated_staffing=_hc_stated_staffing,
+        )
+        if _hc_result.get("ok"):
+          _hc_validated = validate_headcount_coherence(
+            judgment=_hc_result["judgment"],
+            stated_annual_payroll=float(_hc_stated_payroll),
+            stated_owner_annual_wage=float(_hc_owner_wage),
+          )
+          if isinstance(model_input_json, dict):
+            model_input_json.setdefault("solver_input", {})
+            if isinstance(model_input_json["solver_input"], dict):
+              model_input_json["solver_input"]["headcount_coherence"] = _hc_validated
+              _hc_trace = {
+                "ok": True,
+                "source": (
+                  "executive_headcount_right_sizing" if _hc_validated.get("applies")
+                  else "judged_coherent_team_stands"
+                ),
+                "judgment": copy.deepcopy(_hc_validated),
+              }
+        else:
+          _hc_trace["error"] = _hc_result.get("error")
+    except Exception as _hc_exc:  # noqa: BLE001 — soft: the stated team stands
+      _hc_trace = {
+        "ok": False, "source": "stated_team_stands",
+        "error": f"{type(_hc_exc).__name__}: {str(_hc_exc)[:200]}",
+      }
+    shared_context["headcount_coherence_trace"] = _hc_trace
+
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
       set_capex_rd_balance_seed,
     )

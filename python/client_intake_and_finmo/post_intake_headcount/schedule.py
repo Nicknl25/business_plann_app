@@ -2087,12 +2087,15 @@ def _build_payroll_headcount_payload_from_contract(
   supporting_rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
   capacity_assumptions = _payroll_contract_capacity_assumptions(payroll_headcount_contract, policy=policy)
   _validate_payroll_title_rows(supporting_rows, policy=policy, require_annual_wage=False)
-  key_people_rows = _key_people_rows_from_intake(
-    people_json,
-    policy=policy,
-    horizon=horizon,
-    business_facts=business_facts,
-    ops_json=ops_json,
+  key_people_rows = _apply_headcount_coherence_to_key_rows(
+    _key_people_rows_from_intake(
+      people_json,
+      policy=policy,
+      horizon=horizon,
+      business_facts=business_facts,
+      ops_json=ops_json,
+    ),
+    model_input_json,
   )
   resolved_supporting_rows = _resolve_supporting_staff_wages(
     supporting_rows,
@@ -2380,6 +2383,66 @@ def enforce_labor_scaling_on_payload(
 _OWNER_TITLE_TOKENS = ("owner", "founder", "co-founder", "principal", "ceo", "president")
 
 
+def _apply_headcount_coherence_to_key_rows(
+  rows: List[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  """EXECUTIVE HEADCOUNT RIGHT-SIZING (purely additive).
+
+  When the viability-blind headcount-coherence judgment fired (the
+  stated team is genuinely overstaffed for the revenue), scale the
+  NON-OWNER key-person FTEs so the key-people payroll lands at the
+  judged coherent total. The OWNER is never cut (rows via
+  ``_is_owner_row`` keep 1.0 FTE); the judgment's rails already floor
+  the coherent total at 40% of stated and at the owner's own wage.
+  Inert judgment (correctly-staffed team / failed call) -> the rows
+  return untouched, byte-identical to today. All downstream machinery
+  (wage floors, part-time handling, rollups, trials) runs on the scaled
+  rows unchanged — nothing existing is modified.
+  """
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_headcount_coherence import (  # type: ignore  # noqa: E501
+      headcount_coherence_from_model_input,
+    )
+    coherence = headcount_coherence_from_model_input(model_input_json)
+  except Exception:
+    coherence = None
+  if not coherence:
+    return rows
+  # Per-quarter wage mass of the CURRENT rows (annualized): owner vs rest.
+  owner_annual = 0.0
+  nonowner_annual = 0.0
+  for row in rows:
+    if not isinstance(row, dict) or int(_safe_float(row.get("quarter_index")) or 0) != 1:
+      continue
+    _wage = float(_round_currency(row.get("annual_wage")))
+    _fte = float(_safe_float(row.get("ending_fte")) or 0.0)
+    if _is_owner_row(row):
+      owner_annual += _wage * _fte
+    else:
+      nonowner_annual += _wage * _fte
+  coherent_total = float(_safe_float(coherence.get("coherent_annual_payroll")) or 0.0)
+  if nonowner_annual <= 0 or coherent_total <= 0:
+    return rows
+  nonowner_target = max(0.0, coherent_total - owner_annual)
+  factor = max(0.0, min(1.0, nonowner_target / nonowner_annual))
+  if factor >= 1.0 - 1e-9:
+    return rows
+  scaled: List[Dict[str, Any]] = []
+  for row in rows:
+    if isinstance(row, dict) and not _is_owner_row(row):
+      row = dict(row)
+      row["starting_fte"] = round(float(_safe_float(row.get("starting_fte")) or 0.0) * factor, 2)
+      row["ending_fte"] = round(float(_safe_float(row.get("ending_fte")) or 0.0) * factor, 2)
+      row["hires"] = round(max(0.0, row["ending_fte"] - row["starting_fte"]), 2)
+      row["headcount_right_sized"] = {
+        "factor": round(factor, 4),
+        "coherent_structure": coherence.get("coherent_structure"),
+      }
+    scaled.append(row)
+  return scaled
+
+
 def _is_owner_row(row: Dict[str, Any]) -> bool:
   """A key-person row whose title marks the FOUNDER/OWNER. Only these rows
   are eligible for the deferred-draw schedule -- hired employees' comp is
@@ -2602,6 +2665,7 @@ def _round1_target_payroll_pct(
   band: Dict[str, float],
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, str]:
   """The payroll/revenue TARGET the round-1 producer budgets against.
 
@@ -2618,10 +2682,29 @@ def _round1_target_payroll_pct(
   fallback when intake states no payroll/revenue.
   """
   pct_mid = round((float(band["min_pct"]) + float(band["max_pct"])) / 2.0, 4)
-  implied = _intake_implied_operating_intensity(
+  _intensity = _intake_implied_operating_intensity(
     financials=financials_json if isinstance(financials_json, dict) else {},
     year1=financials_year1_json if isinstance(financials_year1_json, dict) else {},
-  ).get("implied_payroll_percent_of_revenue")
+  )
+  implied = _intensity.get("implied_payroll_percent_of_revenue")
+  # EXECUTIVE HEADCOUNT RIGHT-SIZING (additive) — when the coherence
+  # judgment fired, the budget targets the COHERENT payroll ratio, not
+  # the overstaffed stated one (the plan runs the team a real operator
+  # runs at this revenue). Inert judgment -> stated ratio, unchanged.
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_headcount_coherence import (  # type: ignore  # noqa: E501
+      headcount_coherence_from_model_input as _hc_read,
+    )
+    _hc = _hc_read(model_input_json)
+  except Exception:
+    _hc = None
+  if _hc is not None:
+    _hc_rev = _safe_float(_intensity.get("intake_revenue_year1"))
+    _hc_coherent = _safe_float(_hc.get("coherent_annual_payroll"))
+    if _hc_rev and _hc_coherent and float(_hc_rev) > 0:
+      _hc_pct = float(_hc_coherent) / float(_hc_rev)
+      pct = round(min(max(_hc_pct, float(band["min_pct"])), float(band["max_pct"])), 4)
+      return pct, f"executive_headcount_right_sizing(coherent={_hc_pct:.4f})"
   if implied is not None and float(implied) > 0.0:
     pct = round(min(max(float(implied), float(band["min_pct"])), float(band["max_pct"])), 4)
     return pct, f"intake_stated_payroll_ratio_clamped(stated={float(implied):.4f})"
@@ -2682,6 +2765,7 @@ def compute_round1_payroll_anchor(
     band=band,
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
+    model_input_json=model_input_json,
   )
 
   capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
@@ -2717,9 +2801,12 @@ def compute_round1_payroll_anchor(
       for pr in (qrow.get("product_rows") or [])
     )
 
-  key_rows = _key_people_rows_from_intake(
-    people_json, policy=policy, horizon=horizon,
-    business_facts=business_facts, ops_json=ops_json,
+  key_rows = _apply_headcount_coherence_to_key_rows(
+    _key_people_rows_from_intake(
+      people_json, policy=policy, horizon=horizon,
+      business_facts=business_facts, ops_json=ops_json,
+    ),
+    model_input_json,
   )
   key_payroll_by_q: Dict[int, int] = {q: 0 for q in range(1, horizon + 1)}
   for row in key_rows:
@@ -2866,6 +2953,7 @@ def author_round1_payroll_contract(
     band=band,
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
+    model_input_json=model_input_json,
   )
 
   capacity_labor_model = ROUND1_INTENSITY_TO_CAPACITY_LABOR_MODEL.get(
@@ -2903,9 +2991,12 @@ def author_round1_payroll_contract(
     )
 
   # --- key people: fixed payroll per quarter (builder math) (Part B.5) ----
-  key_rows = _key_people_rows_from_intake(
-    people_json, policy=policy, horizon=horizon,
-    business_facts=business_facts, ops_json=ops_json,
+  key_rows = _apply_headcount_coherence_to_key_rows(
+    _key_people_rows_from_intake(
+      people_json, policy=policy, horizon=horizon,
+      business_facts=business_facts, ops_json=ops_json,
+    ),
+    model_input_json,
   )
   key_payroll_by_q: Dict[int, int] = {q: 0 for q in range(1, horizon + 1)}
   for row in key_rows:
