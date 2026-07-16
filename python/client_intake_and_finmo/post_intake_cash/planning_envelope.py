@@ -195,6 +195,12 @@ def build_cash_planning_envelope(
       if residual_funding_gap <= 0
       else 0
     )
+    # RETAINED-EARNINGS DRAWDOWN FLOOR (conditional): positive RE may
+    # fund payouts only down to zero, never into the negative; a
+    # zero/negative RE balance has nothing to floor and changes nothing.
+    _re_balance_q = float(safe_float(row.get("retained_earnings")) or 0.0)
+    if _re_balance_q > 0:
+      max_additional_distribution = int(min(max_additional_distribution, int(_re_balance_q)))
     current_debt_level = int(round(float(safe_float(capital_structure.get("debt_level")) or 0.0)))
     hard_rule_actions: List[Dict[str, Any]] = []
     if hard_rule_distribution_removed > 0:

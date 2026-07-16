@@ -216,6 +216,15 @@ def build_cash_validation_envelope(
       if residual_funding_gap <= 0
       else 0
     )
+    # RETAINED-EARNINGS DRAWDOWN FLOOR (conditional): when the RE balance
+    # is POSITIVE, a distribution may not drain it negative — distribute
+    # the surplus, never the account (a payout beyond accumulated
+    # earnings is a return of capital dressed as a distribution). A
+    # business with zero/negative RE simply has no RE to draw: nothing
+    # to floor, nothing fails, the other caps govern unchanged.
+    _re_balance_q = float(safe_float(row.get("retained_earnings")) or 0.0)
+    if _re_balance_q > 0:
+      max_additional_distribution = int(min(max_additional_distribution, int(_re_balance_q)))
     current_debt_level = int(round(float(safe_float(capital_structure.get("debt_level")) or 0.0)))
     hard_rule_actions: List[Dict[str, Any]] = []
     if hard_rule_distribution_removed > 0:
@@ -356,6 +365,12 @@ def build_cash_validation_envelope(
       if residual_funding_gap <= 0
       else 0
     )
+    # RE DRAWDOWN FLOOR (conditional — see the main loop): positive RE
+    # may fund payouts only down to zero, never into the negative.
+    _re_row = rows_by_quarter.get(int(quarter_payload.get("quarter_index") or 0)) or {}
+    _re_bal = float(safe_float(_re_row.get("retained_earnings")) or 0.0)
+    if _re_bal > 0:
+      max_additional_distribution = int(min(max_additional_distribution, int(_re_bal)))
     if deployable_surplus > 0:
       surplus_deployment_quarters.append(int(quarter_payload.get("quarter_index") or 0))
     if bool(quarter_payload.get("buffer_violation")) or bool(quarter_payload.get("distribution_violation")) or quarter_payload.get("hard_rule_actions"):
