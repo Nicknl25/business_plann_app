@@ -1281,6 +1281,26 @@ def _cash_strategy_funding_source_policy(
         if _debt_lid in judged_allowed:
           judged_allowed = [_debt_lid] + [l for l in judged_allowed if l != _debt_lid]
           _policy_payload["allowed_funding_source_lever_ids"] = judged_allowed
+      if _p_kind == "equity":
+        # Equity funds the plan; debt is the last resort only (typically
+        # zero — the client asked for equity, the forecast shows equity).
+        _debt_lid = str(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID or "").strip()
+        if _debt_lid in judged_allowed:
+          judged_allowed = [l for l in judged_allowed if l != _debt_lid] + [_debt_lid]
+          _policy_payload["allowed_funding_source_lever_ids"] = judged_allowed
+      if _p_kind in ("equity", "both"):
+        # THE STUB IS A STARTING BALANCE, NOT A CEILING. Q1-Q20 is a
+        # FORECAST: a client who states an equity preference raises the
+        # equity the plan calls for (owner, investors, partners) across
+        # the horizon — we do not adjudicate their access to capital,
+        # and capping forecast equity at the OPENING balance would force
+        # debt they didn't ask for (or fail them) on an invented
+        # scarcity. The demonstrated-capacity cap survives ONLY for the
+        # no-preference default, where nothing was stated and the
+        # machine must not invent equity on its own (the Cedar $21M
+        # lesson). Viability stays with EARNINGS — equity funding cannot
+        # rescue a P&L that cannot earn.
+        _policy_payload.pop("owner_capital_cumulative_cap", None)
       _policy_payload["client_funding_preference"] = {
         "preference": _p_kind,
         "debt_share": _p_share,
