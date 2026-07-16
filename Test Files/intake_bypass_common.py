@@ -544,7 +544,13 @@ def validate_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) -> List[
       revenue = _to_number(fin.get("current_revenue")) if fin.get("current_revenue") not in (None, "") else None
     except (TypeError, ValueError):
       revenue = None
-    if annualized_lease and revenue and annualized_lease > revenue:
+    # An EXPLICIT one-time capital lease is already disambiguated — the
+    # 12x-inflation bug this check guards against is a bare/monthly value;
+    # a one-time facility lease legitimately exceeds one year's revenue
+    # (Big_Shipper $960M, Understory's $300k grow-facility vs $298k/yr).
+    _lease_raw = str(fin.get("initial_lease") or "").strip().lower()
+    _is_one_time = _lease_raw.partition(",")[2].strip() in ("one-time", "onetime", "one_time", "once")
+    if annualized_lease and revenue and annualized_lease > revenue and not _is_one_time:
       problems.append(
         f"financials.initial_lease annualizes to ${annualized_lease:,.0f}, which EXCEEDS "
         f"current_revenue ${revenue:,.0f} -- this is a monthly lease-payment field, so a "
