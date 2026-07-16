@@ -252,6 +252,49 @@ def buffer_components(
   }
 
 
+def outstanding_gap_draw_balance_series(
+  *,
+  debt_issuance_series: List[int],
+  debt_repayment_series: List[int],
+  opening_term_debt: int,
+  judged_term_quarters: Optional[int],
+  horizon: int,
+) -> List[int]:
+  """Per-quarter CLOSING balance of outstanding gap draws (the revolver).
+
+  RETAINED-EARNINGS-FIRST doctrine support: a business must not pay
+  earnings OUT while gap-funding draws are still outstanding — earnings
+  are retained until the line is repaid. This walk mirrors the debt
+  schedule's term/revolver split on the lever series (stated opening
+  debt amortizes on the judged term; issuance accumulates on the
+  revolver; repayment above the term minimum retires the revolver
+  first) so the envelopes and surplus cleanup can see how much of the
+  balance is gap draws vs the structural term loan. Index 0 = Q1.
+  """
+  import math as _math
+  term_balance = int(max(0, opening_term_debt))
+  revolver_balance = 0
+  series: List[int] = []
+  for q in range(1, int(max(1, horizon)) + 1):
+    issuance = int(debt_issuance_series[q - 1]) if q - 1 < len(debt_issuance_series) else 0
+    repayment = int(debt_repayment_series[q - 1]) if q - 1 < len(debt_repayment_series) else 0
+    revolver_balance = int(max(0, revolver_balance + max(0, issuance)))
+    if judged_term_quarters is not None and int(judged_term_quarters) >= 1:
+      remaining = max(1, int(judged_term_quarters) - q + 1)
+    else:
+      remaining = max(1, int(max(1, horizon)) - q + 1)
+    term_min = int(min(term_balance, _math.ceil(float(term_balance) / float(remaining)))) if term_balance > 0 else 0
+    repay_rev = int(min(revolver_balance, max(0, repayment - term_min)))
+    repay_term = int(min(term_balance, repayment - repay_rev))
+    leftover = int(max(0, repayment - repay_rev - repay_term))
+    if leftover > 0:
+      repay_rev += int(min(revolver_balance - repay_rev, leftover))
+    revolver_balance = int(max(0, revolver_balance - repay_rev))
+    term_balance = int(max(0, term_balance - repay_term))
+    series.append(int(revolver_balance))
+  return series
+
+
 def debt_cash_support_multiplier(
   *,
   lever_map: Optional[Dict[str, List[float]]],

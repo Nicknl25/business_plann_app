@@ -354,6 +354,7 @@ def validate_cash_judgment(
   *,
   judgment: Dict[str, Any],
   operator_selected_posture: bool,
+  stated_capital_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Rail the raw judgment into a validated, executable form.
 
@@ -364,6 +365,22 @@ def validate_cash_judgment(
     operator selected a strategy at intake (stated fact wins — the
     judged posture is then recorded as a coherence note only).
   - Surplus priority coerced to a known value.
+  - STATED-FACT RAIL ON FUNDING ACCESS: owner's capital is NEVER closed
+    by judgment. Pre-executive, owner capital was unconditionally
+    available for every business — that is why the old pass "just
+    funded." The executive insertion made it a raw judged boolean with
+    no floor, and the judgment promptly invented scarcity the stated
+    facts contradict (Meridian: operator stated $500k equity + $150k
+    cash; the executive guessed "owner's personal liquidity is already
+    deployed" — a sector stereotype no intake field supports — forcing
+    a 100%-debt structure whose interest spiral sank an otherwise
+    healthy dealer). The rail: the judged boolean is preserved as the
+    executive's narrative skepticism (``owner_equity_judged_available``)
+    but the SOURCE stays open; sizing stays with the envelope/bounds
+    machinery, so this is never "infinite owner money" — the door just
+    cannot be slammed to zero. Outside equity stays judgment-gated (an
+    investor cannot be invented). Same precedence pattern as the WC
+    judgment's stated balances and the posture override.
 
   Returns {buffer_months, ceiling_months, funding_access{...},
   debt_term_quarters, posture, posture_applies, surplus_priority,
@@ -394,11 +411,25 @@ def validate_cash_judgment(
   ceiling_months = round(clamped_c, 2)
 
   fa = j.get("funding_access") or {}
+  _owner_judged = bool(fa.get("owner_equity_available"))
   funding_access = {
     "debt_available": bool(fa.get("debt_available")),
-    "owner_equity_available": bool(fa.get("owner_equity_available")),
+    # STATED-FACT RAIL — owner capital is never CLOSED by judgment (see
+    # docstring). The judged boolean survives below for the narrative.
+    "owner_equity_available": True,
+    "owner_equity_judged_available": _owner_judged,
     "outside_equity_available": bool(fa.get("outside_equity_available")),
   }
+  if not _owner_judged:
+    _facts = stated_capital_facts if isinstance(stated_capital_facts, dict) else {}
+    _stated_evidence = [
+      f"{k}={v}" for k, v in _facts.items()
+      if k in ("initial_equity", "cash_on_hand") and v
+    ]
+    notes.append(
+      "owner_equity_judged_unavailable_overridden_stated_fact_rail"
+      + (f"({'; '.join(_stated_evidence)})" if _stated_evidence else "")
+    )
 
   ds = j.get("debt_structure") or {}
   t_lo, t_hi = CASH_RAILS["debt_term_quarters"]

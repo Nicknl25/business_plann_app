@@ -2099,9 +2099,13 @@ def build_python_stage_ramp_contract(
       # Q1 has no prior quarter (enforcement loops start at Q2); ground its
       # vestigial target to the earliest judged rate so the validator's
       # rev_max >= rev_target self-heal cannot re-break monotonicity.
+      # Floored at 0: some mature-stage policies carry a slight-decline
+      # qoq_max (-0.01) that the ramp contract validator rejects outright
+      # (negative rev fields are envelope violations; ramp-down is not
+      # modeled) — flat is the tightest expressible ceiling.
       _fallback = _jg_qoq_by_q.get(2, qoq_target)
-      return min(_jg_qoq_by_q.get(q, _fallback), qoq_max)
-    return qoq_target
+      return max(0.0, min(_jg_qoq_by_q.get(q, _fallback), qoq_max))
+    return max(0.0, qoq_target)
 
   # rev_max is judged-derived too: the ramp is the ONE choke point every
   # revenue writer passes (the in-cascade executive, the solver, Phase B --
@@ -2119,11 +2123,14 @@ def build_python_stage_ramp_contract(
     # rev_max must be monotonic non-decreasing per the contract validator
     # (a tapering ceiling was rejected as envelope_violation_rev_max_non_
     # monotonic), so the judged ceiling is FLAT at the judged path's peak
-    # rate plus the adaptation headroom.
+    # rate plus the adaptation headroom. Floored at 0: a slight-decline
+    # stage-policy qoq_max (-0.01, some mature families) is rejected by
+    # the ramp contract validator as envelope_violation_rev_max_negative
+    # — flat is the tightest ceiling the contract can express.
     del q
     if _jg_qoq_by_q:
-      return min(qoq_max, max(_jg_qoq_by_q.values()) + _JUDGED_REV_MAX_HEADROOM_QOQ)
-    return qoq_max
+      return max(0.0, min(qoq_max, max(_jg_qoq_by_q.values()) + _JUDGED_REV_MAX_HEADROOM_QOQ))
+    return max(0.0, qoq_max)
 
   def _mgr_target(metric: str, q: int, fallback: float) -> float:
     try:

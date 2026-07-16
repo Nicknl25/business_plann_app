@@ -13,6 +13,7 @@ from .common import (
   cash_strategy_policy_guidance,
   debt_cash_support_multiplier,
   live_quarter_rows,
+  outstanding_gap_draw_balance_series,
   safe_float,
   solved_lever_stub_value_map,
   solved_lever_value_map,
@@ -75,6 +76,24 @@ def build_cash_validation_envelope(
   _cash_judgment = _judged_cash(model_input_json)
   _judged_floor = safe_float((_cash_judgment or {}).get("buffer_months"))
   _judged_ceiling = safe_float((_cash_judgment or {}).get("ceiling_months"))
+
+  # RETAINED EARNINGS BEFORE PAYOUTS — while gap-funding draws are
+  # outstanding, earnings are RETAINED (the distribution cap shrinks by
+  # the outstanding draw balance): a business does not pay its owners
+  # out of a line it has not repaid. The stated term loan does not
+  # block distributions (structural debt on a schedule is normal); only
+  # the gap draws do.
+  _first_live_row = rows_by_quarter.get(live_quarters[0]) if live_quarters else None
+  _gap_draw_outstanding = outstanding_gap_draw_balance_series(
+    debt_issuance_series=debt_issuance_series,
+    debt_repayment_series=debt_repayment_series,
+    opening_term_debt=int(round(float(safe_float((_first_live_row or {}).get("debt_opening_balance")) or 0.0))),
+    judged_term_quarters=(
+      int(round(float(safe_float((_cash_judgment or {}).get("debt_term_quarters")))))
+      if safe_float((_cash_judgment or {}).get("debt_term_quarters")) else None
+    ),
+    horizon=max(live_quarters) if live_quarters else 20,
+  )
 
   for quarter_index in live_quarters:
     row = rows_by_quarter.get(quarter_index) or {}
@@ -188,8 +207,12 @@ def build_cash_validation_envelope(
       if deploy_above_ceiling_required and residual_funding_gap <= 0
       else 0
     )
+    _rev_outstanding_q = int(
+      _gap_draw_outstanding[quarter_index - 1]
+      if quarter_index - 1 < len(_gap_draw_outstanding) else 0
+    )
     max_additional_distribution = int(
-      max(0, effective_ending_cash - retention_buffer)
+      max(0, effective_ending_cash - retention_buffer - _rev_outstanding_q)
       if residual_funding_gap <= 0
       else 0
     )
@@ -322,8 +345,14 @@ def build_cash_validation_envelope(
     )
     # Phase 9 P3.10 iter 13 — distributions cap is floor-based, not
     # ceiling-based. Owner has full discretion above the buffer floor.
+    # RETAINED EARNINGS BEFORE PAYOUTS — minus the outstanding gap-draw
+    # balance (earnings retained until the line is repaid).
+    _rev_out_q = int(
+      _gap_draw_outstanding[int(quarter_payload.get("quarter_index") or 0) - 1]
+      if 0 <= int(quarter_payload.get("quarter_index") or 0) - 1 < len(_gap_draw_outstanding) else 0
+    )
     max_additional_distribution = int(
-      max(0, effective_ending_cash - buffer_required)
+      max(0, effective_ending_cash - buffer_required - _rev_out_q)
       if residual_funding_gap <= 0
       else 0
     )

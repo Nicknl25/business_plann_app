@@ -1165,6 +1165,7 @@ def _cash_strategy_funding_source_policy(
   violation_envelope: Optional[Dict[str, Any]],
   debt_schedule_snapshot: Optional[Dict[str, Any]],
   cash_judgment: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Scope cash funding sources before GPT chooses the source mix.
 
@@ -1197,15 +1198,36 @@ def _cash_strategy_funding_source_policy(
     # judgment-gated (an investor cannot be invented).
     judged_allowed: List[str] = []
     judged_excluded: List[str] = []
+    # FUNDING WATERFALL ORDER — the proposer and the refill loop are
+    # priority-ordered first-fit over this list, so the ORDER is the
+    # waterfall: OWNER'S CAPITAL funds structural needs before external
+    # debt (equity carries no interest drag — the all-debt Meridian
+    # spiral funded its own interest for 20 quarters while $650k of
+    # stated owner capacity sat unused); debt covers the bridge; outside
+    # equity last (judgment-gated — an investor cannot be invented).
     for lever_id, available in (
-      (_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID, True),
       (_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID, bool(_fa.get("owner_equity_available"))),
+      (_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID, True),
       (_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID, bool(_fa.get("outside_equity_available"))),
     ):
       lid = str(lever_id or "").strip()
       if not lid or lid not in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS:
         continue
       (judged_allowed if available else judged_excluded).append(lid)
+    # OWNER CAPACITY CAP — "never closed" must not become "infinite
+    # owner money": cumulative ADDITIONAL owner capital over the horizon
+    # is capped at the owner's DEMONSTRATED capacity from stated facts
+    # (initial equity already injected + cash on hand). Meridian: $500k
+    # + $150k = $650k of credible additional capacity; a business whose
+    # operator stated no equity and no cash gets a zero cap on FACTS —
+    # arithmetic, not judgment, sizes the door.
+    _fin = financials_json if isinstance(financials_json, dict) else {}
+    def _fin_amt(key: str) -> float:
+      value = _safe_float(_fin.get(key))
+      return max(0.0, float(value)) if value is not None else 0.0
+    owner_capital_cumulative_cap = int(round(
+      _fin_amt("initial_equity") + _fin_amt("cash_on_hand")
+    ))
     _reasons = [
       "Executive cash judgment (viability-blind, fundability-not-need): " + (
         _rationale or "funding access judged per business type/stage."
@@ -1213,6 +1235,12 @@ def _cash_strategy_funding_source_policy(
       "Debt issuance always available for gap coverage: the funding request "
       "is the plan; the executive judges structure, the acceptance gates "
       "judge lender-worthiness.",
+      "FUNDING WATERFALL: the business's own cash above the floor and its "
+      "retained earnings fund it FIRST (distributions stay suppressed while "
+      "gap draws are outstanding); owner's capital comes before external "
+      "debt for structural needs; debt covers the bridge. Owner's capital "
+      "is never closed as a source — the executive sizes what is realistic, "
+      "it does not slam the door (stated-fact rail).",
     ]
     if not bool(_fa.get("debt_available")):
       _reasons.append(
@@ -1224,6 +1252,8 @@ def _cash_strategy_funding_source_policy(
       "contract_version": "cash_strategy_funding_source_policy_v2_executive_judged",
       "allowed_funding_source_lever_ids": judged_allowed,
       "excluded_funding_source_lever_ids": judged_excluded,
+      "owner_capital_cumulative_cap": owner_capital_cumulative_cap,
+      "owner_capital_lever_id": _CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID,
       "policy_reasons": _reasons,
       "decision_source": "executive_cash_judgment",
     }
@@ -1511,6 +1541,7 @@ def _build_cash_strategy_review_context_payload(
     violation_envelope=copy.deepcopy(violation_envelope),
     debt_schedule_snapshot=copy.deepcopy(debt_schedule_snapshot),
     cash_judgment=_fsp_judged_cash(model_input),
+    financials_json=copy.deepcopy(financials),
   )
   allowed_quarters = [
     int(_safe_float(item) or 0)
@@ -1975,21 +2006,30 @@ def _cash_strategy_review_decision_contract_error(
     ]
     if not funding_sources:
       return f"quarter_funding_plan Q{quarter_index} must include at least one funding source."
-    if len(funding_sources) != 1:
+    # FUNDING WATERFALL — a quarter's gap may be covered by MULTIPLE
+    # sources in waterfall order (owner capital up to its capacity cap,
+    # debt for the remainder). Pre-waterfall the contract demanded
+    # exactly ONE source per quarter, which silently excluded owner
+    # capital from any quarter whose gap exceeded the owner's capacity
+    # (Meridian's Q1 $1.46M gap vs $650k stated capacity -> all-debt Q1
+    # and the interest that sank the NI ramp).
+    for _fs in funding_sources:
+      _fs_lever = str((_fs or {}).get("lever_id") or "").strip()
+      if _fs_lever not in set(_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS):
+        return (
+          f"quarter_funding_plan Q{quarter_index} funding source {_fs_lever or 'missing'} is not allowed. "
+          "Use only debt issuance, debt repayment reduction, owner's capital, or policy-justified outside-investor other equity."
+        )
+      if policy_allowed_funding_sources and _fs_lever not in policy_allowed_funding_sources:
+        return (
+          f"quarter_funding_plan Q{quarter_index} funding source {_fs_lever} is outside the deterministic "
+          f"cash funding source policy. allowed={sorted(policy_allowed_funding_sources)}."
+        )
+    _fs_lever_ids = [str((_fs or {}).get("lever_id") or "").strip() for _fs in funding_sources]
+    if len(set(_fs_lever_ids)) != len(_fs_lever_ids):
       return (
-        f"quarter_funding_plan Q{quarter_index} must include exactly one funding source. "
-        "Use a single source per quarter and make its amount equal the required funding gap exactly."
-      )
-    funding_lever_id = str((funding_sources[0] or {}).get("lever_id") or "").strip()
-    if funding_lever_id not in set(_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS):
-      return (
-        f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id or 'missing'} is not allowed. "
-        "Use only debt issuance, debt repayment reduction, owner's capital, or policy-justified outside-investor other equity."
-      )
-    if policy_allowed_funding_sources and funding_lever_id not in policy_allowed_funding_sources:
-      return (
-        f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id} is outside the deterministic "
-        f"cash funding source policy. allowed={sorted(policy_allowed_funding_sources)}."
+        f"quarter_funding_plan Q{quarter_index} lists the same funding source more than once; "
+        "declare each source at most once per quarter."
       )
     declared_gap = int(round(float(_safe_float(quarter_plan.get("required_funding_gap")) or 0.0)))
     expected_gap = int(round(float(_safe_float(required_payload.get("required_incremental_funding_after_hard_rules")) or 0.0)))
@@ -2017,40 +2057,40 @@ def _cash_strategy_review_decision_contract_error(
         f"quarter_funding_plan Q{quarter_index} declared funding sources must sum exactly to the required funding gap. "
         f"declared_total={declared_total} required_gap={expected_gap}."
       )
-    funding_source = funding_sources[0] if funding_sources else {}
-    funding_lever_id = str(funding_source.get("lever_id") or "").strip()
-    funding_amount = int(round(float(_safe_float(funding_source.get("amount")) or 0.0)))
-    matching_adjustment = adjustment_by_lever_quarter.get((funding_lever_id, quarter_index))
-    if not isinstance(matching_adjustment, dict):
-      return (
-        f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id} must have a matching "
-        "recommended_adjustment for the same lever and quarter."
-      )
-    adjustment_exact_value = int(round(float(_safe_float(matching_adjustment.get("exact_value")) or 0.0)))
-    bound = lever_bound_lookup.get((funding_lever_id, quarter_index)) or {}
-    current_value = int(round(float(_safe_float(bound.get("current_value")) or 0.0)))
-    max_value = int(round(float(_safe_float(bound.get("max_value")) or current_value)))
-    supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
-    cash_support_multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
-    if funding_lever_id in {_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID, _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID}:
-      if adjustment_exact_value != funding_amount:
+    for funding_source in funding_sources:
+      funding_lever_id = str(funding_source.get("lever_id") or "").strip()
+      funding_amount = int(round(float(_safe_float(funding_source.get("amount")) or 0.0)))
+      matching_adjustment = adjustment_by_lever_quarter.get((funding_lever_id, quarter_index))
+      if not isinstance(matching_adjustment, dict):
         return (
-          f"quarter_funding_plan Q{quarter_index} {funding_lever_id} exact_value must be the incremental funding amount, "
-          f"not the final balance-sheet value. exact_value={adjustment_exact_value} funding_amount={funding_amount}."
+          f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id} must have a matching "
+          "recommended_adjustment for the same lever and quarter."
         )
-      headroom = max(0, max_value - current_value)
-      if funding_amount > headroom:
-        return (
-          f"quarter_funding_plan Q{quarter_index} {funding_lever_id} funding_amount exceeds available headroom. "
-          f"amount={funding_amount} headroom={headroom} current_value={current_value} max_value={max_value}."
-        )
-    elif funding_lever_id == _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID:
-      effective_support = int(round(max(adjustment_exact_value, 0) * cash_support_multiplier))
-      if effective_support != funding_amount:
-        return (
-          f"quarter_funding_plan Q{quarter_index} debt issuance exact_value must gross up to funding_amount after interest cash support multiplier. "
-          f"exact_value={adjustment_exact_value} effective_support={effective_support} funding_amount={funding_amount} multiplier={round(cash_support_multiplier, 6)}."
-        )
+      adjustment_exact_value = int(round(float(_safe_float(matching_adjustment.get("exact_value")) or 0.0)))
+      bound = lever_bound_lookup.get((funding_lever_id, quarter_index)) or {}
+      current_value = int(round(float(_safe_float(bound.get("current_value")) or 0.0)))
+      max_value = int(round(float(_safe_float(bound.get("max_value")) or current_value)))
+      supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
+      cash_support_multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
+      if funding_lever_id in {_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID, _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID}:
+        if adjustment_exact_value != funding_amount:
+          return (
+            f"quarter_funding_plan Q{quarter_index} {funding_lever_id} exact_value must be the incremental funding amount, "
+            f"not the final balance-sheet value. exact_value={adjustment_exact_value} funding_amount={funding_amount}."
+          )
+        headroom = max(0, max_value - current_value)
+        if funding_amount > headroom:
+          return (
+            f"quarter_funding_plan Q{quarter_index} {funding_lever_id} funding_amount exceeds available headroom. "
+            f"amount={funding_amount} headroom={headroom} current_value={current_value} max_value={max_value}."
+          )
+      elif funding_lever_id == _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID:
+        effective_support = int(round(max(adjustment_exact_value, 0) * cash_support_multiplier))
+        if effective_support != funding_amount:
+          return (
+            f"quarter_funding_plan Q{quarter_index} debt issuance exact_value must gross up to funding_amount after interest cash support multiplier. "
+            f"exact_value={adjustment_exact_value} effective_support={effective_support} funding_amount={funding_amount} multiplier={round(cash_support_multiplier, 6)}."
+          )
   return None
 
 def _run_cash_strategy_review_openai(
@@ -3790,6 +3830,29 @@ def _apply_cash_policy_surplus_cleanup(
       int(round(float(_safe_float(item) or 0.0)))
       for item in (lever_values.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
     ]
+    # RETAINED EARNINGS BEFORE PAYOUTS — while gap-funding draws are
+    # outstanding at a quarter, surplus deleverages FIRST regardless of
+    # the judged surplus priority (distribute_ok governs TRUE surplus,
+    # after the line is repaid). Mirrors the envelope distribution cap.
+    from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+      outstanding_gap_draw_balance_series as _cleanup_gap_draw_series,
+    )
+    _cleanup_first_row_rows = _cash_strategy_live_quarter_rows(finmo_json)
+    _cleanup_gap_draws = _cleanup_gap_draw_series(
+      debt_issuance_series=[
+        int(round(float(_safe_float(item) or 0.0)))
+        for item in (lever_values.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID) or [])
+      ],
+      debt_repayment_series=debt_repayment_values,
+      opening_term_debt=int(round(float(_safe_float(
+        (_cleanup_first_row_rows[0] if _cleanup_first_row_rows else {}).get("debt_opening_balance")
+      ) or 0.0))),
+      judged_term_quarters=(
+        int(round(float(_safe_float((_surplus_judgment or {}).get("debt_term_quarters")))))
+        if _safe_float((_surplus_judgment or {}).get("debt_term_quarters")) else None
+      ),
+      horizon=live_quarter_count,
+    )
     exact_updates: List[Dict[str, Any]] = []
     current_value_by_update_key: Dict[tuple[str, int], int] = {}
     for quarter_payload in (envelope.get("quarter_envelopes") or []):
@@ -3819,7 +3882,11 @@ def _apply_cash_policy_surplus_cleanup(
       # debt repayment; only what exceeds the remaining balance can then
       # flow to distributions via the spillover below). distribute_ok
       # keeps the strategy's normal split. No judgment -> policy weights.
-      if _surplus_judged_priority == "deleverage_first":
+      _rev_outstanding_here = int(
+        _cleanup_gap_draws[quarter_index - 1]
+        if 0 <= quarter_index - 1 < len(_cleanup_gap_draws) else 0
+      )
+      if _surplus_judged_priority == "deleverage_first" or _rev_outstanding_here > 0:
         distribution_weight = 0.0
         debt_paydown_weight = 1.0
       weight_total = distribution_weight + debt_paydown_weight

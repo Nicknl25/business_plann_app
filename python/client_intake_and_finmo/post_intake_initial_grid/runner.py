@@ -1043,6 +1043,10 @@ def prepare_initial_grid_for_draft(
           _cash_validated = validate_cash_judgment(
             judgment=_cash_result["judgment"],
             operator_selected_posture=bool(_cash_selected_posture),
+            stated_capital_facts={
+              k: v for k, v in _cash_stated.items()
+              if k in ("initial_equity", "cash_on_hand") and v is not None
+            },
           )
           if isinstance(model_input_json, dict):
             model_input_json.setdefault("solver_input", {})

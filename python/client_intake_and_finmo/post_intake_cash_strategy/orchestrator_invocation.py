@@ -827,6 +827,23 @@ def run_mode_based_cash_strategy(
           break
         _refill_lever_values = _cash_runner._solved_lever_value_map(_refill_mi)
         _refill_updates: List[Dict[str, Any]] = []
+        # OWNER CAPACITY CAP — cumulative additional owner capital across
+        # the whole plan may not exceed the stated demonstrated capacity
+        # (funding source policy); remaining = cap minus what the plan
+        # already carries. Recomputed each pass from the live series so
+        # the cap self-corrects as passes accumulate.
+        _refill_owner_lever = str(_fsp_refill.get("owner_capital_lever_id") or "").strip()
+        _refill_owner_cap = _fsp_refill.get("owner_capital_cumulative_cap")
+        _refill_owner_remaining = None
+        if _refill_owner_lever and _refill_owner_cap is not None:
+          try:
+            _owner_series_now = _refill_lever_values.get(_refill_owner_lever) or []
+            _refill_owner_remaining = max(
+              0.0,
+              float(_refill_owner_cap) - sum(max(0.0, float(v or 0.0)) for v in _owner_series_now),
+            )
+          except Exception:
+            _refill_owner_remaining = None
         # CARRY-FORWARD: funding a quarter lifts every later quarter's
         # ending cash, so each gap is funded only INCREMENTALLY beyond
         # what earlier fills already carry forward — funding every
@@ -844,6 +861,8 @@ def run_mode_based_cash_strategy(
             _cur = float(_cur_series[_rq_i - 1]) if _rq_i - 1 < len(_cur_series) else 0.0
             _maxv = _refill_bound_max.get((_lever, _rq_i))
             _headroom = (float(_maxv) - _cur) if _maxv is not None else 0.0
+            if _lever == _refill_owner_lever and _refill_owner_remaining is not None:
+              _headroom = min(_headroom, float(_refill_owner_remaining))
             if _headroom <= 0:
               continue
             _mult = 1.0
@@ -855,6 +874,8 @@ def run_mode_based_cash_strategy(
             _add = min(_headroom, _need)
             if _add < 1.0:
               continue
+            if _lever == _refill_owner_lever and _refill_owner_remaining is not None:
+              _refill_owner_remaining = max(0.0, float(_refill_owner_remaining) - float(_add))
             _refill_updates.append({
               "lever_id": _lever,
               "quarter_index": _rq_i,

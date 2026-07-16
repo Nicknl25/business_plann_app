@@ -3296,7 +3296,43 @@ def _run_post_cascade_completion(
           sba_forecast_interest_rate_policy as _fd_sba_policy,
         )
         _fd_judgment = _fd_judged_cash(_pb_gate_mi)
-        _fd_months = float(_safe_float((_fd_judgment or {}).get("buffer_months")) or 1.0)
+        # HARD FLOOR, not the judged retention buffer: the cash pass
+        # funds gaps only to min(judged, strategy policy, balanced
+        # policy) months — projecting the drag against the judged
+        # 3-month cushion overstates the funded balance ~2x for a
+        # COGS-heavy business and makes the proxy unclearable inside
+        # the executive ceilings (the price-lift trial walked to 1.2x
+        # with the REAL post-cash NI clearing and the proxy still red).
+        _fd_judged_months = _safe_float((_fd_judgment or {}).get("buffer_months"))
+        _fd_months = float(_fd_judged_months) if _fd_judged_months else 1.0
+        try:
+          from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+            post_intake_cash_policy_for as _fd_policy_for,
+          )
+          _fd_q1_row = _fd_rows.get(1) or {}
+          _fd_equity = float(_safe_float(_fd_q1_row.get("total_equity")) or 0.0)
+          _fd_debt = float(_safe_float(_fd_q1_row.get("short_term_debt")) or 0.0) + float(
+            _safe_float(_fd_q1_row.get("long_term_debt")) or 0.0
+          )
+          _fd_dte = (_fd_debt / _fd_equity) if _fd_equity > 0 else (999.0 if _fd_debt > 0 else 0.0)
+          _fd_floors = [
+            float(_fd_judged_months) if _fd_judged_months else float("inf"),
+          ]
+          for _fd_strategy in (
+            str((financials_json or {}).get("cash_strategy") or "balanced").strip().lower() or "balanced",
+            "balanced",
+          ):
+            _fd_pol = _fd_policy_for(
+              cash_strategy=_fd_strategy, debt_to_equity=_fd_dte, required=False,
+            ) or {}
+            _fd_pol_floor = _safe_float(_fd_pol.get("cash_floor_months"))
+            if _fd_pol_floor:
+              _fd_floors.append(float(_fd_pol_floor))
+          _fd_months = min(_fd_floors) if _fd_floors else _fd_months
+          if _fd_months == float("inf"):
+            _fd_months = 1.0
+        except Exception:
+          pass
         _fd_rate = float(_safe_float(
           (_fd_sba_policy(_pb_gate_mi) or {}).get("quarterly_rate_decimal")
         ) or 0.0)
@@ -3706,6 +3742,97 @@ def _run_post_cascade_completion(
               "chosen_percent": _pb_chosen,
               "note": _pb_note,
             }
+
+        # -- PRICE-LIFT TRIAL (funding-drag repair inside the executive
+        #    price ceiling). The funding-drag engagement signals (NI ramp
+        #    and coverage re-tested WITH the projected funded interest)
+        #    are acceptance-level, so the realism-target restoration has
+        #    nothing to chase when they are the only failures — Phase B
+        #    "engaged" and moved nothing (Meridian: Q11 NI -0.6% post-
+        #    funding with 15% of executive price headroom unused). Mirror
+        #    of the payroll descending trial: walk SMALL price lifts
+        #    (Q2+, Q1 is a fact) clamped per-quarter at the AUTHORED
+        #    value x the executive's lender-believability ceiling, and
+        #    adopt the LEAST lift that clears every signal. No lift
+        #    within the ceiling clears -> authored prices stand and the
+        #    honest verdict renders.
+        try:
+          _pl_failing = _pb_failing_viability_metrics()
+          _pl_ceiling = float(_safe_float((_pb_ceilings or {}).get("unit_price_max_multiplier")) or 0.0)
+          if _pl_failing and _pl_ceiling > 1.0:
+            def _pl_price_rows(_mi: Dict[str, Any]) -> List[Dict[str, Any]]:
+              return [
+                _r for _r in (((_mi or {}).get("sections") or {}).get("revenue") or [])
+                if isinstance(_r, dict) and str(_r.get("driver") or "").strip() == "Unit Price"
+              ]
+            def _pl_key(_r: Dict[str, Any]) -> Tuple[str, str]:
+              return (str(_r.get("lob") or ""), str(_r.get("product") or ""))
+            _pl_auth_map = {
+              _pl_key(_r): list(_r.get("values") or [])
+              for _r in _pl_price_rows(_pb_presearch_mi)
+            }
+            _pl_tried: List[Dict[str, Any]] = []
+            _pl_chosen: Optional[float] = None
+            _pl_base_mi = copy.deepcopy(final_model_input_json or {})
+            for _pl_step in range(1, 11):
+              _pl_m = round(1.0 + 0.02 * _pl_step, 4)
+              if _pl_m > _pl_ceiling + 1e-9:
+                break
+              _pl_mi = copy.deepcopy(_pl_base_mi)
+              _pl_changed = False
+              for _r in _pl_price_rows(_pl_mi):
+                _auth_vals = _pl_auth_map.get(_pl_key(_r)) or []
+                _vals = list(_r.get("values") or [])
+                for _q in range(2, min(len(_vals) - 1, int(horizon or 20)) + 1):
+                  _base = _safe_float(_vals[_q])
+                  if _base is None or float(_base) <= 0:
+                    continue
+                  _authv = _safe_float(_auth_vals[_q]) if _q < len(_auth_vals) else None
+                  _cap = (
+                    float(_authv) * _pl_ceiling
+                    if _authv is not None and float(_authv) > 0
+                    else float(_base) * _pl_ceiling
+                  )
+                  _new = min(float(_base) * _pl_m, _cap)
+                  if _new > float(_base) + 1e-9:
+                    _vals[_q] = round(_new, 6)
+                    _pl_changed = True
+                _r["values"] = _vals
+              if not _pl_changed:
+                break
+              with _pb_scope(
+                step_key="post_intake_target_seeking_restoration_loop",
+                executor_function="phase_b_price_lift_trial",
+              ):
+                _pl_fj = _pb_build_finmo(_pl_mi)
+              _pl_fail_after = _pb_failing_viability_metrics(_pl_mi, _pl_fj)
+              _pl_tried.append({
+                "multiplier": _pl_m,
+                "failing_metrics": _pl_fail_after,
+              })
+              if not _pl_fail_after:
+                _pl_chosen = _pl_m
+                final_model_input_json = _pl_mi
+                final_finmo_json = _pl_fj
+                next_result["model_input_json"] = final_model_input_json
+                next_result["finmo_json"] = final_finmo_json
+                break
+            _pb_trace["price_lift_trial"] = {
+              "engaged": True,
+              "failing_before": _pl_failing,
+              "price_ceiling_multiplier": _pl_ceiling,
+              "candidates_tried": _pl_tried,
+              "chosen_multiplier": _pl_chosen,
+              "note": (
+                "least price lift clearing the funding-drag signals adopted"
+                if _pl_chosen is not None
+                else "no lift within the executive ceiling clears the signals — authored prices kept"
+              ),
+            }
+        except Exception as _pl_exc:  # noqa: BLE001 — authored prices stand
+          _pb_trace["price_lift_trial"] = {
+            "error": f"{type(_pl_exc).__name__}: {str(_pl_exc)[:200]}",
+          }
 
         # -- OWNER DEFERRED-DRAW (the LAST escalation, quintuple-fenced).
         #    A founder routinely takes a reduced draw during the ramp and

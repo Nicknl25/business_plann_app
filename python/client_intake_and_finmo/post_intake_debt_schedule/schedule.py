@@ -401,6 +401,18 @@ def build_debt_schedule_plan(
   for quarter_index in range(1, horizon_count + 1):
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
     current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
+    # DRAW AMORTIZATION STARTS THE FOLLOWING QUARTER — the revolver
+    # opening balance (draws from PRIOR quarters, net of repayments)
+    # carries a forced amortizing minimum to zero by the horizon end,
+    # exactly the discipline the pre-split schedule applied to every
+    # draw. The split had left new draws with NO minimum at all —
+    # repaid only from surplus — so a no-surplus business (Meridian)
+    # never repaid a single draw across 20 quarters of drawing. The
+    # CURRENT quarter's draw is excluded from this quarter's minimum
+    # (a loan starts repaying the quarter after it funds); the
+    # surplus paydown stacks on top for businesses that can retire
+    # the line faster.
+    _rev_opening = int(max(0, revolver_balance))
     revolver_balance = int(max(0, revolver_balance + current_issuance))
     available_debt = int(max(0, term_balance + revolver_balance))
     if _judged_term_quarters is not None:
@@ -409,7 +421,16 @@ def build_debt_schedule_plan(
       remaining_quarters = max(1, horizon_count - quarter_index + 1)
     amortizing_minimum = int(math.ceil(float(term_balance) / float(remaining_quarters))) if term_balance > 0 else 0
     minimum_principal = int(min(term_balance, amortizing_minimum))
-    _base_scheduled = int(min(available_debt, max(current_repayment, minimum_principal)))
+    # Revolver pace: the JUDGED TERM as a CONSTANT divisor — each
+    # quarter's minimum is opening/term (a rolling facility amortizing
+    # at the pace a lender would extend), NOT remaining-to-horizon. A
+    # shrink-to-horizon divisor explodes at the tail (Q19 demands half
+    # the balance, Q20 all of it — Meridian's forced $519k/q cliff sank
+    # cash $1.2M negative); a term-pace minimum declines with the
+    # balance and leaves the same legitimate residual a term loan does.
+    _rev_remaining = int(_judged_term_quarters) if _judged_term_quarters else max(1, horizon_count - quarter_index + 1)
+    _rev_minimum = int(min(_rev_opening, math.ceil(float(_rev_opening) / float(_rev_remaining)))) if _rev_opening > 0 else 0
+    _base_scheduled = int(min(available_debt, max(current_repayment, minimum_principal + _rev_minimum)))
     # STEADY REVOLVER PAYDOWN — surplus above the retention buffer repays
     # the revolver THIS quarter (bounded by the suffix-min headroom so no
     # later quarter dips below its buffer, and net of principal already
@@ -463,9 +484,12 @@ def build_debt_schedule_plan(
       "actual_debt_issuance": current_issuance,
       "available_debt_before_repayment": available_debt,
       "available_principal_before_payment": available_debt,
-      "minimum_principal_payment": minimum_principal,
-      "scheduled_principal_payment": minimum_principal,
+      # The enforced floor = term amortizing minimum + the revolver's
+      # own forced amortization (draws repay from the following quarter).
+      "minimum_principal_payment": int(min(available_debt, minimum_principal + _rev_minimum)),
+      "scheduled_principal_payment": int(min(available_debt, minimum_principal + _rev_minimum)),
       "amortizing_minimum_principal": amortizing_minimum,
+      "revolver_minimum_payment": _rev_minimum,
       "remaining_amortization_quarters": remaining_quarters,
       "extra_principal_payment": int(max(0, scheduled_principal - minimum_principal)),
       "total_principal_payment": scheduled_principal,

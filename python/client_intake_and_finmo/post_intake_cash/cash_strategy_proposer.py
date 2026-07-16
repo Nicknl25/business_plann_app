@@ -81,53 +81,86 @@ def _ordered_funding_sources(
   return ordered
 
 
-def _select_funding_source_for_quarter(
+def _allocate_funding_sources_for_quarter(
   *,
   quarter_index: int,
   required_gap: int,
   ordered_funding_sources: List[str],
   lever_bound_lookup: Dict[Tuple[str, int], Dict[str, Any]],
   debt_issuance_lever_id: str,
-) -> Optional[Dict[str, Any]]:
-  """Pick the first allowed funding source whose headroom covers the gap.
+  source_remaining_caps: Optional[Dict[str, float]] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+  """FUNDING WATERFALL — fill the quarter's gap from the ordered sources,
+  each up to its headroom (and cumulative capacity cap), remainder to the
+  next source. Pre-waterfall the proposer demanded a SINGLE source cover
+  the FULL gap, which silently excluded owner capital from any quarter
+  whose gap exceeded the owner's capacity (Meridian's Q1 $1.46M gap vs
+  $650k stated owner capacity -> an all-debt Q1 whose interest sank the
+  NI ramp while the owner's capital dribbled into later small gaps).
 
-  Returns a dict with the chosen lever, the amount (gap), the gross-up
-  exact_value (for debt_issuance), and the supporting metrics. Returns
-  None when no allowed source has enough headroom — caller handles fallback.
+  Returns ``(allocations, unfunded_remainder)``. Each allocation carries
+  the lever, the cash-support amount, and the exact_value the executor
+  writes (grossed up for debt). ``source_remaining_caps`` is decremented
+  in place for capped sources (the owner-capacity cap).
   """
+  caps = source_remaining_caps if isinstance(source_remaining_caps, dict) else {}
+  allocations: List[Dict[str, Any]] = []
+  remaining = int(max(0, required_gap))
   for lever_id in ordered_funding_sources:
+    if remaining <= 0:
+      break
     bound = lever_bound_lookup.get((lever_id, quarter_index))
     if not isinstance(bound, dict):
       continue
     current_value = _safe_int(bound.get("current_value"))
     max_value = _safe_int(bound.get("max_value")) or current_value
     headroom = max(0, max_value - current_value)
+    if lever_id in caps:
+      headroom = int(min(headroom, max(0.0, float(caps[lever_id]))))
+    if headroom <= 0:
+      continue
     supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
     multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
     if lever_id == debt_issuance_lever_id:
-      grossed_up_required = _gross_up_effective_support(required_gap, multiplier)
-      if grossed_up_required <= headroom:
-        return {
-          "lever_id": lever_id,
-          "funding_amount": int(required_gap),
-          "exact_value": int(grossed_up_required),
-          "current_value": current_value,
-          "max_value": max_value,
-          "cash_support_multiplier": round(multiplier, 6),
-          "supporting_metrics": supporting_metrics,
-        }
+      # Take support bounded by what the headroom can deliver after the
+      # gross-up; walk the take down (bounded) until the round-trip
+      # (exact_value * multiplier == amount) fits the headroom.
+      take = min(remaining, int(round(headroom * multiplier)))
+      exact = _gross_up_effective_support(take, multiplier)
+      _guard = 0
+      while take > 0 and exact > headroom and _guard < 8:
+        take = max(0, take - max(1, exact - headroom))
+        exact = _gross_up_effective_support(take, multiplier)
+        _guard += 1
+      if take < 1 or exact > headroom:
+        continue
+      allocations.append({
+        "lever_id": lever_id,
+        "funding_amount": int(take),
+        "exact_value": int(exact),
+        "current_value": current_value,
+        "max_value": max_value,
+        "cash_support_multiplier": round(multiplier, 6),
+        "supporting_metrics": supporting_metrics,
+      })
+      remaining -= int(take)
     else:
-      if required_gap <= headroom:
-        return {
-          "lever_id": lever_id,
-          "funding_amount": int(required_gap),
-          "exact_value": int(required_gap),
-          "current_value": current_value,
-          "max_value": max_value,
-          "cash_support_multiplier": 1.0,
-          "supporting_metrics": supporting_metrics,
-        }
-  return None
+      take = min(remaining, headroom)
+      if take < 1:
+        continue
+      allocations.append({
+        "lever_id": lever_id,
+        "funding_amount": int(take),
+        "exact_value": int(take),
+        "current_value": current_value,
+        "max_value": max_value,
+        "cash_support_multiplier": 1.0,
+        "supporting_metrics": supporting_metrics,
+      })
+      remaining -= int(take)
+      if lever_id in caps:
+        caps[lever_id] = max(0.0, float(caps[lever_id]) - float(take))
+  return allocations, int(max(0, remaining))
 
 
 def _max_headroom_summary_for_quarter(
@@ -223,6 +256,14 @@ def propose_cash_strategy_review_decision(
     default_lever_ids=default_funding_source_lever_ids,
   )
   lever_bound_lookup = _lever_bound_lookup(context)
+  # OWNER CAPACITY CAP — cumulative across the whole plan, from the
+  # funding source policy (stated initial equity + cash on hand).
+  _policy = context.get("funding_source_policy") if isinstance(context.get("funding_source_policy"), dict) else {}
+  source_remaining_caps: Dict[str, float] = {}
+  _owner_lever = str(_policy.get("owner_capital_lever_id") or "").strip()
+  _owner_cap = _safe_float(_policy.get("owner_capital_cumulative_cap"))
+  if _owner_lever and _owner_cap is not None:
+    source_remaining_caps[_owner_lever] = max(0.0, float(_owner_cap))
 
   quarter_funding_plan: List[Dict[str, Any]] = []
   recommended_adjustments: List[Dict[str, Any]] = []
@@ -240,27 +281,26 @@ def propose_cash_strategy_review_decision(
     buffer_value = quarter["buffer"]
     ending_cash_after_hard_rules = quarter["ending_cash_after_hard_rules"]
 
-    chosen = _select_funding_source_for_quarter(
+    allocations, unfunded_remainder = _allocate_funding_sources_for_quarter(
       quarter_index=quarter_index,
       required_gap=required_gap,
       ordered_funding_sources=ordered_funding_sources,
       lever_bound_lookup=lever_bound_lookup,
       debt_issuance_lever_id=debt_issuance_lever_id,
+      source_remaining_caps=source_remaining_caps,
     )
-    if chosen is None:
+    if not allocations or unfunded_remainder > 0:
       # The contract requires every required-funding quarter to be fully
-      # covered by a single source whose effective cash support equals the
-      # gap. When no allowed source has enough headroom, we cannot satisfy
-      # the contract — record the diagnostic and skip the quarter so the
-      # caller's contract validator surfaces a clear `missing_quarters`
-      # error. The legacy GPT-from-scratch flow had the same hard limit;
-      # the new architecture surfaces it deterministically instead of
-      # discovering it via a downstream validation failure.
+      # covered (allocations must sum exactly to the gap). When even the
+      # full waterfall cannot cover it, record the diagnostic and skip
+      # the quarter so the caller's contract validator surfaces a clear
+      # `missing_quarters` error.
       proposer_diagnostics["underfunded_quarters"].append(
         {
           "quarter_index": quarter_index,
           "required_gap": required_gap,
-          "reason": "no_allowed_source_has_headroom_for_full_gap_under_single_source_rule",
+          "unfunded_remainder": int(unfunded_remainder),
+          "reason": "waterfall_headroom_cannot_cover_full_gap",
           "per_source_headroom": _max_headroom_summary_for_quarter(
             quarter_index=quarter_index,
             ordered_funding_sources=ordered_funding_sources,
@@ -271,10 +311,9 @@ def propose_cash_strategy_review_decision(
       )
       continue
 
-    funding_amount = int(chosen["funding_amount"])
-    exact_value = int(chosen["exact_value"])
+    funding_amount = int(sum(int(a["funding_amount"]) for a in allocations))
     business_reason = _business_reason_for_funding(
-      lever_id=chosen["lever_id"],
+      lever_id=" + ".join(str(a["lever_id"]) for a in allocations),
       quarter_index=quarter_index,
       amount=funding_amount,
       selected_cash_strategy=selected_cash_strategy,
@@ -298,34 +337,36 @@ def propose_cash_strategy_review_decision(
         "required_funding_gap": int(required_gap),
         "funding_sources": [
           {
-            "lever_id": chosen["lever_id"],
-            "amount": funding_amount,
+            "lever_id": allocation["lever_id"],
+            "amount": int(allocation["funding_amount"]),
           }
+          for allocation in allocations
         ],
         "expected_buffer": int(buffer_value),
         "expected_ending_cash_after_actions": int(quarter_expected_ending_cash),
         "business_reason": business_reason,
       }
     )
-    recommended_adjustments.append(
-      {
-        "lever_id": chosen["lever_id"],
-        "exact_value": exact_value,
-        "timing_start_q": quarter_index,
-        "timing_end_q": quarter_index,
-        "business_reason": business_reason,
-      }
-    )
+    for allocation in allocations:
+      recommended_adjustments.append(
+        {
+          "lever_id": allocation["lever_id"],
+          "exact_value": int(allocation["exact_value"]),
+          "timing_start_q": quarter_index,
+          "timing_end_q": quarter_index,
+          "business_reason": business_reason,
+        }
+      )
+      funding_mix_counts[allocation["lever_id"]] = funding_mix_counts.get(allocation["lever_id"], 0) + 1
+      proposer_diagnostics["quarter_allocations"].append(
+        {
+          "quarter_index": quarter_index,
+          "lever_id": allocation["lever_id"],
+          "funding_amount": int(allocation["funding_amount"]),
+          "exact_value": int(allocation["exact_value"]),
+        }
+      )
     total_funded += funding_amount
-    funding_mix_counts[chosen["lever_id"]] = funding_mix_counts.get(chosen["lever_id"], 0) + 1
-    proposer_diagnostics["quarter_allocations"].append(
-      {
-        "quarter_index": quarter_index,
-        "lever_id": chosen["lever_id"],
-        "funding_amount": funding_amount,
-        "exact_value": exact_value,
-      }
-    )
 
   recommendation_mode = (
     "adjust" if (quarter_funding_plan or required_funding_quarters) else "maintain"

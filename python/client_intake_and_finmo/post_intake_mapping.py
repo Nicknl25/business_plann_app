@@ -2243,7 +2243,12 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].required_funding_gap", "required_funding_gap", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
   _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].expected_buffer", "expected_buffer", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
   _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].expected_ending_cash_after_actions", "expected_ending_cash_after_actions", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
-  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].funding_sources", "funding_sources", "array", is_array_item=True, parent_field_path="quarter_funding_plan", min_items=1, max_items=1, item_contract_grid_name="funding_sources", validation_kind="cash_funding_source_grid", lookup_source="post_intak_mapping_lookup"),
+  # FUNDING WATERFALL — a quarter's gap may be covered by MULTIPLE sources
+  # in waterfall order (owner capital up to its capacity cap, debt for the
+  # remainder). max_items was 1 (single source per quarter), which silently
+  # excluded owner capital from any quarter whose gap exceeded the owner's
+  # capacity. One row per distinct source lever (3 funding levers exist).
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].funding_sources", "funding_sources", "array", is_array_item=True, parent_field_path="quarter_funding_plan", min_items=1, max_items=3, item_contract_grid_name="funding_sources", validation_kind="cash_funding_source_grid", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="quarter_funding_plan"),
   _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="funding_sources", validation_kind="cash_funding_lever_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].amount", "amount", "integer_currency", is_array_item=True, parent_field_path="funding_sources", normalization_kind="integer_currency"),
