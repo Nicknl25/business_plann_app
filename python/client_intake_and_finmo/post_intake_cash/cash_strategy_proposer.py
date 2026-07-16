@@ -89,6 +89,7 @@ def _allocate_funding_sources_for_quarter(
   lever_bound_lookup: Dict[Tuple[str, int], Dict[str, Any]],
   debt_issuance_lever_id: str,
   source_remaining_caps: Optional[Dict[str, float]] = None,
+  preferred_debt_share: Optional[float] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
   """FUNDING WATERFALL — fill the quarter's gap from the ordered sources,
   each up to its headroom (and cumulative capacity cap), remainder to the
@@ -104,62 +105,96 @@ def _allocate_funding_sources_for_quarter(
   in place for capped sources (the owner-capacity cap).
   """
   caps = source_remaining_caps if isinstance(source_remaining_caps, dict) else {}
-  allocations: List[Dict[str, Any]] = []
+  allocations_by_lever: Dict[str, Dict[str, Any]] = {}
+  ordered_seen: List[str] = []
   remaining = int(max(0, required_gap))
-  for lever_id in ordered_funding_sources:
-    if remaining <= 0:
-      break
+
+  def _try_take(lever_id: str, want: int) -> int:
+    """Take up to ``want`` cash support from a source; returns the take.
+    Merges repeat takes on the same lever (the split's spillover pass)
+    and re-derives the debt gross-up on the MERGED amount so the
+    exact_value round-trip always holds."""
+    if want <= 0:
+      return 0
     bound = lever_bound_lookup.get((lever_id, quarter_index))
     if not isinstance(bound, dict):
-      continue
+      return 0
     current_value = _safe_int(bound.get("current_value"))
     max_value = _safe_int(bound.get("max_value")) or current_value
     headroom = max(0, max_value - current_value)
     if lever_id in caps:
       headroom = int(min(headroom, max(0.0, float(caps[lever_id]))))
-    if headroom <= 0:
-      continue
+    prior = allocations_by_lever.get(lever_id)
+    prior_amount = int(prior.get("funding_amount")) if isinstance(prior, dict) else 0
     supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
     multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
     if lever_id == debt_issuance_lever_id:
-      # Take support bounded by what the headroom can deliver after the
-      # gross-up; walk the take down (bounded) until the round-trip
-      # (exact_value * multiplier == amount) fits the headroom.
-      take = min(remaining, int(round(headroom * multiplier)))
-      exact = _gross_up_effective_support(take, multiplier)
+      total = min(prior_amount + want, int(round(headroom * multiplier)))
+      exact = _gross_up_effective_support(total, multiplier)
       _guard = 0
-      while take > 0 and exact > headroom and _guard < 8:
-        take = max(0, take - max(1, exact - headroom))
-        exact = _gross_up_effective_support(take, multiplier)
+      while total > prior_amount and exact > headroom and _guard < 8:
+        total = max(prior_amount, total - max(1, exact - headroom))
+        exact = _gross_up_effective_support(total, multiplier)
         _guard += 1
+      take = int(max(0, total - prior_amount))
       if take < 1 or exact > headroom:
-        continue
-      allocations.append({
+        return 0
+      allocations_by_lever[lever_id] = {
         "lever_id": lever_id,
-        "funding_amount": int(take),
+        "funding_amount": int(total),
         "exact_value": int(exact),
         "current_value": current_value,
         "max_value": max_value,
         "cash_support_multiplier": round(multiplier, 6),
         "supporting_metrics": supporting_metrics,
-      })
-      remaining -= int(take)
+      }
     else:
-      take = min(remaining, headroom)
+      take = int(min(want, max(0, headroom - prior_amount)))
       if take < 1:
-        continue
-      allocations.append({
+        return 0
+      total = prior_amount + take
+      allocations_by_lever[lever_id] = {
         "lever_id": lever_id,
-        "funding_amount": int(take),
-        "exact_value": int(take),
+        "funding_amount": int(total),
+        "exact_value": int(total),
         "current_value": current_value,
         "max_value": max_value,
         "cash_support_multiplier": 1.0,
         "supporting_metrics": supporting_metrics,
-      })
-      remaining -= int(take)
+      }
       if lever_id in caps:
         caps[lever_id] = max(0.0, float(caps[lever_id]) - float(take))
+    if lever_id not in ordered_seen:
+      ordered_seen.append(lever_id)
+    return take
+
+  # CLIENT FUNDING PREFERENCE 'both' — aim the blend at the chosen
+  # debt/equity split (70/30, 50/50, 30/70): phase 1 caps each family
+  # at its share of the gap; phase 2 spills any un-fillable remainder
+  # across every source in order. A preference is NEVER a deal-breaker:
+  # the split binds only where headroom and the owner-capacity cap make
+  # it real. No preference -> the plain waterfall walk (byte-identical).
+  if preferred_debt_share is not None:
+    _share = min(1.0, max(0.0, float(preferred_debt_share)))
+    debt_budget = int(round(remaining * _share))
+    equity_budget = int(remaining - debt_budget)
+    for lever_id in ordered_funding_sources:
+      if remaining <= 0:
+        break
+      is_debt = lever_id == debt_issuance_lever_id
+      budget = debt_budget if is_debt else equity_budget
+      take = _try_take(lever_id, min(remaining, budget))
+      remaining -= take
+      if is_debt:
+        debt_budget -= take
+      else:
+        equity_budget -= take
+  for lever_id in ordered_funding_sources:
+    if remaining <= 0:
+      break
+    remaining -= _try_take(lever_id, remaining)
+
+  allocations = [allocations_by_lever[lid] for lid in ordered_seen if lid in allocations_by_lever]
   return allocations, int(max(0, remaining))
 
 
@@ -264,6 +299,14 @@ def propose_cash_strategy_review_decision(
   _owner_cap = _safe_float(_policy.get("owner_capital_cumulative_cap"))
   if _owner_lever and _owner_cap is not None:
     source_remaining_caps[_owner_lever] = max(0.0, float(_owner_cap))
+  # CLIENT FUNDING PREFERENCE 'both' — the chosen debt share steers each
+  # quarter's blend (absent -> None -> plain waterfall, byte-identical).
+  _pref_payload = _policy.get("client_funding_preference") if isinstance(_policy.get("client_funding_preference"), dict) else {}
+  preferred_debt_share = (
+    _safe_float(_pref_payload.get("debt_share"))
+    if str(_pref_payload.get("preference") or "") == "both"
+    else None
+  )
 
   quarter_funding_plan: List[Dict[str, Any]] = []
   recommended_adjustments: List[Dict[str, Any]] = []
@@ -288,6 +331,7 @@ def propose_cash_strategy_review_decision(
       lever_bound_lookup=lever_bound_lookup,
       debt_issuance_lever_id=debt_issuance_lever_id,
       source_remaining_caps=source_remaining_caps,
+      preferred_debt_share=preferred_debt_share,
     )
     if not allocations or unfunded_remainder > 0:
       # The contract requires every required-funding quarter to be fully

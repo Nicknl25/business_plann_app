@@ -388,6 +388,14 @@ def main(argv: Optional[list] = None) -> int:
   parser.add_argument("--base-url", default="http://127.0.0.1:5050")
   parser.add_argument("--list", action="store_true", help="List scenario sheets and exit.")
   parser.add_argument("--dry-run", action="store_true", help="Build + write SQL, but do not trigger system-run.")
+  parser.add_argument(
+    "--override", action="append", default=[], metavar="FIELD=VALUE",
+    help=(
+      "Extra override applied AFTER the sheet rows, same field syntax as "
+      "column A (e.g. financials_json.funding_preference=both). Repeatable. "
+      "For backend testing of fields the sheet does not carry yet."
+    ),
+  )
   args = parser.parse_args(argv)
 
   C.load_env()
@@ -423,6 +431,11 @@ def main(argv: Optional[list] = None) -> int:
   try:
     for name, rows in selected.items():
       overrides = _scenario_to_dict(rows)
+      for extra in (args.override or []):
+        if "=" not in str(extra):
+          raise ValueError(f"--override must be FIELD=VALUE, got {extra!r}")
+        _k, _v = str(extra).split("=", 1)
+        overrides[_k.strip()] = _v.strip()
       try:
         results.append(_run_scenario(
           conn=conn,

@@ -252,6 +252,47 @@ def buffer_components(
   }
 
 
+# CLIENT FUNDING PREFERENCE (Directive 2) — intake-stated steering of the
+# EXTERNAL funding mix. A PREFERENCE, never a mandate: the waterfall,
+# stated-fact rails, and fundability fences all outrank it; missing the
+# exact split never fails a business. Absent (None) = the default
+# waterfall unchanged, byte-identical.
+FUNDING_PREFERENCE_VALUES = ("debt", "equity", "both")
+FUNDING_SPLIT_DEBT_SHARE_VALUES = (0.70, 0.50, 0.30)
+
+
+def client_funding_preference(
+  financials_json: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """Read the operator's stated funding preference from intake financials.
+
+  Fields (financials_json):
+    - ``funding_preference``: "debt" | "equity" | "both" (nullable)
+    - ``funding_split_debt_share``: 0.70 | 0.50 | 0.30 (nullable; the
+      debt share of a "both" split — 70/30, 50/50, 30/70 debt/equity).
+      Only meaningful with "both"; a missing or off-menu value snaps to
+      the nearest allowed option (default 0.50).
+
+  Returns ``{"preference", "debt_share"}`` or None when absent/invalid
+  (every consumer then runs the default waterfall unchanged).
+  """
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  raw = str(fin.get("funding_preference") or "").strip().lower()
+  if raw not in FUNDING_PREFERENCE_VALUES:
+    return None
+  debt_share: Optional[float] = None
+  if raw == "both":
+    raw_share = safe_float(fin.get("funding_split_debt_share"))
+    if raw_share is None:
+      debt_share = 0.50
+    else:
+      debt_share = min(
+        FUNDING_SPLIT_DEBT_SHARE_VALUES,
+        key=lambda option: abs(float(option) - float(raw_share)),
+      )
+  return {"preference": raw, "debt_share": debt_share}
+
+
 def outstanding_gap_draw_balance_series(
   *,
   debt_issuance_series: List[int],

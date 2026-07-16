@@ -1228,6 +1228,20 @@ def _cash_strategy_funding_source_policy(
     owner_capital_cumulative_cap = int(round(
       _fin_amt("initial_equity") + _fin_amt("cash_on_hand")
     ))
+    # CLIENT FUNDING PREFERENCE (Directive 2) — steers the EXTERNAL mix
+    # only, inside every rail above: 'debt' (or a debt-heavy 'both'
+    # split) leans the ordered sources debt-first; 'equity' and equity-
+    # heavy splits keep owner capital first (the default waterfall);
+    # 'both' also hands the proposer its per-quarter debt share so the
+    # blend aims at the chosen 70/30, 50/50, or 30/70 debt/equity split.
+    # A preference is NEVER a deal-breaker — headroom, the owner-capacity
+    # cap, and fundability bound every dollar; missing the exact split
+    # just lands as close as reality allows. ABSENT = this entire block
+    # is a no-op and the payload is byte-identical to the default.
+    from client_intake_and_finmo.post_intake_cash.common import (  # type: ignore
+      client_funding_preference as _client_pref,
+    )
+    _pref = _client_pref(financials_json)
     _reasons = [
       "Executive cash judgment (viability-blind, fundability-not-need): " + (
         _rationale or "funding access judged per business type/stage."
@@ -1248,7 +1262,7 @@ def _cash_strategy_funding_source_policy(
         "this business — recorded for the lender narrative; gap coverage "
         "still modeled so the plan is complete."
       )
-    return {
+    _policy_payload = {
       "contract_version": "cash_strategy_funding_source_policy_v2_executive_judged",
       "allowed_funding_source_lever_ids": judged_allowed,
       "excluded_funding_source_lever_ids": judged_excluded,
@@ -1257,6 +1271,33 @@ def _cash_strategy_funding_source_policy(
       "policy_reasons": _reasons,
       "decision_source": "executive_cash_judgment",
     }
+    if _pref is not None:
+      _p_kind = str(_pref.get("preference") or "")
+      _p_share = _pref.get("debt_share")
+      if _p_kind == "debt" or (_p_kind == "both" and float(_p_share or 0.0) > 0.5):
+        # Debt leans first among the OPEN sources; nothing opens or
+        # closes — order only.
+        _debt_lid = str(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID or "").strip()
+        if _debt_lid in judged_allowed:
+          judged_allowed = [_debt_lid] + [l for l in judged_allowed if l != _debt_lid]
+          _policy_payload["allowed_funding_source_lever_ids"] = judged_allowed
+      _policy_payload["client_funding_preference"] = {
+        "preference": _p_kind,
+        "debt_share": _p_share,
+        "debt_lever_id": str(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID or "").strip(),
+      }
+      _reasons.append(
+        "CLIENT FUNDING PREFERENCE (stated at intake): "
+        + (
+          f"'both' at a {int(round(float(_p_share) * 100))}/"
+          f"{int(round((1.0 - float(_p_share)) * 100))} debt/equity split"
+          if _p_kind == "both" and _p_share is not None
+          else f"'{_p_kind}'"
+        )
+        + " — steers the external mix as close as reality allows; the "
+        "waterfall, stated-fact rails, and fundability still govern."
+      )
+    return _policy_payload
   envelope = violation_envelope if isinstance(violation_envelope, dict) else {}
   schedule = debt_schedule_snapshot if isinstance(debt_schedule_snapshot, dict) else {}
   residual_gap_quarters = [
