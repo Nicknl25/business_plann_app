@@ -7794,6 +7794,52 @@ def post_intake_consult_system_run_handler(*, app, request):
             str(planning_run_json.get("planning_run_id") or "").strip()
             or acceptance_planning_run_id
           )
+          # The re-run creates a second planning-run row whose id becomes
+          # authoritative in planning_run_json, while the unified-run tail
+          # stamps plan_confidence / cascade tier onto the GRID-BUILD's
+          # run id — the resolved row then reads NULLs and three purely
+          # clerical checks fail. Re-stamp the RESOLVED row with the
+          # run's own values before the verdict.
+          try:
+            from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
+              persist_adaptation_cascade_outcome as _rs_persist_cascade,
+            )
+            # The DRAFT ROW's planning_run_json carries the id the gate
+            # will resolve (the run switches ids mid-flight; the result
+            # payload can carry the superseded one).
+            _rs_stamp_run_id = str(
+              (_rs_draft_json("planning_run_json") or {}).get("planning_run_id") or ""
+            ).strip() or (acceptance_planning_run_id or "")
+            _rs_stamp_out = _rs_persist_cascade(
+              conn,
+              draft_id=result_draft_id,
+              planning_run_id=_rs_stamp_run_id,
+              plan_confidence=(
+                result.get("plan_confidence") if isinstance(result, dict) else None
+              ) or "restructured_viable_candidate",
+              cascade_diagnostics=(
+                result.get("adaptation_cascade_diagnostics")
+                if isinstance(result, dict) else None
+              ) or {"tier_landed": 0, "source": "restructure_rerun_restamp"},
+            )
+            acceptance_planning_run_id = _rs_stamp_run_id or acceptance_planning_run_id
+            try:
+              with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
+                _rs_fh.write(f"draft={result_draft_id} restamp={_rs_stamp_out}\n")
+            except Exception:
+              pass
+          except Exception as _rs_stamp_exc:  # noqa: BLE001
+            app.logger.warning(
+              "restructure_rerun_restamp_failed: %s", _rs_stamp_exc
+            )
+            try:
+              import traceback as _rs_tb
+              with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
+                _rs_fh.write(
+                  f"draft={result_draft_id} restamp_FAILED: {_rs_tb.format_exc()[-600:]}\n"
+                )
+            except Exception:
+              pass
           acceptance_verdict = verify_run_acceptance(
             conn,
             draft_id=result_draft_id,

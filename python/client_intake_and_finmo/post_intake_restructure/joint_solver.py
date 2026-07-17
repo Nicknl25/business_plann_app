@@ -266,14 +266,35 @@ def run_restructure_joint_solve(
     "evals": 0,
   }
 
+  # ONE MARGIN AUTHORITY — when the executive's margin-band judgment is
+  # stamped, its floor IS the solve's EBITDA target floor (glided
+  # Q11->Q20 by the band's own accessor). The ladder default is only
+  # the fallback seed for businesses with no stamped band.
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+      judged_ebitda_floor_for_quarter,
+      margin_band_from_model_input,
+    )
+    _judged_band = margin_band_from_model_input(base_model_input)
+  except Exception:  # noqa: BLE001 — fallback default stands
+    _judged_band = None
+    judged_ebitda_floor_for_quarter = None  # type: ignore[assignment]
+
   for ladder_ix, rung in enumerate(_TARGET_LADDER, start=1):
     targets = []
     for q in _TARGET_QUARTERS:
       rev_q = _base_quarter_revenue(prepared, q)
+      eb_floor = float(rung["ebitda_margin"])
+      if _judged_band is not None and judged_ebitda_floor_for_quarter is not None:
+        _jf = judged_ebitda_floor_for_quarter(_judged_band, q)
+        if _jf is not None:
+          eb_floor = max(eb_floor, float(_jf))
+          if ladder_ix == 1 and q == _TARGET_QUARTERS[0]:
+            trace.append(f"ebitda floor governed by executive band: q11 {round(float(_jf), 4)}")
       targets.append({
         "quarter_index": q,
         "net_income": round(rev_q * float(rung["ni_margin"]), 2),
-        "ebitda": round(rev_q * float(rung["ebitda_margin"]), 2),
+        "ebitda": round(rev_q * eb_floor, 2),
       })
     # Guidance anchors: seed the solve at each lever's NI-FAVORABLE
     # bound (price at the market ceiling, costs at their physics
@@ -494,11 +515,33 @@ def run_restructure_joint_solve(
       result["candidate"] = candidate
       result["score"] = score
     if score.get("viable_pnl"):
+      result["candidate_first_viable"] = copy.deepcopy(candidate)
+      result["landed_first_viable"] = copy.deepcopy(score.get("landed"))
+      # EVERY LINE EARNS ITS PLACE — a new line the plan is viable
+      # WITHOUT is dropped (the seed proposes at the authored caps; a
+      # lender should only see additions that are load-bearing).
+      for _px in range(len(candidate.get("new_lines") or []) - 1, -1, -1):
+        trial = copy.deepcopy(candidate)
+        removed = trial["new_lines"].pop(_px)
+        try:
+          mi_trial = apply_candidate(base_model_input, trial, line_margins=line_margins or None)
+          sc_trial = score_viability(
+            model_input_json=mi_trial, finmo_json=build_fast_finmo(mi_trial),
+            business_naics_6=business_naics_6, ops_json=ops_json,
+            financials_json=financials_json, planning_mode=planning_mode,
+          )
+          sc_trial.pop("finmo_json", None)
+        except Exception:  # noqa: BLE001 — keep the line on any doubt
+          continue
+        result["evals"] = int(result.get("evals") or 0) + 1
+        if sc_trial.get("viable_pnl"):
+          candidate, score = trial, sc_trial
+          trace.append(
+            f"pruned non-load-bearing new line: {removed.get('product')}"
+          )
       result["candidate"] = candidate
       result["score"] = score
       result["found"] = True
-      result["candidate_first_viable"] = copy.deepcopy(candidate)
-      result["landed_first_viable"] = copy.deepcopy(score.get("landed"))
       break
 
   result["trace"] = trace
