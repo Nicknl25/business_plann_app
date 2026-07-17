@@ -8171,17 +8171,33 @@ def post_intake_consult_system_run_handler(*, app, request):
     # auto-email. Env-configured via FINMO_MODEL_DELIVERY_DIR so no machine-
     # specific path is hardcoded in app code; unset -> skip. Best-effort: a copy
     # failure never blocks the run (log a warning only).
-    if client_workbook_path:
+    # THE PRIMARY WORKBOOK IS THE RUN'S STORY. When restructure fired
+    # and the verdict stayed non-passed, what happened this run IS the
+    # restructure attempt — the multi-line design the solver evaluated
+    # — so THAT file (clearly marked in its name) is the one delivered
+    # and emailed. The reverted-original workbook stays on disk for the
+    # record but is never the file the client receives. Computed OUTSIDE
+    # the client-workbook guard so the attempt still ships even if the
+    # client export failed.
+    _primary_workbook_path = client_workbook_path
+    try:
+      if _rs_attempt_workbook_path and not bool(
+        (diagnostic_payload or {}).get("acceptance_passed")
+      ):
+        _primary_workbook_path = _rs_attempt_workbook_path
+    except Exception:
+      _primary_workbook_path = client_workbook_path
+    if _primary_workbook_path:
       try:
         import os as _delivery_os
         import shutil as _delivery_shutil
         _delivery_dir = (_delivery_os.getenv("FINMO_MODEL_DELIVERY_DIR") or "").strip()
-        if _delivery_dir and _delivery_os.path.isfile(client_workbook_path):
+        if _delivery_dir and _delivery_os.path.isfile(_primary_workbook_path):
           _delivery_os.makedirs(_delivery_dir, exist_ok=True)
           _delivery_dest = _delivery_os.path.join(
-            _delivery_dir, _delivery_os.path.basename(client_workbook_path)
+            _delivery_dir, _delivery_os.path.basename(_primary_workbook_path)
           )
-          _delivery_shutil.copy2(client_workbook_path, _delivery_dest)
+          _delivery_shutil.copy2(_primary_workbook_path, _delivery_dest)
           app.logger.info(
             "finmo model workbook delivered to %s for draft %s",
             _delivery_dest, result_draft_id,
@@ -8195,7 +8211,7 @@ def post_intake_consult_system_run_handler(*, app, request):
 
     # Auto-email the workbook (if export succeeded). Never block the
     # response on email outcome -- log warnings only.
-    if client_workbook_path:
+    if _primary_workbook_path:
       try:
         from client_intake_and_finmo.workbook_email import (  # type: ignore
           send_workbook_alert, build_run_email_body,
@@ -8212,18 +8228,30 @@ def post_intake_consult_system_run_handler(*, app, request):
           else "FAILED" if passed is False
           else "UNKNOWN"
         )
+        _rs_swapped = bool(
+          _primary_workbook_path
+          and _primary_workbook_path == _rs_attempt_workbook_path
+          and _primary_workbook_path != client_workbook_path
+        )
         subject = (
           f"[Planning Run] {biz_name} -- {verdict_label} ({score})"
+          + (" -- RESTRUCTURE ATTEMPT ATTACHED" if _rs_swapped else "")
         )
         body = build_run_email_body(diagnostic_payload or {})
+        if _rs_swapped:
+          body = (
+            "THE ATTACHED WORKBOOK IS THE RESTRUCTURE ATTEMPT — the "
+            "multi-line design the solver evaluated this run (marked in "
+            "the filename). No viable configuration existed inside the "
+            "executive's reality bounds, so nothing shipped; this file "
+            "shows what was tried and where it lands.\n\n" + body
+          )
         email_outcome = send_workbook_alert(
           subject=subject,
           body=body,
-          # The restructure ATTEMPT workbook (pass or fail) rides the
-          # same delivery as the client workbook — no silent reverts.
-          attachment_paths=[
-            p for p in (client_workbook_path, _rs_attempt_workbook_path) if p
-          ],
+          # ONE file: the run's primary workbook (the restructure
+          # attempt when restructure fired and did not pass).
+          attachment_paths=[_primary_workbook_path] if _primary_workbook_path else [],
         )
       except Exception as mail_exc:
         app.logger.warning(
