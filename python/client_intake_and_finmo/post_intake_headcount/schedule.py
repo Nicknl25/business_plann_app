@@ -2435,9 +2435,11 @@ def _apply_headcount_coherence_to_key_rows(
       row["starting_fte"] = round(float(_safe_float(row.get("starting_fte")) or 0.0) * factor, 2)
       row["ending_fte"] = round(float(_safe_float(row.get("ending_fte")) or 0.0) * factor, 2)
       row["hires"] = round(max(0.0, row["ending_fte"] - row["starting_fte"]), 2)
+      # Numeric marker only — the schedule contract forbids prose in
+      # machine rows; the judgment's structure text and rationale live
+      # in solver_input.headcount_coherence.
       row["headcount_right_sized"] = {
         "factor": round(factor, 4),
-        "coherent_structure": coherence.get("coherent_structure"),
       }
     scaled.append(row)
   return scaled
