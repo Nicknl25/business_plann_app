@@ -7500,8 +7500,10 @@ def post_intake_consult_system_run_handler(*, app, request):
     # or the executive concludes no REAL redesign reaches viability.
     # Either outcome is final and honest; the restructured forecast, when
     # viable, simply IS the forecast.
+    _rs_attempt_workbook_path: str = ""
     try:
       _rs_iterations: List[Dict[str, Any]] = []
+      _rs_search: Optional[Dict[str, Any]] = None
       if not bool(acceptance_verdict.get("passed")):
         from client_intake_and_finmo.post_intake_restructure import (  # type: ignore
           build_solver_gap_report,
@@ -7854,11 +7856,73 @@ def post_intake_consult_system_run_handler(*, app, request):
           # would compound multipliers past the executive's caps).
           break
         _rs_clear_active(result_draft_id)
+        # THE ATTEMPT IS AN ARTIFACT, pass OR fail. A failed restructure
+        # reverts the DRAFT to the original business (nothing ships
+        # unshipped designs) — but the ATTEMPTED design the solver
+        # evaluated is materialized through the real FINMO math and
+        # exported through the real workbook exporter, every time.
+        # Silent revert-and-lose-the-attempt is not allowed; the failed
+        # attempt IS the "what a viable version would need" record.
+        try:
+          if isinstance(_rs_search, dict) and (_rs_search.get("candidate") or {}):
+            from client_intake_and_finmo.post_intake_restructure.searcher import (  # type: ignore  # noqa: E501
+              apply_candidate as _rs_apply_candidate,
+            )
+            from client_intake_and_finmo.post_intake_restructure.fast_evaluator import (  # type: ignore  # noqa: E501
+              build_fast_finmo as _rs_build_finmo,
+            )
+            from client_statements_output_excel.export_client_workbook import (  # type: ignore  # noqa: E501
+              export_workbook_for_row as _rs_export_row,
+            )
+            _rs_attempt_mi = _rs_apply_candidate(
+              _rs_base_mi, _rs_search["candidate"],
+              line_margins=(_rs_search.get("line_margins") or None),
+            )
+            _rs_attempt_fm = _rs_build_finmo(_rs_attempt_mi)
+            _rs_row_cur = conn.cursor(dictionary=True)
+            try:
+              _rs_row_cur.execute(
+                "SELECT * FROM intake_consult_drafts WHERE draft_id=%s",
+                (result_draft_id,),
+              )
+              _rs_full_row = dict(_rs_row_cur.fetchone() or {})
+            finally:
+              _rs_row_cur.close()
+            _rs_full_row["model_input_json"] = json.dumps(
+              _rs_attempt_mi, ensure_ascii=False, default=str
+            )
+            _rs_full_row["finmo_json"] = json.dumps(
+              _rs_attempt_fm, ensure_ascii=False, default=str
+            )
+            _rs_outcome_tag = (
+              "RESTRUCTURE ATTEMPT - viable candidate"
+              if _rs_search.get("found")
+              else "RESTRUCTURE ATTEMPT - no viable config found"
+            )
+            _rs_full_row["business_name"] = (
+              f"{str(_rs_full_row.get('business_name') or 'Business')} ({_rs_outcome_tag})"
+            )
+            _rs_attempt_workbook_path = str(
+              _rs_export_row(_rs_full_row, run_diagnostics=None)
+            )
+            try:
+              with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
+                _rs_fh.write(
+                  f"draft={result_draft_id} attempt_workbook={_rs_attempt_workbook_path}\n"
+                )
+            except Exception:
+              pass
+        except Exception as _rs_wb_exc:  # noqa: BLE001 — artifact export must not kill the run
+          app.logger.warning(
+            "restructure_attempt_workbook_failed for draft %s: %s",
+            result_draft_id, _rs_wb_exc,
+          )
         if _rs_iterations:
           _rs_persist_guidance({
             "restructure": {
               "active_directive": _rs_design_prev,
               "final_passed": bool(acceptance_verdict.get("passed")),
+              "attempt_workbook_path": _rs_attempt_workbook_path or None,
               "history": _rs_iterations,
             }
           })
@@ -8155,7 +8219,11 @@ def post_intake_consult_system_run_handler(*, app, request):
         email_outcome = send_workbook_alert(
           subject=subject,
           body=body,
-          attachment_paths=[client_workbook_path],
+          # The restructure ATTEMPT workbook (pass or fail) rides the
+          # same delivery as the client workbook — no silent reverts.
+          attachment_paths=[
+            p for p in (client_workbook_path, _rs_attempt_workbook_path) if p
+          ],
         )
       except Exception as mail_exc:
         app.logger.warning(
