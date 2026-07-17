@@ -515,33 +515,17 @@ def run_restructure_joint_solve(
       result["candidate"] = candidate
       result["score"] = score
     if score.get("viable_pnl"):
-      result["candidate_first_viable"] = copy.deepcopy(candidate)
-      result["landed_first_viable"] = copy.deepcopy(score.get("landed"))
-      # EVERY LINE EARNS ITS PLACE — a new line the plan is viable
-      # WITHOUT is dropped (the seed proposes at the authored caps; a
-      # lender should only see additions that are load-bearing).
-      for _px in range(len(candidate.get("new_lines") or []) - 1, -1, -1):
-        trial = copy.deepcopy(candidate)
-        removed = trial["new_lines"].pop(_px)
-        try:
-          mi_trial = apply_candidate(base_model_input, trial, line_margins=line_margins or None)
-          sc_trial = score_viability(
-            model_input_json=mi_trial, finmo_json=build_fast_finmo(mi_trial),
-            business_naics_6=business_naics_6, ops_json=ops_json,
-            financials_json=financials_json, planning_mode=planning_mode,
-          )
-          sc_trial.pop("finmo_json", None)
-        except Exception:  # noqa: BLE001 — keep the line on any doubt
-          continue
-        result["evals"] = int(result.get("evals") or 0) + 1
-        if sc_trial.get("viable_pnl"):
-          candidate, score = trial, sc_trial
-          trace.append(
-            f"pruned non-load-bearing new line: {removed.get('product')}"
-          )
+      # The restructure ships the REVIEWER-APPROVED design — the
+      # growing, diversified business. Line justification belongs to
+      # the reviewer (it interrogates each line's deliverability and
+      # sizes the ramps); pruning to bare viability optimizes for
+      # minimum-viable, trades growth for a flatline, and a flat plan
+      # is LESS fundable, not more.
       result["candidate"] = candidate
       result["score"] = score
       result["found"] = True
+      result["candidate_first_viable"] = copy.deepcopy(candidate)
+      result["landed_first_viable"] = copy.deepcopy(score.get("landed"))
       break
 
   result["trace"] = trace
