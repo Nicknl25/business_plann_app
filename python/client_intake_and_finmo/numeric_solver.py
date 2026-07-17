@@ -26,6 +26,11 @@ except Exception:
 
 
 TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+# Restructure viability pass — the joint solve may target the P&L
+# OUTCOME rows directly (goal-seek net income / EBITDA), not only the
+# driver-level metrics. Additive: production convergence payloads never
+# carry these keys, so existing passes are byte-identical.
+SOLVER_TARGETABLE_METRIC_KEYS = TARGET_METRIC_KEYS + ("net_income", "ebitda")
 _SOLVER_DEADLINE_SAFETY_MARGIN_SECONDS = 5.0
 _MAX_DETERMINISTIC_SEEDS_PER_QUARTER = 18
 _MAX_OPTIMIZER_SEEDS_PER_QUARTER = 1
@@ -284,7 +289,7 @@ def _guidance_map(review_plan: Optional[Dict[str, Any]]) -> Dict[Tuple[str, int]
 
 
 def _normalized_target_metric_names(raw_metric_names: Any) -> List[str]:
-  allowed = set(TARGET_METRIC_KEYS)
+  allowed = set(SOLVER_TARGETABLE_METRIC_KEYS)
   out: List[str] = []
   for item in (raw_metric_names or []):
     metric_name = str(item or "").strip().lower()
@@ -305,7 +310,7 @@ def _required_target_metric_keys_for_action(
     return normalized
   inferred: List[str] = []
   for target in [item for item in (current_action.get("quarter_target_metrics") or []) if isinstance(item, dict)]:
-    for metric_name in TARGET_METRIC_KEYS:
+    for metric_name in SOLVER_TARGETABLE_METRIC_KEYS:
       if _safe_float(target.get(metric_name)) is None or metric_name in inferred:
         continue
       inferred.append(metric_name)
@@ -348,7 +353,7 @@ def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]
           entry["required_target_metric_keys"].append(metric_name)
       for metric_name, tolerance_payload in target_tolerances.items():
         entry["target_tolerances"][metric_name] = copy.deepcopy(tolerance_payload)
-      for metric_name in TARGET_METRIC_KEYS:
+      for metric_name in SOLVER_TARGETABLE_METRIC_KEYS:
         metric_value = _safe_float(target.get(metric_name))
         if metric_value is not None:
           entry["target_metrics"][metric_name] = float(metric_value)
@@ -357,7 +362,7 @@ def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]
     entry = copy.deepcopy(merged[quarter_index])
     required_target_metric_keys = [
       metric_name for metric_name in (entry.get("required_target_metric_keys") or [])
-      if metric_name in TARGET_METRIC_KEYS
+      if metric_name in SOLVER_TARGETABLE_METRIC_KEYS
     ]
     missing_required_metrics = [
       metric_name for metric_name in required_target_metric_keys
@@ -431,7 +436,17 @@ def _build_variable_specs(
         anchor = float((float(min(low, high)) + float(max(low, high))) / 2.0)
     elif _safe_float(guidance.get("exact_value")) is not None:
       anchor = float(_safe_float(guidance.get("exact_value")) or baseline_value)
-      scale = max(abs(anchor - baseline_value), abs(anchor) * 0.10, 1.0)
+      _vk = str(row.get("value_kind") or meta.get("value_kind") or "").strip().lower()
+      _sem = str(row.get("input_semantics") or meta.get("input_semantics") or "").strip().lower()
+      _is_ratio = _vk == "ratio" or "percent_of_revenue" in _sem
+      # Ratio levers live in [0, 1] — the amount-lever scale floor of
+      # 1.0 would blow the band to [-0.7, 1.35] around a 0.30 anchor
+      # and send the optimizer into contract-violating territory.
+      scale = (
+        max(abs(anchor - baseline_value), abs(anchor) * 0.10, 0.02)
+        if _is_ratio
+        else max(abs(anchor - baseline_value), abs(anchor) * 0.10, 1.0)
+      )
       expansion = 0.25
       if aggressiveness == "high":
         expansion = 0.50
@@ -439,12 +454,22 @@ def _build_variable_specs(
         expansion = 1.00
       low = min(baseline_value, anchor) - (expansion * scale)
       high = max(baseline_value, anchor) + (expansion * scale)
+      if _is_ratio:
+        low = max(0.0, low)
+        high = min(1.0, high)
     contract_bounds = contract_bounds_by_key.get((lever_id, quarter_index)) or {}
     if contract_bounds:
       contract_low = _safe_float(contract_bounds.get("min_value"))
       contract_high = _safe_float(contract_bounds.get("max_value"))
       if contract_low is not None and contract_high is not None:
-        if low is None or high is None:
+        if str((numeric_solver_contract or {}).get("pass_name") or "").strip() == "restructure_viability":
+          # The restructure contract's bounds ARE the executive's four
+          # reality constraints — ABSOLUTE. A guidance band may seed
+          # inside them, never widen them.
+          low = float(contract_low)
+          high = float(contract_high)
+          anchor = min(max(float(anchor), low), high)
+        elif low is None or high is None:
           low = float(contract_low)
           high = float(contract_high)
         else:
@@ -672,6 +697,7 @@ def _evaluate_quarter_objective(
   target_metrics: Dict[str, float],
   tolerance_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
   deadline_checker: Optional[Callable[[str], None]] = None,
+  one_sided_floor: bool = False,
 ) -> Tuple[float, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   if deadline_checker is not None:
     deadline_checker("objective_prepare")
@@ -700,7 +726,13 @@ def _evaluate_quarter_objective(
       float(target_value),
       tolerance_override=(tolerance_overrides or {}).get(str(metric_name or "").strip().lower()),
     )
-    residual = max(abs(actual_value - float(target_value)) - tolerance, 0.0)
+    # one_sided_floor (restructure viability): targets are FLOORS —
+    # landing ABOVE the target is success, not error. The default
+    # (convergence passes) keeps the symmetric point-target semantics.
+    if one_sided_floor:
+      residual = max(float(target_value) - actual_value - tolerance, 0.0)
+    else:
+      residual = max(abs(actual_value - float(target_value)) - tolerance, 0.0)
     score += (residual / max(tolerance, 1.0)) ** 2
     telemetry_metrics[metric_name] = {
       "target_value": float(target_value),
@@ -743,6 +775,10 @@ def solve_review_plan(
   if pass_name not in {
     "cash_strategy_review",
     "unified_convergence",
+    # Restructure stage: fires ONLY after the acceptance gate returned
+    # NON-VIABLE; joint-solves all restructure levers against the
+    # viability targets inside the executive's reality bounds.
+    "restructure_viability",
   }:
     return {
       "execution_state": "numeric_solver_not_applicable",
@@ -850,10 +886,20 @@ def solve_review_plan(
     unit_bounds = [(0.0, 1.0) for _ in variable_specs]
     task_tolerance_overrides = copy.deepcopy(task.get("target_tolerances") or {})
     quarter_objective_evaluation_count = 0
-    max_quarter_objective_evaluations = min(
-      48,
-      max(12, 8 + (4 * len(variable_specs))),
-    )
+    # Restructure viability joint-solves the WHOLE P&L (10+ levers at
+    # once) — the convergence passes' 48-eval budget starves an 11-dim
+    # L-BFGS-B before its first line search completes. Restructure gets
+    # a budget scaled to its dimensionality; other passes unchanged.
+    if pass_name == "restructure_viability":
+      max_quarter_objective_evaluations = min(
+        360,
+        max(60, 24 * len(variable_specs)),
+      )
+    else:
+      max_quarter_objective_evaluations = min(
+        48,
+        max(12, 8 + (4 * len(variable_specs))),
+      )
 
     def _evaluate_candidate(vector: List[float], *, stage: str) -> Tuple[float, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
       nonlocal objective_evaluation_count, quarter_objective_evaluation_count
@@ -876,6 +922,7 @@ def solve_review_plan(
         target_metrics=target_metrics,
         tolerance_overrides=task_tolerance_overrides,
         deadline_checker=_raise_if_runtime_deadline_exceeded,
+        one_sided_floor=(pass_name == "restructure_viability"),
       )
 
     baseline_score, _, _, baseline_metrics = _evaluate_candidate(
@@ -1147,8 +1194,11 @@ def solve_review_plan(
       rounded = [round(float(value), 6) for value in seed]
       if rounded not in normalized_seeds:
         normalized_seeds.append(rounded)
-    if len(normalized_seeds) > _MAX_DETERMINISTIC_SEEDS_PER_QUARTER:
-      normalized_seeds = normalized_seeds[:_MAX_DETERMINISTIC_SEEDS_PER_QUARTER]
+    _det_seed_cap = (
+      30 if pass_name == "restructure_viability" else _MAX_DETERMINISTIC_SEEDS_PER_QUARTER
+    )
+    if len(normalized_seeds) > _det_seed_cap:
+      normalized_seeds = normalized_seeds[:_det_seed_cap]
 
     def _unit_objective(arr: List[float]) -> float:
       _raise_if_runtime_deadline_exceeded("objective")
@@ -1197,6 +1247,16 @@ def solve_review_plan(
       if (anchor_within_tolerance or optimizer_success or revenue_direct_mode)
       else normalized_seeds[:_MAX_OPTIMIZER_SEEDS_PER_QUARTER]
     )
+    if optimizer_seeds and pass_name == "restructure_viability":
+      # Joint refinement must START from the best deterministic seed —
+      # descending from the anchor inside a finite budget degenerates
+      # to best-single-move, which is exactly not a joint solve.
+      optimizer_seeds = [
+        _vector_to_unit_interval(
+          actual_vector=[float(v) for v in best_vector],
+          variable_specs=variable_specs,
+        )
+      ]
     for seed in optimizer_seeds:
       _raise_if_runtime_deadline_exceeded("optimizer_seed")
       try:
@@ -1206,13 +1266,17 @@ def solve_review_plan(
           method="L-BFGS-B",
           bounds=unit_bounds,
           options={
-            "maxiter": 24,
+            "maxiter": 60 if pass_name == "restructure_viability" else 24,
             # The objective surface comes from a full model recalculation, so
             # normalized finite-difference steps are more reliable than raw-value
             # steps on million-dollar levers.
             "eps": 0.05,
             "ftol": 1e-8,
-            "maxfun": max(12, min(48, 6 * len(variable_specs))),
+            "maxfun": (
+              max(60, min(150, 14 * len(variable_specs)))
+              if pass_name == "restructure_viability"
+              else max(12, min(48, 6 * len(variable_specs)))
+            ),
           },
         )
         candidate_vector = _vector_from_unit_interval(

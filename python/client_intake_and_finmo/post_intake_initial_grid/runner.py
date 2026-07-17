@@ -865,6 +865,53 @@ def prepare_initial_grid_for_draft(
     # downstream consumer (seed apply, cascade override guard, path stamp,
     # solver bounds) reads the same single authority. A failed call leaves
     # the flat NAICS seed exactly as before.
+    # -- RESTRUCTURE DIRECTIVE (the restructure stage's design, if any) --
+    # Fires ONLY when a prior run of this draft returned NON-VIABLE and
+    # the restructure stage authored a redesign (persisted to
+    # repair_guidance_json by the stage). Stamped to solver_input so the
+    # authoring layers consume it as the authoritative maturation
+    # targets. Absent on every first run and on every viable business —
+    # this block is then a no-op.
+    _restructure_directive: Optional[Dict[str, Any]] = None
+    try:
+      # The ACTIVE directive lives in the in-process registry (the
+      # restructure stage sets it immediately before this re-run; the
+      # draft row cannot carry it — the pipeline's own stage persists
+      # rewrite repair_guidance_json and would wipe it before this
+      # loader runs). Registry empty == normal run == no-op.
+      from client_intake_and_finmo.post_intake_restructure.registry import (  # type: ignore  # noqa: E501
+        get_active_directive as _rs_get_active,
+      )
+      _rs_active = _rs_get_active(normalized_draft_id)
+      if isinstance(_rs_active, dict) and _rs_active.get("feasible"):
+        _restructure_directive = copy.deepcopy(_rs_active)
+        if isinstance(model_input_json, dict):
+          _rs_si = model_input_json.setdefault("solver_input", {})
+          if isinstance(_rs_si, dict):
+            _rs_si["restructure_directive"] = copy.deepcopy(_rs_active)
+        shared_context["restructure_directive_trace"] = {
+          "active": True,
+          "team_payroll": (_rs_active.get("team") or {}).get("annual_payroll"),
+          "price_multipliers": _rs_active.get("pricing"),
+          "rent_target": (_rs_active.get("facility") or {}).get("quarterly_rent_target"),
+        }
+    except Exception as _rs_exc:  # noqa: BLE001 — no directive, normal run
+      _restructure_directive = None
+      shared_context["restructure_directive_trace"] = {
+        "active": False, "error": f"{type(_rs_exc).__name__}: {str(_rs_exc)[:160]}",
+      }
+    # Hard file-trace: the loader outcome must be observable even though
+    # the soft sink above keeps a failure from breaking the run.
+    try:
+      import traceback as _rs_tb
+      with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
+        _rs_fh.write(
+          f"draft={normalized_draft_id} directive_active={_restructure_directive is not None} "
+          f"trace={shared_context.get('restructure_directive_trace')}\n"
+        )
+    except Exception:
+      pass
+
     _wc_trace: Dict[str, Any] = {"ok": False, "source": "naics_flat_seed"}
     try:
       from client_intake_and_finmo.post_intake_balance_sheet.gpt_wc_judgment import (  # type: ignore  # noqa: E501
@@ -1223,6 +1270,35 @@ def prepare_initial_grid_for_draft(
         "ok": False, "source": "stated_team_stands",
         "error": f"{type(_hc_exc).__name__}: {str(_hc_exc)[:200]}",
       }
+    # RESTRUCTURE OVERRIDE — the restructure stage's team design is a
+    # stronger authority than the standalone coherence judgment: the
+    # executive, in the turnaround seat with the four reality
+    # constraints, designed this team. Reuses the exact right-sizing
+    # plumbing (owner never cut; payload/anchor scaling downstream).
+    if _restructure_directive is not None:
+      try:
+        _rs_team = _restructure_directive.get("team") or {}
+        _rs_team_payroll = float(_rs_team.get("annual_payroll") or 0.0)
+        _rs_stated_payroll = float(_hc_num((financials_json or {}).get("payroll_total_year1")) or 0.0)
+        if _rs_team_payroll > 0 and _rs_stated_payroll > 0 and isinstance(model_input_json, dict):
+          _rs_si2 = model_input_json.setdefault("solver_input", {})
+          if isinstance(_rs_si2, dict):
+            _rs_si2["headcount_coherence"] = {
+              "applies": _rs_team_payroll < _rs_stated_payroll - 0.5,
+              "overstaffed": _rs_team_payroll < _rs_stated_payroll - 0.5,
+              "coherent_annual_payroll": round(_rs_team_payroll, 2),
+              "stated_annual_payroll": round(_rs_stated_payroll, 2),
+              "right_size_factor": round(_rs_team_payroll / _rs_stated_payroll, 4),
+              "coherent_structure": str(_rs_team.get("structure") or "")[:240],
+              "rationale": str(_rs_team.get("rationale") or "")[:600],
+              "notes": ["restructure_stage_team_design"],
+            }
+            _hc_trace = {
+              "ok": True, "source": "restructure_stage_team_design",
+              "judgment": copy.deepcopy(_rs_si2["headcount_coherence"]),
+            }
+      except Exception:
+        pass
     shared_context["headcount_coherence_trace"] = _hc_trace
 
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
@@ -1488,6 +1564,39 @@ def prepare_initial_grid_for_draft(
         "ok": False, "source": "mechanical_defaults",
         "error": f"{type(_gj_exc).__name__}: {str(_gj_exc)[:200]}",
       }
+    # RESTRUCTURE CONSUMPTION: GROWTH — the executive's redesigned growth
+    # path replaces the standalone growth judgment (same seat, better-
+    # informed: the redesign was made WITH the solver's gap report in
+    # hand). Same rails as the judgment it replaces: annual→QoQ, clamped
+    # to [0, mechanical QoQ cap] — the machine's cap is a law of physics
+    # the redesign cannot repeal.
+    try:
+      if _restructure_directive is not None:
+        _rs_growth = _restructure_directive.get("growth") or {}
+        _rs_y1g = _rs_growth.get("year1_annual_growth")
+        _rs_mg = _rs_growth.get("mature_annual_growth")
+        if _rs_y1g is not None and _rs_mg is not None:
+          from client_intake_and_finmo.post_intake_headcount.gpt_growth_judgment import (  # type: ignore  # noqa: E501
+            annual_to_qoq as _rs_annual_to_qoq,
+          )
+          from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (  # type: ignore  # noqa: E501
+            _DEFAULT_QOQ_MAX as _RS_GROWTH_RAIL_QOQ,
+          )
+          _rs_qoq_start = min(max(_rs_annual_to_qoq(float(_rs_y1g)), 0.0), float(_RS_GROWTH_RAIL_QOQ))
+          _rs_qoq_end = min(max(_rs_annual_to_qoq(float(_rs_mg)), 0.0), float(_RS_GROWTH_RAIL_QOQ))
+          _growth_kwargs = {"qoq_start": _rs_qoq_start, "qoq_end": _rs_qoq_end}
+          _growth_trace = {
+            "ok": True,
+            "source": "restructure_stage_growth_design",
+            "year1_annual_growth": float(_rs_y1g),
+            "mature_annual_growth": float(_rs_mg),
+            "qoq_start_applied": round(_rs_qoq_start, 6),
+            "qoq_end_applied": round(_rs_qoq_end, 6),
+            "rail_qoq_max": float(_RS_GROWTH_RAIL_QOQ),
+            "rationale": str(_rs_growth.get("rationale") or "")[:600],
+          }
+    except Exception:  # noqa: BLE001 — soft: the judged/default growth stands
+      pass
     _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
       **_growth_kwargs,
@@ -1555,6 +1664,171 @@ def prepare_initial_grid_for_draft(
         sequence_trace["revenue_authoring"] = {"ok": False, "error": _rev_pass.get("error")}
   except Exception as _rev_exc:  # noqa: BLE001 — soft sink: must not break a run
     sequence_trace["revenue_authoring"] = {"error": repr(_rev_exc)}
+
+  # ----- RESTRUCTURE CONSUMPTION: THE REVENUE STRUCTURE -----
+  # The executive's redesigned revenue side lands in the machine here,
+  # BEFORE band fitting so the fitted bands ground on the redesigned
+  # revenue. Q1 always stays stated reality (the starting line is fact);
+  # every change is a glide — linear to the Q11 design by Q11, then to
+  # the Q20 design by Q20. Three moves:
+  #   1. PRICING — designed multipliers on every Unit Price row.
+  #   2. MIX REALLOCATION — designed per-line volume multipliers on the
+  #      matching line's Capacity row (0.0 winds the line down = drop).
+  #   3. NEW LINES — designed additions synthesized as full driver-row
+  #      triples (Unit Price / Capacity / Utilization), ramped from
+  #      zero to the designed Q11 quarterly revenue.
+  # No directive (every first run, every viable business) → no-op.
+  try:
+    if _restructure_directive is not None and isinstance(model_input_json, dict):
+      _rs_trace: Dict[str, Any] = {"applied": False}
+
+      def _rs_glide(q: int, m11: float, m20: float) -> float:
+        if q <= 11:
+          return 1.0 + (m11 - 1.0) * ((q - 1) / 10.0)
+        return m11 + (m20 - m11) * ((q - 11) / 9.0)
+
+      _rs_rev_rows = ((model_input_json.get("sections") or {}).get("revenue") or [])
+
+      # 1. PRICING glide on every Unit Price row.
+      _rsp = _restructure_directive.get("pricing") or {}
+      _rs_m11 = float(_rsp.get("price_multiplier_q11") or 1.0)
+      _rs_m20 = float(_rsp.get("price_multiplier_q20") or 1.0)
+      _rs_price_rows = 0
+      if abs(_rs_m11 - 1.0) > 1e-9 or abs(_rs_m20 - 1.0) > 1e-9:
+        for _rs_row in _rs_rev_rows:
+          if (
+            not isinstance(_rs_row, dict)
+            or str(_rs_row.get("driver") or "").strip() != "Unit Price"
+          ):
+            continue
+          _rs_vals = _rs_row.get("values")
+          if not isinstance(_rs_vals, list):
+            continue
+          for _rs_q in range(2, min(21, len(_rs_vals))):
+            try:
+              _rs_vals[_rs_q] = round(
+                float(_rs_vals[_rs_q]) * _rs_glide(_rs_q, _rs_m11, _rs_m20), 6
+              )
+            except (TypeError, ValueError):
+              pass
+          _rs_price_rows += 1
+      _rs_trace["pricing"] = {
+        "rows": _rs_price_rows, "m11": _rs_m11, "m20": _rs_m20,
+      }
+
+      # 2. MIX REALLOCATION — per-line volume glides on Capacity rows
+      # and per-line price glides on Unit Price rows (each line priced
+      # inside ITS OWN market ceiling; the global pricing lever above
+      # stays for whole-plan repricing).
+      def _rs_key(v: Any) -> str:
+        return str(v or "").strip().casefold()
+
+      _rs_mix = (_restructure_directive.get("revenue_mix") or {})
+      _rs_mix_applied: List[Dict[str, Any]] = []
+      for _rs_line in (_rs_mix.get("lines") or []):
+        if not isinstance(_rs_line, dict):
+          continue
+        _rs_v11 = float(_rs_line.get("volume_multiplier_q11") if _rs_line.get("volume_multiplier_q11") is not None else 1.0)
+        _rs_v20 = float(_rs_line.get("volume_multiplier_q20") if _rs_line.get("volume_multiplier_q20") is not None else 1.0)
+        _rs_lp11 = float(_rs_line.get("price_multiplier_q11") if _rs_line.get("price_multiplier_q11") is not None else 1.0)
+        _rs_lp20 = float(_rs_line.get("price_multiplier_q20") if _rs_line.get("price_multiplier_q20") is not None else _rs_lp11)
+        _rs_vol_neutral = abs(_rs_v11 - 1.0) <= 1e-9 and abs(_rs_v20 - 1.0) <= 1e-9
+        _rs_price_neutral = abs(_rs_lp11 - 1.0) <= 1e-9 and abs(_rs_lp20 - 1.0) <= 1e-9
+        if _rs_vol_neutral and _rs_price_neutral:
+          continue
+        _rs_l_lob = _rs_key(_rs_line.get("lob"))
+        _rs_l_prod = _rs_key(_rs_line.get("product"))
+        _rs_hit = 0
+        for _rs_row in _rs_rev_rows:
+          if not isinstance(_rs_row, dict):
+            continue
+          _rs_driver = str(_rs_row.get("driver") or "").strip()
+          if _rs_driver == "Capacity":
+            _rs_g11, _rs_g20 = _rs_v11, _rs_v20
+            if _rs_vol_neutral:
+              continue
+          elif _rs_driver == "Unit Price":
+            _rs_g11, _rs_g20 = _rs_lp11, _rs_lp20
+            if _rs_price_neutral:
+              continue
+          else:
+            continue
+          _rs_r_lob = _rs_key(_rs_row.get("lob"))
+          _rs_r_prod = _rs_key(_rs_row.get("product"))
+          _rs_match = (
+            (_rs_l_prod and _rs_l_prod == _rs_r_prod)
+            or (not _rs_l_prod and _rs_l_lob and _rs_l_lob == _rs_r_lob)
+            or (_rs_l_prod and _rs_l_lob and _rs_l_lob == _rs_r_lob and not _rs_r_prod)
+          )
+          if not _rs_match:
+            continue
+          _rs_vals = _rs_row.get("values")
+          if not isinstance(_rs_vals, list):
+            continue
+          for _rs_q in range(2, min(21, len(_rs_vals))):
+            try:
+              _rs_vals[_rs_q] = round(
+                float(_rs_vals[_rs_q]) * _rs_glide(_rs_q, _rs_g11, _rs_g20), 6
+              )
+            except (TypeError, ValueError):
+              pass
+          _rs_hit += 1
+        _rs_mix_applied.append({
+          "lob": _rs_line.get("lob"), "product": _rs_line.get("product"),
+          "v11": _rs_v11, "v20": _rs_v20,
+          "p11": _rs_lp11, "p20": _rs_lp20, "rows_hit": _rs_hit,
+        })
+      _rs_trace["mix_lines"] = _rs_mix_applied
+
+      # 3. NEW LINES — contract-valid driver-row triples in their own
+      # revenue slot (shared synthesis with the restructure searcher, so
+      # the real re-run materializes EXACTLY what the search evaluated).
+      from client_intake_and_finmo.post_intake_restructure.searcher import (  # type: ignore  # noqa: E501
+        synthesize_new_line_rows as _rs_synth_rows,
+      )
+      _rs_new_added: List[Dict[str, Any]] = []
+      _rs_templates: Dict[str, Dict[str, Any]] = {}
+      for _rs_row in _rs_rev_rows:
+        if isinstance(_rs_row, dict):
+          _rs_d = str(_rs_row.get("driver") or "").strip()
+          if _rs_d in ("Unit Price", "Capacity", "Utilization") and _rs_d not in _rs_templates:
+            _rs_templates[_rs_d] = _rs_row
+      if len(_rs_templates) == 3:
+        for _rs_nl in (_rs_mix.get("new_lines") or []):
+          if not isinstance(_rs_nl, dict):
+            continue
+          _rs_nl_price = float(_rs_nl.get("unit_price") or 0.0)
+          _rs_nl_target = float(_rs_nl.get("q11_quarterly_revenue_target") or 0.0)
+          _rs_added_rows = _rs_synth_rows(
+            _rs_templates, _rs_rev_rows,
+            lob=str(_rs_nl.get("lob") or "New"),
+            product=str(_rs_nl.get("product") or "New Line"),
+            unit_price=_rs_nl_price,
+            q11_quarterly_revenue=_rs_nl_target,
+          )
+          if _rs_added_rows:
+            _rs_rev_rows.extend(_rs_added_rows)
+            _rs_new_added.append({
+              "lob": _rs_nl.get("lob"), "product": _rs_nl.get("product"),
+              "unit_price": _rs_nl_price, "q11_quarterly_revenue": _rs_nl_target,
+            })
+      elif (_rs_mix.get("new_lines") or []):
+        _rs_trace["new_lines_error"] = "driver_templates_missing"
+      _rs_trace["new_lines"] = _rs_new_added
+      _rs_trace["applied"] = bool(
+        _rs_price_rows or _rs_mix_applied or _rs_new_added
+      )
+      sequence_trace["restructure_revenue"] = _rs_trace
+  except Exception as _rs_p_exc:  # noqa: BLE001 — soft sink
+    sequence_trace["restructure_revenue"] = {"applied": False, "error": repr(_rs_p_exc)}
+  if _restructure_directive is not None:
+    try:
+      with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
+        _rs_fh.write(
+          f"draft={normalized_draft_id} revenue_consumption={sequence_trace.get('restructure_revenue')}\n"
+        )
+    except Exception:
+      pass
 
   # ----- BAND-FITTING PASS (the keystone; runs after revenue authoring) -----
   # The cascade + realism gate aim levers at industry bands (assemble_finmo_
@@ -1629,6 +1903,39 @@ def prepare_initial_grid_for_draft(
       operator_cost_levels,
     )
     _bf_operator_levels = operator_cost_levels(financials_json, sum(_bf_line[:4]) or None)
+    # RESTRUCTURE CONSUMPTION: THE FULL COST STRUCTURE — the executive's
+    # redesigned cost shape anchors the fitted bands (rent from the
+    # facility design; COGS/marketing/G&A from cost_structure — COGS is
+    # where a margin-improving mix shift lands), so the cascade matures
+    # every cost lever toward the redesigned structure through its
+    # normal machinery. The degenerate-anchor guard in
+    # rescale_envelope_to_operator remains the reality fence: a cost
+    # level leaner than the leanest cohort business falls back to the
+    # raw cohort band.
+    try:
+      if _restructure_directive is not None:
+        _rs_rev_y1 = sum(_bf_line[:4]) or 0.0
+        _rs_rent_q = float(
+          (_restructure_directive.get("facility") or {}).get("quarterly_rent_target") or 0.0
+        )
+        if _rs_rent_q > 0.0 and _rs_rev_y1 > 0.0:
+          _bf_operator_levels["rent_percent_of_revenue"] = round(
+            (_rs_rent_q * 4.0) / _rs_rev_y1, 6
+          )
+        _rs_cost = _restructure_directive.get("cost_structure") or {}
+        for _rs_src_key, _rs_band_key in (
+          ("cogs_percent_of_revenue", "cogs_percent_of_revenue"),
+          ("marketing_percent_of_revenue", "marketing_percent_of_revenue"),
+          ("g_and_a_percent_of_revenue", "sga_percent_of_revenue"),
+        ):
+          try:
+            _rs_cost_v = _rs_cost.get(_rs_src_key)
+            if _rs_cost_v is not None and 0.0 < float(_rs_cost_v) < 1.0:
+              _bf_operator_levels[_rs_band_key] = round(float(_rs_cost_v), 6)
+          except (TypeError, ValueError):
+            continue
+    except Exception:
+      pass
     # EXECUTIVE MARGIN BAND — the manager's cost maturation must aim its
     # arithmetic at the judged healthy band (stamped upstream, viability-
     # blind); absent judgment, the pass behaves exactly as before.

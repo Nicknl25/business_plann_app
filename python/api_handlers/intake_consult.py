@@ -7489,6 +7489,345 @@ def post_intake_consult_system_run_handler(*, app, request):
         ),
         500,
       )
+    # ═══ THE RESTRUCTURE STAGE (additive; fires ONLY on NON-VIABLE) ═══
+    # The full existing process ran unchanged above. A VIABLE verdict
+    # never enters this block — nothing changes for viable businesses.
+    # On NON-VIABLE, the EXECUTIVE redesigns the whole business (design
+    # seat: headcount, space, mix, pricing, phasing — bounded ONLY by
+    # the four reality constraints) and the SOLVER (this entire
+    # pipeline, re-run with the design as the authoritative maturation
+    # targets) crunches it and reports the gap. They loop until viable
+    # or the executive concludes no REAL redesign reaches viability.
+    # Either outcome is final and honest; the restructured forecast, when
+    # viable, simply IS the forecast.
+    try:
+      _rs_iterations: List[Dict[str, Any]] = []
+      if not bool(acceptance_verdict.get("passed")):
+        from client_intake_and_finmo.post_intake_restructure import (  # type: ignore
+          build_solver_gap_report,
+        )
+        from client_intake_and_finmo.post_intake_restructure.designer import (  # type: ignore
+          stated_owner_annual_wage as _rs_owner_wage,
+        )
+        from client_intake_and_finmo.post_intake_restructure.constraint_author import (  # type: ignore
+          gpt_author_restructure_bounds_once,
+          validate_restructure_bounds,
+        )
+        from client_intake_and_finmo.post_intake_restructure.searcher import (  # type: ignore
+          candidate_to_directive,
+        )
+        from client_intake_and_finmo.post_intake_restructure.joint_solver import (  # type: ignore
+          run_restructure_joint_solve,
+        )
+        from client_intake_and_finmo.post_intake_restructure.solution_review import (  # type: ignore
+          apply_review_tightening,
+          gpt_review_solution_once,
+        )
+        from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
+          build_operating_model_digest as _rs_digest,
+        )
+        from client_intake_and_finmo.post_intake_restructure.registry import (  # type: ignore
+          set_active_directive as _rs_set_active,
+          clear_active_directive as _rs_clear_active,
+        )
+
+        def _rs_draft_json(column: str) -> Dict[str, Any]:
+          _cur = conn.cursor(dictionary=True)
+          try:
+            _cur.execute(
+              f"SELECT {column} FROM intake_consult_drafts WHERE draft_id=%s",
+              (result_draft_id,),
+            )
+            _row = _cur.fetchone() or {}
+            _raw = _row.get(column)
+            return json.loads(_raw) if isinstance(_raw, str) and _raw.strip() else (
+              _raw if isinstance(_raw, dict) else {}
+            )
+          finally:
+            _cur.close()
+
+        def _rs_persist_guidance(payload_json: Dict[str, Any]) -> None:
+          _cur = conn.cursor()
+          try:
+            _cur.execute(
+              "UPDATE intake_consult_drafts SET repair_guidance_json=%s WHERE draft_id=%s",
+              (json.dumps(payload_json, ensure_ascii=False), result_draft_id),
+            )
+            conn.commit()
+          finally:
+            _cur.close()
+
+        _rs_ops = _rs_draft_json("operating_model_json")
+        _rs_people = _rs_draft_json("people_json")
+        _rs_market = _rs_draft_json("target_market_json")
+        _rs_marketing = _rs_draft_json("marketing_model_json")
+        _rs_fin = _rs_draft_json("financials_json")
+        _rs_compact = _rs_digest(_rs_ops, _rs_people, _rs_market, _rs_marketing)
+        _rs_stated = {
+          k: _rs_fin.get(k)
+          for k in (
+            "current_revenue", "current_cogs", "payroll_total_year1",
+            "current_num_employees", "total_debt_outstanding",
+            "cash_on_hand", "initial_equity", "initial_assets",
+          )
+          if _rs_fin.get(k) is not None
+        }
+        _rs_owner = _rs_owner_wage(_rs_people)
+
+        def _rs_current_structure() -> Dict[str, Any]:
+          _fj = _rs_draft_json("finmo_json")
+          _mi = _rs_draft_json("model_input_json")
+          _rows = {
+            int(float(r.get("quarter_index") or 0)): r
+            for r in (_fj.get("quarter_rows") or [])
+            if isinstance(r, dict)
+          }
+          _q1 = _rows.get(1) or {}
+          _prices = {}
+          _line_drivers: Dict[str, Dict[str, float]] = {}
+          for _r in ((_mi.get("sections") or {}).get("revenue") or []):
+            if not isinstance(_r, dict):
+              continue
+            _drv = str(_r.get("driver") or "").strip()
+            _vals = _r.get("values") or []
+            _key = f"{_r.get('lob')}/{_r.get('product')}"
+            if _drv == "Unit Price" and len(_vals) > 1 and _vals[1]:
+              _prices[_key] = _vals[1]
+            if _drv in ("Unit Price", "Capacity", "Utilization"):
+              for _qi, _lbl in ((1, "q1"), (11, "q11")):
+                try:
+                  _line_drivers.setdefault(_key, {})[f"{_lbl}_{_drv}"] = float(_vals[_qi])
+                except (TypeError, ValueError, IndexError):
+                  pass
+          # Per-line revenue (price x capacity x utilization) at Q1 and
+          # the currently-planned Q11 — the mix picture the executive
+          # reallocates (revenue_mix identifies lines by these names).
+          _line_revenues: Dict[str, Dict[str, float]] = {}
+          for _key, _dv in _line_drivers.items():
+            _line_revenues[_key] = {
+              _lbl: round(
+                (_dv.get(f"{_lbl}_Unit Price") or 0.0)
+                * (_dv.get(f"{_lbl}_Capacity") or 0.0)
+                * (_dv.get(f"{_lbl}_Utilization") or 0.0),
+                2,
+              )
+              for _lbl in ("q1", "q11")
+            }
+          return {
+            "q1_revenue": _q1.get("revenue"),
+            "q1_payroll": _q1.get("payroll"),
+            "q1_rent": _q1.get("lease_rent"),
+            "q1_unit_prices": _prices,
+            "revenue_lines_quarterly": _line_revenues,
+          }
+
+        # ═══ RESTRUCTURE v2: bounds → whole-P&L search → review → real run ═══
+        # 1. The EXECUTIVE authors the four reality constraints as BOUNDS.
+        # 2. The SOLVER searches every configuration inside them (fast
+        #    evaluator = the pipeline's own math + the gate's own checks).
+        # 3. The EXECUTIVE reviews the found design (real business? may
+        #    tighten caps once — the solver re-searches inside them).
+        # 4. The REAL pipeline runs the design; the REAL acceptance gate
+        #    issues the verdict. Two real runs max; the second folds the
+        #    first's landed state back into the search.
+        _rs_gap = build_solver_gap_report(
+          acceptance_verdict=acceptance_verdict,
+          finmo_json=_rs_draft_json("finmo_json"),
+        )
+        _rs_ops_json = _rs_ops
+        _rs_naics = (
+          "".join(ch for ch in str((_rs_ops_json or {}).get("business_naics_6") or "") if ch.isdigit())
+          or None
+        )
+        _rs_planning_mode = str(
+          (_rs_draft_json("planning_runtime_json") or {}).get("planning_mode") or ""
+        ).strip() or None
+        _rs_bounds_raw = gpt_author_restructure_bounds_once(
+          compact=_rs_compact,
+          stated_facts=_rs_stated,
+          current_structure=_rs_current_structure(),
+          failure_summary=_rs_gap,
+        )
+        _rs_design_prev: Optional[Dict[str, Any]] = None
+        _rs_bounds: Optional[Dict[str, Any]] = None
+        if not _rs_bounds_raw.get("ok"):
+          _rs_iterations.append({"stage": "bounds", "error": _rs_bounds_raw.get("error")})
+        else:
+          _rs_bounds = validate_restructure_bounds(
+            bounds=_rs_bounds_raw["bounds"], stated_owner_annual_wage=_rs_owner,
+          )
+          _rs_iterations.append({
+            "stage": "bounds",
+            "feasible_region_exists": _rs_bounds.get("feasible_region_exists"),
+            "bounds": _rs_bounds,
+            "gap_report_in": _rs_gap,
+          })
+        # THE JOINT SOLVE — GPT authored the bounds and target OUTSIDE
+        # the loop; numeric_solver.solve_review_plan (the existing SciPy
+        # joint optimizer) drives ALL levers simultaneously to the
+        # viability target inside them. GPT reviews the solved result
+        # OUTSIDE the loop; each rejection tightens bounds for a
+        # re-solve (the solve is seconds). Exactly ONE real pipeline
+        # run, only after approval.
+        _rs_max_rounds = 4
+        for _rs_i in range(1, _rs_max_rounds + 1):
+          if not (_rs_bounds and _rs_bounds.get("feasible_region_exists")):
+            # The executive concluded no REAL region exists — the
+            # honest terminal answer (or the bounds call failed; the
+            # pre-restructure verdict then stands untouched).
+            break
+          _rs_base_mi = _rs_draft_json("model_input_json")
+          _rs_search = run_restructure_joint_solve(
+            base_model_input=_rs_base_mi,
+            bounds=_rs_bounds,
+            business_naics_6=_rs_naics,
+            ops_json=_rs_ops_json,
+            financials_json=_rs_fin,
+            planning_mode=_rs_planning_mode,
+          )
+          _rs_iterations.append({
+            "stage": f"search_{_rs_i}",
+            "found": _rs_search.get("found"),
+            "evals": _rs_search.get("evals"),
+            "trace": _rs_search.get("trace"),
+            "candidate": _rs_search.get("candidate"),
+            "landed": (_rs_search.get("score") or {}).get("landed"),
+            # The LEAN-END solution (viability first reached, before the
+            # refine-back walked toward as-stated) — audit signal for how
+            # far minimal-change and lean-end diverge.
+            "candidate_first_viable": _rs_search.get("candidate_first_viable"),
+            "landed_first_viable": _rs_search.get("landed_first_viable"),
+            "payroll_burden_factor": _rs_search.get("payroll_burden_factor"),
+            "line_margins": _rs_search.get("line_margins"),
+          })
+          if not _rs_search.get("found"):
+            # Honest exhaustion: no configuration inside the executive's
+            # reality bounds is viable.
+            break
+          _rs_design = candidate_to_directive(
+            _rs_search["candidate"], _rs_bounds, _rs_search["base_levels"],
+            overall_rationale=str(_rs_bounds.get("overall_rationale") or ""),
+            base_model_input=_rs_base_mi,
+            line_margins=_rs_search.get("line_margins") or None,
+            payroll_burden_factor=float(_rs_search.get("payroll_burden_factor") or 1.0),
+          )
+          _rs_review_raw = gpt_review_solution_once(
+            compact=_rs_compact,
+            stated_facts=_rs_stated,
+            bounds_rationale={
+              "overall_rationale": _rs_bounds.get("overall_rationale"),
+              "reality_constraints": _rs_bounds.get("reality_constraints"),
+            },
+            design_directive=_rs_design,
+            landed_projection=(_rs_search.get("score") or {}).get("landed") or {},
+          )
+          _rs_review = _rs_review_raw.get("review") if _rs_review_raw.get("ok") else None
+          _rs_iterations.append({
+            "stage": f"review_{_rs_i}",
+            "review": _rs_review,
+            "error": _rs_review_raw.get("error"),
+          })
+          if _rs_review is not None and not bool(_rs_review.get("approved")):
+            if bool(_rs_review.get("no_realistic_design_exists")):
+              # The reviewer's honest terminal: no tightening helps.
+              break
+            _rs_tightened = apply_review_tightening(_rs_bounds, _rs_review)
+            if bool(_rs_review.get("revenue_story_required")):
+              # "Cost compression alone is not a credible story" as a
+              # BOUND: the team floor rises to stated wages, so the
+              # re-solve must close the gap on the revenue side.
+              try:
+                _rs_stated_wages = float(_rs_fin.get("payroll_total_year1") or 0.0)
+              except (TypeError, ValueError):
+                _rs_stated_wages = 0.0
+              _rs_team_b = _rs_tightened.get("team") or {}
+              if _rs_stated_wages > float(_rs_team_b.get("min_annual_payroll") or 0.0):
+                _rs_team_b["min_annual_payroll"] = _rs_stated_wages
+                _rs_tightened["team"] = _rs_team_b
+            if _rs_i < _rs_max_rounds and _rs_tightened != _rs_bounds:
+              # The rejection BINDS the re-solve: tighter bounds.
+              _rs_bounds = _rs_tightened
+              continue
+            # The rejection carried nothing new to bind, or rounds are
+            # spent — the honest terminal.
+            break
+          _rs_design_prev = _rs_design
+          # The ACTIVE directive rides the in-process registry (the
+          # pipeline's stage persists rewrite repair_guidance_json and
+          # would wipe a row-persisted directive before the grid loader
+          # reads it); the row write below is the audit record.
+          _rs_set_active(result_draft_id, _rs_design)
+          _rs_persist_guidance({
+            "restructure": {
+              "active_directive": _rs_design,
+              "iteration": _rs_i,
+              "history": _rs_iterations,
+            }
+          })
+          app.logger.info(
+            "restructure_stage: v2 round %s re-running solver for draft %s",
+            _rs_i, result_draft_id,
+          )
+          result = _run_planning_system_for_draft(
+            conn=conn,
+            draft_id=result_draft_id,
+            lifecycle_mode=lifecycle_mode,
+            planning_run_id=None,
+          )
+          planning_run_json = (
+            result.get("planning_run_json")
+            if isinstance(result.get("planning_run_json"), dict) else {}
+          )
+          numeric_solver_feedback_json = (
+            result.get("numeric_solver_feedback_json")
+            if isinstance(result.get("numeric_solver_feedback_json"), dict) else {}
+          )
+          planning_runtime_json = (
+            result.get("planning_runtime_json")
+            if isinstance(result.get("planning_runtime_json"), dict) else {}
+          )
+          planning_context_summary_json = (
+            result.get("planning_context_summary_json")
+            if isinstance(result.get("planning_context_summary_json"), dict) else {}
+          )
+          acceptance_planning_run_id = (
+            str(planning_run_json.get("planning_run_id") or "").strip()
+            or acceptance_planning_run_id
+          )
+          acceptance_verdict = verify_run_acceptance(
+            conn,
+            draft_id=result_draft_id,
+            planning_run_id=acceptance_planning_run_id or None,
+          )
+          _rs_iterations[-1]["verdict_after"] = {
+            "passed": bool(acceptance_verdict.get("passed")),
+            "failed_checks": list(acceptance_verdict.get("failed_checks") or []),
+          }
+          # ONE real run per approved design: the real gate's verdict IS
+          # the verdict (re-searching the already-restructured state
+          # would compound multipliers past the executive's caps).
+          break
+        _rs_clear_active(result_draft_id)
+        if _rs_iterations:
+          _rs_persist_guidance({
+            "restructure": {
+              "active_directive": _rs_design_prev,
+              "final_passed": bool(acceptance_verdict.get("passed")),
+              "history": _rs_iterations,
+            }
+          })
+    except Exception as _rs_exc:  # noqa: BLE001 — the pre-restructure verdict stands
+      app.logger.exception(
+        "restructure_stage failed for draft %s: %s", result_draft_id, _rs_exc
+      )
+      try:
+        from client_intake_and_finmo.post_intake_restructure.registry import (  # type: ignore
+          clear_active_directive as _rs_clear_active_fallback,
+        )
+        _rs_clear_active_fallback(result_draft_id)
+      except Exception:
+        pass
+
     # Phase 9 P3.9 -- diagnostic persistence, workbook export, and
     # auto-email run for EVERY planning run (success or failure).
     # Trace each step into a file so failures surface visibly rather
