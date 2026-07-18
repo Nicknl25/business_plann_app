@@ -2195,6 +2195,34 @@ def _advance_persisted_financials_stage(
   return completion_turn, next_financials, persisted_marketing
 
 
+def _resolve_display_utilization(operating_model: Dict[str, Any]) -> Optional[float]:
+  """Representative utilization for display: top-level when present, else a
+  capacity-weighted blend of the per-product rates under lob_models."""
+  top_level = _safe_float((operating_model or {}).get("utilization_rate"))
+  if top_level is not None:
+    return top_level
+  pairs: List[Tuple[float, Optional[float]]] = []
+  for lob in (operating_model or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      util = _safe_float(product.get("utilization_rate"))
+      if util is None:
+        continue
+      weight = _safe_float(product.get("units_per_week_capacity"))
+      if weight is None:
+        weight = _safe_float(product.get("units_per_period_capacity"))
+      pairs.append((util, weight))
+  if not pairs:
+    return None
+  if all(weight is not None and weight > 0 for _, weight in pairs):
+    total_weight = sum(weight for _, weight in pairs)
+    return sum(util * weight for util, weight in pairs) / total_weight
+  return sum(util for util, _ in pairs) / len(pairs)
+
+
 def _build_financials_revenue_intro_message(
   *,
   intake_context: Dict[str, Any],
@@ -2204,7 +2232,7 @@ def _build_financials_revenue_intro_message(
   revenue_math_line = str((intake_context or {}).get("revenue_math_line") or "").strip()
   operating_model = dict((shared_context or {}).get("operating_model") or {})
   price = _format_currency(operating_model.get("unit_price"))
-  utilization = _format_percent(operating_model.get("utilization_rate"))
+  utilization = _format_percent(_resolve_display_utilization(operating_model))
   weekly_capacity = _safe_float(operating_model.get("units_per_week_capacity"))
   periods = _safe_float(operating_model.get("operating_periods_per_year"))
   annual_revenue = _format_currency((financials_year1_json or {}).get("company_revenue_total_year1"))
