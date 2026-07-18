@@ -2277,6 +2277,8 @@ def _run_single_seed(
     client_id = session.get("client_id")
     if not draft_id:
       raise RuntimeError(f"Failed to create draft session: {session}")
+    watch_base = str(os.getenv("INTAKE_WATCH_BASE_URL") or "http://localhost:5173").rstrip("/")
+    print(f"Watch live in browser: {watch_base}/business-plan-form?watch={draft_id}")
     trace_file_name = _build_run_artifact_filename(
       seed=_artifact_seed(seed=seed, draft_id=draft_id),
       written_at=run_started_at,

@@ -23,8 +23,10 @@ function IntakeFormInner() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const { handleInvalid, handleSubmit } = useSubmitIntakeHandlers(form);
-  const { submitLoading, setPlanStarted } = useIntakeFlow();
+  const { submitLoading, setPlanStarted, spectateDraftId, setSpectateDraftId } =
+    useIntakeFlow();
   const [clientInfoOpen, setClientInfoOpen] = useState(false);
+  const isSpectating = Boolean(spectateDraftId);
 
   const clientInfoFields: (keyof IntakeValues)[] = [
     "firstName",
@@ -68,6 +70,13 @@ function IntakeFormInner() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setPlanStarted, setSearchParams]);
 
+  // ?watch=<draft_id> puts this tab in read-only spectator mode on that draft.
+  // The param stays in the URL so a refresh keeps watching the same run.
+  useEffect(() => {
+    const watchParam = String(searchParams.get("watch") || "").trim();
+    setSpectateDraftId(watchParam || null);
+  }, [searchParams, setSpectateDraftId]);
+
   return (
     <div className="space-y-8 md:space-y-10">
       <section className="space-y-3">
@@ -103,17 +112,21 @@ function IntakeFormInner() {
       >
         <UnifiedConsultStep />
 
-        <div id="submit-intake-section" className="space-y-6">
-          <WhatToExpectNextInfo />
-          <SubmitStep onRequestSubmit={beginSubmitFlow} />
-        </div>
+        {!isSpectating ? (
+          <div id="submit-intake-section" className="space-y-6">
+            <WhatToExpectNextInfo />
+            <SubmitStep onRequestSubmit={beginSubmitFlow} />
+          </div>
+        ) : null}
 
-        <ClientInformationModal
-          open={clientInfoOpen}
-          submitting={submitLoading}
-          onClose={() => setClientInfoOpen(false)}
-          onConfirm={confirmClientInfoAndSubmit}
-        />
+        {!isSpectating ? (
+          <ClientInformationModal
+            open={clientInfoOpen}
+            submitting={submitLoading}
+            onClose={() => setClientInfoOpen(false)}
+            onConfirm={confirmClientInfoAndSubmit}
+          />
+        ) : null}
       </Form>
     </div>
   );

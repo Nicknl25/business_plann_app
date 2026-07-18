@@ -133,6 +133,7 @@ export default function UnifiedConsultStep() {
   }, [form]);
   const {
     planStarted,
+    spectateDraftId,
     setDraftId,
     setClientId,
     draftId,
@@ -142,6 +143,10 @@ export default function UnifiedConsultStep() {
     sharedContextError,
     setConsultDone,
   } = useIntakeFlow();
+  // Spectator mode: watch an existing draft (e.g. a dual-agent runner conversation)
+  // read-only. This tab must never create a session, POST a message, or write the
+  // watched draft's identity/business facts into this browser's sessionStorage.
+  const isSpectating = Boolean(spectateDraftId);
 
   const businessName = form.watch("businessName");
   const address = form.watch("address");
@@ -219,7 +224,9 @@ export default function UnifiedConsultStep() {
   }, []);
 
   const refreshDraft = useCallback(async (options?: { preserveError?: boolean }) => {
-    const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+    const effectiveDraftId = String(
+      spectateDraftId || draftId || consultStorage.getDraftId() || ""
+    ).trim();
     if (!effectiveDraftId) return;
 
     const preserveError = Boolean(options?.preserveError);
@@ -321,19 +328,21 @@ export default function UnifiedConsultStep() {
           formApi.setValue("addressCountry", "", { shouldDirty: false });
         }
 
-        if (nextBusinessName && canSyncName) consultStorage.setBusinessName(nextBusinessName);
-        if (nextAddress && canSyncAddress) consultStorage.setAddress(nextAddress);
-        if (nextStartDate && canSyncStartDate) consultStorage.setBusinessStartDate(nextStartDate);
-        if (hasNextParts && canSyncAddress && canSyncParts) {
-          consultStorage.setAddressParts({
-            street: nextStreet,
-            city: nextCity,
-            state: nextState,
-            zip: nextZip,
-            country: nextCountry,
-          });
-        } else if (backendAddressChanged && canSyncAddress && !hasNextParts) {
-          consultStorage.clearAddressParts();
+        if (!isSpectating) {
+          if (nextBusinessName && canSyncName) consultStorage.setBusinessName(nextBusinessName);
+          if (nextAddress && canSyncAddress) consultStorage.setAddress(nextAddress);
+          if (nextStartDate && canSyncStartDate) consultStorage.setBusinessStartDate(nextStartDate);
+          if (hasNextParts && canSyncAddress && canSyncParts) {
+            consultStorage.setAddressParts({
+              street: nextStreet,
+              city: nextCity,
+              state: nextState,
+              zip: nextZip,
+              country: nextCountry,
+            });
+          } else if (backendAddressChanged && canSyncAddress && !hasNextParts) {
+            consultStorage.clearAddressParts();
+          }
         }
 
         lastDraftBusinessRef.current = {
@@ -373,7 +382,7 @@ export default function UnifiedConsultStep() {
     } finally {
       setDraftSyncing(false);
     }
-  }, [draftId, setConsultDone]);
+  }, [draftId, isSpectating, setConsultDone, spectateDraftId]);
 
   const syncNow = useCallback(
     async (options?: { preserveError?: boolean }) => {
@@ -424,13 +433,15 @@ export default function UnifiedConsultStep() {
   }, [refreshSharedContext, setClientId, setDraftId]);
 
   useEffect(() => {
+    if (isSpectating) return;
     if (!planStarted) return;
     const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
     if (effectiveDraftId) return;
     void createSession();
-  }, [createSession, draftId, planStarted]);
+  }, [createSession, draftId, isSpectating, planStarted]);
 
   useEffect(() => {
+    if (isSpectating) return;
     if (!planStarted) return;
 
     const storedName = String(consultStorage.getBusinessName() || "").trim();
@@ -471,34 +482,34 @@ export default function UnifiedConsultStep() {
       form.setValue("addressZip", storedZip, { shouldDirty: false });
       form.setValue("addressCountry", storedCountry, { shouldDirty: false });
     }
-  }, [form, planStarted]);
+  }, [form, isSpectating, planStarted]);
 
   useEffect(() => {
-    if (!planStarted) return;
-    if (!draftId && !consultStorage.getDraftId()) return;
+    if (!planStarted && !isSpectating) return;
+    if (!spectateDraftId && !draftId && !consultStorage.getDraftId()) return;
     void refreshDraft();
-  }, [draftId, planStarted, refreshDraft]);
+  }, [draftId, isSpectating, planStarted, refreshDraft, spectateDraftId]);
 
   useEffect(() => {
-    if (!planStarted) return;
+    if (isSpectating || !planStarted) return;
     const raw = String(businessName || "").trim();
     if (raw) consultStorage.setBusinessName(raw);
-  }, [businessName, planStarted]);
+  }, [businessName, isSpectating, planStarted]);
 
   useEffect(() => {
-    if (!planStarted) return;
+    if (isSpectating || !planStarted) return;
     const raw = String(address || "").trim();
     if (raw) consultStorage.setAddress(raw);
-  }, [address, planStarted]);
+  }, [address, isSpectating, planStarted]);
 
   useEffect(() => {
-    if (!planStarted) return;
+    if (isSpectating || !planStarted) return;
     const raw = String(businessStartDate || "").trim();
     if (raw) consultStorage.setBusinessStartDate(raw);
-  }, [businessStartDate, planStarted]);
+  }, [businessStartDate, isSpectating, planStarted]);
 
   useEffect(() => {
-    if (!planStarted) return;
+    if (isSpectating || !planStarted) return;
     const street = String(addressStreet || "").trim();
     const city = String(addressCity || "").trim();
     const state = String(addressState || "").trim();
@@ -506,7 +517,7 @@ export default function UnifiedConsultStep() {
     const country = String(addressCountry || "").trim();
     if (!street || !city || !state || !zip || !country) return;
     consultStorage.setAddressParts({ street, city, state, zip, country });
-  }, [addressCity, addressCountry, addressState, addressStreet, addressZip, planStarted]);
+  }, [addressCity, addressCountry, addressState, addressStreet, addressZip, isSpectating, planStarted]);
 
   const syncEligibilityRef = useRef({
     planStarted: false,
@@ -515,11 +526,11 @@ export default function UnifiedConsultStep() {
   });
   useEffect(() => {
     syncEligibilityRef.current = {
-      planStarted,
-      hasDraft: Boolean(draftId || consultStorage.getDraftId()),
+      planStarted: planStarted || isSpectating,
+      hasDraft: Boolean(spectateDraftId || draftId || consultStorage.getDraftId()),
       busy: Boolean(loading || sending || draftSyncing),
     };
-  }, [draftId, draftSyncing, loading, planStarted, sending]);
+  }, [draftId, draftSyncing, isSpectating, loading, planStarted, sending, spectateDraftId]);
 
   const syncNowRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -529,7 +540,7 @@ export default function UnifiedConsultStep() {
   }, [syncNow]);
 
   useEffect(() => {
-    if (!planStarted) return;
+    if (!planStarted && !isSpectating) return;
 
     const maybeSync = () => {
       const state = syncEligibilityRef.current;
@@ -550,7 +561,23 @@ export default function UnifiedConsultStep() {
       window.removeEventListener("online", maybeSync);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [planStarted]);
+  }, [isSpectating, planStarted]);
+
+  // Spectator live-follow: poll the watched draft every 2s while the tab is
+  // visible so the conversation advances on its own. Spectate-only — a normal
+  // client session keeps the existing focus/visibility/send refresh behavior.
+  useEffect(() => {
+    if (!isSpectating) return;
+
+    const intervalMs = 2000;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const state = syncEligibilityRef.current;
+      if (!state.hasDraft || state.busy) return;
+      syncNowRef.current();
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [isSpectating]);
 
   useEffect(() => {
     scrollToBottom();
@@ -710,7 +737,7 @@ export default function UnifiedConsultStep() {
 
   const syncInProgress = Boolean(loading || sending || draftSyncing);
   const syncHasError = Boolean(draftError || sharedContextError);
-  const canReconnect = Boolean(planStarted && syncHasError && !syncInProgress);
+  const canReconnect = Boolean((planStarted || isSpectating) && syncHasError && !syncInProgress);
   const syncLabel = syncInProgress ? "Updating…" : syncHasError ? "Reconnect" : "Up to date";
 
   return (
@@ -772,7 +799,22 @@ export default function UnifiedConsultStep() {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!planStarted ? (
+        {isSpectating ? (
+          <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+            </span>
+            <span>
+              Watching live run (read-only) — draft{" "}
+              <span className="font-mono text-amber-200">
+                {String(spectateDraftId || "").slice(0, 8)}…
+              </span>
+            </span>
+          </div>
+        ) : null}
+
+        {!planStarted && !isSpectating ? (
           <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-300">
             Click <span className="text-slate-100">Start Your Plan</span> to begin the intake.
           </div>
@@ -797,6 +839,7 @@ export default function UnifiedConsultStep() {
                     }}
                     placeholder="Business name"
                     autoComplete="off"
+                    disabled={isSpectating}
                   />
                 </FormControl>
                 <FormMessage>{form.formState.errors.businessName?.message}</FormMessage>
@@ -815,6 +858,7 @@ export default function UnifiedConsultStep() {
                       businessStartDateInputRef.current = el;
                     }}
                     type="date"
+                    disabled={isSpectating}
                   />
                 </FormControl>
                 <FormMessage>{form.formState.errors.businessStartDate?.message}</FormMessage>
@@ -834,6 +878,7 @@ export default function UnifiedConsultStep() {
                         businessAddressInputRef.current = el;
                       }}
                       placeholder="Business address (select a full address from suggestions)"
+                      disabled={isSpectating}
                     />
                   </FormControl>
                   <FormMessage>{form.formState.errors.address?.message}</FormMessage>
@@ -843,7 +888,7 @@ export default function UnifiedConsultStep() {
           </div>
         </div>
 
-        {messages.length === 0 ? (
+        {messages.length === 0 && !isSpectating ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-300">
             <div className="min-w-0">
               {detailsComplete
@@ -1026,6 +1071,12 @@ export default function UnifiedConsultStep() {
           );
         })()}
 
+        {isSpectating ? (
+          <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-400">
+            Read-only view — the conversation is driven by the automated run. Replies are
+            disabled so watching can never alter the test.
+          </div>
+        ) : (
         <div className="flex gap-2">
           <Input
             ref={chatInputRef}
@@ -1054,6 +1105,7 @@ export default function UnifiedConsultStep() {
             Send
           </Button>
         </div>
+        )}
       </CardContent>
     </Card>
   );

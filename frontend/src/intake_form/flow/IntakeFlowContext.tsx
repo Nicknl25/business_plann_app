@@ -34,6 +34,9 @@ type IntakeFlowContextValue = {
   planStarted: boolean;
   setPlanStarted: (value: boolean) => void;
 
+  spectateDraftId: string | null;
+  setSpectateDraftId: (value: string | null) => void;
+
   editSection: IntakeEditSection;
   setEditSection: (value: IntakeEditSection) => void;
 
@@ -100,6 +103,9 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       return false;
     }
   });
+  // Read-only spectator mode: when set, this tab watches an existing draft
+  // (e.g. a dual-agent runner conversation) and never creates or mutates one.
+  const [spectateDraftId, setSpectateDraftId] = useState<string | null>(null);
   const [editSection, setEditSection] = useState<IntakeEditSection>(null);
   const [opsConfirmed, setOpsConfirmed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -201,8 +207,10 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
   const refreshSharedContext = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = Boolean(options?.silent);
-      if (!planStarted) return;
-      const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+      if (!planStarted && !spectateDraftId) return;
+      const effectiveDraftId = String(
+        spectateDraftId || draftId || consultStorage.getDraftId() || ""
+      ).trim();
       if (!effectiveDraftId) return;
 
       if (!silent) {
@@ -241,30 +249,32 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
         }
       }
     },
-    [draftId, planStarted]
+    [draftId, planStarted, spectateDraftId]
   );
 
   useEffect(() => {
-    if (!planStarted) return;
-    if (!draftId && !consultStorage.getDraftId()) return;
+    if (!planStarted && !spectateDraftId) return;
+    if (!spectateDraftId && !draftId && !consultStorage.getDraftId()) return;
     void refreshSharedContext({ silent: true });
-  }, [draftId, planStarted, refreshSharedContext]);
+  }, [draftId, planStarted, refreshSharedContext, spectateDraftId]);
 
   useEffect(() => {
-    if (!planStarted) return;
-    if (!draftId && !consultStorage.getDraftId()) return;
+    if (!planStarted && !spectateDraftId) return;
+    if (!spectateDraftId && !draftId && !consultStorage.getDraftId()) return;
 
     const intervalMs = 8000;
     const id = window.setInterval(() => {
       void refreshSharedContext({ silent: true });
     }, intervalMs);
     return () => window.clearInterval(id);
-  }, [draftId, planStarted, refreshSharedContext]);
+  }, [draftId, planStarted, refreshSharedContext, spectateDraftId]);
 
   const value = useMemo<IntakeFlowContextValue>(
     () => ({
       planStarted,
       setPlanStarted,
+      spectateDraftId,
+      setSpectateDraftId,
       editSection,
       setEditSection,
       opsConfirmed,
@@ -317,6 +327,7 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
     }),
     [
       planStarted,
+      spectateDraftId,
       editSection,
       opsConfirmed,
       targetMarketConfirmed,
