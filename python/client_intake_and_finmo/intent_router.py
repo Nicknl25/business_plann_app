@@ -648,6 +648,10 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "cash_strategy": {"type": "string", "enum": ["preserve_cash", "shareholder_return", "balanced"]},
 
+      "funding_preference": {"type": "string", "enum": ["debt", "equity", "both"]},
+
+      "funding_split_debt_share": {"type": "number", "enum": [0.7, 0.5, 0.3]},
+
       "confidence": {"type": "number"},
 
     }
@@ -1525,6 +1529,10 @@ def route_intent(
 
       "cash_strategy",
 
+      "funding_preference",
+
+      "funding_split_debt_share",
+
     ],
 
     "financials_year1": [
@@ -1625,6 +1633,9 @@ def route_intent(
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
       + "- If the last assistant message is asking about leased equipment or space beyond main rent, interpret clear no/none style answers as initial_lease = 0 and interpret amount answers as the monthly lease amount.\n"
+      + "Financials funding handling:\n"
+      + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"
+      + "- If current_stage.name is funding_split_debt_share, map answers like mostly debt, mainly loans, 70/30, or 70 percent debt to funding_split_debt_share = 0.7; even, half and half, or 50/50 to 0.5; and mostly equity, mainly investors, or 30/70 to 0.3. Interpret X/Y style answers as debt share first (X is debt). Return edit_patch with the closest allowed value.\n"
     )
 
   if consult_type_norm == "people" or (

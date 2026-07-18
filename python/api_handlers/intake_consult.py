@@ -2376,6 +2376,10 @@ def _build_financials_stage_message(
     )
   if stage == "cash_strategy":
     return _build_cash_strategy_message()
+  if stage == "funding_preference":
+    return _build_funding_preference_message()
+  if stage == "funding_split_debt_share":
+    return _build_funding_split_message()
   return "What number should I record for this financial item?"
 
 
@@ -2470,6 +2474,10 @@ def _build_financials_stage_acknowledgement(
     return "Understood. WeÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
+  if stage == "funding_preference":
+    return _build_funding_preference_acknowledgement((financials_json or {}).get("funding_preference"))
+  if stage == "funding_split_debt_share":
+    return _build_funding_split_acknowledgement((financials_json or {}).get("funding_split_debt_share"))
   if stage == "current_num_employees":
     return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
@@ -4108,10 +4116,20 @@ def _build_future_rent_message(
 def _financials_field_resolved(financials_json: Dict[str, Any], field: str) -> bool:
   if not isinstance(financials_json, dict):
     return False
+  field_name = str(field or "").strip()
+  if field_name == "funding_split_debt_share":
+    # The split only applies when the client wants BOTH debt and equity;
+    # a debt-only or equity-only preference resolves (skips) this stage.
+    preference = str(financials_json.get("funding_preference") or "").strip().lower()
+    if preference in ("debt", "equity"):
+      return True
+    return _funding_split_share_value(financials_json.get(field_name)) is not None
   if field not in financials_json:
     return False
-  if str(field or "").strip() == "cash_strategy":
+  if field_name == "cash_strategy":
     return _cash_strategy_option(financials_json.get(field)) is not None
+  if field_name == "funding_preference":
+    return _funding_preference_option(financials_json.get(field)) is not None
   return financials_json.get(field) is not None
 
 
@@ -4151,6 +4169,8 @@ _FINANCIALS_STAGE_ORDER: Tuple[str, ...] = (
   "ap_balance",
   "inventory_balance",
   "cash_strategy",
+  "funding_preference",
+  "funding_split_debt_share",
 )
 
 
@@ -4287,6 +4307,18 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "confirmable_baseline": False,
     "clarifier": "Which cash approach should I record: Preserve cash, Shareholder return, or Balanced?",
   },
+  "funding_preference": {
+    "patch_targets": ("funding_preference",),
+    "completion_fields": ("funding_preference",),
+    "confirmable_baseline": False,
+    "clarifier": "Which funding approach should I record: Debt, Equity, or Both?",
+  },
+  "funding_split_debt_share": {
+    "patch_targets": ("funding_split_debt_share",),
+    "completion_fields": ("funding_split_debt_share",),
+    "confirmable_baseline": False,
+    "clarifier": "Which debt-to-equity mix should I record: mostly debt (about 70/30), an even split (50/50), or mostly equity (about 30/70)?",
+  },
 }
 
 _CASH_STRATEGY_OPTIONS: Tuple[Dict[str, str], ...] = (
@@ -4355,6 +4387,109 @@ def _build_cash_strategy_forced_choice_message() -> str:
     + _format_cash_strategy_options(numbered=True)
     + "\n\nReply with one option name or number."
   )
+
+
+_FUNDING_PREFERENCE_OPTIONS: Tuple[Dict[str, str], ...] = (
+  {
+    "value": "debt",
+    "label": "Debt",
+    "description": "Borrowed money, like bank loans or lines of credit, repaid over time.",
+  },
+  {
+    "value": "equity",
+    "label": "Equity",
+    "description": "Owner or investor money put into the business, with no required repayment schedule.",
+  },
+  {
+    "value": "both",
+    "label": "Both",
+    "description": "A deliberate mix of debt and equity working together.",
+  },
+)
+
+_FUNDING_SPLIT_OPTIONS: Tuple[Dict[str, Any], ...] = (
+  {
+    "value": 0.70,
+    "label": "Mostly debt",
+    "description": "About 70/30 debt-to-equity.",
+  },
+  {
+    "value": 0.50,
+    "label": "Even split",
+    "description": "About 50/50 debt-to-equity.",
+  },
+  {
+    "value": 0.30,
+    "label": "Mostly equity",
+    "description": "About 30/70 debt-to-equity.",
+  },
+)
+
+
+def _funding_preference_option(value: Any) -> Optional[Dict[str, str]]:
+  normalized = str(value or "").strip().lower()
+  if not normalized:
+    return None
+  for option in _FUNDING_PREFERENCE_OPTIONS:
+    if normalized == option["value"]:
+      return dict(option)
+  return None
+
+
+def _funding_split_share_value(value: Any) -> Optional[float]:
+  """Normalize a debt-share answer to one of the persisted split values.
+
+  Accepts a ratio (0.7), a percentage (70), and snaps off-menu values to the
+  nearest allowed option, mirroring the post-intake reader's snapping."""
+  numeric = _safe_float(value)
+  if numeric is None:
+    return None
+  if 1.0 < numeric <= 100.0:
+    numeric = numeric / 100.0
+  if numeric <= 0.0 or numeric >= 1.0:
+    return None
+  return min(
+    (float(option["value"]) for option in _FUNDING_SPLIT_OPTIONS),
+    key=lambda allowed: abs(allowed - numeric),
+  )
+
+
+def _format_funding_options(options: Tuple[Dict[str, Any], ...]) -> str:
+  return "\n".join(f"- {option['label']}: {option['description']}" for option in options)
+
+
+def _build_funding_preference_message() -> str:
+  return (
+    "One more planning question on funding: when this business needs outside capital to operate or grow, "
+    "how would you prefer to fund it?\n\n"
+    + _format_funding_options(_FUNDING_PREFERENCE_OPTIONS)
+    + "\n\nYou can answer in plain language and I'll map it to the closest approach."
+  )
+
+
+def _build_funding_split_message() -> str:
+  return (
+    "Since you'd use both debt and equity, roughly what mix feels right for planning?\n\n"
+    + _format_funding_options(_FUNDING_SPLIT_OPTIONS)
+    + "\n\nA rough answer is fine, and we'll treat it as a planning assumption you can revisit."
+  )
+
+
+def _build_funding_preference_acknowledgement(value: Any) -> str:
+  option = _funding_preference_option(value)
+  if not option:
+    return "Got it."
+  if option["value"] == "both":
+    return "Got it - I'll plan on funding the business with a mix of debt and equity."
+  return f"Got it - I'll plan on funding the business primarily with {option['label'].lower()}."
+
+
+def _build_funding_split_acknowledgement(value: Any) -> str:
+  share = _funding_split_share_value(value)
+  if share is None:
+    return "Got it."
+  split_label = {0.70: "70/30", 0.50: "50/50", 0.30: "30/70"}.get(round(share, 2), f"{share:.0%} debt")
+  return f"Got it - I'll use roughly a {split_label} debt-to-equity mix as the planning split."
 
 
 def _infer_cash_strategy_last_resort(
@@ -4429,6 +4564,12 @@ def _build_financials_controller_context(stage_name: Optional[str], *, last_assi
     current_stage["allowed_values"] = [option["value"] for option in _CASH_STRATEGY_OPTIONS]
     current_stage["options"] = [dict(option) for option in _CASH_STRATEGY_OPTIONS]
     current_stage["decision_mode"] = _cash_strategy_decision_mode(last_assistant)
+  if stage == "funding_preference":
+    current_stage["allowed_values"] = [option["value"] for option in _FUNDING_PREFERENCE_OPTIONS]
+    current_stage["options"] = [dict(option) for option in _FUNDING_PREFERENCE_OPTIONS]
+  if stage == "funding_split_debt_share":
+    current_stage["allowed_values"] = [option["value"] for option in _FUNDING_SPLIT_OPTIONS]
+    current_stage["options"] = [dict(option) for option in _FUNDING_SPLIT_OPTIONS]
   return {"current_stage": current_stage}
 
 
@@ -4633,6 +4774,20 @@ def _normalize_financials_router_patch(
       if option is None:
         continue
       next_financials[field_name] = option["value"]
+      touched.add(field_name)
+      continue
+    if field_name == "funding_preference":
+      option = _funding_preference_option(raw_value)
+      if option is None:
+        continue
+      next_financials[field_name] = option["value"]
+      touched.add(field_name)
+      continue
+    if field_name == "funding_split_debt_share":
+      share = _funding_split_share_value(raw_value)
+      if share is None:
+        continue
+      next_financials[field_name] = float(share)
       touched.add(field_name)
       continue
     if field_name in {"cogs_percent_of_revenue", "marketing_percent_of_revenue"}:
