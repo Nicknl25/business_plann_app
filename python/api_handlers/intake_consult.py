@@ -4195,7 +4195,10 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
   },
   "marketing": {
     "patch_targets": ("marketing_total_year1", "marketing_percent_of_revenue"),
-    "completion_fields": ("marketing_total_year1",),
+    # Completion is an explicit stage-done flag (same pattern as revenue_intro):
+    # marketing_total_year1 can be materialized by field-family syncing before
+    # this stage ever runs, and a pre-existing value must not skip the question.
+    "completion_fields": ("_financials_marketing_stage_done",),
     "confirmable_baseline": True,
     "clarifier": "What Year-1 marketing budget or percent should I use instead?",
   },
@@ -4809,6 +4812,10 @@ def _normalize_financials_router_patch(
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
     next_financials["_financials_revenue_intro_done"] = True
+  if stage_name == "marketing" and (
+    "marketing_total_year1" in touched or "marketing_percent_of_revenue" in touched
+  ):
+    next_financials["_financials_marketing_stage_done"] = True
   if "cogs_percent_of_revenue" in touched:
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     percent = float(next_financials.get("cogs_percent_of_revenue") or 0.0)
@@ -4920,10 +4927,17 @@ def _sync_financials_consult_persistence_state(
   marketing_model_json: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
-  next_year1 = _rescale_financials_year1_to_current_revenue(
-    financials_json=next_financials,
-    financials_year1_json=financials_year1_json,
-  )
+  # current_revenue is only an authoritative rescale target once the client has
+  # actually established the revenue baseline (revenue_intro answered). Before
+  # that it is a derived echo that may predate later-entered lines of business;
+  # rescaling to it would shrink real driver capacities to fit a stale total.
+  if bool(next_financials.get("_financials_revenue_intro_done")):
+    next_year1 = _rescale_financials_year1_to_current_revenue(
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+  else:
+    next_year1 = dict(financials_year1_json or {})
 
   revenue_year1 = _safe_float(next_year1.get("company_revenue_total_year1")) or 0.0
   if revenue_year1 > 0:
