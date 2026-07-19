@@ -950,9 +950,33 @@ def _confirm_clarify_message(
     )
 
   return (
-    f"Just to confirm, what should we record for {_humanize_patch_field(field)}' "
-    "Please give a single number or short value."
+    f"Just to confirm, what should we record for {_humanize_patch_field(field)}? "
+    "A short answer in your own words is fine."
   )
+
+
+def _ops_interview_field_allowed(field: str, ops_interview_filter: Dict[str, Any] | None) -> bool:
+  """During an active Ops interview turn, only ops/business/fulfillment fields may be
+  patched, and milestones only during the explicit milestone-capture step.
+
+  This is the ops-side analogue of the financials stage patch_targets narrowing: it
+  stops the model from routing a normal interview answer (e.g. a utilization figure)
+  into an unrelated downstream field such as financials.future_rent_expected or
+  ops.milestones, whose type mismatch would otherwise surface a fallback clarifier.
+  """
+  if not isinstance(ops_interview_filter, dict) or not ops_interview_filter.get("enabled"):
+    return True
+  raw = str(field or "").strip()
+  group, dot, tail = raw.partition(".")
+  if not dot:
+    group, tail = "ops", raw
+  group = group.strip().lower()
+  tail = tail.strip()
+  if group not in ("ops", "business", "fulfillment"):
+    return False
+  if tail == "milestones" and not ops_interview_filter.get("allow_milestones"):
+    return False
+  return True
 
 
 def _parse_compact_number_token(raw: str) -> Optional[float]:
@@ -1347,6 +1371,8 @@ def route_intent(
   confirm_question_override: str | None = None,
 
   active_focus: str | None = None,
+
+  ops_interview_filter: Dict[str, Any] | None = None,
 
 ) -> Dict[str, Any]:
 
@@ -1934,6 +1960,11 @@ Return JSON only. No prose.
 
             continue
 
+          if not _ops_interview_field_allowed(field, ops_interview_filter):
+            # Hallucinated out-of-scope patch during the ops interview: drop the
+            # item instead of type-checking it into a fallback clarifier.
+            continue
+
           if field not in allowed_fields:
 
             raise RuntimeError(f"Intent router returned disallowed patch field: {field}")
@@ -2109,7 +2140,13 @@ Return JSON only. No prose.
 
           patch_dict[field] = value
 
-
+        if not patch_dict:
+          # Every patch item was dropped as out-of-scope: treat the message as a
+          # normal answer for the active consult instead of a correction.
+          result["action"] = "continue_chat"
+          result["assistant_message"] = ""
+          result["patch"] = None
+          return result
 
         result["patch"] = patch_dict
 
@@ -2175,6 +2212,11 @@ Return JSON only. No prose.
 
     if not field:
 
+      continue
+
+    if not _ops_interview_field_allowed(field, ops_interview_filter):
+      # Hallucinated out-of-scope patch during the ops interview: drop the
+      # item instead of type-checking it into a fallback clarifier.
       continue
 
     if field not in allowed_fields:
@@ -2363,6 +2405,14 @@ Return JSON only. No prose.
 
 
     patch_dict[field] = value
+
+  if not patch_dict:
+    # Every patch item was dropped as out-of-scope: treat the message as a
+    # normal answer for the active consult instead of a correction.
+    parsed["action"] = "continue_chat"
+    parsed["assistant_message"] = ""
+    parsed["patch"] = None
+    return parsed
 
   parsed["patch"] = patch_dict
 

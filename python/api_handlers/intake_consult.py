@@ -9593,6 +9593,13 @@ def post_intake_consult_handler(*, app, request):
         recent_messages=recent_messages,
         confirm_question_override=confirm_override,
         active_focus=focus,
+        # During the live ops interview, patches may only touch ops/business/
+        # fulfillment fields (milestones only in the milestone-capture step) so a
+        # normal answer cannot be hallucinated into an unrelated downstream field.
+        ops_interview_filter={
+          "enabled": str(focus).strip().lower() == "ops",
+          "allow_milestones": bool(pending_ops_milestone),
+        },
       )
 
       action = str(intent.get("action") or "").strip()
