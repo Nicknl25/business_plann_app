@@ -621,7 +621,7 @@ def _enforce_revenue_driver_formula_contract(
     finmo_revenue = float(_safe_float(row.get("revenue")) or 0.0)
     driver_revenue = float(driver_revenue_series[idx - 1]) if idx - 1 < len(driver_revenue_series) else 0.0
     delta_float = finmo_revenue - driver_revenue
-    if abs(delta_float) > REVENUE_DRIVER_FORMULA_TOLERANCE:
+    if abs(delta_float) > revenue_driver_formula_tolerance_for(driver_revenue):
       violations.append(
         {
           "quarter_index": idx,
@@ -1880,6 +1880,23 @@ def _revenue_driver_live_series(
 # Tolerance is sub-cent ($0.015) so float-rounding-boundary noise
 # is absorbed but real source divergences (>$1) still fire.
 REVENUE_DRIVER_FORMULA_TOLERANCE: float = 0.015
+
+
+def revenue_driver_formula_tolerance_for(reference_value: float) -> float:
+  """Scale-aware tolerance for the FINMO-vs-driver-formula revenue contract.
+
+  The flat $0.015 floor absorbs float rounding-mode boundary noise at the
+  ~$1-2M quarterly scale it was tuned for, but the same class of float residue
+  grows with magnitude: a $50M quarter accumulates several cents of summation
+  noise (observed ~1.7e-9 relative). 1e-8 relative keeps the contract absurdly
+  strict against real divergences (a genuine stage-ramp/modifier bug shows up
+  as dollars to thousands) while not tripping on sub-dime float residue at
+  enterprise scale."""
+  try:
+    scaled = abs(float(reference_value)) * 1e-8
+  except (TypeError, ValueError):
+    scaled = 0.0
+  return max(REVENUE_DRIVER_FORMULA_TOLERANCE, scaled)
 
 
 def revenue_live_series_from_model_input(

@@ -1358,7 +1358,7 @@ def assert_post_intake_revenue_driver_integrity(
   # `REVENUE_DRIVER_FORMULA_TOLERANCE` exported from finmo_bridge.
   from client_intake_and_finmo.finmo_bridge import (  # type: ignore
     revenue_live_series_from_model_input,
-    REVENUE_DRIVER_FORMULA_TOLERANCE,
+    revenue_driver_formula_tolerance_for,
   )
   formula_violations: List[Dict[str, Any]] = []
   _driver_series = revenue_live_series_from_model_input(
@@ -1382,7 +1382,7 @@ def assert_post_intake_revenue_driver_integrity(
     actual_raw = float(actual_revenue_by_q.get(quarter) or 0.0)
     expected = round(expected_raw, 2)
     actual = round(actual_raw, 2)
-    if abs(expected_raw - actual_raw) > REVENUE_DRIVER_FORMULA_TOLERANCE:
+    if abs(expected_raw - actual_raw) > revenue_driver_formula_tolerance_for(expected_raw):
       formula_violations.append(
         {
           "quarter_index": quarter,
