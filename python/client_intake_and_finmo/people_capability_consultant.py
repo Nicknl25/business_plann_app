@@ -385,7 +385,10 @@ Hard requirements:
 - people must contain one object per person included by the client. Do not invent people.
 - paragraph must be professional, credibility-focused, and tie the person to execution capability.
 - key_people_summary must be a concatenation of the per-person paragraphs in a clear order (separated by blank lines).
-- inferred_roles must be a short list (1-4) of additional roles likely needed in year 1 based on the operating model, LOBs/products, capacity, and stage.
+- inferred_roles must be a short list (1-4) of additional roles likely needed in the first year based on the operating model, LOBs/products, capacity, and stage.
+
+Client-facing wording (STRICT):
+- Never use the phrase "Year 1" or "Year-1" in messages to the client. Say it naturally instead: "the first year", "the year ahead", or "over the next year". Refer to inferred roles simply as "suggested roles".
   - Do NOT include the already-listed key people in inferred_roles.
   - Each role must include a short "notes" explanation of why it is needed (plain language, 1 sentence).
   - Each role must include months_until_hire (number of months from now when the role would come online).

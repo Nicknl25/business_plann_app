@@ -27,6 +27,20 @@ except Exception:
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
+# Display parity with the client UI: the app naturalizes "Year 1" out of the
+# persisted transcript, so the runner's console/reports apply the same rewrite
+# to the raw turn response before showing it.
+_YEAR_ONE_PREPOSITION_RE = re.compile(r"\b(for|in|during|over|across)\s+year[ -]1\b", re.IGNORECASE)
+_YEAR_ONE_ADJECTIVE_RE = re.compile(r"\byear[ -]1\b", re.IGNORECASE)
+
+
+def _naturalize_year_one_text(text: str) -> str:
+  value = str(text or "")
+  if not value:
+    return value
+  value = _YEAR_ONE_PREPOSITION_RE.sub(lambda m: f"{m.group(1)} the first year", value)
+  value = _YEAR_ONE_ADJECTIVE_RE.sub("first-year", value)
+  return value
 US_EASTERN = ZoneInfo("America/New_York")
 OPENAI_CALL_TIMEOUT_SECONDS = 90
 OPENAI_CALL_MAX_ATTEMPTS = 3
@@ -2317,10 +2331,12 @@ def _run_single_seed(
       draft_fetch_started = time.perf_counter()
       draft_snapshot = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
       draft_fetch_ms = int(round((time.perf_counter() - draft_fetch_started) * 1000.0))
-      assistant_message = _render_fact_placeholders(
-        str(response.get("assistant_message") or "").strip(),
-        draft_snapshot,
-      ).strip()
+      assistant_message = _naturalize_year_one_text(
+        _render_fact_placeholders(
+          str(response.get("assistant_message") or "").strip(),
+          draft_snapshot,
+        ).strip()
+      )
       active_focus = str(response.get("active_focus") or "").strip().lower()
       transcript.append({"role": "assistant", "content": assistant_message, "focus": active_focus})
       print(f"\n[{active_focus or 'unknown'}][assistant] {assistant_message}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import threading
 import uuid
 from datetime import datetime
@@ -1778,6 +1779,32 @@ def _render_messages_for_storage(
   return rendered_messages
 
 
+# Client-facing transcript text never says "Year 1" - internally everything is
+# still the Year-1 model, but assistant wording is naturalized at the single
+# persistence choke point so no prompt drift can leak the phrase to the client.
+_YEAR_ONE_PREPOSITION_RE = re.compile(r"\b(for|in|during|over|across)\s+year[ -]1\b", re.IGNORECASE)
+_YEAR_ONE_ADJECTIVE_RE = re.compile(r"\byear[ -]1\b", re.IGNORECASE)
+
+
+def _naturalize_year_one_text(text: str) -> str:
+  value = str(text or "")
+  if not value:
+    return value
+  value = _YEAR_ONE_PREPOSITION_RE.sub(lambda m: f"{m.group(1)} the first year", value)
+  value = _YEAR_ONE_ADJECTIVE_RE.sub("first-year", value)
+  return value
+
+
+def _naturalize_assistant_messages(new_messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+  naturalized: List[Dict[str, str]] = []
+  for message in new_messages or []:
+    if isinstance(message, dict) and str(message.get("role") or "") == "assistant":
+      message = dict(message)
+      message["content"] = _naturalize_year_one_text(str(message.get("content") or ""))
+    naturalized.append(message)
+  return naturalized
+
+
 def append_messages(
   conn,
   *,
@@ -1829,7 +1856,7 @@ def append_messages(
   existing_messages = _parse_messages(row.get("messages_json")) if write_messages_json else []
   messages = list(existing_messages)
   if new_messages:
-    messages.extend(new_messages)
+    messages.extend(_naturalize_assistant_messages(new_messages))
     messages = _render_messages_for_storage(
       row=row,
       messages=messages,
