@@ -186,8 +186,13 @@ def _build_baseline_financial_summary(
     or year1.get("marketing_total_year1")
   )
   rent_annualized = _safe_float(financials.get("monthly_rent_expense")) * 12.0
+  # other_opex_absolute is the ANNUAL figure; other_operating_expense is MONTHLY
+  # and must be annualized when the derived annual field is absent (legacy drafts).
+  _other_opex_annual = financials.get("other_opex_absolute")
+  if _other_opex_annual is None and financials.get("other_operating_expense") is not None:
+    _other_opex_annual = _safe_float(financials.get("other_operating_expense")) * 12.0
   other_opex_non_rent = _safe_float(
-    financials.get("other_operating_expense")
+    _other_opex_annual
     or year1.get("other_operating_expense_total_year1")
     or year1.get("other_operating_expense")
   )

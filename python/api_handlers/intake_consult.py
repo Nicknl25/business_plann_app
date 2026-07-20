@@ -4994,6 +4994,15 @@ def _sync_financials_consult_persistence_state(
     financials_year1_json=next_year1,
     marketing_model_json=marketing_model_json or {},
   )
+
+  # other_operating_expense is captured MONTHLY (the question asks for a typical
+  # month); post-intake consumers want the ANNUAL absolute and already prefer
+  # other_opex_absolute. Derive it here so the annual field always exists and the
+  # monthly figure is never mistaken for an annual one downstream.
+  monthly_other_opex = _safe_float(next_financials.get("other_operating_expense"))
+  if monthly_other_opex is not None and monthly_other_opex >= 0:
+    next_financials["other_opex_absolute"] = float(monthly_other_opex) * 12.0
+
   return _ensure_financials_stage_defaults(next_financials), next_year1
 
 

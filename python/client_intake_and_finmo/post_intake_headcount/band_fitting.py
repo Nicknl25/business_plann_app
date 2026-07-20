@@ -117,9 +117,15 @@ def operator_cost_levels(
     levels["marketing_percent_of_revenue"] = mkp
 
   if rev:
-    ga = _f(fin.get("other_operating_expense"))
+    # other_opex_absolute is the ANNUAL figure (intake derives it as monthly x 12);
+    # other_operating_expense itself is MONTHLY, so a legacy draft without the
+    # annual field must be annualized here or the SGA anchor lands ~12x too low
+    # (annual revenue in the denominator).
+    ga = _f(fin.get("other_opex_absolute"))
     if ga is None:
-      ga = _f(fin.get("other_opex_absolute"))
+      ga_monthly = _f(fin.get("other_operating_expense"))
+      if ga_monthly is not None:
+        ga = ga_monthly * 12.0
     if ga is not None and ga >= 0:
       levels["sga_percent_of_revenue"] = ga / rev
   return levels
