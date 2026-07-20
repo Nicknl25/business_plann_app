@@ -1655,6 +1655,9 @@ def route_intent(
       + "- If the active financial stage presented a baseline and the user briefly agrees, return confirm_proceed.\n"
       + "- If the user gives a concrete replacement for the active financial stage, return edit_patch for the narrow stage field(s) only.\n"
       + "- If the user gives directionally clear intent but one concrete number or boolean is still missing for the active stage, return confirm_clarify with one short question for that missing fact.\n"
+      + "Financials revenue handling:\n"
+      + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
+      + "- If the user gives a monthly revenue figure for that question, convert it to an annual amount before patching current_revenue.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
@@ -1689,6 +1692,10 @@ You are the intent router for a multi-step business intake app.
 Non-negotiable rule:
 
 - You are the SOLE authority for interpreting the user's intent. Do NOT defer intent decisions to any frontend/back-end heuristics.
+
+Client-facing wording:
+
+- Never use the phrase "Year 1" or "Year-1" in assistant_message, even when confirming a value the user described that way. Say it naturally instead: "the year ahead", "the first 12 months", "annually", or "a year".
 
 
 

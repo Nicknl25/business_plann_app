@@ -2229,27 +2229,39 @@ def _build_financials_revenue_intro_message(
   shared_context: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
 ) -> str:
-  revenue_math_line = str((intake_context or {}).get("revenue_math_line") or "").strip()
-  operating_model = dict((shared_context or {}).get("operating_model") or {})
-  price = _format_currency(operating_model.get("unit_price"))
-  utilization = _format_percent(_resolve_display_utilization(operating_model))
-  weekly_capacity = _safe_float(operating_model.get("units_per_week_capacity"))
-  periods = _safe_float(operating_model.get("operating_periods_per_year"))
-  annual_revenue = _format_currency((financials_year1_json or {}).get("company_revenue_total_year1"))
-  capacity_text = f"{weekly_capacity:g} sessions per week" if weekly_capacity is not None else "the modeled weekly capacity"
-  periods_text = f"{periods:g} operating periods" if periods is not None else "the modeled operating periods"
-  lead = "Year 1 revenue:"
-  if revenue_math_line:
-    lead = f"{lead}\n\n{revenue_math_line}"
-  summary = (
-    f"This planning baseline assumes you run at about {utilization} utilization of {capacity_text}, "
-    f"at an average price of {price}, across {periods_text}, which produces about {annual_revenue} in Year-1 revenue."
-  )
+  # Conversation-only revenue ask, branched on business_stage. No derived-revenue
+  # table is shown mid-conversation; the capture path (revenue_intro stage patch on
+  # current_revenue + done flag + post-intro rescale) is unchanged.
+  stage = _financials_business_stage(shared_context)
+  if stage == "operating":
+    return (
+      "Let's ground the plan in where the business is today: about how much revenue is "
+      "the business bringing in a year right now? A rough annual figure is fine."
+    )
+  # early-stage (and unknown): permissive ask so a barely-started business can
+  # answer "basically nothing yet" and flow to the derived-from-drivers path.
   return (
-    f"{lead}\n\n"
-    f"{summary} "
-    "We will use this as the baseline for the rest of financial planning."
-  ).strip()
+    "About how much is the business bringing in so far, if anything? A rough figure for "
+    "the last year or your current run rate is fine, and it's completely fine if the "
+    "answer is nothing yet."
+  )
+
+
+def _maybe_autocomplete_revenue_intro(
+  financials_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Pre-revenue businesses are never asked for current revenue: there is none to
+  state, and the model derives revenue from the ops drivers. Mark the revenue_intro
+  stage done (same flag the stage's own patch path sets) so the stage machine
+  advances cleanly instead of stalling on a question that will not be asked."""
+  next_financials = dict(financials_json or {})
+  if next_financials.get("_financials_revenue_intro_done"):
+    return next_financials
+  if _financials_business_stage(shared_context) == "pre-revenue":
+    next_financials["_financials_revenue_intro_done"] = True
+    next_financials["_financials_revenue_intro_skipped"] = "pre-revenue"
+  return next_financials
 
 
 def _financials_baseline_estimators() -> Tuple[Any, Any]:
@@ -2316,41 +2328,41 @@ def _build_financials_stage_message(
     )
   if stage == "owner_compensation":
     return (
-      "As of last month, how much did you pay yourself from the business in wages, draws, or other owner compensation? "
-      "A dollar amount is fine."
+      "About how much do you pay yourself from the business per month, counting wages, draws, or other owner compensation? "
+      "A rough dollar amount is fine."
     )
   if stage == "other_operating_expense":
     return (
-      "As of last month, about how much did you spend on other regular business bills besides payroll, marketing, and rent, "
-      "like utilities, software, insurance, accounting, phone, internet, and general overhead?"
+      "About how much goes to other regular business bills in a typical month, besides payroll, marketing, and rent - "
+      "things like utilities, software, insurance, accounting, phone, and internet?"
     )
   if stage == "current_num_employees":
     return (
-      "As of last month, how many people were on payroll for the business, not counting outside contractors? "
+      "How many people are on payroll right now, not counting outside contractors? "
       "A whole number is fine."
     )
   if stage == "current_capex":
     return (
-      "As of last month, did you make any larger one-time purchases for the business, like equipment, devices, furniture, build-out, or vehicles? "
-      "If yes, what was the rough total?"
+      "Have you recently made any larger one-time purchases for the business, like equipment, devices, furniture, build-out, or vehicles? "
+      "If so, what was the rough total?"
     )
   if stage == "initial_assets":
     return (
-      "As of last month, what is your best rough estimate of the total value of the main equipment, devices, furniture, and fixtures already in the business?"
+      "What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine."
     )
   if stage == "initial_lease":
     return _build_initial_lease_message()
   if stage == "initial_equity":
     return (
-      "As of last month, what is your best rough estimate of the total money or value put into the business so far by you or any investors?"
+      "Roughly how much money or value has gone into the business so far, from you or any investors, all together?"
     )
   if stage == "total_debt_outstanding":
     return (
-      "As of last month, what was the total amount the business still owed on loans, lines of credit, or business credit cards?"
+      "About how much does the business currently owe in total on loans, lines of credit, or business credit cards?"
     )
   if stage == "other_monthly_debt_payments":
     return (
-      "As of last month, besides regular rent and credit card minimums already baked into other expenses, what other loan or debt payments did the business make each month?"
+      "Besides regular rent and the credit card minimums already covered in other expenses, what other loan or debt payments does the business make each month?"
     )
   if stage == "annual_interest_payment":
     return (
@@ -2361,18 +2373,18 @@ def _build_financials_stage_message(
       "What is your best estimate of the annual principal you expect to repay on the business debt, separate from interest?"
     )
   if stage == "cash_on_hand":
-    return "As of last month, about how much cash did the business have on hand in its bank accounts and any cash on site?"
+    return "About how much cash does the business have on hand right now, counting bank accounts and any cash on site?"
   if stage == "ar_balance":
     return (
-      "As of last month, about how much money did customers still owe you for completed work, like unpaid invoices or payment plans?"
+      "About how much do customers currently owe you for completed work, like unpaid invoices or payment plans?"
     )
   if stage == "ap_balance":
     return (
-      "As of last month, about how much did the business still owe in regular operating bills, like unpaid supplier invoices, utilities, or business credit card balances related to operations?"
+      "About how much does the business currently owe in regular operating bills, like unpaid supplier invoices, utilities, or operations-related credit card balances?"
     )
   if stage == "inventory_balance":
     return (
-      "As of last month, about how much inventory did you have on hand, like products or supplies kept in stock to use or sell?"
+      "About how much inventory do you have on hand right now, like products or supplies kept in stock to use or sell?"
     )
   if stage == "cash_strategy":
     return _build_cash_strategy_message()
@@ -2463,15 +2475,15 @@ def _build_financials_stage_acknowledgement(
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
-    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use Year-1 direct costs of {total} ({percent} of revenue)."
+    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use direct costs of {total} a year ({percent} of revenue)."
   if stage == "current_payroll":
-    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use Year-1 payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))}."
+    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))} a year."
   if stage == "marketing":
     total = _format_currency((financials_json or {}).get("marketing_total_year1"))
     percent = _format_percent((financials_json or {}).get("marketing_percent_of_revenue"))
-    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use a Year-1 marketing budget of {total} ({percent} of revenue)."
+    return f"Got it. IÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use a marketing budget of {total} a year ({percent} of revenue)."
   if stage == "revenue_intro":
-    return "Understood. WeÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
+    return "Understood. WeÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ll build from your current revenue picture and move into the rest of the financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
   if stage == "funding_preference":
@@ -2501,6 +2513,7 @@ def _build_financials_live_turn(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   del guardrail_triggered
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_stage = _next_financials_stage(next_financials)
   if not next_stage:
     return _build_financials_completion_turn(), next_financials
@@ -2533,8 +2546,8 @@ def _build_financials_live_turn(
 
 def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
   return (
-    f"A reasonable Year-1 COGS baseline is about "
-    f"{_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of revenue, which puts your projected Year-1 direct costs around "
+    f"For direct costs - things like materials, supplies, and other costs tied directly to delivering the work - a reasonable starting point is about "
+    f"{_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of revenue, which works out to around "
     f"{_format_currency(cogs_baseline.get('baseline_cogs'))}.\n\n"
     "Does that broadly match how your business works, or should we adjust it because your direct costs are materially different?"
   )
@@ -2658,7 +2671,7 @@ def _build_payroll_baseline_message(payroll_baseline: Dict[str, Any]) -> str:
   )
   if stage == "pre-revenue":
     clarification = (
-      "This payroll estimate reflects the team needed to launch and operate in Year 1, including any planned hires from the staffing plan."
+      "This payroll estimate reflects the team needed to launch and operate over the next year, including any planned hires from the staffing plan."
     )
   elif stage == "early-stage":
     clarification = (
@@ -2681,10 +2694,10 @@ def _build_payroll_baseline_message(payroll_baseline: Dict[str, Any]) -> str:
       f" That includes {inferred_count} planned {'role' if inferred_count == 1 else 'roles'} from the staffing plan."
     )
   return (
-    f"Based on the people plan already defined, a reasonable Year-1 payroll baseline is about "
+    f"Based on the team we mapped out together, payroll comes to about "
     f"{_format_currency(payroll_baseline.get('baseline_payroll_year1'))} across {role_count} {role_phrase} in the plan.\n\n"
     f"{clarification}{composition}\n\n"
-    "Does that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
+    "Does that broadly match what you expect to spend on payroll over the next year, or should we adjust it because your actual setup is materially different?"
   )
 
 
@@ -3968,10 +3981,10 @@ def _resolve_marketing_model_or_raise(
 
 def _build_marketing_baseline_message(marketing_baseline: Dict[str, Any]) -> str:
   return (
-    f"A reasonable Year-1 marketing baseline is about "
-    f"{_format_percent(marketing_baseline.get('baseline_marketing_percent'))} of revenue, which puts your projected Year-1 marketing spend around "
-    f"{_format_currency(marketing_baseline.get('baseline_marketing'))}.\n\n"
-    "Does that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?"
+    f"For marketing, a reasonable starting point is about "
+    f"{_format_percent(marketing_baseline.get('baseline_marketing_percent'))} of revenue, which works out to around "
+    f"{_format_currency(marketing_baseline.get('baseline_marketing'))} a year.\n\n"
+    "Does that broadly match what it will take to attract and convert customers, or should we adjust it because your marketing spend will be materially different?"
   )
 
 
@@ -4179,19 +4192,19 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "patch_targets": ("current_revenue",),
     "completion_fields": ("_financials_revenue_intro_done",),
     "confirmable_baseline": True,
-    "clarifier": "What Year-1 revenue number should I use as the starting financial baseline instead?",
+    "clarifier": "What annual revenue number should I use as the starting point instead?",
   },
   "cogs": {
     "patch_targets": ("current_cogs", "cogs_total_year1", "cogs_percent_of_revenue"),
     "completion_fields": ("current_cogs",),
     "confirmable_baseline": True,
-    "clarifier": "What Year-1 direct-cost amount or percent should I use instead?",
+    "clarifier": "What annual direct-cost amount or percent of revenue should I use instead?",
   },
   "current_payroll": {
     "patch_targets": ("current_payroll", "payroll_total_year1"),
     "completion_fields": ("current_payroll",),
     "confirmable_baseline": True,
-    "clarifier": "What Year-1 payroll should I use instead?",
+    "clarifier": "What annual payroll should I use instead?",
   },
   "marketing": {
     "patch_targets": ("marketing_total_year1", "marketing_percent_of_revenue"),
@@ -4200,7 +4213,7 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     # this stage ever runs, and a pre-existing value must not skip the question.
     "completion_fields": ("_financials_marketing_stage_done",),
     "confirmable_baseline": True,
-    "clarifier": "What Year-1 marketing budget or percent should I use instead?",
+    "clarifier": "What annual marketing budget or percent of revenue should I use instead?",
   },
   "monthly_rent_expense": {
     "patch_targets": ("monthly_rent_expense",),
@@ -4582,13 +4595,13 @@ def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[st
     return None
   stage = str(stage_name or "").strip()
   if stage == "revenue_intro":
-    return "Should I use this Year-1 revenue baseline for financial planning?"
+    return "Should I use this revenue figure as the starting point for the plan?"
   if stage == "cogs":
-    return "Should I use this Year-1 direct-cost baseline?"
+    return "Should I use this direct-cost baseline?"
   if stage == "current_payroll":
-    return "Should I use this Year-1 payroll baseline?"
+    return "Should I use this payroll baseline?"
   if stage == "marketing":
-    return "Should I use this Year-1 marketing baseline?"
+    return "Should I use this marketing baseline?"
   return None
 
 
@@ -5049,6 +5062,7 @@ def _run_financials_turn_and_sync(
   financials_year1_json: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
 
   def _stage_context(
@@ -6507,12 +6521,12 @@ def _build_people_review_payload(
   has_roles = bool(inferred_roles_summary)
   if has_people and has_roles:
     parts.append(
-      "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes."
+      "Review this draft (key people narrative + suggested roles with wages and timing) and tell me any changes."
     )
   elif has_people:
     parts.append("Review this draft (key people narrative) and tell me any changes.")
   elif has_roles:
-    parts.append("Review these suggested year-1 roles (with wages and timing) and tell me any changes.")
+    parts.append("Review these suggested roles (with wages and timing) and tell me any changes.")
 
   if has_people:
     parts.append("\n\n".join(key_people_blocks))
@@ -11113,7 +11127,7 @@ def post_intake_consult_handler(*, app, request):
             or "this offering"
           ).strip()
           assistant_text = (
-            f"For Year 1 planning, what average utilization do you want to assume for {util_label} "
+            f"For planning purposes, what average utilization do you want to assume for {util_label} "
             "(for example, 70% of practical capacity)?"
           ).strip()
           finalize_ready = False
@@ -11753,12 +11767,12 @@ def post_intake_consult_handler(*, app, request):
       has_roles = bool(inferred_roles_summary)
       if has_people and has_roles:
         parts.append(
-          "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes."
+          "Review this draft (key people narrative + suggested roles with wages and timing) and tell me any changes."
         )
       elif has_people:
         parts.append("Review this draft (key people narrative) and tell me any changes.")
       elif has_roles:
-        parts.append("Review these suggested year-1 roles (with wages and timing) and tell me any changes.")
+        parts.append("Review these suggested roles (with wages and timing) and tell me any changes.")
 
       if has_people:
         parts.append("\n\n".join(key_people_blocks))
