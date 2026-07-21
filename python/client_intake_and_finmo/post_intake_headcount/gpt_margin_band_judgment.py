@@ -63,6 +63,10 @@ MARGIN_BAND_RAILS: Dict[str, Any] = {
   "q20_low_max": 0.40,
   "q20_high_max": 0.60,
   "min_width": 0.01,
+  # Structural floors (replace the Phase-E placeholder constants when
+  # judged): arithmetic-sanity clamps only, never viability levers.
+  "gross_margin_floor": (0.05, 0.90),
+  "fixed_cost_burden_max": (0.30, 0.90),
 }
 
 
@@ -120,6 +124,29 @@ _SUBMIT_TOOL: Dict[str, Any] = {
           },
           "required": ["low", "high"],
         },
+        "gross_margin_floor_q11": {
+          "type": "number",
+          "description": (
+            "STRUCTURAL FLOOR (fraction of revenue): the minimum Q11 "
+            "GROSS margin (revenue minus direct/product costs) consistent "
+            "with a real, recovering business of THIS character. A fuel "
+            "distributor or grocer runs thin gross margins healthily; a "
+            "consultancy below ~50% is structurally broken. Judge from "
+            "what the product physically costs to deliver — not from any "
+            "plan number."
+          ),
+        },
+        "fixed_cost_burden_max_q11": {
+          "type": "number",
+          "description": (
+            "STRUCTURAL CEILING (fraction of revenue): the maximum "
+            "payroll + rent + G&A share of revenue a healthy business of "
+            "this character carries at the Q11 establishing checkpoint. "
+            "Expert-labor practices run high fixed shares healthily; "
+            "capital-light distribution runs low. Judge from how this "
+            "kind of business is actually staffed and housed."
+          ),
+        },
         "margin_character": {
           "type": "string",
           "description": (
@@ -138,7 +165,11 @@ _SUBMIT_TOOL: Dict[str, Any] = {
           ),
         },
       },
-      "required": ["q11_ebitda_band", "q20_ebitda_band", "margin_character", "rationale"],
+      "required": [
+        "q11_ebitda_band", "q20_ebitda_band",
+        "gross_margin_floor_q11", "fixed_cost_burden_max_q11",
+        "margin_character", "rationale",
+      ],
     },
   },
 }
@@ -194,6 +225,17 @@ _SYSTEM_PROMPT = (
   "operator of this type AND missable by a failing one. If you find "
   "yourself stretching the band, you are judging a plan, not a business — "
   "stop.\n"
+  "6. TWO STRUCTURAL FLOORS ride the same judgment, same fence, same "
+  "lender defense: gross_margin_floor_q11 — the minimum Q11 GROSS margin "
+  "a real business of this character needs to be recovering (thin for "
+  "distribution/grocery/fuel where pennies on the dollar are healthy; "
+  "high for services and IP where product cost is small); and "
+  "fixed_cost_burden_max_q11 — the maximum payroll+rent+G&A share of "
+  "revenue a healthy business of this character carries at Q11 (high for "
+  "expert-labor practices, low for capital-light volume models). Derive "
+  "both from the same structural arithmetic as the band — they must be "
+  "consistent with it (a gross-margin floor minus a burden ceiling that "
+  "makes your own EBITDA band unreachable is self-contradictory).\n"
   "Call submit_margin_band_judgment exactly once."
 )
 
@@ -353,6 +395,41 @@ def validate_margin_band_judgment(
   if abs(q20_high - q20_high_raw) > 1e-9:
     notes.append(f"q20_high_clamped_{q20_high_raw:.4f}->{q20_high:.4f}")
 
+  # STRUCTURAL FLOORS (additive — replace the Phase-E placeholder
+  # constants only when judged and self-consistent; absent fields leave
+  # every consumer on its current fallback constant).
+  gm_floor: Optional[float] = None
+  burden_max: Optional[float] = None
+  gm_raw = j.get("gross_margin_floor_q11")
+  if gm_raw is not None:
+    gm_lo, gm_hi = MARGIN_BAND_RAILS["gross_margin_floor"]
+    gm_val = _num(gm_raw, -1.0)
+    if gm_val >= 0.0:
+      gm_floor = max(float(gm_lo), min(float(gm_hi), gm_val))
+      if abs(gm_floor - gm_val) > 1e-9:
+        notes.append(f"gm_floor_clamped_{gm_val:.4f}->{gm_floor:.4f}")
+  bm_raw = j.get("fixed_cost_burden_max_q11")
+  if bm_raw is not None:
+    bm_lo, bm_hi = MARGIN_BAND_RAILS["fixed_cost_burden_max"]
+    bm_val = _num(bm_raw, -1.0)
+    if bm_val >= 0.0:
+      burden_max = max(float(bm_lo), min(float(bm_hi), bm_val))
+      if abs(burden_max - bm_val) > 1e-9:
+        notes.append(f"burden_max_clamped_{bm_val:.4f}->{burden_max:.4f}")
+  # Self-consistency vs the judgment's OWN EBITDA band — the one
+  # airtight arithmetic relation: EBITDA can never exceed gross margin,
+  # so a gross-margin FLOOR below the judged Q11 EBITDA band LOW is
+  # self-contradictory (a business at that floor could not reach the
+  # band's own minimum). Drop the floor (fallback constant governs)
+  # rather than ship a self-inconsistent judgment. No corner test on
+  # the burden ceiling — high-burden + high-GM expert-labor models are
+  # a legitimate corner a joint test would wrongly punish.
+  if gm_floor is not None and gm_floor < q11_low - 1e-9:
+    notes.append(
+      f"gm_floor_dropped_below_own_ebitda_band_low_{gm_floor:.4f}<{q11_low:.4f}"
+    )
+    gm_floor = None
+
   return {
     "q11": {
       "low": round(q11_low, 4),
@@ -364,6 +441,8 @@ def validate_margin_band_judgment(
       "high": round(q20_high, 4),
       "target": round((q20_low + q20_high) / 2.0, 4),
     },
+    "gross_margin_floor_q11": (round(gm_floor, 4) if gm_floor is not None else None),
+    "fixed_cost_burden_max_q11": (round(burden_max, 4) if burden_max is not None else None),
     "margin_character": str(j.get("margin_character") or "")[:120],
     "rationale": str(j.get("rationale") or "")[:600],
     "notes": notes,

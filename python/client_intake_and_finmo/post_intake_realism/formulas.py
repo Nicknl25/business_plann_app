@@ -935,12 +935,30 @@ def _formula_trajectory_gross_margin_supports_recovery(
   next to the formula.
 
   Audit fix #7 — pre-fix the formula returned the raw gross margin and
-  the validator compared to 0.0, which let any positive Q11 GM pass."""
-  _ = (model_input_json, quarter_index)
+  the validator compared to 0.0, which let any positive Q11 GM pass.
+
+  JUDGED FLOOR (universal-app fix): when the executive margin-band
+  judgment authored gross_margin_floor_q11 for THIS business, that
+  floor governs — a grocer is judged against grocer physics, a
+  consultancy against consultancy physics. The 0.20 constant is the
+  judgment-absent fallback only (same precedence pattern as the cash
+  rail and working-capital judgments)."""
+  _ = quarter_index
   gm = _quarter_gross_margin(finmo_json, 11)
   if gm is None:
     return None
-  return float(gm) - _GROSS_MARGIN_RECOVERY_FLOOR
+  floor = _GROSS_MARGIN_RECOVERY_FLOOR
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+      margin_band_from_model_input,
+    )
+    _judgment = margin_band_from_model_input(model_input_json)
+    _judged_floor = (_judgment or {}).get("gross_margin_floor_q11")
+    if _judged_floor is not None:
+      floor = float(_judged_floor)
+  except Exception:
+    floor = _GROSS_MARGIN_RECOVERY_FLOOR
+  return float(gm) - float(floor)
 
 
 _FIXED_COST_BURDEN_INDUSTRY_MAX = 0.65
@@ -960,17 +978,34 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
   high. Phase E will plug in the NAICS-keyed industry max.
 
   Audit fix #8 — pre-fix the formula returned the raw slack and the
-  validator compared to 0.0, which only caught fixed > 100% of revenue."""
-  _ = (model_input_json, quarter_index)
+  validator compared to 0.0, which only caught fixed > 100% of revenue.
+
+  JUDGED CEILING (universal-app fix): when the executive margin-band
+  judgment authored fixed_cost_burden_max_q11 for THIS business, that
+  ceiling governs — expert-labor practices are judged against their
+  real staffing physics, capital-light distributors against theirs.
+  The 0.65 constant is the judgment-absent fallback only."""
+  _ = quarter_index
   payroll = _finmo_quarter_field(finmo_json, 11, "payroll")
   rent = _finmo_quarter_field(finmo_json, 11, "lease_rent")
   ga = _finmo_quarter_field(finmo_json, 11, "general_and_administrative")
   revenue = _finmo_quarter_field(finmo_json, 11, "revenue")
   if revenue is None or revenue <= 0:
     return None
+  burden_max = _FIXED_COST_BURDEN_INDUSTRY_MAX
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+      margin_band_from_model_input,
+    )
+    _judgment = margin_band_from_model_input(model_input_json)
+    _judged_max = (_judgment or {}).get("fixed_cost_burden_max_q11")
+    if _judged_max is not None:
+      burden_max = float(_judged_max)
+  except Exception:
+    burden_max = _FIXED_COST_BURDEN_INDUSTRY_MAX
   fixed = float(payroll or 0.0) + float(rent or 0.0) + float(ga or 0.0)
   slack = float(revenue - fixed) / float(revenue)
-  result = slack - (1.0 - _FIXED_COST_BURDEN_INDUSTRY_MAX)
+  result = slack - (1.0 - burden_max)
   if result < 0.0:
     # HEALTHY-PROFITABILITY EXCEPTION (same recalibration doctrine as the
     # recovery-trend and NI flat-healthy rules): the ceiling exists to catch
