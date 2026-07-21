@@ -116,8 +116,10 @@ def _final_schema() -> Dict[str, Any]:
         },
         "key_people_summary": {"type": "string"},
         "inferred_roles": {
+          # No minItems: an operating business's inferred_roles are REQUIRED to be
+          # empty (rest-of-team payroll is captured as one stated figure instead);
+          # a schema-forced minimum would override that prompt rule every time.
           "type": "array",
-          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": False,
@@ -385,16 +387,16 @@ Hard requirements:
 - people must contain one object per person included by the client. Do not invent people.
 - paragraph must be professional, credibility-focused, and tie the person to execution capability.
 - key_people_summary must be a concatenation of the per-person paragraphs in a clear order (separated by blank lines).
-- inferred_roles must be a short list (1-4) of additional roles likely needed in the first year based on the operating model, LOBs/products, capacity, and stage.
-
-Client-facing wording (STRICT):
-- Never use the phrase "Year 1" or "Year-1" in messages to the client. Say it naturally instead: "the first year", "the year ahead", or "over the next year". Refer to inferred roles simply as "suggested roles".
+- inferred_roles must be a short list (0-4) of additional roles likely needed in the first year based on the operating model, LOBs/products, capacity, and stage. For pre-revenue and early-stage businesses propose 1-4 roles; for operating businesses inferred_roles MUST be an empty list (see the business_stage rules below).
   - Do NOT include the already-listed key people in inferred_roles.
   - Each role must include a short "notes" explanation of why it is needed (plain language, 1 sentence).
   - Each role must include months_until_hire (number of months from now when the role would come online).
   - annual_wage can be null if unknown; if you estimate a number, set wage_source to "gpt_estimate".
   - If you cannot estimate, set annual_wage to null and wage_source to "unknown".
-- inferred_roles_summary must be a short paragraph summarizing the proposed roles (no wages).
+- inferred_roles_summary must be a short paragraph summarizing the proposed roles (no wages), or an empty string when inferred_roles is empty.
+
+Client-facing wording (STRICT):
+- Never use the phrase "Year 1" or "Year-1" in messages to the client. Say it naturally instead: "the first year", "the year ahead", or "over the next year". Refer to inferred roles simply as "suggested roles".
 - business_naics_6 can be null; do NOT guess it.
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
@@ -408,12 +410,8 @@ Client-facing wording (STRICT):
     - inferred roles should reflect ramp, increasing workload, and early specialization as demand grows.
     - months_until_hire should reflect growth timing and early operational strain, not all roles front-loaded at once.
     - inferred_roles_summary should read like scaling and proving repeatability, not a business being built entirely from scratch.
-  - If business_stage is operating:
-    - inferred roles should reflect targeted additions to refine and scale an already functioning business with ongoing work.
-    - Do NOT frame roles purely as generic growth hires.
-    - Prefer notes that emphasize reducing bottlenecks, increasing leverage, improving throughput, adding specialization where generalists are stretched, or supporting repeat demand in an existing operation.
-    - months_until_hire should reflect when additional capacity or specialization becomes necessary within the active workload, not immediate blanket hiring.
-    - inferred_roles_summary should make clear these are incremental additions to improve and expand an existing operation rather than building the team from scratch.
+  - If business_stage is operating (or missing/unknown):
+    - inferred_roles MUST be an empty list and inferred_roles_summary an empty string. An operating business already has its team; the app separately captures one total payroll figure for everyone beyond the key people, so do NOT propose suggested roles and do NOT ask the client about team payroll yourself.
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:

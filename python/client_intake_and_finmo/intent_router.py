@@ -477,6 +477,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
     return {
 
+      "rest_of_team_payroll_year1": {"type": "number"},
+
       "people": {
 
         "type": "array",
@@ -1503,6 +1505,7 @@ def route_intent(
     "people": [
       "people",
       "inferred_roles",
+      "rest_of_team_payroll_year1",
     ],
     "financials": [
 
@@ -1680,6 +1683,12 @@ def route_intent(
       "- When updating timing, set months_until_hire for that inferred role.\n"
       "- Return the full updated list for the field you change (people or inferred_roles).\n"
       "- If it is unclear which entry the user meant, return confirm_clarify with one short question.\n"
+      "Rest-of-team payroll handling (takes precedence over continue_chat):\n"
+      "- If shared_context.people_controller.current_question is rest_of_team_payroll, the app just asked for the total payroll of everyone beyond the owner and key people. A direct answer to that question is NOT continue_chat - translate it into edit_patch on the field named in people_controller.patch_targets (people.rest_of_team_payroll_year1 when fields are group-scoped, rest_of_team_payroll_year1 otherwise).\n"
+      "- Interpret INTENT, not exact wording: any reply that means there are no additional employees (for example no one else, just us, nobody, none, it's only me - including misspellings or informal phrasing) means rest_of_team_payroll_year1 = 0.\n"
+      "- If the user gives a monthly figure for that question, convert it to an annual amount before patching.\n"
+      "- If the user gives a range, use a single representative number near the middle.\n"
+      "- If the user later says that rest-of-team total is wrong, treat the correction as an edit_patch on rest_of_team_payroll_year1.\n"
     )
 
 

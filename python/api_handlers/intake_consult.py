@@ -2247,6 +2247,29 @@ def _build_financials_revenue_intro_message(
   )
 
 
+def _maybe_autocomplete_payroll_stage(
+  financials_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Payroll is no longer asked in Financials for any stage: startups derive it
+  from key people + suggested roles, established businesses from key people +
+  the rest-of-team figure captured in the People section. Stamp the derived
+  total (the stage's completion field) so the stage machine advances without
+  ever asking, mirroring the revenue_intro skip pattern."""
+  next_financials = dict(financials_json or {})
+  if _safe_float(next_financials.get("current_payroll")) is not None:
+    return next_financials
+  baseline = _compute_payroll_baseline(shared_context=shared_context)
+  total = float(baseline.get("baseline_payroll_year1") or 0.0)
+  next_financials["current_payroll"] = total
+  next_financials["payroll_total_year1"] = total
+  next_financials["baseline_payroll_year1"] = total
+  next_financials["payroll_adjustment"] = 0.0
+  next_financials["payroll_basis_people_roles"] = baseline.get("payroll_basis_people_roles") or []
+  next_financials["_financials_payroll_stage_autofilled"] = "people-derived"
+  return next_financials
+
+
 def _maybe_autocomplete_revenue_intro(
   financials_json: Dict[str, Any],
   shared_context: Dict[str, Any],
@@ -2514,6 +2537,7 @@ def _build_financials_live_turn(
   del guardrail_triggered
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
+  next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   next_stage = _next_financials_stage(next_financials)
   if not next_stage:
     return _build_financials_completion_turn(), next_financials
@@ -2585,6 +2609,36 @@ def _build_payroll_baseline_signature(shared_context: Dict[str, Any]) -> str:
     return ""
 
 
+def _rest_of_team_payroll_pending(
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> bool:
+  """Established businesses (business_stage 'operating', or missing/ambiguous -
+  the safe default) state one rest-of-team payroll figure before People wraps.
+  Startups (pre-revenue / early-stage) keep the suggested-roles flow and are
+  never asked."""
+  stage = str((ops_json or {}).get("business_stage") or "").strip().lower()
+  if stage in ("pre-revenue", "early-stage"):
+    return False
+  return _safe_float((people_json or {}).get("rest_of_team_payroll_year1")) is None
+
+
+# Distinctive phrase present in BOTH the question and its re-ask, so the router
+# keeps its controller frame across retries. Matches the app's own deterministic
+# text only - never client language, which is always GPT-interpreted by intent.
+_REST_OF_TEAM_PAYROLL_MARKER = "payroll for the rest of your team"
+
+
+def _build_rest_of_team_payroll_question(acknowledgement: str = "") -> str:
+  question = (
+    "Beyond yourself and the key people we just covered, roughly what does "
+    f"{_REST_OF_TEAM_PAYROLL_MARKER} come to per year? A rough annual figure is "
+    "fine - and it's fine if there isn't anyone else on payroll."
+  )
+  ack = str(acknowledgement or "").strip()
+  return f"{ack}\n\n{question}".strip() if ack else question
+
+
 def _compute_payroll_baseline(
   *,
   shared_context: Dict[str, Any],
@@ -2639,6 +2693,23 @@ def _compute_payroll_baseline(
         "months_until_hire": months_until_hire,
         "months_counted_year1": months_counted,
         "year1_payroll_amount": year1_amount,
+      }
+    )
+
+  # Established businesses state one rest-of-team payroll figure (captured in the
+  # People section, explicitly EXCLUDING the owner and key people already counted
+  # above) instead of the suggested-roles flow. Add it exactly once, here - this
+  # function is the single summing point that stamps payroll_total_year1.
+  rest_of_team = _safe_float(people_context.get("rest_of_team_payroll_year1"))
+  if rest_of_team is not None and rest_of_team > 0:
+    baseline_total += float(rest_of_team)
+    basis_roles.append(
+      {
+        "source": "rest_of_team_payroll",
+        "role_title": "Rest of team (client-stated total)",
+        "annual_wage": float(rest_of_team),
+        "months_counted_year1": 12,
+        "year1_payroll_amount": float(rest_of_team),
       }
     )
 
@@ -5072,6 +5143,7 @@ def _run_financials_turn_and_sync(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
+  next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
 
   def _stage_context(
@@ -5641,6 +5713,7 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "people",
       "inferred_roles",
       "inferred_roles_summary",
+      "rest_of_team_payroll_year1",
       "business_naics_6",
       "confidence",
     },
@@ -9355,6 +9428,21 @@ def post_intake_consult_handler(*, app, request):
         shared_context_for_router["business_type_candidates"] = router_candidates
     except Exception:
       shared_context_for_router = shared_context
+    # People rest-of-team payroll step: hand the router the same controller-style
+    # frame the financials stages use, so a direct answer to the question becomes
+    # an edit_patch instead of falling through to continue_chat (which would send
+    # it to the people consultant and re-propose the review - a loop).
+    rest_payroll_question_live = (
+      str(focus).strip().lower() == "people"
+      and _rest_of_team_payroll_pending(people_json, ops_json)
+      and _REST_OF_TEAM_PAYROLL_MARKER in str(last_assistant or "")
+    )
+    if rest_payroll_question_live:
+      shared_context_for_router = dict(shared_context_for_router or {})
+      shared_context_for_router["people_controller"] = {
+        "current_question": "rest_of_team_payroll",
+        "patch_targets": ["people.rest_of_team_payroll_year1"],
+      }
     # Route the user's message through the GPT-only intent router first.
     confirm_override = str(confirm_question or _detect_confirm_question(last_assistant) or "").strip()
     # NOTE: Target Market replies are interpreted directly by the Target Market consultant
@@ -9431,6 +9519,12 @@ def post_intake_consult_handler(*, app, request):
     if (
       str(focus).strip().lower() == "people"
       and str(confirm_override or "").strip() != PEOPLE_CONFIRM_QUESTION
+      # While the rest-of-team payroll question is live, the client's answer often
+      # reads like "that covers the whole team" - which this done-adding detector
+      # would hijack into regenerating the people review before the router ever
+      # sees the answer (an endless review<->question loop). The payroll answer
+      # must reach the router; the review was already proposed anyway.
+      and not rest_payroll_question_live
       and _detect_people_done_adding_via_openai(
         last_assistant=last_assistant,
         user_message=message,
@@ -9628,6 +9722,24 @@ def post_intake_consult_handler(*, app, request):
       action = str(intent.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+
+    # Anti-loop backstop for the rest-of-team payroll step: while the question is
+    # live, a continue_chat/confirm_proceed fallthrough would run the people
+    # consultant and re-propose the review (an endless review<->question cycle).
+    # Re-ask crisply instead; the router's controller guidance resolves it on the
+    # next answer.
+    if (
+      rest_payroll_question_live
+      and action in ("continue_chat", "confirm_proceed")
+      and not (isinstance(patch, dict) and any("rest_of_team_payroll_year1" in str(k) for k in patch.keys()))
+    ):
+      action = "confirm_clarify"
+      router_msg = (
+        f"Sorry - just to pin down {_REST_OF_TEAM_PAYROLL_MARKER}: about how much per year, "
+        "roughly? And if it's only you and the people we've already covered, that's a "
+        "perfectly good answer too."
+      )
+      patch = None
 
     if (
       str(focus).strip().lower() == "ops"
@@ -10037,6 +10149,36 @@ def post_intake_consult_handler(*, app, request):
         except Exception:
           pass
 
+        # Established businesses must state the rest-of-team payroll (explicitly
+        # excluding the owner and key people already counted) before People wraps.
+        # Hold the section open and ask; the answer routes back through the router
+        # as a people.rest_of_team_payroll_year1 patch and re-enters this path.
+        if _rest_of_team_payroll_pending(people_json, ops_json):
+          assistant_text = sanitize_fact_template(
+            _build_rest_of_team_payroll_question("Got it - updated.")
+          )
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+            people_json=people_json,
+            financials_json=financials_json,
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": focus,
+              "awaiting_confirmation": True,
+              "done": False,
+              "action": "continue",
+              "assistant_message": assistant_text,
+            }
+          )
+
         next_focus = "financials"
         start_instruction = _start_instruction_for_focus(next_focus)
         turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
@@ -10205,6 +10347,34 @@ def post_intake_consult_handler(*, app, request):
         and active_focus_out == focus
         and confirm_question_live == PEOPLE_CONFIRM_QUESTION
       ):
+        # Same rest-of-team gate as the edit path: an established business
+        # answers the one payroll question before People hands off.
+        if _rest_of_team_payroll_pending(people_json, ops_json):
+          assistant_text = sanitize_fact_template(
+            _build_rest_of_team_payroll_question("Got it.")
+          )
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+            people_json=people_json,
+            financials_json=financials_json,
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": focus,
+              "awaiting_confirmation": True,
+              "done": False,
+              "action": "continue",
+              "assistant_message": assistant_text,
+            }
+          )
+
         next_focus = "financials"
         start_instruction = _start_instruction_for_focus(next_focus)
         turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
@@ -10635,6 +10805,38 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "confirm_proceed":
+      # Third people->financials advance path (pure approval, no edits): the same
+      # rest-of-team payroll gate as the edit and counter paths. An established
+      # business answers the one payroll question before People hands off.
+      if (
+        str(focus).strip().lower() == "people"
+        and _rest_of_team_payroll_pending(people_json, ops_json)
+      ):
+        assistant_text = sanitize_fact_template(
+          _build_rest_of_team_payroll_question("Great.")
+        )
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          active_focus=focus,
+          business_facts=business_facts,
+          people_json=people_json,
+          financials_json=financials_json,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
       confirmations: Dict[str, bool] = {focus: True}
       next_focus = _next_focus(focus)
 
