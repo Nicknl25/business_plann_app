@@ -291,6 +291,20 @@ def run_restructure_joint_solve(
           eb_floor = max(eb_floor, float(_jf))
           if ladder_ix == 1 and q == _TARGET_QUARTERS[0]:
             trace.append(f"ebitda floor governed by executive band: q11 {round(float(_jf), 4)}")
+      # BELIEVABILITY CEILING (fragility-class Wave 1): the ladder never
+      # ASKS for more than the executive's judged band target — the
+      # solve aims inside the band the executive itself judges
+      # believable, not past it. (Escalation rungs above the target are
+      # clamped; the floor still governs from below.)
+      if _judged_band is not None:
+        _q_key = "q11" if q <= 11 else "q20"
+        _jt = ((_judged_band.get(_q_key) or {}).get("target"))
+        if _jt is not None and eb_floor > float(_jt):
+          eb_floor = max(float(_jt), 0.0)
+          if q == _TARGET_QUARTERS[0]:
+            trace.append(
+              f"ebitda target clamped to judged band target: {_q_key} {round(float(_jt), 4)}"
+            )
       targets.append({
         "quarter_index": q,
         "net_income": round(rev_q * float(rung["ni_margin"]), 2),
@@ -488,6 +502,78 @@ def run_restructure_joint_solve(
         candidate[field] = round(v, 6)
     if line_margins:
       candidate.pop("cogs_pct", None)  # the mix owns COGS in the honest verify
+
+    # BELIEVABILITY MODERATION (fragility-class Wave 1): the solver's
+    # favorable-corner seed can overshoot the executive's judged band
+    # HIGH ("above this the forecast stops being believable") even with
+    # clamped targets, because floor targets exert no downward pull.
+    # Walk the WHOLE design back toward as-stated (deterministic
+    # bisection on one moderation factor t: candidate levers scaled
+    # base + t*(solved - base)) until the landed Q11 EBITDA margin sits
+    # at or below the judged high. If no moderated design stays viable,
+    # the unmoderated candidate proceeds to the verify and fails
+    # honestly. Judgment absent -> no ceiling (today's behavior).
+    def _scale_candidate(cand: Dict[str, Any], t: float) -> Dict[str, Any]:
+      out = copy.deepcopy(cand)
+      for cfg in (out.get("lines") or {}).values():
+        for k in ("price_m11", "price_m20", "volume_m11", "volume_m20"):
+          if cfg.get(k) is not None:
+            cfg[k] = round(1.0 + t * (float(cfg[k]) - 1.0), 4)
+      for nl in (out.get("new_lines") or []):
+        if nl.get("q11_quarterly_revenue") is not None:
+          nl["q11_quarterly_revenue"] = round(t * float(nl["q11_quarterly_revenue"]), 2)
+      for key, base_val in (
+        ("annual_payroll", base_lv.get("annual_payroll")),
+        ("quarterly_rent", base_lv.get("quarterly_rent")),
+        ("marketing_pct", base_lv.get("marketing_pct")),
+        ("g_and_a_pct", base_lv.get("g_and_a_pct")),
+        ("cogs_pct", base_lv.get("cogs_pct")),
+      ):
+        if out.get(key) is not None and base_val is not None:
+          out[key] = round(float(base_val) + t * (float(out[key]) - float(base_val)), 6)
+      return out
+
+    def _landed_q11_eb(cand: Dict[str, Any]) -> Optional[float]:
+      try:
+        mi_t = apply_candidate(base_model_input, cand, line_margins=line_margins or None)
+        fm_t = build_fast_finmo(mi_t)
+        rows_t = {
+          int(float(r.get("quarter_index"))): r
+          for r in fm_t.get("quarter_rows") or [] if isinstance(r, dict)
+        }
+        r11 = rows_t.get(11) or {}
+        rev = float(r11.get("revenue") or 0.0)
+        if rev <= 0:
+          return None
+        return float(r11.get("ebitda") or 0.0) / rev
+      except Exception:  # noqa: BLE001
+        return None
+
+    _judged_high = None
+    if _judged_band is not None:
+      _judged_high = ((_judged_band.get("q11") or {}).get("high"))
+    if _judged_high is not None:
+      _eb_full = _landed_q11_eb(candidate)
+      result["evals"] = int(result.get("evals") or 0) + 1
+      if _eb_full is not None and _eb_full > float(_judged_high) + 0.01:
+        lo_t, hi_t = 0.0, 1.0
+        best_t = None
+        for _ in range(6):
+          mid = (lo_t + hi_t) / 2.0
+          _eb_mid = _landed_q11_eb(_scale_candidate(candidate, mid))
+          result["evals"] = int(result.get("evals") or 0) + 1
+          if _eb_mid is not None and _eb_mid <= float(_judged_high) + 0.01:
+            best_t = mid
+            lo_t = mid
+          else:
+            hi_t = mid
+        if best_t is not None:
+          moderated = _scale_candidate(candidate, best_t)
+          trace.append(
+            f"rung {ladder_ix}: moderated to judged band high "
+            f"(t={round(best_t, 3)}, q11 eb {round(_eb_full, 4)} -> <= {round(float(_judged_high), 4)})"
+          )
+          candidate = moderated
 
     # HONEST VERIFY — glide the solved point and score the full
     # trajectory with the gate's own checks + per-line margin blend

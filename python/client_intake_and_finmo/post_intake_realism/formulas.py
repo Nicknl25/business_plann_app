@@ -850,16 +850,34 @@ def _formula_trajectory_ebitda_recovery_trend(
   Q11 retains both the floor and at least half the Q5 margin, the business
   needed no recovery -- the value floors at 0.0 (pass). Every other shape
   returns the raw delta, so a loss-making start that never climbs, or a
-  healthy start that collapses, still fails."""
-  _ = (model_input_json, quarter_index)
+  healthy start that collapses, still fails.
+
+  BAND SUBORDINATION (fragility-class Wave 1): the exception's healthy
+  floor is the JUDGED Q11 band low when the executive margin-band
+  judgment is present — a thin-margin business whose healthy level is
+  1.5% could never use a 2pp absolute exception. The 50% retention
+  fraction stays (it is already relative). Judgment absent -> today's
+  exact 2pp behavior (fallback kept)."""
+  _ = quarter_index
   q5 = _quarter_ebitda_margin(finmo_json, 5)
   q11 = _quarter_ebitda_margin(finmo_json, 11)
   if q5 is None or q11 is None:
     return None
   raw = float(q11) - float(q5)
+  healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+      margin_band_from_model_input,
+    )
+    _judgment = margin_band_from_model_input(model_input_json)
+    _q11_low = ((_judgment or {}).get("q11") or {}).get("low")
+    if _q11_low is not None:
+      healthy_floor = float(_q11_low)
+  except Exception:
+    healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
   if (
-    float(q5) >= _EBITDA_HEALTHY_FLAT_FLOOR
-    and float(q11) >= max(_EBITDA_HEALTHY_FLAT_FLOOR, float(q5) * _EBITDA_HEALTHY_RETENTION_FRACTION)
+    float(q5) >= healthy_floor
+    and float(q11) >= max(healthy_floor, float(q5) * _EBITDA_HEALTHY_RETENTION_FRACTION)
   ):
     return max(raw, 0.0)
   return raw
@@ -909,13 +927,35 @@ def _formula_trajectory_ebitda_q20_holds_or_improves_vs_q11(
   `>= -0.01` (Q20 may be at most 1pp below Q11). The 0.01 is a math-
   noise / floating-point buffer, NOT a doctrinal allowance for
   decline.
+
+  BAND SUBORDINATION (fragility-class Wave 1): the check was written
+  before the executive margin-band judgment existed, to stop regression
+  toward structurally loss-making cohort medians. With the judged band
+  present, the executive's Q20 band IS the definition of mature health
+  — a dip that still lands AT OR ABOVE the judged Q20 band low is not
+  regression toward break-even (and the mature-quarter LEVEL check
+  independently hard-fails anything below the band). A 1pp absolute
+  buffer at any margin level fails healthy high-margin plans on
+  relative noise; the judged band knows the business. Judgment absent
+  -> today's exact 1pp behavior (fallback kept).
   """
-  _ = (model_input_json, quarter_index)
+  _ = quarter_index
   q11 = _quarter_ebitda_margin(finmo_json, 11)
   q20 = _quarter_ebitda_margin(finmo_json, 20)
   if q11 is None or q20 is None:
     return None
-  return float(q20) - float(q11) + _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE
+  raw = float(q20) - float(q11) + _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+      margin_band_from_model_input,
+    )
+    _judgment = margin_band_from_model_input(model_input_json)
+    _q20_low = ((_judgment or {}).get("q20") or {}).get("low")
+    if _q20_low is not None and float(q20) >= float(_q20_low) - 1e-9:
+      return max(raw, 0.0)
+  except Exception:
+    pass
+  return raw
 
 
 _GROSS_MARGIN_RECOVERY_FLOOR = 0.20
