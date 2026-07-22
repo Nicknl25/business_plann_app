@@ -1622,9 +1622,16 @@ def route_intent(
 
       *[f"fulfillment.{f}" for f in _value_schema_by_consult_field(consult_type="fulfillment").keys()],
 
-      "coherence.option",
-      "coherence.parked",
-      "ops.product_overrides",
+      # Coherence lever fields exist ONLY while the coherence question
+      # is live (the frame is present). Statically allowing
+      # ops.product_overrides let the ops-interview router hallucinate
+      # it from a normal answer and loop the object-type clarifier —
+      # the exact malformed-clarifier class, reintroduced for one run.
+      *(
+        ["coherence.option", "coherence.parked", "ops.product_overrides"]
+        if isinstance((shared_context or {}).get("coherence_controller"), dict)
+        else []
+      ),
 
     ],
 
