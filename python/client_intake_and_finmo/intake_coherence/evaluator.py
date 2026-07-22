@@ -189,7 +189,22 @@ def evaluate_structural(basis: StructuralBasis, thresholds: Thresholds) -> Dict[
   }
   failed = [name for name, c in checks.items() if not c["passed"]]
   floor_dollars = thresholds.band_low * rev
-  gap = max(0.0, floor_dollars - ebitda)
+  # The gap is the dollars-per-quarter of change needed on the BINDING
+  # constraint — the max shortfall across every failing check, not just
+  # the band floor (a config can clear the band while fixed-cost burden
+  # still binds; the walk must keep going until ALL five hold).
+  shortfalls = []
+  if not checks["ebitda_band_low"]["passed"]:
+    shortfalls.append(floor_dollars - ebitda)
+  if not checks["ebitda_positive"]["passed"]:
+    shortfalls.append(-ebitda)
+  if not checks["fixed_cost_burden"]["passed"]:
+    shortfalls.append((burden - thresholds.burden_max) * rev)
+  if not checks["ni_floor"]["passed"]:
+    shortfalls.append((thresholds.ni_floor - ni_margin) * rev)
+  if not checks["gross_margin"]["passed"]:
+    shortfalls.append((thresholds.gm_floor - gm) * rev)
+  gap = max(0.0, max(shortfalls) if shortfalls else 0.0)
   return {
     "passed": not failed,
     "checks": checks,
@@ -338,17 +353,23 @@ def favorable_corner_basis(
   (no price move) — conservative.
   """
   rev_existing = base.q1_revenue_quarterly
-  cogs_dollars_q1 = rev_existing * base.cogs_pct
 
-  # Price ceilings: revenue scales, COGS dollars hold (volume held).
+  # The TRUE most favorable point: prices at their ceilings AND volume
+  # at its believable max (price is pure margin; volume carries COGS).
+  # A corner-FAIL verdict routes a client to the roadmap — it must not
+  # be declarable while any believable lever combination could rescue.
   new_rev_existing = 0.0
+  vol_scaled_rev = 0.0  # revenue at old prices, volume maxed — the COGS base
   if existing_line_revenue_split:
     for line in existing_line_revenue_split:
       line_rev = _f(line.get("q1_revenue_quarterly"))
       pmax = max(1.0, _f(line.get("price_multiplier_max"), 1.0))
-      new_rev_existing += line_rev * pmax
+      vmax = max(1.0, _f(line.get("volume_multiplier_max"), 1.0))
+      new_rev_existing += line_rev * pmax * vmax
+      vol_scaled_rev += line_rev * vmax
   else:
     new_rev_existing = rev_existing
+    vol_scaled_rev = rev_existing
 
   # New lines at their market caps (q11 quarterly revenue), at their
   # authored gross margins.
@@ -380,9 +401,10 @@ def favorable_corner_basis(
   q11_existing = new_rev_existing * base.growth_to_q11
   q11_rev_total = q11_existing + new_line_rev
   cogs_pct_existing = _floor_pct(base.cogs_pct, "cogs_percent_of_revenue_min")
-  # COGS dollars for existing lines: pct of the volume-held revenue
-  # (price moves are pure margin), then blended with new-line COGS.
-  q11_cogs = (rev_existing * base.growth_to_q11) * cogs_pct_existing + new_line_cogs
+  # COGS dollars for existing lines: pct of the volume-scaled revenue
+  # at OLD prices (price moves are pure margin; volume carries cost),
+  # then blended with new-line COGS.
+  q11_cogs = (vol_scaled_rev * base.growth_to_q11) * cogs_pct_existing + new_line_cogs
   blended_cogs_pct = (q11_cogs / q11_rev_total) if q11_rev_total > 0 else base.cogs_pct
 
   corner = StructuralBasis(

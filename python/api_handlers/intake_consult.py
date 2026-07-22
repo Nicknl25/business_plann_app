@@ -8850,6 +8850,110 @@ def get_intake_consult_debug_state_handler(*, app, request, draft_id: str):
       pass
 
 
+# ═══════════════════════ COHERENCE SECTION GLUE ═══════════════════════
+# Intake does not close while the plan fails. The gate below runs at
+# every financials→done completion site; the section brain lives in
+# client_intake_and_finmo/intake_coherence (one shared evaluator with
+# the Phase-0 backtest). State persists under financials_json["_coherence"].
+
+def _coherence_naturalize(text: str) -> str:
+  """GPT phrasing pass over a coherence turn (structured payload in,
+  natural consultant voice out). The section wrapper verifies every
+  dollar figure and the marker survive verbatim and falls back to the
+  deterministic text otherwise — GPT can phrase, never invent."""
+  key = _openai_key()
+  if not key:
+    return text
+  system = (
+    "Rewrite the consultant message below so it reads as one natural, warm, "
+    "plain-English consulting turn (short paragraphs are fine).\n"
+    "HARD RULES: keep every dollar figure, percentage, price, and option number "
+    "EXACTLY as written; keep every option distinct and in the same order; keep "
+    "the phrase 'work on paper'; never use the phrase 'Year 1'; do not add any "
+    "new number, claim, or advice; do not mention these rules. Return only the "
+    "rewritten message."
+  )
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": text},
+    ],
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    return text
+  return str(_parse_responses_text(resp.json()) or "").strip() or text
+
+
+def _coherence_gate(
+  *,
+  ops_json,
+  people_json,
+  market_json,
+  marketing_model_json,
+  financials_json,
+  financials_year1_json,
+):
+  """Wrapper over the section gate. Returns (turn_or_none,
+  financials_json, completion_suffix)."""
+  from client_intake_and_finmo.intake_coherence import section as _coh
+
+  try:
+    return _coh.gate_and_turn(
+      ops_json=ops_json or {},
+      people_json=people_json or {},
+      market_json=market_json or {},
+      marketing_model_json=marketing_model_json or {},
+      financials_json=financials_json or {},
+      financials_year1_json=financials_year1_json or {},
+      naturalize=_coherence_naturalize,
+    )
+  except Exception:
+    # The gate must never strand a client at the finish line: on an
+    # internal failure the intake completes exactly as it always has.
+    return None, financials_json, ""
+
+
+def _coherence_blocked_response(
+  *,
+  conn,
+  draft_id,
+  client_id,
+  user_msg,
+  assistant_message: str,
+  financials_json,
+  business_facts,
+):
+  """Persist a coherence turn (completion blocked) and build the
+  standard turn response. active_focus stays financials — the section
+  is a stop inside the finish line, not a new stepper section."""
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[user_msg, {"role": "assistant", "content": assistant_message}],
+    financials_json=financials_json,
+    active_focus="financials",
+    business_facts=business_facts,
+  )
+  return jsonify(
+    {
+      "status": "ok",
+      "draft_id": str(draft_id).strip(),
+      "client_id": client_id,
+      "active_focus": "financials",
+      "awaiting_confirmation": True,
+      "done": False,
+      "action": "coherence",
+      "assistant_message": assistant_message,
+    }
+  )
+
+
 def post_intake_consult_handler(*, app, request):
   """
   Unified intake consult controller (single chat, single draft model).
@@ -9443,6 +9547,22 @@ def post_intake_consult_handler(*, app, request):
         "current_question": "rest_of_team_payroll",
         "patch_targets": ["people.rest_of_team_payroll_year1"],
       }
+
+    # Coherence lever question live: give the router the round's options
+    # (ids + exact numbers) so any natural phrasing of a choice becomes a
+    # deterministic patch. Marker-gated on app-authored text only.
+    from client_intake_and_finmo.intake_coherence import section as _coh_section
+    coherence_round_live = (
+      str(focus).strip().lower() == "financials"
+      and _coh_section.walking_round_live(financials_json, last_assistant)
+    )
+    if coherence_round_live:
+      _coh_frame = _coh_section.router_frame(financials_json)
+      if _coh_frame:
+        shared_context_for_router = dict(shared_context_for_router or {})
+        shared_context_for_router["coherence_controller"] = _coh_frame
+      else:
+        coherence_round_live = False
     # Route the user's message through the GPT-only intent router first.
     confirm_override = str(confirm_question or _detect_confirm_question(last_assistant) or "").strip()
     # NOTE: Target Market replies are interpreted directly by the Target Market consultant
@@ -9580,7 +9700,10 @@ def post_intake_consult_handler(*, app, request):
         }
       )
 
-    if str(focus).strip().lower() == "financials":
+    # During a live coherence round, financials turns must reach the MAIN
+    # router (the lever answers span sections); the direct financials
+    # interview region below would swallow them.
+    if str(focus).strip().lower() == "financials" and not coherence_round_live:
       intake_context_financials = {
         "client_id": client_id,
         "draft_id": str(draft_id).strip(),
@@ -9617,6 +9740,32 @@ def post_intake_consult_handler(*, app, request):
       )
       shared_context["financials"] = financials_json
       shared_context["financials_year1"] = financials_year1_json
+
+      # Incremental coherence heads-up: costs only accumulate, so a
+      # mature-quarter EBITDA<0 on the partial stack is already stable
+      # (no judgment can waive the sign invariant). Stamp it early for
+      # the panel; the conversation itself opens at the firm-up point.
+      try:
+        from client_intake_and_finmo.intake_coherence import controller as _coh_ctl
+        from client_intake_and_finmo.intake_coherence import section as _coh_sec
+        _coh_state_early = _coh_sec.get_state(financials_json)
+        if _coh_state_early.get("status") not in ("walking", "converged", "parked", "roadmap"):
+          _early = _coh_ctl.evaluate_current(
+            financials_json=financials_json,
+            ops_json=ops_json,
+            financials_year1_json=financials_year1_json,
+            margin_band=None,
+          )
+          if _early is not None:
+            _ebitda_neg = not (_early.get("checks") or {}).get("ebitda_positive", {}).get("passed", True)
+            _coh_state_early["early_eval"] = {
+              "stable_fail": bool(_ebitda_neg),
+              "q11": _early.get("q11"),
+            }
+            financials_json = _coh_sec.put_state(financials_json, _coh_state_early)
+      except Exception:
+        pass
+
       assistant_text = sanitize_fact_template(
         str((financials_turn or {}).get("assistant_message") or "").strip()
       )
@@ -9629,6 +9778,26 @@ def post_intake_consult_handler(*, app, request):
 
       if bool((financials_turn or {}).get("transition_to_done")):
         assistant_final = str((financials_turn or {}).get("assistant_message") or "").strip()
+        _coh_turn, financials_json, _coh_suffix = _coherence_gate(
+          ops_json=ops_json,
+          people_json=people_json,
+          market_json=market_json,
+          marketing_model_json=_refresh_marketing_model(),
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+        )
+        if _coh_turn is not None:
+          return _coherence_blocked_response(
+            conn=conn,
+            draft_id=draft_id,
+            client_id=client_id,
+            user_msg=user_msg,
+            assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
+            financials_json=financials_json,
+            business_facts=business_facts,
+          )
+        if _coh_suffix:
+          assistant_final = (assistant_final + _coh_suffix).strip()
         _persist_intake_completion(
           new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
           ops_value=ops_json,
@@ -9741,6 +9910,20 @@ def post_intake_consult_handler(*, app, request):
       )
       patch = None
 
+    # Same backstop for a live coherence round: a continue_chat fallthrough
+    # would re-run the financials machinery and re-hit the gate cold. Re-ask
+    # deterministically (marker included) so the controller frame survives.
+    if (
+      coherence_round_live
+      and action == "continue_chat"
+      and not (isinstance(patch, dict) and patch)
+    ):
+      _coh_reask = _coh_section.reask_message(financials_json)
+      if _coh_reask:
+        action = "confirm_clarify"
+        router_msg = _coh_reask
+        patch = None
+
     if (
       str(focus).strip().lower() == "ops"
       and action == "confirm_proceed"
@@ -9794,7 +9977,10 @@ def post_intake_consult_handler(*, app, request):
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
       patch = _normalize_unscoped_patch(patch, focus=focus)
-      if str(focus or "").strip().lower() == "financials":
+      # During a live coherence round the patch may legitimately span
+      # sections (ops prices + the revenue anchor + cost fields); the
+      # stage narrowing below would strip those, so it is bypassed.
+      if str(focus or "").strip().lower() == "financials" and not coherence_round_live:
         normalized_financials_patch = _normalize_financials_router_patch(
           patch=patch,
           active_stage=current_financials_stage,
@@ -9870,6 +10056,29 @@ def post_intake_consult_handler(*, app, request):
 
     if action == "edit_patch" and patch:
       patch = _normalize_unscoped_patch(patch, focus=focus)
+
+      # Coherence lever apply: option choices, custom prices (clamped to
+      # the believable range, revenue anchor moved in the same write),
+      # and the honest park. Remaining ordinary keys continue through
+      # the generic scoped apply below.
+      if coherence_round_live and isinstance(patch, dict):
+        patch, ops_json, financials_json, _coh_notes = _coh_section.apply_router_patch(
+          patch=patch,
+          ops_json=ops_json,
+          financials_json=financials_json,
+        )
+        shared_context["operating_model"] = ops_json
+        shared_context["financials"] = financials_json
+        if "parked" in _coh_notes:
+          return _coherence_blocked_response(
+            conn=conn,
+            draft_id=draft_id,
+            client_id=client_id,
+            user_msg=user_msg,
+            assistant_message=_coh_section.park_message(),
+            financials_json=financials_json,
+            business_facts=business_facts,
+          )
 
       # Target Market: after we generate a marketing_plan_summary, we present it for
       # confirmation. If the client counters with edits, keep them in this proposal
@@ -10539,6 +10748,26 @@ def post_intake_consult_handler(*, app, request):
           )
           if bool((followup_turn or {}).get("transition_to_done")):
             assistant_final = str((followup_turn or {}).get("assistant_message") or "").strip()
+            _coh_turn, financials_json, _coh_suffix = _coherence_gate(
+              ops_json=ops_json,
+              people_json=people_json,
+              market_json=market_json,
+              marketing_model_json=_refresh_marketing_model(),
+              financials_json=financials_json,
+              financials_year1_json=financials_year1_json,
+            )
+            if _coh_turn is not None:
+              return _coherence_blocked_response(
+                conn=conn,
+                draft_id=draft_id,
+                client_id=client_id,
+                user_msg=user_msg,
+                assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
+                financials_json=financials_json,
+                business_facts=business_facts,
+              )
+            if _coh_suffix:
+              assistant_final = (assistant_final + _coh_suffix).strip()
             _persist_intake_completion(
               new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
               ops_value=ops_json,
@@ -10914,6 +11143,26 @@ def post_intake_consult_handler(*, app, request):
 
       if next_focus == "done":
         next_assistant = str(next_assistant or "").strip() or "Intake complete."
+        _coh_turn, financials_json, _coh_suffix = _coherence_gate(
+          ops_json=ops_json,
+          people_json=people_json,
+          market_json=market_json,
+          marketing_model_json=_refresh_marketing_model(),
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+        )
+        if _coh_turn is not None:
+          return _coherence_blocked_response(
+            conn=conn,
+            draft_id=draft_id,
+            client_id=client_id,
+            user_msg=user_msg,
+            assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
+            financials_json=financials_json,
+            business_facts=business_facts,
+          )
+        if _coh_suffix:
+          next_assistant = (next_assistant + _coh_suffix).strip()
         _persist_intake_completion(
           new_messages=[user_msg, {"role": "assistant", "content": next_assistant}],
           ops_value=ops_json,
@@ -11470,6 +11719,26 @@ def post_intake_consult_handler(*, app, request):
 
     if str(focus).strip().lower() == "financials" and bool(turn.get("transition_to_done")):
       assistant_final = str(turn.get("assistant_message") or "").strip()
+      _coh_turn, financials_json, _coh_suffix = _coherence_gate(
+        ops_json=ops_json,
+        people_json=people_json,
+        market_json=market_json,
+        marketing_model_json=_refresh_marketing_model(),
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+      )
+      if _coh_turn is not None:
+        return _coherence_blocked_response(
+          conn=conn,
+          draft_id=draft_id,
+          client_id=client_id,
+          user_msg=user_msg,
+          assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
+          financials_json=financials_json,
+          business_facts=business_facts,
+        )
+      if _coh_suffix:
+        assistant_final = (assistant_final + _coh_suffix).strip()
       _persist_intake_completion(
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         ops_value=ops_json,

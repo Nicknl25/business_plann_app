@@ -195,7 +195,14 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       add("fulfillment", k, v)
 
-
+    # coherence (the viability-gap lever conversation at the end of
+    # financials): option = an offered option id; parked = the client
+    # wants to pause; ops.product_overrides carries custom per-line
+    # prices there (same object shape as the financials_year1 field).
+    add("coherence", "option", {"type": "string"})
+    add("coherence", "parked", {"type": "boolean"})
+    if "ops.product_overrides" not in schemas:
+      add("ops", "product_overrides", {"type": "object"})
 
     return schemas
 
@@ -1615,6 +1622,10 @@ def route_intent(
 
       *[f"fulfillment.{f}" for f in _value_schema_by_consult_field(consult_type="fulfillment").keys()],
 
+      "coherence.option",
+      "coherence.parked",
+      "ops.product_overrides",
+
     ],
 
   }[consult_type_norm]
@@ -1689,6 +1700,19 @@ def route_intent(
       "- If the user gives a monthly figure for that question, convert it to an annual amount before patching.\n"
       "- If the user gives a range, use a single representative number near the middle.\n"
       "- If the user later says that rest-of-team total is wrong, treat the correction as an edit_patch on rest_of_team_payroll_year1.\n"
+    )
+
+  if isinstance((shared_context or {}).get("coherence_controller"), dict):
+    extra_instructions = (
+      extra_instructions
+      + "Coherence lever handling (takes precedence over continue_chat and confirm_proceed):\n"
+      "- shared_context.coherence_controller means the app just asked the client to choose how to close a viability gap. The offered options (ids, labels, exact numbers) are in coherence_controller.options.\n"
+      "- If the client picks an option by number, label, rough description, or brief agreement (yes, go ahead, do that, the suggested one - including misspellings and informal phrasing), return edit_patch with field coherence.option set to that option's id. Brief agreement means the option marked recommended/suggested.\n"
+      "- If the client gives their own concrete prices for named products, return edit_patch with ops.product_overrides mapping each product name to an object with unit_price. Do not refuse prices outside the mentioned range - the app clamps them safely.\n"
+      "- If the client gives a concrete dollar amount for a cost the question covered (marketing, rent, payroll, overhead), return edit_patch on the matching field from coherence_controller.patch_targets. Respect each field's own basis: monthly_rent_expense and other_operating_expense are MONTHLY; marketing_total_year1, payroll_total_year1, current_payroll are ANNUAL - convert if the client spoke in the other basis.\n"
+      "- If the client wants to pause, defer, come back later, or stop for now (any phrasing that means that), return edit_patch with coherence.parked = true. Never pressure them to continue.\n"
+      "- If the client asks a question about the numbers themselves, answer_readonly is appropriate.\n"
+      "- Interpret INTENT, not exact wording; never require specific phrases.\n"
     )
 
 

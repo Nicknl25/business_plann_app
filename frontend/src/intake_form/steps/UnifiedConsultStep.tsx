@@ -10,6 +10,7 @@ import GoogleAddressInput from "../../components/GoogleAddressInput";
 import { useIntakeFlow } from "../flow/IntakeFlowContext";
 import { consultStorage } from "../flow/consultStorage";
 import { renderFactTemplate } from "../flow/renderFactTemplate";
+import CoherencePanel from "./CoherencePanel";
 import type { IntakeValues } from "../schema";
 
 type ChatMessage = {
@@ -180,6 +181,7 @@ export default function UnifiedConsultStep() {
   const [draftSyncing, setDraftSyncing] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [coherence, setCoherence] = useState<any>(null);
 
   const visibleMessages = useMemo(() => {
     const next: ChatMessage[] = [];
@@ -376,6 +378,19 @@ export default function UnifiedConsultStep() {
         } catch {
           // ignore
         }
+      }
+
+      try {
+        const rawFin = body?.financials_json;
+        const fin =
+          rawFin && typeof rawFin === "object"
+            ? rawFin
+            : rawFin
+              ? JSON.parse(String(rawFin))
+              : null;
+        setCoherence(fin && typeof fin === "object" ? fin._coherence || null : null);
+      } catch {
+        // ignore — panel simply stays hidden
       }
     } catch (err) {
       setDraftError(err instanceof Error ? err.message : String(err));
@@ -1070,6 +1085,12 @@ export default function UnifiedConsultStep() {
             </div>
           );
         })()}
+
+        <CoherencePanel
+          state={coherence}
+          disabled={isSpectating || sending || loading}
+          onSend={(text) => void sendMessage(text)}
+        />
 
         {isSpectating ? (
           <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-400">
