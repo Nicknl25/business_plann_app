@@ -985,6 +985,13 @@ def _ops_interview_field_allowed(field: str, ops_interview_filter: Dict[str, Any
     return False
   if tail == "milestones" and not ops_interview_filter.get("allow_milestones"):
     return False
+  # Model-owned meta/structure fields: the consultant GPT authors these
+  # in its own patches; a client interview answer never legitimately
+  # sets them through the router. Routing one there (e.g. "I insist on
+  # 70%" -> confidence) hits a type gate no conversational answer can
+  # satisfy and loops the fallback clarifier.
+  if tail in ("confidence", "lob_models"):
+    return False
   return True
 
 
