@@ -1140,22 +1140,22 @@ def prepare_initial_grid_for_draft(
       _mb_compact = _mb_build_digest(
         ops_json, people_json, market_json, marketing_model_json,
       )
-      # SAME ARTIFACT, NOT TWO CALLS: intake's coherence section may
-      # already have authored this judgment (stamped to
-      # financials_json._coherence with the compact-digest hash). A
-      # digest match reuses that stamp verbatim; only an identity-level
-      # change (the digest itself) re-judges. Knob edits never do.
+      # SAME ARTIFACT, NOT TWO CALLS: intake's coherence section authors
+      # this judgment at the completion gate and re-validates its stamp
+      # (digest-keyed) at EVERY completion attempt — so on a completed
+      # draft the stamp is fresh by construction. The runner trusts it
+      # unconditionally: recomputing the digest here would hash the
+      # pipeline-ENRICHED in-memory inputs and spuriously re-author (the
+      # canary proved it: identical draft columns, different in-flight
+      # hash, two different bands). Identity-level invalidation lives at
+      # the gate, where identity can actually change.
       _mb_reused = False
       try:
-        from client_intake_and_finmo.intake_coherence.controller import (  # type: ignore  # noqa: E501
-          stable_digest_hash as _mb_digest_hash,
-        )
         _mb_stamp = (financials_json or {}).get("_coherence") or {}
         _mb_stamped_band = _mb_stamp.get("margin_band_judgment")
         if (
           isinstance(_mb_stamped_band, dict)
           and _mb_stamped_band
-          and str(_mb_stamp.get("digest_hash") or "") == _mb_digest_hash(_mb_compact)
           and isinstance(model_input_json, dict)
         ):
           model_input_json.setdefault("solver_input", {})

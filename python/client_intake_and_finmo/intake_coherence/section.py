@@ -500,10 +500,20 @@ def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, An
   margin = _f(q11.get("ebitda_margin"))
   band_low = _f(thresholds_info.get("band_low"))
   band_high = thresholds_info.get("band_high")
-  band_txt = (
-    f"inside the {_pct(band_low)}-{_pct(_f(band_high))} range judged believable for your kind of business"
-    if band_high is not None else "above the floor judged believable for your kind of business"
-  )
+  if band_high is not None and margin > _f(band_high):
+    # Above the believable ceiling: honest phrasing — the engine will
+    # temper the full plan into the band; never claim "inside".
+    band_txt = (
+      f"comfortably above the {_pct(band_low)} floor judged for your kind of business "
+      f"(the full plan will keep it within the believable {_pct(_f(band_high))} ceiling)"
+    )
+  elif band_high is not None:
+    band_txt = (
+      f"inside the {_pct(band_low)}-{_pct(_f(band_high))} range judged believable "
+      "for your kind of business"
+    )
+  else:
+    band_txt = "above the floor judged believable for your kind of business"
   return (
     " One more thing worth knowing: your numbers hold together at maturity - a typical "
     f"mature quarter keeps about {_fmt(_f(q11.get('ebitda')))} ({_pct(margin)} of revenue), {band_txt}. "
