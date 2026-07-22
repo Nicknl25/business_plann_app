@@ -419,7 +419,10 @@ _INTEREST_REVENUE_RATIO_THRESHOLD_DEFAULT = 0.05  # 5% of revenue (NAICS-tunable
 _BALANCE_SHEET_GROWTH_RATIO_THRESHOLD = 5.0  # cash/AR/inv may grow up to 5x opex
 
 
-def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+def _check_net_income_trajectory_viable(
+  finmo_json: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, Dict[str, Any]]:
   """Phase 9 G1 recalibrated — the Q11 net-income position must be genuinely
   viable in EITHER of the two real shapes:
 
@@ -451,8 +454,28 @@ def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[boo
   q5_margin = (q5_ni or 0.0) / float(q5_rev)
   q11_margin = (q11_ni or 0.0) / float(q11_rev)
   delta = q11_margin - q5_margin
+  # JUDGED NI FLOOR (fragility-class Wave 2): the flat-and-healthy bar
+  # is the executive's ni_margin_floor_q11 when authored — a healthy
+  # grocer's flat 1.2% NI could never satisfy a 2pp absolute constant,
+  # while a consultancy limping at 3% flat should not be blessed by it.
+  # Railed at authoring to [0, judged EBITDA band low]. Judgment absent
+  # -> the 2pp constant governs (today's exact behavior).
+  flat_floor = _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR
+  flat_floor_source = "doctrine_default_2pp"
+  try:
+    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+      margin_band_from_model_input,
+    )
+    _judgment = margin_band_from_model_input(model_input_json)
+    _judged_ni = (_judgment or {}).get("ni_margin_floor_q11")
+    if _judged_ni is not None:
+      flat_floor = float(_judged_ni)
+      flat_floor_source = "executive_margin_band_judgment"
+  except Exception:
+    flat_floor = _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR
+    flat_floor_source = "doctrine_default_2pp"
   ramping_viable = (q11_margin >= 0.0) and (delta >= _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11)
-  flat_healthy_viable = q11_margin >= _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR
+  flat_healthy_viable = q11_margin >= flat_floor
   passed = ramping_viable or flat_healthy_viable
   return passed, {
     "q5_ni_margin": round(q5_margin, 4),
@@ -461,7 +484,8 @@ def _check_net_income_trajectory_viable(finmo_json: Dict[str, Any]) -> Tuple[boo
     "ramping_viable": ramping_viable,
     "flat_healthy_viable": flat_healthy_viable,
     "min_required_delta_ramping": _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11,
-    "min_required_q11_margin_flat": _NI_Q11_HEALTHY_FLAT_MARGIN_FLOOR,
+    "min_required_q11_margin_flat": round(float(flat_floor), 4),
+    "flat_floor_source": flat_floor_source,
   }
 
 
@@ -839,7 +863,9 @@ def verify_run_acceptance(
   _record("current_assets_positive_q1_q10", passed, detail)
 
   # Phase 9 Phase G — six new viability criteria.
-  passed, detail = _check_net_income_trajectory_viable(finmo_json)
+  passed, detail = _check_net_income_trajectory_viable(
+    finmo_json, _parse_json(draft.get("model_input_json")),
+  )
   _record("net_income_trajectory_viable", passed, detail)
 
   passed, detail = _check_cash_health_operational_not_debt_funded(

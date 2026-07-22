@@ -147,6 +147,20 @@ _SUBMIT_TOOL: Dict[str, Any] = {
             "kind of business is actually staffed and housed."
           ),
         },
+        "ni_margin_floor_q11": {
+          "type": "number",
+          "description": (
+            "STRUCTURAL FLOOR (fraction of revenue): the minimum Q11 "
+            "NET-INCOME margin at which a lender would call a "
+            "flat-trajectory business of this character genuinely "
+            "healthy (not merely above zero). NI sits BELOW EBITDA by "
+            "the interest / depreciation / tax wedge, so this floor "
+            "must be AT OR BELOW your Q11 EBITDA band low — and for "
+            "thin-margin characters it is legitimately small. A "
+            "still-ramping business is judged by its ramp, not this "
+            "floor; this is the flat-and-healthy bar only."
+          ),
+        },
         "margin_character": {
           "type": "string",
           "description": (
@@ -168,6 +182,7 @@ _SUBMIT_TOOL: Dict[str, Any] = {
       "required": [
         "q11_ebitda_band", "q20_ebitda_band",
         "gross_margin_floor_q11", "fixed_cost_burden_max_q11",
+        "ni_margin_floor_q11",
         "margin_character", "rationale",
       ],
     },
@@ -237,6 +252,13 @@ _SYSTEM_PROMPT = (
   "an industry rule: apply it wherever the model itself implies "
   "debt-financed assets, and NOWHERE else — a business without "
   "structural debt has no wedge, and its band must NOT be inflated.\n"
+  "6b. NI FLOOR: ni_margin_floor_q11 is the minimum NET-INCOME margin "
+  "at which a FLAT-trajectory business of this character is genuinely "
+  "healthy to a lender — NI sits below EBITDA by the interest/"
+  "depreciation/tax wedge, so it must be AT OR BELOW your Q11 EBITDA "
+  "band low, and for thin-margin characters it is legitimately small "
+  "(a healthy grocer's flat NI may be ~1%). It is NOT an ambition "
+  "bar: a ramping business is judged by its ramp elsewhere.\n"
   "7. TWO STRUCTURAL FLOORS ride the same judgment, same fence, same "
   "lender defense: gross_margin_floor_q11 — the minimum Q11 GROSS margin "
   "a real business of this character needs to be recovering (thin for "
@@ -442,6 +464,21 @@ def validate_margin_band_judgment(
     )
     gm_floor = None
 
+  # NI FLOOR (Wave 2) — the flat-and-healthy net-income bar for THIS
+  # business. Rails: [0, q11 EBITDA band low] — NI sits below EBITDA by
+  # the interest/D&A/tax wedge, so a floor ABOVE the band low is
+  # self-contradictory and CLAMPS to it (the airtight relation, applied
+  # as a bound rather than a drop: unlike the GM case the direction is
+  # unambiguous). Absent -> None (the 2pp constant governs downstream).
+  ni_floor: Optional[float] = None
+  ni_raw = j.get("ni_margin_floor_q11")
+  if ni_raw is not None:
+    ni_val = _num(ni_raw, -1.0)
+    if ni_val >= 0.0:
+      ni_floor = max(0.0, min(float(q11_low), ni_val))
+      if abs(ni_floor - ni_val) > 1e-9:
+        notes.append(f"ni_floor_clamped_{ni_val:.4f}->{ni_floor:.4f}")
+
   return {
     "q11": {
       "low": round(q11_low, 4),
@@ -455,6 +492,7 @@ def validate_margin_band_judgment(
     },
     "gross_margin_floor_q11": (round(gm_floor, 4) if gm_floor is not None else None),
     "fixed_cost_burden_max_q11": (round(burden_max, 4) if burden_max is not None else None),
+    "ni_margin_floor_q11": (round(ni_floor, 4) if ni_floor is not None else None),
     "margin_character": str(j.get("margin_character") or "")[:120],
     "rationale": str(j.get("rationale") or "")[:600],
     "notes": notes,
