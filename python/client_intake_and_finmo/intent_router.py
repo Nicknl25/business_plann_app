@@ -1686,6 +1686,8 @@ def route_intent(
       + "Financials revenue handling:\n"
       + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
       + "- If the user gives a monthly revenue figure for that question, convert it to an annual amount before patching current_revenue.\n"
+      + "Financials owner compensation handling:\n"
+      + "- The owner_compensation field is MONTHLY. If the last assistant message asked about owner compensation per month and the user answers with an annual figure (per year, a year, annually - any phrasing meaning yearly), divide by 12 before patching owner_compensation. A monthly answer patches as-is.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"

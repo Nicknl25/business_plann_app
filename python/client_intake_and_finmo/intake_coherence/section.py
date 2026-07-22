@@ -364,19 +364,12 @@ def _apply_custom_prices(
   the revenue anchor moved by the derived ratio."""
   bounds = state.get("bounds") or {}
   split = _ctl.ops_line_split(ops_json, financials_json)
-  by_key = {}
-  for bl in bounds.get("existing_lines") or []:
-    k = f"{str(bl.get('lob') or '').strip()}␟{str(bl.get('product') or '').strip()}".lower()
-    by_key[k] = bl
+  matched = _ctl.match_bounds_lines(split, bounds)
   clamped = False
   specs = []
   old_total = sum(l["q1_revenue_quarterly"] for l in split) or 1.0
   new_total = 0.0
-  for line in split:
-    key = f"{line['lob']}␟{line['product']}".lower()
-    bl = by_key.get(key)
-    if bl is None and len(by_key) == 1:
-      bl = next(iter(by_key.values()))
+  for line, bl in zip(split, matched):
     pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
     wanted = None
     for ov_name, ov_val in overrides.items():
@@ -532,6 +525,7 @@ def gate_and_turn(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   naturalize: Optional[Callable[[str], str]] = None,
+  user_text: str = "",
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
   """The completion gate. Returns (turn, financials_json, suffix):
 
@@ -548,15 +542,32 @@ def gate_and_turn(
 
   if state.get("status") == _ctl.STATUS_ROADMAP:
     # Roadmap already delivered — keep the door open without repeating
-    # the whole speech, and never complete.
-    return {
-      "assistant_message": (
-        "We're in roadmap territory - the full picture is a few messages up. "
-        "Ask me anything about those numbers or milestones, and when one of them "
-        "changes in the real world, tell me and we'll rerun the same arithmetic. "
-        "Nothing ships until the plan can work on paper."
+    # the whole speech, never complete, and actually ENGAGE with what
+    # the client just said (a canned line every turn reads as a loop —
+    # the walk E2E's runner literally flagged it as one).
+    fallback = (
+      "We're in roadmap territory - the full picture is a few messages up. "
+      "Ask me anything about those numbers or milestones, and when one of them "
+      "changes in the real world, tell me and we'll rerun the same arithmetic. "
+      "Nothing ships until the plan can work on paper."
+    )
+    message = fallback
+    if naturalize is not None and str(user_text or "").strip():
+      payload = state.get("roadmap") or {}
+      context = (
+        "You are the intake consultant. The client's business plan cannot work yet: even "
+        "the most favorable believable configuration falls short by about "
+        f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter. "
+        "You have already delivered the full roadmap: "
+        + "; ".join(f"{m.get('title')} ({m.get('detail')})" for m in payload.get("milestones") or [])
+        + ". The client just said: \"" + str(user_text).strip()[:600] + "\". "
+        "Reply in 2-4 warm, plain sentences: respond to what they actually said, connect it "
+        "to the roadmap milestones where it fits, and close by reminding them their numbers "
+        "stay saved and nothing ships until the plan can work on paper. Do not invent any "
+        "new figure. Keep the phrase 'work on paper'."
       )
-    }, financials_json, ""
+      message = _safe_naturalize(fallback, lambda _t: naturalize(context))
+    return {"assistant_message": message}, financials_json, ""
 
   state = _ensure_margin_band(
     state,

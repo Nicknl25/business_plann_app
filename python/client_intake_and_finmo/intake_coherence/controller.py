@@ -86,7 +86,9 @@ def ops_line_split(
   for lob in ops.get("lob_models") or []:
     if not isinstance(lob, dict):
       continue
-    lob_name = str(lob.get("lob") or lob.get("name") or "").strip()
+    # live ops shape: lob_models[].lob_name / products[].product_name
+    # (the digest builder's own keys) with legacy fallbacks
+    lob_name = str(lob.get("lob_name") or lob.get("lob") or lob.get("name") or "").strip()
     for p in lob.get("products") or []:
       if not isinstance(p, dict):
         continue
@@ -97,7 +99,7 @@ def ops_line_split(
       if price > 0 and cap > 0:
         lines.append({
           "lob": lob_name,
-          "product": str(p.get("product") or p.get("name") or "").strip(),
+          "product": str(p.get("product_name") or p.get("product") or p.get("name") or "").strip(),
           "unit_price": price,
           "annual_revenue": price * cap * util * periods,
         })
@@ -109,6 +111,51 @@ def ops_line_split(
   for l in lines:
     l["q1_revenue_quarterly"] = round(l["annual_revenue"] * scale / 4.0, 2)
   return lines
+
+
+def match_bounds_lines(
+  split: List[Dict[str, Any]],
+  bounds: Dict[str, Any],
+) -> List[Optional[Dict[str, Any]]]:
+  """Match each split line to its authored bounds line: exact
+  (lob, product) name match first, then product-only, then — when the
+  counts align — by position (the executive authors lines in the order
+  it saw them; the walk E2E proved name drift between the intake ops
+  shape and the GPT's own labels makes pure name matching false-drop
+  every lever, which silently weakens the corner)."""
+  blines = [b for b in (bounds.get("existing_lines") or []) if isinstance(b, dict)]
+
+  def _norm(s: Any) -> str:
+    return " ".join(str(s or "").lower().split())
+
+  out: List[Optional[Dict[str, Any]]] = []
+  used = set()
+  for line in split:
+    match = None
+    for i, b in enumerate(blines):
+      if i in used:
+        continue
+      if (_norm(b.get("lob")), _norm(b.get("product"))) == (_norm(line.get("lob")), _norm(line.get("product"))):
+        match = (i, b)
+        break
+    if match is None:
+      for i, b in enumerate(blines):
+        if i in used:
+          continue
+        pn = _norm(b.get("product"))
+        ln = _norm(line.get("product"))
+        if pn and ln and (pn in ln or ln in pn):
+          match = (i, b)
+          break
+    if match is not None:
+      used.add(match[0])
+      out.append(match[1])
+    else:
+      out.append(None)
+  if any(m is None for m in out) and len(split) == len(blines):
+    # positional fallback: counts align — zip in order
+    out = list(blines)
+  return out
 
 
 def _price_move_basis(
@@ -175,21 +222,15 @@ def _pricing_round(
   (1 + (pmax-1)*0.5) and max. Patch specs are ops-field edits."""
   if not split:
     return None
-  by_key: Dict[str, Dict[str, Any]] = {}
-  for bl in bounds.get("existing_lines") or []:
-    k = f"{str(bl.get('lob') or '').strip()}␟{str(bl.get('product') or '').strip()}"
-    by_key[k.lower()] = bl
+  matched = match_bounds_lines(split, bounds)
   gap_now = _gap(basis, thresholds)
   if gap_now <= 0:
     return None
 
   def _mults(level: str) -> Dict[str, float]:
     out: Dict[str, float] = {}
-    for line in split:
+    for line, bl in zip(split, matched):
       key = f"{line['lob']}␟{line['product']}"
-      bl = by_key.get(key.lower())
-      if bl is None and len(by_key) == 1:
-        bl = next(iter(by_key.values()))
       pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
       out[key] = pmax if level == "max" else 1.0 + (pmax - 1.0) * 0.5
     return out
@@ -241,11 +282,9 @@ def _pricing_round(
         {
           "lob": l["lob"], "product": l["product"],
           "current_price": l["unit_price"],
-          "believable_max": round(l["unit_price"] * max(
-            1.0, _f((by_key.get(f"{l['lob']}␟{l['product']}".lower())
-                     or (next(iter(by_key.values())) if len(by_key) == 1 else {})
-                     ).get("price_multiplier_max"), 1.0)), 2),
-        } for l in split
+          "believable_max": round(
+            l["unit_price"] * max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0)), 2),
+        } for l, bl in zip(split, matched)
       ],
     },
   }
@@ -472,14 +511,7 @@ def corner_check(
   sides). PASS -> guided walk; FAIL -> roadmap."""
   split = ops_line_split(ops_json, financials_json)
   corner_split = []
-  by_key = {}
-  for bl in bounds.get("existing_lines") or []:
-    k = f"{str(bl.get('lob') or '').strip()}␟{str(bl.get('product') or '').strip()}"
-    by_key[k.lower()] = bl
-  for line in split:
-    bl = by_key.get(f"{line['lob']}␟{line['product']}".lower())
-    if bl is None and len(by_key) == 1:
-      bl = next(iter(by_key.values()))
+  for line, bl in zip(split, match_bounds_lines(split, bounds)):
     corner_split.append({
       "q1_revenue_quarterly": line["q1_revenue_quarterly"],
       "price_multiplier_max": _f((bl or {}).get("price_multiplier_max"), 1.0),
