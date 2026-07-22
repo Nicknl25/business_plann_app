@@ -430,6 +430,24 @@ def mirror_and_shape_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) 
   if isinstance(fin, dict) and "initial_lease" in fin:
     fin["initial_lease"] = _canonicalize_initial_lease(fin.get("initial_lease"))
 
+  # other-opex basis coherence -- the app's field contract captures
+  # other_operating_expense MONTHLY and derives other_opex_absolute
+  # (annual = monthly x 12) at intake. The scenario sheets were authored
+  # with ANNUAL values in this field; without the derivation, every
+  # runtime consumer's monthly-x12 fallback fires on already-annual
+  # numbers and G&A lands ~12x too high (Meridian 3.8% -> 44.7% of
+  # revenue). Honor the sheets' annual authorship AND the app's field
+  # contract: absolute = the sheet value (annual), monthly = value / 12
+  # -- the draft then looks exactly like a real-intake draft.
+  if isinstance(fin, dict) and fin.get("other_opex_absolute") in (None, ""):
+    try:
+      _ooe_annual = float(fin.get("other_operating_expense"))
+    except (TypeError, ValueError):
+      _ooe_annual = None
+    if _ooe_annual is not None and _ooe_annual >= 0:
+      fin["other_opex_absolute"] = round(_ooe_annual, 2)
+      fin["other_operating_expense"] = round(_ooe_annual / 12.0, 2)
+
   # Type coherence for NEW array elements (added LOBs / people have no baseline
   # leaf to anchor the cell type, so a numeric-looking string can land as a
   # float). The app contract types these exactly; we shape the harness output to
