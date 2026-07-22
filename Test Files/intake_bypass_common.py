@@ -430,23 +430,54 @@ def mirror_and_shape_scenario(flat: Dict[str, Any], structured: Dict[str, Any]) 
   if isinstance(fin, dict) and "initial_lease" in fin:
     fin["initial_lease"] = _canonicalize_initial_lease(fin.get("initial_lease"))
 
-  # other-opex basis coherence -- the app's field contract captures
-  # other_operating_expense MONTHLY and derives other_opex_absolute
-  # (annual = monthly x 12) at intake. The scenario sheets were authored
-  # with ANNUAL values in this field; without the derivation, every
-  # runtime consumer's monthly-x12 fallback fires on already-annual
-  # numbers and G&A lands ~12x too high (Meridian 3.8% -> 44.7% of
-  # revenue). Honor the sheets' annual authorship AND the app's field
-  # contract: absolute = the sheet value (annual), monthly = value / 12
-  # -- the draft then looks exactly like a real-intake draft.
-  if isinstance(fin, dict) and fin.get("other_opex_absolute") in (None, ""):
+  # PRODUCTION-IDENTITY NORMALIZATION -- THE HARNESS CONVERGES TO THE
+  # APP, NEVER THE REVERSE. The bypass runs the SAME finalize
+  # normalization production runs at consult persistence
+  # (_sync_financials_consult_persistence_state): COGS / payroll /
+  # marketing family syncs, the other-opex monthly->absolute
+  # derivation, stage defaults, and the year-1 reconciliation gate.
+  # Harness drafts are then definitionally identical to production
+  # drafts instead of sheet-approximated -- the class fix for the
+  # divergence family (G&A x12 was the member that fired). Production
+  # is the reference implementation; nothing here adjusts app behavior.
+  if isinstance(fin, dict):
+    # Sheet basis first: sheets author other_operating_expense as
+    # ANNUAL; the app's field contract is MONTHLY (production derives
+    # absolute = monthly x 12 in the shared pass below). Convert the
+    # authored value to the field's true basis so the production
+    # derivation lands the sheets' intended annual exactly.
+    if fin.get("other_opex_absolute") in (None, ""):
+      try:
+        _ooe_annual = float(fin.get("other_operating_expense"))
+      except (TypeError, ValueError):
+        _ooe_annual = None
+      if _ooe_annual is not None and _ooe_annual >= 0:
+        fin["other_operating_expense"] = _ooe_annual / 12.0
+    # Completed-intake stage flags: a finalized real draft has answered
+    # these stages; the flags gate downstream conditionals.
+    fin.setdefault("_financials_revenue_intro_done", True)
+    fin.setdefault("_financials_marketing_stage_done", True)
+    import sys as _sys
+    _app_python = str((Path(__file__).resolve().parent.parent / "python"))
+    if _app_python not in _sys.path:
+      _sys.path.insert(0, _app_python)
     try:
-      _ooe_annual = float(fin.get("other_operating_expense"))
-    except (TypeError, ValueError):
-      _ooe_annual = None
-    if _ooe_annual is not None and _ooe_annual >= 0:
-      fin["other_opex_absolute"] = round(_ooe_annual, 2)
-      fin["other_operating_expense"] = round(_ooe_annual / 12.0, 2)
+      from api_handlers.intake_consult import (  # type: ignore
+        _sync_financials_consult_persistence_state as _app_finalize_sync,
+      )
+    except Exception as _sync_import_exc:  # FAIL LOUD -- a silent
+      # fallback here would quietly reopen the divergence class.
+      raise RuntimeError(
+        "harness production-identity normalization unavailable: "
+        f"{type(_sync_import_exc).__name__}: {_sync_import_exc}"
+      ) from _sync_import_exc
+    _fin_synced, _y1_synced = _app_finalize_sync(
+      financials_json=fin,
+      financials_year1_json=structured.get("financials_year1_json") or {},
+      marketing_model_json=structured.get("marketing_model_json") or {},
+    )
+    structured["financials_json"] = _fin_synced
+    structured["financials_year1_json"] = _y1_synced
 
   # Type coherence for NEW array elements (added LOBs / people have no baseline
   # leaf to anchor the cell type, so a numeric-looking string can land as a
