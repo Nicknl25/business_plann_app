@@ -1,4 +1,4 @@
-"""Initial grid orchestration for post-intake planning.
+﻿"""Initial grid orchestration for post-intake planning.
 
 This module owns the baseline -> planning mode -> ramp -> quarter-grid phase.
 The API handler should call this phase and then hand the returned state to the
@@ -561,7 +561,7 @@ def prepare_initial_grid_for_draft(
   if isinstance(financials_year1_json, dict) and financials_year1_json:
     shared_context["financials_year1_json"] = financials_year1_json
 
-  # Phase 9 P3.33 Phase 3 step 1 — Materialize cohort bands so the amalgamated
+  # Phase 9 P3.33 Phase 3 step 1 â€” Materialize cohort bands so the amalgamated
   # GPT session (later commits this phase) can return constraint bands inline
   # in tool responses, and so bands are auditable per run. Soft failure: this
   # is a new audit sink that no caller consumes yet; a write issue here must
@@ -594,14 +594,14 @@ def prepare_initial_grid_for_draft(
       },
     )
     sequence_trace["cohort_bands_populated"] = _bands_summary
-  except Exception as _cohort_bands_exc:  # noqa: BLE001 — soft sink (see above)
+  except Exception as _cohort_bands_exc:  # noqa: BLE001 â€” soft sink (see above)
     sequence_trace["cohort_bands_populated"] = {"error": repr(_cohort_bands_exc)}
 
   # P3.40 Contract 6 Commit 3 -- Shape D producer-side gate
   # (F14 a SHIP). Placed OUTSIDE the soft try/except above so a
   # ContractViolation from F10 (zero resolved bands across all
   # 5 sections) propagates loud through intake_consult.py:7377
-  # generic catch -- closes v1 §F-2 FAIL_COHORT_BANDS_MISSING
+  # generic catch -- closes v1 Â§F-2 FAIL_COHORT_BANDS_MISSING
   # precondition that the soft try/except otherwise silences.
   # Gate only fires when the populator succeeded (sequence_trace
   # has a non-error summary); skipped when the soft-swallow above
@@ -640,7 +640,7 @@ def prepare_initial_grid_for_draft(
       required_horizon_rule="derive_marketing_context_before_baseline_finmo",
     )
   except Exception as _marketing_exc:
-    # C2 — record the swallowed exception so the silent fallback to
+    # C2 â€” record the swallowed exception so the silent fallback to
     # an empty marketing context leaves an audit trail. Marketing is
     # optional context (the baseline FINMO still builds); the
     # downstream code is robust to an empty model. But the exception
@@ -685,7 +685,7 @@ def prepare_initial_grid_for_draft(
   )
   forecast_starting_ppe = int(round(max(0.0, float(safe_float((financials_json or {}).get("initial_assets")) or 0.0))))
   maintenance_rate = float(safe_float(forecast_starting_ppe_decision.get("maintenance_rate")) or 0.0)
-  # Module 5 Task 5.1 — DELETED legacy `< 0.02 or > 0.15` post-validation.
+  # Module 5 Task 5.1 â€” DELETED legacy `< 0.02 or > 0.15` post-validation.
   # The deterministic NAICS-cascade function returns a real industry-typical
   # rate; the universal 2-15% guard rejected legitimate NAICS values for
   # capital-light services (often <2%) and capital-heavy manufacturing
@@ -705,7 +705,7 @@ def prepare_initial_grid_for_draft(
     "maintenance_rate": maintenance_rate,
   }
 
-  # Step 9b-ii — finmo_sync diagnostic emits around the baseline
+  # Step 9b-ii â€” finmo_sync diagnostic emits around the baseline
   # sync call. STARTED before _execute_sequence_step; COMPLETED on
   # success; FAILED in the except path of any downstream consumer
   # of sync_result. (The _execute_sequence_step itself raises on
@@ -748,7 +748,7 @@ def prepare_initial_grid_for_draft(
     expected_handler_key="sync_planning_state_to_finmo",
     required_horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
   )
-  # Step 9d items 16 + 17 — finmo_sync postcondition guards.
+  # Step 9d items 16 + 17 â€” finmo_sync postcondition guards.
   # Item 16: the sync must yield a finmo_json dict carrying quarter
   # rows; an empty/missing finmo_json means the FINMO build silently
   # produced no output. Item 17: the required columns (quarter_index,
@@ -849,7 +849,7 @@ def prepare_initial_grid_for_draft(
       if isinstance(sync_result.get("finmo_json"), dict)
       else {}
     )
-    # P3.33 Phase 3 8b-fix — REPLACE the legacy
+    # P3.33 Phase 3 8b-fix â€” REPLACE the legacy
     # _execute_sequence_step pair (r_and_d_applicability + balance_
     # sheet_contextual_seed) with a single set_capex_rd_balance_seed
     # (contract=None) call. The tool's contract=None path wraps the
@@ -870,13 +870,13 @@ def prepare_initial_grid_for_draft(
     # the restructure stage authored a redesign (persisted to
     # repair_guidance_json by the stage). Stamped to solver_input so the
     # authoring layers consume it as the authoritative maturation
-    # targets. Absent on every first run and on every viable business —
+    # targets. Absent on every first run and on every viable business â€”
     # this block is then a no-op.
     _restructure_directive: Optional[Dict[str, Any]] = None
     try:
       # The ACTIVE directive lives in the in-process registry (the
       # restructure stage sets it immediately before this re-run; the
-      # draft row cannot carry it — the pipeline's own stage persists
+      # draft row cannot carry it â€” the pipeline's own stage persists
       # rewrite repair_guidance_json and would wipe it before this
       # loader runs). Registry empty == normal run == no-op.
       from client_intake_and_finmo.post_intake_restructure.registry import (  # type: ignore  # noqa: E501
@@ -895,7 +895,7 @@ def prepare_initial_grid_for_draft(
           "price_multipliers": _rs_active.get("pricing"),
           "rent_target": (_rs_active.get("facility") or {}).get("quarterly_rent_target"),
         }
-    except Exception as _rs_exc:  # noqa: BLE001 — no directive, normal run
+    except Exception as _rs_exc:  # noqa: BLE001 â€” no directive, normal run
       _restructure_directive = None
       shared_context["restructure_directive_trace"] = {
         "active": False, "error": f"{type(_rs_exc).__name__}: {str(_rs_exc)[:160]}",
@@ -935,7 +935,7 @@ def prepare_initial_grid_for_draft(
         _wc_naics6 = "".join(
           ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit()
         )
-        # Q1 FACT ANCHORS — implied days from operator-stated balances over
+        # Q1 FACT ANCHORS â€” implied days from operator-stated balances over
         # the engine's own Q1 bases (AR/revenue, Inventory/COGS, AP/opex).
         _wc_q1_rows = ((finmo_json or {}).get("quarter_rows") or [])
         _wc_q1 = _wc_q1_rows[1] if len(_wc_q1_rows) > 1 and isinstance(_wc_q1_rows[1], dict) else {}
@@ -1010,7 +1010,7 @@ def prepare_initial_grid_for_draft(
         )
         # NO deferred-revenue sector gate: whether a business collects
         # upfront is the executive's business-grounded call (see
-        # validate_wc_judgment docstring — the whitelist zeroed Apex's
+        # validate_wc_judgment docstring â€” the whitelist zeroed Apex's
         # real membership-prepay model).
         _wc_result = gpt_author_wc_judgment_once(
           compact=_wc_compact,
@@ -1036,7 +1036,7 @@ def prepare_initial_grid_for_draft(
               }
         else:
           _wc_trace["error"] = _wc_result.get("error")
-    except Exception as _wc_exc:  # noqa: BLE001 — soft: NAICS seed stands
+    except Exception as _wc_exc:  # noqa: BLE001 â€” soft: NAICS seed stands
       _wc_trace = {
         "ok": False, "source": "naics_flat_seed",
         "error": f"{type(_wc_exc).__name__}: {str(_wc_exc)[:200]}",
@@ -1105,7 +1105,7 @@ def prepare_initial_grid_for_draft(
               }
         else:
           _cash_trace["error"] = _cash_result.get("error")
-    except Exception as _cash_exc:  # noqa: BLE001 — soft: constants stand
+    except Exception as _cash_exc:  # noqa: BLE001 â€” soft: constants stand
       _cash_trace = {
         "ok": False, "source": "mechanical_constants",
         "error": f"{type(_cash_exc).__name__}: {str(_cash_exc)[:200]}",
@@ -1115,7 +1115,7 @@ def prepare_initial_grid_for_draft(
     # -- EXECUTIVE HEALTHY-MARGIN BAND JUDGMENT --
     # The band is the pass/fail STANDARD, so it is the highest-stakes
     # judgment the executive holds: authored ONCE here (viability-blind,
-    # locked, Python-railed — the prompt sees identity + structural cost
+    # locked, Python-railed â€” the prompt sees identity + structural cost
     # facts, NEVER the plan's margins) and stamped to
     # solver_input.margin_band_judgment. Consumers: the band-fitting
     # manager (cost maturation must arithmetically aim at the judged
@@ -1142,7 +1142,7 @@ def prepare_initial_grid_for_draft(
       )
       # SAME ARTIFACT, NOT TWO CALLS: intake's coherence section authors
       # this judgment at the completion gate and re-validates its stamp
-      # (digest-keyed) at EVERY completion attempt — so on a completed
+      # (digest-keyed) at EVERY completion attempt â€” so on a completed
       # draft the stamp is fresh by construction. The runner trusts it
       # unconditionally: recomputing the digest here would hash the
       # pipeline-ENRICHED in-memory inputs and spuriously re-author (the
@@ -1176,7 +1176,7 @@ def prepare_initial_grid_for_draft(
         _mb_facts = dict(_mb_operator_levels(financials_json, float(_mb_ann) if _mb_ann else None) or {})
         # PAYROLL + RENT are the heaviest structural lines and the band
         # judgment must see them (a 33%-of-revenue owner-operator payroll
-        # caps the reachable margin as hard as an 86% COGS does) — from
+        # caps the reachable margin as hard as an 86% COGS does) â€” from
         # the engine's own Q1 row, same source the WC judgment anchors to.
         _mb_q1_rows = ((finmo_json or {}).get("quarter_rows") or [])
         _mb_q1 = _mb_q1_rows[1] if len(_mb_q1_rows) > 1 and isinstance(_mb_q1_rows[1], dict) else {}
@@ -1207,7 +1207,7 @@ def prepare_initial_grid_for_draft(
               }
         else:
           _mb_trace["error"] = _mb_result.get("error")
-    except Exception as _mb_exc:  # noqa: BLE001 — soft: derived band stands
+    except Exception as _mb_exc:  # noqa: BLE001 â€” soft: derived band stands
       _mb_trace = {
         "ok": False, "source": "derived_cost_band_only",
         "error": f"{type(_mb_exc).__name__}: {str(_mb_exc)[:200]}",
@@ -1221,7 +1221,7 @@ def prepare_initial_grid_for_draft(
     # call, or rails zero it out) nothing anywhere changes. When it
     # fires, the payroll producers scale the NON-OWNER stated team and
     # the anchor budget toward the coherent structure a real operator
-    # runs at this revenue — right-sizing overstaffing, never
+    # runs at this revenue â€” right-sizing overstaffing, never
     # understaffing-to-pass (the judgment cannot see the verdict; the
     # rails cap the cut at 60% and never below the owner's wage).
     _hc_trace: Dict[str, Any] = {"ok": False, "source": "stated_team_stands"}
@@ -1293,12 +1293,12 @@ def prepare_initial_grid_for_draft(
               }
         else:
           _hc_trace["error"] = _hc_result.get("error")
-    except Exception as _hc_exc:  # noqa: BLE001 — soft: the stated team stands
+    except Exception as _hc_exc:  # noqa: BLE001 â€” soft: the stated team stands
       _hc_trace = {
         "ok": False, "source": "stated_team_stands",
         "error": f"{type(_hc_exc).__name__}: {str(_hc_exc)[:200]}",
       }
-    # RESTRUCTURE OVERRIDE — the restructure stage's team design is a
+    # RESTRUCTURE OVERRIDE â€” the restructure stage's team design is a
     # stronger authority than the standalone coherence judgment: the
     # executive, in the turnaround seat with the four reality
     # constraints, designed this team. Reuses the exact right-sizing
@@ -1344,7 +1344,7 @@ def prepare_initial_grid_for_draft(
       finmo_json=copy.deepcopy(finmo_json or {}),
     )
     if not capex_rd_seed_envelope.get("accepted"):
-      # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+      # Step 9d item 6 â€” FAIL_ROUND1_SET_TOOL_REJECTED
       # (set_capex_rd_balance_seed branch).
       from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
         FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
@@ -1379,7 +1379,7 @@ def prepare_initial_grid_for_draft(
     finmo_json = build_python_finmo_json(
       model_input_json=copy.deepcopy(model_input_json or {}),
     )
-    # Step 9d item 5 — FAIL_MIRROR_FINMO_BASELINE_BUILD. The baseline
+    # Step 9d item 5 â€” FAIL_MIRROR_FINMO_BASELINE_BUILD. The baseline
     # FINMO is the input to mirror_build's plan_state / bands lookup;
     # an empty or non-dict baseline means a malformed model_input made
     # it past r_and_d toggle, and continuing would feed the session
@@ -1540,13 +1540,13 @@ def prepare_initial_grid_for_draft(
           _anchor_q1 = (_abs_v / _pct_v) / 4.0
           _anchor_q1_source = f"derived_{_abs_key}_over_{_pct_key}"
           break
-    # HOLISTIC REVENUE — the manager JUDGES growth, the machine EXECUTES it.
+    # HOLISTIC REVENUE â€” the manager JUDGES growth, the machine EXECUTES it.
     # The proposer's mechanics (Q1 anchor to stated revenue, smooth taper,
     # QoQ cap, driver allocation) stay Python-owned; the executive-manager
     # supplies only the JUDGMENT the machine lacks: how fast THIS business
     # realistically grows in ITS market. The judgment is viability-blind
     # (the prompt never sees pass/fail), response-locked (deterministic),
-    # and rail-clamped: judged QoQ rates live in [0, qoq cap] — the
+    # and rail-clamped: judged QoQ rates live in [0, qoq cap] â€” the
     # manager can only TIGHTEN the curve relative to the mechanical
     # ceiling, never widen it. A failed call keeps today's universal
     # defaults exactly.
@@ -1563,7 +1563,7 @@ def prepare_initial_grid_for_draft(
       # SAME ARTIFACT, NOT TWO CALLS: intake's coherence gate authors
       # this judgment with the same seat/inputs/clamps and stamps it to
       # financials_json._coherence.judged_growth (re-validated at every
-      # completion attempt — fresh by construction on a completed
+      # completion attempt â€” fresh by construction on a completed
       # draft). Trust the stamp; re-authoring here against post-walk
       # inputs would diverge (the margin-band lesson).
       _jg_stamp = ((financials_json or {}).get("_coherence") or {}).get("judged_growth")
@@ -1579,7 +1579,7 @@ def prepare_initial_grid_for_draft(
           "qoq_end_applied": round(_growth_kwargs["qoq_end"], 6),
           "rail_qoq_max": float(_GROWTH_RAIL_QOQ),
         }
-        _growth_compact = None  # stamp reused — no author call
+        _growth_compact = None  # stamp reused â€” no author call
       else:
         _growth_compact = build_operating_model_digest(
           ops_json, people_json, market_json, marketing_model_json,
@@ -1608,16 +1608,16 @@ def prepare_initial_grid_for_draft(
           }
         else:
           _growth_trace = {"ok": False, "source": "mechanical_defaults", "error": _gj.get("error")}
-    except Exception as _gj_exc:  # noqa: BLE001 — soft: defaults stand
+    except Exception as _gj_exc:  # noqa: BLE001 â€” soft: defaults stand
       _growth_trace = {
         "ok": False, "source": "mechanical_defaults",
         "error": f"{type(_gj_exc).__name__}: {str(_gj_exc)[:200]}",
       }
-    # RESTRUCTURE CONSUMPTION: GROWTH — the executive's redesigned growth
+    # RESTRUCTURE CONSUMPTION: GROWTH â€” the executive's redesigned growth
     # path replaces the standalone growth judgment (same seat, better-
     # informed: the redesign was made WITH the solver's gap report in
-    # hand). Same rails as the judgment it replaces: annual→QoQ, clamped
-    # to [0, mechanical QoQ cap] — the machine's cap is a law of physics
+    # hand). Same rails as the judgment it replaces: annualâ†’QoQ, clamped
+    # to [0, mechanical QoQ cap] â€” the machine's cap is a law of physics
     # the redesign cannot repeal.
     try:
       if _restructure_directive is not None:
@@ -1644,7 +1644,7 @@ def prepare_initial_grid_for_draft(
             "rail_qoq_max": float(_RS_GROWTH_RAIL_QOQ),
             "rationale": str(_rs_growth.get("rationale") or "")[:600],
           }
-    except Exception:  # noqa: BLE001 — soft: the judged/default growth stands
+    except Exception:  # noqa: BLE001 â€” soft: the judged/default growth stands
       pass
     _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
@@ -1711,22 +1711,22 @@ def prepare_initial_grid_for_draft(
         }
       else:
         sequence_trace["revenue_authoring"] = {"ok": False, "error": _rev_pass.get("error")}
-  except Exception as _rev_exc:  # noqa: BLE001 — soft sink: must not break a run
+  except Exception as _rev_exc:  # noqa: BLE001 â€” soft sink: must not break a run
     sequence_trace["revenue_authoring"] = {"error": repr(_rev_exc)}
 
   # ----- RESTRUCTURE CONSUMPTION: THE REVENUE STRUCTURE -----
   # The executive's redesigned revenue side lands in the machine here,
   # BEFORE band fitting so the fitted bands ground on the redesigned
   # revenue. Q1 always stays stated reality (the starting line is fact);
-  # every change is a glide — linear to the Q11 design by Q11, then to
+  # every change is a glide â€” linear to the Q11 design by Q11, then to
   # the Q20 design by Q20. Three moves:
-  #   1. PRICING — designed multipliers on every Unit Price row.
-  #   2. MIX REALLOCATION — designed per-line volume multipliers on the
+  #   1. PRICING â€” designed multipliers on every Unit Price row.
+  #   2. MIX REALLOCATION â€” designed per-line volume multipliers on the
   #      matching line's Capacity row (0.0 winds the line down = drop).
-  #   3. NEW LINES — designed additions synthesized as full driver-row
+  #   3. NEW LINES â€” designed additions synthesized as full driver-row
   #      triples (Unit Price / Capacity / Utilization), ramped from
   #      zero to the designed Q11 quarterly revenue.
-  # No directive (every first run, every viable business) → no-op.
+  # No directive (every first run, every viable business) â†’ no-op.
   try:
     if _restructure_directive is not None and isinstance(model_input_json, dict):
       _rs_trace: Dict[str, Any] = {"applied": False}
@@ -1765,7 +1765,7 @@ def prepare_initial_grid_for_draft(
         "rows": _rs_price_rows, "m11": _rs_m11, "m20": _rs_m20,
       }
 
-      # 2. MIX REALLOCATION — per-line volume glides on Capacity rows
+      # 2. MIX REALLOCATION â€” per-line volume glides on Capacity rows
       # and per-line price glides on Unit Price rows (each line priced
       # inside ITS OWN market ceiling; the global pricing lever above
       # stays for whole-plan repricing).
@@ -1829,7 +1829,7 @@ def prepare_initial_grid_for_draft(
         })
       _rs_trace["mix_lines"] = _rs_mix_applied
 
-      # 3. NEW LINES — contract-valid driver-row triples in their own
+      # 3. NEW LINES â€” contract-valid driver-row triples in their own
       # revenue slot (shared synthesis with the restructure searcher, so
       # the real re-run materializes EXACTLY what the search evaluated).
       from client_intake_and_finmo.post_intake_restructure.searcher import (  # type: ignore  # noqa: E501
@@ -1868,7 +1868,7 @@ def prepare_initial_grid_for_draft(
         _rs_price_rows or _rs_mix_applied or _rs_new_added
       )
       sequence_trace["restructure_revenue"] = _rs_trace
-  except Exception as _rs_p_exc:  # noqa: BLE001 — soft sink
+  except Exception as _rs_p_exc:  # noqa: BLE001 â€” soft sink
     sequence_trace["restructure_revenue"] = {"applied": False, "error": repr(_rs_p_exc)}
   if _restructure_directive is not None:
     try:
@@ -1952,9 +1952,9 @@ def prepare_initial_grid_for_draft(
       operator_cost_levels,
     )
     _bf_operator_levels = operator_cost_levels(financials_json, sum(_bf_line[:4]) or None)
-    # RESTRUCTURE CONSUMPTION: THE FULL COST STRUCTURE — the executive's
+    # RESTRUCTURE CONSUMPTION: THE FULL COST STRUCTURE â€” the executive's
     # redesigned cost shape anchors the fitted bands (rent from the
-    # facility design; COGS/marketing/G&A from cost_structure — COGS is
+    # facility design; COGS/marketing/G&A from cost_structure â€” COGS is
     # where a margin-improving mix shift lands), so the cascade matures
     # every cost lever toward the redesigned structure through its
     # normal machinery. The degenerate-anchor guard in
@@ -1985,7 +1985,7 @@ def prepare_initial_grid_for_draft(
             continue
     except Exception:
       pass
-    # EXECUTIVE MARGIN BAND — the manager's cost maturation must aim its
+    # EXECUTIVE MARGIN BAND â€” the manager's cost maturation must aim its
     # arithmetic at the judged healthy band (stamped upstream, viability-
     # blind); absent judgment, the pass behaves exactly as before.
     _bf_margin_band = None
@@ -2045,7 +2045,7 @@ def prepare_initial_grid_for_draft(
       }
     else:
       sequence_trace["band_fitting"] = {"ok": False, "error": _bf_pass.get("error")}
-  except Exception as _bf_exc:  # noqa: BLE001 — soft sink: must not break a run
+  except Exception as _bf_exc:  # noqa: BLE001 â€” soft sink: must not break a run
     sequence_trace["band_fitting"] = {"error": repr(_bf_exc)}
 
   r_and_d_applicability_decision_for_ramp = copy.deepcopy(
@@ -2063,7 +2063,7 @@ def prepare_initial_grid_for_draft(
     planning_context_summary_json["r_and_d_applicability"] = copy.deepcopy(
       r_and_d_applicability_decision_for_ramp
     )
-  # P3.33 Phase 3 8b-fix — REPLACE the legacy _execute_sequence_step
+  # P3.33 Phase 3 8b-fix â€” REPLACE the legacy _execute_sequence_step
   # call for stage_ramp_contract with a direct set_stage_ramp_contract
   # (contract=None) call. The tool's contract=None path runs the same
   # Python-first builder (build_python_stage_ramp_contract +
@@ -2090,7 +2090,7 @@ def prepare_initial_grid_for_draft(
     r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
   )
   if not stage_ramp_envelope.get("accepted"):
-    # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+    # Step 9d item 6 â€” FAIL_ROUND1_SET_TOOL_REJECTED
     # (set_stage_ramp_contract branch).
     from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
       FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
@@ -2136,7 +2136,7 @@ def prepare_initial_grid_for_draft(
     current_finmo_json: Dict[str, Any],
     stage_prefix: str,
   ) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-    # Phase 9 P3.11 — outer retry removed; inner GPT call now runs the
+    # Phase 9 P3.11 â€” outer retry removed; inner GPT call now runs the
     # iterative refinement loop internally. The step_key is fixed at
     # "payroll_headcount_schedule" and the previous_contract_failure
     # parameter to the inner function was dropped (all feedback is
@@ -2224,12 +2224,12 @@ def prepare_initial_grid_for_draft(
       required_lookup_tables=["post_intake_headcount_policy_lookup"],
       required_horizon_rule="naics_filtered_oews_titles_before_gpt_selection",
     )
-    # P3.33 Phase 3 8b-fix — REPLACE the legacy _execute_sequence_step
+    # P3.33 Phase 3 8b-fix â€” REPLACE the legacy _execute_sequence_step
     # payroll authoring with a direct set_payroll_schedule(contract=None)
     # call. set_payroll_schedule's contract=None path now internally
     # invokes estimate_payroll_headcount_schedule_with_gpt (Handler C)
     # to author the contract, then validates + builds the payload.
-    # See set_payroll_schedule.py — the tool became the canonical
+    # See set_payroll_schedule.py â€” the tool became the canonical
     # orchestrator entry point for round-1 payroll authoring as part
     # of step 8b-fix.
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_payroll_schedule import (  # type: ignore  # noqa: E501
@@ -2252,7 +2252,7 @@ def prepare_initial_grid_for_draft(
       planning_mode_reason=planning_mode_reason,
     )
     if not payroll_envelope.get("accepted"):
-      # Step 9d item 6 — FAIL_ROUND1_SET_TOOL_REJECTED
+      # Step 9d item 6 â€” FAIL_ROUND1_SET_TOOL_REJECTED
       # (set_payroll_schedule branch).
       from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
         FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,
@@ -2292,7 +2292,7 @@ def prepare_initial_grid_for_draft(
           "rationale": _ls_env.get("rationale"),
           "judgment_source": _ls_env.get("judgment_source"),
         }
-    # Step 9d item 7 — FAIL_ROUND1_PLAN_STATE_INCOMPLETE. After all
+    # Step 9d item 7 â€” FAIL_ROUND1_PLAN_STATE_INCOMPLETE. After all
     # three round-1 set_* calls succeeded, the section payloads must
     # be non-empty so the SessionDriver can read them. Drivers are
     # NOT a round-1 section (set_drivers(anchors=None) is by-design
@@ -2320,7 +2320,7 @@ def prepare_initial_grid_for_draft(
         ),
         where="post_intake_initial_grid.runner (post-round1 completeness)",
       )
-    # C6 — emit ROUND1_COMPLETED now that all three round-1 set_* calls
+    # C6 â€” emit ROUND1_COMPLETED now that all three round-1 set_* calls
     # have succeeded and the completeness check passed. Drivers are
     # intentionally deferred to the cascade.
     try:
@@ -2406,6 +2406,7 @@ def prepare_initial_grid_for_draft(
         process_step_key=payroll_control_step_key,
         control_action="derive",
         control_trigger="payroll_headcount_changed",
+        stated_annual_wages=safe_float((financials_json or {}).get("current_payroll")),
       )
       next_model_input = apply_derived_driver_policies_to_model_input(
         copy.deepcopy(next_model_input),
@@ -2497,6 +2498,7 @@ def prepare_initial_grid_for_draft(
         copy.deepcopy(capacity_model_input_json),
         copy.deepcopy(schedule_payload),
         live_count=payroll_horizon,
+        stated_annual_wages=safe_float((financials_json or {}).get("current_payroll")),
       )
       next_model_input = apply_derived_driver_policies_to_model_input(
         copy.deepcopy(next_model_input),
@@ -2590,12 +2592,12 @@ def prepare_initial_grid_for_draft(
       payroll_headcount_payload=payroll_headcount_payload,
     )
   else:
-    # Phase 9 P3.11 — outer payroll_grid_rebuild_limit retry removed.
+    # Phase 9 P3.11 â€” outer payroll_grid_rebuild_limit retry removed.
     # The inner estimate_payroll_headcount_schedule_with_gpt now runs
     # an iterative refinement loop (10 rounds) internally; one outer
     # invocation is all that's needed. Post-quarter-grid feasibility
     # violations are now hard-fail rather than retry-eligible
-    # (intentional per the directive — quarter-grid disturbing payroll
+    # (intentional per the directive â€” quarter-grid disturbing payroll
     # feasibility surfaces a deeper issue that retrying papered over).
     payroll_headcount_payload, model_input_json, finmo_json = _build_and_apply_payroll_schedule(
       current_model_input_json=copy.deepcopy(model_input_json),
@@ -2807,7 +2809,7 @@ def prepare_initial_grid_for_draft(
       )
       # P3.26 Site A: route payroll feasibility failures back to
       # Handler C (single-shot; Handler C's internal 10-round loop
-      # IS the retry). Doctrine §6: Handler C is canonical for
+      # IS the retry). Doctrine Â§6: Handler C is canonical for
       # payroll dollars; re-authoring through it preserves Mirror
       # Flavor 1 alignment across all four payroll surfaces. After
       # repair, re-run the same check; if still failing, hard-fail
@@ -2866,16 +2868,16 @@ def prepare_initial_grid_for_draft(
           stage="quarter_grid_applied_after_feasibility_repair",
         )
 
-  # P3.33 Phase 3 8b-fix — amalgamated restructure session.
+  # P3.33 Phase 3 8b-fix â€” amalgamated restructure session.
   #
   # Round-1 authoring has produced applied_model_input_json +
   # applied_finmo_json via the four set_*(contract=None) calls earlier
   # in this function (REPLACE pattern per the step-8 design discussion
-  # Q2 reframing — no _execute_sequence_step legacy authoring path
+  # Q2 reframing â€” no _execute_sequence_step legacy authoring path
   # remains). The mirror is built AFTER round-1 with the complete
-  # plan_state snapshot, then SessionDriver runs the §5 restructure
+  # plan_state snapshot, then SessionDriver runs the Â§5 restructure
   # protocol over it: evaluate_plan classifies failures, the cascade
-  # revises sections in §7.1 priority order, floor primitives
+  # revises sections in Â§7.1 priority order, floor primitives
   # guarantee a committed in-bounds plan on cascade exhaustion.
   #
   # FAIL-FAST: no try/except wrapper here. driver_run_with_audit_
@@ -2958,12 +2960,12 @@ def prepare_initial_grid_for_draft(
       "termination_detail": amalgamated_result.termination_detail,
     }
 
-  # P3.40 Contract 1 Commit 3 — producer-side boundary enforcement.
+  # P3.40 Contract 1 Commit 3 â€” producer-side boundary enforcement.
   # Validate `applied_model_input_json` against FinmoModelInputContract
   # before handing it to `run_target_seeking_orchestrated_system_run`
   # (which will mutate it further via feasibility restoration and the
   # cascade). Raises ContractViolation with stage tag
-  # "AMALGAMATED_SESSION→MODEL_INPUT" on shape failure; emits a
+  # "AMALGAMATED_SESSIONâ†’MODEL_INPUT" on shape failure; emits a
   # diagnostic event on success (MODEL_INPUT_CONTRACT_VALIDATED with
   # side="producer"). Consumer-side mirror lands at
   # `build_python_finmo_json` entry in Commit 4.

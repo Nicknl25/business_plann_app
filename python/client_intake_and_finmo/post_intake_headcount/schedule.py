@@ -3474,6 +3474,7 @@ def apply_payroll_headcount_payload_to_model_input(
   process_step_key: str = "payroll_headcount_schedule",
   control_action: str = "derive",
   control_trigger: str = "payroll_headcount_changed",
+  stated_annual_wages: Optional[float] = None,
 ) -> Dict[str, Any]:
   _assert_payroll_sequence_step(
     allowed_step_keys=[],
@@ -3578,6 +3579,95 @@ def apply_payroll_headcount_payload_to_model_input(
       },
     )
   derived_live_values = [float(totals_by_quarter[quarter]) for quarter in range(1, live_count + 1)]
+
+  # ── PAYROLL PROVENANCE ────────────────────────────────────────────
+  # The landed Payroll line must be traceable to what the client stated.
+  # Doctrine: intake captures WAGES; the expense line is LOADED labor
+  # cost = wages x (1 + payroll_taxes_benefits_percent). The load is a
+  # DELIBERATE, policy-governed concept (policy DB column, validated
+  # 0.12-0.35), fleet-verified at exactly x1.22 on every business before
+  # this record existed. This stamp makes the whole chain visible:
+  # stated wages -> reconstructed roster wages (OEWS flooring and
+  # part-time adaptations listed) -> benefits load -> landed line.
+  _prov_q1_wages = 0.0
+  _prov_pcts: set = set()
+  _prov_adaptations: List[Dict[str, Any]] = []
+  for _pr in schedule_rows:
+    try:
+      if int(float(_pr.get("quarter_index") or 0)) != 1:
+        continue
+      _prov_fte = float(
+        _pr.get("ending_fte") if _pr.get("ending_fte") is not None
+        else (_pr.get("starting_fte") or 0.0)
+      )
+      _prov_wage = float(_pr.get("annual_wage") or 0.0)
+    except (TypeError, ValueError):
+      continue
+    _prov_q1_wages += max(0.0, _prov_fte) * max(0.0, _prov_wage)
+    _prov_pct_raw = _pr.get("payroll_taxes_benefits_percent")
+    if _prov_pct_raw is not None:
+      try:
+        _prov_pcts.add(round(float(_prov_pct_raw), 4))
+      except (TypeError, ValueError):
+        pass
+    _prov_src = str(_pr.get("wage_source") or "")
+    if "_adapted" in _prov_src:
+      _prov_adaptations.append({
+        "role_title": (
+          _pr.get("role_title") or _pr.get("title")
+          or _pr.get("person_name") or _pr.get("oews_matched_title")
+        ),
+        "wage_source": _prov_src,
+        "annual_wage": _pr.get("annual_wage"),
+      })
+  _prov_landed_annual = round(derived_live_values[0] * 4.0, 2) if derived_live_values else None
+  _prov_stated = None
+  try:
+    if stated_annual_wages is not None and float(stated_annual_wages) > 0.0:
+      _prov_stated = round(float(stated_annual_wages), 2)
+  except (TypeError, ValueError):
+    _prov_stated = None
+  if _prov_stated is None:
+    # STICKY: the schedule is re-applied on every rebuild from call
+    # sites without financials scope (e.g. the derived-policy
+    # re-apply); the stated fact from the pipeline's first stamped
+    # application must survive those re-applies, not be clobbered.
+    _prov_prior = ((next_payload.get("solver_input") or {}).get("payroll_provenance")) or {}
+    try:
+      _prov_prior_stated = _prov_prior.get("stated_annual_wages")
+      if _prov_prior_stated is not None and float(_prov_prior_stated) > 0.0:
+        _prov_stated = round(float(_prov_prior_stated), 2)
+    except (TypeError, ValueError):
+      pass
+  payroll_provenance: Dict[str, Any] = {
+    "doctrine": (
+      "intake states WAGES; the Payroll line is LOADED labor cost "
+      "(wages + employer payroll taxes/benefits)"
+    ),
+    "stated_annual_wages": _prov_stated,
+    "q1_roster_annual_wages": round(_prov_q1_wages, 2),
+    "payroll_taxes_benefits_percent": (
+      sorted(_prov_pcts)[0] if len(_prov_pcts) == 1 else sorted(_prov_pcts)
+    ),
+    "benefits_source": (
+      "post_intake_headcount_policy_lookup.default_payroll_tax_benefits_pct "
+      "(policy DB, validated 0.12-0.35)"
+    ),
+    "q1_landed_annual_loaded": _prov_landed_annual,
+    "implied_load_factor": (
+      round(_prov_landed_annual / _prov_q1_wages, 4)
+      if _prov_landed_annual and _prov_q1_wages > 0 else None
+    ),
+    "roster_vs_stated_ratio": (
+      round(_prov_q1_wages / _prov_stated, 4) if _prov_stated else None
+    ),
+    "stated_fact_band": [0.70, 1.30],
+    "wage_adaptations": _prov_adaptations[:12],
+  }
+  next_payload.setdefault("solver_input", {})
+  if isinstance(next_payload.get("solver_input"), dict):
+    next_payload["solver_input"]["payroll_provenance"] = deepcopy(payroll_provenance)
+
   payroll_row["controller_write"] = False
   payroll_row["derived_driver"] = PAYROLL_HEADCOUNT_SOURCE
   payroll_row["payroll_headcount_schedule"] = {
@@ -3593,6 +3683,7 @@ def apply_payroll_headcount_payload_to_model_input(
     "schedule_contract_version": schedule.get("contract_version"),
     "schedule_horizon_quarters": schedule.get("schedule_horizon_quarters"),
     "quarter_totals": deepcopy(schedule.get("quarter_totals") or []),
+    "provenance": deepcopy(payroll_provenance),
   }
   payroll_row["values"] = _compose_period_values(stub_value=stub_value, live_values=derived_live_values)
   next_payload.setdefault("derived_driver_policies", {})
