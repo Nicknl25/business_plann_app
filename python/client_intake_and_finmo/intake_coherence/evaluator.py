@@ -225,6 +225,70 @@ def evaluate_structural(basis: StructuralBasis, thresholds: Thresholds) -> Dict[
   }
 
 
+def growth_multiple_from_judged(
+  judged_growth: Optional[Dict[str, Any]],
+  *,
+  ops_json: Optional[Dict[str, Any]] = None,
+  to_quarter: int = 11,
+) -> Optional[float]:
+  """Q1→Q<to_quarter> revenue multiple by CALLING the engine's own
+  deterministic revenue proposer with the judged rates and the intake
+  ops line reference, and reading the multiple off its own output.
+
+  NOT a mirror: the proposer composes the growth taper WITH a
+  utilization ramp (stated → mature by Q11) and price drift — the
+  taper-only mirror understated Meridian ×1.184 vs the engine's ×1.392
+  and flipped its verdict. Single source of truth, zero drift by
+  construction; the multiple is anchor-scale-invariant so no revenue
+  anchor is needed.
+
+  Returns None when the judgment or a usable line reference is absent —
+  callers fall back to the authorable fence, never to a guess."""
+  jg = judged_growth if isinstance(judged_growth, dict) else {}
+  qs = _opt(jg.get("qoq_start"))
+  qe = _opt(jg.get("qoq_end"))
+  if qs is None or qe is None:
+    return None
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import (
+    _build_lines_of_business_slice,
+  )
+  from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (
+    propose_revenue_drivers_deterministic,
+  )
+  reference = _build_lines_of_business_slice(ops_json)
+  if not reference:
+    return None
+  result = propose_revenue_drivers_deterministic(
+    current_revenue_reference=reference,
+    qoq_start=qs,
+    qoq_end=qe,
+  )
+  if not result.get("ok"):
+    return None
+  q1_total = 0.0
+  qn_total = 0.0
+  for line in ((result.get("drivers") or {}).get("lines_of_business") or []):
+    by_q = {}
+    for q in (line.get("quarters") or []):
+      try:
+        by_q[int(q.get("q"))] = q
+      except (TypeError, ValueError):
+        continue
+    def _rev(entry: Optional[Dict[str, Any]]) -> float:
+      if not isinstance(entry, dict):
+        return 0.0
+      return (
+        _f(entry.get("capacity_units_per_period"))
+        * _f(entry.get("unit_price"))
+        * _f(entry.get("utilization_rate"))
+      )
+    q1_total += _rev(by_q.get(1))
+    qn_total += _rev(by_q.get(int(to_quarter)))
+  if q1_total <= 0 or qn_total <= 0:
+    return None
+  return qn_total / q1_total
+
+
 # ------------------------------------------------------------------ bases
 
 def basis_from_intake(

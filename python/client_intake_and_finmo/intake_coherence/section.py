@@ -142,6 +142,12 @@ def _ensure_margin_band(
   if state.get("margin_band_judgment") and state.get("digest_hash") == digest_hash:
     return state
   state = dict(state)
+  # Identity-level change: EVERY judged artifact keyed to the old
+  # identity is stale — the band re-authors below; growth, bounds,
+  # corner, and the live round must re-derive on the new identity.
+  if state.get("digest_hash") and state.get("digest_hash") != digest_hash:
+    for stale_key in ("judged_growth", "growth_error", "bounds", "bounds_error", "corner", "round"):
+      state.pop(stale_key, None)
   state["digest_hash"] = digest_hash
   try:
     from client_intake_and_finmo.post_intake_headcount.band_fitting import (
@@ -179,6 +185,60 @@ def _ensure_margin_band(
       state["margin_band_error"] = str(result.get("error") or "author_failed")[:300]
   except Exception as exc:  # noqa: BLE001 — thresholds fall back to doctrine constants
     state["margin_band_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+  return state
+
+
+def _ensure_growth_judgment(
+  state: Dict[str, Any],
+  *,
+  ops_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Author the growth judgment ONCE at the gate (same seat, same
+  inputs, same clamps as the initial-grid runner). Stamped to
+  state["judged_growth"]; post-intake reuses the stamp. A failed call
+  leaves no stamp — the evaluator falls back to the authorable fence,
+  exactly the pre-judgment behavior."""
+  if state.get("judged_growth"):
+    return state
+  state = dict(state)
+  try:
+    from client_intake_and_finmo.post_intake_amalgamated.mirror import (
+      build_operating_model_digest,
+    )
+    from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (
+      _DEFAULT_QOQ_MAX,
+    )
+    from client_intake_and_finmo.post_intake_headcount.gpt_growth_judgment import (
+      annual_to_qoq,
+      gpt_author_growth_judgment_once,
+    )
+    compact = build_operating_model_digest(
+      ops_json, people_json, market_json, marketing_model_json,
+    )
+    ann_rev = _f(financials_json.get("current_revenue"))
+    result = gpt_author_growth_judgment_once(
+      compact=compact,
+      current_annual_revenue=ann_rev if ann_rev > 0 else None,
+    )
+    if result.get("ok") and result.get("judgment"):
+      j = result["judgment"]
+      rail = float(_DEFAULT_QOQ_MAX)
+      state["judged_growth"] = {
+        "qoq_start": round(min(max(annual_to_qoq(j["year1_annual_growth"]), 0.0), rail), 6),
+        "qoq_end": round(min(max(annual_to_qoq(j["mature_annual_growth"]), 0.0), rail), 6),
+        "source": "coherence_gate_growth_judgment",
+        "year1_annual_growth": j["year1_annual_growth"],
+        "mature_annual_growth": j["mature_annual_growth"],
+      }
+      state.pop("growth_error", None)
+    else:
+      state["growth_error"] = str(result.get("error") or "author_failed")[:300]
+  except Exception as exc:  # noqa: BLE001 — fence fallback stands
+    state["growth_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
   return state
 
 
@@ -296,6 +356,20 @@ def apply_router_patch(
     return remaining, next_ops, next_fin, notes
 
   option_id = remaining.pop("coherence.option", remaining.pop("option", None))
+  if option_id is not None and str(option_id).strip().lower() in ("decline", "declined", "none", "keep"):
+    # Declining a lever is a respected answer: mark the round walked so
+    # the planner moves to the next lever instead of re-asking (the
+    # canary proved a verbatim re-ask reads as a loop to everyone).
+    state = dict(state)
+    done = list(state.get("rounds_done") or [])
+    rkey = rnd.get("key")
+    if rkey and rkey not in done:
+      done.append(rkey)
+    state["rounds_done"] = done
+    state.pop("round", None)
+    next_fin = put_state(next_fin, state)
+    notes.append(f"declined:{rkey}")
+    option_id = None
   if option_id is not None:
     chosen = None
     for o in rnd.get("options") or []:
@@ -581,13 +655,55 @@ def gate_and_turn(
     marketing_model_json=marketing_model_json,
     financials_json=financials_json, financials_year1_json=financials_year1_json,
   )
+  state = _ensure_growth_judgment(
+    state,
+    ops_json=ops_json, people_json=people_json, market_json=market_json,
+    marketing_model_json=marketing_model_json, financials_json=financials_json,
+  )
   band = state.get("margin_band_judgment")
-  eval_result = _ctl.evaluate_current(
+  from client_intake_and_finmo.intake_coherence.evaluator import (
+    growth_multiple_from_judged,
+  )
+  growth_mult = growth_multiple_from_judged(
+    state.get("judged_growth"), ops_json=ops_json,
+  )
+  # TWO-TIER EVALUATION. The fence answers the gate-entry question —
+  # "can the engine author a pass from this structure" — which includes
+  # cost-restatement freedom the closed form cannot see (empirically
+  # 7/7 against the fleet; judged-basis entry flips Meridian, whose
+  # engine pass came from fitted costs, not growth). The judged
+  # multiple answers "will THIS configuration hold at the ramp the
+  # engine will actually author" — the standard a WALK-built
+  # configuration must meet before we promise on it (Redux: fence
+  # said converged, the judged point said keep walking — the false
+  # convergence). Judged-pass implies fence-pass (lower revenue, same
+  # costs), so convergence stays monotone.
+  eval_fence = _ctl.evaluate_current(
     financials_json=financials_json,
     ops_json=ops_json,
     financials_year1_json=financials_year1_json,
     margin_band=band,
+    growth_to_q11=None,
   )
+  eval_judged = None
+  if growth_mult and eval_fence is not None:
+    eval_judged = _ctl.evaluate_current(
+      financials_json=financials_json,
+      ops_json=ops_json,
+      financials_year1_json=financials_year1_json,
+      margin_band=band,
+      growth_to_q11=growth_mult,
+    )
+  use_judged = eval_judged is not None and (
+    state.get("status") == _ctl.STATUS_WALKING
+    or (eval_fence is not None and not eval_fence.get("passed"))
+  )
+  eval_result = eval_judged if use_judged else eval_fence
+  if eval_result is not None:
+    eval_result["basis_growth"] = {
+      "used": "judged" if use_judged else "fence",
+      "judged_multiple": round(growth_mult, 4) if growth_mult else None,
+    }
   if eval_result is None:
     # No revenue basis at all — nothing structural to say; let the
     # existing flow complete (the engine's own thin-input ladders own
@@ -624,10 +740,22 @@ def gate_and_turn(
     marketing_model_json=marketing_model_json, financials_json=financials_json,
   )
   bounds = state.get("bounds")
+  from client_intake_and_finmo.intake_coherence.evaluator import GROWTH_FENCE_Q11
+  # Corner = exists-authorable at the FENCE (matches the restructure
+  # solver's own outcome semantics — 2/2 on the fleet). The walk's
+  # rounds/gap = the judged basis, so lever math and the gap the
+  # client watches are the same arithmetic that decides convergence.
+  corner_basis = basis_from_intake(
+    financials_json=financials_json,
+    ops_json=ops_json,
+    financials_year1_json=financials_year1_json,
+    growth_to_q11=GROWTH_FENCE_Q11,
+  )
   basis = basis_from_intake(
     financials_json=financials_json,
     ops_json=ops_json,
     financials_year1_json=financials_year1_json,
+    growth_to_q11=growth_mult if (growth_mult and use_judged) else GROWTH_FENCE_Q11,
   )
   thresholds = thresholds_from_margin_band(band)
 
@@ -644,7 +772,7 @@ def gate_and_turn(
 
   if state.get("corner") is None:
     state["corner"] = _ctl.corner_check(
-      basis=basis, thresholds=thresholds, bounds=bounds,
+      basis=corner_basis, thresholds=thresholds, bounds=bounds,
       ops_json=ops_json, financials_json=financials_json,
     )
   corner = state["corner"]

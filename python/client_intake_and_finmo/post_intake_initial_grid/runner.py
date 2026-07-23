@@ -1560,9 +1560,30 @@ def prepare_initial_grid_for_draft(
       from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (  # type: ignore  # noqa: E501
         _DEFAULT_QOQ_MAX as _GROWTH_RAIL_QOQ,
       )
-      _growth_compact = build_operating_model_digest(
-        ops_json, people_json, market_json, marketing_model_json,
-      )
+      # SAME ARTIFACT, NOT TWO CALLS: intake's coherence gate authors
+      # this judgment with the same seat/inputs/clamps and stamps it to
+      # financials_json._coherence.judged_growth (re-validated at every
+      # completion attempt — fresh by construction on a completed
+      # draft). Trust the stamp; re-authoring here against post-walk
+      # inputs would diverge (the margin-band lesson).
+      _jg_stamp = ((financials_json or {}).get("_coherence") or {}).get("judged_growth")
+      if isinstance(_jg_stamp, dict) and _jg_stamp.get("qoq_start") is not None:
+        _growth_kwargs = {
+          "qoq_start": min(max(float(_jg_stamp["qoq_start"]), 0.0), float(_GROWTH_RAIL_QOQ)),
+          "qoq_end": min(max(float(_jg_stamp.get("qoq_end") or 0.0), 0.0), float(_GROWTH_RAIL_QOQ)),
+        }
+        _growth_trace = {
+          "ok": True,
+          "source": "coherence_stamp_reused",
+          "qoq_start_applied": round(_growth_kwargs["qoq_start"], 6),
+          "qoq_end_applied": round(_growth_kwargs["qoq_end"], 6),
+          "rail_qoq_max": float(_GROWTH_RAIL_QOQ),
+        }
+        _growth_compact = None  # stamp reused — no author call
+      else:
+        _growth_compact = build_operating_model_digest(
+          ops_json, people_json, market_json, marketing_model_json,
+        )
       if _growth_compact:
         _gj = gpt_author_growth_judgment_once(
           compact=_growth_compact,

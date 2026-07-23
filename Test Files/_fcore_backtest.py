@@ -47,11 +47,13 @@ sys.path.insert(0, "C:/dev/business_plann_app/python")
 
 from client_intake_and_finmo.intake_coherence.evaluator import (
     COVERAGE_FLOOR,
+    GROWTH_FENCE_Q11,
     QUARTERLY_DEBT_SERVICE_FACTOR,
     basis_from_intake,
     basis_from_model_input,
     evaluate_structural,
     favorable_corner_basis,
+    growth_multiple_from_judged,
     thresholds_from_margin_band,
 )
 
@@ -187,9 +189,17 @@ for label, name, revenue_filter in BUSINESSES:
     if legacy_gna and not _f(fin, "other_opex_absolute"):
         fin["other_opex_absolute"] = _f(fin, "other_operating_expense")
 
-    # ---------------- 1. VERDICT (intake basis) ----------------
+    # ---------------- 1. VERDICT (intake basis, FENCE) ----------------
+    # The gate-entry verdict evaluates at the fence: exists-authorable,
+    # including the engine's cost-restatement freedom the closed form
+    # can't see (judged-basis entry flips Meridian, whose engine pass
+    # came from fitted costs, not growth). The judged multiple governs
+    # the WALK tier — its multiple is printed as information here.
+    judged = (mi.get("solver_input") or {}).get("judged_growth")
+    judged_mult = growth_multiple_from_judged(judged, ops_json=ops)
     basis = basis_from_intake(
         financials_json=fin, ops_json=ops, financials_year1_json=y1,
+        growth_to_q11=GROWTH_FENCE_Q11,
     )
     thresholds = thresholds_from_margin_band(mb)
     verdict = evaluate_structural(basis, thresholds) if basis else {
@@ -212,9 +222,11 @@ for label, name, revenue_filter in BUSINESSES:
     q11 = verdict.get("q11") or {}
     print(f"=== {label} (draft {short_id}){' [LEGACY G&A basis]' if legacy_gna else ''} ===")
     if basis:
+        judged_note = f"  walk-tier judged x{judged_mult:.3f}" if judged_mult else ""
         print(f"  intake basis: q1 rev ${basis.q1_revenue_quarterly:,.0f}/q  cogs {basis.cogs_pct*100:.1f}%  "
               f"payroll ${basis.payroll_quarterly:,.0f}/q  rent ${basis.rent_quarterly:,.0f}/q  "
-              f"gna {basis.gna_pct*100:.1f}%  mkt {basis.marketing_pct*100:.1f}%  [{basis.notes.get('revenue_source')}]")
+              f"gna {basis.gna_pct*100:.1f}%  mkt {basis.marketing_pct*100:.1f}%  [{basis.notes.get('revenue_source')}]  "
+              f"verdict growth x{GROWTH_FENCE_Q11:.3f} [fence]{judged_note}")
         for cname, c in verdict["checks"].items():
             print(f"    {cname}: {'PASS' if c['passed'] else 'FAIL'} "
                   f"(value {c['value']:,.4f} vs {c['threshold']:,.4f})")

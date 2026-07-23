@@ -579,13 +579,18 @@ def evaluate_current(
   ops_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
   margin_band: Optional[Dict[str, Any]] = None,
+  growth_to_q11: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
   """Evaluate the stated configuration. None when no revenue basis
-  exists yet (financials still accumulating — nothing to say)."""
+  exists yet (financials still accumulating — nothing to say).
+  growth_to_q11: the judged Q1→Q11 multiple (from the engine's own
+  proposer) when a growth stamp exists; None falls back to the fence."""
+  from client_intake_and_finmo.intake_coherence.evaluator import GROWTH_FENCE_Q11
   basis = basis_from_intake(
     financials_json=financials_json,
     ops_json=ops_json,
     financials_year1_json=financials_year1_json,
+    growth_to_q11=float(growth_to_q11) if growth_to_q11 else GROWTH_FENCE_Q11,
   )
   if basis is None:
     return None
