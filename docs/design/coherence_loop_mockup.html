@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coherence Loop — Design Mockup</title>
+<style>
+  :root{
+    --bg:#020617; --card:rgba(15,23,42,.62); --card-solid:#0b1220;
+    --line:rgba(30,41,59,.9); --line-soft:rgba(30,41,59,.55);
+    --ink:#f1f5f9; --ink-2:#cbd5e1; --ink-3:#94a3b8; --ink-4:#64748b;
+    --sky:#38bdf8; --sky-deep:#0ea5e9; --sky-dim:rgba(56,189,248,.16);
+    --good:#34d399; --warn:#fbbf24; --bad:#fb7185;
+    --r:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{color-scheme:dark}
+  body{background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:48px 20px 96px}
+  .wrap{max-width:800px;margin:0 auto}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(56,189,248,.25);
+    background:rgba(2,6,23,.8);padding:5px 12px;border-radius:999px;font-size:10.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:rgba(186,230,253,.9)}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--sky);box-shadow:0 0 8px var(--sky)}
+  h1{margin:18px 0 8px;font-size:30px;line-height:1.15;font-weight:650;letter-spacing:-.02em}
+  .sub{color:var(--ink-3);max-width:60ch}
+
+  /* view toggle */
+  .views{display:flex;gap:8px;margin:22px 0 4px}
+  .vchip{border:1px solid var(--line);background:rgba(2,6,23,.5);color:var(--ink-3);
+    border-radius:999px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
+  .vchip.on{border-color:rgba(56,189,248,.5);color:var(--ink);background:rgba(56,189,248,.08)}
+  .vchip:hover{color:var(--ink)}
+
+  /* narrator */
+  .narrator{display:flex;gap:12px;margin:26px 0 18px;align-items:flex-start}
+  .navatar{flex:0 0 34px;height:34px;border-radius:12px;background:rgba(56,189,248,.14);
+    border:1px solid rgba(56,189,248,.35);display:grid;place-items:center;color:var(--sky);font-size:15px}
+  .nbubble{background:var(--card);border:1px solid var(--line);border-radius:4px 16px 16px 16px;
+    padding:13px 16px;color:var(--ink-2);max-width:64ch;min-height:48px;transition:opacity .35s}
+  .nbubble b{color:var(--ink);font-weight:600}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:26px 26px 22px;backdrop-filter:blur(10px);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+
+  /* GAP HERO — the inverted hero: the gap is the subject */
+  .hero{display:none;border:1px solid rgba(251,113,133,.35);background:rgba(251,113,133,.06);
+    border-radius:16px;padding:20px 22px;margin-bottom:22px}
+  .hero.on{display:block;animation:rise .5s}
+  .hero.cleared{border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.07)}
+  .hero .hk{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-4);margin-bottom:6px}
+  .hero .hv{font-size:38px;font-weight:720;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+    color:var(--bad);line-height:1.05;transition:color .4s}
+  .hero.cleared .hv{color:var(--good)}
+  .hero .hm{font-size:13.5px;color:var(--ink-3);margin-top:5px;max-width:52ch}
+  .ptrack{height:8px;border-radius:5px;background:rgba(30,41,59,.7);margin-top:15px;overflow:hidden}
+  .ptrack>i{display:block;height:100%;border-radius:5px;width:0;
+    background:linear-gradient(90deg,var(--sky-deep),var(--good));transition:width .8s cubic-bezier(.22,.9,.3,1)}
+  .plabel{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-4);margin-top:7px;
+    font-variant-numeric:tabular-nums}
+  .hstats{display:flex;gap:12px;margin-top:15px;flex-wrap:wrap}
+  .hstat{flex:1;min-width:140px;border:1px solid var(--line-soft);border-radius:12px;padding:10px 14px;background:rgba(2,6,23,.45)}
+  .hstat .k{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-4)}
+  .hstat .v{font-size:18px;font-weight:640;font-variant-numeric:tabular-nums;margin-top:2px}
+  .bandchip{display:inline-flex;align-items:center;gap:7px;margin-top:13px;border:1px solid rgba(56,189,248,.3);
+    border-radius:999px;padding:4px 12px;font-size:12px;color:var(--ink-3)}
+  .bandchip b{color:var(--sky)}
+
+  /* P&L rows */
+  .rows{display:flex;flex-direction:column;gap:4px}
+  .row{border-radius:12px;padding:12px 14px 13px;position:relative;
+    opacity:0;transform:translateY(6px);transition:opacity .45s,transform .45s,background .2s}
+  .row.on{opacity:1;transform:none}
+  .row:hover{background:rgba(30,41,59,.35)}
+  .row .top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .row .name{font-weight:560;color:var(--ink)}
+  .row .formal{font-size:11.5px;color:var(--ink-4);margin-left:8px;letter-spacing:.02em}
+  .row .amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+  .row .pct{font-size:12px;color:var(--ink-4);margin-left:8px;font-variant-numeric:tabular-nums}
+  .bar{height:7px;border-radius:4px;background:rgba(30,41,59,.6);margin-top:9px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:4px;background:var(--sky-deep);width:0;
+    transition:width .7s cubic-bezier(.22,.9,.3,1)}
+  .row.revenue .bar{background:transparent;border:1px solid rgba(56,189,248,.5)}
+  .row.revenue .bar>i{background:var(--sky-dim);border-right:2px solid var(--sky)}
+  .segs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .seg{font-size:11.5px;color:var(--ink-3);border:1px solid var(--line-soft);border-radius:999px;
+    padding:2px 10px;background:rgba(2,6,23,.4);font-variant-numeric:tabular-nums}
+  .seg.new{border-color:rgba(52,211,153,.4);color:var(--good);animation:rise .4s}
+
+  .divider{border-top:1px dashed var(--line);margin:14px 4px}
+  .bottom{border:1px solid var(--line-soft);border-radius:14px;padding:18px;margin-top:6px;
+    background:rgba(2,6,23,.5);display:flex;justify-content:space-between;align-items:center;gap:16px;
+    opacity:0;transform:translateY(6px);transition:opacity .5s,transform .5s}
+  .bottom.on{opacity:1;transform:none}
+  .bottom .bl{font-weight:640}
+  .bottom .note{font-size:12.5px;color:var(--ink-4);max-width:42ch;margin-top:3px}
+  .bottom .bv{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+  .bottom .bm{font-size:12.5px;color:var(--ink-4);font-variant-numeric:tabular-nums;text-align:right;margin-top:2px}
+
+  /* lever callouts */
+  .callout{border-radius:14px;padding:16px 17px;margin-top:14px;display:none;gap:12px;align-items:flex-start}
+  .callout.on{display:flex;animation:rise .45s}
+  .callout .ic{flex:0 0 26px;height:26px;border-radius:9px;display:grid;place-items:center;font-size:13px}
+  .callout h4{font-size:13.5px;margin-bottom:4px}
+  .callout p{font-size:13.5px;color:var(--ink-2)}
+  .lever{background:rgba(56,189,248,.05);border:1px solid rgba(56,189,248,.3)}
+  .lever .ic{background:rgba(56,189,248,.15);color:var(--sky)}
+  .lever.resolved{background:rgba(52,211,153,.06);border-color:rgba(52,211,153,.3)}
+  .lever.resolved .ic{background:rgba(52,211,153,.15);color:var(--good)}
+  .opts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .opt{text-align:left;border:1px solid var(--line);background:rgba(2,6,23,.5);border-radius:12px;
+    padding:11px 14px;cursor:pointer;font-family:inherit;color:var(--ink);transition:border-color .2s,background .2s}
+  .opt:hover{border-color:rgba(56,189,248,.55);background:rgba(56,189,248,.06)}
+  .opt .ol{font-weight:600;font-size:13.5px}
+  .opt .ol .rec{font-size:10.5px;color:var(--sky);border:1px solid rgba(56,189,248,.4);border-radius:999px;
+    padding:1px 8px;margin-left:8px;letter-spacing:.06em;text-transform:uppercase;vertical-align:1px}
+  .opt .od{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+  .opt .oe{font-size:12.5px;color:var(--good);margin-top:4px;font-variant-numeric:tabular-nums}
+  .opt.ghost{border-style:dashed;color:var(--ink-3)}
+  .contbar{display:none;justify-content:flex-end;margin-top:12px}
+  .contbar.on{display:flex;animation:rise .3s}
+
+  .editor{display:none;margin-top:11px;gap:8px;align-items:center;flex-wrap:wrap}
+  .editor.on{display:flex;animation:rise .3s}
+  .editor input{background:rgba(2,6,23,.7);border:1px solid rgba(56,189,248,.45);color:var(--ink);
+    border-radius:9px;padding:8px 12px;font:inherit;font-variant-numeric:tabular-nums;width:108px;outline:none}
+  .editor input:focus{border-color:var(--sky)}
+  .editor .hint{font-size:12px;color:var(--ink-4)}
+
+  .btn{border:none;border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:560;
+    cursor:pointer;transition:transform .12s,box-shadow .2s;font-family:inherit}
+  .btn:active{transform:scale(.97)}
+  .btn-primary{background:var(--sky-deep);color:#04121f}
+  .btn-primary:hover{box-shadow:0 4px 18px rgba(14,165,233,.35)}
+  .btn-ghost{background:rgba(148,163,184,.1);color:var(--ink-2);border:1px solid var(--line)}
+  .btn-ghost:hover{background:rgba(148,163,184,.18)}
+  .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .cta{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;align-items:center}
+  .cta .gatehint{font-size:12.5px;color:var(--ink-4);margin-right:auto}
+
+  .done-card{display:none;margin-top:16px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.06);
+    border-radius:14px;padding:20px}
+  .done-card.on{display:block;animation:rise .45s}
+  .done-card h3{color:var(--good);font-size:16px;margin-bottom:6px}
+  .done-card p{color:var(--ink-2);font-size:13.5px}
+  .fundline{margin-top:12px;border-top:1px dashed var(--line);padding-top:11px;font-size:12.5px;color:var(--ink-4)}
+
+  .tip{position:fixed;pointer-events:none;background:#0b1220;border:1px solid var(--line);
+    border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);opacity:0;transition:opacity .15s;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:10;font-variant-numeric:tabular-nums;max-width:300px}
+  .tip b{color:var(--ink)}
+
+  .footnote{margin-top:26px;font-size:12.5px;color:var(--ink-4);text-align:center;max-width:70ch;margin-left:auto;margin-right:auto}
+  .flash{animation:flash 1s}
+  @keyframes flash{0%{background:rgba(56,189,248,.14)}100%{background:transparent}}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* ---- Glaze / roadmap view ---- */
+  .gview{display:none}
+  .gview.on{display:block}
+  .cornerbox{border:1px solid var(--line-soft);border-radius:14px;background:rgba(2,6,23,.45);
+    padding:16px 18px;margin-top:14px}
+  .cornerbox h4{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-4);margin-bottom:10px}
+  .cl{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5.5px 0;
+    border-bottom:1px dashed rgba(30,41,59,.5)}
+  .cl:last-child{border-bottom:none}
+  .cl .n{color:var(--ink-2)} .cl .b{color:var(--ink-4);font-size:12px}
+  .cl .v{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+  .verdict{border:1px solid rgba(251,113,133,.35);background:rgba(251,113,133,.06);border-radius:14px;
+    padding:17px 18px;margin-top:14px}
+  .verdict h4{color:var(--bad);font-size:14px;margin-bottom:5px}
+  .verdict p{font-size:13.5px;color:var(--ink-2)}
+  .mile{border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-top:9px;background:rgba(2,6,23,.5)}
+  .mile .mt{font-weight:600;font-size:13.5px}
+  .mile .md{font-size:12.5px;color:var(--ink-3);margin-top:3px}
+  .mile .mnum{font-size:12px;color:var(--sky);margin-top:5px;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="eyebrow"><span class="dot"></span>Before we finish</span>
+  <h1>Let's make this work on paper</h1>
+  <p class="sub">A plan is a forecast — nothing in it has happened yet. So we don't finish while the plan says the business loses. We find what's binding, you decide how to fix it, and intake ends with a plan that works.</p>
+
+  <div class="views">
+    <button class="vchip on" id="vcU" onclick="setView('u')">Understory Mushroom Co. — closing the gap</button>
+    <button class="vchip" id="vcG" onclick="setView('g')">Sunny Glaze Donuts — when the corner fails</button>
+  </div>
+
+  <!-- ============ UNDERSTORY VIEW ============ -->
+  <div id="uview">
+    <div class="narrator">
+      <div class="navatar">◈</div>
+      <div class="nbubble" id="nar">Ready when you are — let me show you your business once it's up and running.</div>
+    </div>
+
+    <div class="panel">
+      <!-- inverted hero: the gap is the subject -->
+      <div class="hero" id="hero">
+        <div class="hk" id="heroK">The gap</div>
+        <div class="hv" id="heroV">$39,700</div>
+        <div class="hm" id="heroM">a quarter, once the business is running — this is what stands between the numbers you've described and a plan that works. Everything below is a way to close it.</div>
+        <div class="ptrack"><i id="prog"></i></div>
+        <div class="plabel"><span id="progL">0% closed</span><span id="progR">$39,711 to go</span></div>
+        <div class="hstats">
+          <div class="hstat"><div class="k">Coming in</div><div class="v" id="hsIn">$88,059</div></div>
+          <div class="hstat"><div class="k">Going out</div><div class="v" id="hsOut">$124,247</div></div>
+          <div class="hstat"><div class="k">Quarter keeps</div><div class="v" id="hsKeep" style="color:var(--bad)">−$36,188</div></div>
+        </div>
+        <div class="bandchip">Healthy for your kind of business: keeping <b id="bandLo">4%</b>–<b id="bandHi">14%</b> of a mature quarter <span style="color:var(--ink-4)">· judged for specialty agriculture</span></div>
+      </div>
+
+      <div class="rows" id="rows"></div>
+      <div class="divider"></div>
+
+      <div class="bottom" id="bottom">
+        <div>
+          <div class="bl">What a mature quarter keeps</div>
+          <div class="note" id="blNote">Everything coming in, minus everything it takes to run the quarter.</div>
+        </div>
+        <div>
+          <div class="bv" id="blVal">—</div>
+          <div class="bm" id="blMargin"></div>
+        </div>
+      </div>
+
+      <!-- lever rounds -->
+      <div class="callout lever" id="r0">
+        <div class="ic">⇧</div>
+        <div style="flex:1">
+          <h4 style="color:var(--sky)">Your prices are below what your market supports</h4>
+          <p>You're wholesaling specialty mushrooms at <b style="color:var(--ink)">$12/lb</b> — the believable range judged for your market runs <b style="color:var(--ink)">$13.26 to $17.89</b>. Your grow-kits at <b style="color:var(--ink)">$28</b> sit under a <b style="color:var(--ink)">$30.93–$46.39</b> range. These are your numbers to set — pick what fits the accounts you actually serve.</p>
+          <div class="opts" id="opts0"></div>
+          <div class="editor" id="ed0">
+            <input id="edFresh" inputmode="decimal" placeholder="fresh $/lb">
+            <input id="edKits" inputmode="decimal" placeholder="kit $">
+            <span class="hint">believable: $13.26–$17.89 / $30.93–$46.39 — we'll keep you inside it</span>
+            <button class="btn btn-primary" onclick="applyCustomPrice()">Set prices</button>
+          </div>
+          <div class="contbar" id="cont0"><button class="btn btn-primary" onclick="nextRound()">Keep going</button></div>
+        </div>
+      </div>
+
+      <div class="callout lever" id="r1">
+        <div class="ic">＋</div>
+        <div style="flex:1">
+          <h4 style="color:var(--sky)">Two revenue lines your operation could already carry</h4>
+          <p>Judged against your real grow capacity and local market — not wishes: a <b style="color:var(--ink)">weekly mushroom share (CSA)</b> at $22/share, worth up to <b style="color:var(--ink)">$21,094 a quarter</b> at a 65% margin, and <b style="color:var(--ink)">growing &amp; cooking classes</b> at $60/head, up to <b style="color:var(--ink)">$9,375 a quarter</b> at 80%. Add what fits the business you want to run.</p>
+          <div class="opts" id="opts1"></div>
+          <div class="contbar" id="cont1"><button class="btn btn-primary" onclick="nextRound()">Keep going</button></div>
+        </div>
+      </div>
+
+      <div class="callout lever" id="r2">
+        <div class="ic">⇩</div>
+        <div style="flex:1">
+          <h4 style="color:var(--sky)">Your cost structure is carrying startup-era weight</h4>
+          <p>Marketing is <b style="color:var(--ink)">21.8%</b> of revenue — at your new size, with subscriptions bringing customers back on their own, <b style="color:var(--ink)">7.9%</b> is judged sustainable (floor 4%). Rent has room to <b style="color:var(--ink)">$15,984/quarter</b>, and payroll to <b style="color:var(--ink)">$37,992/quarter</b> through scheduling — that floor keeps all four of your people.</p>
+          <div class="opts" id="opts2"></div>
+          <div class="contbar" id="cont2"><button class="btn btn-primary" onclick="nextRound()">Keep going</button></div>
+        </div>
+      </div>
+
+      <div class="callout lever" id="closer">
+        <div class="ic">≈</div>
+        <div style="flex:1">
+          <h4 style="color:var(--warn)" id="closerT">Nearly there</h4>
+          <p id="closerP"></p>
+          <div class="opts" id="optsC"></div>
+        </div>
+      </div>
+
+      <div class="done-card" id="doneCard">
+        <h3>✓ This plan works — and it's yours</h3>
+        <p id="doneP"></p>
+        <div class="fundline" id="fundline">Capital going in, as you told us: <b style="color:var(--ink-2)">$8,000 cash on hand, equity-first</b> — reflected in the plan, not questioned. Funding is your call; our job was the business underneath it.</div>
+      </div>
+
+      <div class="cta">
+        <span class="gatehint" id="gatehint"></span>
+        <button class="btn btn-primary" id="nextBtn" onclick="advance()">Show me</button>
+        <button class="btn btn-primary" id="finishBtn" style="display:none" onclick="tryFinish()">Finish my intake</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ GLAZE / ROADMAP VIEW ============ -->
+  <div class="gview" id="gview">
+    <div class="narrator">
+      <div class="navatar">◈</div>
+      <div class="nbubble">Before we ask anyone to adjust anything, we quietly check the <b>best believable corner</b> — every lever at its most favorable limit, all at once. If even that can't work, we don't walk you through corrections that can't add up. We change the conversation instead.</div>
+    </div>
+
+    <div class="panel">
+      <div class="hero on" style="display:block">
+        <div class="hk">Sunny Glaze Donuts — as described</div>
+        <div class="hv">−$34,414</div>
+        <div class="hm">a mature quarter, as the numbers stand: about $2,639 coming in against a cost base near $37,000 — a single walk-in shop selling a $2 item, carrying a five-role payroll plan.</div>
+      </div>
+
+      <div class="cornerbox">
+        <h4>The best believable corner — every lever at its limit, at once</h4>
+        <div class="cl"><span><span class="n">Donut volume</span> <span class="b">judged market cap</span></span><span class="v">651 → 5,210 /qtr</span></div>
+        <div class="cl"><span><span class="n">Donut price</span> <span class="b">top of believable range</span></span><span class="v">$2.00 → $4.17</span></div>
+        <div class="cl"><span><span class="n">＋ Coffee &amp; drinks</span> <span class="b">new line, at its market cap</span></span><span class="v">$15,000 /qtr</span></div>
+        <div class="cl"><span><span class="n">＋ Pre-orders &amp; catering</span> <span class="b">new line, at its market cap</span></span><span class="v">$12,000 /qtr</span></div>
+        <div class="cl"><span><span class="n">Payroll</span> <span class="b">at its real-staffing floor</span></span><span class="v">$28,750 /qtr</span></div>
+        <div class="cl"><span><span class="n">Rent</span> <span class="b">at its floor</span></span><span class="v">$4,500 /qtr</span></div>
+        <div class="cl"><span><span class="n">Marketing · G&amp;A</span> <span class="b">at their floors</span></span><span class="v">4% · 12%</span></div>
+        <div class="divider" style="margin:12px 0"></div>
+        <div class="cl"><span class="n" style="font-weight:600">Best-corner quarter</span><span class="v">$48,726 in · $55,028 out</span></div>
+        <div class="cl"><span class="n" style="font-weight:600">Still loses</span><span class="v" style="color:var(--bad)">−$6,302 /qtr &nbsp;<span style="color:var(--ink-4);font-weight:400">(needs +$1,462)</span></span></div>
+      </div>
+
+      <div class="verdict">
+        <h4>Even the ceiling is $7,800 a quarter short — so we won't pretend</h4>
+        <p>This isn't a judgment of you or the shop. It's arithmetic about this <i>shape</i>: with every believable lever maxed at once, the mature quarter still can't cover its own floor. A plan that says otherwise wouldn't survive a lender's first question — and we don't write plans that say you fail. So today we build the <b style="color:var(--ink)">roadmap to the business that can have a plan</b>.</p>
+      </div>
+
+      <div style="margin-top:16px">
+        <h4 style="font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-4);margin-bottom:4px">What would have to become true</h4>
+        <div class="mile"><div class="mt">A volume ceiling that moves</div>
+          <div class="md">Standing wholesale or office/institutional accounts — proof the shop isn't capped at walk-in traffic.</div>
+          <div class="mnum">Today's judged cap: 5,210 donuts/qtr · the gap needs roughly $8K/qtr more contribution</div></div>
+        <div class="mile"><div class="mt">Payroll staged to revenue, not to the plan</div>
+          <div class="md">The five-role team is the destination, not the starting lineup. Staff to what the counter earns.</div>
+          <div class="mnum">Stated plan $183,323/yr vs a believable floor of $115,000/yr — and even the floor needs more revenue under it</div></div>
+        <div class="mile"><div class="mt">A second channel proven, not assumed</div>
+          <div class="md">Run catering pre-orders as a test with real orders. When it's revenue, it changes this arithmetic.</div>
+          <div class="mnum">Judged potential: up to $12,000/qtr at 60% margin — currently $0 actual</div></div>
+      </div>
+
+      <div class="done-card on" style="border-color:var(--line);background:rgba(2,6,23,.45)">
+        <h3 style="color:var(--sky)">Your numbers stay right here</h3>
+        <p>When one of these becomes true, come back — we rerun the same arithmetic with your new reality, and the moment a workable version exists, we build your full plan. Nothing gets shipped that says you fail; nothing gets faked to say you won't.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="footnote">Design mockup — real numbers from two fleet runs: Understory Mushroom Co. (stated config non-viable; the live arithmetic here reproduces the actual restructure solve's landing, Q11 EBITDA +14.8% inside the judged 4–14% band) and Sunny Glaze Donuts (persisted <span style="font-variant-numeric:tabular-nums">final_passed=false</span>; corner recomputed on the solver's own bounds). Hover any line for detail.</p>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+/* ================= real Understory numbers =================
+   Q11 mature-quarter, from draft 3464962b… + bounds 5dd5a321…
+   Stated:  rev 88,059 (fresh 70,183 + kits 17,876), COGS 30,821,
+            payroll 42,890/q, rent 19,500/q, G&A 13.4016%, mktg 21.843%
+   Judged band: Q11 EBITDA low +4%, high +14%.
+   Solver landing this arithmetic reproduces: rev 144,730, EBITDA +14.8%. */
+const BASE={freshRev:70183,kitsRev:17876,cogsExisting:30821,payroll:42890,rent:19500,gna:0.134016,mkt:0.21843};
+const BOUNDS={fresh:[13.26,17.89],kits:[30.93,46.39],csaMax:21094,wkMax:9375,
+  payrollFloor:37316,rentFloor:15000,mktFloor:0.04,gnaFloor:0.1231};
+const BAND={low:0.04,high:0.14};
+const L={m1:1,m2:1,csa:0,wk:0,payroll:BASE.payroll,rent:BASE.rent,gna:BASE.gna,mkt:BASE.mkt};
+
+function calc(s){
+  const rev=BASE.freshRev*s.m1+BASE.kitsRev*s.m2+s.csa+s.wk;
+  const cogs=BASE.cogsExisting+0.35*s.csa+0.20*s.wk;   // volume held: price moves are margin
+  const out=cogs+s.payroll+s.rent+rev*(s.gna+s.mkt);
+  const ebitda=rev-out, floor=BAND.low*rev;
+  return {rev,cogs,out,ebitda,floor,gap:Math.max(0,floor-ebitda),margin:ebitda/rev};
+}
+const GAP0=calc(L).gap;   // ≈ 39,711
+const $=id=>document.getElementById(id);
+const fmt=n=>(n<0?'−$':'$')+Math.abs(Math.round(n)).toLocaleString('en-US');
+const tryCalc=patch=>calc(Object.assign({},L,patch));
+const closes=patch=>calc(L).gap-tryCalc(patch).gap;
+
+/* ---------- P&L rows ---------- */
+const COSTS=[
+  {key:'cogs',name:'Making it happen',formal:'Direct costs',note:'substrate, spawn, packaging — costs tied to each pound and kit'},
+  {key:'payroll',name:'Paying the team',formal:'Payroll',note:'Mara, Devon, Priya, and Cole — loaded cost per quarter'},
+  {key:'rent',name:'The space',formal:'Lease',note:'the climate-controlled warehouse, per quarter'},
+  {key:'mkt',name:'Finding customers',formal:'Marketing',note:'markets, ads, and outreach'},
+  {key:'gna',name:'Keeping the lights on',formal:'Overhead / G&A',note:'insurance, utilities, software, the rest'},
+];
+function costAmt(k,c){const s=L;
+  return k==='cogs'?c.cogs:k==='payroll'?s.payroll:k==='rent'?s.rent:k==='mkt'?c.rev*s.mkt:c.rev*s.gna;}
+function build(){
+  const c=calc(L);
+  let html=`<div class="row revenue" id="row-revenue" data-key="revenue">
+    <div class="top"><div><span class="name">Coming in, once running</span><span class="formal">Revenue · mature quarter</span></div>
+    <div><span class="amt" id="amt-revenue">${fmt(c.rev)}</span><span class="pct">100%</span></div></div>
+    <div class="bar"><i id="bar-revenue"></i></div>
+    <div class="segs" id="segs"></div></div>`;
+  for(const l of COSTS) html+=`<div class="row" id="row-${l.key}" data-key="${l.key}">
+    <div class="top"><div><span class="name">${l.name}</span><span class="formal">${l.formal}</span></div>
+    <div><span class="amt" id="amt-${l.key}"></span><span class="pct" id="pct-${l.key}"></span></div></div>
+    <div class="bar"><i id="bar-${l.key}"></i></div></div>`;
+  $('rows').innerHTML=html; attachTips();
+}
+function paint(){
+  const c=calc(L);
+  $('bar-revenue').style.width='100%'; $('amt-revenue').textContent=fmt(c.rev);
+  for(const l of COSTS){const a=costAmt(l.key,c);
+    $('bar-'+l.key).style.width=Math.min(100,a/c.rev*100)+'%';
+    $('amt-'+l.key).textContent=fmt(a);
+    $('pct-'+l.key).textContent=Math.round(a/c.rev*100)+'%';}
+  const segs=[`Fresh mushrooms ${fmt(BASE.freshRev*L.m1)}`,`Kits & value-added ${fmt(BASE.kitsRev*L.m2)}`];
+  let segHtml=segs.map(s=>`<span class="seg">${s}</span>`).join('');
+  if(L.csa) segHtml+=`<span class="seg new">＋ CSA shares ${fmt(L.csa)}</span>`;
+  if(L.wk) segHtml+=`<span class="seg new">＋ Workshops ${fmt(L.wk)}</span>`;
+  $('segs').innerHTML=segHtml;
+  $('blVal').textContent=fmt(c.ebitda);
+  $('blVal').style.color=c.ebitda>=c.floor?'var(--good)':'var(--bad)';
+  $('blMargin').textContent=(c.margin*100).toFixed(1)+'% of revenue · needs '+fmt(c.floor)+' (+4%)';
+  $('hsIn').textContent=fmt(c.rev); $('hsOut').textContent=fmt(c.out);
+  $('hsKeep').textContent=fmt(c.ebitda); $('hsKeep').style.color=c.ebitda>=c.floor?'var(--good)':'var(--bad)';
+  const closed=Math.max(0,Math.min(1,1-c.gap/GAP0));
+  $('prog').style.width=(closed*100)+'%';
+  $('progL').textContent=Math.round(closed*100)+'% closed';
+  $('progR').textContent=c.gap>0?fmt(c.gap)+' to go':'gap closed';
+  if(c.gap<=0){$('hero').classList.add('cleared');$('heroK').textContent='The gap — closed';
+    $('heroV').textContent=fmt(c.ebitda)+' kept';
+    $('heroM').textContent='a mature quarter now keeps a '+(c.margin*100).toFixed(1)+'% margin — inside the band judged believable for your kind of business.';}
+  else{$('heroV').textContent=fmt(c.gap);}
+}
+
+/* ---------- staged reveal ---------- */
+let step=0;
+const NAR={
+  0:`Here's your business once it's up and running — a typical <b>mature quarter</b>, built from what you've told us. Not year one, not the ramp: the destination. The work you described brings in about <b>$88,059</b> a quarter.`,
+  1:`Now what it costs to run that quarter. Watch each line take its share of that revenue.`,
+  2:`Put together, the quarter spends more than it makes — it loses about <b>$36,188</b>. Remember: nothing here has happened. This is paper. And paper is exactly where we fix it.`,
+  3:`So here's the real number to work on. One thing first: we already checked the most favorable believable version of your business — <b>a version of this that works exists</b>. We're not guessing; we're going to find yours. One thing at a time, biggest first.`,
+};
+function advance(){
+  if(step===0){$('nar').innerHTML=NAR[0];$('row-revenue').classList.add('on');
+    setTimeout(()=>{$('bar-revenue').style.width='100%';},60);$('amt-revenue').textContent=fmt(calc(L).rev);
+    $('nextBtn').textContent='What does it cost?';}
+  if(step===1){$('nar').innerHTML=NAR[1];const c=calc(L);
+    COSTS.forEach((l,i)=>setTimeout(()=>{$('row-'+l.key).classList.add('on');
+      const a=costAmt(l.key,c);
+      $('bar-'+l.key).style.width=Math.min(100,a/c.rev*100)+'%';
+      $('amt-'+l.key).textContent=fmt(a);
+      $('pct-'+l.key).textContent=Math.round(a/c.rev*100)+'%';},280*i));
+    $('nextBtn').textContent='So where does the quarter land?';}
+  if(step===2){$('nar').innerHTML=NAR[2];$('bottom').classList.add('on');paint();
+    $('nextBtn').textContent="Okay — what do we do about it?";}
+  if(step===3){$('nar').innerHTML=NAR[3];$('hero').classList.add('on');paint();
+    $('nextBtn').style.display='none';$('finishBtn').style.display='';
+    setTimeout(()=>startRound(0),700);}
+  step=Math.min(4,step+1);
+}
+
+/* ---------- lever rounds ---------- */
+let round=-1;
+function optBtn(o){return `<button class="opt${o.ghost?' ghost':''}" onclick="${o.fn}">
+  <div class="ol">${o.l}${o.rec?'<span class="rec">suggested</span>':''}</div>
+  ${o.d?`<div class="od">${o.d}</div>`:''}
+  ${o.e!==undefined?`<div class="oe">closes ≈ ${fmt(o.e)} of the gap</div>`:''}</button>`;}
+
+function startRound(n){
+  round=n;
+  if(n===0){
+    $('opts0').innerHTML=[
+      {l:'Nudge to the low end — $13.26 / $30.93',d:'the bottom of the believable range',e:closes({m1:13.26/12,m2:30.93/28}),fn:'pickPrice(13.26,30.93)'},
+      {l:'Meet the market — $15.28 / $38.94',rec:1,d:'what accounts like yours already pay for lion’s mane and oyster',e:closes({m1:15.28/12,m2:38.94/28}),fn:'pickPrice(15.28,38.94)'},
+      {l:'Top of the range — $17.89 / $46.39',d:'defensible, but leaves you no pricing headroom later',e:closes({m1:17.89/12,m2:46.39/28}),fn:'pickPrice(17.89,46.39)'},
+      {l:'Let me set my own',ghost:1,d:'we’ll keep you inside the believable range',fn:'openPriceEditor()'},
+    ].map(optBtn).join('');
+    $('r0').classList.add('on');
+  }
+  if(n===1){
+    $('opts1').innerHTML=[
+      {l:'Add both',rec:1,d:'CSA shares + workshops — subscription revenue plus your highest-margin hours',e:closes({csa:BOUNDS.csaMax,wk:BOUNDS.wkMax}),fn:'pickLines(1,1)'},
+      {l:'Just the CSA shares',d:'steady weekly revenue, no teaching commitment',e:closes({csa:BOUNDS.csaMax}),fn:'pickLines(1,0)'},
+      {l:'Just the workshops',d:'80% margin, a few classes a month',e:closes({wk:BOUNDS.wkMax}),fn:'pickLines(0,1)'},
+      {l:'Neither fits my business',ghost:1,d:'that’s a real answer — we’ll close the gap other ways',fn:'pickLines(0,0)'},
+    ].map(optBtn).join('');
+    $('r1').classList.add('on');
+  }
+  if(n===2){
+    $('opts2').innerHTML=[
+      {l:'Right-size all three',rec:1,d:'marketing 7.9% · rent $15,984/q · payroll $37,992/q (keeps all four people)',
+        e:closes({mkt:0.079,rent:15984,payroll:37992,gna:BOUNDS.gnaFloor}),fn:'pickCosts(1)'},
+      {l:'Trim marketing only — 21.8% → 7.9%',d:'subscriptions now do some of the selling for you',e:closes({mkt:0.079}),fn:'pickCosts(2)'},
+      {l:'Marketing + rent, leave payroll alone',d:'keep the team exactly as scheduled today',e:closes({mkt:0.079,rent:15984}),fn:'pickCosts(3)'},
+    ].map(optBtn).join('');
+    $('r2').classList.add('on');
+  }
+}
+function nextRound(){
+  $('cont'+round).classList.remove('on');
+  if(round<2){startRound(round+1);return;}
+  finishOrCloser();
+}
+function ack(el,msg){
+  const c=calc(L);
+  el.classList.add('resolved');
+  el.querySelector('.opts').style.display='none';
+  const ed=el.querySelector('.editor'); if(ed) ed.classList.remove('on');
+  paint();
+  $('hero').classList.add('flash');setTimeout(()=>$('hero').classList.remove('flash'),1000);
+  $('nar').innerHTML=msg;
+  const cont=el.querySelector('.contbar'); if(cont) cont.classList.add('on');
+}
+function pickPrice(f,k){
+  const before=calc(L).gap;
+  L.m1=Math.min(Math.max(f,BOUNDS.fresh[0]),BOUNDS.fresh[1])/12;
+  L.m2=Math.min(Math.max(k,BOUNDS.kits[0]),BOUNDS.kits[1])/28;
+  const d=before-calc(L).gap, p=Math.round(d/before*100);
+  ack($('r0'),`Done — fresh at <b>$${f.toFixed(2)}/lb</b>, kits at <b>$${k.toFixed(2)}</b>. That just closed about <b>${p}% of the gap — ${fmt(d)} a quarter</b> — from prices your market already supports. Your volumes didn't move; your margin did.`);
+}
+function openPriceEditor(){$('ed0').classList.add('on');$('edFresh').focus();}
+function applyCustomPrice(){
+  let f=parseFloat(String($('edFresh').value).replace(/[^0-9.]/g,''))||12;
+  let k=parseFloat(String($('edKits').value).replace(/[^0-9.]/g,''))||28;
+  const cf=Math.min(Math.max(f,BOUNDS.fresh[0]),BOUNDS.fresh[1]);
+  const ck=Math.min(Math.max(k,BOUNDS.kits[0]),BOUNDS.kits[1]);
+  const clamped=(cf!==f||ck!==k);
+  const before=calc(L).gap; L.m1=cf/12; L.m2=ck/28;
+  const d=before-calc(L).gap;
+  ack($('r0'),(clamped?`I kept you inside the believable range — <b>$${cf.toFixed(2)}/lb</b> and <b>$${ck.toFixed(2)}</b>. A lender will ask you to defend every number; we never plan on one you can't. `:`Set — <b>$${cf.toFixed(2)}/lb</b> and <b>$${ck.toFixed(2)}</b>. `)+`That closes <b>${fmt(d)} a quarter</b> of the gap.`);
+}
+function pickLines(csa,wk){
+  const before=calc(L).gap;
+  L.csa=csa?BOUNDS.csaMax:0; L.wk=wk?BOUNDS.wkMax:0;
+  const d=before-calc(L).gap;
+  if(!csa&&!wk){ack($('r1'),`Understood — no new lines. That's your call to make; we'll close the rest with pricing and costs, and if it doesn't fully close, I'll tell you plainly what's left.`);return;}
+  const names=[csa?'the CSA':'',wk?'workshops':''].filter(Boolean).join(' and ');
+  ack($('r1'),`Added ${names} — worth <b>${fmt((csa?BOUNDS.csaMax:0)+(wk?BOUNDS.wkMax:0))} a quarter</b> at maturity, inside your real capacity. Another <b>${fmt(d)}</b> of the gap gone. Watch the revenue bar — the cost shares just got smaller without a single cost moving.`);
+}
+function pickCosts(mode){
+  const before=calc(L).gap;
+  if(mode===1){L.mkt=0.079;L.rent=15984;L.payroll=37992;L.gna=BOUNDS.gnaFloor;}
+  if(mode===2){L.mkt=0.079;}
+  if(mode===3){L.mkt=0.079;L.rent=15984;}
+  const d=before-calc(L).gap;
+  ack($('r2'),`Done — that frees <b>${fmt(d)} a quarter</b>. ${mode===1?'Every one of those sits at or above the judged floor — the team stays whole, the space stays workable.':'Noted — we left the rest of the cost base exactly where you set it.'}`);
+}
+
+/* ---------- closer / convergence ---------- */
+function remainingMoves(){
+  const mv=[];
+  if(L.m1<15.28/12) mv.push({l:'Take prices to the market mid — $15.28 / $38.94',e:closes({m1:15.28/12,m2:38.94/28}),fn:"applyMove({m1:15.28/12,m2:38.94/28},'prices at the market mid')"});
+  else if(L.m1<17.89/12) mv.push({l:'Take prices to the top of the range — $17.89 / $46.39',e:closes({m1:17.89/12,m2:46.39/28}),fn:"applyMove({m1:17.89/12,m2:46.39/28},'prices at the top of the believable range')"});
+  if(!L.csa) mv.push({l:'Add the CSA shares — $21,094/q at 65% margin',e:closes({csa:BOUNDS.csaMax}),fn:"applyMove({csa:21094},'the CSA line')"});
+  if(!L.wk) mv.push({l:'Add the workshops — $9,375/q at 80% margin',e:closes({wk:BOUNDS.wkMax}),fn:"applyMove({wk:9375},'the workshops line')"});
+  if(L.mkt>0.079) mv.push({l:'Trim marketing to 7.9%',e:closes({mkt:0.079}),fn:"applyMove({mkt:0.079},'marketing at 7.9%')"});
+  else if(L.mkt>BOUNDS.mktFloor) mv.push({l:'Marketing to its 4% floor',e:closes({mkt:0.04}),fn:"applyMove({mkt:0.04},'marketing at the 4% floor')"});
+  if(L.rent>15984) mv.push({l:'Rent to $15,984/q',e:closes({rent:15984}),fn:"applyMove({rent:15984},'the rent renegotiation')"});
+  if(L.payroll>37992) mv.push({l:'Payroll to $37,992/q via scheduling',e:closes({payroll:37992}),fn:"applyMove({payroll:37992},'the payroll trim')"});
+  if(L.gna>BOUNDS.gnaFloor) mv.push({l:'Overhead to 12.3%',e:closes({gna:BOUNDS.gnaFloor}),fn:"applyMove({gna:0.1231},'the overhead trim')"});
+  return mv.sort((a,b)=>b.e-a.e);
+}
+function applyMove(patch,label){
+  const before=calc(L).gap; Object.assign(L,patch);
+  const d=before-calc(L).gap; paint();
+  $('hero').classList.add('flash');setTimeout(()=>$('hero').classList.remove('flash'),1000);
+  $('nar').innerHTML=`Applied ${label} — another <b>${fmt(d)}</b> closed.`;
+  finishOrCloser();
+}
+function finishOrCloser(){
+  const c=calc(L);
+  if(c.gap<=0){converge();return;}
+  const mv=remainingMoves().slice(0,3);
+  $('closerT').textContent=`Nearly there — ${fmt(c.gap)} a quarter still open`;
+  $('closerP').innerHTML=`Your calls so far stand. Here's what's still on the table, biggest first — pick one and watch the gap.`;
+  $('optsC').innerHTML=mv.map(optBtn).join('');
+  $('closer').classList.add('on');
+}
+function converge(){
+  $('closer').classList.remove('on');
+  const c=calc(L);
+  paint();
+  $('nar').innerHTML=`That's it — the plan works. A mature quarter now keeps <b>${fmt(c.ebitda)}</b>, a <b>${(c.margin*100).toFixed(1)}%</b> margin, inside the judged band. And every change in it is one you chose.`;
+  $('doneP').innerHTML=`A mature quarter brings in <b style="color:var(--ink)">${fmt(c.rev)}</b> and keeps <b style="color:var(--ink)">${fmt(c.ebitda)}</b> (${(c.margin*100).toFixed(1)}%) — inside the <b style="color:var(--ink)">4–14%</b> band judged believable for specialty agriculture. (When the math wants to promise more than that, we pull it back down — believability is a ceiling too.) Your prices, your new lines, your cost calls: when a lender asks you to defend this plan, you can, because you made it. We'll now build the full quarter-by-quarter plan and email it to you.`;
+  $('doneCard').classList.add('on');
+  $('gatehint').textContent='';
+}
+function tryFinish(){
+  const c=calc(L);
+  if(c.gap>0){
+    $('hero').classList.add('flash');setTimeout(()=>$('hero').classList.remove('flash'),1000);
+    $('gatehint').textContent='Let’s get this working first — '+fmt(c.gap)+' a quarter to go.';
+    $('nar').innerHTML=`Almost — <b>let's get this working first.</b> We're <b>${fmt(c.gap)}</b> a quarter away, and everything left to close it is right here. (If now's not the time, we can park it — your numbers keep; nothing ships saying you fail.)`;
+    return;
+  }
+  $('nar').innerHTML=`Locked in. Your intake is complete — the full plan is on its way to your inbox.`;
+  $('finishBtn').disabled=true;$('finishBtn').textContent='✓ Intake complete';
+}
+
+/* ---------- tooltips ---------- */
+function attachTips(){
+  const tip=$('tip');
+  document.querySelectorAll('#uview .row').forEach(r=>{
+    r.addEventListener('mousemove',e=>{
+      const key=r.dataset.key,c=calc(L);let html;
+      if(key==='revenue'){html=`<b>${fmt(c.rev)}</b> per mature quarter · ≈ ${fmt(c.rev/3)} a month<br><span style="color:var(--ink-4)">fixed by your capacity, prices, and lines — the engine shapes the ramp up to it</span>`;}
+      else{const l=COSTS.find(x=>x.key===key),a=costAmt(key,c);
+        html=`<b>${fmt(a)}</b> a quarter · ${Math.round(a/c.rev*100)}% of revenue<br><span style="color:var(--ink-4)">${l.note}</span>`;}
+      tip.innerHTML=html;tip.style.opacity=1;
+      tip.style.left=Math.min(window.innerWidth-320,e.clientX+14)+'px';tip.style.top=(e.clientY+16)+'px';
+    });
+    r.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+
+/* ---------- view toggle ---------- */
+function setView(v){
+  $('vcU').classList.toggle('on',v==='u');$('vcG').classList.toggle('on',v==='g');
+  $('uview').style.display=v==='u'?'':'none';
+  $('gview').classList.toggle('on',v==='g');
+}
+
+build();
+</script>
+</body>
+</html>

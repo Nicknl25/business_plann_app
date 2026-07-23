@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Year-1 Review — Design Mockup</title>
+<style>
+  :root{
+    --bg:#020617; --card:rgba(15,23,42,.62); --card-solid:#0b1220;
+    --line:rgba(30,41,59,.9); --line-soft:rgba(30,41,59,.55);
+    --ink:#f1f5f9; --ink-2:#cbd5e1; --ink-3:#94a3b8; --ink-4:#64748b;
+    --sky:#38bdf8; --sky-deep:#0ea5e9; --sky-dim:rgba(56,189,248,.16);
+    --good:#34d399; --warn:#fbbf24; --bad:#fb7185;
+    --r:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{color-scheme:dark}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:48px 20px 96px;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(56,189,248,.25);
+    background:rgba(2,6,23,.8);padding:5px 12px;border-radius:999px;font-size:10.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:rgba(186,230,253,.9)}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--sky);box-shadow:0 0 8px var(--sky)}
+  h1{margin:18px 0 8px;font-size:30px;line-height:1.15;font-weight:650;letter-spacing:-.02em}
+  .sub{color:var(--ink-3);max-width:56ch}
+
+  /* narrator */
+  .narrator{display:flex;gap:12px;margin:34px 0 18px;align-items:flex-start}
+  .navatar{flex:0 0 34px;height:34px;border-radius:12px;background:rgba(56,189,248,.14);
+    border:1px solid rgba(56,189,248,.35);display:grid;place-items:center;color:var(--sky);font-size:15px}
+  .nbubble{background:var(--card);border:1px solid var(--line);border-radius:4px 16px 16px 16px;
+    padding:13px 16px;color:var(--ink-2);max-width:60ch;min-height:48px;transition:opacity .35s}
+  .nbubble b{color:var(--ink);font-weight:600}
+
+  /* card */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:26px 26px 22px;backdrop-filter:blur(10px);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+
+  /* stat tiles */
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:26px}
+  .tile{border:1px solid var(--line-soft);border-radius:14px;padding:16px 18px;background:rgba(2,6,23,.45);
+    opacity:.25;transition:opacity .5s, border-color .5s}
+  .tile.on{opacity:1}
+  .tile.hot{border-color:rgba(56,189,248,.4)}
+  .tile .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-4);margin-bottom:6px}
+  .tile .v{font-size:24px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .tile .m{font-size:12px;color:var(--ink-4);margin-top:3px}
+  .v.pos{color:var(--good)} .v.neg{color:var(--bad)}
+
+  /* P&L rows */
+  .rows{display:flex;flex-direction:column;gap:4px}
+  .row{border-radius:12px;padding:12px 14px 13px;position:relative;
+    opacity:0;transform:translateY(6px);transition:opacity .45s,transform .45s,background .2s}
+  .row.on{opacity:1;transform:none}
+  .row:hover{background:rgba(30,41,59,.35)}
+  .row .top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .row .name{font-weight:560;color:var(--ink)}
+  .row .formal{font-size:11.5px;color:var(--ink-4);margin-left:8px;letter-spacing:.02em}
+  .row .amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+  .row .pct{font-size:12px;color:var(--ink-4);margin-left:8px;font-variant-numeric:tabular-nums}
+  .bar{height:7px;border-radius:4px;background:rgba(30,41,59,.6);margin-top:9px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:4px;background:var(--sky-deep);width:0;
+    transition:width .7s cubic-bezier(.22,.9,.3,1)}
+  .row.revenue .bar{background:transparent;border:1px solid rgba(56,189,248,.5)}
+  .row.revenue .bar>i{background:var(--sky-dim);border-right:2px solid var(--sky)}
+  .edit-btn{position:absolute;right:14px;top:44px;font-size:11.5px;color:var(--ink-4);
+    background:none;border:none;cursor:pointer;opacity:0;transition:opacity .2s;padding:2px 4px}
+  .row:hover .edit-btn{opacity:1}
+  .edit-btn:hover{color:var(--sky)}
+
+  /* divider + bottom line */
+  .divider{border-top:1px dashed var(--line);margin:14px 4px}
+  .bottom{border:1px solid var(--line-soft);border-radius:14px;padding:18px;margin-top:6px;
+    background:rgba(2,6,23,.5);display:flex;justify-content:space-between;align-items:center;gap:16px;
+    opacity:0;transform:translateY(6px);transition:opacity .5s,transform .5s}
+  .bottom.on{opacity:1;transform:none}
+  .bottom .bl{font-weight:640}
+  .bottom .note{font-size:12.5px;color:var(--ink-4);max-width:40ch;margin-top:3px}
+  .bottom .bv{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  /* reassure + flag */
+  .callout{border-radius:14px;padding:15px 16px 15px 15px;margin-top:14px;display:none;gap:12px;align-items:flex-start}
+  .callout.on{display:flex;animation:rise .45s}
+  .callout .ic{flex:0 0 26px;height:26px;border-radius:9px;display:grid;place-items:center;font-size:13px}
+  .callout h4{font-size:13.5px;margin-bottom:3px}
+  .callout p{font-size:13.5px;color:var(--ink-2)}
+  .reassure{background:rgba(52,211,153,.07);border:1px solid rgba(52,211,153,.28)}
+  .reassure .ic{background:rgba(52,211,153,.15);color:var(--good)}
+  .flag{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3)}
+  .flag .ic{background:rgba(251,191,36,.15);color:var(--warn)}
+  .flag.resolved{background:rgba(52,211,153,.07);border-color:rgba(52,211,153,.28)}
+  .flag.resolved .ic{background:rgba(52,211,153,.15);color:var(--good)}
+  .flag-actions{display:flex;gap:8px;margin-top:11px}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* buttons */
+  .btn{border:none;border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:560;
+    cursor:pointer;transition:transform .12s,box-shadow .2s;font-family:inherit}
+  .btn:active{transform:scale(.97)}
+  .btn-primary{background:var(--sky-deep);color:#04121f}
+  .btn-primary:hover{box-shadow:0 4px 18px rgba(14,165,233,.35)}
+  .btn-ghost{background:rgba(148,163,184,.1);color:var(--ink-2);border:1px solid var(--line)}
+  .btn-ghost:hover{background:rgba(148,163,184,.18)}
+  .cta{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+
+  /* inline editor */
+  .editor{display:none;margin-top:10px;gap:8px;align-items:center}
+  .editor.on{display:flex;animation:rise .3s}
+  .editor input{background:rgba(2,6,23,.7);border:1px solid rgba(56,189,248,.45);color:var(--ink);
+    border-radius:9px;padding:8px 12px;font:inherit;font-variant-numeric:tabular-nums;width:130px;outline:none}
+  .editor input:focus{border-color:var(--sky)}
+  .editor .hint{font-size:12px;color:var(--ink-4)}
+
+  /* tooltip */
+  .tip{position:fixed;pointer-events:none;background:#0b1220;border:1px solid var(--line);
+    border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);opacity:0;transition:opacity .15s;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:10;font-variant-numeric:tabular-nums}
+  .tip b{color:var(--ink)}
+
+  /* completion */
+  .done-card{display:none;margin-top:16px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.06);
+    border-radius:14px;padding:18px;text-align:center}
+  .done-card.on{display:block;animation:rise .45s}
+  .done-card h3{color:var(--good);font-size:16px;margin-bottom:5px}
+  .done-card p{color:var(--ink-3);font-size:13.5px}
+
+  .footnote{margin-top:26px;font-size:12.5px;color:var(--ink-4);text-align:center}
+  .flash{animation:flash 1s}
+  @keyframes flash{0%{background:rgba(56,189,248,.14)}100%{background:transparent}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="eyebrow"><span class="dot"></span>Before we finish</span>
+  <h1>Your first year, in numbers</h1>
+  <p class="sub">Everything you've told us, pulled together into one simple picture. We'll walk through it — and if anything doesn't look like what you meant, you can change it right here.</p>
+
+  <div class="narrator">
+    <div class="navatar">◈</div>
+    <div class="nbubble" id="nar">Ready when you are — let's start with the money coming in.</div>
+  </div>
+
+  <div class="panel">
+    <div class="tiles">
+      <div class="tile" id="tileIn"><div class="k">Money in</div><div class="v" id="tvIn">—</div><div class="m">over the first year</div></div>
+      <div class="tile" id="tileOut"><div class="k">Money out</div><div class="v" id="tvOut">—</div><div class="m">everything it costs</div></div>
+      <div class="tile" id="tileNet"><div class="k">What's left</div><div class="v" id="tvNet">—</div><div class="m" id="tvNetM">the bottom line</div></div>
+    </div>
+
+    <div class="rows" id="rows"></div>
+
+    <div class="divider"></div>
+
+    <div class="bottom" id="bottom">
+      <div>
+        <div class="bl" id="blTitle">What's left after the first year</div>
+        <div class="note" id="blNote">Money in, minus everything it takes to run the business.</div>
+      </div>
+      <div class="bv" id="blVal">—</div>
+    </div>
+
+    <div class="callout reassure" id="reassure">
+      <div class="ic">✓</div>
+      <div><h4 style="color:var(--good)">A first-year loss is completely normal here</h4>
+      <p>You're building ahead of revenue — hiring, equipping, and marketing before the work fully ramps. For a business at your stage, this shape is expected, and your full plan will show how it turns.</p></div>
+    </div>
+
+    <div class="callout flag" id="flag">
+      <div class="ic" id="flagIc">?</div>
+      <div style="flex:1">
+        <h4 style="color:var(--warn)" id="flagTitle">One thing looks a little unusual</h4>
+        <p id="flagBody">Your marketing budget comes to <b style="color:var(--ink)">$216,000</b> for the year — that's about <b style="color:var(--ink)">53%</b> of your revenue. Most businesses like yours land closer to 5–10%. Totally fine if it's intentional — did you mean it?</p>
+        <div class="flag-actions" id="flagActions">
+          <button class="btn btn-ghost" onclick="keepFlag()">That's right — keep it</button>
+          <button class="btn btn-primary" onclick="openEditor('marketing')">Let me fix it</button>
+        </div>
+        <div class="editor" id="ed-marketing">
+          <input id="in-marketing" inputmode="numeric" value="27,600">
+          <span class="hint">per year (≈ <span id="mo-marketing">$2,300</span>/mo)</span>
+          <button class="btn btn-primary" onclick="applyEdit('marketing')">Update</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="done-card" id="doneCard">
+      <h3>✓ Your numbers are locked in</h3>
+      <p>We'll now build your complete plan — quarter-by-quarter financials, staffing, and funding — refined with industry modeling, and email it to you shortly.</p>
+    </div>
+
+    <div class="cta">
+      <button class="btn btn-primary" id="nextBtn" onclick="advance()">Show me</button>
+    </div>
+  </div>
+
+  <p class="footnote">Design mockup — sample data from a two-line plumbing &amp; HVAC startup. Hover any line for detail; hover then click ✎ to change a number.</p>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const state = {
+  revenue: 408600,
+  lines: [
+    {key:'cogs',      name:'Making it happen',   formal:'Direct costs',   amt:183870, note:'materials, parts, and costs tied to each job'},
+    {key:'payroll',   name:'Paying the team',    formal:'Payroll',        amt:133000, note:'your techs and staff for the year'},
+    {key:'owner',     name:'Paying yourself',    formal:'Owner pay',      amt:120000, note:'your own compensation'},
+    {key:'marketing', name:'Finding customers',  formal:'Marketing',      amt:216000, note:'ads, lead generation, and promotion'},
+    {key:'opex',      name:'Keeping the lights on', formal:'Overhead',    amt:26400,  note:'insurance, software, phone, and the rest'},
+  ],
+  step: 0, revealed: 0, flagResolved: false,
+};
+const $=id=>document.getElementById(id);
+const fmt=n=>(n<0?'−$':'$')+Math.abs(Math.round(n)).toLocaleString('en-US');
+const totalOut=()=>state.lines.reduce((s,l)=>s+l.amt,0);
+const net=()=>state.revenue-totalOut();
+
+function rowHTML(l){
+  const pct=Math.round(l.amt/state.revenue*100);
+  return `<div class="row" id="row-${l.key}" data-key="${l.key}">
+    <div class="top"><div><span class="name">${l.name}</span><span class="formal">${l.formal}</span></div>
+    <div><span class="amt" id="amt-${l.key}">${fmt(l.amt)}</span><span class="pct" id="pct-${l.key}">${pct}%</span></div></div>
+    <div class="bar"><i id="bar-${l.key}"></i></div>
+    <button class="edit-btn" onclick="openEditor('${l.key}')">✎ change</button>
+    <div class="editor" id="ed-${l.key}-row">
+      <input id="in-${l.key}-row" inputmode="numeric">
+      <span class="hint">per year</span>
+      <button class="btn btn-primary" onclick="applyEdit('${l.key}', true)">Update</button>
+    </div>
+  </div>`;
+}
+
+function build(){
+  const rev=`<div class="row revenue" id="row-revenue">
+    <div class="top"><div><span class="name">Money coming in</span><span class="formal">Revenue</span></div>
+    <div><span class="amt" id="amt-revenue">${fmt(state.revenue)}</span><span class="pct">100%</span></div></div>
+    <div class="bar"><i id="bar-revenue"></i></div></div>`;
+  $('rows').innerHTML = rev + state.lines.map(rowHTML).join('');
+  attachTips();
+}
+
+function paintBars(){
+  $('bar-revenue').style.width='100%';
+  for(const l of state.lines){
+    $('bar-'+l.key).style.width=Math.min(100,(l.amt/state.revenue*100))+'%';
+    $('amt-'+l.key).textContent=fmt(l.amt);
+    $('pct-'+l.key).textContent=Math.round(l.amt/state.revenue*100)+'%';
+  }
+  $('tvIn').textContent=fmt(state.revenue);
+  $('tvOut').textContent=fmt(totalOut());
+  const n=net();
+  $('tvNet').textContent=fmt(n); $('blVal').textContent=fmt(n);
+  $('tvNet').className='v '+(n>=0?'pos':'neg');
+  $('blVal').style.color=n>=0?'var(--good)':'var(--bad)';
+  $('tvNetM').textContent=n>=0?'ahead after year one':'invested in getting going';
+}
+
+const narration=[
+  `Over your first year, the work you described — the install jobs and the service calls — brings in about <b>${'$'}408,600</b>. That's the top line.`,
+  `Now the money going out. Each line below is something you told us — watch how each one takes a share of that revenue.`,
+  `Put together, that's what a year of running the business costs. Which brings us to the number that matters…`,
+  `Two things before we lock it in: one is reassuring, one is worth a quick look.`,
+  `That's it. Everything here is yours to change — when it looks right, we'll finish up.`
+];
+
+function advance(){
+  const s=state.step;
+  if(s===0){ $('nar').innerHTML=narration[0]; $('tileIn').classList.add('on','hot');
+    $('row-revenue').classList.add('on'); setTimeout(()=>$('bar-revenue').style.width='100%',60);
+    $('nextBtn').textContent='Where does it go?';
+  }
+  if(s===1){ $('nar').innerHTML=narration[1]; $('tileIn').classList.remove('hot'); $('tileOut').classList.add('on','hot');
+    state.lines.forEach((l,i)=>setTimeout(()=>{ $('row-'+l.key).classList.add('on');
+      $('bar-'+l.key).style.width=Math.min(100,(l.amt/state.revenue*100))+'%';
+      $('amt-'+l.key).textContent=fmt(l.amt);
+    }, 260*i));
+    $('tvOut').textContent=fmt(totalOut());
+    $('nextBtn').textContent='So where do I land?';
+  }
+  if(s===2){ $('nar').innerHTML=narration[2]; $('tileOut').classList.remove('hot'); $('tileNet').classList.add('on','hot');
+    $('bottom').classList.add('on'); paintBars();
+    $('nextBtn').textContent='Anything look off?';
+  }
+  if(s===3){ $('nar').innerHTML=narration[3]; $('tileNet').classList.remove('hot');
+    $('reassure').classList.add('on');
+    setTimeout(()=>$('flag').classList.add('on'),450);
+    $('nextBtn').textContent='Looks right — finish my intake';
+  }
+  if(s===4){
+    if(!state.flagResolved){ $('flag').classList.add('flash'); $('nar').innerHTML=
+      `Almost — just tell me about that marketing number first (keep it or fix it), then we're done.`; return; }
+    $('nar').innerHTML=narration[4]; $('doneCard').classList.add('on'); $('nextBtn').style.display='none';
+  }
+  state.step=Math.min(4,state.step+1);
+}
+
+function keepFlag(){ resolveFlag(`Kept as-is — you know your plan. We'll model the <b>$216,000</b> marketing budget exactly as you set it.`); }
+
+function openEditor(key){
+  if(key==='marketing' && !$('flag').classList.contains('resolved')){
+    $('flagActions').style.display='none'; $('ed-marketing').classList.add('on'); $('in-marketing').focus();
+  } else {
+    const ed=$('ed-'+key+'-row'); if(!ed) return;
+    document.querySelectorAll('.editor').forEach(e=>e.classList.remove('on'));
+    $('in-'+key+'-row').value=state.lines.find(l=>l.key===key).amt.toLocaleString('en-US');
+    ed.classList.add('on'); $('in-'+key+'-row').focus();
+  }
+}
+
+function applyEdit(key, fromRow){
+  const input = fromRow ? $('in-'+key+'-row') : $('in-'+key);
+  const val = parseFloat(String(input.value).replace(/[^0-9.]/g,''));
+  if(!val && val!==0) return;
+  const line=state.lines.find(l=>l.key===key); line.amt=val;
+  document.querySelectorAll('.editor').forEach(e=>e.classList.remove('on'));
+  paintBars();
+  $('row-'+key).classList.add('flash'); setTimeout(()=>$('row-'+key).classList.remove('flash'),1000);
+  if(key==='marketing' && !state.flagResolved){
+    resolveFlag(`Updated — marketing is now <b>${fmt(val)}</b> a year (about ${Math.round(val/state.revenue*100)}% of revenue), and everything below has been recalculated.`);
+  }
+  $('nar').innerHTML=`Done — I've updated <b>${line.name.toLowerCase()}</b> and recalculated your year. The bottom line is now <b>${fmt(net())}</b>.`;
+}
+
+function resolveFlag(msg){
+  state.flagResolved=true;
+  const f=$('flag'); f.classList.add('resolved');
+  $('flagIc').textContent='✓'; $('flagTitle').textContent='All set'; $('flagTitle').style.color='var(--good)';
+  $('flagBody').innerHTML=msg; $('flagActions').style.display='none'; $('ed-marketing').classList.remove('on');
+}
+
+function attachTips(){
+  const tip=$('tip');
+  document.querySelectorAll('.row').forEach(r=>{
+    r.addEventListener('mousemove',e=>{
+      const key=r.dataset.key;
+      let html;
+      if(!key){ html=`<b>${fmt(state.revenue)}</b> for the year · ≈ ${fmt(state.revenue/12)} a month`; }
+      else { const l=state.lines.find(x=>x.key===key);
+        html=`<b>${fmt(l.amt)}</b> a year · ≈ ${fmt(l.amt/12)} a month<br><span style="color:var(--ink-4)">${l.note} — ${Math.round(l.amt/state.revenue*100)}% of revenue</span>`; }
+      tip.innerHTML=html; tip.style.opacity=1;
+      tip.style.left=Math.min(window.innerWidth-260,e.clientX+14)+'px'; tip.style.top=(e.clientY+16)+'px';
+    });
+    r.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+
+build();
+</script>
+</body>
+</html>
