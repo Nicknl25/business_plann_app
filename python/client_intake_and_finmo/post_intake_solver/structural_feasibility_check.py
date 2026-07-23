@@ -387,10 +387,28 @@ def verify_structural_feasibility(
     "upper_bound_utilization": _UPPER_BOUND_UTILIZATION,
     "mature_quarter_range": [_MATURE_QUARTER_RANGE.start, _MATURE_QUARTER_RANGE.stop - 1],
   }
+  # PAYROLL BASIS — explicitly optional, never silent (doctrine §10.5).
+  # The per-quarter schedule legitimately does not exist yet at
+  # pre-flight time; when the flat fallback decides anything, the
+  # result DECLARES it (first-class field + degraded flag) and the log
+  # says so — a staged hiring ramp is exactly what the flat basis
+  # cannot see.
   if isinstance(payroll_headcount, dict) and payroll_headcount.get("quarter_totals"):
     inputs_used["fixed_cost_components"].append("payroll_headcount.quarter_totals (per-quarter)")
+    inputs_used["payroll_basis"] = "per_quarter_schedule"
   elif fallback_payroll is not None:
     inputs_used["fixed_cost_components"].append("annual_payroll_fallback / 4")
+    inputs_used["payroll_basis"] = "flat_stated_fallback"
+    inputs_used["degraded_inputs"] = True
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+      "structural feasibility: payroll schedule ABSENT — using flat "
+      "stated-annual/4 fallback (%.0f/yr). A staged hiring ramp is "
+      "invisible on this basis; the verdict is declared degraded.",
+      float(fallback_payroll),
+    )
+  else:
+    inputs_used["payroll_basis"] = "none"
   if lease_annual is not None:
     inputs_used["fixed_cost_components"].append("lease_annual / 4")
   if interest_annual is not None:

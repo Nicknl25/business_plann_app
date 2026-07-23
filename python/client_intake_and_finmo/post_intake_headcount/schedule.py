@@ -3466,6 +3466,37 @@ def _validate_quarter_totals_match_title_rows(
     }
 
 
+def payroll_headcount_from_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """THE blessed accessor for the payroll schedule inside a model_input.
+
+  The canonical surface is
+  ``derived_driver_runtime["expenses::Payroll"].payroll_headcount`` —
+  there is NO top-level ``model_input["payroll_headcount"]`` key and
+  never has been (nothing writes one). Reading the top-level key
+  returns ``{}`` and silently degrades every consumer downstream
+  (landing-fidelity finding #4: two audit tools and a fidelity spec
+  mis-read that surface). Use this accessor instead; returns ``{}``
+  when no schedule has been authored yet (legitimate at pre-flight)."""
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  runtime = payload.get("derived_driver_runtime")
+  if isinstance(runtime, dict):
+    entry = runtime.get(PAYROLL_HEADCOUNT_LEVER_ID)
+    if isinstance(entry, dict):
+      schedule = entry.get("payroll_headcount")
+      if isinstance(schedule, dict) and schedule:
+        return schedule
+  policies = payload.get("derived_driver_policies")
+  if isinstance(policies, dict):
+    entry = policies.get(PAYROLL_HEADCOUNT_LEVER_ID)
+    if isinstance(entry, dict):
+      schedule = entry.get("payroll_headcount")
+      if isinstance(schedule, dict) and schedule:
+        return schedule
+  return {}
+
+
 def apply_payroll_headcount_payload_to_model_input(
   model_input_json: Optional[Dict[str, Any]],
   payroll_headcount: Optional[Dict[str, Any]],
