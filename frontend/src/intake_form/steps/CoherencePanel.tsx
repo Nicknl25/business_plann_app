@@ -78,10 +78,13 @@ export default function CoherencePanel({
   if (status === "converged") {
     return (
       <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-xs text-emerald-200/90">
-        <div className="font-semibold text-emerald-300">The plan works on paper</div>
+        <div className="font-semibold text-emerald-300">
+          Clears every structural test we can run right now
+        </div>
         <div className="mt-1 text-emerald-100/80">
           A typical mature quarter keeps about {money(q11.ebitda)} ({pct(q11.ebitda_margin)} of
-          revenue) — inside the range judged believable for this kind of business.
+          revenue), against the range judged believable for this kind of business. The full
+          build shapes the quarter-by-quarter path and runs its own final checks.
         </div>
       </div>
     );

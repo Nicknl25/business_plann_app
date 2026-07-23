@@ -507,10 +507,16 @@ def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, An
     )
   else:
     band_txt = "above the floor judged believable for your kind of business"
+  # THE PROMISE NAMES ITS TIER — permanently, not as interim copy. This
+  # verdict is the structural checks coherence can run in the room; the
+  # cash pass, the engine's own path-shaping, and landing noise always
+  # sit outside it. "Your plan works" is never honest at this tier.
   return (
-    " One more thing worth knowing: your numbers hold together at maturity - a typical "
-    f"mature quarter keeps about {_fmt(_f(q11.get('ebitda')))} ({_pct(margin)} of revenue), {band_txt}. "
-    "The plan works on paper, and every number in it is yours."
+    " One more thing worth knowing: your numbers clear every structural test we can "
+    f"run right now - a typical mature quarter keeps about {_fmt(_f(q11.get('ebitda')))} "
+    f"({_pct(margin)} of revenue), {band_txt}. The full build will shape the "
+    "quarter-by-quarter path and run its own final checks - and every number you just "
+    "set is yours."
   )
 
 
