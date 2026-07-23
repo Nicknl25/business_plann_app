@@ -876,10 +876,40 @@ def candidate_to_directive(
       )
       if _b is not None:
         _solved_cogs = round(_b, 6)
+  # OUTPUT INVARIANT (landing-fidelity #3): the directive is the shipped
+  # artifact — it must satisfy the bounds that authored it. The de-burden
+  # quotient is clamped in WAGE basis (the basis team.min/max are
+  # authored in); rent and cost floors likewise. With the in-solve
+  # moderation clamp these are no-ops; when one fires it is TRACED so a
+  # verified-vs-shipped drift can never be silent again.
+  _inv_clamps: List[str] = []
+
+  def _inv_apply(value: Optional[float], lo: Optional[float], hi: Optional[float], name: str) -> Optional[float]:
+    if value is None:
+      return None
+    v = float(value)
+    lo_f = float(lo) if lo is not None else None
+    hi_f = float(hi) if hi is not None else None
+    if lo_f is not None and hi_f is not None and hi_f < lo_f:
+      hi_f = lo_f
+    if lo_f is not None and v < lo_f:
+      _inv_clamps.append(f"{name}:{v}-> floor {lo_f}")
+      return lo_f
+    if hi_f is not None and v > hi_f:
+      _inv_clamps.append(f"{name}:{v}-> ceiling {hi_f}")
+      return hi_f
+    return v
+
+  _team_b = bounds.get("team") or {}
+  _team_wages = _inv_apply(
+    round(_team_loaded / _bf, 2),
+    _team_b.get("min_annual_payroll"), _team_b.get("max_annual_payroll"),
+    "team.annual_payroll",
+  )
   directive: Dict[str, Any] = {
     "feasible": True,
     "team": {
-      "annual_payroll": round(_team_loaded / _bf, 2),
+      "annual_payroll": round(float(_team_wages), 2) if _team_wages is not None else None,
       "structure": str((bounds.get("team") or {}).get("structure_at_min") or "")[:300],
       "rationale": str((bounds.get("team") or {}).get("rationale") or "")[:500],
     },
@@ -891,17 +921,31 @@ def candidate_to_directive(
       "rationale": "restructure search: per-line pricing inside each line's market ceiling",
     },
     "facility": {
-      "quarterly_rent_target": (
-        float(candidate["quarterly_rent"]) if candidate.get("quarterly_rent") is not None else None
+      "quarterly_rent_target": _inv_apply(
+        float(candidate["quarterly_rent"]) if candidate.get("quarterly_rent") is not None else None,
+        (bounds.get("facility") or {}).get("min_quarterly_rent"),
+        (bounds.get("facility") or {}).get("max_quarterly_rent"),
+        "facility.quarterly_rent_target",
       ),
       "rationale": str((bounds.get("facility") or {}).get("rationale") or "")[:500],
     },
     "growth": {},
     "revenue_mix": {"lines": lines_out, "new_lines": new_lines_out},
     "cost_structure": {
-      "cogs_percent_of_revenue": _solved_cogs,
-      "marketing_percent_of_revenue": candidate.get("marketing_pct"),
-      "g_and_a_percent_of_revenue": candidate.get("g_and_a_pct"),
+      "cogs_percent_of_revenue": _inv_apply(
+        _solved_cogs, (bounds.get("cost_floors") or {}).get("cogs_percent_of_revenue_min"), None,
+        "cost_structure.cogs_percent_of_revenue",
+      ),
+      "marketing_percent_of_revenue": _inv_apply(
+        candidate.get("marketing_pct"),
+        (bounds.get("cost_floors") or {}).get("marketing_percent_of_revenue_min"), None,
+        "cost_structure.marketing_percent_of_revenue",
+      ),
+      "g_and_a_percent_of_revenue": _inv_apply(
+        candidate.get("g_and_a_pct"),
+        (bounds.get("cost_floors") or {}).get("g_and_a_percent_of_revenue_min"), None,
+        "cost_structure.g_and_a_percent_of_revenue",
+      ),
       "rationale": str((bounds.get("cost_floors") or {}).get("rationale") or "")[:500],
     },
     "product_mix_notes": "",
@@ -909,6 +953,9 @@ def candidate_to_directive(
     "reality_constraints": dict(bounds.get("reality_constraints") or {}),
     "notes": ["restructure_v2_search"],
   }
+  if _inv_clamps:
+    directive["invariant_clamps"] = _inv_clamps[:12]
+    directive["notes"] = list(directive["notes"]) + ["bounds_invariant_clamped"]
   return directive
 
 

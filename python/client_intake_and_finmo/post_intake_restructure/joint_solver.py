@@ -531,6 +531,35 @@ def run_restructure_joint_solve(
       ):
         if out.get(key) is not None and base_val is not None:
           out[key] = round(float(base_val) + t * (float(out[key]) - float(base_val)), 6)
+      # OUTPUT INVARIANT (landing-fidelity #3): the blend target is the
+      # as-stated base, which can itself sit OUTSIDE the executive's
+      # authored bounds (Redux: base loaded payroll below the loaded
+      # team floor) — so moderation could emit a design the executive's
+      # own judgment calls unbelievable. Re-clamp every scalar into its
+      # authored bounds HERE, inside the solve, so the candidate we
+      # verify is the candidate we ship.
+      _inv_bounds = plan.get("bounds") or {}
+
+      def _inv_clamp(value: float, lo: float, hi: float) -> float:
+        return min(max(value, lo), max(lo, hi))
+
+      _inv_team = (_inv_bounds.get("expenses::Payroll") or {}).get(11)
+      if _inv_team and out.get("annual_payroll") is not None:
+        out["annual_payroll"] = round(
+          _inv_clamp(float(out["annual_payroll"]), float(_inv_team[0]) * 4.0, float(_inv_team[1]) * 4.0), 2)
+      _inv_rent = (_inv_bounds.get("expenses::Lease") or {}).get(11)
+      if _inv_rent and out.get("quarterly_rent") is not None:
+        out["quarterly_rent"] = round(
+          _inv_clamp(float(out["quarterly_rent"]), float(_inv_rent[0]), float(_inv_rent[1])), 2)
+      for _inv_lever, _inv_field in (
+        ("expenses::Cost of Goods Sold", "cogs_pct"),
+        ("expenses::Marketing", "marketing_pct"),
+        ("expenses::General & Administrative", "g_and_a_pct"),
+      ):
+        _inv_rb = (_inv_bounds.get(_inv_lever) or {}).get(11)
+        if _inv_rb and out.get(_inv_field) is not None:
+          out[_inv_field] = round(
+            _inv_clamp(float(out[_inv_field]), float(_inv_rb[0]), float(_inv_rb[1])), 6)
       return out
 
     def _landed_q11_eb(cand: Dict[str, Any]) -> Optional[float]:

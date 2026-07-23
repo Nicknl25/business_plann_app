@@ -1765,6 +1765,45 @@ def prepare_initial_grid_for_draft(
         "rows": _rs_price_rows, "m11": _rs_m11, "m20": _rs_m20,
       }
 
+      # 1b. FACILITY — the directive's rent redesign lands on the Lease
+      # expense row (landing-fidelity #2: this consumer was MISSING —
+      # the solver verified candidates WITH the moved rent, then the
+      # plan shipped the stated rent, a strictly worse plan than the
+      # one the solver proved viable). Same glide doctrine as every
+      # other consumed lever: Q1 stays stated reality, linear to the
+      # Q11 design, then held (the directive carries one target). The
+      # band-fitting rent anchor downstream keeps its own role.
+      _rs_fac = _restructure_directive.get("facility") or {}
+      _rs_rent_target_raw = _rs_fac.get("quarterly_rent_target")
+      _rs_rent_applied = False
+      try:
+        _rs_rent_target = float(_rs_rent_target_raw) if _rs_rent_target_raw is not None else None
+      except (TypeError, ValueError):
+        _rs_rent_target = None
+      if _rs_rent_target is not None and _rs_rent_target > 0:
+        for _rs_row in ((model_input_json.get("sections") or {}).get("expenses") or []):
+          if not isinstance(_rs_row, dict) or str(_rs_row.get("label") or "").strip() != "Lease":
+            continue
+          _rs_vals = _rs_row.get("values")
+          if not isinstance(_rs_vals, list) or len(_rs_vals) < 3:
+            continue
+          try:
+            _rs_rent_q1 = float(_rs_vals[1])
+          except (TypeError, ValueError):
+            continue
+          if abs(_rs_rent_target - _rs_rent_q1) <= 0.01:
+            continue
+          for _rs_q in range(2, min(21, len(_rs_vals))):
+            _rs_frac = min(1.0, (_rs_q - 1) / 10.0)
+            _rs_vals[_rs_q] = round(
+              _rs_rent_q1 + (_rs_rent_target - _rs_rent_q1) * _rs_frac, 2
+            )
+          _rs_rent_applied = True
+      _rs_trace["facility"] = {
+        "applied": _rs_rent_applied,
+        "quarterly_rent_target": _rs_rent_target_raw,
+      }
+
       # 2. MIX REALLOCATION â€” per-line volume glides on Capacity rows
       # and per-line price glides on Unit Price rows (each line priced
       # inside ITS OWN market ceiling; the global pricing lever above
