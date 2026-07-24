@@ -153,11 +153,18 @@ def reap_dead_runs(conn, *, stall_seconds: float) -> List[Dict[str, Any]]:
     draft_id = str(run["draft_id"])
     cur = conn.cursor()
     try:
+      # completed_at = the LAST HEARTBEAT, not the moment the reaper
+      # noticed: the run died back then. This also keeps freshly-reaped
+      # historical zombies outside the ladder's --since-hours window —
+      # stamping NOW() on first activation put 54 archive drafts on the
+      # ladder and reran one (it 500'd; archives are not rerunnable).
       cur.execute(
         """
         UPDATE planning_runs
         SET run_status = 'failed', current_stage_status = 'failed',
-            failure_reason = %s, completed_at = NOW(), updated_at = NOW()
+            failure_reason = %s,
+            completed_at = COALESCE(last_heartbeat_at, updated_at, NOW()),
+            updated_at = NOW()
         WHERE planning_run_id = %s AND run_status = 'running'
         """,
         (
@@ -303,9 +310,13 @@ def run_ladder(conn, *, base_url: str, ladder: tuple, run_timeout: float,
       "attempt": attempt_number,
     }), flush=True)
     try:
+      # NOTE: no planning_run_id in the body — in rerun mode that field
+      # names the NEW run's id (begin_planning_run: requested_run_id or
+      # uuid4), not the source; passing the failed run's id collides with
+      # the primary key. The source is the draft's latest run implicitly.
       resp = requests.post(
         f"{base_url}/api/intake-consult/system-run",
-        json={"draft_id": draft_id, "lifecycle_mode": "rerun", "planning_run_id": run_id},
+        json={"draft_id": draft_id, "lifecycle_mode": "rerun"},
         timeout=run_timeout,
       )
       outcome = "rerun_completed" if resp.status_code == 200 else f"rerun_failed_http_{resp.status_code}"
