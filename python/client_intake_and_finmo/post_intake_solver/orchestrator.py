@@ -1283,20 +1283,14 @@ def run_target_seeking_orchestrated_system_run(
       where="orchestrator.run_target_seeking_orchestrated_system_run",
     )
 
-  # ---------- Phase 9 Phase H: reset GPT call budget for this run --------
-  # Doctrine Q4: maximum 4 GPT calls per planning run, hard runtime cap.
-  # Reset the counter at the top of every orchestrator invocation so
-  # consecutive runs don't bleed budget. The counter is enforced at the
-  # call_gpt_with_schema_or_fallback chokepoint — when the budget is
-  # exhausted, subsequent calls fall through to the consultant's
-  # python_proposer fallback path.
-  try:
-    from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
-      reset_gpt_call_budget,
-    )
-    reset_gpt_call_budget()
-  except Exception:
-    pass
+  # Reset the per-run GPT call log (telemetry). The Phase-H run-wide
+  # budget was retired in the fallback-class Phase 4 deletion: it had
+  # been dormant (the one live GPT caller never counted against it) and
+  # its diagnostic reported a hardcoded budget of 4 with 0 calls used.
+  from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
+    reset_gpt_call_log,
+  )
+  reset_gpt_call_log()
 
   # ---------- Phase 9 P3.32 K11 L-4: handler trace run -------------------
   # NOTE: begin_trace_run is intentionally NOT called here. The trace run
@@ -1844,20 +1838,18 @@ def run_target_seeking_orchestrated_system_run(
   # see the same policy the cascade saw. Single source of truth.
   next_result["adaptive_policy"] = adaptive_policy.to_dict()
 
-  # Phase 9 Phase H: stamp the GPT call diagnostic so the acceptance gate
-  # sees how much of the 4-call budget was used and which consultants ran.
-  try:
-    from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
-      get_gpt_call_count,
-      get_gpt_call_log,
-    )
-    next_result["gpt_call_budget_diagnostic"] = {
-      "calls_used": get_gpt_call_count(),
-      "budget": 4,
-      "log": get_gpt_call_log(),
-    }
-  except Exception:
-    pass
+  # GPT call log diagnostic (telemetry). Honest since the Phase 4
+  # dead-layer deletion: no invented budget, no always-zero counter —
+  # just the calls that actually happened this run.
+  from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
+    get_gpt_call_log,
+  )
+  _gpt_log = get_gpt_call_log()
+  next_result["gpt_call_budget_diagnostic"] = {
+    "calls_logged": len(_gpt_log),
+    "log": _gpt_log,
+    "note": "run_budget_retired; funding session self-caps via HARD_CAP_TOOL_CALLS",
+  }
 
   # Phase 9 P3.32 K11 L-4 — fold the run's handler-trace buffer into the
   # completion report too (the incremental SQL rows are the durable copy;
