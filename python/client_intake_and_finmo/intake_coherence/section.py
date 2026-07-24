@@ -41,6 +41,19 @@ COHERENCE_MARKER = "work on paper"
 _MONEY_RE = re.compile(r"\$[\d,]+")
 
 
+class CoherenceJudgmentUnavailable(RuntimeError):
+  """The gate could not author an executive judgment (transient GPT
+  failure). Intake-time contract: the turn HOLDS — an honest "give me a
+  moment", never a verdict and never a silent constant (doctrine: no
+  plan ships on substituted judgment). The draft persists; the next
+  turn re-enters the gate and re-authors."""
+
+  def __init__(self, judgment: str, detail: str = "") -> None:
+    self.judgment = judgment
+    self.detail = detail
+    super().__init__(f"coherence_judgment_unavailable: {judgment}: {detail}")
+
+
 def _f(value: Any, default: float = 0.0) -> float:
   try:
     if value in (None, ""):
@@ -149,42 +162,43 @@ def _ensure_margin_band(
     for stale_key in ("judged_growth", "growth_error", "bounds", "bounds_error", "corner", "round"):
       state.pop(stale_key, None)
   state["digest_hash"] = digest_hash
-  try:
-    from client_intake_and_finmo.post_intake_headcount.band_fitting import (
-      operator_cost_levels,
+  from client_intake_and_finmo.post_intake_headcount.band_fitting import (
+    operator_cost_levels,
+  )
+  from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (
+    gpt_author_margin_band_once,
+    validate_margin_band_judgment,
+  )
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (
+    authoritative_annual_revenue,
+  )
+  annual_revenue = authoritative_annual_revenue(
+    ops_json=ops_json,
+    financials_year1_json=financials_year1_json,
+    financials_json=financials_json,
+  )
+  facts = dict(operator_cost_levels(financials_json, annual_revenue) or {})
+  # The runner enriches payroll%/rent% from the engine's Q1 row; at
+  # intake the same quantities come from the stated facts directly.
+  ann = _f(annual_revenue)
+  if ann > 0:
+    payroll = _f(financials_json.get("current_payroll")) or _f(financials_json.get("payroll_total_year1"))
+    payroll += _f(financials_json.get("owner_compensation")) * 12.0
+    if payroll > 0:
+      facts["payroll_percent_of_revenue"] = round(payroll / ann, 6)
+    rent = _f(financials_json.get("monthly_rent_expense")) * 12.0
+    if rent > 0:
+      facts["rent_percent_of_revenue"] = round(rent / ann, 6)
+  result = gpt_author_margin_band_once(compact=compact, stated_cost_facts=facts or None)
+  if not (result.get("ok") and result.get("judgment")):
+    # Failure is never a verdict and never doctrine constants: hold the
+    # turn and re-author next turn. (Absence ≠ failure — a stamp that
+    # already exists was returned above.)
+    raise CoherenceJudgmentUnavailable(
+      "margin_band", str(result.get("error") or "author_failed")[:300]
     )
-    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (
-      gpt_author_margin_band_once,
-      validate_margin_band_judgment,
-    )
-    from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (
-      authoritative_annual_revenue,
-    )
-    annual_revenue = authoritative_annual_revenue(
-      ops_json=ops_json,
-      financials_year1_json=financials_year1_json,
-      financials_json=financials_json,
-    )
-    facts = dict(operator_cost_levels(financials_json, annual_revenue) or {})
-    # The runner enriches payroll%/rent% from the engine's Q1 row; at
-    # intake the same quantities come from the stated facts directly.
-    ann = _f(annual_revenue)
-    if ann > 0:
-      payroll = _f(financials_json.get("current_payroll")) or _f(financials_json.get("payroll_total_year1"))
-      payroll += _f(financials_json.get("owner_compensation")) * 12.0
-      if payroll > 0:
-        facts["payroll_percent_of_revenue"] = round(payroll / ann, 6)
-      rent = _f(financials_json.get("monthly_rent_expense")) * 12.0
-      if rent > 0:
-        facts["rent_percent_of_revenue"] = round(rent / ann, 6)
-    result = gpt_author_margin_band_once(compact=compact, stated_cost_facts=facts or None)
-    if result.get("ok") and result.get("judgment"):
-      state["margin_band_judgment"] = validate_margin_band_judgment(judgment=result["judgment"])
-      state.pop("margin_band_error", None)
-    else:
-      state["margin_band_error"] = str(result.get("error") or "author_failed")[:300]
-  except Exception as exc:  # noqa: BLE001 — thresholds fall back to doctrine constants
-    state["margin_band_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+  state["margin_band_judgment"] = validate_margin_band_judgment(judgment=result["judgment"])
+  state.pop("margin_band_error", None)
   return state
 
 
@@ -200,45 +214,44 @@ def _ensure_growth_judgment(
   """Author the growth judgment ONCE at the gate (same seat, same
   inputs, same clamps as the initial-grid runner). Stamped to
   state["judged_growth"]; post-intake reuses the stamp. A failed call
-  leaves no stamp — the evaluator falls back to the authorable fence,
-  exactly the pre-judgment behavior."""
+  raises CoherenceJudgmentUnavailable — the turn holds and re-authors
+  next turn (failure is never the fence; the fence remains the
+  gate-entry TIER, not a failure fallback)."""
   if state.get("judged_growth"):
     return state
   state = dict(state)
-  try:
-    from client_intake_and_finmo.post_intake_amalgamated.mirror import (
-      build_operating_model_digest,
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import (
+    build_operating_model_digest,
+  )
+  from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (
+    _DEFAULT_QOQ_MAX,
+  )
+  from client_intake_and_finmo.post_intake_headcount.gpt_growth_judgment import (
+    annual_to_qoq,
+    gpt_author_growth_judgment_once,
+  )
+  compact = build_operating_model_digest(
+    ops_json, people_json, market_json, marketing_model_json,
+  )
+  ann_rev = _f(financials_json.get("current_revenue"))
+  result = gpt_author_growth_judgment_once(
+    compact=compact,
+    current_annual_revenue=ann_rev if ann_rev > 0 else None,
+  )
+  if not (result.get("ok") and result.get("judgment")):
+    raise CoherenceJudgmentUnavailable(
+      "judged_growth", str(result.get("error") or "author_failed")[:300]
     )
-    from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (
-      _DEFAULT_QOQ_MAX,
-    )
-    from client_intake_and_finmo.post_intake_headcount.gpt_growth_judgment import (
-      annual_to_qoq,
-      gpt_author_growth_judgment_once,
-    )
-    compact = build_operating_model_digest(
-      ops_json, people_json, market_json, marketing_model_json,
-    )
-    ann_rev = _f(financials_json.get("current_revenue"))
-    result = gpt_author_growth_judgment_once(
-      compact=compact,
-      current_annual_revenue=ann_rev if ann_rev > 0 else None,
-    )
-    if result.get("ok") and result.get("judgment"):
-      j = result["judgment"]
-      rail = float(_DEFAULT_QOQ_MAX)
-      state["judged_growth"] = {
-        "qoq_start": round(min(max(annual_to_qoq(j["year1_annual_growth"]), 0.0), rail), 6),
-        "qoq_end": round(min(max(annual_to_qoq(j["mature_annual_growth"]), 0.0), rail), 6),
-        "source": "coherence_gate_growth_judgment",
-        "year1_annual_growth": j["year1_annual_growth"],
-        "mature_annual_growth": j["mature_annual_growth"],
-      }
-      state.pop("growth_error", None)
-    else:
-      state["growth_error"] = str(result.get("error") or "author_failed")[:300]
-  except Exception as exc:  # noqa: BLE001 — fence fallback stands
-    state["growth_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+  j = result["judgment"]
+  rail = float(_DEFAULT_QOQ_MAX)
+  state["judged_growth"] = {
+    "qoq_start": round(min(max(annual_to_qoq(j["year1_annual_growth"]), 0.0), rail), 6),
+    "qoq_end": round(min(max(annual_to_qoq(j["mature_annual_growth"]), 0.0), rail), 6),
+    "source": "coherence_gate_growth_judgment",
+    "year1_annual_growth": j["year1_annual_growth"],
+    "mature_annual_growth": j["mature_annual_growth"],
+  }
+  state.pop("growth_error", None)
   return state
 
 
@@ -283,45 +296,46 @@ def _ensure_bounds(
   if state.get("bounds"):
     return state
   state = dict(state)
-  try:
-    from client_intake_and_finmo.post_intake_amalgamated.mirror import (
-      build_operating_model_digest,
+  from client_intake_and_finmo.post_intake_amalgamated.mirror import (
+    build_operating_model_digest,
+  )
+  from client_intake_and_finmo.post_intake_restructure.constraint_author import (
+    gpt_author_restructure_bounds_once,
+    validate_restructure_bounds,
+  )
+  from client_intake_and_finmo.post_intake_restructure.designer import (
+    stated_owner_annual_wage,
+  )
+  compact = build_operating_model_digest(
+    ops_json, people_json, market_json, marketing_model_json,
+  )
+  stated = {
+    k: financials_json.get(k)
+    for k in (
+      "current_revenue", "current_cogs", "payroll_total_year1",
+      "current_num_employees", "total_debt_outstanding",
+      "cash_on_hand", "initial_equity", "initial_assets",
     )
-    from client_intake_and_finmo.post_intake_restructure.constraint_author import (
-      gpt_author_restructure_bounds_once,
-      validate_restructure_bounds,
+    if financials_json.get(k) is not None
+  }
+  raw = gpt_author_restructure_bounds_once(
+    compact=compact,
+    stated_facts=stated,
+    current_structure=_intake_current_structure(ops_json, financials_json),
+    failure_summary=None,
+  )
+  if not (raw.get("ok") and raw.get("bounds")):
+    # An author failure must never read as "no believable region": that
+    # branch delivers a roadmap — a life-sized verdict on the client's
+    # business — and a network error is not a verdict.
+    raise CoherenceJudgmentUnavailable(
+      "bounds", str(raw.get("error") or "author_failed")[:300]
     )
-    from client_intake_and_finmo.post_intake_restructure.designer import (
-      stated_owner_annual_wage,
-    )
-    compact = build_operating_model_digest(
-      ops_json, people_json, market_json, marketing_model_json,
-    )
-    stated = {
-      k: financials_json.get(k)
-      for k in (
-        "current_revenue", "current_cogs", "payroll_total_year1",
-        "current_num_employees", "total_debt_outstanding",
-        "cash_on_hand", "initial_equity", "initial_assets",
-      )
-      if financials_json.get(k) is not None
-    }
-    raw = gpt_author_restructure_bounds_once(
-      compact=compact,
-      stated_facts=stated,
-      current_structure=_intake_current_structure(ops_json, financials_json),
-      failure_summary=None,
-    )
-    if raw.get("ok") and raw.get("bounds"):
-      state["bounds"] = validate_restructure_bounds(
-        bounds=raw["bounds"],
-        stated_owner_annual_wage=stated_owner_annual_wage(people_json),
-      )
-      state.pop("bounds_error", None)
-    else:
-      state["bounds_error"] = str(raw.get("error") or "author_failed")[:300]
-  except Exception as exc:  # noqa: BLE001
-    state["bounds_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+  state["bounds"] = validate_restructure_bounds(
+    bounds=raw["bounds"],
+    stated_owner_annual_wage=stated_owner_annual_wage(people_json),
+  )
+  state.pop("bounds_error", None)
   return state
 
 
@@ -759,9 +773,10 @@ def gate_and_turn(
   )
   thresholds = thresholds_from_margin_band(band)
 
-  if not bounds or not bounds.get("feasible_region_exists", True):
-    # The executive's honest "no believable region" answer, or the
-    # author failed — either way we cannot walk levers we don't have.
+  if not bounds.get("feasible_region_exists", True):
+    # ONLY the executive's honest "no believable region" answer routes
+    # here. An author failure raised CoherenceJudgmentUnavailable in
+    # _ensure_bounds — a transient error is a hold, never a roadmap.
     corner = {"passed": False, "q11": {}, "gap_quarterly": gap}
     state["corner"] = corner
     state["status"] = _ctl.STATUS_ROADMAP
@@ -875,5 +890,6 @@ def _safe_naturalize(text: str, naturalize: Callable[[str], str]) -> str:
 __all__ = [
   "COHERENCE_MARKER",
   "get_state", "put_state", "walking_round_live", "router_frame",
+  "CoherenceJudgmentUnavailable",
   "apply_router_patch", "gate_and_turn", "park_message", "reask_message",
 ]

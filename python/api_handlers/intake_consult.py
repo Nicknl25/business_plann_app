@@ -8901,24 +8901,53 @@ def _coherence_gate(
   user_text="",
 ):
   """Wrapper over the section gate. Returns (turn_or_none,
-  financials_json, completion_suffix)."""
+  financials_json, completion_suffix).
+
+  Failures propagate (doctrine: no silent degradation). A transient
+  judgment failure (CoherenceJudgmentUnavailable / GPT transport)
+  becomes the handler-level HOLD turn; anything else is a loud 500.
+  The old "never strand a client at the finish line" swallow let a
+  gate crash complete the intake with NO coherence check at all —
+  exactly the class this workstream removes."""
   from client_intake_and_finmo.intake_coherence import section as _coh
 
-  try:
-    return _coh.gate_and_turn(
-      ops_json=ops_json or {},
-      people_json=people_json or {},
-      market_json=market_json or {},
-      marketing_model_json=marketing_model_json or {},
-      financials_json=financials_json or {},
-      financials_year1_json=financials_year1_json or {},
-      naturalize=_coherence_naturalize,
-      user_text=str(user_text or ""),
-    )
-  except Exception:
-    # The gate must never strand a client at the finish line: on an
-    # internal failure the intake completes exactly as it always has.
-    return None, financials_json, ""
+  return _coh.gate_and_turn(
+    ops_json=ops_json or {},
+    people_json=people_json or {},
+    market_json=market_json or {},
+    marketing_model_json=marketing_model_json or {},
+    financials_json=financials_json or {},
+    financials_year1_json=financials_year1_json or {},
+    naturalize=_coherence_naturalize,
+    user_text=str(user_text or ""),
+  )
+
+
+_INTAKE_HOLD_MESSAGE = (
+  "Give me a moment — I'm having trouble reaching my judgment engine right now. "
+  "Everything you've shared is saved. Send that again in a moment, or come back "
+  "shortly and we'll pick up exactly where you left off."
+)
+
+_TRANSIENT_JUDGMENT_ERROR_MARKERS = (
+  "coherence_judgment_unavailable",
+  "openai_request_failed",
+  "gpt_response_lock_lookup_failed",
+  "gpt_response_lock_save_failed",
+)
+
+
+def _transient_judgment_hold_message(exc: BaseException) -> Optional[str]:
+  """Intake-time hold classification. Transient GPT/judgment-transport
+  failures become an honest "give me a moment" turn (HTTP 200, turn
+  persisted) — never a verdict, never a raw 500, never a silent
+  constant. Anything else returns None and stays a loud server error."""
+  if isinstance(exc, (TimeoutError, requests.exceptions.RequestException)):
+    return _INTAKE_HOLD_MESSAGE
+  text = str(exc or "")
+  if any(marker in text for marker in _TRANSIENT_JUDGMENT_ERROR_MARKERS):
+    return _INTAKE_HOLD_MESSAGE
+  return None
 
 
 def _coherence_blocked_response(
@@ -9004,9 +9033,12 @@ def post_intake_consult_handler(*, app, request):
     return (jsonify({"error": "server_error"}), 500)
 
   conn = get_mysql_connection()
+  client_id = ""
+  active_focus_current = ""
   try:
     consult = get_draft(conn, draft_id=str(draft_id).strip())
     client_id = str(consult.get("client_id") or "").strip()
+    active_focus_current = str(consult.get("active_focus") or "").strip()
     draft_status = str(consult.get("status") or "").strip().lower()
     if draft_status == "submitted":
       return (
@@ -12335,7 +12367,52 @@ def post_intake_consult_handler(*, app, request):
       }
     )
   except Exception as exc:
+    user_turn_to_persist = (
+      [] if starting else [{"role": "user", "content": message}]
+    )
+    hold_message = _transient_judgment_hold_message(exc)
+    if hold_message is not None:
+      # Transient judgment failure: honest hold, never a verdict. The
+      # turn (client message + hold) is committed so nothing is lost
+      # and the next send re-enters exactly where this one stopped.
+      app.logger.warning(
+        "TURN_HOLD draft=%s transient judgment failure: %s", draft_id, exc
+      )
+      try:
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[
+            *user_turn_to_persist,
+            {"role": "assistant", "content": hold_message},
+          ],
+        )
+      except Exception:
+        app.logger.exception("TURN_HOLD persist failed draft=%s", draft_id)
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": active_focus_current,
+          "awaiting_confirmation": True,
+          "done": False,
+          "action": "hold",
+          "assistant_message": hold_message,
+        }
+      )
     app.logger.exception("Failed intake consult: %s", exc)
+    # Fail loud, but never lose the client's words: persist the user
+    # turn before surfacing the error.
+    try:
+      if user_turn_to_persist:
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=user_turn_to_persist,
+        )
+    except Exception:
+      app.logger.exception("post-error user-turn persist failed draft=%s", draft_id)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
   finally:
     try:
