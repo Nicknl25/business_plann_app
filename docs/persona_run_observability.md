@@ -57,6 +57,37 @@ Run it in the background from a Claude session and the exit re-invokes the
 session at the moment of stall/failure — that is the "wake me when it breaks"
 mechanism for persona runs.
 
+## Auto-sensing session watcher
+
+```powershell
+.venv\Scripts\python.exe scripts\persona_session_watch.py
+```
+
+No prompt needed: it waits until backend (:5050) AND frontend (:5173)
+both accept connections, announces `STACK UP`, then loops the watch-only
+monitor over each new draft — compact one-line events for draft
+detection, intake progress, stage transitions, stalls, and terminal
+states, plus a tail of the newest `_logs_persona_*.txt` for `TURN_BEGIN`
+/ `TURN_HOLD` / tracebacks. Claude arms this as a persistent background
+monitor at the start of a persona session; each line wakes the session.
+
+Notes: one draft watched at a time (serial runs by design); an abandoned
+intake recycles after `--recycle-seconds` (default 1h); verbatim GPT I/O
+and the log markers exist only when the backend was started via
+`start_persona_backend.ps1`.
+
+## Ground truth for persona runs
+
+No pre-written persona spec — a real client doesn't hand over an answer
+key, and pre-writing one biases what gets flagged. After a run,
+reconstruct ground truth from the full transcript in:
+
+`C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs`
+
+and adjudicate subjective reports ("that lever didn't fit my business")
+against the transcript + the run's backend artifacts (trace rows,
+judgment ledger, bounds).
+
 ## Concurrency
 
 One server process per concurrent run. The run pipeline keeps process-global
