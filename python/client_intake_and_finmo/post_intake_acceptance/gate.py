@@ -779,6 +779,64 @@ def _persist_verdict(conn, *, planning_run_id: str, verdict: Dict[str, Any]) -> 
       pass
 
 
+JUDGMENT_LEDGER_EXPECTED_SITES = (
+  "wc_judgment",
+  "cash_judgment",
+  "margin_band_judgment",
+  "headcount_coherence",
+  "growth_judgment",
+  "revenue_authoring",
+  "band_fitting",
+)
+
+# Ledger sources that are legitimate DECLARED absences (nothing to judge)
+# rather than authored judgments. Anything else with authored=False is a
+# substituted judgment reaching the gate — hard fail.
+JUDGMENT_LEDGER_TOLERATED_ABSENCES = (
+  "no_industry_envelope",
+  "grid_default_drivers",
+  "naics_flat_seed",
+  "mechanical_constants",
+  "derived_cost_band_only",
+  "stated_team_stands",
+  "mechanical_defaults",
+)
+
+
+def _check_judgment_ledger(model_input_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+  """Doctrine invariant, one testable check: no plan ships on a
+  substituted judgment. Every judgment seat must have DECLARED itself in
+  solver_input.judgment_ledger (author failures raise upstream and never
+  reach this gate; a missing declaration means a seat was silently
+  bypassed — the S16 class)."""
+  ledger = ((model_input_json or {}).get("solver_input") or {}).get("judgment_ledger")
+  if not isinstance(ledger, dict) or not ledger:
+    return False, {"reason": "judgment_ledger_missing"}
+  missing = [s for s in JUDGMENT_LEDGER_EXPECTED_SITES if s not in ledger]
+  undeclared = [
+    site
+    for site, entry in ledger.items()
+    if not isinstance(entry, dict)
+    or (
+      not entry.get("authored")
+      and str(entry.get("source") or "") not in JUDGMENT_LEDGER_TOLERATED_ABSENCES
+    )
+  ]
+  detail = {
+    "sites": {
+      site: {
+        "authored": bool((entry or {}).get("authored")),
+        "source": str((entry or {}).get("source") or ""),
+      }
+      for site, entry in ledger.items()
+      if isinstance(entry, dict)
+    },
+    "missing_declarations": missing,
+    "undeclared_or_invalid": undeclared,
+  }
+  return (not missing and not undeclared), detail
+
+
 def verify_run_acceptance(
   conn,
   *,
@@ -887,6 +945,9 @@ def verify_run_acceptance(
 
   passed, detail = _check_viability_timeline_landed(realism_memo)
   _record("viability_timeline_landed", passed, detail)
+
+  passed, detail = _check_judgment_ledger(_parse_json(draft.get("model_input_json")))
+  _record("judgment_ledger_complete", passed, detail)
 
   failed_checks = [c["name"] for c in checks if not c["passed"]]
   verdict: Dict[str, Any] = {

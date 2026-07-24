@@ -63,6 +63,22 @@ def ensure_cohort_bands_table(conn) -> None:
   cur = conn.cursor()
   try:
     cur.execute(_CREATE_TABLE_SQL)
+    # CREATE TABLE IF NOT EXISTS never ALTERs an existing table, so the
+    # R10 cohort_query column addition silently missed every install
+    # created before it — and the populator's INSERT then failed on
+    # EVERY run, masked by the cohort-population soft sink until the
+    # fallback-class fix made that failure loud. Self-migrate the drift.
+    cur.execute(
+      "SELECT COUNT(*) FROM information_schema.columns "
+      "WHERE table_schema = DATABASE() AND table_name = %s "
+      "AND column_name = 'cohort_query'",
+      (_TABLE_NAME,),
+    )
+    row = cur.fetchone()
+    if not row or int(row[0] or 0) == 0:
+      cur.execute(
+        f"ALTER TABLE {_TABLE_NAME} ADD COLUMN cohort_query JSON NULL AFTER data_source"
+      )
     try:
       conn.commit()
     except Exception:

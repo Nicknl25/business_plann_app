@@ -15,8 +15,41 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_process_sequence_step,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
+  PostIntakePreconditionFailed,
   assert_post_intake_global_invariants,
 )
+
+
+def _judgment_author_failed(site: str, error: Any) -> "PostIntakePreconditionFailed":
+  """Executive-judgment author failure is LOUD (doctrine: no plan ships on
+  substituted judgment). The run fails and the supervisor reruns it;
+  mechanical defaults are never silently substituted for a judgment that
+  was attempted and failed. Absence (nothing to judge, e.g. an empty
+  digest) remains a declared default — see _declare_judgment."""
+  return PostIntakePreconditionFailed(
+    operation=f"executive_judgment_author_failed:{site}",
+    pipeline_stage="post_intake_initial_grid",
+    expected=f"{site} author returns ok=True",
+    actual=str(error or "author_failed")[:300],
+  )
+
+
+def _declare_judgment(model_input_json: Any, site: str, trace: Dict[str, Any]) -> None:
+  """Run-scoped declaration ledger: every judgment seat lands in a
+  gate-checked declaration, not just a trace note. authored=True entries
+  are executive judgments; authored=False entries are DECLARED
+  absent-defaults (an author FAILURE raises before reaching here, so a
+  failure can never appear in the ledger as a default)."""
+  if not isinstance(model_input_json, dict):
+    return
+  si = model_input_json.setdefault("solver_input", {})
+  if isinstance(si, dict):
+    ledger = si.setdefault("judgment_ledger", {})
+    if isinstance(ledger, dict):
+      ledger[site] = {
+        "authored": bool(trace.get("ok")),
+        "source": str(trace.get("source") or ""),
+      }
 from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
   run_initialize_post_intake_validation,
 )
@@ -594,8 +627,11 @@ def prepare_initial_grid_for_draft(
       },
     )
     sequence_trace["cohort_bands_populated"] = _bands_summary
-  except Exception as _cohort_bands_exc:  # noqa: BLE001 â€” soft sink (see above)
+  except Exception as _cohort_bands_exc:
+    # Loud: the old soft sink skipped the FAIL_COHORT_BANDS_MISSING gate
+    # below on exactly the failures it exists to catch.
     sequence_trace["cohort_bands_populated"] = {"error": repr(_cohort_bands_exc)}
+    raise
 
   # P3.40 Contract 6 Commit 3 -- Shape D producer-side gate
   # (F14 a SHIP). Placed OUTSIDE the soft try/except above so a
@@ -1035,13 +1071,17 @@ def prepare_initial_grid_for_draft(
                 "implied_q1_days": _wc_implied_days,
               }
         else:
-          _wc_trace["error"] = _wc_result.get("error")
-    except Exception as _wc_exc:  # noqa: BLE001 â€” soft: NAICS seed stands
-      _wc_trace = {
+          raise _judgment_author_failed("wc_judgment", _wc_result.get("error"))
+    except Exception as _wc_exc:
+      # Failure is loud (run fails, supervisor reruns) — the NAICS seed
+      # is only ever a DECLARED absence-default, never a failure mask.
+      shared_context["wc_judgment_trace"] = {
         "ok": False, "source": "naics_flat_seed",
         "error": f"{type(_wc_exc).__name__}: {str(_wc_exc)[:200]}",
       }
+      raise
     shared_context["wc_judgment_trace"] = _wc_trace
+    _declare_judgment(model_input_json, "wc_judgment", _wc_trace)
 
     # -- EXECUTIVE CASH & CAPITAL-STRUCTURE JUDGMENT --
     # Authored ONCE here (viability-blind, locked, Python-railed) and
@@ -1104,13 +1144,15 @@ def prepare_initial_grid_for_draft(
                 "judgment": copy.deepcopy(_cash_validated),
               }
         else:
-          _cash_trace["error"] = _cash_result.get("error")
-    except Exception as _cash_exc:  # noqa: BLE001 â€” soft: constants stand
-      _cash_trace = {
+          raise _judgment_author_failed("cash_judgment", _cash_result.get("error"))
+    except Exception as _cash_exc:
+      shared_context["cash_judgment_trace"] = {
         "ok": False, "source": "mechanical_constants",
         "error": f"{type(_cash_exc).__name__}: {str(_cash_exc)[:200]}",
       }
+      raise
     shared_context["cash_judgment_trace"] = _cash_trace
+    _declare_judgment(model_input_json, "cash_judgment", _cash_trace)
 
     # -- EXECUTIVE HEALTHY-MARGIN BAND JUDGMENT --
     # The band is the pass/fail STANDARD, so it is the highest-stakes
@@ -1206,13 +1248,15 @@ def prepare_initial_grid_for_draft(
                 "judgment": copy.deepcopy(_mb_validated),
               }
         else:
-          _mb_trace["error"] = _mb_result.get("error")
-    except Exception as _mb_exc:  # noqa: BLE001 â€” soft: derived band stands
-      _mb_trace = {
+          raise _judgment_author_failed("margin_band_judgment", _mb_result.get("error"))
+    except Exception as _mb_exc:
+      shared_context["margin_band_trace"] = {
         "ok": False, "source": "derived_cost_band_only",
         "error": f"{type(_mb_exc).__name__}: {str(_mb_exc)[:200]}",
       }
+      raise
     shared_context["margin_band_trace"] = _mb_trace
+    _declare_judgment(model_input_json, "margin_band_judgment", _mb_trace)
 
     # -- EXECUTIVE HEADCOUNT-COHERENCE JUDGMENT (right-sizing) --
     # Authored ONCE (viability-blind, locked, Python-railed) and stamped
@@ -1292,12 +1336,13 @@ def prepare_initial_grid_for_draft(
                 "judgment": copy.deepcopy(_hc_validated),
               }
         else:
-          _hc_trace["error"] = _hc_result.get("error")
-    except Exception as _hc_exc:  # noqa: BLE001 â€” soft: the stated team stands
-      _hc_trace = {
+          raise _judgment_author_failed("headcount_coherence", _hc_result.get("error"))
+    except Exception as _hc_exc:
+      shared_context["headcount_coherence_trace"] = {
         "ok": False, "source": "stated_team_stands",
         "error": f"{type(_hc_exc).__name__}: {str(_hc_exc)[:200]}",
       }
+      raise
     # RESTRUCTURE OVERRIDE â€” the restructure stage's team design is a
     # stronger authority than the standalone coherence judgment: the
     # executive, in the turnaround seat with the four reality
@@ -1326,8 +1371,11 @@ def prepare_initial_grid_for_draft(
               "judgment": copy.deepcopy(_rs_si2["headcount_coherence"]),
             }
       except Exception:
-        pass
+        # A restructure directive EXISTS but its team design failed to
+        # land — landing-fidelity class, never silent.
+        raise
     shared_context["headcount_coherence_trace"] = _hc_trace
+    _declare_judgment(model_input_json, "headcount_coherence", _hc_trace)
 
     from client_intake_and_finmo.post_intake_amalgamated.tools.set_capex_rd_balance_seed import (  # type: ignore  # noqa: E501
       set_capex_rd_balance_seed,
@@ -1607,12 +1655,13 @@ def prepare_initial_grid_for_draft(
             "rationale": _j.get("rationale"),
           }
         else:
-          _growth_trace = {"ok": False, "source": "mechanical_defaults", "error": _gj.get("error")}
-    except Exception as _gj_exc:  # noqa: BLE001 â€” soft: defaults stand
-      _growth_trace = {
+          raise _judgment_author_failed("growth_judgment", _gj.get("error"))
+    except Exception as _gj_exc:
+      sequence_trace["growth_judgment_failure"] = {
         "ok": False, "source": "mechanical_defaults",
         "error": f"{type(_gj_exc).__name__}: {str(_gj_exc)[:200]}",
       }
+      raise
     # RESTRUCTURE CONSUMPTION: GROWTH â€” the executive's redesigned growth
     # path replaces the standalone growth judgment (same seat, better-
     # informed: the redesign was made WITH the solver's gap report in
@@ -1644,8 +1693,10 @@ def prepare_initial_grid_for_draft(
             "rail_qoq_max": float(_RS_GROWTH_RAIL_QOQ),
             "rationale": str(_rs_growth.get("rationale") or "")[:600],
           }
-    except Exception:  # noqa: BLE001 â€” soft: the judged/default growth stands
-      pass
+    except Exception:
+      # A restructure directive EXISTS but its growth design failed to
+      # land — landing-fidelity class, never silent.
+      raise
     _deterministic_proposer = _functools.partial(
       propose_revenue_drivers_deterministic, anchor_q1_revenue_total=_anchor_q1,
       **_growth_kwargs,
@@ -1696,7 +1747,9 @@ def prepare_initial_grid_for_draft(
               "source": _growth_trace.get("source"),
             }
         except Exception:
-          pass
+          # Losing the growth-authority stamp silently un-anchors the
+          # stage-ramp minimum (Anderson class) — loud.
+          raise
         _rev_line = _rev_pass.get("revenue_line") or []
         sequence_trace["revenue_authoring"] = {
           "ok": True,
@@ -1710,9 +1763,22 @@ def prepare_initial_grid_for_draft(
           ),
         }
       else:
-        sequence_trace["revenue_authoring"] = {"ok": False, "error": _rev_pass.get("error")}
-  except Exception as _rev_exc:  # noqa: BLE001 â€” soft sink: must not break a run
+        raise _judgment_author_failed("revenue_authoring", _rev_pass.get("error"))
+      _declare_judgment(model_input_json, "growth_judgment", _growth_trace)
+      _declare_judgment(
+        model_input_json, "revenue_authoring",
+        {"ok": True, "source": "python_proposer_plus_gpt_critic"},
+      )
+    else:
+      # Absence (no operating-model digest at all): declared, not silent.
+      _declare_judgment(model_input_json, "growth_judgment", _growth_trace)
+      _declare_judgment(
+        model_input_json, "revenue_authoring",
+        {"ok": False, "source": "grid_default_drivers"},
+      )
+  except Exception as _rev_exc:
     sequence_trace["revenue_authoring"] = {"error": repr(_rev_exc)}
+    raise
 
   # ----- RESTRUCTURE CONSUMPTION: THE REVENUE STRUCTURE -----
   # The executive's redesigned revenue side lands in the machine here,
@@ -2082,10 +2148,26 @@ def prepare_initial_grid_for_draft(
         "managerial_forecast": _bf_pass.get("managerial_forecast") or {},
         "violations_resolved": len(_bf_pass.get("violations_resolved") or []),
       }
+      _declare_judgment(
+        model_input_json, "band_fitting", {"ok": True, "source": "fitted_bands"},
+      )
     else:
-      sequence_trace["band_fitting"] = {"ok": False, "error": _bf_pass.get("error")}
-  except Exception as _bf_exc:  # noqa: BLE001 â€” soft sink: must not break a run
+      _bf_error = str(_bf_pass.get("error") or "")
+      if _bf_error == "no_industry_envelope":
+        # Absence, not failure: no cohort envelope exists for this
+        # industry — raw bands are the honest, DECLARED state.
+        sequence_trace["band_fitting"] = {"ok": False, "error": _bf_error}
+        _declare_judgment(
+          model_input_json, "band_fitting",
+          {"ok": False, "source": "no_industry_envelope"},
+        )
+      else:
+        # A fitting FAILURE silently reverting to raw scale-wrong cohort
+        # bands was S4 in the fallback inventory — loud now.
+        raise _judgment_author_failed("band_fitting", _bf_error)
+  except Exception as _bf_exc:
     sequence_trace["band_fitting"] = {"error": repr(_bf_exc)}
+    raise
 
   r_and_d_applicability_decision_for_ramp = copy.deepcopy(
     r_and_d_policy_from_model_input(model_input_json)

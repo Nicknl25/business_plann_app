@@ -181,7 +181,22 @@ def _check_band_violations(
         continue
       r_min = band.get("robust_min")
       r_max = band.get("robust_max")
-      if isinstance(r_max, (int, float)) and float(value) > float(r_max):
+      # Direction matters (per this function's stated intent): expense
+      # CEILINGS (*_max) violate only ABOVE robust_max — a ceiling below
+      # the cohort minimum is a lean business, not a violation (raw
+      # cohort scale is exactly what fitted bands correct for). FLOORS
+      # (ni_floor, *_floor) violate only BELOW robust_min. The original
+      # loop applied both bounds to every field; it shipped alongside
+      # the schema drift that kept the populator dead, so it first ran
+      # against real bands only after the fallback-class fix — and
+      # instantly rejected every lean-cost business.
+      is_ceiling = field.endswith("_max")
+      is_floor = field.endswith("_floor")
+      if (
+        (is_ceiling or not is_floor)
+        and isinstance(r_max, (int, float))
+        and float(value) > float(r_max)
+      ):
         violations.append({
           "code": "stage_ramp_above_band_max",
           "quarter_index": q_idx,
@@ -191,7 +206,11 @@ def _check_band_violations(
           "delta": float(value) - float(r_max),
           "units": "fraction",
         })
-      if isinstance(r_min, (int, float)) and float(value) < float(r_min):
+      if (
+        (is_floor or not is_ceiling)
+        and isinstance(r_min, (int, float))
+        and float(value) < float(r_min)
+      ):
         violations.append({
           "code": "stage_ramp_below_band_min",
           "quarter_index": q_idx,

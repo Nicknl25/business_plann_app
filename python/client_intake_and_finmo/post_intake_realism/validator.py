@@ -1080,15 +1080,15 @@ def validate_industry_realism_bands(
       # ESTABLISHED business, it never waives the climb's discipline nor
       # lowers any floor already in force (max, never min).
       if metric_key == "ebitda_margin":
-        try:
-          from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
-            judged_ebitda_floor_for_quarter,
-            margin_band_from_model_input,
-          )
-          _judged_mb = margin_band_from_model_input(model_input_json)
-          _judged_floor = judged_ebitda_floor_for_quarter(_judged_mb, q)
-        except Exception:
-          _judged_floor = None
+        from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+          judged_ebitda_floor_for_quarter,
+          margin_band_from_model_input,
+        )
+        # Absent judgment -> None -> planning-mode floor stands (declared
+        # absence). A raise is a bug and stays LOUD — the old swallow
+        # silently dropped the judged mature floor (S11).
+        _judged_mb = margin_band_from_model_input(model_input_json)
+        _judged_floor = judged_ebitda_floor_for_quarter(_judged_mb, q)
         if _judged_floor is not None:
           # The judged floor gets the same tolerance every band edge gets
           # (the raw band low above became `lower` minus tolerance_units).

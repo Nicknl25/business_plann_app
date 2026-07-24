@@ -865,16 +865,15 @@ def _formula_trajectory_ebitda_recovery_trend(
     return None
   raw = float(q11) - float(q5)
   healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
-  try:
-    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
-      margin_band_from_model_input,
-    )
-    _judgment = margin_band_from_model_input(model_input_json)
-    _q11_low = ((_judgment or {}).get("q11") or {}).get("low")
-    if _q11_low is not None:
-      healthy_floor = float(_q11_low)
-  except Exception:
-    healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
+  from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+    margin_band_from_model_input,
+  )
+  # Absent judgment -> reader returns None -> flat-floor constant stands
+  # (declared absence). A raise here is a bug and stays LOUD (S10 split).
+  _judgment = margin_band_from_model_input(model_input_json)
+  _q11_low = ((_judgment or {}).get("q11") or {}).get("low")
+  if _q11_low is not None:
+    healthy_floor = float(_q11_low)
   if (
     float(q5) >= healthy_floor
     and float(q11) >= max(healthy_floor, float(q5) * _EBITDA_HEALTHY_RETENTION_FRACTION)
@@ -945,16 +944,13 @@ def _formula_trajectory_ebitda_q20_holds_or_improves_vs_q11(
   if q11 is None or q20 is None:
     return None
   raw = float(q20) - float(q11) + _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE
-  try:
-    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
-      margin_band_from_model_input,
-    )
-    _judgment = margin_band_from_model_input(model_input_json)
-    _q20_low = ((_judgment or {}).get("q20") or {}).get("low")
-    if _q20_low is not None and float(q20) >= float(_q20_low) - 1e-9:
-      return max(raw, 0.0)
-  except Exception:
-    pass
+  from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+    margin_band_from_model_input,
+  )
+  _judgment = margin_band_from_model_input(model_input_json)
+  _q20_low = ((_judgment or {}).get("q20") or {}).get("low")
+  if _q20_low is not None and float(q20) >= float(_q20_low) - 1e-9:
+    return max(raw, 0.0)
   return raw
 
 
@@ -988,16 +984,13 @@ def _formula_trajectory_gross_margin_supports_recovery(
   if gm is None:
     return None
   floor = _GROSS_MARGIN_RECOVERY_FLOOR
-  try:
-    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
-      margin_band_from_model_input,
-    )
-    _judgment = margin_band_from_model_input(model_input_json)
-    _judged_floor = (_judgment or {}).get("gross_margin_floor_q11")
-    if _judged_floor is not None:
-      floor = float(_judged_floor)
-  except Exception:
-    floor = _GROSS_MARGIN_RECOVERY_FLOOR
+  from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+    margin_band_from_model_input,
+  )
+  _judgment = margin_band_from_model_input(model_input_json)
+  _judged_floor = (_judgment or {}).get("gross_margin_floor_q11")
+  if _judged_floor is not None:
+    floor = float(_judged_floor)
   return float(gm) - float(floor)
 
 
@@ -1033,16 +1026,13 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
   if revenue is None or revenue <= 0:
     return None
   burden_max = _FIXED_COST_BURDEN_INDUSTRY_MAX
-  try:
-    from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
-      margin_band_from_model_input,
-    )
-    _judgment = margin_band_from_model_input(model_input_json)
-    _judged_max = (_judgment or {}).get("fixed_cost_burden_max_q11")
-    if _judged_max is not None:
-      burden_max = float(_judged_max)
-  except Exception:
-    burden_max = _FIXED_COST_BURDEN_INDUSTRY_MAX
+  from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # noqa: E501
+    margin_band_from_model_input,
+  )
+  _judgment = margin_band_from_model_input(model_input_json)
+  _judged_max = (_judgment or {}).get("fixed_cost_burden_max_q11")
+  if _judged_max is not None:
+    burden_max = float(_judged_max)
   fixed = float(payroll or 0.0) + float(rent or 0.0) + float(ga or 0.0)
   slack = float(revenue - fixed) / float(revenue)
   result = slack - (1.0 - burden_max)

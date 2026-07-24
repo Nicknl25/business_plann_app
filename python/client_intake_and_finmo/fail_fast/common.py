@@ -104,7 +104,16 @@ def _env_bool(name: str, *, default: bool = True) -> bool:
 
 
 def convergence_test_mode_enabled() -> bool:
-  return _env_bool("CONVERGENCE_TEST_MODE", default=False)
+  """Fail-loud mode. Despite the historical name, this is NOT test-only:
+  as of the fallback-class fix it defaults ON — every gated fail-loud
+  conversion (realism formula exceptions, cash-strategy/funding GPT
+  failures, mini-finmo preconditions, ...) raises in production too.
+  Doctrine: no plan ships on substituted judgment; a failed run stops
+  and is retried by the supervisor, it does not degrade silently.
+
+  CONVERGENCE_TEST_MODE=0 remains as an explicit, deliberate emergency
+  kill switch only."""
+  return _env_bool("CONVERGENCE_TEST_MODE", default=True)
 
 
 def fail_fast_enabled(phase: str) -> bool:
