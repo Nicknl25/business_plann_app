@@ -273,6 +273,24 @@ def create_app() -> Flask:
 
     return post_target_market_consult_handler(app=app, request=request)
 
+  @app.route("/api/admin/runs", methods=["GET", "OPTIONS"])
+  def get_admin_runs():
+    """
+    Read-only run/supervisor state for the minimal admin view.
+    """
+    from api_handlers.admin_runs import get_admin_runs_handler
+
+    return get_admin_runs_handler(app=app, request=request)
+
+  @app.route("/admin/runs", methods=["GET"])
+  def get_admin_runs_page():
+    """
+    Self-contained HTML admin page over /api/admin/runs.
+    """
+    from api_handlers.admin_runs import get_admin_runs_page_handler
+
+    return get_admin_runs_page_handler(app=app, request=request)
+
   @app.route("/api/shared-context", methods=["GET", "OPTIONS"])
   def get_shared_context():
     """
