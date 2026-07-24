@@ -2,10 +2,11 @@ import os
 import sys
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 
 try:
   from flask_cors import CORS  # type: ignore
@@ -26,7 +27,28 @@ def getenv(name: str) -> Optional[str]:
   return value or None
 
 
+def _configure_logging() -> None:
+  """
+  Timestamped stderr logging for the whole process.
+
+  Configuring the root logger BEFORE app.logger is first touched keeps Flask
+  from attaching its own (timestamp-less) default handler; every module
+  logger then propagates here and shares one format. Idempotent so test
+  harnesses that import api twice don't double-log.
+  """
+  root = logging.getLogger()
+  if not any(getattr(handler, "_bplan_ts_handler", False) for handler in root.handlers):
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(
+      logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")
+    )
+    handler._bplan_ts_handler = True  # type: ignore[attr-defined]
+    root.addHandler(handler)
+  root.setLevel(logging.INFO)
+
+
 def create_app() -> Flask:
+  _configure_logging()
   if load_dotenv:
     try:
       # Force load variables from the project root .env (consistent across CWDs).
@@ -49,6 +71,34 @@ def create_app() -> Flask:
   if CORS is not None:
     # Enable CORS for all routes to support the separate frontend dev server.
     CORS(app)
+
+  @app.before_request
+  def _stamp_request_start():
+    g._bplan_req_start = time.monotonic()
+
+  @app.after_request
+  def log_api_request(response):
+    """
+    One INFO line per /api request: method, path, status, duration, draft_id.
+    Logging must never break a request, so failures here are swallowed by
+    design (declared exception to the fail-loud rule).
+    """
+    try:
+      if request.method != "OPTIONS" and request.path.startswith("/api/"):
+        started = getattr(g, "_bplan_req_start", None)
+        elapsed_ms = (time.monotonic() - started) * 1000.0 if started is not None else -1.0
+        draft_id = request.args.get("draft_id") or ""
+        if not draft_id and request.is_json:
+          body = request.get_json(silent=True)
+          if isinstance(body, dict):
+            draft_id = str(body.get("draft_id") or "")
+        app.logger.info(
+          "REQ %s %s -> %s %.0fms draft=%s",
+          request.method, request.path, response.status_code, elapsed_ms, draft_id or "-",
+        )
+    except Exception:
+      pass
+    return response
 
   @app.after_request
   def add_cors_headers(response):

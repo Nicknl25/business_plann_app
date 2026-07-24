@@ -9015,6 +9015,14 @@ def post_intake_consult_handler(*, app, request):
       )
 
     messages = _parse_messages(consult.get("messages_json"))
+    app.logger.info(
+      "TURN_BEGIN draft=%s turn=%s starting=%s focus=%s msg_chars=%s",
+      str(draft_id).strip(),
+      len(messages),
+      starting,
+      str(consult.get("active_focus") or "-"),
+      len(message),
+    )
 
     ops_json = _parse_json_dict(consult.get("operating_model_json"))
     market_json = _parse_json_dict(consult.get("target_market_json"))

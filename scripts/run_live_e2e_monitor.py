@@ -370,10 +370,28 @@ def _proxy_clean_env() -> Dict[str, str]:
 
 def main(argv: list[str]) -> int:
   parser = argparse.ArgumentParser(description="Run a live E2E intake/system-run and poll persisted SQL state.")
-  parser.add_argument("prompt", help="Business prompt to send to the live runner.")
+  parser.add_argument("prompt", nargs="?", default="", help="Business prompt to send to the live runner (unused with --watch-only).")
   parser.add_argument("--base-url", default="http://127.0.0.1:5050", help="Local API base URL.")
   parser.add_argument("--poll-seconds", type=float, default=10.0, help="SQL polling cadence while the run is active.")
   parser.add_argument("--runner", default=str(DEFAULT_RUNNER_PATH), help="Runner script path to execute.")
+  parser.add_argument(
+    "--watch-only",
+    action="store_true",
+    help="Do not spawn a runner; watch an externally-driven run (e.g. a browser session) until it reaches a terminal state, stalls, or --max-wait-seconds elapses.",
+  )
+  parser.add_argument("--draft-id", default="", help="Watch this specific draft instead of the newest draft created after monitor start.")
+  parser.add_argument(
+    "--stall-seconds",
+    type=float,
+    default=300.0,
+    help="If an active (non-paused) planning run shows no heartbeat/update for this long, report a stall (exit 6 in --watch-only). 0 disables.",
+  )
+  parser.add_argument(
+    "--max-wait-seconds",
+    type=float,
+    default=0.0,
+    help="Overall watch ceiling; exit 8 when exceeded. 0 means no ceiling.",
+  )
   parser.add_argument("--stdout-path", default="", help="Optional stdout capture file.")
   parser.add_argument("--stderr-path", default="", help="Optional stderr capture file.")
   parser.add_argument("--result-path", default="", help="Optional path to persist the final monitor payload as JSON.")
@@ -384,6 +402,8 @@ def main(argv: list[str]) -> int:
     help="Run cutover validation against the final monitor payload and fail if acceptance checks do not pass.",
   )
   args = parser.parse_args(argv)
+  if not args.watch_only and not str(args.prompt or "").strip():
+    parser.error("prompt is required unless --watch-only is set")
 
   get_mysql_connection = _load_db()
 
@@ -392,36 +412,58 @@ def main(argv: list[str]) -> int:
     runner_path = (REPO_ROOT / runner_path).resolve()
 
   start_ts = _utc_now_sql()
+  monitor_started = datetime.now(timezone.utc)
   stdout_path = Path(args.stdout_path or f"tmp_{int(time.time())}_live_e2e_stdout.txt")
   stderr_path = Path(args.stderr_path or f"tmp_{int(time.time())}_live_e2e_stderr.txt")
 
-  cmd = [
-    str(REPO_ROOT / ".venv" / "Scripts" / "python.exe"),
-    "-u",
-    str(runner_path),
-    args.prompt,
-    "--base-url",
-    args.base_url,
-  ]
-  print(json.dumps({"event": "runner_start", "prompt": args.prompt, "start_utc": start_ts, "cmd": cmd}), flush=True)
+  proc = None
+  stdout_file = None
+  stderr_file = None
+  if args.watch_only:
+    print(
+      json.dumps(
+        {
+          "event": "watch_start",
+          "start_utc": start_ts,
+          "draft_id": args.draft_id or None,
+          "stall_seconds": args.stall_seconds,
+          "max_wait_seconds": args.max_wait_seconds,
+        }
+      ),
+      flush=True,
+    )
+  else:
+    cmd = [
+      str(REPO_ROOT / ".venv" / "Scripts" / "python.exe"),
+      "-u",
+      str(runner_path),
+      args.prompt,
+      "--base-url",
+      args.base_url,
+    ]
+    print(json.dumps({"event": "runner_start", "prompt": args.prompt, "start_utc": start_ts, "cmd": cmd}), flush=True)
 
-  stdout_file = stdout_path.open("w", encoding="utf-8")
-  stderr_file = stderr_path.open("w", encoding="utf-8")
-  proc = subprocess.Popen(
-    cmd,
-    cwd=str(REPO_ROOT),
-    env=_proxy_clean_env(),
-    stdout=stdout_file,
-    stderr=stderr_file,
-    shell=False,
-  )
+    stdout_file = stdout_path.open("w", encoding="utf-8")
+    stderr_file = stderr_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+      cmd,
+      cwd=str(REPO_ROOT),
+      env=_proxy_clean_env(),
+      stdout=stdout_file,
+      stderr=stderr_file,
+      shell=False,
+    )
 
-  draft_id: Optional[str] = None
+  draft_id: Optional[str] = str(args.draft_id).strip() or None
   planning_run_id: Optional[str] = None
   last_snapshot: Dict[str, Any] = {}
   last_run_snapshot: Dict[str, Any] = {}
   seen_states: list[Dict[str, Any]] = []
   seen_run_states: list[Dict[str, Any]] = []
+
+  exit_reason: Optional[str] = None
+  terminal_run_status: Optional[str] = None
+  stall_reported = False
 
   try:
     while True:
@@ -444,6 +486,7 @@ def main(argv: list[str]) -> int:
           seen_states.append(snap)
           print(json.dumps({"event": "state_change", "state": snap}), flush=True)
           last_snapshot = snap
+      run_row = None
       if planning_run_id:
         run_row = _planning_run_by_id(get_mysql_connection=get_mysql_connection, planning_run_id=planning_run_id)
         run_snap = _planning_run_snapshot(run_row)
@@ -451,14 +494,67 @@ def main(argv: list[str]) -> int:
           seen_run_states.append(run_snap)
           print(json.dumps({"event": "planning_run_change", "planning_run": run_snap}), flush=True)
           last_run_snapshot = run_snap
-      rc = proc.poll()
-      if rc is not None:
-        print(json.dumps({"event": "runner_exit", "returncode": rc}), flush=True)
+
+      now = datetime.now(timezone.utc)
+      run_status = str((run_row or {}).get("run_status") or "").strip().lower()
+
+      if args.watch_only and run_status in ("completed", "failed", "stopped"):
+        terminal_run_status = run_status
+        exit_reason = "run_terminal"
+        print(json.dumps({"event": "run_terminal", "run_status": run_status}), flush=True)
         break
+
+      # Stall: an active (non-paused, non-terminal) planning run whose freshest
+      # signal (heartbeat / run update / draft update) is older than the threshold.
+      # Intake conversation before the run starts is human-paced, so no planning
+      # run => no stall check.
+      if args.stall_seconds > 0 and isinstance(run_row, dict) and run_status not in ("completed", "failed", "stopped", "paused"):
+        signals = [
+          _parse_dt(run_row.get("last_heartbeat_at")),
+          _parse_dt(run_row.get("updated_at")),
+          _parse_dt(row.get("updated_at")) if isinstance(row, dict) else None,
+        ]
+        freshest = max((sig for sig in signals if sig is not None), default=None)
+        age_seconds = _seconds_between(now, freshest)
+        if age_seconds is not None and age_seconds > args.stall_seconds:
+          if not stall_reported:
+            stall_reported = True
+            print(
+              json.dumps(
+                {
+                  "event": "stall_detected",
+                  "age_seconds": age_seconds,
+                  "stall_seconds": args.stall_seconds,
+                  "run_status": run_status or None,
+                  "planning_run_id": planning_run_id,
+                }
+              ),
+              flush=True,
+            )
+          if args.watch_only:
+            exit_reason = "stall"
+            break
+        else:
+          stall_reported = False
+
+      if proc is not None:
+        rc = proc.poll()
+        if rc is not None:
+          print(json.dumps({"event": "runner_exit", "returncode": rc}), flush=True)
+          exit_reason = "runner_exit"
+          break
+
+      if args.max_wait_seconds > 0 and (now - monitor_started).total_seconds() > args.max_wait_seconds:
+        exit_reason = "max_wait"
+        print(json.dumps({"event": "max_wait_exceeded", "max_wait_seconds": args.max_wait_seconds}), flush=True)
+        break
+
       time.sleep(max(args.poll_seconds, 1.0))
   finally:
-    stdout_file.close()
-    stderr_file.close()
+    if stdout_file is not None:
+      stdout_file.close()
+    if stderr_file is not None:
+      stderr_file.close()
 
   final_row = _draft_by_id(get_mysql_connection=get_mysql_connection, draft_id=draft_id) if draft_id else None
   if not planning_run_id and isinstance(final_row, dict) and final_row.get("planning_run_id"):
@@ -492,8 +588,15 @@ def main(argv: list[str]) -> int:
     }
     for event in final_events
   ]
+  # In watch-only mode there is no runner; a cleanly-completed run stands in
+  # for returncode 0 so completed_cleanly keeps its meaning.
+  effective_returncode = (
+    proc.returncode
+    if proc is not None
+    else (0 if terminal_run_status == "completed" else None)
+  )
   final_monitor_health_summary = _monitor_health_summary(
-    proc_returncode=proc.returncode,
+    proc_returncode=effective_returncode,
     seen_states=seen_states,
     seen_run_states=seen_run_states,
     final_snapshot=final_snapshot,
@@ -503,10 +606,13 @@ def main(argv: list[str]) -> int:
   )
   final_payload = {
     "event": "final_row",
+    "mode": "watch_only" if args.watch_only else "runner",
+    "exit_reason": exit_reason,
+    "terminal_run_status": terminal_run_status,
     "draft_id": draft_id,
     "planning_run_id": planning_run_id,
-    "stdout_path": str(stdout_path),
-    "stderr_path": str(stderr_path),
+    "stdout_path": str(stdout_path) if proc is not None else None,
+    "stderr_path": str(stderr_path) if proc is not None else None,
     "seen_state_count": len(seen_states),
     "seen_states": seen_states,
     "seen_planning_run_state_count": len(seen_run_states),
@@ -536,7 +642,13 @@ def main(argv: list[str]) -> int:
     if validation_errors:
       return 5
 
-  if proc.returncode != 0:
+  if exit_reason == "stall":
+    return 6
+  if exit_reason == "max_wait":
+    return 8
+  if terminal_run_status in ("failed", "stopped"):
+    return 7
+  if proc is not None and proc.returncode != 0:
     return int(proc.returncode or 1)
   if not isinstance(final_row, dict):
     print("No persisted draft row found for live run.", file=sys.stderr)
