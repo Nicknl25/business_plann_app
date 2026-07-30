@@ -905,11 +905,29 @@ def _confirm_clarify_message(
   *,
   consult_type: str | None = None,
   baseline_json: Any = None,
+  shared_context: Any = None,
 ) -> str:
 
-  # Field-specific clarification prompts are safer than the generic "single number"
-  # prompt for structured fields like income_intent (which expects min+max).
+  # FRAME-DECLARED clarifier first: when the active financials stage owns
+  # this field, its spec clarifier (carried in the router frame) wins over
+  # every generic fallback. The generic "in your own words" text on a
+  # boolean stage created a permanent trap (issue #15): it replaced the
+  # original question's phrasing, which the old phrasing-keyed rule needed
+  # to match — three literal "Yes." answers were refused in a row. The
+  # clarifier nudges toward a clear answer but never REQUIRES literal
+  # words — the router interprets any natural reply either way.
   field_norm = str(field or "").strip().lower()
+  try:
+    _stage = ((shared_context or {}).get("financials_controller") or {}).get("current_stage") or {}
+    _targets = [
+      str(t).rsplit(".", 1)[-1].strip().lower()
+      for t in (_stage.get("patch_targets") or [])
+    ]
+    _clarifier = str(_stage.get("clarifier") or "").strip()
+    if _clarifier and field_norm.rsplit(".", 1)[-1] in _targets:
+      return _clarifier
+  except Exception:
+    pass
   if field_norm.endswith("gender_age_intent"):
     return (
       "Just to confirm, please provide a target formatted like this for example: "
@@ -1691,7 +1709,7 @@ def route_intent(
       + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
-      + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
+      + "- If current_stage.name is future_rent_expected, the app is asking whether the business expects paid dedicated space later. This rule fires on the FRAME (the stage name), never on how the question happened to be phrased. Interpret the client's INTENT into the boolean: ANY natural phrasing meaning yes (yes, yep, sure, that's right, definitely, of course, we'll keep the office, probably once we grow) patches future_rent_expected = true; ANY phrasing meaning no (no, nah, staying home-based, fully remote, no dedicated space) patches future_rent_expected = false. Never require literal words, never return confirm_proceed or continue_chat for a reply that leans either way; only a genuinely direction-less reply (e.g. 'it depends' with no lean) gets confirm_clarify with a closed yes/no question.\n"
       + "- If the last assistant message is asking about leased equipment or space beyond main rent, interpret clear no/none style answers as initial_lease = 0 and interpret amount answers as the monthly lease amount.\n"
       + "Financials funding handling:\n"
       + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"
@@ -2337,6 +2355,7 @@ Return JSON only. No prose.
           field,
           consult_type=consult_type_norm,
           baseline_json=baseline_json,
+          shared_context=shared_context,
         )
       )
 
