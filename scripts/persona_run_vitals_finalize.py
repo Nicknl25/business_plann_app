@@ -258,6 +258,33 @@ def main(argv) -> int:
   }
   run_vitals.insert_run_summary(summary)
 
+  # Resolution-sensing pass over the shared issue database: every
+  # open/recurring issue is evaluated against this run (recur / exercised
+  # clean / not exercised). Best-effort — a checker failure must not lose
+  # the vitals summary above.
+  try:
+    from client_intake_and_finmo import issue_registry  # type: ignore
+    conn2 = get_mysql_connection()
+    try:
+      check = issue_registry.evaluate_run_for_resolution(conn2, draft_id=draft_id)
+    finally:
+      try:
+        conn2.close()
+      except Exception:
+        pass
+    print(
+      "ISSUE CHECK: evaluated={ev} recurred={rc} exercised_clean={ec} "
+      "not_exercised={ne} resolved_confirmed={cf} resolved_observational={ob}".format(
+        ev=check["evaluated"], rc=check["recurred"],
+        ec=check["exercised_clean"], ne=check["not_exercised"],
+        cf=check["resolved_confirmed"] or "-",
+        ob=check["resolved_observational"] or "-",
+      ),
+      flush=True,
+    )
+  except Exception as exc:
+    print(f"ISSUE CHECK failed (continuing): {type(exc).__name__}: {exc}", flush=True)
+
   print(
     "RUN VITALS: draft={d} biz={b!r} exit={e} run_status={rs} stage={st} "
     "coherence={c} turns={t} turn_ms={tm} gpt_calls={g} gpt_ms={gm} "

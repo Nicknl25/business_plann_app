@@ -304,6 +304,33 @@ def create_app() -> Flask:
 
     return get_admin_runs_page_handler(app=app, request=request)
 
+  @app.route("/api/issues", methods=["POST", "OPTIONS"])
+  def post_issue():
+    """
+    Persona-testing issue write path (Cowork): report one issue sighting.
+    """
+    from api_handlers.issues_api import post_issue_handler
+
+    return post_issue_handler(app=app, request=request)
+
+  @app.route("/api/admin/issues", methods=["GET", "OPTIONS"])
+  def get_admin_issues():
+    """
+    Read-only issue registry + occurrences + resolution events.
+    """
+    from api_handlers.issues_api import get_admin_issues_handler
+
+    return get_admin_issues_handler(app=app, request=request)
+
+  @app.route("/admin/issues", methods=["GET"])
+  def get_admin_issues_page():
+    """
+    Self-contained HTML issue dashboard over /api/admin/issues.
+    """
+    from api_handlers.issues_api import get_admin_issues_page_handler
+
+    return get_admin_issues_page_handler(app=app, request=request)
+
   @app.route("/api/shared-context", methods=["GET", "OPTIONS"])
   def get_shared_context():
     """
