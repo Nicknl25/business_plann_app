@@ -4302,7 +4302,7 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "patch_targets": ("owner_compensation",),
     "completion_fields": ("owner_compensation",),
     "confirmable_baseline": False,
-    "clarifier": "What annual owner compensation should I record?",
+    "clarifier": "What monthly owner compensation should I record?",
   },
   "other_operating_expense": {
     "patch_targets": ("other_operating_expense",),
@@ -4638,14 +4638,21 @@ def _financials_stage_complete(stage_name: str, financials_json: Dict[str, Any])
 
 
 def _build_financials_controller_context(stage_name: Optional[str], *, last_assistant: str = "") -> Dict[str, Any]:
+  from client_intake_and_finmo.field_basis import basis_of  # type: ignore
+
   stage = str(stage_name or "").strip()
   spec = _financials_stage_spec(stage)
+  patch_targets = list(spec.get("patch_targets") or [])
   current_stage = {
     "name": stage or None,
-    "patch_targets": list(spec.get("patch_targets") or []),
+    "patch_targets": patch_targets,
     "completion_fields": list(spec.get("completion_fields") or []),
     "confirmable_baseline": bool(spec.get("confirmable_baseline")),
     "clarifier": str(spec.get("clarifier") or "").strip(),
+    # Declared stored-basis per patch target (field_basis registry): the
+    # router normalizes the client's stated basis to this — convert, never
+    # copy. The ONLY basis authority; no apply-layer conversions exist.
+    "basis": {field: basis_of(field) for field in patch_targets},
   }
   if stage == "cash_strategy":
     current_stage["allowed_values"] = [option["value"] for option in _CASH_STRATEGY_OPTIONS]
@@ -4838,10 +4845,11 @@ def _normalize_financials_router_patch(
       numeric = _safe_float(raw_value)
       if numeric is None:
         continue
-      asks_monthly = "owner compensation" in assistant_lower and ("per month" in assistant_lower or "last month" in assistant_lower)
-      mentions_annual = any(token in user_lower for token in ("annual", "annually", "per year", "yearly", "/year", "a year"))
-      if asks_monthly and not mentions_annual and numeric <= 50000.0:
-        numeric *= 12.0
+      # No basis second-guessing here: the router is the ONLY basis
+      # normalizer (field_basis registry names the stored basis in the
+      # router frame). The old apply-layer x12 heuristic believed this
+      # monthly field was annual and turned a correct $10,000/mo into
+      # $120,000/mo (Harborline false park, run CW-001).
       next_financials[field_name] = float(numeric)
       touched.add(field_name)
       continue
@@ -4887,9 +4895,9 @@ def _normalize_financials_router_patch(
     numeric = _safe_float(raw_value)
     if numeric is None:
       continue
-    if stage_name == "marketing" and field_name == "marketing_total_year1":
-      if ("per month" in user_lower or "monthly" in user_lower) and numeric <= 20000.0:
-        numeric *= 12.0
+    # (Former marketing x12 shim removed - same class as the owner_comp
+    # shim above: the router owns basis normalization, declared per field
+    # by the field_basis registry.)
     next_financials[field_name] = float(numeric)
     touched.add(field_name)
   if not touched:
