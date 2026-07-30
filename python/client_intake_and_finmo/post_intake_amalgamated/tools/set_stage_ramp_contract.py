@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import copy
 import math
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 def _string(value: Any) -> str:
@@ -152,18 +152,28 @@ def _echo_bands_for_run(conn, *, draft_id: str, planning_run_id: str) -> Dict[st
 def _check_band_violations(
   contract: Dict[str, Any],
   bands: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
   """Cross-check each per-quarter contract value against the
-  corresponding cohort/robust band. Cogs/marketing/rd/ga maxes that
-  exceed the robust_max are flagged; ni_floor values below robust_min
-  similarly. Returns one entry per (quarter, field) violation.
+  corresponding cohort/robust band. Returns (violations, advisories).
+
+  OWNERSHIP (Wave 2, three-tier): the cohort band is a fitted statistic
+  that doesn't know THIS business. For CEILING fields (*_max) it retains
+  its veto (violations). For FLOOR fields (ni_floor, *_floor) the seat is
+  OWNED by the planning-mode policy (early quarters; the producer derives
+  the floors FROM policy and the envelope/validator enforce them) and by
+  the executive-judged ni_margin_floor_q11 at maturity (acceptance gate)
+  — so a floor breach of the cohort band DEMOTES to an ADVISORY: recorded
+  and persisted (informing band recalibration), never independently
+  rejecting. No boundary tolerance exists because none is needed — the
+  informant cannot veto the owner.
   """
   violations: List[Dict[str, Any]] = []
+  advisories: List[Dict[str, Any]] = []
   if not isinstance(contract, dict) or not isinstance(bands, dict) or not bands:
-    return violations
+    return violations, advisories
   grid = contract.get("quarter_ramp_grid") or []
   if not isinstance(grid, list):
-    return violations
+    return violations, advisories
   # Map lever_id -> band dict; we expect "stage_ramp::<field>" lever ids
   # (populated by the cohort_bands populator in this commit's update).
   by_field: Dict[str, Dict[str, Any]] = {}
@@ -211,7 +221,7 @@ def _check_band_violations(
         and isinstance(r_min, (int, float))
         and float(value) < float(r_min)
       ):
-        violations.append({
+        entry = {
           "code": "stage_ramp_below_band_min",
           "quarter_index": q_idx,
           "field": field,
@@ -219,8 +229,13 @@ def _check_band_violations(
           "band_min": float(r_min),
           "delta": float(r_min) - float(value),
           "units": "fraction",
-        })
-  return violations
+        }
+        if is_floor:
+          entry["code"] = "stage_ramp_floor_below_cohort_band_advisory"
+          advisories.append(entry)
+        else:
+          violations.append(entry)
+  return violations, advisories
 
 
 def set_stage_ramp_contract(
@@ -337,7 +352,27 @@ def set_stage_ramp_contract(
   envelope_violations = _check_envelope_violations(candidate)
 
   # 1) Cohort/robust band check (cross-section coherence with drivers).
-  band_violations = _check_band_violations(candidate, bands_echoed)
+  # Ceilings may veto; floor breaches come back as ADVISORIES (the floor
+  # seats are owned by policy / the executive judgment — Wave 2).
+  band_violations, band_advisories = _check_band_violations(candidate, bands_echoed)
+  if band_advisories:
+    # Persist the advisory so the statistic keeps informing: (a) a
+    # runtime-status trace row (queryable per draft), (b) stamped onto
+    # the contract below when accepted, (c) in the return envelope.
+    try:
+      from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+        record_runtime_status,
+      )
+      record_runtime_status(
+        handler="stage_ramp_band_advisory",
+        status={
+          "draft_id": _string(draft_id),
+          "advisories": band_advisories,
+          "decision_source": decision_source,
+        },
+      )
+    except Exception:
+      pass
 
   # 2) Canonical schema/structure validator.
   validator_violations: List[Dict[str, Any]] = []
@@ -383,6 +418,7 @@ def set_stage_ramp_contract(
       "section": "stage_ramp",
       "contract": None,
       "violations": violations,
+      "band_advisories": band_advisories,
       "bands_echoed": bands_echoed,
       "decision_source": decision_source,
     }
@@ -390,6 +426,8 @@ def set_stage_ramp_contract(
   # Accepted. Annotate provenance fields the orchestrator already
   # consumes; the engage helper layers on the same fields today.
   accepted = copy.deepcopy(candidate)
+  if band_advisories:
+    accepted["band_advisories"] = band_advisories
   accepted.setdefault("decision_source", decision_source)
   accepted.setdefault("business_stage", business_stage)
   accepted.setdefault("planning_mode", _string(planning_mode).lower())
