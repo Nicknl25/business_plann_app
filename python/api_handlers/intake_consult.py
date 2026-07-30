@@ -9055,6 +9055,18 @@ def post_intake_consult_handler(*, app, request):
       str(consult.get("active_focus") or "-"),
       len(message),
     )
+    try:
+      from client_intake_and_finmo import run_vitals as _run_vitals  # type: ignore
+      _run_vitals.begin_turn(
+        draft_id=str(draft_id).strip(),
+        client_id=client_id,
+        turn_index=len(messages),
+        section=active_focus_current,
+        starting=starting,
+        message_chars=len(message),
+      )
+    except Exception:
+      pass  # vitals capture is best-effort by contract; never blocks a turn
 
     ops_json = _parse_json_dict(consult.get("operating_model_json"))
     market_json = _parse_json_dict(consult.get("target_market_json"))
@@ -12378,6 +12390,11 @@ def post_intake_consult_handler(*, app, request):
       app.logger.warning(
         "TURN_HOLD draft=%s transient judgment failure: %s", draft_id, exc
       )
+      try:
+        from client_intake_and_finmo import run_vitals as _run_vitals  # type: ignore
+        _run_vitals.mark_turn_hold(str(exc))
+      except Exception:
+        pass
       try:
         append_messages(
           conn,

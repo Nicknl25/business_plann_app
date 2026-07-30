@@ -5,6 +5,22 @@ is fully observable from the backend side, live.
 
 ## Startup
 
+One command for the whole stack (what Cowork's control app should invoke):
+
+```powershell
+powershell -File scripts\start_persona_stack.ps1   # backend :5050 + frontend :5173
+```
+
+Client entry URL (open in a FRESH browser tab/window per run):
+`http://localhost:5173/business-plan-form`. Draft identity (draft_id/client_id)
+lives in **sessionStorage**, so a new tab = a new draft + a server-generated
+client_id (no collision with the drafts table's `uniq_client_id`); reusing a
+tab RESUMES the prior draft. Give each run a distinct business name — nothing
+enforces uniqueness, but it is the human-readable key for matching a run to
+its OneDrive transcript afterwards.
+
+Backend half only:
+
 ```powershell
 powershell -File scripts\start_persona_backend.ps1          # default port 5050
 ```
@@ -74,7 +90,55 @@ monitor at the start of a persona session; each line wakes the session.
 Notes: one draft watched at a time (serial runs by design); an abandoned
 intake recycles after `--recycle-seconds` (default 1h); verbatim GPT I/O
 and the log markers exist only when the backend was started via
-`start_persona_backend.ps1`.
+`start_persona_backend.ps1`. When each watch ends the watcher runs
+`persona_run_vitals_finalize.py` automatically and emits a one-line
+`RUN VITALS:` summary (and the summary row lands in `run_vitals_runs`).
+
+## Run-vitals database log
+
+Every persona run leaves a queryable vitals record — four INSERT-only tables
+written live by the app plus a summary row written by the watcher when a
+watch ends (`python/client_intake_and_finmo/run_vitals.py`; capture is
+best-effort by contract and never blocks a turn or a GPT call):
+
+- **`run_vitals_turns`** — one row per intake consult turn: draft/client id,
+  turn_index, section at entry + section after (section transitions = where
+  consecutive rows differ), turn latency_ms, HTTP status, message/reply sizes,
+  per-turn GPT rollup (calls, elapsed, tokens in/out, lock replays, retries),
+  hold flag, error, and `call_labels_json` (the per-call breakdown). Armed at
+  TURN_BEGIN (`intake_consult.py`), flushed by the `/api/intake-consult`
+  after_request hook in `api.py`.
+- **`run_vitals_gpt_calls`** — one row per GPT HTTP call process-wide, hooked
+  at `openai_http.post_openai_with_retries` (the layer every GPT call flows
+  through): phase (`intake` — attributed to draft/turn/section — or
+  `post_intake` — attributed via the active trace run — or `unattributed`),
+  model, schema/call label, status, attempts (>1 = retried), elapsed_ms,
+  tokens, response-lock replay flag, error. `decision_source` for post-intake
+  calls lives in `post_intake_handler_traces` (join on draft_id + time).
+- **`run_vitals_events`** — catch-all event stream: app-sourced `turn_hold`,
+  watcher-sourced `watch_end_*` (with stall count + transcript link).
+- **`run_vitals_runs`** — one summary row per watched run, INSERTed by
+  `scripts/persona_run_vitals_finalize.py` (invoked automatically by the
+  session watcher when a watch ends): exit reason, run/draft status, planning
+  stage, coherence status (converged/parked/roadmap/walking), turn + GPT
+  aggregates, holds/errors/stalls, run duration, and the best-effort OneDrive
+  transcript path. INSERT-only: a re-finalized run adds a newer row.
+
+Example queries:
+
+```sql
+-- slowest sections by average turn latency
+SELECT section, COUNT(*) turns, AVG(latency_ms) avg_ms
+FROM run_vitals_turns GROUP BY section ORDER BY avg_ms DESC;
+
+-- runs that hit holds or errors
+SELECT draft_id, business_name, holds, errors, stalls, exit_reason
+FROM run_vitals_runs WHERE holds > 0 OR errors > 0 OR stalls > 0;
+```
+
+Caveat: the turn accumulator is process-global (serial persona runs by
+design); two simultaneous consult turns on one server would cross-attribute
+GPT calls — same doctrine as the one-server-per-run rule below.
 
 ## Ground truth for persona runs
 

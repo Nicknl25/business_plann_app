@@ -34,7 +34,9 @@ from typing import Any, Dict, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MONITOR = REPO_ROOT / "scripts" / "run_live_e2e_monitor.py"
+FINALIZER = REPO_ROOT / "scripts" / "persona_run_vitals_finalize.py"
 PYTHON = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
+RESULT_PATH = REPO_ROOT / "tmp_persona_watch_result.json"
 
 _LOG_MARKERS = ("TURN_BEGIN", "TURN_HOLD", "Traceback", "Failed intake consult")
 
@@ -131,6 +133,34 @@ def _tail_persona_log(stop: threading.Event) -> None:
     handle.close()
 
 
+def _finalize_vitals(stall_count: int) -> None:
+  """Record the watched run's vitals summary (run_vitals_runs + events) and
+  surface the one-line RUN VITALS summary. Best-effort: a finalizer failure
+  must never stop the watch loop."""
+  if not RESULT_PATH.exists():
+    return  # watch ended before any draft appeared; nothing to record
+  try:
+    out = subprocess.run(
+      [str(PYTHON), "-u", str(FINALIZER),
+       "--result-path", str(RESULT_PATH),
+       "--stalls", str(stall_count)],
+      cwd=str(REPO_ROOT),
+      capture_output=True,
+      text=True,
+      encoding="utf-8",
+      errors="replace",
+      timeout=120,
+    )
+    for line in (out.stdout or "").splitlines():
+      if line.strip():
+        _emit(line.strip())
+    if out.returncode != 0:
+      tail = (out.stderr or "").strip().splitlines()
+      _emit(f"vitals-finalize failed rc={out.returncode}: {tail[-1] if tail else '?'}")
+  except Exception as exc:  # noqa: BLE001 -- the watch loop must survive
+    _emit(f"vitals-finalize error (continuing): {type(exc).__name__}: {exc}")
+
+
 def main(argv) -> int:
   parser = argparse.ArgumentParser(description="Auto-sense the persona stack and observe runs.")
   parser.add_argument("--backend-port", type=int, default=5050)
@@ -164,6 +194,11 @@ def main(argv) -> int:
         time.sleep(5.0)
         continue
 
+      try:
+        RESULT_PATH.unlink()  # stale result must not be re-finalized
+      except OSError:
+        pass
+      stall_count = 0
       proc = subprocess.Popen(
         [
           str(PYTHON), "-u", str(MONITOR),
@@ -171,7 +206,7 @@ def main(argv) -> int:
           "--stall-seconds", str(args.stall_seconds),
           "--poll-seconds", str(args.poll_seconds),
           "--max-wait-seconds", str(args.recycle_seconds),
-          "--result-path", str(REPO_ROOT / "tmp_persona_watch_result.json"),
+          "--result-path", str(RESULT_PATH),
         ],
         cwd=str(REPO_ROOT),
         stdout=subprocess.PIPE,
@@ -181,13 +216,17 @@ def main(argv) -> int:
         errors="replace",
       )
       for raw in iter(proc.stdout.readline, ""):
-        compacted = _compact(raw.strip())
+        stripped = raw.strip()
+        if '"stall_detected"' in stripped:
+          stall_count += 1
+        compacted = _compact(stripped)
         if compacted:
           _emit(compacted)
         if not _stack_up(args.backend_port, args.frontend_port):
           proc.terminate()
           break
       proc.wait(timeout=30)
+      _finalize_vitals(stall_count)
       time.sleep(2.0)
   finally:
     tail_stop.set()

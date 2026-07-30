@@ -180,6 +180,52 @@ def _lock_save(key: str, url: str, body_text: str) -> None:
   )
 
 
+def _vitals():
+  """run_vitals module, or None. Import is lazy + dual-path (this module is
+  imported both as `openai_http` and `client_intake_and_finmo.openai_http`);
+  vitals capture is best-effort and must never break a GPT call."""
+  try:
+    from client_intake_and_finmo import run_vitals  # type: ignore
+    return run_vitals
+  except Exception:
+    try:
+      import run_vitals  # type: ignore
+      return run_vitals
+    except Exception:
+      return None
+
+
+def _record_call_vitals(
+  *,
+  payload: Dict[str, Any],
+  started_monotonic: float,
+  status_code: Optional[int],
+  attempts: int,
+  body: Any = None,
+  lock_replay: bool = False,
+  error: Optional[str] = None,
+) -> None:
+  vitals = _vitals()
+  if vitals is None:
+    return
+  try:
+    usage = vitals.extract_usage(body) if body is not None else {}
+    vitals.record_gpt_call(
+      model=str((payload or {}).get("model") or ""),
+      call_label=vitals.extract_call_label(payload),
+      status_code=status_code,
+      attempts=attempts,
+      elapsed_ms=int((time.monotonic() - started_monotonic) * 1000.0),
+      tokens_in=usage.get("tokens_in"),
+      tokens_out=usage.get("tokens_out"),
+      tokens_total=usage.get("tokens_total"),
+      lock_replay=lock_replay,
+      error=error,
+    )
+  except Exception:
+    pass
+
+
 def _openai_session() -> requests.Session:
   session = requests.Session()
   session.trust_env = False
@@ -230,12 +276,26 @@ def post_openai_with_retries(
   # (see module comment). Miss -> live call (then saved). A store FAILURE
   # is fatal by design — _lock_lookup retries and raises; silently falling
   # back to an unlocked live call here was a system-wide determinism hole.
+  _started_monotonic = time.monotonic()
   lock_key: Optional[str] = None
   if _gpt_lock_enabled():
     lock_key = gpt_request_lock_key(url, payload)
     locked_body = _lock_lookup(lock_key)
     if locked_body is not None:
-      return _LockedResponse(locked_body)  # type: ignore[return-value]
+      replay = _LockedResponse(locked_body)
+      try:
+        _replay_body = replay.json()
+      except Exception:
+        _replay_body = None
+      _record_call_vitals(
+        payload=payload,
+        started_monotonic=_started_monotonic,
+        status_code=200,
+        attempts=1,
+        body=_replay_body,
+        lock_replay=True,
+      )
+      return replay  # type: ignore[return-value]
 
   retryable = {int(item) for item in retryable_status}
   retryable.update(_TRANSIENT_EDGE_STATUS)
@@ -265,15 +325,40 @@ def post_openai_with_retries(
           _parse_ok = False
         if _parse_ok:
           _lock_save(lock_key, url, resp.text)
+      try:
+        _resp_body = resp.json()
+      except Exception:
+        _resp_body = None
+      _record_call_vitals(
+        payload=payload,
+        started_monotonic=_started_monotonic,
+        status_code=int(getattr(resp, "status_code", 0) or 0),
+        attempts=attempt + 1,
+        body=_resp_body,
+      )
       return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
       if attempt >= max_attempts - 1:
+        _record_call_vitals(
+          payload=payload,
+          started_monotonic=_started_monotonic,
+          status_code=None,
+          attempts=attempt + 1,
+          error=f"{type(exc).__name__}: {str(exc)[:180]}",
+        )
         raise
       time.sleep(0.75 * (2**attempt))
     except requests.exceptions.ConnectionError as exc:
       last_exc = exc
       if attempt >= max_attempts - 1:
+        _record_call_vitals(
+          payload=payload,
+          started_monotonic=_started_monotonic,
+          status_code=None,
+          attempts=attempt + 1,
+          error=f"{type(exc).__name__}: {str(exc)[:180]}",
+        )
         raise
       time.sleep(0.75 * (2**attempt))
   if last_exc:

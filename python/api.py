@@ -96,6 +96,19 @@ def create_app() -> Flask:
           "REQ %s %s -> %s %.0fms draft=%s",
           request.method, request.path, response.status_code, elapsed_ms, draft_id or "-",
         )
+        if request.method == "POST" and request.path == "/api/intake-consult":
+          # Flush the run-vitals turn row armed at TURN_BEGIN. Best-effort
+          # by the same contract as the REQ log itself.
+          from client_intake_and_finmo import run_vitals as _run_vitals
+          _reply = response.get_json(silent=True)
+          _run_vitals.finish_turn(
+            http_status=response.status_code,
+            latency_ms=int(elapsed_ms) if elapsed_ms >= 0 else None,
+            reply_chars=response.calculate_content_length(),
+            section_after=str((_reply or {}).get("active_focus") or "")
+            if isinstance(_reply, dict)
+            else "",
+          )
     except Exception:
       pass
     return response
