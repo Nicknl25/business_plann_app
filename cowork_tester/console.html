@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persona Test Console</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
+    --grid: #e1e0d9; --border: rgba(11,11,11,0.10);
+    --blue: #2a78d6; --violet: #4a3aa7;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --good-text: #006300;
+    --chip: #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-3: #898781;
+      --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --blue: #3987e5; --violet: #9085e9;
+      --good-text: #0ca30c;
+      --chip: #262624;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink-1);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-3); font-size: 12.5px; }
+  .pill { font-size: 11.5px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border);
+          background: var(--surface-1); color: var(--ink-2); }
+  .pill .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3);
+       margin: 30px 0 10px; font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile .v { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .tile .l { font-size: 12px; color: var(--ink-2); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+  .sev { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface-1);
+          border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em;
+       color: var(--ink-3); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--grid); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .sig { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--ink-2); word-break: break-all; }
+  .badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+  .empty { color: var(--ink-3); padding: 18px 14px; text-align: center; background: var(--surface-1);
+           border: 1px dashed var(--grid); border-radius: 10px; font-size: 13px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 10px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+          padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .card .pid { font-size: 11px; font-weight: 700; color: var(--blue); letter-spacing: 0.05em; }
+  .card .pname { font-weight: 650; font-size: 14.5px; }
+  .card .ptag { color: var(--ink-2); font-size: 12.5px; }
+  .card .pwatch { color: var(--ink-3); font-size: 12px; border-top: 1px solid var(--grid); padding-top: 6px; margin-top: 2px; }
+  .grammar { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .grammar code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; background: var(--chip);
+                  padding: 2px 7px; border-radius: 6px; }
+  .grammar p { margin: 6px 0; color: var(--ink-2); }
+  .covgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .cov { display: flex; align-items: center; gap: 8px; background: var(--surface-1); border: 1px solid var(--border);
+         border-radius: 8px; padding: 8px 11px; font-size: 12.5px; color: var(--ink-2); }
+  .cov .n { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-3); font-size: 12px; }
+  .agenda-item { display: flex; gap: 12px; background: var(--surface-1); border: 1px solid var(--border);
+                 border-radius: 10px; padding: 11px 14px; margin-bottom: 8px; }
+  .agenda-item .rank { font-weight: 700; color: var(--violet); font-variant-numeric: tabular-nums; }
+  .agenda-item .why { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+  footer { margin-top: 36px; color: var(--ink-3); font-size: 12px; border-top: 1px solid var(--grid); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Persona Test Console</h1>
+    <span class="pill" id="livePill"><span class="dot" style="background:var(--ink-3)"></span><span id="liveText">snapshot</span></span>
+    <span class="sub" id="updatedAt"></span>
+  </header>
+  <div class="sub">Cowork drives persona intakes against the live business-plan app · issues land in the shared registry · VS watches the backend.</div>
+
+  <h2>Open issues</h2>
+  <div class="tiles" id="tiles"></div>
+  <div style="height:10px"></div>
+  <div id="issuesBox"></div>
+
+  <h2>Persona menu</h2>
+  <div class="cards" id="personaCards"></div>
+
+  <h2>How to run me</h2>
+  <div class="grammar">
+    <p><code>run P3 "law firm, two revenue streams, since 2019"</code> — one run: your persona, your business, I invent the founder's numbers (persona-distorted).</p>
+    <p><code>… focus: bad monthly/annual answers</code> — optional; steers my behavior and what I watch for.</p>
+    <p><code>run yours</code> / <code>batch 5</code> — I pick from the agenda and run unattended, one at a time; a severe break stops the batch.</p>
+    <p><code>agenda</code> · <code>issues</code> — my ranked recommendations · a glance at the registry.</p>
+  </div>
+
+  <h2>Coverage</h2>
+  <div class="covgrid" id="covFriction"></div>
+  <div style="height:8px"></div>
+  <div class="covgrid" id="covBiz"></div>
+
+  <h2>Agenda — what I'd run next</h2>
+  <div id="agendaBox"></div>
+
+  <h2>Recent runs</h2>
+  <div id="runsBox"></div>
+
+  <footer>State lives in <span class="sig">C:\dev\business_plann_app\cowork_tester\</span> · registry dashboard at <span class="sig">127.0.0.1:5050/admin/issues</span> · this page tries the live API and falls back to its embedded snapshot.</footer>
+</div>
+
+<script>
+/* ==== CONSOLE_DATA — regenerated by Claude on every update ==== */
+const CONSOLE_DATA = {
+  updated: null,
+  stack_note: "not yet verified this session",
+  issues: [],            /* snapshot of open issues: {signature, category, severity, title, status, occurrence_count, last_seen_at} */
+  personas: [
+    {id:"P1", name:"The Fog", tag:"Doesn't know their numbers; guesses when asked.", watch:"Contradiction handling, hedged answers"},
+    {id:"P2", name:"The Basis Mixer", tag:"Monthly when annual is expected, and vice versa.", watch:"Basis restatement — high value"},
+    {id:"P3", name:"The Defender", tag:"Defensive about one thing; resists changing it.", watch:"Lever negotiation, refusal handling"},
+    {id:"P4", name:"Confident & Wrong", tag:"Crisp figures that don't fit the business.", watch:"Plausibility checks, poisoned verdicts"},
+    {id:"P5", name:"The Dreamer", tag:"A business that genuinely doesn't work yet.", watch:"Roadmap path, how bad news feels"},
+    {id:"P6", name:"The Straight Shooter", tag:"Knows the numbers, answers cleanly. The control.", watch:"Baseline + retest vehicle"},
+    {id:"P7", name:"The Sprawler", tag:"Multiple revenue streams, tangled together.", watch:"Multi-stream modeling, late structure"},
+    {id:"P8", name:"The Skimmer", tag:"Terse. Answers only what's asked, minimally.", watch:"Lost sub-questions, elicitation"}
+  ],
+  coverage: { friction: [
+    {label:"Weak number knowledge (P1)", runs:0}, {label:"Ambiguous basis (P2)", runs:0},
+    {label:"Defensive / resists lever (P3)", runs:0}, {label:"Confident & wrong (P4)", runs:0},
+    {label:"Unviable → roadmap (P5)", runs:0}, {label:"Clean baseline (P6)", runs:0},
+    {label:"Multi-stream tangle (P7)", runs:0}, {label:"Terse answers (P8)", runs:0}
+  ], business: [
+    {label:"Professional services", runs:0}, {label:"Food service", runs:0}, {label:"Retail", runs:0},
+    {label:"Trades / field services", runs:0}, {label:"Health & wellness", runs:0},
+    {label:"Creative / digital", runs:0}, {label:"Hospitality / events", runs:0}, {label:"Manufacturing / product", runs:0}
+  ]},
+  agenda: [
+    {rank:1, persona:"P6", business:"small law firm, litigation + estate, since 2019", why:"First proof run: clean baseline through the full walk validates the pipeline before friction personas run."},
+    {rank:2, persona:"P2", business:"neighborhood bakery with a wholesale side", why:"Basis restatement is the flagged high-value path; bakery sets natural monthly/annual and per-unit traps across two streams."},
+    {rank:3, persona:"P5", business:"board-game cafe in a small town, pre-profit", why:"Exercises the roadmap/parked verdict path and how that conversation feels."}
+  ],
+  runs: []               /* {run_id, persona, business, verdict, issues, note} */
+};
+/* ==== /CONSOLE_DATA ==== */
+
+const SEV_COLOR = { blocker: "var(--critical)", major: "var(--serious)", minor: "var(--warning)", note: "var(--ink-3)" };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function renderIssues(issues, live) {
+  const open = issues.filter(i => (i.status || "open") !== "resolved");
+  const by = s => open.filter(i => i.severity === s).length;
+  const recurring = issues.filter(i => i.status === "recurring").length;
+  document.getElementById("tiles").innerHTML = [
+    ["Open", open.length, "var(--blue)"],
+    ["Blocker", by("blocker"), SEV_COLOR.blocker],
+    ["Major", by("major"), SEV_COLOR.major],
+    ["Minor", by("minor"), SEV_COLOR.minor],
+    ["Recurring ↻", recurring, "var(--violet)"]
+  ].map(([l, v, c]) => `<div class="tile"><div class="v">${v}</div><div class="l"><span class="sev" style="background:${c}"></span>${l}</div></div>`).join("");
+
+  const box = document.getElementById("issuesBox");
+  if (!open.length) { box.innerHTML = `<div class="empty">No open issues in the ${live ? "registry" : "snapshot"}. Either the app is healthy or we haven't looked hard enough yet.</div>`; return; }
+  box.innerHTML = `<table><thead><tr><th>Issue</th><th>Cat</th><th>Sev</th><th>Seen</th><th>Last</th></tr></thead><tbody>` +
+    open.sort((a,b) => "blocker major minor note".indexOf(a.severity) - "blocker major minor note".indexOf(b.severity))
+    .map(i => `<tr><td><div>${esc(i.title || "")}</div><div class="sig">${esc(i.signature)}</div></td>` +
+      `<td><span class="badge">${esc(i.category)}</span></td>` +
+      `<td><span class="sev" style="background:${SEV_COLOR[i.severity] || "var(--ink-3)"}"></span> ${esc(i.severity)}${i.status === "recurring" ? " ↻" : ""}</td>` +
+      `<td class="num">${i.occurrence_count ?? ""}</td><td class="num">${esc((i.last_seen_at || "").slice(0, 10))}</td></tr>`).join("") + "</tbody></table>";
+}
+
+function render(d, live) {
+  document.getElementById("updatedAt").textContent = d.updated ? ("updated " + d.updated) : "";
+  document.getElementById("liveText").textContent = live ? "live registry" : ("snapshot · " + (d.stack_note || ""));
+  document.querySelector("#livePill .dot").style.background = live ? "var(--good)" : "var(--ink-3)";
+  renderIssues(d.issues, live);
+  document.getElementById("personaCards").innerHTML = d.personas.map(p =>
+    `<div class="card"><span class="pid">${p.id}</span><span class="pname">${esc(p.name)}</span>` +
+    `<span class="ptag">${esc(p.tag)}</span><span class="pwatch">watches: ${esc(p.watch)}</span></div>`).join("");
+  const cov = (arr, el) => document.getElementById(el).innerHTML = arr.map(c =>
+    `<div class="cov"><span class="sev" style="background:${c.runs > 0 ? "var(--good)" : "var(--grid)"}"></span>${esc(c.label)}<span class="n">${c.runs > 0 ? c.runs + "×" : "—"}</span></div>`).join("");
+  cov(d.coverage.friction, "covFriction"); cov(d.coverage.business, "covBiz");
+  document.getElementById("agendaBox").innerHTML = d.agenda.length ? d.agenda.map(a =>
+    `<div class="agenda-item"><div class="rank">#${a.rank}</div><div><div><strong>${esc(a.persona)}</strong> · ${esc(a.business)}</div>` +
+    `<div class="why">${esc(a.why)}</div></div></div>`).join("") : `<div class="empty">No recommendations yet.</div>`;
+  document.getElementById("runsBox").innerHTML = d.runs.length ?
+    `<table><thead><tr><th>Run</th><th>Persona</th><th>Business</th><th>Verdict</th><th>Issues filed</th></tr></thead><tbody>` +
+    d.runs.map(r => `<tr><td>${esc(r.run_id)}</td><td>${esc(r.persona)}</td><td>${esc(r.business)}</td>` +
+      `<td>${esc(r.verdict)}</td><td>${esc(r.issues)}</td></tr>`).join("") + "</tbody></table>"
+    : `<div class="empty">No runs yet. First up: the proof runs you watch.</div>`;
+}
+
+render(CONSOLE_DATA, false);
+
+/* Try the live registry (works when the stack is up on this machine); fall back to snapshot silently. */
+fetch("http://127.0.0.1:5050/api/admin/issues?limit=200", {signal: AbortSignal.timeout(2500)})
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(j => {
+    const rows = Array.isArray(j) ? j : (j.issues || j.rows || []);
+    if (rows.length || Array.isArray(j)) { CONSOLE_DATA.issues = rows; render(CONSOLE_DATA, true); }
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "updated": null,
+  "notes": "Ranked recommendations. Rebuilt from coverage gaps + open issues each session; operator approves, overrides, or says 'run yours'.",
+  "recommendations": [
+    {"rank": 1, "kind": "baseline", "persona": "P6", "business": "small law firm, two revenue streams (litigation + estate), running since 2019", "reason": "First proof run: clean baseline through the full walk establishes what 'working' looks like and validates the whole pipeline before friction personas run.", "status": "proposed"},
+    {"rank": 2, "kind": "gap", "persona": "P2", "business": "neighborhood bakery with a wholesale side", "reason": "Basis restatement is flagged high-value; bakery gives natural monthly/annual and per-unit/total traps across two streams.", "status": "proposed"},
+    {"rank": 3, "kind": "gap", "persona": "P5", "business": "board-game cafe in a small town, pre-profit", "reason": "Exercises the roadmap/parked path and how the hard conversation feels; verdict-class coverage.", "status": "proposed"}
+  ]
+}

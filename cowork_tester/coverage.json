@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "updated": null,
+  "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible.",
+  "business_types": {
+    "professional_services": {"examples": ["law firm", "accounting", "consulting"], "runs": []},
+    "food_service": {"examples": ["restaurant", "food truck", "bakery"], "runs": []},
+    "retail": {"examples": ["shop", "e-commerce", "boutique"], "runs": []},
+    "trades_field_services": {"examples": ["plumbing", "landscaping", "cleaning"], "runs": []},
+    "health_wellness": {"examples": ["gym", "salon", "therapy practice"], "runs": []},
+    "creative_digital": {"examples": ["agency", "studio", "SaaS-ish solo dev"], "runs": []},
+    "hospitality_events": {"examples": ["B&B", "event planning", "venue"], "runs": []},
+    "manufacturing_product": {"examples": ["small-batch maker", "workshop"], "runs": []}
+  },
+  "friction_conditions": {
+    "weak_number_knowledge": {"persona": "P1", "runs": []},
+    "ambiguous_basis": {"persona": "P2", "runs": []},
+    "defensive_resists_lever": {"persona": "P3", "runs": []},
+    "confident_wrong_figures": {"persona": "P4", "runs": []},
+    "unviable_business_roadmap": {"persona": "P5", "runs": []},
+    "clean_baseline": {"persona": "P6", "runs": []},
+    "multi_stream_tangled": {"persona": "P7", "runs": []},
+    "terse_minimal_answers": {"persona": "P8", "runs": []}
+  },
+  "structural_conditions": {
+    "existing_business_with_history": {"runs": []},
+    "pre_revenue_startup": {"runs": []},
+    "seasonal_revenue": {"runs": []},
+    "multiple_revenue_streams": {"runs": []},
+    "lease_heavy_cost_structure": {"runs": []},
+    "payroll_heavy_cost_structure": {"runs": []}
+  },
+  "verdict_classes_reached": {"converged": [], "parked": [], "roadmap": []}
+}
