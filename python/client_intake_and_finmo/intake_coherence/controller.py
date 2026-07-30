@@ -341,22 +341,44 @@ def _costs_round(
       "to_display": _fmt_money(rent_floor_q) + "/quarter",
     }
 
-  # Team floor is authored in stated-wage terms — the same basis as
-  # the intake payroll term (stated wages + owner comp). No burden
-  # scaling on either side: consistent by construction.
+  # Team floor is authored in stated-wage terms — the same basis the
+  # evaluator reads (people baseline + adjustment + additive owner comp).
+  # The machine patch MUST land the panel exactly on the displayed target:
+  # target = floor×4 minus whatever owner-comp the evaluator adds back.
   payroll_floor_q = _f(team.get("min_annual_payroll")) / 4.0
   if 0 < payroll_floor_q < basis.payroll_quarterly - 1e-6:
-    owner_annual = _f(financials_json.get("owner_compensation")) * 12.0
-    new_payroll_annual = round(max(0.0, payroll_floor_q * 4.0 - owner_annual), 2)
-    # both payroll fields: the sync keeps current_payroll and
-    # payroll_total_year1 as a pair, and the autocomplete guard keys
-    # on current_payroll being set.
+    pb = (basis.notes or {}).get("payroll_basis") or {}
+    owner_additive = _f(pb.get("owner_comp_additive"))
+    baseline_annual = _f(financials_json.get("baseline_payroll_year1"))
+    target_annual = round(max(0.0, payroll_floor_q * 4.0 - owner_additive), 2)
+    if baseline_annual > 0:
+      # People stays the single source of payroll truth: the lever
+      # expresses a client-approved DELTA from the people baseline via
+      # payroll_adjustment — the exact field the evaluator adds back —
+      # never a rewrite of the baseline or the legacy echo fields.
+      # (The old code subtracted RAW owner comp and patched
+      # payroll_total_year1; with a corrupted owner comp the clamp
+      # produced value 0.0 under a "$65,000/quarter" display —
+      # Harborline CW-001.)
+      field_patch = {
+        "group": "financials", "field": "payroll_adjustment",
+        "value": round(target_annual - baseline_annual, 2),
+      }
+      extra_patches: List[Dict[str, Any]] = []
+    else:
+      # Legacy drafts with no people baseline keep the paired echo-field
+      # contract (sync keeps them together; autocomplete guard keys on
+      # current_payroll being set).
+      field_patch = {
+        "group": "financials", "field": "payroll_total_year1", "value": target_annual,
+      }
+      extra_patches = [
+        {"group": "financials", "field": "current_payroll", "value": target_annual},
+      ]
     moves["payroll"] = {
       "basis_patch": {"payroll_quarterly": payroll_floor_q},
-      "field_patch": {"group": "financials", "field": "payroll_total_year1", "value": new_payroll_annual},
-      "extra_field_patches": [
-        {"group": "financials", "field": "current_payroll", "value": new_payroll_annual},
-      ],
+      "field_patch": field_patch,
+      "extra_field_patches": extra_patches,
       "from_display": _fmt_money(basis.payroll_quarterly) + "/quarter",
       "to_display": _fmt_money(payroll_floor_q) + "/quarter",
     }

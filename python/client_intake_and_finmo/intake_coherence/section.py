@@ -38,6 +38,23 @@ from client_intake_and_finmo.intake_coherence.evaluator import (
 # text only — never on client language).
 COHERENCE_MARKER = "work on paper"
 
+# Fields a client may correct DURING a lever turn by disputing a panel
+# number ("that payroll figure is wrong - we actually pay X"). The router
+# patches the underlying field (basis-normalized via field_bases) and the
+# panel recomputes from it next turn. Everything outside this set plus
+# the active round's declared targets is DROPPED by the lever whitelist:
+# Harborline CW-001 showed the router can hallucinate a full state dump
+# as a "patch" (25 fields, duplicated with conflicting bases) — applied
+# wholesale it vandalized four correct captures.
+DISPUTABLE_FIELDS = (
+  "financials.owner_compensation",
+  "financials.other_operating_expense",
+  "financials.monthly_rent_expense",
+  "financials.marketing_total_year1",
+  "financials.current_revenue",
+  "financials.payroll_adjustment",
+)
+
 _MONEY_RE = re.compile(r"\$[\d,]+")
 
 
@@ -120,11 +137,18 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
     for o in rnd.get("options") or []:
       for fp in ((o.get("patch") or {}).get("fields") or []):
         patch_targets.append(f"{fp.get('group')}.{fp.get('field')}")
+  from client_intake_and_finmo.field_basis import basis_of
+  disputable = list(DISPUTABLE_FIELDS)
   return {
     "current_question": f"coherence_{rnd.get('key')}",
     "round_key": rnd.get("key"),
     "options": options,
     "patch_targets": sorted(set(patch_targets)),
+    "disputable_fields": disputable,
+    "field_bases": {
+      f: basis_of(f) for f in sorted(set(patch_targets + disputable))
+      if not f.startswith("coherence.") and not f.endswith("product_overrides")
+    },
     "gap_open_display": _fmt(_f(state.get("gap_open"))),
   }
 
@@ -408,6 +432,22 @@ def apply_router_patch(
     result = _apply_custom_prices(next_ops, next_fin, overrides, state)
     next_ops, next_fin, clamped = result
     notes.append("custom_prices" + (":clamped" if clamped else ""))
+
+  # LEVER-TURN WHITELIST (mirrors the ops-interview patch narrowing):
+  # whatever survives to the generic apply may only be the active round's
+  # declared targets or a disputable stated-fact field. Everything else
+  # is dropped and logged — a router echo of current state must never
+  # reach the draft (Harborline CW-001 wholesale-echo vandalism).
+  allowed = set(DISPUTABLE_FIELDS)
+  for o in rnd.get("options") or []:
+    for fp in ((o.get("patch") or {}).get("fields") or []):
+      if fp.get("group") and fp.get("field"):
+        allowed.add(f"{fp['group']}.{fp['field']}")
+  dropped = sorted(k for k in remaining if k not in allowed)
+  for k in dropped:
+    remaining.pop(k, None)
+  if dropped:
+    notes.append("dropped:" + ",".join(dropped))
 
   return remaining, next_ops, next_fin, notes
 
