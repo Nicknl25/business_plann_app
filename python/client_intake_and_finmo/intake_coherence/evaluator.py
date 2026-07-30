@@ -43,6 +43,8 @@ a promise.
 
 from __future__ import annotations
 
+import re as _re
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -327,9 +329,38 @@ def basis_from_intake(
     cogs_pct = cogs / ann_rev if ann_rev else 0.0
   cogs_pct = max(0.0, min(2.0, float(cogs_pct)))
 
-  payroll = _f(fin.get("current_payroll")) or _f(fin.get("payroll_total_year1"))
+  # Payroll truth is the People-owned summing point (7aa64c5): key people +
+  # rest-of-team, stamped as baseline_payroll_year1 with people-derived
+  # provenance, plus any client-approved coherence delta (payroll_adjustment).
+  # The financials echo fields are LEGACY FALLBACK only — they proved
+  # clobberable (Harborline CW-001: an echo-patch zeroed both while the
+  # baseline stamp survived).
+  payroll = _f(fin.get("baseline_payroll_year1"))
+  payroll_source = "people_baseline"
+  if payroll <= 0:
+    payroll = _f(fin.get("current_payroll")) or _f(fin.get("payroll_total_year1"))
+    payroll_source = "financials_echo_legacy"
+  else:
+    payroll = max(0.0, payroll + _f(fin.get("payroll_adjustment")))
+  # Owner comp is NON-ADDITIVE when an owner/principal is already among the
+  # people roles: their wage is inside the baseline, so adding owner comp on
+  # top double-counts the same dollars (each dollar exactly once). Owner comp
+  # then informs cash modeling only.
   owner_comp_annual = _f(fin.get("owner_compensation")) * 12.0
-  notes["payroll_basis"] = {"stated_annual": payroll, "owner_comp_annual": owner_comp_annual}
+  roles = fin.get("payroll_basis_people_roles") or []
+  owner_in_roles = any(
+    _re.search(r"owner|principal|founder|managing|partner", str(r.get("role_title") or ""), _re.I)
+    for r in roles
+    if isinstance(r, dict)
+  )
+  owner_comp_additive = 0.0 if owner_in_roles else owner_comp_annual
+  notes["payroll_basis"] = {
+    "annual": payroll,
+    "source": payroll_source,
+    "owner_comp_annual": owner_comp_annual,
+    "owner_in_roles": owner_in_roles,
+    "owner_comp_additive": owner_comp_additive,
+  }
 
   gna_annual = _f(fin.get("other_opex_absolute"))
   if gna_annual <= 0:
@@ -345,7 +376,7 @@ def basis_from_intake(
   return StructuralBasis(
     q1_revenue_quarterly=ann_rev / 4.0,
     cogs_pct=cogs_pct,
-    payroll_quarterly=(payroll + owner_comp_annual) / 4.0,
+    payroll_quarterly=(payroll + owner_comp_additive) / 4.0,
     rent_quarterly=_f(fin.get("monthly_rent_expense")) * 3.0,
     gna_pct=(gna_annual / ann_rev) if ann_rev else 0.0,
     marketing_pct=(marketing_annual / ann_rev) if ann_rev else 0.0,
