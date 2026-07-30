@@ -406,6 +406,14 @@ def _run_exercised(cur, draft_id: str, probe: Dict[str, Any]) -> Dict[str, Any]:
   clause must pass. Empty probe -> not exercised (never guess)."""
   if not probe:
     return {"exercised": False, "reason": "no probe and none derivable"}
+  # manual_only: the issue's retest condition cannot be expressed in the
+  # vitals vocabulary (e.g. "anchor computed on stated revenue, not the
+  # capacity model" — issue #10). Auto-sensing must never tick it: a
+  # section-level coincidence confirming a real bug is exactly what the
+  # schema exists to NOT trust. Resolution comes from resolve_manually or
+  # a future probe upgrade.
+  if probe.get("manual_only"):
+    return {"exercised": False, "reason": "manual-retest-only (vitals cannot sense this condition)"}
   checks: List[str] = []
 
   if probe.get("require_completed", True):

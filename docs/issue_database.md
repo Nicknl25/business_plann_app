@@ -129,6 +129,13 @@ for verdict issues). No probe and nothing derivable → the issue is never
 "exercised" and must be resolved manually
 (`issue_registry.resolve_manually`, basis `manual`).
 
+`{"manual_only": true}` declares that the retest condition CANNOT be
+expressed in the vitals vocabulary (e.g. "anchor computed on stated
+revenue" — issue #10): auto-sensing never ticks it, so a section-level
+coincidence can't confirm a real bug. Resolution comes from
+`resolve_manually` after a targeted check, or from replacing the probe
+when a sharper predicate becomes sensable.
+
 Any recurrence resets both counters. A recurrence after `resolved` flips to
 `status=recurring` and increments `reopened_count` (the dashboard shows
 `×N`) — the prior resolution verdict is cleared on the registry row but
