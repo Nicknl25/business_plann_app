@@ -1,4 +1,18 @@
 {
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"STANDING INSTRUCTION from Nick: FIRST action of every session - arm the persona-run watcher as a persistent background Monitor with command: ./.venv/Scripts/python.exe -u scripts/persona_session_watch.py (persistent=true; each stdout line is a run event). Then confirm to Nick with exactly one line: watcher armed. If a watcher Monitor is already live in this session (resume/compact), just re-confirm the line. Do this before any other work - Nick should never have to ask.\"}}'",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "PowerShell(.\\context\\ensure_5050_backend.ps1*)",
