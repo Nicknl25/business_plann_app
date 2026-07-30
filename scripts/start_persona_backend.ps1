@@ -42,9 +42,14 @@ $log = Join-Path $repo ("_logs_persona_{0}.txt" -f $stamp)
 $env:PORT = "$Port"
 $env:BPLAN_TRACE_VERBOSE = "1"
 
-# cmd /c so stdout and stderr land interleaved in one file.
-$cmdLine = "`"$python`" -u `"$launcher`" >> `"$log`" 2>&1"
-$proc = Start-Process -FilePath $env:ComSpec -ArgumentList "/c", $cmdLine -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+# Spawn python directly; the launcher self-redirects stdout+stderr to
+# BPLAN_SERVER_LOG. The former `cmd /c ... >> log 2>&1` layer is gone:
+# powershell.exe 5.1 Start-Process re-quotes a space-containing argument,
+# cmd's quote-stripping then mangles the line, and the backend died with
+# exit 1 before the redirect ever created the log.
+$env:BPLAN_SERVER_LOG = "$log"
+$proc = Start-Process -FilePath $python -ArgumentList "-u", $launcher -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+$env:BPLAN_SERVER_LOG = ""
 Write-Host "backend starting (pid $($proc.Id)), log -> $log"
 
 $up = $false

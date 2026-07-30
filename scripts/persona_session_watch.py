@@ -45,7 +45,9 @@ def _emit(line: str) -> None:
   print(line, flush=True)
 
 
-def _port_open(port: int, host: str = "127.0.0.1", timeout: float = 1.5) -> bool:
+def _port_open(port: int, host: str = "localhost", timeout: float = 1.5) -> bool:
+  # "localhost" not "127.0.0.1": create_connection tries every resolved
+  # family, and vite binds ::1 (IPv6) only on this machine.
   try:
     with socket.create_connection((host, port), timeout=timeout):
       return True

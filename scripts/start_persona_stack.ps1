@@ -20,8 +20,10 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 
 function Test-PortUp([int]$Port, [string]$Path = "/") {
+  # Probe via localhost, not 127.0.0.1: vite binds ::1 (IPv6) only on this
+  # machine, so a v4-only probe reports a healthy frontend as down.
   try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port$Path" -UseBasicParsing -TimeoutSec 3
+    $resp = Invoke-WebRequest -Uri "http://localhost:$Port$Path" -UseBasicParsing -TimeoutSec 3
     return ($resp.StatusCode -ge 200)
   } catch { return $false }
 }
@@ -40,9 +42,16 @@ if (Test-PortUp $FrontendPort) {
 } else {
   $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
   $feLog = Join-Path $repo ("_logs_frontend_{0}.txt" -f $stamp)
+  $feErr = Join-Path $repo ("_logs_frontend_{0}.err.txt" -f $stamp)
   $feDir = Join-Path $repo "frontend"
-  $cmdLine = "npm run dev >> `"$feLog`" 2>&1"
-  $proc = Start-Process -FilePath $env:ComSpec -ArgumentList "/c", $cmdLine -WorkingDirectory $feDir -WindowStyle Hidden -PassThru
+  # Direct spawn with redirect params — no cmd layer. powershell.exe 5.1
+  # Start-Process re-quotes space-containing arguments and cmd's quote
+  # stripping mangles `... >> "log" 2>&1` lines (same failure the backend
+  # launch had). npm.cmd resolved explicitly; Start-Process won't PATHEXT it.
+  $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+  # --strictPort: if :5173 is taken, fail loudly instead of silently serving
+  # on another port the rest of the stack isn't pointed at.
+  $proc = Start-Process -FilePath $npm -ArgumentList "run", "dev", "--", "--strictPort" -WorkingDirectory $feDir -RedirectStandardOutput $feLog -RedirectStandardError $feErr -WindowStyle Hidden -PassThru
   Write-Host "frontend starting (pid $($proc.Id)), log -> $feLog"
   $up = $false
   foreach ($i in 1..45) {
