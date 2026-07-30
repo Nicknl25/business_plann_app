@@ -285,6 +285,46 @@ def main(argv) -> int:
   except Exception as exc:
     print(f"ISSUE CHECK failed (continuing): {type(exc).__name__}: {exc}", flush=True)
 
+  # Surface every issue Cowork filed against THIS run so the observing
+  # session investigates them unprompted (standing instruction): each line
+  # wakes the session; the final line is the investigation trigger.
+  try:
+    conn3 = get_mysql_connection()
+    try:
+      cur3 = conn3.cursor()
+      cur3.execute(
+        """
+        SELECT o.signature, i.category, o.severity, i.status, o.section,
+               o.turn_index, LEFT(o.observed, 140)
+        FROM issue_occurrences o JOIN issues i ON i.issue_id = o.issue_id
+        WHERE o.draft_id = %s ORDER BY o.id
+        """,
+        (draft_id,),
+      )
+      filed = cur3.fetchall()
+      cur3.close()
+    finally:
+      try:
+        conn3.close()
+      except Exception:
+        pass
+    for sig, cat, sev, status, section, turn, obs in filed:
+      print(
+        f"ISSUE FILED [{sev}/{cat}/{status}] {sig} "
+        f"(section={section or '-'} turn={turn if turn is not None else '-'}): {obs}",
+        flush=True,
+      )
+    if filed:
+      print(
+        f"INVESTIGATE NOW: {len(filed)} issue(s) filed for draft {draft_id[:8]} - "
+        "cross-reference each against this run's vitals/traces/draft state and "
+        "report a per-issue verdict (real defect? backend evidence? severity read) "
+        "to Nick without being asked.",
+        flush=True,
+      )
+  except Exception as exc:
+    print(f"issue listing failed (continuing): {type(exc).__name__}: {exc}", flush=True)
+
   print(
     "RUN VITALS: draft={d} biz={b!r} exit={e} run_status={rs} stage={st} "
     "coherence={c} turns={t} turn_ms={tm} gpt_calls={g} gpt_ms={gm} "
