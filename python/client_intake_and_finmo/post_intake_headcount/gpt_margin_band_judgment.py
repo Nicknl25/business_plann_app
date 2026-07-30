@@ -161,6 +161,21 @@ _SUBMIT_TOOL: Dict[str, Any] = {
             "floor; this is the flat-and-healthy bar only."
           ),
         },
+        "labor_treatment": {
+          "type": "string",
+          "enum": ["all_labor_in_payroll_line"],
+          "description": (
+            "REQUIRED ECHO — the measured basis your floors/ceiling are "
+            "tested against: in this file ALL labor (including field/"
+            "production/service-delivery labor) sits in the PAYROLL "
+            "line; COGS carries only materials and non-labor direct "
+            "costs. Echo 'all_labor_in_payroll_line' to confirm you "
+            "authored gross_margin_floor_q11 and "
+            "fixed_cost_burden_max_q11 in THAT basis (Bluestem lesson: "
+            "a ceiling authored as if crew labor lived in COGS brands "
+            "every real labor business a failure)."
+          ),
+        },
         "margin_character": {
           "type": "string",
           "description": (
@@ -182,7 +197,7 @@ _SUBMIT_TOOL: Dict[str, Any] = {
       "required": [
         "q11_ebitda_band", "q20_ebitda_band",
         "gross_margin_floor_q11", "fixed_cost_burden_max_q11",
-        "ni_margin_floor_q11",
+        "ni_margin_floor_q11", "labor_treatment",
         "margin_character", "rationale",
       ],
     },
@@ -270,6 +285,18 @@ _SYSTEM_PROMPT = (
   "both from the same structural arithmetic as the band — they must be "
   "consistent with it (a gross-margin floor minus a burden ceiling that "
   "makes your own EBITDA band unreachable is self-contradictory).\n"
+  "7b. MEASURED BASIS (non-negotiable): your floors and ceiling are "
+  "TESTED against this file's own cost lines, and in this file ALL "
+  "labor — including field crews, production staff, and service-"
+  "delivery labor — sits in the PAYROLL line; COGS carries only "
+  "materials and non-labor direct costs. Author the gross-margin floor "
+  "for a materials-only COGS and the burden ceiling for a payroll line "
+  "that contains EVERY person. For labor businesses (landscaping, "
+  "trades, restaurants, agencies) this means a HIGH burden ceiling and "
+  "a HIGH gross-margin floor — the labor cost has not disappeared, it "
+  "lives inside the ceiling. Judging as if crew labor were in COGS "
+  "brands every real labor business a failure. Echo labor_treatment to "
+  "confirm this basis.\n"
   "Call submit_margin_band_judgment exactly once."
 )
 
@@ -314,6 +341,7 @@ def gpt_author_margin_band_once(
   *,
   compact: Dict[str, Any],
   stated_cost_facts: Optional[Dict[str, Any]] = None,
+  arbitration_note: str = "",
   model: Optional[str] = None,
   seed: int = 1733,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -341,6 +369,12 @@ def gpt_author_margin_band_once(
       {"role": "system", "content": _SYSTEM_PROMPT},
       {"role": "user", "content": _build_user_prompt(
         compact=compact, stated_cost_facts=stated_cost_facts,
+      ) + (
+        "\n\nARBITRATION — your previous judgment was basis-inconsistent "
+        "and is being re-authored ONCE with the contradiction spelled "
+        "out. Read it carefully and author in the measured basis:\n"
+        + arbitration_note
+        if arbitration_note else ""
       )},
     ],
     "tools": [_SUBMIT_TOOL],
@@ -382,6 +416,7 @@ def gpt_author_margin_band_once(
 def validate_margin_band_judgment(
   *,
   judgment: Dict[str, Any],
+  measured_basis: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Rail the raw judgment into a validated, executable band.
 
@@ -479,7 +514,42 @@ def validate_margin_band_judgment(
       if abs(ni_floor - ni_val) > 1e-9:
         notes.append(f"ni_floor_clamped_{ni_val:.4f}->{ni_floor:.4f}")
 
+  # BASIS-CONTRADICTION TRIPWIRE (Wave-2 companion, CW-002 Bluestem):
+  # fires ONLY on cross-basis contradiction, never on "the business
+  # currently exceeds the ceiling" — an overhead-bloated business under
+  # a consistent ceiling must still fail the eval honestly. The one
+  # airtight relation from measured data + the judgment's own numbers:
+  # a business obeying the judged ceiling would earn at most
+  # (1 - measured_cogs_pct) - burden_max - measured_marketing_pct. If
+  # that exceeds the judgment's OWN band_high by more than the band's
+  # own width, the ceiling was authored in a different basis than the
+  # measurements (crew labor priced into COGS while the file keeps all
+  # labor in payroll). Caller re-authors once via arbitration; still
+  # contradictory -> hold (never a silent clamp, never a constant).
+  basis_contradiction = False
+  if (
+    burden_max is not None
+    and isinstance(measured_basis, dict)
+    and measured_basis.get("cogs_pct") is not None
+  ):
+    _cogs = max(0.0, min(1.0, _num(measured_basis.get("cogs_pct"), 0.0)))
+    _mkt = max(0.0, min(1.0, _num(measured_basis.get("marketing_pct"), 0.0)))
+    reachable_at_ceiling = (1.0 - _cogs) - float(burden_max) - _mkt
+    band_width = max(0.0, q11_high - q11_low)
+    if reachable_at_ceiling > q11_high + band_width + 1e-9:
+      basis_contradiction = True
+      notes.append(
+        "burden_basis_contradiction_reachable_"
+        f"{reachable_at_ceiling:.4f}_vs_band_high_{q11_high:.4f}"
+      )
+
+  labor_treatment = str(judgment.get("labor_treatment") or "").strip()
+  if labor_treatment != "all_labor_in_payroll_line":
+    notes.append("labor_treatment_missing_or_unrecognized")
+
   return {
+    "basis_contradiction": basis_contradiction,
+    "labor_treatment": labor_treatment or None,
     "q11": {
       "low": round(q11_low, 4),
       "high": round(q11_high, 4),

@@ -182,8 +182,18 @@ def _ensure_margin_band(
   # Identity-level change: EVERY judged artifact keyed to the old
   # identity is stale — the band re-authors below; growth, bounds,
   # corner, and the live round must re-derive on the new identity.
+  # EXCEPT judged growth while a round is LIVE: the goalposts must not
+  # move mid-negotiation (CW-002: a mid-walk re-derivation shifted q11
+  # revenue 187.6k -> 175.1k, so the client's accepted rent cut closed
+  # $75 of a $2,700 move). Growth re-derives when the walk is over.
   if state.get("digest_hash") and state.get("digest_hash") != digest_hash:
-    for stale_key in ("judged_growth", "growth_error", "bounds", "bounds_error", "corner", "round"):
+    stale_keys = ["growth_error", "bounds", "bounds_error", "corner", "round"]
+    round_live = state.get("status") == _ctl.STATUS_WALKING and state.get("round")
+    if round_live:
+      state["growth_frozen_during_round"] = True
+    else:
+      stale_keys.append("judged_growth")
+    for stale_key in stale_keys:
       state.pop(stale_key, None)
   state["digest_hash"] = digest_hash
   from client_intake_and_finmo.post_intake_headcount.band_fitting import (
@@ -202,26 +212,70 @@ def _ensure_margin_band(
     financials_json=financials_json,
   )
   facts = dict(operator_cost_levels(financials_json, annual_revenue) or {})
-  # The runner enriches payroll%/rent% from the engine's Q1 row; at
-  # intake the same quantities come from the stated facts directly.
+  # MEASURED BASIS — from the evaluator itself, so the judge is told the
+  # exact quantities its thresholds will be tested against (one source
+  # of truth; the old inline computation double-counted owner comp).
   ann = _f(annual_revenue)
-  if ann > 0:
-    payroll = _f(financials_json.get("current_payroll")) or _f(financials_json.get("payroll_total_year1"))
-    payroll += _f(financials_json.get("owner_compensation")) * 12.0
-    if payroll > 0:
-      facts["payroll_percent_of_revenue"] = round(payroll / ann, 6)
-    rent = _f(financials_json.get("monthly_rent_expense")) * 12.0
-    if rent > 0:
-      facts["rent_percent_of_revenue"] = round(rent / ann, 6)
-  result = gpt_author_margin_band_once(compact=compact, stated_cost_facts=facts or None)
-  if not (result.get("ok") and result.get("judgment")):
-    # Failure is never a verdict and never doctrine constants: hold the
-    # turn and re-author next turn. (Absence ≠ failure — a stamp that
-    # already exists was returned above.)
-    raise CoherenceJudgmentUnavailable(
-      "margin_band", str(result.get("error") or "author_failed")[:300]
+  measured_basis: Dict[str, Any] = {}
+  eval_basis = basis_from_intake(financials_json=financials_json,
+                                 financials_year1_json=financials_year1_json,
+                                 ops_json=ops_json)
+  if eval_basis is not None and ann > 0:
+    payroll_annual = eval_basis.payroll_quarterly * 4.0
+    rent_annual = eval_basis.rent_quarterly * 4.0
+    measured_basis = {
+      "cogs_pct": round(eval_basis.cogs_pct, 6),
+      "marketing_pct": round(eval_basis.marketing_pct, 6),
+      "payroll_share": round(payroll_annual / ann, 6),
+      "rent_share": round(rent_annual / ann, 6),
+      "gna_pct": round(eval_basis.gna_pct, 6),
+    }
+    facts["payroll_percent_of_revenue"] = measured_basis["payroll_share"]
+    facts["rent_percent_of_revenue"] = measured_basis["rent_share"]
+    facts["measured_basis_note"] = (
+      "ALL labor sits in the payroll line (payroll share "
+      f"{measured_basis['payroll_share']:.0%} of stated revenue); COGS is "
+      f"materials/non-labor only ({measured_basis['cogs_pct']:.0%}). Your "
+      "burden ceiling is tested against payroll+rent+G&A in exactly this "
+      "basis."
     )
-  state["margin_band_judgment"] = validate_margin_band_judgment(judgment=result["judgment"])
+
+  def _author(note: str = "") -> Dict[str, Any]:
+    result = gpt_author_margin_band_once(
+      compact=compact, stated_cost_facts=facts or None, arbitration_note=note,
+    )
+    if not (result.get("ok") and result.get("judgment")):
+      # Failure is never a verdict and never doctrine constants: hold the
+      # turn and re-author next turn. (Absence ≠ failure — a stamp that
+      # already exists was returned above.)
+      raise CoherenceJudgmentUnavailable(
+        "margin_band", str(result.get("error") or "author_failed")[:300]
+      )
+    return validate_margin_band_judgment(
+      judgment=result["judgment"], measured_basis=measured_basis or None,
+    )
+
+  validated = _author()
+  if validated.get("basis_contradiction"):
+    # Locked-GPT arbitration (the fitted-band anchor pattern): ONE
+    # re-authoring with the contradiction spelled out. Judgment stays
+    # the owner — nothing is clamped. Still contradictory -> hold.
+    validated = _author(
+      "Your burden ceiling of "
+      f"{(validated.get('fixed_cost_burden_max_q11') or 0):.0%} combined with this "
+      f"file's measured materials-only COGS ({measured_basis.get('cogs_pct', 0):.0%}) "
+      "implies a business obeying your ceiling would earn far above your "
+      "own judged healthy band — meaning the ceiling was authored as if "
+      "labor lived in COGS. In THIS file all labor "
+      f"({measured_basis.get('payroll_share', 0):.0%} of revenue) is in the "
+      "payroll line. Re-author the ceiling and floors in that basis."
+    )
+    if validated.get("basis_contradiction"):
+      raise CoherenceJudgmentUnavailable(
+        "margin_band_basis",
+        "burden ceiling basis-contradictory with measured cost placement after arbitration",
+      )
+  state["margin_band_judgment"] = validated
   state.pop("margin_band_error", None)
   return state
 
