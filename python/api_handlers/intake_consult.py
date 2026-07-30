@@ -8878,8 +8878,11 @@ def _coherence_naturalize(text: str) -> str:
     "HARD RULES: keep every dollar figure, percentage, price, and option number "
     "EXACTLY as written; keep every option distinct and in the same order; keep "
     "the phrase 'work on paper'; never use the phrase 'Year 1'; do not add any "
-    "new number, claim, or advice; do not mention these rules. Return only the "
-    "rewritten message."
+    "new number, claim, or advice; NEVER use internal implementation vocabulary "
+    "- no 'q11', 'Q11', 'eval', 'corner', 'solver', 'panel', 'model', 'band', "
+    "'constraint set', or any mechanism-speak; the client hears only plain "
+    "business language about their own quarter; do not mention these rules. "
+    "Return only the rewritten message."
   )
   payload = {
     "model": _openai_model(),

@@ -130,7 +130,7 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
     if o.get("moves"):
       entry["moves"] = {k: v.get("to_display") for k, v in (o.get("moves") or {}).items()}
     options.append(entry)
-  patch_targets = ["coherence.option"]
+  patch_targets = ["coherence.option", "coherence.assert_floor"]
   if rnd.get("key") == _ctl.ROUND_PRICING:
     patch_targets.append("ops.product_overrides")
   else:
@@ -439,6 +439,24 @@ def apply_router_patch(
   next_ops = dict(ops_json or {})
   next_fin = dict(financials_json or {})
 
+  # Client-asserted floor: "the lease is signed", "those are employment
+  # contracts" — a committed cost the walk may never propose cutting.
+  # Recorded in state; the round rebuilds without that lever (CW-002:
+  # options re-proposed cutting a signed 3-year lease twice).
+  asserted = remaining.pop("coherence.assert_floor", remaining.pop("assert_floor", None))
+  if asserted is not None:
+    cost = str(asserted).strip().lower()
+    alias = {"overhead": "gna", "opex": "gna", "other": "gna"}
+    cost = alias.get(cost, cost)
+    if cost in ("rent", "payroll", "marketing", "gna"):
+      state = dict(state)
+      floors = dict(state.get("client_floors") or {})
+      floors[cost] = True
+      state["client_floors"] = floors
+      state.pop("round", None)  # rebuild options honoring the assertion
+      next_fin = put_state(next_fin, state)
+      notes.append(f"client_floor:{cost}")
+
   parked = remaining.pop("coherence.parked", remaining.pop("parked", None))
   if parked is not None and str(parked).strip().lower() in ("true", "1", "yes"):
     state = dict(state)
@@ -635,15 +653,86 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
   return f"Let's keep going - {gap_display} a quarter left to make this work on paper."
 
 
+def binding_constraint(eval_result: Dict[str, Any]) -> Dict[str, Any]:
+  """The inequality that actually computes the gap, with client-facing
+  displays. CW-002 lesson: narrating the band floor while the burden
+  ceiling drove the gap put a self-contradiction on screen ('keeps 3x
+  the requirement, yet a gap') and pushed the chat layer into
+  confabulating internal mechanics. One truth on screen."""
+  q11 = eval_result.get("q11") or {}
+  th = eval_result.get("thresholds") or {}
+  rev = _f(q11.get("revenue"))
+  ebitda = _f(q11.get("ebitda"))
+  fixed = _f(q11.get("payroll")) + _f(q11.get("rent")) + _f(q11.get("gna"))
+  gm = (rev - _f(q11.get("cogs"))) / rev if rev > 0 else 0.0
+  candidates = []
+  failed = set(eval_result.get("failed") or [])
+  if "fixed_cost_burden" in failed and rev > 0:
+    over = fixed - _f(th.get("burden_max")) * rev
+    candidates.append((over, {
+      "key": "fixed_cost_burden",
+      "sentence": (
+        f"your fixed running costs - payroll {_fmt(_f(q11.get('payroll')))}, "
+        f"rent {_fmt(_f(q11.get('rent')))}, overhead {_fmt(_f(q11.get('gna')))} - "
+        f"come to {_fmt(fixed)} a quarter, {_pct(fixed / rev)} of revenue, "
+        f"where a business like yours needs to carry at most {_pct(_f(th.get('burden_max')))}"
+      ),
+      "actual_display": f"{_fmt(fixed)} ({_pct(fixed / rev)} of revenue)",
+      "limit_display": f"at most {_pct(_f(th.get('burden_max')))} of revenue",
+    }))
+  if "ebitda_band_low" in failed or "ebitda_positive" in failed:
+    floor_d = _f(q11.get("band_low_floor_dollars"))
+    candidates.append((max(0.0, floor_d - ebitda), {
+      "key": "ebitda_band_low",
+      "sentence": (
+        f"the quarter keeps {_fmt(ebitda)}, where a business like yours needs to keep "
+        f"at least {_fmt(floor_d)} ({_pct(_f(th.get('band_low')))} of revenue)"
+      ),
+      "actual_display": f"keeps {_fmt(ebitda)}",
+      "limit_display": f"at least {_fmt(floor_d)} ({_pct(_f(th.get('band_low')))})",
+    }))
+  if "ni_floor" in failed and rev > 0:
+    candidates.append(((_f(th.get("ni_floor")) - _f(q11.get("ni_margin"))) * rev, {
+      "key": "ni_floor",
+      "sentence": (
+        f"after loan costs and depreciation the quarter clears {_pct(_f(q11.get('ni_margin')))} "
+        f"of revenue, where a lender needs at least {_pct(_f(th.get('ni_floor')))}"
+      ),
+      "actual_display": f"clears {_pct(_f(q11.get('ni_margin')))}",
+      "limit_display": f"at least {_pct(_f(th.get('ni_floor')))}",
+    }))
+  if "gross_margin" in failed and rev > 0:
+    candidates.append(((_f(th.get("gm_floor")) - gm) * rev, {
+      "key": "gross_margin",
+      "sentence": (
+        f"after direct costs the quarter keeps {_pct(gm)} of each dollar, where this kind "
+        f"of business needs at least {_pct(_f(th.get('gm_floor')))}"
+      ),
+      "actual_display": f"gross margin {_pct(gm)}",
+      "limit_display": f"at least {_pct(_f(th.get('gm_floor')))}",
+    }))
+  if not candidates:
+    return {
+      "key": "ebitda_band_low",
+      "sentence": (
+        f"the quarter keeps {_fmt(ebitda)}, where a business like yours needs to keep at "
+        f"least {_fmt(_f(q11.get('band_low_floor_dollars')))}"
+      ),
+      "actual_display": f"keeps {_fmt(ebitda)}",
+      "limit_display": f"at least {_fmt(_f(q11.get('band_low_floor_dollars')))}",
+    }
+  candidates.sort(key=lambda c: c[0], reverse=True)
+  return candidates[0][1]
+
+
 def _opening(eval_result: Dict[str, Any], band_low: float) -> str:
   q11 = eval_result.get("q11") or {}
+  binding = binding_constraint(eval_result)
   return (
     "Before we wrap up, I put your numbers together the way a lender will read them - "
     "your business once it's up and running, at a typical mature quarter. Right now it "
-    f"doesn't quite hold: about {_fmt(_f(q11.get('revenue')))} comes in and the quarter keeps "
-    f"{_fmt(_f(q11.get('ebitda')))}, where a business like yours needs to keep at least "
-    f"{_fmt(_f(q11.get('band_low_floor_dollars')))} ({_pct(band_low)} of revenue). "
-    f"That's a gap of about {_fmt(_f(eval_result.get('gap_quarterly')))} a quarter. "
+    f"doesn't quite hold: about {_fmt(_f(q11.get('revenue')))} comes in, and {binding['sentence']}. "
+    f"That's the whole gap: about {_fmt(_f(eval_result.get('gap_quarterly')))} a quarter. "
     "Here's the good news: we already checked the most favorable believable version of "
     "your business, and a version that works exists - nothing here has happened yet, "
     "it's all still on paper, which is exactly where we fix it. One thing at a time, "
@@ -827,6 +916,9 @@ def gate_and_turn(
     "gap_quarterly": gap,
     "q11": eval_result.get("q11"),
     "thresholds": eval_result.get("thresholds"),
+    # The inequality that computes the gap, in client-facing terms — the
+    # panel renders THIS, never a fixed band-floor template (CW-002).
+    "binding": binding_constraint(eval_result),
   }
   state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:

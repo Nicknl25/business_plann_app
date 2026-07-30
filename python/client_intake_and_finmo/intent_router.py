@@ -201,6 +201,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
     # prices there (same object shape as the financials_year1 field).
     add("coherence", "option", {"type": "string"})
     add("coherence", "parked", {"type": "boolean"})
+    add("coherence", "assert_floor", {"type": "string"})
     if "ops.product_overrides" not in schemas:
       add("ops", "product_overrides", {"type": "object"})
 
@@ -1747,6 +1748,7 @@ def route_intent(
       "- If the client gives a concrete dollar amount for a cost the question covered (marketing, rent, payroll, overhead), return edit_patch on the matching field from coherence_controller.patch_targets, converting the client's stated basis to that field's declared basis in coherence_controller.field_bases - convert, never copy.\n"
       "- If the client DISPUTES a number the panel showed (payroll, owner pay, rent, other operating costs, marketing, revenue) and states what it really is, return edit_patch on the matching field from coherence_controller.disputable_fields, basis-normalized via field_bases. The panel recomputes from corrected fields on the next turn - a dispute with a concrete number is a patch, not continue_chat.\n"
       "- Emit ONLY coherence.option, coherence.parked, ops.product_overrides, or the specific fields the client explicitly changed THIS turn. NEVER echo current values, restate unchanged fields, or copy the state you were shown into the patch - a patch with more than a handful of fields is wrong.\n"
+      "- If the client ASSERTS a cost is committed and cannot be cut (a signed lease, employment contracts, a minimum crew, contractual marketing - any phrasing meaning that cost is fixed in reality), return edit_patch with coherence.assert_floor set to the matching cost: rent, payroll, marketing, or gna (overhead/other bills). The walk rebuilds its options without ever proposing to cut that cost. Interpret INTENT - never require specific words.\n"
       "- If the client wants to KEEP their current values for what this question offered and move on (keep prices as they are, no changes to that, we're fine as-is - any phrasing meaning they decline this particular lever), return edit_patch with coherence.option = \"decline\". Declining one lever is a normal, respected answer - do not re-ask.\n"
       "- If the client wants to pause, defer, come back later, or stop for now (any phrasing that means that), return edit_patch with coherence.parked = true. Never pressure them to continue.\n"
       "- If the client asks a question about the numbers themselves, answer_readonly is appropriate.\n"

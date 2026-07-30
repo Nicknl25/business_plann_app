@@ -305,11 +305,17 @@ def _costs_round(
   floors = bounds.get("cost_floors") or {}
   team = bounds.get("team") or {}
   fac = bounds.get("facility") or {}
+  # Client-asserted floors: costs the client declared committed (signed
+  # lease, employment contracts). The walk may NEVER propose cutting
+  # them — the corresponding move simply does not exist.
+  client_floors = dict(
+    ((financials_json or {}).get("_coherence") or {}).get("client_floors") or {}
+  )
 
   moves: Dict[str, Dict[str, Any]] = {}
 
   mkt_floor = _f(floors.get("marketing_percent_of_revenue_min"), basis.marketing_pct)
-  if mkt_floor < basis.marketing_pct - 1e-6:
+  if not client_floors.get("marketing") and mkt_floor < basis.marketing_pct - 1e-6:
     new_annual = round(mkt_floor * ann_rev, 2)
     moves["marketing"] = {
       "basis_patch": {"marketing_pct": mkt_floor},
@@ -319,7 +325,7 @@ def _costs_round(
     }
 
   gna_floor = _f(floors.get("g_and_a_percent_of_revenue_min"), basis.gna_pct)
-  if gna_floor < basis.gna_pct - 1e-6:
+  if not client_floors.get("gna") and gna_floor < basis.gna_pct - 1e-6:
     new_annual = round(gna_floor * ann_rev, 2)
     # patch the MONTHLY field: the sync tail re-derives
     # other_opex_absolute = monthly*12 every turn.
@@ -332,7 +338,7 @@ def _costs_round(
     }
 
   rent_floor_q = _f(fac.get("min_quarterly_rent"))
-  if 0 < rent_floor_q < basis.rent_quarterly - 1e-6:
+  if not client_floors.get("rent") and 0 < rent_floor_q < basis.rent_quarterly - 1e-6:
     monthly = round(rent_floor_q / 3.0, 2)
     moves["rent"] = {
       "basis_patch": {"rent_quarterly": rent_floor_q},
@@ -346,7 +352,7 @@ def _costs_round(
   # The machine patch MUST land the panel exactly on the displayed target:
   # target = floor×4 minus whatever owner-comp the evaluator adds back.
   payroll_floor_q = _f(team.get("min_annual_payroll")) / 4.0
-  if 0 < payroll_floor_q < basis.payroll_quarterly - 1e-6:
+  if not client_floors.get("payroll") and 0 < payroll_floor_q < basis.payroll_quarterly - 1e-6:
     pb = (basis.notes or {}).get("payroll_basis") or {}
     owner_additive = _f(pb.get("owner_comp_additive"))
     baseline_annual = _f(financials_json.get("baseline_payroll_year1"))
