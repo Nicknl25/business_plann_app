@@ -1638,6 +1638,11 @@ def route_intent(
 
       "funding_split_debt_share",
 
+      # Not a stored field: answers the app's pending basis question
+      # (financials_controller.pending_basis_clarify). Value is an object
+      # {basis, amount}; the apply layer lands it at the source driver.
+      "basis_clarify_resolution",
+
     ],
 
     "financials_year1": [
@@ -1749,6 +1754,11 @@ def route_intent(
       + "- shared_context.financials_controller.current_stage.basis declares the stored basis for each patch target (monthly, annual, count, ratio, amount). Normalize the client's STATED basis to the field's declared basis - convert, never copy. Example: field basis monthly + client says a yearly figure -> divide by 12; field basis annual + client says a monthly figure -> multiply by 12; same basis -> patch as-is.\n"
       + "- If the client states no basis, assume they answered in the basis the question asked in, then still convert to the field's declared basis if those differ.\n"
       + "- If the client states BOTH a monthly and an annual figure for the same fact (e.g. \"$10,000 a month - the $120k salary\"), patch the value expressed in the field's declared basis; never patch the other one.\n"
+      + "Financials pending basis clarify (takes precedence over the active stage):\n"
+      + "- If shared_context.financials_controller.pending_basis_clarify is present, the app just asked the client whether a specific figure was per week, per month, or per year (the question text is in pending_basis_clarify.question). The client's reply answers THAT question, in whatever words they use.\n"
+      + "- Map the reply to edit_patch with basis_clarify_resolution = {basis, amount}: basis is one of pending_basis_clarify.allowed_bases (weekly/monthly/annual, or as_stated when the client confirms the figure exactly as originally given - e.g. 'no, that's right', 'per week is correct', 'as I said'). Phrases like 'a month', 'monthly', 'that's the monthly number' -> monthly; 'for the year', 'annually', 'a year' -> annual; 'a week', 'weekly' -> weekly.\n"
+      + "- amount is optional: include it only when the client restates a different number in the same reply (e.g. 'it's about 250 a week' -> basis weekly, amount 250). Otherwise omit amount.\n"
+      + "- Humans answer this in infinite ways; infer the basis from meaning, never require literal words. If the reply genuinely does not answer the basis question, return confirm_clarify restating pending_basis_clarify.question in one short natural sentence.\n"
       + "Financials revenue handling:\n"
       + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
       + "Financials rent handling:\n"

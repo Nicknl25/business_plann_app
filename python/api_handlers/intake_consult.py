@@ -2150,6 +2150,65 @@ def _advance_persisted_financials_stage(
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json or {},
   )
+
+  pending_clarify = persisted_financials.get("_basis_clarify_pending")
+  resolution = persisted_financials.get("_basis_clarify_resolution")
+  if isinstance(pending_clarify, dict) and isinstance(resolution, dict):
+    # The client answered the basis question: land it at the source (ops
+    # driver or the stage field), reassemble, and continue the flow.
+    persisted_financials, persisted_year1, basis_ack = _apply_basis_clarify_resolution(
+      conn=conn,
+      draft_id=draft_id,
+      resolution=resolution,
+      pending=pending_clarify,
+      financials_json=persisted_financials,
+      financials_year1_json=persisted_year1,
+      shared_context=dict(shared_context or {}),
+      business_facts=business_facts,
+    )
+    if basis_ack:
+      acknowledgement = basis_ack
+    persisted_financials, persisted_year1, persisted_marketing = _persist_and_reload_financials_progress(
+      conn=conn,
+      draft_id=draft_id,
+      business_facts=business_facts,
+      financials_json=persisted_financials,
+      financials_year1_json=persisted_year1,
+      marketing_model_json=persisted_marketing or {},
+    )
+    pending_clarify = persisted_financials.get("_basis_clarify_pending")
+  if isinstance(pending_clarify, dict) and pending_clarify:
+    # Implausible unmarked-basis answer: ask ONE natural question before
+    # building anything on it. The stage machine holds here until the
+    # client answers (any phrasing routes; nothing requires literal words).
+    clarify_turn = {
+      "assistant_message": _build_basis_clarify_message(pending_clarify),
+      "finalize_ready": False,
+    }
+    if str(acknowledgement or "").strip():
+      clarify_turn["assistant_message"] = (
+        f"{str(acknowledgement).strip()}\n\n{clarify_turn['assistant_message']}".strip()
+      )
+    return clarify_turn, persisted_financials, persisted_marketing
+
+  # Reconcile BEFORE authoring the next stage message (issue #10): the
+  # rescale used to run only at the top of the NEXT turn, so the cogs
+  # anchor was authored on the pre-rescale driver total in the same call
+  # frame the client stated revenue — 72% x $2.8M instead of 72% x $700k.
+  synced_financials, synced_year1 = _sync_financials_consult_persistence_state(
+    financials_json=persisted_financials,
+    financials_year1_json=persisted_year1,
+    marketing_model_json=persisted_marketing or {},
+  )
+  if synced_financials != persisted_financials or synced_year1 != persisted_year1:
+    persisted_financials, persisted_year1, persisted_marketing = _persist_and_reload_financials_progress(
+      conn=conn,
+      draft_id=draft_id,
+      business_facts=business_facts,
+      financials_json=synced_financials,
+      financials_year1_json=synced_year1,
+      marketing_model_json=persisted_marketing or {},
+    )
   next_stage = _next_financials_stage(persisted_financials)
   if next_stage:
     next_context = dict(intake_context or {})
@@ -2546,7 +2605,7 @@ def _build_financials_live_turn(
   next_context["financials_json"] = next_financials
   next_shared = dict(shared_context or {})
   next_shared["financials"] = next_financials
-  next_shared["financials_controller"] = _build_financials_controller_context(next_stage)
+  next_shared["financials_controller"] = _build_financials_controller_context(next_stage, financials_json=next_financials)
   next_context["shared_context"] = next_shared
   if next_stage:
     next_context["financials_active_stage"] = next_stage
@@ -4637,7 +4696,7 @@ def _financials_stage_complete(stage_name: str, financials_json: Dict[str, Any])
   return all(_financials_field_resolved(data, field_name) for field_name in completion_fields)
 
 
-def _build_financials_controller_context(stage_name: Optional[str], *, last_assistant: str = "") -> Dict[str, Any]:
+def _build_financials_controller_context(stage_name: Optional[str], *, last_assistant: str = "", financials_json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
   from client_intake_and_finmo.field_basis import basis_of  # type: ignore
 
   stage = str(stage_name or "").strip()
@@ -4664,7 +4723,20 @@ def _build_financials_controller_context(stage_name: Optional[str], *, last_assi
   if stage == "funding_split_debt_share":
     current_stage["allowed_values"] = [option["value"] for option in _FUNDING_SPLIT_OPTIONS]
     current_stage["options"] = [dict(option) for option in _FUNDING_SPLIT_OPTIONS]
-  return {"current_stage": current_stage}
+  frame: Dict[str, Any] = {"current_stage": current_stage}
+  pending = (financials_json or {}).get("_basis_clarify_pending")
+  if isinstance(pending, dict) and pending:
+    # An app-authored basis question is in flight: the client's reply
+    # answers THAT, whatever words they use. Declares the semantics for
+    # the router; nothing here keys on phrasing.
+    frame["pending_basis_clarify"] = {
+      "question": _basis_clarify_closed_question(pending),
+      "asked_basis": str(pending.get("asked_basis") or ""),
+      "candidate_basis": str(pending.get("candidate_basis") or ""),
+      "stated_value": pending.get("stated_value"),
+      "allowed_bases": ["weekly", "monthly", "annual", "as_stated"],
+    }
+  return frame
 
 
 def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[str]:
@@ -4681,6 +4753,261 @@ def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[st
   if stage == "marketing":
     return "Should I use this marketing baseline?"
   return None
+
+
+# ---------------------------------------------------------------------------
+# Unmarked-basis capture class (issues #24/#25/#10/#26, Bridgeburn run):
+# a client answer whose inferred value is WILDLY inconsistent with a figure
+# the client already gave must trigger a natural clarifier, never silently
+# land. The trigger is IMPLAUSIBILITY (a period-conversion fingerprint), not
+# every unmarked number — intake stays a conversation, not an interrogation.
+# ---------------------------------------------------------------------------
+
+_BASIS_PERIODS_PER_YEAR = {"weekly": 52.0, "monthly": 12.0, "annual": 1.0}
+
+# ratio of driver-implied to stated revenue that fingerprints one specific
+# misread: (asked basis, actually-meant basis) -> implied/stated ratio.
+_BASIS_FINGERPRINTS: Tuple[Tuple[str, str, float], ...] = (
+  ("weekly", "monthly", 52.0 / 12.0),
+  ("weekly", "annual", 52.0),
+  ("monthly", "annual", 12.0),
+  ("monthly", "weekly", 12.0 / 52.0),
+  ("annual", "monthly", 1.0 / 12.0),
+  ("annual", "weekly", 1.0 / 52.0),
+)
+_BASIS_FINGERPRINT_TOLERANCE = 0.15
+
+
+def _detect_revenue_driver_basis_conflict(
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  """Driver-implied revenue vs client-stated revenue: when the ratio matches
+  a period-conversion fingerprint (x4.33 weekly/monthly, x12, x52), the most
+  likely truth is a basis misread on the dominant product's unit price — the
+  Bridgeburn client's monthly $1,100 recorded as weekly implied $2.8M against
+  a stated $700k (ratio 4.02 ~ 52/12). Returns the pending-clarify payload or
+  None when nothing is implausible."""
+  stated = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
+  implied = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
+  if stated <= 0.0 or implied <= 0.0:
+    return None
+  ratio = implied / stated
+  if 0.5 <= ratio <= 2.0:
+    return None  # ordinary estimation noise; the silent rescale handles it
+  match = None
+  for asked, meant, fingerprint in _BASIS_FINGERPRINTS:
+    if abs(ratio - fingerprint) / fingerprint <= _BASIS_FINGERPRINT_TOLERANCE:
+      match = (asked, meant)
+      break
+  if match is None:
+    return None
+  # The misread lives in ONE driver; name the dominant revenue contributor
+  # whose cadence matches the fingerprint's asked basis.
+  dominant: Optional[Dict[str, Any]] = None
+  for lob in (financials_year1_json or {}).get("lobs") or []:
+    if not isinstance(lob, dict):
+      continue
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      cadence = str(product.get("unit_cadence") or "").strip().lower()
+      if cadence != match[0]:
+        continue
+      revenue = _safe_float(product.get("revenue_total_year1")) or 0.0
+      if dominant is None or revenue > (_safe_float(dominant.get("revenue_total_year1")) or 0.0):
+        dominant = dict(product)
+        dominant["_lob_name"] = str(lob.get("lob_name") or "").strip()
+  if dominant is None or _safe_float(dominant.get("unit_price")) is None:
+    return None
+  return {
+    "kind": "driver_price",
+    "lob_name": dominant.get("_lob_name") or "",
+    "product_name": str(dominant.get("product_name") or "").strip(),
+    "unit_name": str(dominant.get("unit_name") or "").strip(),
+    "stated_value": float(_safe_float(dominant.get("unit_price")) or 0.0),
+    "asked_basis": match[0],
+    "candidate_basis": match[1],
+    "implied_revenue": float(implied),
+    "stated_revenue": float(stated),
+    "ratio": float(ratio),
+  }
+
+
+def _detect_stage_amount_basis_conflict(
+  *,
+  field_name: str,
+  financials_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  """Annual-basis stage amount implausibly small against stated revenue:
+  the Bridgeburn client's monthly $1,500 marketing landed as $1,500/YEAR —
+  0.21% of revenue, a 56x drop from the proposed anchor, unclarified. Fires
+  only when the annual reading is tiny (<0.5% of revenue) AND the monthly
+  reading is ordinary (>=1%) — a genuinely tiny annual spend answers the
+  one question and proceeds."""
+  value = _safe_float((financials_json or {}).get(field_name)) or 0.0
+  revenue = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
+  if value <= 0.0 or revenue <= 0.0:
+    return None
+  annual_share = value / revenue
+  monthly_share = (value * 12.0) / revenue
+  if annual_share >= 0.005 or monthly_share < 0.01:
+    return None
+  return {
+    "kind": "stage_amount",
+    "field": field_name,
+    "stated_value": float(value),
+    "asked_basis": "annual",
+    "candidate_basis": "monthly",
+    "stated_revenue": float(revenue),
+  }
+
+
+def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
+  """Deterministic, frame-declared statement of WHAT must be asked. The
+  natural phrasing (HOW) comes from the recovery-phrasing helper; this text
+  is the always-safe fallback."""
+  kind = str(pending.get("kind") or "").strip()
+  if kind == "driver_price":
+    unit = str(pending.get("unit_name") or pending.get("product_name") or "unit").strip()
+    stated = float(pending.get("stated_value") or 0.0)
+    implied = float(pending.get("implied_revenue") or 0.0)
+    revenue = float(pending.get("stated_revenue") or 0.0)
+    asked = str(pending.get("asked_basis") or "").strip()
+    candidate = str(pending.get("candidate_basis") or "").strip()
+    per_asked = {"weekly": "per week", "monthly": "per month", "annual": "per year"}.get(asked, asked)
+    per_candidate = {"weekly": "per week", "monthly": "per month", "annual": "per year"}.get(candidate, candidate)
+    return (
+      f"Quick check before building on that: taken {per_asked}, the "
+      f"{unit} pricing implies about {_format_currency(implied)} a year, but "
+      f"you said revenue is about {_format_currency(revenue)}. Is the "
+      f"{_format_currency(stated)} {per_asked}, or {per_candidate}?"
+    )
+  if kind == "stage_amount":
+    stated = float(pending.get("stated_value") or 0.0)
+    return (
+      f"One quick check: is the {_format_currency(stated)} per month, or for "
+      f"the whole year?"
+    )
+  return "Could you confirm whether that figure is per week, per month, or per year?"
+
+
+def _build_basis_clarify_message(pending: Dict[str, Any], *, user_message: str = "") -> str:
+  closed = _basis_clarify_closed_question(pending)
+  try:
+    from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+    return naturalize_recovery(closed_question=closed, user_message=user_message, fallback=closed)
+  except Exception:
+    return closed
+
+
+def _apply_basis_clarify_resolution(
+  *,
+  conn,
+  draft_id: str,
+  resolution: Dict[str, Any],
+  pending: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+  """Land the client's basis answer at the SOURCE. driver_price corrections
+  write the converted price into ops_json.lob_models (the true driver
+  authority — a financials_year1-only write is reverted by the drivers
+  conflict guard on the next rebuild) and reassemble year1 from it.
+  stage_amount corrections convert the financials field in place. Returns
+  (financials_json, financials_year1_json, acknowledgement)."""
+  next_financials = dict(financials_json or {})
+  next_year1 = dict(financials_year1_json or {})
+  meant = str(resolution.get("basis") or "").strip().lower()
+  restated = _safe_float(resolution.get("amount"))
+  kind = str(pending.get("kind") or "").strip()
+  acknowledgement = ""
+
+  confirmed_original = (
+    meant in ("as_stated", "keep", "keep_as_stated")
+    or meant == str(pending.get("asked_basis") or "")
+  )
+  if confirmed_original and restated is None:
+    # The client confirmed the original figure and basis. The conflict (if
+    # any) stands as the client's own account; reconciliation resumes.
+    acknowledgement = "Got it — I'll keep that figure exactly as you gave it."
+  elif kind == "driver_price" and (meant in _BASIS_PERIODS_PER_YEAR or (confirmed_original and restated is not None)):
+    if confirmed_original and meant not in _BASIS_PERIODS_PER_YEAR:
+      meant = str(pending.get("asked_basis") or "").strip().lower()
+    stored_basis = str(pending.get("asked_basis") or "").strip().lower()
+    stored_periods = _BASIS_PERIODS_PER_YEAR.get(stored_basis)
+    meant_periods = _BASIS_PERIODS_PER_YEAR.get(meant)
+    stated_value = restated if restated is not None else _safe_float(pending.get("stated_value"))
+    if stored_periods and meant_periods and stated_value is not None:
+      converted = float(stated_value) * (meant_periods / stored_periods)
+      ops_json = dict((shared_context or {}).get("operating_model") or {})
+      target_lob = str(pending.get("lob_name") or "").strip().lower()
+      target_product = str(pending.get("product_name") or "").strip().lower()
+      lob_models = copy.deepcopy(ops_json.get("lob_models") or [])
+      landed = False
+      for lob in lob_models:
+        if not isinstance(lob, dict):
+          continue
+        if target_lob and str(lob.get("lob_name") or lob.get("name") or "").strip().lower() != target_lob:
+          continue
+        for product in lob.get("products") or []:
+          if not isinstance(product, dict):
+            continue
+          name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+          if target_product and name != target_product:
+            continue
+          product["unit_price"] = converted
+          landed = True
+      if landed:
+        ops_json = _apply_model_ops_patch(ops_json, {"lob_models": lob_models})
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[],
+          operating_model_json=ops_json,
+          active_focus="financials",
+          business_facts=business_facts,
+        )
+        next_shared = dict(shared_context or {})
+        next_shared["operating_model"] = ops_json
+        shared_context.clear()
+        shared_context.update(next_shared)
+        try:
+          from financials_year1 import assemble_financials_year1  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
+        next_year1 = assemble_financials_year1(next_shared, None)
+        per_meant = {"weekly": "a week", "monthly": "a month", "annual": "a year"}.get(meant, meant)
+        acknowledgement = (
+          f"Thanks — I've recorded that as {_format_currency(float(stated_value))} "
+          f"{per_meant} and updated the revenue math to match."
+        )
+  elif kind == "stage_amount" and meant in _BASIS_PERIODS_PER_YEAR:
+    field_name = str(pending.get("field") or "").strip()
+    stored_periods = _BASIS_PERIODS_PER_YEAR.get(str(pending.get("asked_basis") or "annual"))
+    meant_periods = _BASIS_PERIODS_PER_YEAR.get(meant)
+    stated_value = restated if restated is not None else _safe_float(pending.get("stated_value"))
+    if field_name and stored_periods and meant_periods and stated_value is not None:
+      converted = float(stated_value) * (meant_periods / stored_periods)
+      next_financials[field_name] = converted
+      if field_name == "marketing_total_year1":
+        next_financials = _sync_marketing_field_family(
+          financials_json=next_financials,
+          financials_year1_json=next_year1,
+          marketing_model_json={},
+        )
+      per_meant = {"weekly": "a week", "monthly": "a month", "annual": "a year"}.get(meant, meant)
+      acknowledgement = (
+        f"Thanks — {_format_currency(float(stated_value))} {per_meant} it is; "
+        f"I've recorded the annual figure as {_format_currency(converted)}."
+      )
+
+  next_financials.pop("_basis_clarify_pending", None)
+  next_financials.pop("_basis_clarify_resolution", None)
+  return next_financials, next_year1, acknowledgement
 
 
 _FINANCIALS_FIELD_LABELS = {
@@ -4878,6 +5205,21 @@ def _normalize_financials_router_patch(
   if not active_targets:
     return None
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  # Basis-clarify resolution rides outside the stage-field whitelist: it
+  # answers the app's own pending basis question, not a stage question.
+  # Stash it for _advance_persisted_financials_stage to land at the source.
+  _resolution_raw = patch.get("basis_clarify_resolution")
+  if _resolution_raw is None:
+    _resolution_raw = patch.get("financials.basis_clarify_resolution")
+  _resolution_landed = False
+  if isinstance(_resolution_raw, dict) and isinstance(
+    next_financials.get("_basis_clarify_pending"), dict
+  ):
+    next_financials["_basis_clarify_resolution"] = {
+      "basis": str(_resolution_raw.get("basis") or "").strip().lower(),
+      "amount": _safe_float(_resolution_raw.get("amount")),
+    }
+    _resolution_landed = True
   # CORRECTIONS ARE ADMITTED (issue #23): the narrowing's job is to stop
   # answers landing in FUTURE fields (misroutes), never to reject a
   # correction to a field the client already deliberately captured. A
@@ -4985,8 +5327,8 @@ def _normalize_financials_router_patch(
       if _f:
         _requested.add(_f)
     report["applied"] = sorted(touched)
-    report["dropped"] = sorted(_requested - touched)
-  if not touched:
+    report["dropped"] = sorted((_requested - touched) - {"basis_clarify_resolution"})
+  if not touched and not _resolution_landed:
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
     next_financials["_financials_revenue_intro_done"] = True
@@ -4994,6 +5336,20 @@ def _normalize_financials_router_patch(
     "marketing_total_year1" in touched or "marketing_percent_of_revenue" in touched
   ):
     next_financials["_financials_marketing_stage_done"] = True
+  # Unmarked-basis capture checks (issues #24/#25): stamp a pending clarify
+  # when the just-landed answer is implausible against what the client
+  # already said. Never re-stamp over an in-flight clarify.
+  if not isinstance(next_financials.get("_basis_clarify_pending"), dict):
+    if "current_revenue" in touched:
+      _pending = _detect_revenue_driver_basis_conflict(next_financials, financials_year1_json or {})
+      if _pending:
+        next_financials["_basis_clarify_pending"] = _pending
+    elif stage_name == "marketing" and "marketing_total_year1" in touched:
+      _pending = _detect_stage_amount_basis_conflict(
+        field_name="marketing_total_year1", financials_json=next_financials,
+      )
+      if _pending:
+        next_financials["_basis_clarify_pending"] = _pending
   if "cogs_percent_of_revenue" in touched:
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     percent = float(next_financials.get("cogs_percent_of_revenue") or 0.0)
@@ -5093,7 +5449,19 @@ def _rescale_financials_year1_to_current_revenue(
       from financials_year1 import apply_revenue_driver_patch  # type: ignore
     except Exception:
       from client_intake_and_finmo.financials_year1 import apply_revenue_driver_patch  # type: ignore
-    return apply_revenue_driver_patch(next_year1, {"product_overrides": product_overrides})
+    patched = apply_revenue_driver_patch(next_year1, {"product_overrides": product_overrides})
+    # Provenance stamp: the drivers-conflict guard compares capacities
+    # against the raw ops rebuild and used to read this deliberate rescale
+    # as staleness, discarding it every turn (the rescale was never
+    # durable; the phantom ops basis stayed authoritative). The stamp lets
+    # the guard recognize capacity diffs that are exactly this factor.
+    if isinstance(patched, dict):
+      patched["_rescale_provenance"] = {
+        "source_total": float(current_total),
+        "target_total": float(target_total),
+        "factor": float(factor),
+      }
+    return patched
   except Exception:
     return next_year1
 
@@ -5109,7 +5477,12 @@ def _sync_financials_consult_persistence_state(
   # actually established the revenue baseline (revenue_intro answered). Before
   # that it is a derived echo that may predate later-entered lines of business;
   # rescaling to it would shrink real driver capacities to fit a stale total.
-  if bool(next_financials.get("_financials_revenue_intro_done")):
+  # While a basis clarify is pending, the numbers are in dispute: no silent
+  # capacity rescale (it would repair the wrong degree of freedom — the
+  # Bridgeburn crush turned the client's stated 60 accounts into 14.9) and
+  # the client's stated current_revenue stays authoritative.
+  basis_clarify_pending = isinstance(next_financials.get("_basis_clarify_pending"), dict)
+  if bool(next_financials.get("_financials_revenue_intro_done")) and not basis_clarify_pending:
     next_year1 = _rescale_financials_year1_to_current_revenue(
       financials_json=next_financials,
       financials_year1_json=financials_year1_json,
@@ -5118,7 +5491,7 @@ def _sync_financials_consult_persistence_state(
     next_year1 = dict(financials_year1_json or {})
 
   revenue_year1 = _safe_float(next_year1.get("company_revenue_total_year1")) or 0.0
-  if revenue_year1 > 0:
+  if revenue_year1 > 0 and not basis_clarify_pending:
     next_financials["current_revenue"] = float(revenue_year1)
 
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
@@ -5253,6 +5626,7 @@ def _run_financials_turn_and_sync(
     next_shared["financials_controller"] = _build_financials_controller_context(
       stage_name,
       last_assistant=prior_assistant,
+      financials_json=fin_json,
     )
     ctx["shared_context"] = next_shared
     if stage_name:
@@ -5267,7 +5641,13 @@ def _run_financials_turn_and_sync(
   stage_context = _stage_context(active_stage, next_financials, prior_assistant=last_assistant)
   stage_shared_context = dict(stage_context.get("shared_context") or {})
   confirm_question = _financials_stage_confirm_question(active_stage)
+  _pending_clarify_live = next_financials.get("_basis_clarify_pending")
   if not str(user_message or "").strip():
+    if isinstance(_pending_clarify_live, dict) and _pending_clarify_live:
+      return {
+        "assistant_message": _build_basis_clarify_message(_pending_clarify_live),
+        "finalize_ready": False,
+      }, next_financials
     return {
       "assistant_message": _build_financials_stage_message(
         stage_name=active_stage,
@@ -5294,6 +5674,23 @@ def _run_financials_turn_and_sync(
   assistant_message = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
   patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
   cash_strategy_mode = _cash_strategy_decision_mode(last_assistant) if active_stage == "cash_strategy" else ""
+
+  if isinstance(_pending_clarify_live, dict) and _pending_clarify_live:
+    # The app's basis question is the open thread: only a resolution moves
+    # the flow forward. A confirm_proceed here would author stage defaults
+    # on numbers currently in dispute; any non-answer gets one natural
+    # re-ask (never a trap — every phrasing routes through the resolution
+    # rule, and "as stated" is always available).
+    _res_probe = (patch or {}).get("basis_clarify_resolution")
+    if _res_probe is None:
+      _res_probe = (patch or {}).get("financials.basis_clarify_resolution")
+    if not isinstance(_res_probe, dict):
+      return {
+        "assistant_message": _build_basis_clarify_message(
+          _pending_clarify_live, user_message=user_message,
+        ),
+        "finalize_ready": False,
+      }, next_financials
 
   if action == "confirm_proceed":
     default_patch = _financials_stage_default_patch(
@@ -5744,6 +6141,17 @@ def _year1_drivers_conflict(existing_year1: Optional[Dict[str, Any]], base_year1
     except Exception:
       return None
 
+  # A capacity diff that is exactly the stated-revenue rescale factor is
+  # DELIBERATE reconciliation, not staleness. Without this, the guard
+  # discarded the rescaled year1 every turn and the raw ops drivers stayed
+  # permanently authoritative (post-intake consumed the phantom basis).
+  rescale_factor: Optional[float] = None
+  provenance = existing_year1.get("_rescale_provenance")
+  if isinstance(provenance, dict):
+    factor = _num(provenance.get("factor"))
+    if factor and factor > 0:
+      rescale_factor = float(factor)
+
   for key, base_driver in base_map.items():
     existing_driver = existing_map.get(key)
     if not existing_driver:
@@ -5759,7 +6167,12 @@ def _year1_drivers_conflict(existing_year1: Optional[Dict[str, Any]], base_year1
     base_capacity = _num(base_driver.get("units_per_period_capacity"))
     existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
     if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
-      return True
+      if rescale_factor is None:
+        return True
+      expected = base_capacity * rescale_factor
+      tolerance = max(0.01, abs(expected) * 0.01)
+      if abs(existing_capacity - expected) > tolerance:
+        return True
     base_periods = _num(base_driver.get("operating_periods_per_year"))
     existing_periods = _num(existing_driver.get("operating_periods_per_year"))
     if base_periods is not None and existing_periods is not None and abs(base_periods - existing_periods) > 0.01:
