@@ -4683,6 +4683,37 @@ def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[st
   return None
 
 
+_FINANCIALS_FIELD_LABELS = {
+  "ar_balance": "accounts receivable",
+  "ap_balance": "operating payables",
+  "cash_on_hand": "cash on hand",
+  "other_operating_expense": "other operating costs",
+  "owner_compensation": "owner compensation",
+  "monthly_rent_expense": "rent",
+  "total_debt_outstanding": "outstanding debt",
+  "current_num_employees": "employee count",
+  "inventory_balance": "inventory",
+}
+
+
+def _unapplied_fields_note(dropped: List[str]) -> str:
+  """Factual, deterministic note appended when a router patch mentioned
+  fields that did not apply (issue #23 say-do rule: the client hears what
+  was NOT recorded, never a false confirmation). With corrections to
+  complete stages now admitted, the residue here is future-stage fields —
+  their stages will ask, so 'we'll get to that' is literally true."""
+  labels = [
+    _FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in dropped if f
+  ]
+  if not labels:
+    return ""
+  if len(labels) == 1:
+    listed = labels[0]
+  else:
+    listed = ", ".join(labels[:-1]) + " and " + labels[-1]
+  return f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
+
+
 def _build_financials_stage_clarifier(stage_name: Optional[str]) -> str:
   spec = _financials_stage_spec(stage_name)
   clarifier = str(spec.get("clarifier") or "").strip()
@@ -4815,14 +4846,33 @@ def _normalize_financials_router_patch(
   financials_year1_json: Dict[str, Any],
   last_assistant: str,
   user_message: str = "",
+  report: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   if not isinstance(patch, dict) or not patch:
     return None
   stage_name = str(active_stage or "").strip()
-  allowed_fields = set(_financials_stage_spec(stage_name).get("patch_targets") or ())
-  if not allowed_fields:
+  active_targets = set(_financials_stage_spec(stage_name).get("patch_targets") or ())
+  if not active_targets:
     return None
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  # CORRECTIONS ARE ADMITTED (issue #23): the narrowing's job is to stop
+  # answers landing in FUTURE fields (misroutes), never to reject a
+  # correction to a field the client already deliberately captured. A
+  # three-field correction (cash/AR/AP in one message) was narrowed to
+  # the active stage's single field while the router's confirmation
+  # promised all three — the submitted model shipped with cash and AR
+  # silently zeroed. A field is correctable when its owning stage is
+  # already COMPLETE.
+  correctable: set[str] = set()
+  for _st in _FINANCIALS_STAGE_ORDER:
+    if _st == stage_name:
+      continue
+    try:
+      if _financials_stage_complete(_st, next_financials):
+        correctable.update(_financials_stage_spec(_st).get("patch_targets") or ())
+    except Exception:
+      continue
+  allowed_fields = active_targets | correctable
   touched: set[str] = set()
   assistant_lower = str(last_assistant or "").strip().lower()
   user_lower = str(user_message or "").strip().lower()
@@ -4900,6 +4950,19 @@ def _normalize_financials_router_patch(
     # by the field_basis registry.)
     next_financials[field_name] = float(numeric)
     touched.add(field_name)
+  # Say-do accounting (issue #23): the caller derives the confirmation
+  # from what was ACTUALLY applied. Anything in the patch that did not
+  # land is reported so the client hears it — never a false "recorded".
+  if isinstance(report, dict):
+    _requested = set()
+    for _rk in patch.keys():
+      _f = str(_rk or "").strip()
+      if _f.startswith("financials."):
+        _f = _f.split(".", 1)[1].strip()
+      if _f:
+        _requested.add(_f)
+    report["applied"] = sorted(touched)
+    report["dropped"] = sorted(_requested - touched)
   if not touched:
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
@@ -5222,6 +5285,7 @@ def _run_financials_turn_and_sync(
       action = "edit_patch"
 
   if action == "edit_patch" and patch:
+    _patch_report: Dict[str, Any] = {}
     normalized_patch = _normalize_financials_router_patch(
       patch=patch,
       active_stage=active_stage,
@@ -5229,12 +5293,18 @@ def _run_financials_turn_and_sync(
       financials_year1_json=financials_year1_json,
       last_assistant=last_assistant,
       user_message=user_message,
+      report=_patch_report,
     )
     if isinstance(normalized_patch, dict) and normalized_patch:
       acknowledgement = assistant_message or _build_financials_stage_acknowledgement(
         stage_name=active_stage,
         financials_json=normalized_patch,
       )
+      _dropped = list(_patch_report.get("dropped") or [])
+      if _dropped:
+        _note = _unapplied_fields_note(_dropped)
+        if _note:
+          acknowledgement = f"{acknowledgement} {_note}".strip()
       next_context = _stage_context(active_stage, normalized_patch)
       next_turn, updated_financials, _ = _advance_persisted_financials_stage(
         conn=conn,
