@@ -393,6 +393,7 @@ Hard requirements:
   - Each role must include months_until_hire (number of months from now when the role would come online).
   - annual_wage can be null if unknown; if you estimate a number, set wage_source to "gpt_estimate".
   - If you cannot estimate, set annual_wage to null and wage_source to "unknown".
+- STICKY CLIENT WAGES: for any person or role whose wage the CLIENT stated in conversation (or whose baseline entry carries wage_source "client_override"), preserve that annual_wage exactly and keep wage_source "client_override". A stated wage is a fact, never an estimate to regenerate - downstream wage defaults must not overwrite it.
 - inferred_roles_summary must be a short paragraph summarizing the proposed roles (no wages), or an empty string when inferred_roles is empty.
 
 Client-facing wording (STRICT):

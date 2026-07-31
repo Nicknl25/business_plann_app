@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -288,10 +289,32 @@ def _estimate_wage_with_gpt(
   return val
 
 
-def _select_wage(row: Dict[str, Any], prefer_pct10: bool) -> Tuple[Optional[float], Optional[str]]:
-  pct10 = row.get("a_pct10")
-  median = row.get("a_median")
+_SENIORITY_JUNIOR_TOKENS = ("junior", "jr", "associate", "assistant", "entry", "trainee", "apprentice")
+_SENIORITY_SENIOR_TOKENS = ("senior", "sr", "lead", "principal", "head")
+_SENIORITY_OWNER_TOKENS = ("owner", "partner", "founder", "managing", "chief")
 
+
+def _seniority_tier(role_title: str) -> Optional[str]:
+  """Seniority read from the role title itself. OEWS occupation titles carry
+  no seniority ("Lawyers" is the only lawyer row), so an owner attorney and
+  an associate attorney used to collapse to one identical median (issue
+  #14). The percentile spread of the SAME occupation row is the
+  data-grounded way to order them: junior -> pct25, base -> median,
+  senior/owner -> pct75. Word-boundary tokens; the first tier that matches
+  wins (owner outranks senior outranks junior when titles carry several)."""
+  words = set(re.findall(r"[a-z]+", str(role_title or "").lower()))
+  if words & set(_SENIORITY_OWNER_TOKENS):
+    return "owner"
+  if words & set(_SENIORITY_SENIOR_TOKENS):
+    return "senior"
+  if words & set(_SENIORITY_JUNIOR_TOKENS):
+    return "junior"
+  return None
+
+
+def _select_wage(
+  row: Dict[str, Any], prefer_pct10: bool, seniority_tier: Optional[str] = None,
+) -> Tuple[Optional[float], Optional[str]]:
   def clean(value: Any) -> Optional[float]:
     try:
       num = float(value)
@@ -301,19 +324,26 @@ def _select_wage(row: Dict[str, Any], prefer_pct10: bool) -> Tuple[Optional[floa
       return None
     return num
 
-  pct10_val = clean(pct10)
-  median_val = clean(median)
+  pct10_val = clean(row.get("a_pct10"))
+  pct25_val = clean(row.get("a_pct25"))
+  median_val = clean(row.get("a_median"))
+  pct75_val = clean(row.get("a_pct75"))
 
   if prefer_pct10:
     if pct10_val is not None:
       return pct10_val, "oews_pct10"
     if median_val is not None:
       return median_val, "oews_median"
-  else:
-    if median_val is not None:
-      return median_val, "oews_median"
-    if pct10_val is not None:
-      return pct10_val, "oews_pct10"
+    return None, None
+
+  if seniority_tier in ("owner", "senior") and pct75_val is not None:
+    return pct75_val, "oews_pct75"
+  if seniority_tier == "junior" and pct25_val is not None:
+    return pct25_val, "oews_pct25"
+  if median_val is not None:
+    return median_val, "oews_median"
+  if pct10_val is not None:
+    return pct10_val, "oews_pct10"
   return None, None
 
 
@@ -322,11 +352,12 @@ def _fetch_oews_rows_exact(conn, *, state_abbrev: str, naics_6: str) -> List[Dic
   try:
     cur.execute(
       """
-      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
+      SELECT occ_code, occ_title, o_group, a_pct10, a_pct25, a_median, a_pct75, tot_emp
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics = %s
         AND occ_title IS NOT NULL
+      ORDER BY tot_emp DESC, occ_code
       """,
       (state_abbrev, naics_6),
     )
@@ -351,11 +382,12 @@ def _fetch_oews_state_cross_industry_rows(conn, *, state_abbrev: str) -> List[Di
   try:
     cur.execute(
       """
-      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
+      SELECT occ_code, occ_title, o_group, a_pct10, a_pct25, a_median, a_pct75, tot_emp
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics = '000000'
         AND occ_title IS NOT NULL
+      ORDER BY tot_emp DESC, occ_code
       """,
       (state_abbrev,),
     )
@@ -371,6 +403,14 @@ def _fetch_oews_rows_with_fallback(conn, *, state_abbrev: str, naics_value: str)
   if not naics_value:
     return []
   naics_str = str(naics_value).strip()
+  # Exact 6-digit industry first: the prefix fallback spans many NAICS
+  # values, the same occ_title repeats with different wages, and the
+  # matched row used to be whichever duplicate happened to come first -
+  # wage selection was arbitrary across industry sub-rows (issue #14).
+  if len(naics_str) == 6:
+    rows = _fetch_oews_rows_exact(conn, state_abbrev=state_abbrev, naics_6=naics_str)
+    if rows:
+      return rows
   prefixes: List[str] = []
   for length in (4, 3, 2):
     if len(naics_str) >= length:
@@ -387,11 +427,12 @@ def _fetch_oews_rows_prefix(conn, *, state_abbrev: str, naics_prefix: str) -> Li
   try:
     cur.execute(
       """
-      SELECT occ_code, occ_title, o_group, a_pct10, a_median, tot_emp
+      SELECT occ_code, occ_title, o_group, a_pct10, a_pct25, a_median, a_pct75, tot_emp
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics LIKE %s
         AND occ_title IS NOT NULL
+      ORDER BY tot_emp DESC, occ_code
       """,
       (state_abbrev, f"{naics_prefix}%"),
     )
@@ -500,13 +541,22 @@ def apply_oews_wages(
         matched_title = None
 
       if matched_title:
+        matching_rows = [
+          row for row in rows_to_use
+          if str(row.get("occ_title") or "").strip() == matched_title
+        ]
         matched_row = None
-        for row in rows_to_use:
-          if str(row.get("occ_title") or "").strip() == matched_title:
-            matched_row = row
-            break
+        if matching_rows:
+          # Deterministic among duplicate titles: the dominant row by
+          # employment, never list order.
+          matched_row = max(
+            matching_rows,
+            key=lambda r: float(r.get("tot_emp") or 0.0),
+          )
         if matched_row:
-          picked, source = _select_wage(matched_row, prefer_pct10)
+          picked, source = _select_wage(
+            matched_row, prefer_pct10, seniority_tier=_seniority_tier(role_title),
+          )
           if picked is not None:
             wage_val = picked
             wage_source = source or wage_source
