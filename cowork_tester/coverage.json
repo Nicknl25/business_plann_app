@@ -1,34 +1,219 @@
 {
-  "version": 1,
-  "updated": null,
-  "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible.",
-  "business_types": {
-    "professional_services": {"examples": ["law firm", "accounting", "consulting"], "runs": []},
-    "food_service": {"examples": ["restaurant", "food truck", "bakery"], "runs": []},
-    "retail": {"examples": ["shop", "e-commerce", "boutique"], "runs": []},
-    "trades_field_services": {"examples": ["plumbing", "landscaping", "cleaning"], "runs": []},
-    "health_wellness": {"examples": ["gym", "salon", "therapy practice"], "runs": []},
-    "creative_digital": {"examples": ["agency", "studio", "SaaS-ish solo dev"], "runs": []},
-    "hospitality_events": {"examples": ["B&B", "event planning", "venue"], "runs": []},
-    "manufacturing_product": {"examples": ["small-batch maker", "workshop"], "runs": []}
+ "version": 1,
+ "updated": "2026-07-31T00:20:00Z",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible.",
+ "business_types": {
+  "professional_services": {
+   "examples": [
+    "law firm",
+    "accounting",
+    "consulting"
+   ],
+   "runs": [
+    "CW-001"
+   ]
   },
-  "friction_conditions": {
-    "weak_number_knowledge": {"persona": "P1", "runs": []},
-    "ambiguous_basis": {"persona": "P2", "runs": []},
-    "defensive_resists_lever": {"persona": "P3", "runs": []},
-    "confident_wrong_figures": {"persona": "P4", "runs": []},
-    "unviable_business_roadmap": {"persona": "P5", "runs": []},
-    "clean_baseline": {"persona": "P6", "runs": []},
-    "multi_stream_tangled": {"persona": "P7", "runs": []},
-    "terse_minimal_answers": {"persona": "P8", "runs": []}
+  "food_service": {
+   "examples": [
+    "restaurant",
+    "food truck",
+    "bakery"
+   ],
+   "runs": []
   },
-  "structural_conditions": {
-    "existing_business_with_history": {"runs": []},
-    "pre_revenue_startup": {"runs": []},
-    "seasonal_revenue": {"runs": []},
-    "multiple_revenue_streams": {"runs": []},
-    "lease_heavy_cost_structure": {"runs": []},
-    "payroll_heavy_cost_structure": {"runs": []}
+  "retail": {
+   "examples": [
+    "shop",
+    "e-commerce",
+    "boutique"
+   ],
+   "runs": []
   },
-  "verdict_classes_reached": {"converged": [], "parked": [], "roadmap": []}
+  "trades_field_services": {
+   "examples": [
+    "plumbing",
+    "landscaping",
+    "cleaning"
+   ],
+   "runs": [
+    "CW-002"
+   ]
+  },
+  "health_wellness": {
+   "examples": [
+    "gym",
+    "salon",
+    "therapy practice"
+   ],
+   "runs": []
+  },
+  "creative_digital": {
+   "examples": [
+    "agency",
+    "studio",
+    "SaaS-ish solo dev"
+   ],
+   "runs": [
+    "CW-003"
+   ]
+  },
+  "hospitality_events": {
+   "examples": [
+    "B&B",
+    "event planning",
+    "venue"
+   ],
+   "runs": []
+  },
+  "manufacturing_product": {
+   "examples": [
+    "small-batch maker",
+    "workshop"
+   ],
+   "runs": []
+  }
+ },
+ "friction_conditions": {
+  "weak_number_knowledge": {
+   "persona": "P1",
+   "runs": []
+  },
+  "ambiguous_basis": {
+   "persona": "P2",
+   "runs": []
+  },
+  "defensive_resists_lever": {
+   "persona": "P3",
+   "runs": []
+  },
+  "confident_wrong_figures": {
+   "persona": "P4",
+   "runs": []
+  },
+  "unviable_business_roadmap": {
+   "persona": "P5",
+   "runs": []
+  },
+  "clean_baseline": {
+   "persona": "P6",
+   "runs": [
+    "CW-001",
+    "CW-002",
+    "CW-003"
+   ]
+  },
+  "multi_stream_tangled": {
+   "persona": "P7",
+   "runs": []
+  },
+  "terse_minimal_answers": {
+   "persona": "P8",
+   "runs": []
+  }
+ },
+ "structural_conditions": {
+  "existing_business_with_history": {
+   "runs": [
+    "CW-001",
+    "CW-003"
+   ]
+  },
+  "pre_revenue_startup": {
+   "runs": [
+    "CW-002"
+   ]
+  },
+  "seasonal_revenue": {
+   "runs": []
+  },
+  "multiple_revenue_streams": {
+   "runs": [
+    "CW-001",
+    "CW-002",
+    "CW-003"
+   ]
+  },
+  "lease_heavy_cost_structure": {
+   "runs": []
+  },
+  "payroll_heavy_cost_structure": {
+   "runs": [
+    "CW-001",
+    "CW-002",
+    "CW-003"
+   ]
+  }
+ },
+ "verdict_classes_reached": {
+  "converged": [],
+  "parked": [],
+  "roadmap": []
+ },
+ "runs_index": {
+  "CW-001": {
+   "persona": "P6",
+   "business": "Harborline Legal Group",
+   "type": "professional_services",
+   "outcome": "parked",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "clean_baseline",
+    "established_profitable",
+    "two_revenue_streams",
+    "debt_funding_goal",
+    "baseline_challenge",
+    "save_for_now_exit"
+   ]
+  },
+  "CW-002": {
+   "persona": "P6",
+   "business": "Bluestem Grounds & Landscape",
+   "type": "trades_field_services",
+   "outcome": "parked",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "clean_baseline",
+    "pre_revenue",
+    "two_revenue_streams",
+    "b2b",
+    "future_start_date",
+    "equipment_debt",
+    "baseline_challenge",
+    "save_for_now_exit"
+   ]
+  },
+  "CW-003": {
+   "persona": "P6",
+   "business": "Copperline Interiors",
+   "type": "creative_digital",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "clean_baseline",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "passthrough_procurement_cogs",
+    "gross_vs_net_basis",
+    "full_submit"
+   ]
+  }
+ },
+ "verdict_classes": {
+  "converged": {
+   "runs": [
+    "CW-003"
+   ]
+  },
+  "parked": {
+   "runs": [
+    "CW-001",
+    "CW-002"
+   ],
+   "note": "CW-001 and CW-002 parked were both WRONG verdicts (issues #8, #17) - the parked path has never been exercised legitimately"
+  },
+  "roadmap": {
+   "runs": []
+  }
+ }
 }

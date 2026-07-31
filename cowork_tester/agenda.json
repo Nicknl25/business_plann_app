@@ -1,10 +1,35 @@
 {
-  "version": 1,
-  "updated": null,
-  "notes": "Ranked recommendations. Rebuilt from coverage gaps + open issues each session; operator approves, overrides, or says 'run yours'.",
-  "recommendations": [
-    {"rank": 1, "kind": "baseline", "persona": "P6", "business": "small law firm, two revenue streams (litigation + estate), running since 2019", "reason": "First proof run: clean baseline through the full walk establishes what 'working' looks like and validates the whole pipeline before friction personas run.", "status": "proposed"},
-    {"rank": 2, "kind": "gap", "persona": "P2", "business": "neighborhood bakery with a wholesale side", "reason": "Basis restatement is flagged high-value; bakery gives natural monthly/annual and per-unit/total traps across two streams.", "status": "proposed"},
-    {"rank": 3, "kind": "gap", "persona": "P5", "business": "board-game cafe in a small town, pre-profit", "reason": "Exercises the roadmap/parked path and how the hard conversation feels; verdict-class coverage.", "status": "proposed"}
-  ]
+ "version": 1,
+ "updated": "2026-07-31T00:20:00Z",
+ "notes": "CW-003 (P6 Copperline interior design, Charlotte) CONVERGED and SUBMITTED - first full end-to-end completion. Verdict correct; procurement gross-vs-net basis handled well; resolved clarifier blocker exercised clean. Persistent template-layer issues all recurred a 3rd time (invented competitive advantage, implausible wage defaults, firmographic re-ask loops). New minors: firm-size 3x loop, pass-banner corner-test framing.",
+ "recommendations": [
+  {
+   "rank": 1,
+   "id": "A-006",
+   "persona": "P6",
+   "business": "retest a Bluestem-shaped business (thin-margin, pre-launch)",
+   "why": "CW-003 proves the walk CAN pass a comfortably profitable firm. The open question from CW-002 is the thin-margin/pre-launch shape: gap asserted while its own panel showed a pass, and the options loop (#9, recurring) ignored corrections. Retest that shape after the next fix lands.",
+   "retests": [
+    "flow:coherence:options_not_recomputed_after_user_correction",
+    "verdict:bluestem_grounds:converged-vs-parked",
+    "flow:coherence:gap_contradicts_displayed_margin_floor"
+   ]
+  },
+  {
+   "rank": 2,
+   "id": "A-002",
+   "persona": "P2",
+   "business": "bakery with a wholesale side",
+   "why": "Basis Mixer remains the highest-value untested friction trait; CW-003 showed the app handles an honest gross-vs-net split well - P2 tests whether it catches a DISHONEST/confused one.",
+   "retests": []
+  },
+  {
+   "rank": 3,
+   "id": "A-003",
+   "persona": "P5",
+   "business": "board-game cafe (genuinely unviable)",
+   "why": "Roadmap path still unexercised; now that a pass (CW-003) and false-fails (CW-001/002) are on record, a true-fail calibrates the walk from the other side.",
+   "retests": []
+  }
+ ]
 }
