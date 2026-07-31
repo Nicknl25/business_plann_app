@@ -327,6 +327,25 @@ def target_market_chat_turn(
   api_key = _require_openai_key()
   model = _openai_model()
 
+  # Deterministic per-segment checklist (issues #20/#21): completion used to
+  # be a transcript-reading exercise for the model, and an answered segment
+  # whose patch value came back null was byte-identical to "never asked" —
+  # org-age and firm-size were re-asked three times in consecutive turns.
+  # Python states what is ANSWERED; the prompt forbids re-asking it.
+  _tm_state = intake_context.get("target_market_json") or {}
+
+  def _segment_status(value: Any) -> str:
+    return "answered" if isinstance(value, list) and len(value) > 0 else "missing"
+
+  intake_context = {
+    **intake_context,
+    "market_progress": {
+      "b2b_industry": _segment_status(_tm_state.get("b2b_industry_terms")),
+      "b2b_size": _segment_status(_tm_state.get("b2b_size_bands")),
+      "b2b_age": _segment_status(_tm_state.get("b2b_age_bands")),
+    },
+  }
+
   system_consumer = f"""
 You are a business consultant conducting a Target Market discovery consultation.
 
@@ -442,8 +461,10 @@ Rules:
 - Do not discuss consumer demographics (age/gender/income/ACS) at all in this mode.
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
 - Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
-- Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
-- IMPORTANT: Gender and Age are separate in this intake. Ask for gender focus in one stand-alone question, then ask for the age range in a separate stand-alone question.
+- Do not bundle questions. Do not ask for two separate inputs in one turn. Pick the single next-most-important detail and ask only that.
+- Do NOT re-ask a segment that has already been answered. The context's target_market_json is YOUR OWN running capture: any non-empty b2b_industry_terms, b2b_size_bands, or b2b_age_bands array there means that segment is ANSWERED and DECIDED. One answer settles a segment - do not revisit it as "do you want to formally limit it", "keep it open or narrow it", or any other re-framing. Move to the next unanswered segment.
+- Only revisit an answered segment if the client themselves changes it, contradicts it, or asks to.
+- The context's market_progress is the deterministic checklist: any segment marked "answered" there is DONE - never ask about it again.
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, reflect it back briefly, and move on unless ambiguous.
 - For B2B firm size and firm age, ask in plain language and let the client answer however they want (ranges, qualitative, "no preference", etc.).
@@ -472,16 +493,9 @@ Output rules:
 - assistant_message must be normal conversation text for the client.
 - patch must commit normalized Target Market fields implied by the client's most recent message.
   - If the most recent message does not provide new target market data (e.g., the first "start" turn), you MUST still output all patch keys (per schema) and set each value to null.
-  - When updating gender_age_intent:
-    - gender_focus must be one of: "all", "male", "female".
-    - If the client answered gender only, keep the most recent age_min/age_max from context if available; otherwise use 18-120.
-    - If the client answered age only, keep the most recent gender_focus from context if available; otherwise use "all".
-  - When updating income_intent:
-    - Always output numeric income_min and income_max.
-    - If only a lower bound is given, set income_max to 1000000.
-    - If no preference/any/open, set income_min=0 and income_max=1000000.
   - b2b_size_bands and b2b_age_bands must use canonical band tokens only (e.g., "20-99", "6-10").
   - If the client indicates no preference/any/all sizes or all ages, include all canonical bands for that dimension.
+  - NEVER emit null for a segment the client's most recent message just answered. If the answer is prose or approximate ("mostly under 20 people", "established firms"), map it to the closest canonical bands; if it expresses openness or no preference, include ALL bands for that dimension. A null after an answer silently loses the answer and forces a re-ask.
 - If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
 - If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all three segments decided).
@@ -528,6 +542,9 @@ Rules:
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
 - Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
 - Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- Do NOT re-ask a segment that has already been answered. The context's target_market_json is YOUR OWN running capture: any non-empty b2b_industry_terms, b2b_size_bands, or b2b_age_bands array there means that segment is ANSWERED and DECIDED. One answer settles a segment - do not revisit it as "do you want to formally limit it", "keep it open or narrow it", or any other re-framing. Move to the next unanswered segment.
+- Only revisit an answered segment if the client themselves changes it, contradicts it, or asks to.
+- The context's market_progress is the deterministic checklist: any segment marked "answered" there is DONE - never ask about it again.
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
 - Do not consult or discuss any other segments.
@@ -543,6 +560,7 @@ Rules:
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 - For B2B size and B2B firm age, ask in plain language and let the client answer however they want (ranges, qualitative, "no preference", etc.).
+- For b2b_size_bands and b2b_age_bands in the patch: NEVER emit null for a segment the client's most recent message just answered. If the answer is prose or approximate, map it to the closest canonical bands; if it expresses openness or no preference, include ALL canonical bands for that dimension. A null after an answer silently loses the answer and forces a re-ask.
 - IMPORTANT: Do NOT dump long canonical band lists to the client. If examples are helpful, give at most 2-3 short examples (e.g., "under 20 employees", "20-99", "100+").
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 Canonical band tokens (for patch only; NEVER show these lists to the client):
