@@ -36,6 +36,19 @@ if (Test-Path $envLocal) {
 Set-Content -Path $envLocal -Value (@($apiLine) + $kept) -Encoding utf8
 Write-Host "frontend/.env.local -> $apiLine"
 
+# Kill ANY existing listener on the port first. Windows allowed two pythons
+# to LISTEN on 127.0.0.1:$Port simultaneously; the OLD server kept taking
+# all traffic (stale code) while the new one sat starved — and the health
+# probe below passed because the old server answered. (2026-07-31: this
+# masked the submit-trigger verification for an hour.)
+$stale = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+           Select-Object -ExpandProperty OwningProcess -Unique)
+foreach ($stalePid in $stale) {
+  Write-Host "killing stale listener on :$Port (pid $stalePid)"
+  try { Stop-Process -Id $stalePid -Force -ErrorAction Stop } catch {}
+}
+if ($stale.Count) { Start-Sleep -Seconds 2 }
+
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $log = Join-Path $repo ("_logs_persona_{0}.txt" -f $stamp)
 
@@ -65,6 +78,16 @@ foreach ($i in 1..30) {
 if (-not $up) {
   Write-Host "backend did NOT come up; tail of $log :"
   if (Test-Path $log) { Get-Content $log -Tail 30 }
+  exit 1
+}
+
+# Exactly ONE listener must own the port — a second one means the health
+# probe above may have been answered by a survivor running stale code.
+$listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+               Select-Object -ExpandProperty OwningProcess -Unique)
+if ($listeners.Count -ne 1) {
+  Write-Host "FATAL: expected exactly 1 listener on :$Port, found $($listeners.Count) (pids: $($listeners -join ', '))."
+  Write-Host "Kill them all and re-run this script."
   exit 1
 }
 
