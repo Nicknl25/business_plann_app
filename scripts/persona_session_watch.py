@@ -152,12 +152,26 @@ def _active_recent_draft() -> str:
     try:
       cur = conn.cursor()
       try:
+        # Only re-attach when there is something left to OBSERVE: intake
+        # still going (no run rows) or a run actively executing. A draft
+        # whose latest run is already terminal stays status='in_progress'
+        # (the run mirror leaves it there), and re-attaching to it just
+        # replays detect->terminal->finalize every ~40s until the 10-minute
+        # window ages out (observed after the 84905f62 verification run).
         cur.execute(
           """
-          SELECT draft_id FROM intake_consult_drafts
-          WHERE status = 'in_progress'
-            AND updated_at > NOW() - INTERVAL 10 MINUTE
-          ORDER BY updated_at DESC LIMIT 1
+          SELECT d.draft_id
+          FROM intake_consult_drafts d
+          LEFT JOIN planning_runs r
+            ON r.draft_id = d.draft_id
+            AND r.started_at = (
+              SELECT MAX(r2.started_at) FROM planning_runs r2
+              WHERE r2.draft_id = d.draft_id
+            )
+          WHERE d.status = 'in_progress'
+            AND d.updated_at > NOW() - INTERVAL 10 MINUTE
+            AND (r.planning_run_id IS NULL OR r.run_status = 'running')
+          ORDER BY d.updated_at DESC LIMIT 1
           """
         )
         row = cur.fetchone()
