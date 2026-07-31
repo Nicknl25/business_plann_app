@@ -4714,6 +4714,29 @@ def _unapplied_fields_note(dropped: List[str]) -> str:
   return f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
 
 
+def _natural_recovery(closed_question: str, *, user_message: str = "", fallback: str = "") -> str:
+  """Bluntness-class cure (client-facing fallbacks only): frame-declared
+  WHAT via closed_question; natural GPT phrasing for HOW; deterministic
+  fallback always intact."""
+  try:
+    from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+    return naturalize_recovery(
+      closed_question=closed_question,
+      user_message=user_message,
+      fallback=fallback or closed_question,
+    )
+  except Exception:
+    return fallback or closed_question
+
+
+def _natural_continue(focus: str = "") -> str:
+  try:
+    from client_intake_and_finmo.recovery_phrasing import continuation_nudge  # type: ignore
+    return continuation_nudge(focus=focus)
+  except Exception:
+    return "Continue."
+
+
 def _build_financials_stage_clarifier(stage_name: Optional[str]) -> str:
   spec = _financials_stage_spec(stage_name)
   clarifier = str(spec.get("clarifier") or "").strip()
@@ -5402,7 +5425,11 @@ def _run_financials_turn_and_sync(
     return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
 
   return {
-    "assistant_message": _build_financials_stage_clarifier(active_stage),
+    "assistant_message": _natural_recovery(
+      _build_financials_stage_clarifier(active_stage),
+      user_message=str(user_message or ""),
+      fallback=_build_financials_stage_clarifier(active_stage),
+    ),
     "finalize_ready": False,
   }, next_financials
 
@@ -9402,7 +9429,7 @@ def post_intake_consult_handler(*, app, request):
           guardrail_triggered=False,
         )
       else:
-        turn = {"assistant_message": "Continue."}
+        turn = {"assistant_message": _natural_continue(focus=str(focus or ""))}
 
       assistant_text = str(turn.get("assistant_message") or "").strip() or "Continue."
 
@@ -11253,7 +11280,7 @@ def post_intake_consult_handler(*, app, request):
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
       else:
-        next_assistant = "Continue."
+        next_assistant = _natural_continue(focus=str(next_focus or ""))
 
       transition = ""
       if next_focus == "market":
@@ -11468,7 +11495,7 @@ def post_intake_consult_handler(*, app, request):
         guardrail_triggered=guardrail_triggered,
       )
     else:
-      turn = {"assistant_message": "Continue.", "finalize_ready": False}
+      turn = {"assistant_message": _natural_continue(focus=str(focus or "")), "finalize_ready": False}
 
     assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
     if focus == "market":

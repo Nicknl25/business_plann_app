@@ -983,6 +983,49 @@ def _confirm_clarify_message(
   )
 
 
+def _confirm_clarify_message_natural(
+  field: str,
+  *,
+  consult_type: str | None = None,
+  baseline_json: Any = None,
+  shared_context: Any = None,
+  user_message: str = "",
+) -> str:
+  """Bluntness-class cure: the deterministic clarifier defines WHAT to ask
+  (frame-declared); one bounded phrasing call decides HOW (natural,
+  human); the canned string stays as the last-resort fallback."""
+  closed = _confirm_clarify_message(
+    field,
+    consult_type=consult_type,
+    baseline_json=baseline_json,
+    shared_context=shared_context,
+  )
+  # Structured TM fields: the canned text is a FORMAT prompt ("60000 to
+  # 120000") — passing it as the ask makes the model repeat the format.
+  # The semantic ask goes to the phrasing call; the format prompt stays
+  # the deterministic fallback (it guarantees a parseable reply shape).
+  _fname = str(field or "").strip().lower()
+  semantic = closed
+  if _fname.endswith("income_intent"):
+    semantic = (
+      "Ask what yearly household income range their typical customers have — "
+      "any natural way of describing a range is fine."
+    )
+  elif _fname.endswith("gender_age_intent"):
+    semantic = (
+      "Ask what age range their typical customers are (and whether they focus "
+      "on any particular gender) — any natural phrasing is fine."
+    )
+  try:
+    from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+  except Exception:
+    try:
+      from recovery_phrasing import naturalize_recovery  # type: ignore
+    except Exception:
+      return closed
+  return naturalize_recovery(closed_question=semantic, user_message=user_message, fallback=closed)
+
+
 def _ops_interview_field_allowed(field: str, ops_interview_filter: Dict[str, Any] | None) -> bool:
   """During an active Ops interview turn, only ops/business/fulfillment fields may be
   patched, and milestones only during the explicit milestone-capture step.
@@ -2101,7 +2144,7 @@ Return JSON only. No prose.
 
               "action": "confirm_clarify",
 
-              "assistant_message": _confirm_clarify_message(
+              "assistant_message": _confirm_clarify_message_natural(
                 field,
                 consult_type=consult_type_norm,
                 baseline_json=baseline_json,
@@ -2122,7 +2165,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2139,7 +2182,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2156,7 +2199,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2173,7 +2216,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2190,7 +2233,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2207,7 +2250,7 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(
+                  "assistant_message": _confirm_clarify_message_natural(
                     field,
                     consult_type=consult_type_norm,
                     baseline_json=baseline_json,
@@ -2353,7 +2396,7 @@ Return JSON only. No prose.
 
       parsed["assistant_message"] = (
 
-        _confirm_clarify_message(
+        _confirm_clarify_message_natural(
           field,
           consult_type=consult_type_norm,
           baseline_json=baseline_json,
@@ -2377,7 +2420,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
@@ -2396,7 +2439,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
@@ -2415,7 +2458,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
@@ -2434,7 +2477,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
@@ -2453,7 +2496,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
@@ -2472,7 +2515,7 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(
+            _confirm_clarify_message_natural(
               field,
               consult_type=consult_type_norm,
               baseline_json=baseline_json,
