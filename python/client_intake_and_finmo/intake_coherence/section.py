@@ -730,8 +730,9 @@ def _opening(eval_result: Dict[str, Any], band_low: float) -> str:
   binding = binding_constraint(eval_result)
   return (
     "Before we wrap up, I put your numbers together the way a lender will read them - "
-    "your business once it's up and running, at a typical mature quarter. Right now it "
-    f"doesn't quite hold: about {_fmt(_f(q11.get('revenue')))} comes in, and {binding['sentence']}. "
+    "your business once it's up and running, a few years in, on the strongest believable "
+    "growth path for it. Even there it doesn't quite hold: about "
+    f"{_fmt(_f(q11.get('revenue')))} comes in, and {binding['sentence']}. "
     f"That's the whole gap: about {_fmt(_f(eval_result.get('gap_quarterly')))} a quarter. "
     "Here's the good news: we already checked the most favorable believable version of "
     "your business, and a version that works exists - nothing here has happened yet, "
@@ -782,10 +783,16 @@ def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, An
   # verdict is the structural checks coherence can run in the room; the
   # cash pass, the engine's own path-shaping, and landing noise always
   # sit outside it. "Your plan works" is never honest at this tier.
+  # FRAMING RULE (CW-003): the figure below is the FENCE-POINT evaluation —
+  # the strongest believable growth path — never the client's expected
+  # quarter. Presenting a structural stress test as "your typical quarter"
+  # made a 48.5% figure sit on screen beside its own 24% ceiling with no
+  # explanation. The bar-clearing is what's being announced; say so.
   return (
     " One more thing worth knowing: your numbers clear every structural test we can "
-    f"run right now - a typical mature quarter keeps about {_fmt(_f(q11.get('ebitda')))} "
-    f"({_pct(margin)} of revenue), {band_txt}. The full build will shape the "
+    "run right now. That's a stress test, not a forecast - at the strongest believable "
+    f"version of your business, a mature quarter would keep about {_fmt(_f(q11.get('ebitda')))} "
+    f"({_pct(margin)} of revenue), {band_txt}. The full build will shape the realistic "
     "quarter-by-quarter path and run its own final checks - and every number you just "
     "set is yours."
   )
