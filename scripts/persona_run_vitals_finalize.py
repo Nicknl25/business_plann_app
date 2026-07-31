@@ -161,17 +161,122 @@ def _find_transcript(
     return None
 
 
+def write_transcript(conn, *, draft_id: str, transcript_dir: str) -> Optional[str]:
+  """UNCONDITIONAL transcript capture from the per-turn committed
+  messages_json — the run's fate (parked, stalled, crashed, cut off,
+  completed) is irrelevant, because the messages are already durable in
+  the DB. The transcripts that matter most are the ones from runs that
+  DON'T finish cleanly; a capture path keyed to clean completion is
+  backwards (CW-002 and CW-003, the two real persona runs, had NO
+  transcript file at all — only runner-driven E2Es did, and only because
+  the runner process wrote them at its own exit).
+
+  Overwrite-on-refinalize by design: a later finalize (more turns) writes
+  the fuller conversation to the same deterministic filename.
+  """
+  try:
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        """
+        SELECT business_name, status, active_focus, created_at, updated_at,
+               messages_json,
+               JSON_UNQUOTE(JSON_EXTRACT(financials_json, '$._coherence.status')) AS coh
+        FROM intake_consult_drafts WHERE draft_id = %s
+        """,
+        (draft_id,),
+      )
+      row = cur.fetchone()
+    finally:
+      cur.close()
+    if not row:
+      return None
+    business, status, focus, created_at, updated_at, msg_raw, coh = row
+    msgs = json.loads(msg_raw) if msg_raw else []
+    if not isinstance(msgs, list) or not msgs:
+      return None
+    base = Path(transcript_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    stamp = created_at.strftime("%m-%d-%Y") if isinstance(created_at, datetime) else "unknown-date"
+    path = base / f"{stamp} -- {draft_id}.txt"
+    lines = [
+      f"Business: {business or '(unnamed)'}",
+      f"Draft: {draft_id}",
+      f"Created: {created_at}   Last activity: {updated_at}",
+      f"Draft status: {status}   Focus: {focus}   Coherence: {coh or '-'}",
+      f"Turns captured: {len(msgs)} messages (per-turn committed; complete up to last activity)",
+      "=" * 72,
+      "",
+    ]
+    for m in msgs:
+      role = str((m or {}).get("role") or "?")
+      speaker = "client" if role == "user" else ("consultant" if role == "assistant" else role)
+      text = str((m or {}).get("content") or "").strip()
+      lines.append(f"[{speaker}]")
+      lines.append(text)
+      lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return str(path)
+  except Exception as exc:
+    print(f"transcript write failed (continuing): {type(exc).__name__}: {exc}", flush=True)
+    return None
+
+
+def backfill_transcripts(conn, *, transcript_dir: str, hours: float) -> int:
+  """Catch-up for runs that ended while nothing was watching (watcher
+  down, machine died): write any missing transcript for drafts active in
+  the window. Called by the session watcher at startup."""
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      SELECT draft_id, created_at FROM intake_consult_drafts
+      WHERE updated_at > NOW() - INTERVAL %s HOUR
+        AND messages_json IS NOT NULL AND messages_json != '[]'
+      """,
+      (float(hours),),
+    )
+    rows = cur.fetchall()
+  finally:
+    cur.close()
+  written = 0
+  for draft_id, created_at in rows:
+    stamp = created_at.strftime("%m-%d-%Y") if isinstance(created_at, datetime) else "unknown-date"
+    if (Path(transcript_dir) / f"{stamp} -- {draft_id}.txt").exists():
+      continue
+    if write_transcript(conn, draft_id=str(draft_id), transcript_dir=transcript_dir):
+      written += 1
+      print(f"transcript backfilled: {str(draft_id)[:8]}", flush=True)
+  return written
+
+
 def main(argv) -> int:
   parser = argparse.ArgumentParser(description="Finalize run-vitals for one persona run.")
   parser.add_argument("--result-path", default=str(REPO_ROOT / "tmp_persona_watch_result.json"))
   parser.add_argument("--transcript-dir", default=DEFAULT_TRANSCRIPT_DIR)
   parser.add_argument("--stalls", type=int, default=0,
                       help="Stall events the watcher observed during this watch.")
+  parser.add_argument("--backfill-hours", type=float, default=0.0,
+                      help="Write any missing transcripts for drafts active in the last N hours, then exit.")
   args = parser.parse_args(argv)
 
   _bootstrap()
   from intake_submission import get_mysql_connection  # type: ignore
   from client_intake_and_finmo import run_vitals  # type: ignore
+
+  if args.backfill_hours and args.backfill_hours > 0:
+    conn_b = get_mysql_connection()
+    try:
+      n = backfill_transcripts(
+        conn_b, transcript_dir=args.transcript_dir, hours=args.backfill_hours
+      )
+      print(f"transcript backfill complete: {n} written", flush=True)
+    finally:
+      try:
+        conn_b.close()
+      except Exception:
+        pass
+    return 0
 
   try:
     result = json.loads(Path(args.result_path).read_text(encoding="utf-8"))
@@ -214,7 +319,20 @@ def main(argv) -> int:
     first_turn_local = first_turn_at
   else:
     first_turn_local = first_turn_at if isinstance(first_turn_at, datetime) else None
-  transcript_path = _find_transcript(args.transcript_dir, first_turn_local)
+  # UNCONDITIONAL capture first (every termination path funnels through
+  # this finalizer); the mtime search is only a fallback if writing fails.
+  conn_t = get_mysql_connection()
+  try:
+    transcript_path = write_transcript(
+      conn_t, draft_id=draft_id, transcript_dir=args.transcript_dir
+    )
+  finally:
+    try:
+      conn_t.close()
+    except Exception:
+      pass
+  if not transcript_path:
+    transcript_path = _find_transcript(args.transcript_dir, first_turn_local)
 
   # Watcher-sourced events for the run's event stream.
   run_vitals.record_event(

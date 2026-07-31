@@ -214,6 +214,20 @@ def main(argv) -> int:
     f"persona watcher armed: waiting for backend :{args.backend_port} "
     f"+ frontend :{args.frontend_port}"
   )
+  # Transcript catch-up for runs that ended while nothing was watching
+  # (watcher down, machine died): capture is unconditional and DB-driven,
+  # so anything the finalizer missed is written now.
+  try:
+    _bf = subprocess.run(
+      [str(PYTHON), "-u", str(FINALIZER), "--backfill-hours", "48"],
+      cwd=str(REPO_ROOT), capture_output=True, text=True,
+      encoding="utf-8", errors="replace", timeout=180,
+    )
+    for _line in (_bf.stdout or "").splitlines():
+      if _line.strip():
+        _emit(_line.strip())
+  except Exception as exc:  # noqa: BLE001
+    _emit(f"transcript backfill error (continuing): {type(exc).__name__}: {exc}")
   stack_was_up = False
   tail_stop = threading.Event()
   tail_thread = threading.Thread(target=_tail_persona_log, args=(tail_stop,), daemon=True)
