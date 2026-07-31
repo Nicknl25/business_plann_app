@@ -131,6 +131,99 @@ def _business_name(conn, draft_id: str) -> str:
     cur.close()
 
 
+def check_stranded_submissions(conn, *, threshold_minutes: float, dry_run: bool) -> List[Dict[str, Any]]:
+  """A submitted draft with NO planning run is invisible to every other
+  safety net (reap/ladder/dead-letter all watch planning_runs rows — a run
+  never born has no row). The client saw "submitted successfully"; without
+  this check nothing would ever notice the plan is missing. Escalate like
+  a dead run: internal email + supervisor_actions + issue registry.
+  No client-facing anything — delivery stays human-mediated."""
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      """
+      SELECT d.draft_id, d.business_name, d.updated_at
+      FROM intake_consult_drafts d
+      LEFT JOIN planning_runs r ON r.draft_id = d.draft_id
+      WHERE d.status = 'submitted'
+        AND r.planning_run_id IS NULL
+        AND d.updated_at < NOW() - INTERVAL %s MINUTE
+      """,
+      (int(threshold_minutes),),
+    )
+    stranded = [dict(r) for r in (cur.fetchall() or [])]
+  finally:
+    cur.close()
+  flagged = []
+  for row in stranded:
+    draft_id = str(row["draft_id"])
+    cur = conn.cursor()
+    try:
+      # Once per stranding: a stranded draft cannot un-strand except by a
+      # run appearing, which removes it from the SELECT above.
+      cur.execute(
+        "SELECT COUNT(*) FROM supervisor_actions "
+        "WHERE draft_id = %s AND action = 'stranded_submission'",
+        (draft_id,),
+      )
+      already = int(cur.fetchone()[0] or 0) > 0
+    finally:
+      cur.close()
+    if already:
+      continue
+    if dry_run:
+      print(json.dumps({"event": "dry_run_stranded_submission", "draft_id": draft_id}), flush=True)
+      continue
+    _record(conn, draft_id=draft_id, run_id=None, action="stranded_submission",
+            attempt=None, outcome="escalated",
+            detail={"submitted_at": str(row.get("updated_at"))})
+    try:
+      from issue_registry import report_issue  # type: ignore
+
+      report_issue(
+        conn,
+        signature="hard_break:submit:planning_run_never_started",
+        category="hard_break",
+        severity="blocker",
+        title="Submit accepted but no planning run was ever created",
+        observed=(
+          f"Draft {draft_id} ({row.get('business_name')}) went 'submitted' at "
+          f"{row.get('updated_at')} and still has zero planning_runs rows "
+          f"after {int(threshold_minutes)} minutes."
+        ),
+        expected=(
+          "Submit starts the post-intake system run server-side; a planning_runs "
+          "row exists within minutes of submission."
+        ),
+        draft_id=draft_id,
+        business_name=str(row.get("business_name") or ""),
+        section="submit",
+        # Intake vitals cannot honestly sense the submit->run handoff; this
+        # resolves via retest, not auto-recurrence sensing.
+        probe={"manual_only": True},
+        source="supervisor",
+      )
+    except Exception as exc:  # noqa: BLE001 — filing must not stop the pass
+      print(json.dumps({"event": "stranded_issue_file_failed",
+                        "draft_id": draft_id, "error": str(exc)}), flush=True)
+    flagged.append(row)
+    print(json.dumps({"event": "stranded_submission", "draft_id": draft_id}), flush=True)
+  if flagged:
+    lines = [
+      f"  draft={r['draft_id']}  {r.get('business_name')}  submitted_at={r.get('updated_at')}"
+      for r in flagged[:40]
+    ]
+    _send_email(
+      f"SUPERVISOR: {len(flagged)} submitted draft(s) with NO planning run",
+      "A client pressed Submit and saw the success banner, but no post-intake "
+      "run was ever created. NOTHING else escalates this — reap/ladder/"
+      "dead-letter only watch runs that exist. Start the run manually "
+      "(POST /api/intake-consult/system-run with the draft_id) or investigate "
+      "the submit trigger.\n\n" + "\n".join(lines),
+    )
+  return flagged
+
+
 def reap_dead_runs(conn, *, stall_seconds: float) -> List[Dict[str, Any]]:
   cur = conn.cursor(dictionary=True)
   try:
@@ -342,6 +435,8 @@ def main(argv: List[str]) -> int:
                       help="Only failures newer than this are ladder candidates.")
   parser.add_argument("--dry-run", action="store_true",
                       help="Report reap/ladder decisions without acting.")
+  parser.add_argument("--stranded-minutes", type=float, default=10.0,
+                      help="Escalate a submitted draft with no planning run older than this.")
   args = parser.parse_args(argv)
   ladder = tuple(int(s) for s in str(args.ladder).split(",") if s.strip())
 
@@ -364,6 +459,9 @@ def main(argv: List[str]) -> int:
       cur.close()
     else:
       reap_dead_runs(conn, stall_seconds=args.stall_seconds)
+    check_stranded_submissions(
+      conn, threshold_minutes=args.stranded_minutes, dry_run=args.dry_run,
+    )
     run_ladder(
       conn, base_url=args.base_url, ladder=ladder, run_timeout=args.run_timeout,
       since_hours=args.since_hours, dry_run=args.dry_run,

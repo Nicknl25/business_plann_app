@@ -1,7 +1,42 @@
 import json
+import os
+import threading
 from typing import Any, Dict, List
 
 from flask import jsonify
+
+
+def _start_system_run_in_background(*, app, draft_id: str) -> None:
+  """Submit IS the run trigger: the client pressing Submit must start the
+  post-intake planning run with no further browser involvement (a closed
+  tab must not strand a client). Fire the same endpoint every harness uses
+  (POST /api/intake-consult/system-run) from a daemon thread so the HTTP
+  submit returns promptly; the endpoint's planning_run_already_active
+  conflict makes a double-fire safe. Delivery stays human-mediated — the
+  run's output goes to the internal inbox only."""
+  base_url = (os.environ.get("BPLAN_SELF_BASE_URL") or "http://127.0.0.1:5050").rstrip("/")
+
+  def _fire() -> None:
+    try:
+      import requests
+
+      resp = requests.post(
+        f"{base_url}/api/intake-consult/system-run",
+        json={"draft_id": draft_id},
+        timeout=7200,
+      )
+      app.logger.info(
+        "submit_system_run draft=%s status=%s", draft_id, resp.status_code
+      )
+    except Exception as exc:  # noqa: BLE001 — the supervisor probe is the net
+      app.logger.error(
+        "submit_system_run_failed draft=%s: %s: %s",
+        draft_id, type(exc).__name__, exc,
+      )
+
+  threading.Thread(
+    target=_fire, name=f"system-run-{draft_id[:8]}", daemon=True
+  ).start()
 
 
 # P3.41 intake-remediation circumvention
@@ -278,6 +313,7 @@ def post_financials_handler(*, app, request):
           conn.close()
         except Exception:
           pass
+      _start_system_run_in_background(app=app, draft_id=str(draft_id).strip())
     return jsonify(result)
   except IntakeValidationError as exc:
     return (jsonify({"error": "invalid_request", "errors": exc.errors}), 400)
