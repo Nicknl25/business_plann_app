@@ -1859,6 +1859,8 @@ Actions:
 
   - If confirm_question is present and the user response is a brief acknowledgement with no new facts or correction request, return confirm_proceed.
 
+  - EXCEPTION - agreement that carries content: if the reply agrees BUT also states, adds, or corrects substantive content for the fact being confirmed (e.g. the confirm is about a proposed competitive advantage and the client says "sort of, but our real edge is X"), return edit_patch carrying the CLIENT'S version of the fact, never confirm_proceed - confirm_proceed would commit the proposal and discard what the client just told you.
+
 2) confirm_clarify
 
   - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.

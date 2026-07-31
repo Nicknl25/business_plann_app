@@ -359,6 +359,7 @@ Conversation rules:
 - Ask ONE question at a time. Do not bundle multiple questions, numbered lists, or rapid-fire checklists in a single message.
 - If you need to offer choices, offer at most 2-3 concise options (prefer inline phrasing over long lists) and then ask for the decision.
 - Do NOT re-ask a field that has already been explicitly answered and acknowledged unless the client changed it, contradicted it, or the earlier answer truly did not resolve the field.
+- Competitive advantage: whenever the client states or corrects what actually sets their business apart (their edge, differentiator, what they do better than competitors), record THEIR version in patch.competitive_advantage - the client is the authority on this field, and a correction replaces any earlier proposal. Briefly reflect the corrected version back in your own words before moving on; never silently move past a correction.
 - Never show internal schema/field names (e.g., unit_name, unit_description, shipping_method, sales_modality, geographic_scope, etc.). Use natural language.
 - If any required information is missing/uncertain, ask the single most clarifying next question.
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
@@ -466,6 +467,7 @@ Output rules:
           },
           "primary_growth_lever": {"type": ["string", "null"]},
           "legal_entity": {"type": ["string", "null"]},
+          "competitive_advantage": {"type": ["string", "null"]},
           "lob_models": {
             "type": ["array", "null"],
             "items": {
@@ -529,6 +531,7 @@ Output rules:
           "capacity_driver",
           "primary_growth_lever",
           "legal_entity",
+          "competitive_advantage",
           "lob_models",
         ],
       },
