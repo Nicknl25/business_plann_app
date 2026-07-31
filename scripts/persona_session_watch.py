@@ -135,6 +135,41 @@ def _tail_persona_log(stop: threading.Event) -> None:
     handle.close()
 
 
+def _active_recent_draft() -> str:
+  """The draft to RE-ATTACH to: an in_progress draft touched within the
+  last 10 minutes. Without this, a watch recycled mid-active-run (the
+  monitor's max-wait is absolute, not activity-based — CW-003 lost
+  observation 24 minutes in) spawns a successor that only watches drafts
+  created after its own start and never re-finds the live one."""
+  try:
+    import sys as _sys
+    _sys.path.insert(0, str(REPO_ROOT / "python"))
+    _sys.path.insert(0, str(REPO_ROOT / "python" / "client_intake_and_finmo"))
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv(REPO_ROOT / ".env", override=False)
+    from intake_submission import get_mysql_connection  # type: ignore
+    conn = get_mysql_connection()
+    try:
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          """
+          SELECT draft_id FROM intake_consult_drafts
+          WHERE status = 'in_progress'
+            AND updated_at > NOW() - INTERVAL 10 MINUTE
+          ORDER BY updated_at DESC LIMIT 1
+          """
+        )
+        row = cur.fetchone()
+        return str(row[0]) if row and row[0] else ""
+      finally:
+        cur.close()
+    finally:
+      conn.close()
+  except Exception:
+    return ""
+
+
 def _finalize_vitals(stall_count: int) -> None:
   """Record the watched run's vitals summary (run_vitals_runs + events) and
   surface the one-line RUN VITALS summary. Best-effort: a finalizer failure
@@ -201,10 +236,14 @@ def main(argv) -> int:
       except OSError:
         pass
       stall_count = 0
+      reattach = _active_recent_draft()
+      if reattach:
+        _emit(f"re-attaching to active draft {reattach[:8]}")
       proc = subprocess.Popen(
         [
           str(PYTHON), "-u", str(MONITOR),
           "--watch-only",
+          *(["--draft-id", reattach] if reattach else []),
           "--stall-seconds", str(args.stall_seconds),
           "--poll-seconds", str(args.poll_seconds),
           "--max-wait-seconds", str(args.recycle_seconds),

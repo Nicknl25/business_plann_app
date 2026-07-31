@@ -23,6 +23,24 @@ def _utc_now_sql() -> str:
   return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _db_now_sql(get_mysql_connection) -> str:
+  """The DATABASE's own clock, formatted for comparison against
+  created_at. The draft-detection watermark MUST come from the same
+  clock that stamps created_at: this DB stores LOCAL time, so a UTC
+  watermark ran 4h ahead and silently disabled auto-detection for
+  every draft (CW-002 was never picked up)."""
+  conn = get_mysql_connection()
+  try:
+    cur = conn.cursor()
+    try:
+      cur.execute("SELECT NOW()")
+      return cur.fetchone()[0].strftime("%Y-%m-%d %H:%M:%S")
+    finally:
+      cur.close()
+  finally:
+    conn.close()
+
+
 def _parse_dt(raw: Any) -> Optional[datetime]:
   if raw is None:
     return None
@@ -76,7 +94,8 @@ def _latest_draft_after(*, get_mysql_connection, after_ts: str) -> Optional[Dict
              planning_last_heartbeat_at,
              planning_run_json,
              convergence_state_json,
-             numeric_solver_feedback_json
+             numeric_solver_feedback_json,
+             JSON_UNQUOTE(JSON_EXTRACT(financials_json, '$._coherence.status')) AS coherence_status
       FROM intake_consult_drafts
       WHERE created_at >= %s
       ORDER BY created_at DESC
@@ -114,7 +133,8 @@ def _draft_by_id(*, get_mysql_connection, draft_id: str) -> Optional[Dict[str, A
              planning_last_heartbeat_at,
              planning_run_json,
              convergence_state_json,
-             numeric_solver_feedback_json
+             numeric_solver_feedback_json,
+             JSON_UNQUOTE(JSON_EXTRACT(financials_json, '$._coherence.status')) AS coherence_status
       FROM intake_consult_drafts
       WHERE draft_id = %s
       LIMIT 1
@@ -411,7 +431,7 @@ def main(argv: list[str]) -> int:
   if not runner_path.is_absolute():
     runner_path = (REPO_ROOT / runner_path).resolve()
 
-  start_ts = _utc_now_sql()
+  start_ts = _db_now_sql(get_mysql_connection)
   monitor_started = datetime.now(timezone.utc)
   stdout_path = Path(args.stdout_path or f"tmp_{int(time.time())}_live_e2e_stdout.txt")
   stderr_path = Path(args.stderr_path or f"tmp_{int(time.time())}_live_e2e_stderr.txt")
@@ -503,6 +523,31 @@ def main(argv: list[str]) -> int:
         exit_reason = "run_terminal"
         print(json.dumps({"event": "run_terminal", "run_status": run_status}), flush=True)
         break
+
+      # Walk parked with no system run and the conversation gone quiet:
+      # a first-class endpoint (the client chose to stop) — finalize the
+      # run's vitals + issue pass instead of waiting out the recycle
+      # window. Quiet threshold guards against clients who park and then
+      # keep talking (CW-001/CW-002 both continued past the park).
+      if (
+        args.watch_only
+        and not planning_run_id
+        and isinstance(row, dict)
+        and str(row.get("coherence_status") or "").strip().lower() == "parked"
+      ):
+        _upd = _parse_dt(row.get("updated_at"))
+        _quiet = _seconds_between(datetime.now(timezone.utc), _upd) if _upd is not None else None
+        # updated_at is DB-local; compare against DB-local now instead.
+        try:
+          _db_now = datetime.strptime(_db_now_sql(get_mysql_connection), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+          _upd_naive = _parse_dt(row.get("updated_at"))
+          _quiet = _seconds_between(_db_now, _upd_naive)
+        except Exception:
+          pass
+        if _quiet is not None and _quiet > 180.0:
+          exit_reason = "walk_parked"
+          print(json.dumps({"event": "walk_parked", "quiet_seconds": _quiet}), flush=True)
+          break
 
       # Stall: an active (non-paused, non-terminal) planning run whose freshest
       # signal (heartbeat / run update / draft update) is older than the threshold.
@@ -642,6 +687,8 @@ def main(argv: list[str]) -> int:
     if validation_errors:
       return 5
 
+  if exit_reason == "walk_parked":
+    return 9
   if exit_reason == "stall":
     return 6
   if exit_reason == "max_wait":
