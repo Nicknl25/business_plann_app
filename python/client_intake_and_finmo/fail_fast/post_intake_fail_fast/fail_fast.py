@@ -1010,6 +1010,77 @@ def assert_post_intake_horizon_integrity(
   )
 
 
+def assert_post_intake_stub_scale_sane(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  stage: str,
+  contract_name: str = "unified_convergence_decision",
+) -> None:
+  """The stub (Q0 intake snapshot) must be on the same scale as the live
+  quarters. Every solver stage skips index 0 and every validator excludes
+  it ("intake fact, never validated"), so a driver captured on a phantom
+  basis survives ONLY there - the Bridgeburn workbook shipped a stub at 4x
+  every live quarter. Checked on the MODEL INPUT revenue driver rows
+  because that is what the workbook recomputes in-cell (=Cap*Price*Util
+  for every column including the stub); finmo quarter_rows[0] can be zero
+  at gate time while the sheet still renders the inflated product. A stub
+  is a quarter of the same business: it may differ from Q1 (the executive
+  legitimately reshapes the ramp) but can never dwarf every quarter -
+  basis-class errors are 4x/12x/52x, legitimate reshaping gaps are not."""
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  revenue_rows = [
+    row for row in ((payload.get("sections") or {}).get("revenue") or [])
+    if isinstance(row, dict)
+  ]
+  drivers: Dict[Tuple[str, str], Dict[str, List[Any]]] = {}
+  for row in revenue_rows:
+    driver = str(row.get("driver") or "").strip()
+    if driver not in ("Capacity", "Unit Price", "Utilization"):
+      continue
+    key = (str(row.get("lob") or "").strip(), str(row.get("product") or "").strip())
+    values = row.get("values") if isinstance(row.get("values"), list) else []
+    drivers.setdefault(key, {})[driver] = values
+
+  def _period_revenue(index: int) -> float:
+    total = 0.0
+    for triplet in drivers.values():
+      parts = []
+      for name in ("Capacity", "Unit Price", "Utilization"):
+        values = triplet.get(name) or []
+        parts.append(_safe_float(values[index]) if index < len(values) else None)
+      if all(part is not None for part in parts):
+        total += max(0.0, parts[0]) * max(0.0, parts[1]) * max(0.0, parts[2])
+    return total
+
+  if not drivers:
+    return
+  period_count = max(
+    (len(values) for triplet in drivers.values() for values in triplet.values()),
+    default=0,
+  )
+  if period_count < 2:
+    return
+  stub_revenue = _period_revenue(0)
+  # Q1 is the comparison neighbor: the stub is the intake-state quarter and
+  # Q1 is the plan's first quarter of the same business. Later quarters
+  # carry years of compounded ramp and would loosen the ratio until a 4x
+  # basis error slips under it (it did: 704,340 vs a grown Q20).
+  first_live_revenue = _period_revenue(1)
+  if first_live_revenue > 0.0 and stub_revenue > 3.0 * first_live_revenue:
+    post_intake_fail_fast_raise(
+      "post_intake_stub_scale_invalid",
+      "Stub Q0 revenue dwarfs every live quarter - a raw/phantom driver "
+      "basis survived into the ungoverned stub column.",
+      stage=stage,
+      details={
+        "contract_name": contract_name,
+        "stub_revenue": stub_revenue,
+        "first_live_quarter_revenue": first_live_revenue,
+        "ratio": (stub_revenue / first_live_revenue) if first_live_revenue else None,
+      },
+    )
+
+
 def assert_post_intake_mapping_formula_contract_integrity(
   *,
   stage: str,
@@ -1958,6 +2029,11 @@ def assert_post_intake_global_invariants(
   assert_post_intake_horizon_integrity(
     model_input_json=model_input_json,
     finmo_json=finmo_json,
+    stage=stage,
+    contract_name=contract_name,
+  )
+  assert_post_intake_stub_scale_sane(
+    model_input_json=model_input_json,
     stage=stage,
     contract_name=contract_name,
   )

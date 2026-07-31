@@ -3090,6 +3090,29 @@ def _build_model_input_overlay(
   sections = next_payload.setdefault("sections", {})
   revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
   ops_catalog = _ops_revenue_catalog(ops_json or {})
+  # The stub (Q0 intake snapshot) must be expressed at QUARTER scale like
+  # Q1-Q20. The raw ops capacities are quarter-shaped but pre-reconciliation:
+  # when a basis-misread driver was force-fit to the client's stated revenue,
+  # the raw values stay ~Nx too large and survive only in the stub (no solver
+  # stage writes index 0; every validator excludes it) - the Bridgeburn
+  # workbook shipped a stub at 4x every live quarter. The client's stated
+  # annual revenue is the one quarterly-scale anchor that survives the
+  # year1 rebuild/revert cycle, so scale stub CAPACITY to that run-rate
+  # (price and utilization are kept; capacity absorbs the scale, mirroring
+  # the intake-side reconciliation). No stated revenue (pre-revenue clients)
+  # -> factor stays 1.0 and behavior is unchanged.
+  stub_scale_factor = 1.0
+  stated_annual_revenue = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
+  if stated_annual_revenue > 0.0:
+    raw_stub_revenue = 0.0
+    for detail in ops_catalog.values():
+      raw_stub_revenue += (
+        max(0.0, _safe_float(detail.get("capacity")) or 0.0)
+        * max(0.0, _safe_float(detail.get("unit_price")) or 0.0)
+        * max(0.0, _safe_ratio(detail.get("utilization")) or 0.0)
+      )
+    if raw_stub_revenue > 0.0:
+      stub_scale_factor = (stated_annual_revenue / 4.0) / raw_stub_revenue
   quarter_child_maps = [
     _child_driver_map_for_quarter({"lobs": (slot.get("revenue_products") or []) if isinstance(slot, dict) else []})
     if seed_slots else
@@ -3122,7 +3145,9 @@ def _build_model_input_overlay(
       if isinstance(resolved_identity, dict) else {}
     )
     if driver == "Capacity":
-      intake_stub_value = round(_safe_float(baseline_driver_map.get("capacity")) or base_stub_value or 0.0, 6)
+      intake_stub_value = round(
+        (_safe_float(baseline_driver_map.get("capacity")) or base_stub_value or 0.0)
+        * stub_scale_factor, 6)
     elif driver == "Unit Price":
       intake_stub_value = round(_safe_float(baseline_driver_map.get("unit_price")) or base_stub_value or 0.0, 6)
     elif driver == "Utilization":
