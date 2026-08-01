@@ -4878,11 +4878,14 @@ def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
     candidate = str(pending.get("candidate_basis") or "").strip()
     per_asked = {"weekly": "per week", "monthly": "per month", "annual": "per year"}.get(asked, asked)
     per_candidate = {"weekly": "per week", "monthly": "per month", "annual": "per year"}.get(candidate, candidate)
+    # Model A: the app does the arithmetic and PROPOSES its inference for
+    # the client to confirm - it never asks the client to compute or
+    # restate in a format. The router interprets whatever they answer.
     return (
-      f"Quick check before building on that: taken {per_asked}, the "
-      f"{unit} pricing implies about {_format_currency(implied)} a year, but "
-      f"you said revenue is about {_format_currency(revenue)}. Is the "
-      f"{_format_currency(stated)} {per_asked}, or {per_candidate}?"
+      f"Taken {per_asked}, the {unit} figure would put revenue around "
+      f"{_format_currency(implied)} a year, but you mentioned about "
+      f"{_format_currency(revenue)} - did you mean {_format_currency(stated)} "
+      f"{per_candidate} rather than {per_asked}?"
     )
   if kind == "stage_amount":
     stated = float(pending.get("stated_value") or 0.0)
@@ -4895,10 +4898,17 @@ def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
 
 def _build_basis_clarify_message(pending: Dict[str, Any], *, user_message: str = "") -> str:
   closed = _basis_clarify_closed_question(pending)
+  # Model A: the app SHOWS ITS MATH. The phrasing may be natural but every
+  # dollar figure in the closed question must survive - the client confirms
+  # the app's arithmetic, so they have to see it.
+  task = (
+    f"{closed} (Keep every dollar figure from this question in your phrasing - "
+    f"the client needs to see the arithmetic they are confirming.)"
+  )
   try:
     from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
 
-    return naturalize_recovery(closed_question=closed, user_message=user_message, fallback=closed)
+    return naturalize_recovery(closed_question=task, user_message=user_message, fallback=closed)
   except Exception:
     return closed
 
