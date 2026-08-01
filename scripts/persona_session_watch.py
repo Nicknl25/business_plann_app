@@ -264,6 +264,7 @@ def main(argv) -> int:
       except OSError:
         pass
       stall_count = 0
+      cycle_saw_draft = False
       reattach = _active_recent_draft()
       if reattach:
         _emit(f"re-attaching to active draft {reattach[:8]}")
@@ -288,14 +289,25 @@ def main(argv) -> int:
         stripped = raw.strip()
         if '"stall_detected"' in stripped:
           stall_count += 1
+        if '"draft_detected"' in stripped or '"planning_run_detected"' in stripped:
+          cycle_saw_draft = True
         compacted = _compact(stripped)
-        if compacted:
+        if compacted and (cycle_saw_draft or "recycled" not in compacted and "watch ended" not in compacted):
           _emit(compacted)
         if not _stack_up(args.backend_port, args.frontend_port):
           proc.terminate()
           break
       proc.wait(timeout=30)
-      _finalize_vitals(stall_count)
+      if cycle_saw_draft or reattach:
+        _finalize_vitals(stall_count)
+      else:
+        # Idle cycle: nothing was observed, so say nothing. Every stdout
+        # line becomes a model-invoking notification for the observing
+        # session - silence when idle is what keeps an armed watcher free.
+        try:
+          RESULT_PATH.unlink()
+        except OSError:
+          pass
       time.sleep(2.0)
   finally:
     tail_stop.set()
