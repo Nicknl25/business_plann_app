@@ -560,7 +560,17 @@ def main(argv: list[str]) -> int:
           _parse_dt(row.get("updated_at")) if isinstance(row, dict) else None,
         ]
         freshest = max((sig for sig in signals if sig is not None), default=None)
-        age_seconds = _seconds_between(now, freshest)
+        # Heartbeats are DB-local; comparing them against UTC now produced a
+        # phantom 4-hour "stall" 60s into a healthy run (Brightwater,
+        # 79c894ad) that ended observation mid-run. Same clock-skew class as
+        # the draft-watermark bug; compare DB-local against DB-local.
+        try:
+          _stall_now = datetime.strptime(
+            _db_now_sql(get_mysql_connection), "%Y-%m-%d %H:%M:%S"
+          ).replace(tzinfo=timezone.utc)
+        except Exception:
+          _stall_now = now
+        age_seconds = _seconds_between(_stall_now, freshest)
         if age_seconds is not None and age_seconds > args.stall_seconds:
           if not stall_reported:
             stall_reported = True
