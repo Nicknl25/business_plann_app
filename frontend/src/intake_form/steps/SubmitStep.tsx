@@ -205,6 +205,13 @@ export default function SubmitStep({
         </Button>
       </motion.div>
 
+      {!consultDone && !submitSuccess ? (
+        <div className="text-[11px] text-slate-500">
+          Submit unlocks when the intake conversation is complete — if you just made a
+          change, it re-opens for a moment while the update is confirmed.
+        </div>
+      ) : null}
+
       {submitError ? (
         <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
           {submitError}

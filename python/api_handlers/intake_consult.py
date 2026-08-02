@@ -11296,6 +11296,91 @@ def post_intake_consult_handler(*, app, request):
         )
         active_focus_out = patch_focus or ("financials" if focus == "done" else focus)
 
+        # AUTO-RE-CLOSE (CW-006 standstill): a post-completion correction used
+        # to reopen the draft, acknowledge twice, and then WAIT - the draft sat
+        # in_progress with Submit silently disabled until the client happened
+        # to say something that drove another turn through completion. The app
+        # must know when it is done, never depend on the client to break the
+        # stall. Every section is still confirmed, the correction is already
+        # applied - re-run the completion gate NOW, in this same turn: pass ->
+        # re-closed with a specific naturalized acknowledgment and Submit live;
+        # fail -> the walk engages honestly on the corrected numbers.
+        if all((ops_confirmed, market_confirmed, people_confirmed, financials_confirmed)):
+          ack_fallback = str(router_msg or "").strip() or "Got it - updated."
+          try:
+            from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+            ack_text = naturalize_recovery(
+              closed_question=(
+                "Acknowledge, in ONE warm specific sentence, exactly this change "
+                f"the client just made (keep the numbers): {ack_fallback}"
+              ),
+              user_message=message,
+              fallback=ack_fallback,
+            )
+          except Exception:
+            ack_text = ack_fallback
+          shared_live = dict(shared_context or {})
+          shared_live["operating_model"] = ops_json
+          shared_live["target_market"] = market_json
+          shared_live["people_capability"] = people_json
+          shared_live["financials"] = financials_json
+          try:
+            financials_year1_json = assemble_financials_year1(shared_live, financials_year1_json)
+          except Exception:
+            pass
+          _coh_turn, financials_json, _coh_suffix = _coherence_gate(
+            ops_json=ops_json,
+            people_json=people_json,
+            market_json=market_json,
+            marketing_model_json=_refresh_marketing_model(),
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            user_text=message,
+          )
+          if _coh_turn is not None:
+            blocked_message = (
+              f"{ack_text}\n\n{str(_coh_turn.get('assistant_message') or '').strip()}"
+            ).strip()
+            return _coherence_blocked_response(
+              conn=conn,
+              draft_id=draft_id,
+              client_id=client_id,
+              user_msg=user_msg,
+              assistant_message=blocked_message,
+              financials_json=financials_json,
+              business_facts=business_facts,
+            )
+          assistant_final = (
+            f"{ack_text}\n\nYou're all set - the intake is complete again and you "
+            "can submit whenever you're ready."
+          )
+          if _coh_suffix:
+            assistant_final = (assistant_final + _coh_suffix).strip()
+          _persist_intake_completion(
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+            ops_value=ops_json,
+            market_value=market_json,
+            people_value=people_json,
+            financials_value=financials_json,
+            financials_year1_value=financials_year1_json,
+            marketing_value=_refresh_marketing_model(),
+            confirmations_value={"financials": True},
+            flat_fields_value=_finalize_flag_field("financials", True),
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": "done",
+              "awaiting_confirmation": False,
+              "done": True,
+              "action": "intake_complete",
+              "assistant_message": assistant_final,
+            }
+          )
+
       # For edit patches, the intent router is used only to interpret intent and
       # produce the deterministic patch. The domain consultant generates the next
       # conversational turn. Showing both messages causes duplicated acknowledgements

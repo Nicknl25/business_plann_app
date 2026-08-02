@@ -76,6 +76,7 @@ export default function CoherencePanel({
   }
 
   if (status === "converged") {
+    const thresholds = (state.eval?.thresholds || {}) as Record<string, unknown>;
     return (
       <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-xs text-emerald-200/90">
         <div className="font-semibold text-emerald-300">
@@ -85,6 +86,15 @@ export default function CoherencePanel({
           A typical mature quarter keeps about {money(q11.ebitda)} ({pct(q11.ebitda_margin)} of
           revenue), against the range judged believable for this kind of business. The full
           build shapes the quarter-by-quarter path and runs its own final checks.
+        </div>
+        {/* Anchor disclosure: the stress figure is anchored on STATED revenue,
+            so driver-level corrections legitimately may not move it while the
+            judged floor/ceiling do (CW-006 read that stillness as a freeze).
+            Showing the anchor and the band makes each re-evaluation visible. */}
+        <div className="mt-1 text-[11px] text-emerald-200/60 tabular-nums">
+          Anchored on the annual revenue you stated; believable band{" "}
+          {pct(thresholds.band_low)}–{pct(thresholds.band_high)} judged for your kind of
+          business.
         </div>
       </div>
     );

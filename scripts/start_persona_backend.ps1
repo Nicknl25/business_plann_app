@@ -11,11 +11,32 @@
 # and run the Sunny_V3 canary before any batch.
 
 param(
-  [int]$Port = 5050
+  [int]$Port = 5050,
+  [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
+
+# NO HOT-PATCHING: never restart while a persona intake is live (a restart
+# mid-run kills the browser session's turn and strands the draft - the
+# 2026-08-02 restart froze a run at ops and spawned phantom drafts). A
+# LIVE intake = in_progress draft touched in the last 10 minutes with no
+# terminal planning run. Use -Force only when you have decided the run is
+# expendable.
+if (-not $Force) {
+  $python0 = Join-Path $repo ".venv\Scripts\python.exe"
+  $probeScript = Join-Path $repo "scripts\_active_intake_probe.py"
+  $active = ""
+  if ((Test-Path $python0) -and (Test-Path $probeScript)) {
+    try { $active = (& $python0 $probeScript 2>$null | Select-Object -Last 1) } catch { $active = "" }
+  }
+  if ($active) {
+    Write-Host "REFUSED: persona intake $($active.Substring(0,8)) is live right now."
+    Write-Host "Restarting would kill its turn mid-flight. Wait for the run boundary, or re-run with -Force."
+    exit 2
+  }
+}
 
 $launcher = Join-Path $repo "_run_server_noreload.py"
 if (-not (Test-Path $launcher)) {
