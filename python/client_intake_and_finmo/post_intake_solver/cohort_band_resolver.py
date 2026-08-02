@@ -293,9 +293,16 @@ def _confidence_tier_for_cohort_size(n: int) -> str:
     return "high"
   if n >= _TIER_MEDIUM_MIN_N:
     return "medium"
-  if n >= _TIER_LOW_MIN_N:
-    return "low"
-  return "fallback"
+  # Below the low threshold the band is still COHORT-DERIVED (the true
+  # cohort_size rides the row for consumers to weigh) - it is a
+  # low-confidence band, in the contract's shared 4-value vocabulary
+  # (high/medium/low/generic_default). The old "fallback" tier predated
+  # that vocabulary and was never in it: the first tiny-cohort business
+  # (Ironwood HVAC, R&D n=5) had its rows REJECTED by the read contract,
+  # which erased all five sections in the mirror and failed the run.
+  # Writer and reader must share one vocabulary - fail at write time or
+  # emit a legal value, never a word the reader is contracted to refuse.
+  return "low"
 
 
 def compute_band_from_rows(

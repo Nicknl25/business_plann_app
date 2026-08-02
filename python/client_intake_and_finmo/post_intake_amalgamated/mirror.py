@@ -506,6 +506,7 @@ def build_mirror(
   with no downstream consumer).
   """
   bands_payload: Dict[str, Any] = {section: {} for section in SECTIONS}
+  _bands_load_error: Optional[str] = None
   if load_bands and conn is not None and draft_id and planning_run_id:
     try:
       from client_intake_and_finmo.post_intake_solver.cohort_bands_table import (  # type: ignore
@@ -516,6 +517,12 @@ def build_mirror(
           conn, draft_id=draft_id, planning_run_id=planning_run_id, section=section
         )
     except Exception as _bands_exc:
+      # The fail-fast below must name the REAL cause: one section's read
+      # exception used to surface as "bands unresolved across all 5
+      # sections", which reads as populator-never-ran when rows exist
+      # (Ironwood: a contract-vocabulary rejection on one row erased
+      # every section's diagnosis).
+      _bands_load_error = f"{type(_bands_exc).__name__}: {str(_bands_exc)[:300]}"
       # C3 — record the swallowed exception so the silent fallback to
       # empty bands carries its cause forward. The downstream
       # FAIL_MIRROR_BANDS_UNRESOLVED guard catches the consequence
@@ -628,8 +635,12 @@ def build_mirror(
         phase=_PC.MIRROR_BUILD,
         code=FailFastCode.FAIL_MIRROR_BANDS_UNRESOLVED,
         detail=(
-          f"bands unresolved across all {len(SECTIONS)} sections; "
-          f"cohort_bands populator must run before mirror_build"
+          f"bands load failed: {_bands_load_error}"
+          if _bands_load_error
+          else (
+            f"bands unresolved across all {len(SECTIONS)} sections; "
+            f"cohort_bands populator must run before mirror_build"
+          )
         ),
         where="post_intake_amalgamated.mirror.build_mirror",
       )
