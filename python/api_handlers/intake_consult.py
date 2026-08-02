@@ -4186,7 +4186,13 @@ def _sync_marketing_field_family(
   percent_total = _safe_float(next_financials.get("marketing_percent_of_revenue"))
   if total is None and percent_total is not None and revenue is not None:
     total = revenue * percent_total
-  if percent_total is None and total is not None and revenue and revenue > 0:
+  # The TOTAL is the client-stated fact; the percent is DERIVED - always
+  # recompute it (mirroring the cogs family). Keeping a co-present percent
+  # untouched let a router-emitted monthly-numerator ratio survive next to
+  # a correctly annualized total (CW-007: $42,000/yr stored with
+  # percent=0.004655 = monthly/annual, exactly 1/12 of the true 0.0559 -
+  # silent, and anything reading the ratio saw ~$3,500/yr).
+  if total is not None and revenue and revenue > 0:
     percent_total = total / revenue
 
   if total is None:
@@ -4730,12 +4736,20 @@ def _build_financials_controller_context(stage_name: Optional[str], *, last_assi
     # An app-authored basis question is in flight: the client's reply
     # answers THAT, whatever words they use. Declares the semantics for
     # the router; nothing here keys on phrasing.
+    _kind = str(pending.get("kind") or "")
+    if _kind == "percent_vs_dollar":
+      allowed = ["percent", "dollars", "as_stated"]
+    elif _kind == "driver_price_scope":
+      allowed = ["weekly", "monthly", "annual", "as_stated"]
+    else:
+      allowed = ["weekly", "monthly", "annual", "as_stated"]
     frame["pending_basis_clarify"] = {
       "question": _basis_clarify_closed_question(pending),
+      "kind": _kind,
       "asked_basis": str(pending.get("asked_basis") or ""),
       "candidate_basis": str(pending.get("candidate_basis") or ""),
       "stated_value": pending.get("stated_value"),
-      "allowed_bases": ["weekly", "monthly", "annual", "as_stated"],
+      "allowed_bases": allowed,
     }
   return frame
 
@@ -4794,14 +4808,85 @@ def _detect_revenue_driver_basis_conflict(
   if stated <= 0.0 or implied <= 0.0:
     return None
   ratio = implied / stated
-  if 0.5 <= ratio <= 2.0:
-    return None  # ordinary estimation noise; the silent rescale handles it
+  if 0.87 <= ratio <= 1.15:
+    return None  # agree closely; the silent rescale handles the residue
+  if 0.5 <= ratio < 0.87:
+    return None  # mildly under-implied: not a basis fingerprint shape
   match = None
   for asked, meant, fingerprint in _BASIS_FINGERPRINTS:
     if abs(ratio - fingerprint) / fingerprint <= _BASIS_FINGERPRINT_TOLERANCE:
       match = (asked, meant)
       break
   if match is None:
+    # PER-PRODUCT probe (CW-007 #31): one product misread by a period
+    # fingerprint while the others are fine blends the company ratio away
+    # from any fingerprint (Bluebird's annual membership stored at monthly
+    # cadence inflated ONE line x12). If rescaling a single product by one
+    # fingerprint reconciles implied to stated (within 15%), that product
+    # is the suspect.
+    if ratio <= 1.15:
+      return None
+    for lob in (financials_year1_json or {}).get("lobs") or []:
+      if not isinstance(lob, dict):
+        continue
+      for product in lob.get("products") or []:
+        if not isinstance(product, dict):
+          continue
+        prod_rev = _safe_float(product.get("revenue_total_year1")) or 0.0
+        if prod_rev <= 0 or _safe_float(product.get("unit_price")) is None:
+          continue
+        for asked, meant, fingerprint in _BASIS_FINGERPRINTS:
+          if fingerprint <= 1.0:
+            continue
+          if str(product.get("unit_cadence") or "").strip().lower() != asked:
+            continue
+          adjusted = implied - prod_rev + (prod_rev / fingerprint)
+          if adjusted > 0 and abs(adjusted / stated - 1.0) <= 0.15:
+            return {
+              "kind": "driver_price",
+              "lob_name": str(lob.get("lob_name") or "").strip(),
+              "product_name": str(product.get("product_name") or "").strip(),
+              "unit_name": str(product.get("unit_name") or "").strip(),
+              "stated_value": float(_safe_float(product.get("unit_price")) or 0.0),
+              "asked_basis": asked,
+              "candidate_basis": meant,
+              "implied_revenue": float(implied),
+              "stated_revenue": float(stated),
+              "ratio": float(ratio),
+            }
+    # SCOPE probe (CW-007 #28): no period fingerprint fits company-wide or
+    # per-product, but ONE product carries most of the excess - the stated
+    # figure is likely a per-ENGAGEMENT total recorded as a per-period rate
+    # (Brightwater's "$9,500 a typical matter" -> $9,500/matter/month,
+    # ratio 1.97, under every period fingerprint). Propose-confirm; the
+    # client restates the per-period amount or confirms as stated.
+    if ratio >= 1.5:
+      excess = implied - stated
+      dominant = None
+      for lob in (financials_year1_json or {}).get("lobs") or []:
+        if not isinstance(lob, dict):
+          continue
+        for product in lob.get("products") or []:
+          if not isinstance(product, dict):
+            continue
+          prod_rev = _safe_float(product.get("revenue_total_year1")) or 0.0
+          if prod_rev >= 0.6 * excess and _safe_float(product.get("unit_price")) is not None:
+            if dominant is None or prod_rev > (_safe_float(dominant[1].get("revenue_total_year1")) or 0.0):
+              dominant = (lob, product)
+      if dominant is not None:
+        lob, product = dominant
+        return {
+          "kind": "driver_price_scope",
+          "lob_name": str(lob.get("lob_name") or "").strip(),
+          "product_name": str(product.get("product_name") or "").strip(),
+          "unit_name": str(product.get("unit_name") or "").strip(),
+          "stated_value": float(_safe_float(product.get("unit_price")) or 0.0),
+          "asked_basis": str(product.get("unit_cadence") or "").strip().lower() or "monthly",
+          "candidate_basis": "per_engagement_total",
+          "implied_revenue": float(implied),
+          "stated_revenue": float(stated),
+          "ratio": float(ratio),
+        }
     return None
   # The misread lives in ONE driver; name the dominant revenue contributor
   # whose cadence matches the fingerprint's asked basis.
@@ -4864,6 +4949,42 @@ def _detect_stage_amount_basis_conflict(
   }
 
 
+def _detect_percent_vs_dollar_conflict(
+  *,
+  field_name: str,
+  percent_value: float,
+  financials_json: Dict[str, Any],
+  user_message: str,
+) -> Optional[Dict[str, Any]]:
+  """A bare figure after a percent anchor is ambiguous: "about fourteen"
+  can mean 14% of revenue (~$103k) or about $14,000 (CW-007 #32). Fires
+  ONLY when the client marked neither unit AND both readings are plausible
+  AND they differ materially - a marked answer ("14%", "$14k") or an
+  implausible alternative reading never asks."""
+  msg = str(user_message or "").lower()
+  if "%" in msg or "percent" in msg or "$" in msg or "dollar" in msg:
+    return None
+  revenue = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
+  if revenue <= 0 or percent_value <= 0.005 or percent_value > 1.0:
+    return None
+  raw_number = percent_value * 100.0  # "fourteen" -> 0.14 -> 14
+  percent_reading = percent_value * revenue
+  dollar_reading = raw_number * 1000.0  # the natural founder shorthand
+  if dollar_reading < 0.002 * revenue or dollar_reading > 0.5 * revenue:
+    return None  # the dollar reading is implausible; percent stands
+  bigger, smaller = max(percent_reading, dollar_reading), min(percent_reading, dollar_reading)
+  if smaller <= 0 or bigger / smaller < 3.0:
+    return None  # readings agree closely enough that it doesn't matter
+  return {
+    "kind": "percent_vs_dollar",
+    "field": field_name,
+    "stated_value": float(percent_value),
+    "percent_reading_dollars": float(percent_reading),
+    "dollar_reading": float(dollar_reading),
+    "stated_revenue": float(revenue),
+  }
+
+
 def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
   """Deterministic, frame-declared statement of WHAT must be asked. The
   natural phrasing (HOW) comes from the recovery-phrasing helper; this text
@@ -4886,6 +5007,29 @@ def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
       f"{_format_currency(implied)} a year, but you mentioned about "
       f"{_format_currency(revenue)} - did you mean {_format_currency(stated)} "
       f"{per_candidate} rather than {per_asked}?"
+    )
+  if kind == "driver_price_scope":
+    unit = str(pending.get("unit_name") or pending.get("product_name") or "unit").strip()
+    stated = float(pending.get("stated_value") or 0.0)
+    implied = float(pending.get("implied_revenue") or 0.0)
+    revenue = float(pending.get("stated_revenue") or 0.0)
+    asked = str(pending.get("asked_basis") or "monthly").strip()
+    per_asked = {"weekly": "per week", "monthly": "per month", "annual": "per year"}.get(asked, asked)
+    return (
+      f"Taken {per_asked}, the {unit} figure would put revenue around "
+      f"{_format_currency(implied)} a year, but you mentioned about "
+      f"{_format_currency(revenue)} - is the {_format_currency(stated)} the total "
+      f"for a typical {unit} rather than {per_asked}? If so, roughly what does a "
+      f"typical {unit} bring in {per_asked}?"
+    )
+  if kind == "percent_vs_dollar":
+    raw = float(pending.get("stated_value") or 0.0)
+    as_percent = float(pending.get("percent_reading_dollars") or 0.0)
+    as_dollars = float(pending.get("dollar_reading") or 0.0)
+    return (
+      f"Quick check on that figure: read as a percent of revenue it comes to about "
+      f"{_format_currency(as_percent)} a year, but you might have meant about "
+      f"{_format_currency(as_dollars)} - which did you mean?"
     )
   if kind == "stage_amount":
     stated = float(pending.get("stated_value") or 0.0)
@@ -4941,11 +5085,40 @@ def _apply_basis_clarify_resolution(
     meant in ("as_stated", "keep", "keep_as_stated")
     or meant == str(pending.get("asked_basis") or "")
   )
+  if kind == "percent_vs_dollar":
+    field_name = str(pending.get("field") or "").strip()
+    if meant in ("dollars", "dollar", "amount") or (restated is not None and meant not in ("percent",)):
+      dollars = restated if restated is not None else _safe_float(pending.get("dollar_reading"))
+      revenue = _safe_float(pending.get("stated_revenue")) or 0.0
+      if field_name and dollars is not None:
+        total_field = field_name.replace("_percent_of_revenue", "_total_year1")
+        next_financials[total_field] = float(dollars)
+        if revenue > 0:
+          next_financials[field_name] = float(dollars) / revenue
+        if total_field == "marketing_total_year1":
+          next_financials = _sync_marketing_field_family(
+            financials_json=next_financials,
+            financials_year1_json=next_year1,
+            marketing_model_json={},
+          )
+        acknowledgement = (
+          f"Thanks — {_format_currency(float(dollars))} a year it is."
+        )
+    else:
+      # percent (or as-stated): the recorded ratio stands.
+      acknowledgement = "Got it — I'll read that as a percent of revenue."
+    next_financials.pop("_basis_clarify_pending", None)
+    next_financials.pop("_basis_clarify_resolution", None)
+    return next_financials, next_year1, acknowledgement
   if confirmed_original and restated is None:
     # The client confirmed the original figure and basis. The conflict (if
     # any) stands as the client's own account; reconciliation resumes.
     acknowledgement = "Got it — I'll keep that figure exactly as you gave it."
-  elif kind == "driver_price" and (meant in _BASIS_PERIODS_PER_YEAR or (confirmed_original and restated is not None)):
+  elif kind in ("driver_price", "driver_price_scope") and (
+    meant in _BASIS_PERIODS_PER_YEAR
+    or (confirmed_original and restated is not None)
+    or (kind == "driver_price_scope" and restated is not None)
+  ):
     if confirmed_original and meant not in _BASIS_PERIODS_PER_YEAR:
       meant = str(pending.get("asked_basis") or "").strip().lower()
     stored_basis = str(pending.get("asked_basis") or "").strip().lower()
@@ -5361,6 +5534,21 @@ def _normalize_financials_router_patch(
       )
       if _pending:
         next_financials["_basis_clarify_pending"] = _pending
+    else:
+      # Bare-percent ambiguity (CW-007 #32): a percent field landed from an
+      # unmarked figure whose dollar reading is also plausible.
+      for _pct_field in ("marketing_percent_of_revenue", "cogs_percent_of_revenue"):
+        _total_twin = _pct_field.replace("_percent_of_revenue", "_total_year1")
+        if _pct_field in touched and _total_twin not in touched and "current_cogs" not in touched:
+          _pending = _detect_percent_vs_dollar_conflict(
+            field_name=_pct_field,
+            percent_value=float(next_financials.get(_pct_field) or 0.0),
+            financials_json=next_financials,
+            user_message=user_message,
+          )
+          if _pending:
+            next_financials["_basis_clarify_pending"] = _pending
+          break
   if "cogs_percent_of_revenue" in touched:
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     percent = float(next_financials.get("cogs_percent_of_revenue") or 0.0)
@@ -5380,6 +5568,16 @@ def _normalize_financials_router_patch(
     next_financials["payroll_total_year1"] = float(next_financials.get("current_payroll") or 0.0)
   if "payroll_total_year1" in touched:
     next_financials["current_payroll"] = float(next_financials.get("payroll_total_year1") or 0.0)
+  # Derived-percent discipline (CW-007 class): when a patch carries BOTH a
+  # total and its percent, the total wins and the percent is re-derived -
+  # the GPT router can convert the total's basis correctly while computing
+  # the percent from the client's raw (differently-based) figure.
+  if "marketing_total_year1" in touched and "marketing_percent_of_revenue" in touched:
+    revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
+    if revenue_year1 and revenue_year1 > 0:
+      next_financials["marketing_percent_of_revenue"] = (
+        float(next_financials.get("marketing_total_year1") or 0.0) / revenue_year1
+      )
   if "marketing_total_year1" in touched or "marketing_percent_of_revenue" in touched:
     next_financials = _sync_marketing_field_family(
       financials_json=next_financials,
@@ -10472,6 +10670,12 @@ def post_intake_consult_handler(*, app, request):
         }
       )
 
+    # Corrections to PROPOSER-GENERATED content (the competitive-advantage
+    # hypothesis, milestone proposals) must be acknowledged in the moment -
+    # the section consultant's follow-up never acks them, so suppressing the
+    # router ack here made the app absorb the client's correction silently
+    # and move on (CW-005/CW-007 deaf-to-client class).
+    proposer_content_correction = False
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
@@ -10480,6 +10684,7 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(competitive_intent_override.get("patch"), dict)
         else None
       )
+      proposer_content_correction = action == "edit_patch"
     elif milestone_intent_override:
       action = str(milestone_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(milestone_intent_override.get("router_msg") or "").strip())
@@ -10488,6 +10693,7 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(milestone_intent_override.get("patch"), dict)
         else None
       )
+      proposer_content_correction = action == "edit_patch"
     elif str(focus).strip().lower() == "ops" and not restatement_locked_prior:
       action = "continue_chat"
       router_msg = ""
@@ -11325,6 +11531,38 @@ def post_intake_consult_handler(*, app, request):
           shared_live["target_market"] = market_json
           shared_live["people_capability"] = people_json
           shared_live["financials"] = financials_json
+          # RECONCILIATION SEMANTICS (CW-007): a POST-CONVERGENCE driver
+          # correction is forward-looking information ("raising the price
+          # next week"), not a restatement of the past - it must move the
+          # revenue expectation, not be silently absorbed by a capacity
+          # crush that pins the total to the old stated figure (which made
+          # the readback repeat identical numbers after a price change).
+          # Propagate the correction's implied-revenue delta into stated
+          # revenue: factor = implied(new drivers) / implied(old drivers),
+          # both computed from RAW assembles. Basis-FIX corrections (the
+          # clarifier path) still reconcile drivers TO stated revenue -
+          # there the stated number was right and the driver was misread.
+          revenue_propagated = None
+          try:
+            pre_draft = get_draft(conn, draft_id=str(draft_id).strip())
+            pre_ops = _parse_json_dict(pre_draft.get("operating_model_json"))
+            pre_shared = dict(shared_live)
+            pre_shared["operating_model"] = pre_ops
+            pre_implied = _safe_float(
+              (assemble_financials_year1(pre_shared, None) or {}).get("company_revenue_total_year1")
+            )
+            post_implied = _safe_float(
+              (assemble_financials_year1(shared_live, None) or {}).get("company_revenue_total_year1")
+            )
+            stated = _safe_float(financials_json.get("current_revenue"))
+            if pre_implied and post_implied and stated and pre_implied > 0:
+              factor = post_implied / pre_implied
+              if abs(factor - 1.0) > 0.005:
+                financials_json = dict(financials_json)
+                financials_json["current_revenue"] = float(stated * factor)
+                revenue_propagated = financials_json["current_revenue"]
+          except Exception:
+            pass
           try:
             financials_year1_json = assemble_financials_year1(shared_live, financials_year1_json)
           except Exception:
@@ -11351,9 +11589,15 @@ def post_intake_consult_handler(*, app, request):
               financials_json=financials_json,
               business_facts=business_facts,
             )
+          carried_note = ""
+          if revenue_propagated:
+            carried_note = (
+              f" I've carried that through your numbers - annual revenue now sits at "
+              f"about {_format_currency(revenue_propagated)}."
+            )
           assistant_final = (
             f"{ack_text}\n\nYou're all set - the intake is complete again and you "
-            "can submit whenever you're ready."
+            f"can submit whenever you're ready.{carried_note}"
           )
           if _coh_suffix:
             assistant_final = (assistant_final + _coh_suffix).strip()
@@ -11388,7 +11632,28 @@ def post_intake_consult_handler(*, app, request):
       #
       # Exception: if the edit re-opens a completed intake into final review, keep the
       # router acknowledgement so the user clearly sees the update before the audit.
-      assistant_text = router_msg if (confirm_question_live or active_focus_out != focus) else ""
+      # Second exception: corrections to proposer-generated content ALWAYS lead
+      # with the acknowledgment, naturalized and specific - the consultant
+      # follow-up never acks these, and silence here is the deaf-to-client bug.
+      assistant_text = (
+        router_msg
+        if (confirm_question_live or active_focus_out != focus or proposer_content_correction)
+        else ""
+      )
+      if proposer_content_correction and assistant_text:
+        try:
+          from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+          assistant_text = naturalize_recovery(
+            closed_question=(
+              "Acknowledge, in ONE warm specific sentence, exactly this correction "
+              f"the client just made to your proposal: {assistant_text}"
+            ),
+            user_message=message,
+            fallback=assistant_text,
+          )
+        except Exception:
+          pass
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()

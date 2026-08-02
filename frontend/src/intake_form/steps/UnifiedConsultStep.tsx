@@ -130,45 +130,6 @@ function normalizeDraftMeta(body: any): DraftMeta {
   };
 }
 
-/**
- * Post-submit plan-build strip: backend truth from the polled draft
- * (planning_status mirrors the run, including failure). The banner said
- * "building your plan" once and could silently go false (CW-006: the run
- * failed while the screen kept the promise) - this strip keeps the claim
- * tied to live state. Failure wording is calm and TRUE: the supervisor
- * reruns failed builds automatically.
- */
-function PlanBuildStrip({ meta }: { meta: DraftMeta | null }) {
-  const status = String(meta?.planningStatus || "").toLowerCase();
-  if (!status || !["running", "pending", "completed", "failed"].includes(status)) {
-    return null;
-  }
-  if (status === "completed") {
-    return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-200/90">
-        Plan build complete - we'll review it and follow up with next steps.
-      </div>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-100/90">
-        The plan build hit a snag on our side. It retries automatically - nothing is
-        needed from you, and we'll follow up either way.
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-100/90">
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
-      </span>
-      Building your plan now...
-    </div>
-  );
-}
-
 export default function UnifiedConsultStep() {
   const form = useFormContext<IntakeValues>();
   const formApiRef = useRef(form);
@@ -1158,8 +1119,6 @@ export default function UnifiedConsultStep() {
           disabled={isSpectating || sending || loading}
           onSend={(text) => void sendMessage(text)}
         />
-
-        <PlanBuildStrip meta={draftMeta} />
 
         {draftMeta &&
         draftMeta.status === "in_progress" &&
