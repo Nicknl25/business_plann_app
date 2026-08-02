@@ -821,8 +821,16 @@ def gate_and_turn(
   """
   state = get_state(financials_json)
 
-  if state.get("status") == _ctl.STATUS_CONVERGED:
-    return None, financials_json, str(state.get("converged_suffix") or "")
+  # NO CONVERGED LATCH (CW-005): convergence used to be a terminal latch
+  # replaying a frozen text snapshot - Brightwater corrected $9,500 ->
+  # $1,900 after converging (via the reopen path) and the banner + readback
+  # kept quoting the pre-correction $209,441/57.9% forever. Convergence is
+  # a VERDICT ABOUT THE CURRENT NUMBERS, not a permanent badge: every
+  # completion attempt re-runs the deterministic evaluation below with the
+  # already-authored stamps (no GPT), so the suffix and panel figures are
+  # always computed from the model as it stands. If a post-convergence
+  # correction makes the numbers fail, the normal walk flow engages -
+  # intake cannot close on a promise the corrected numbers no longer earn.
 
   if state.get("status") == _ctl.STATUS_ROADMAP:
     # Roadmap already delivered — keep the door open without repeating

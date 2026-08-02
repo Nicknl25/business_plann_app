@@ -33,6 +33,21 @@ export function Form<TFieldValues extends FieldValues>({
     <FormProvider {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+        onKeyDown={(event) => {
+          // Enter in a text input must never fire the native form submit:
+          // the real submit goes through the confirm-modal flow, and a
+          // stray Enter used to re-enter the handler and wipe the success
+          // banner. Textareas keep Enter for newlines.
+          const target = event.target as HTMLElement | null;
+          if (
+            event.key === "Enter" &&
+            target &&
+            target.tagName !== "TEXTAREA" &&
+            target.getAttribute("type") !== "submit"
+          ) {
+            event.preventDefault();
+          }
+        }}
         className={cn("space-y-6", className)}
       >
         {children}

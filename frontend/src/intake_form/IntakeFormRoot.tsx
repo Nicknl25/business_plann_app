@@ -23,8 +23,13 @@ function IntakeFormInner() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const { handleInvalid, handleSubmit } = useSubmitIntakeHandlers(form);
-  const { submitLoading, setPlanStarted, spectateDraftId, setSpectateDraftId } =
-    useIntakeFlow();
+  const {
+    submitLoading,
+    setPlanStarted,
+    spectateDraftId,
+    setSpectateDraftId,
+    setSubmitError,
+  } = useIntakeFlow();
   const [clientInfoOpen, setClientInfoOpen] = useState(false);
   const isSpectating = Boolean(spectateDraftId);
 
@@ -52,7 +57,13 @@ function IntakeFormInner() {
 
   async function confirmClientInfoAndSubmit() {
     const ok = await form.trigger(clientInfoFields as any);
-    if (!ok) return;
+    if (!ok) {
+      // Never dead-end silently: the modal stays open and the fields show
+      // their validation messages, but say so explicitly too.
+      setSubmitError("Please fix the highlighted contact fields and try again.");
+      return;
+    }
+    setSubmitError(null);
     setClientInfoOpen(false);
     await form.handleSubmit(
       (values) => handleSubmit(values),

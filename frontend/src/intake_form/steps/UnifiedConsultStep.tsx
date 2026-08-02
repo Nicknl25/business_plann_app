@@ -143,6 +143,7 @@ export default function UnifiedConsultStep() {
     sharedContext,
     sharedContextError,
     setConsultDone,
+    draftMutation,
   } = useIntakeFlow();
   // Spectator mode: watch an existing draft (e.g. a dual-agent runner conversation)
   // read-only. This tab must never create a session, POST a message, or write the
@@ -578,13 +579,17 @@ export default function UnifiedConsultStep() {
     };
   }, [isSpectating, planStarted]);
 
-  // Spectator live-follow: poll the watched draft every 2s while the tab is
-  // visible so the conversation advances on its own. Spectate-only — a normal
-  // client session keeps the existing focus/visibility/send refresh behavior.
+  // Live follow for EVERY tab (CW-005): the screen's only draft reads used
+  // to be mount/send/focus — after the conversation ended there was no event
+  // left, so submit status, the stepper, and the coherence panel all froze
+  // on the last cached snapshot. Poll while visible: spectators every 2s,
+  // client tabs every 5s — and keep polling after completion and submit,
+  // because that is exactly when the backend state moves without the user
+  // sending anything (the post-intake run).
   useEffect(() => {
-    if (!isSpectating) return;
+    if (!planStarted && !isSpectating) return;
 
-    const intervalMs = 2000;
+    const intervalMs = isSpectating ? 2000 : 5000;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       const state = syncEligibilityRef.current;
@@ -592,7 +597,16 @@ export default function UnifiedConsultStep() {
       syncNowRef.current();
     }, intervalMs);
     return () => window.clearInterval(id);
-  }, [isSpectating]);
+  }, [isSpectating, planStarted]);
+
+  // Mutation -> re-read: anything that mutates the draft outside the chat
+  // path (submit is the big one) calls notifyDraftMutation; re-read now.
+  useEffect(() => {
+    if (!draftMutation) return;
+    const state = syncEligibilityRef.current;
+    if (!state.hasDraft) return;
+    syncNowRef.current();
+  }, [draftMutation]);
 
   useEffect(() => {
     scrollToBottom();
@@ -719,6 +733,13 @@ export default function UnifiedConsultStep() {
       }
       setInputValue("");
       await syncNow();
+      // Settle re-read: some backend stamps land a beat after the turn
+      // response (coherence state, run mirrors). One delayed re-read keeps
+      // the panel honest without waiting for the next user action.
+      window.setTimeout(() => {
+        const state = syncEligibilityRef.current;
+        if (state.hasDraft && !state.busy) syncNowRef.current();
+      }, 2500);
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     } catch (err) {
       setDraftError(err instanceof Error ? err.message : String(err));
@@ -752,7 +773,10 @@ export default function UnifiedConsultStep() {
 
   const syncInProgress = Boolean(loading || sending || draftSyncing);
   const syncHasError = Boolean(draftError || sharedContextError);
-  const canReconnect = Boolean((planStarted || isSpectating) && syncHasError && !syncInProgress);
+  // The refresh button is ALWAYS usable (when a draft exists): the old gate
+  // enabled it only on error, which meant silently-stale data could never
+  // be manually refreshed.
+  const canReconnect = Boolean((planStarted || isSpectating) && !syncInProgress);
   const syncLabel = syncInProgress ? "Updating…" : syncHasError ? "Reconnect" : "Up to date";
 
   return (

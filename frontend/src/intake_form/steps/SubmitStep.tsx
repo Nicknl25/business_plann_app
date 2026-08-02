@@ -12,12 +12,19 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
     clientId,
     draftId,
     consultDone,
+    submitLoading,
+    submitSuccess,
     setSubmitLoading,
     setSubmitError,
     setSubmitSuccess,
+    notifyDraftMutation,
   } = useIntakeFlow();
 
   function handleSubmit(values: IntakeValues) {
+    // Re-entry guard BEFORE any state reset: a stray native form submit
+    // (Enter in a text field) used to null the success banner and fire a
+    // duplicate POST. A completed submit is terminal until a new plan.
+    if (submitLoading || submitSuccess) return;
     (async () => {
       setSubmitError(null);
       setSubmitSuccess(null);
@@ -55,19 +62,12 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
           headers: { "Content-Type": "application/json" },
         });
 
-        const contentType = (res.headers && res.headers["content-type"]) || "";
         const body: any = res.data;
 
-        if (!contentType.includes("application/json")) {
-          const text = typeof body === "string" ? body : JSON.stringify(body || "");
-          throw new Error(
-            `Unexpected response from /api/financials: ${res.status} ${res.statusText} ${text.slice(
-              0,
-              120
-            )}`
-          );
-        }
-
+        // Success is decided by the STATUS, never by a header: a proxy
+        // that rewrites content-type must not convert a real 200 into an
+        // on-screen failure (CW-005 face (a) — the client's submit worked
+        // and the app showed nothing).
         if (res.status < 200 || res.status >= 300) {
           if (body && typeof body === "object" && body.errors) {
             const unmapped: string[] = [];
@@ -103,12 +103,28 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
           body && typeof body === "object"
             ? String(body.intake_submission_id || "")
             : "";
+        // Never render an empty reference: fall back client_id -> context
+        // clientId -> intake_submission_id.
         setSubmitSuccess({
-          clientId: returnedClientId || (clientId || ""),
+          clientId: returnedClientId || clientId || intakeSubmissionId || "",
           intakeSubmissionId: intakeSubmissionId || undefined,
         });
 
-        // Clear consult session so a new session starts clean.
+        // Re-read backend state after the mutation: submit kicks off the
+        // post-intake run server-side; the draft status the screen shows
+        // must come from the server, not from the last cached snapshot.
+        notifyDraftMutation("financials");
+
+        // Bring the confirmation into view (the error path already
+        // scrolls; the success path never did).
+        window.setTimeout(() => {
+          document
+            .getElementById("submit-intake-section")
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 60);
+
+        // Clear consult session so a new session starts clean. The submit
+        // confirmation itself is persisted separately by the flow context.
         consultStorage.clear();
       } catch (error) {
         console.error("Error submitting financials:", error);
@@ -198,7 +214,21 @@ export default function SubmitStep({
       {submitSuccess ? (
         <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           Intake submitted successfully. Reference code:{" "}
-          <span className="font-mono">{submitSuccess.clientId}</span>
+          <span className="font-mono">
+            {submitSuccess.clientId || submitSuccess.intakeSubmissionId || "recorded"}
+          </span>
+          {submitSuccess.intakeSubmissionId &&
+          submitSuccess.clientId &&
+          submitSuccess.intakeSubmissionId !== submitSuccess.clientId ? (
+            <>
+              {" "}
+              (submission #{submitSuccess.intakeSubmissionId})
+            </>
+          ) : null}
+          <div className="mt-1 text-emerald-200/70">
+            We&apos;re building your plan now — we&apos;ll review it and follow up with
+            next steps.
+          </div>
         </div>
       ) : null}
     </>

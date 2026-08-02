@@ -166,7 +166,39 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
   const [financialsDone, setFinancialsDone] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState<SubmitSuccess>(null);
+  // The submit confirmation is durable: it survives reloads/remounts via
+  // sessionStorage (CW-005: the banner lived only in ephemeral state and a
+  // real client could submit, lose the confirmation, and never know it
+  // worked). Cleared only when a new plan starts.
+  const [submitSuccess, setSubmitSuccess] = useState<SubmitSuccess>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.sessionStorage.getItem("intake_submit_success");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && parsed.clientId !== undefined
+        ? (parsed as SubmitSuccess)
+        : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (submitSuccess) {
+        window.sessionStorage.setItem(
+          "intake_submit_success",
+          JSON.stringify(submitSuccess)
+        );
+      } else {
+        window.sessionStorage.removeItem("intake_submit_success");
+      }
+    } catch {
+      // ignore
+    }
+  }, [submitSuccess]);
   const [resetCounter, setResetCounter] = useState(0);
   const [draftMutation, setDraftMutation] = useState<IntakeDraftMutation>(null);
   const [sharedContext, setSharedContext] = useState<IntakeSharedContext>(null);
