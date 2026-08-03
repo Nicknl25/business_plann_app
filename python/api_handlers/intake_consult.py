@@ -5556,31 +5556,38 @@ def _normalize_financials_router_patch(
   # when the just-landed answer is implausible against what the client
   # already said. Never re-stamp over an in-flight clarify.
   if not isinstance(next_financials.get("_basis_clarify_pending"), dict):
-    if "current_revenue" in touched:
-      _pending = _detect_revenue_driver_basis_conflict(next_financials, financials_year1_json or {})
-      if _pending:
-        next_financials["_basis_clarify_pending"] = _pending
-    elif stage_name == "marketing" and "marketing_total_year1" in touched:
-      _pending = _detect_stage_amount_basis_conflict(
-        field_name="marketing_total_year1", financials_json=next_financials,
-      )
-      if _pending:
-        next_financials["_basis_clarify_pending"] = _pending
-    else:
-      # Bare-percent ambiguity (CW-007 #32): a percent field landed from an
-      # unmarked figure whose dollar reading is also plausible.
-      for _pct_field in ("marketing_percent_of_revenue", "cogs_percent_of_revenue"):
-        _total_twin = _pct_field.replace("_percent_of_revenue", "_total_year1")
-        if _pct_field in touched and _total_twin not in touched and "current_cogs" not in touched:
-          _pending = _detect_percent_vs_dollar_conflict(
-            field_name=_pct_field,
-            percent_value=float(next_financials.get(_pct_field) or 0.0),
-            financials_json=next_financials,
-            user_message=user_message,
-          )
-          if _pending:
-            next_financials["_basis_clarify_pending"] = _pending
+    # Layer 1: the UNIVERSAL gate - every touched registry field consults
+    # one shared signal (basis_gate.gate_numeric); the old per-site
+    # detector wiring is subsumed as gate internals keyed by field class.
+    try:
+      from client_intake_and_finmo.basis_gate import gate_numeric  # type: ignore
+
+      _gate_detectors = {
+        "revenue_driver": _detect_revenue_driver_basis_conflict,
+        "stage_amount": _detect_stage_amount_basis_conflict,
+        "percent_vs_dollar": _detect_percent_vs_dollar_conflict,
+      }
+      _gate_ctx = {
+        "financials_json": next_financials,
+        "financials_year1_json": financials_year1_json or {},
+      }
+      for _gf in sorted(touched):
+        if _gf.endswith("_percent_of_revenue"):
+          _twin = _gf.replace("_percent_of_revenue", "_total_year1")
+          if _twin in touched or "current_cogs" in touched:
+            continue  # total is authoritative; percent was re-derived
+        _gv = _safe_float(next_financials.get(_gf))
+        if _gv is None:
+          continue
+        _verdict = gate_numeric(
+          field=f"financials.{_gf}", value=float(_gv), stated_basis=None,
+          user_message=user_message, context=_gate_ctx, detectors=_gate_detectors,
+        )
+        if _verdict.get("verdict") == "clarify" and _verdict.get("pending"):
+          next_financials["_basis_clarify_pending"] = _verdict["pending"]
           break
+    except Exception:
+      pass
   if "cogs_percent_of_revenue" in touched:
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     percent = float(next_financials.get("cogs_percent_of_revenue") or 0.0)
@@ -10430,6 +10437,16 @@ def post_intake_consult_handler(*, app, request):
         shared_context_for_router["coherence_controller"] = _coh_frame
       else:
         coherence_round_live = False
+    # Layer 1 (universal gate): an in-flight basis question travels with
+    # ANY focus - the reply answers it wherever the conversation is, so
+    # the router always sees the pending frame.
+    _pending_any_focus = (financials_json or {}).get("_basis_clarify_pending")
+    if isinstance(_pending_any_focus, dict) and _pending_any_focus:
+      shared_context_for_router = dict(shared_context_for_router or {})
+      shared_context_for_router["financials_controller"] = _build_financials_controller_context(
+        None, financials_json=financials_json,
+      )
+
     # Route the user's message through the GPT-only intent router first.
     confirm_override = str(confirm_question or _detect_confirm_question(last_assistant) or "").strip()
     # NOTE: Target Market replies are interpreted directly by the Target Market consultant
@@ -10850,6 +10867,52 @@ def post_intake_consult_handler(*, app, request):
       )
       patch = None
 
+    # Layer 1: resolve an in-flight basis question from ANY focus - the
+    # resolution lands at source via the same applier the financials flow
+    # uses, and the receipt-derived ack confirms only what was written.
+    if (
+      isinstance(_pending_any_focus, dict) and _pending_any_focus
+      and isinstance(patch, dict)
+    ):
+      _res_any = patch.get("financials.basis_clarify_resolution") or patch.get("basis_clarify_resolution")
+      if isinstance(_res_any, dict):
+        _fin_res, _year1_res, _ack_res = _apply_basis_clarify_resolution(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          resolution={
+            "basis": str(_res_any.get("basis") or "").strip().lower(),
+            "amount": _safe_float(_res_any.get("amount")),
+          },
+          pending=_pending_any_focus,
+          financials_json=dict(financials_json or {}),
+          financials_year1_json=dict(financials_year1_json or {}),
+          shared_context=dict(shared_context or {}),
+          business_facts=business_facts,
+        )
+        financials_json, financials_year1_json = _fin_res, _year1_res
+        _res_text = (_ack_res or "Got it.").strip()
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": _res_text}],
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          active_focus=focus,
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "continue",
+            "assistant_message": _res_text,
+          }
+        )
+
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
       patch = _normalize_unscoped_patch(patch, focus=focus)
@@ -11046,6 +11109,33 @@ def post_intake_consult_handler(*, app, request):
           clarify_pending=(financials_json or {}).get("_basis_clarify_pending"),
         )
         _edit_receipt_text = receipt_summary(_edit_receipt)
+        # Layer 1 on the widest path: consult the universal gate for every
+        # financials numeric this edit wrote, whatever the current focus.
+        if not isinstance((financials_json or {}).get("_basis_clarify_pending"), dict):
+          from client_intake_and_finmo.basis_gate import gate_numeric  # type: ignore
+
+          _gate_det = {
+            "revenue_driver": _detect_revenue_driver_basis_conflict,
+            "stage_amount": _detect_stage_amount_basis_conflict,
+            "percent_vs_dollar": _detect_percent_vs_dollar_conflict,
+          }
+          _gate_ctx = {
+            "financials_json": financials_json or {},
+            "financials_year1_json": financials_year1_json or {},
+          }
+          for _wp, _old_v, _new_v in (_edit_receipt.get("written") or []):
+            if not _wp.startswith("financials."):
+              continue
+            _leaf = _wp.split(".", 1)[1]
+            _verd = gate_numeric(
+              field=_wp, value=float(_new_v), stated_basis=None,
+              user_message=str(message or ""), context=_gate_ctx, detectors=_gate_det,
+            )
+            if _verd.get("verdict") == "clarify" and _verd.get("pending"):
+              financials_json = dict(financials_json or {})
+              financials_json["_basis_clarify_pending"] = _verd["pending"]
+              _edit_receipt["clarify"] = _verd["pending"]
+              break
       except Exception:
         _edit_receipt = None
         _edit_receipt_text = ""
@@ -11730,7 +11820,18 @@ def post_intake_consult_handler(*, app, request):
       # is used only for non-numeric content (e.g. the advantage text).
       # Nothing written but numerics requested -> the say-do note, never a
       # confident ack. A pending clarifier owns its own turn upstream.
-      if _edit_receipt is not None and (_edit_receipt.get("written") or _edit_receipt.get("dropped")):
+      if _edit_receipt is not None and _edit_receipt.get("clarify"):
+        # Layer 1 ask-turn on this path: the gate flagged a written value
+        # as ambiguous - the turn becomes the propose-confirm question
+        # (with the receipt of what DID store leading, so nothing said
+        # outruns the writes).
+        _clar_q = _build_basis_clarify_message(
+          _edit_receipt["clarify"], user_message=str(message or "")
+        )
+        assistant_text = (
+          f"Updated: {_edit_receipt_text}.\n\n{_clar_q}" if _edit_receipt_text else _clar_q
+        ).strip()
+      elif _edit_receipt is not None and (_edit_receipt.get("written") or _edit_receipt.get("dropped")):
         if _edit_receipt_text:
           _ack_base = f"Updated: {_edit_receipt_text}."
           try:
