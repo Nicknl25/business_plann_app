@@ -2584,6 +2584,38 @@ def _build_financials_stage_acknowledgement(
   return "Got it."
 
 
+def _receipt_echo_line(before_json: Dict[str, Any], after_json: Dict[str, Any], domain: str) -> str:
+  """Layer 2: deterministic echo of what an apply ACTUALLY changed in one
+  domain - appended to GPT prose so every numeric write is said, from the
+  write-set, never from intent. Empty string when nothing changed."""
+  try:
+    from client_intake_and_finmo.capture_receipt import numeric_receipt, receipt_summary  # type: ignore
+
+    receipt = numeric_receipt(before={domain: before_json or {}}, after={domain: after_json or {}})
+    return receipt_summary(receipt)
+  except Exception:
+    return ""
+
+
+def _build_financials_stage_acknowledgement_first(
+  router_text: Any,
+  *,
+  stage_name: str,
+  financials_json: Dict[str, Any],
+) -> str:
+  """Layer 2 preference order: the acknowledgment BUILT FROM THE APPLIED
+  VALUES wins; the router's free prose is fallback only. Prose is a
+  sibling output of the interpretation call and can quote a figure the
+  whitelist dropped - the applied-values ack cannot, because it reads the
+  post-write state."""
+  code_ack = _build_financials_stage_acknowledgement(
+    stage_name=stage_name, financials_json=financials_json,
+  )
+  if code_ack and code_ack != "Got it.":
+    return code_ack
+  return str(router_text or "").strip() or code_ack
+
+
 def _build_financials_live_turn(
   *,
   conn,
@@ -5925,7 +5957,10 @@ def _run_financials_turn_and_sync(
       report=_patch_report,
     )
     if isinstance(normalized_patch, dict) and normalized_patch:
-      acknowledgement = assistant_message or _build_financials_stage_acknowledgement(
+      # Layer 2: the write-derived acknowledgment (built from the APPLIED
+      # patch) outranks the router's free prose - prose can quote a number
+      # the whitelist dropped; the applied-values ack cannot.
+      acknowledgement = _build_financials_stage_acknowledgement_first(assistant_message,
         stage_name=active_stage,
         financials_json=normalized_patch,
       )
@@ -5966,7 +6001,10 @@ def _run_financials_turn_and_sync(
           user_message=user_message,
         )
         if isinstance(normalized_patch, dict) and normalized_patch:
-          acknowledgement = assistant_message or _build_financials_stage_acknowledgement(
+          # Layer 2: the write-derived acknowledgment (built from the APPLIED
+          # patch) outranks the router's free prose.
+          acknowledgement = _build_financials_stage_acknowledgement_first(
+            assistant_message,
             stage_name=active_stage,
             financials_json=normalized_patch,
           )
@@ -6005,7 +6043,10 @@ def _run_financials_turn_and_sync(
       user_message=user_message,
     )
     if isinstance(normalized_patch, dict) and normalized_patch:
-      acknowledgement = assistant_message or _build_financials_stage_acknowledgement(
+      # Layer 2: the write-derived acknowledgment (built from the APPLIED
+      # patch) outranks the router's free prose - prose can quote a number
+      # the whitelist dropped; the applied-values ack cannot.
+      acknowledgement = _build_financials_stage_acknowledgement_first(assistant_message,
         stage_name=active_stage,
         financials_json=normalized_patch,
       )
@@ -10018,7 +10059,9 @@ def post_intake_consult_handler(*, app, request):
       closeout: Optional[Dict[str, Any]] = None
       if focus == "ops":
         turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
+        _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
         ops_json = _apply_model_ops_patch(ops_json, turn.get("patch") if isinstance(turn, dict) else None)
+        _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
         try:
           shared_context["operating_model"] = ops_json
         except Exception:
@@ -10965,6 +11008,17 @@ def post_intake_consult_handler(*, app, request):
         or any(str(k).strip().lower().startswith("people.") for k in patch.keys())
       )
       baseline_people_json = json.loads(json.dumps(people_json)) if people_json else {}
+      # Layer 2 (write-then-acknowledge): snapshot BEFORE the apply. The
+      # acknowledgment for this turn is assembled from the diff of what
+      # actually landed - never from the router's prose, which is a
+      # sibling output of the same GPT call and can claim writes that
+      # never happened (CW-008 false-confirmation class).
+      _receipt_before = {
+        "financials": json.loads(json.dumps(financials_json)) if financials_json else {},
+        "ops": json.loads(json.dumps(ops_json)) if ops_json else {},
+        "people": baseline_people_json,
+        "market": json.loads(json.dumps(market_json)) if market_json else {},
+      }
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -10974,6 +11028,27 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      try:
+        from client_intake_and_finmo.capture_receipt import numeric_receipt, receipt_summary  # type: ignore
+
+        _edit_receipt = numeric_receipt(
+          before=_receipt_before,
+          after={
+            "financials": financials_json or {},
+            "ops": ops_json or {},
+            "people": people_json or {},
+            "market": market_json or {},
+          },
+          requested_fields=[
+            str(k) for k, v in (patch or {}).items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+          ],
+          clarify_pending=(financials_json or {}).get("_basis_clarify_pending"),
+        )
+        _edit_receipt_text = receipt_summary(_edit_receipt)
+      except Exception:
+        _edit_receipt = None
+        _edit_receipt_text = ""
       marketing_patch_touched = any(
         str(key or "").strip() in {
           "marketing_total_year1",
@@ -11257,7 +11332,11 @@ def post_intake_consult_handler(*, app, request):
           guardrail_triggered=guardrail_triggered,
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
-        assistant_text = f"Got it - updated.\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
+        _ack_lead = "Got it - updated."
+        _echo = _receipt_echo_line(baseline_people_json, people_json, "people")
+        if _echo:
+          _ack_lead = f"Got it - {_echo}."
+        assistant_text = f"{_ack_lead}\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
         assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
         assistant_text = _append_constraints_snippet(
           assistant_text,
@@ -11512,7 +11591,13 @@ def post_intake_consult_handler(*, app, request):
         # re-closed with a specific naturalized acknowledgment and Submit live;
         # fail -> the walk engages honestly on the corrected numbers.
         if all((ops_confirmed, market_confirmed, people_confirmed, financials_confirmed)):
-          ack_fallback = str(router_msg or "").strip() or "Got it - updated."
+          # Layer 2: the re-close acknowledgment is receipt-first - it may
+          # only claim what the write-set diff shows actually landed.
+          ack_fallback = (
+            f"Updated: {_edit_receipt_text}."
+            if _edit_receipt_text
+            else (str(router_msg or "").strip() or "Got it - updated.")
+          )
           try:
             from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
 
@@ -11640,7 +11725,33 @@ def post_intake_consult_handler(*, app, request):
         if (confirm_question_live or active_focus_out != focus or proposer_content_correction)
         else ""
       )
-      if proposer_content_correction and assistant_text:
+      # Layer 2: numeric acknowledgments come FROM THE RECEIPT - what the
+      # diff of persisted state says actually changed. The router's prose
+      # is used only for non-numeric content (e.g. the advantage text).
+      # Nothing written but numerics requested -> the say-do note, never a
+      # confident ack. A pending clarifier owns its own turn upstream.
+      if _edit_receipt is not None and (_edit_receipt.get("written") or _edit_receipt.get("dropped")):
+        if _edit_receipt_text:
+          _ack_base = f"Updated: {_edit_receipt_text}."
+          try:
+            from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+            assistant_text = naturalize_recovery(
+              closed_question=(
+                "Acknowledge, in ONE warm sentence, exactly these recorded "
+                f"updates (keep every figure): {_ack_base}"
+              ),
+              user_message=message,
+              fallback=_ack_base,
+            )
+          except Exception:
+            assistant_text = _ack_base
+        elif _edit_receipt.get("dropped"):
+          _drop_note = _unapplied_fields_note(
+            [str(f).split(".", 1)[-1] for f in _edit_receipt["dropped"]]
+          )
+          assistant_text = (_drop_note or "I wasn't able to apply that change yet.").strip()
+      elif proposer_content_correction and assistant_text:
         try:
           from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
 
@@ -11906,7 +12017,13 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               pass
 
+            _fin_before = json.loads(json.dumps(ops_json)) if ops_json else {}
             ops_json = final_obj
+            _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "ops")
+            if _finalize_echo:
+              _pending_finalize_note = f"While finalizing I tidied the numbers: {_finalize_echo}."
+            else:
+              _pending_finalize_note = ""
             try:
               shared_context = dict(shared_context or {})
               shared_context["operating_model"] = ops_json
@@ -11942,7 +12059,8 @@ def post_intake_consult_handler(*, app, request):
               intake_context=intake_context_next, conversation_messages=turn_messages
             )
             next_assistant = str((market_turn or {}).get("assistant_message") or "").strip()
-            assistant_text = f"Great, let's move on to Target Market.\n\n{next_assistant}".strip()
+            _fin_note = (_pending_finalize_note + "\n\n") if _pending_finalize_note else ""
+            assistant_text = f"{_fin_note}Great, let's move on to Target Market.\n\n{next_assistant}".strip()
             assistant_text = _strip_acs_codes(sanitize_fact_template(str(assistant_text or "").strip()))
 
             append_messages(
@@ -12325,7 +12443,14 @@ def post_intake_consult_handler(*, app, request):
 
     # Ops: apply model-produced structured patch immediately (no controller parsing).
     if str(focus).strip().lower() == "ops" and isinstance(turn, dict):
+      _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
       ops_json = _apply_model_ops_patch(ops_json, turn.get("patch"))
+      _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
+      if _ops_echo:
+        # Layer 2: every numeric write is SAID, from the write-set - the
+        # consultant's prose never confirms numbers (prompt contract), the
+        # app does, downstream of the write.
+        assistant_text = (assistant_text + "\n\n(Noted: " + _ops_echo + ".)").strip()
       try:
         shared_context["operating_model"] = ops_json
       except Exception:
@@ -12378,6 +12503,12 @@ def post_intake_consult_handler(*, app, request):
         )
         if isinstance(extracted_people_list, list) and extracted_people_list:
           next_people_json = dict(people_json or {})
+          for _pp in (extracted_people_list or []):
+            if isinstance(_pp, dict) and _pp.get("annual_wage") is not None and not _pp.get("wage_source"):
+              # Client-stated wages (the extractor keeps null unless stated)
+              # get capture provenance so OEWS enrichment may never
+              # silently replace them (CW-005 #14 family).
+              _pp["wage_source"] = "client_override"
           next_people_json["people"] = extracted_people_list
           next_people_json["business_naics_6"] = ops_json.get("business_naics_6")
           people_json = next_people_json
@@ -13074,13 +13205,19 @@ def post_intake_consult_handler(*, app, request):
           ).strip()
       except Exception:
         pass
+      _fin_before = json.loads(json.dumps(market_json)) if market_json else {}
       market_json = final_obj
+      _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "market")
 
       # Show the finalized marketing_plan_summary to the client for confirmation/counter
       # before advancing. This replaces the older in-chat "promotion model" proposal.
       assistant_final = sanitize_fact_template(
         str((market_json or {}).get("marketing_plan_summary") or "").strip()
       )
+      if _finalize_echo:
+        assistant_final = (
+          assistant_final + "\n\n(Adjusted while finalizing: " + _finalize_echo + ".)"
+        ).strip()
       assistant_final = _strip_acs_codes(assistant_final)
       assistant_final = f"{assistant_final}\n\n{MARKET_CONFIRM_QUESTION}".strip()
 
@@ -13157,7 +13294,9 @@ def post_intake_consult_handler(*, app, request):
       # re-showing this review again.
       if isinstance(final_obj, dict):
         final_obj.pop("key_people_summary", None)
+      _fin_before = json.loads(json.dumps(people_json)) if people_json else {}
       people_json = final_obj
+      _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "people")
 
       # Render People fact templates (no {{fact:...}} placeholders) for display + persistence.
       try:
