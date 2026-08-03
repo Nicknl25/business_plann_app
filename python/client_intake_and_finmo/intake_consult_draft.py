@@ -2617,6 +2617,15 @@ def _planning_run_counts_from_payload(planning_run_json: Optional[Dict[str, Any]
   }
 
 
+# The only stage at which a payload-level "completed" status may mean the
+# RUN is complete. Intermediate stage snapshots also persist status
+# "completed" (meaning that STAGE finished), and before CW-009 those
+# leaked into planning_runs.run_status - a live run read 'completed' at
+# the initialize-validation boundary, the watcher believed it, finalized
+# vitals, and stopped observing a run that was minutes from done.
+_TERMINAL_RUN_STAGES = {"post_intake_finalize_validation_completed"}
+
+
 def _derive_execution_run_status(
   *,
   planning_run_json: Optional[Dict[str, Any]],
@@ -2627,8 +2636,11 @@ def _derive_execution_run_status(
     return "completed"
   payload = planning_run_json if isinstance(planning_run_json, dict) else {}
   planning_status = str(payload.get("status") or "").strip().lower()
+  payload_stage = str(payload.get("stage") or "").strip().lower()
   raw_status = str(draft_status or "").strip().lower()
-  if planning_status == "completed" or raw_status == "completed":
+  if planning_status == "completed" and payload_stage in _TERMINAL_RUN_STAGES:
+    return "completed"
+  if raw_status == "completed":
     return "completed"
   if raw_status in {"failed", "error"}:
     return "failed"

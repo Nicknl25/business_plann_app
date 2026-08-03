@@ -14,6 +14,12 @@ from dotenv import load_dotenv
 
 from validate_numeric_cutover import validate_loaded_document
 
+# The only stage at which run_status='completed' means the RUN is done
+# (see _derive_execution_run_status in intake_consult_draft.py - the
+# CW-009 phantom-terminal guard on the writer side; this is the reader
+# side of the same contract).
+TERMINAL_RUN_STAGES = {"post_intake_finalize_validation_completed"}
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNNER_PATH = REPO_ROOT / "Test Files" / "run_live_args_intake.py"
@@ -519,10 +525,45 @@ def main(argv: list[str]) -> int:
       run_status = str((run_row or {}).get("run_status") or "").strip().lower()
 
       if args.watch_only and run_status in ("completed", "failed", "stopped"):
-        terminal_run_status = run_status
-        exit_reason = "run_terminal"
-        print(json.dumps({"event": "run_terminal", "run_status": run_status}), flush=True)
-        break
+        # Phantom-terminal guard (CW-009): run_status historically echoed
+        # STAGE status, so 'completed' could appear at an intermediate
+        # validation boundary while the run was minutes from done - the
+        # watcher believed it, finalized vitals, and stopped observing.
+        # Believe 'completed' only at a terminal stage, and require any
+        # terminal to survive a confirming re-read.
+        stage_now = str((run_row or {}).get("current_stage") or "").strip().lower()
+        if run_status == "completed" and stage_now not in TERMINAL_RUN_STAGES:
+          print(
+            json.dumps(
+              {
+                "event": "phantom_terminal_ignored",
+                "run_status": run_status,
+                "current_stage": stage_now,
+              }
+            ),
+            flush=True,
+          )
+        else:
+          time.sleep(10)
+          confirm_row = _planning_run_by_id(
+            get_mysql_connection=get_mysql_connection, planning_run_id=planning_run_id
+          )
+          confirm_status = str((confirm_row or {}).get("run_status") or "").strip().lower()
+          if confirm_status == run_status:
+            terminal_run_status = run_status
+            exit_reason = "run_terminal"
+            print(json.dumps({"event": "run_terminal", "run_status": run_status}), flush=True)
+            break
+          print(
+            json.dumps(
+              {
+                "event": "phantom_terminal_ignored",
+                "run_status": run_status,
+                "reverted_to": confirm_status,
+              }
+            ),
+            flush=True,
+          )
 
       # Walk parked with no system run and the conversation gone quiet:
       # a first-class endpoint (the client chose to stop) — finalize the

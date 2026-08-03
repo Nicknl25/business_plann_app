@@ -11718,6 +11718,7 @@ def post_intake_consult_handler(*, app, request):
           # clarifier path) still reconcile drivers TO stated revenue -
           # there the stated number was right and the driver was misread.
           revenue_propagated = None
+          revenue_reconciled = None
           try:
             pre_draft = get_draft(conn, draft_id=str(draft_id).strip())
             pre_ops = _parse_json_dict(pre_draft.get("operating_model_json"))
@@ -11732,10 +11733,27 @@ def post_intake_consult_handler(*, app, request):
             stated = _safe_float(financials_json.get("current_revenue"))
             if pre_implied and post_implied and stated and pre_implied > 0:
               factor = post_implied / pre_implied
-              if abs(factor - 1.0) > 0.005:
+              # F1 (CW-009): classify the correction BEFORE propagating.
+              # A STRUCTURE-FIX is the client repairing the model's misread
+              # of a business that already exists; its fingerprint is that
+              # the raw implied revenue moves INTO agreement with the
+              # stated figure from the client's books (implied disagreed
+              # before, agrees better after). Stated revenue is reality
+              # there - multiplying it by the ratio re-applies the model's
+              # old error on top of the client's truth (Ironclad: periods
+              # 12->38 inflated $1,050,000 to $1,220,184). A VALUE change
+              # (a price rise) starts from a model already in agreement
+              # and moves it AWAY - only then does stated revenue follow
+              # the drivers.
+              pre_gap = abs(pre_implied - stated) / stated
+              post_gap = abs(post_implied - stated) / stated
+              structure_fix = pre_gap > 0.08 and post_gap < pre_gap
+              if abs(factor - 1.0) > 0.005 and not structure_fix:
                 financials_json = dict(financials_json)
                 financials_json["current_revenue"] = float(stated * factor)
                 revenue_propagated = financials_json["current_revenue"]
+              elif structure_fix and post_gap < 0.05:
+                revenue_reconciled = float(stated)
           except Exception:
             pass
           try:
@@ -11769,6 +11787,12 @@ def post_intake_consult_handler(*, app, request):
             carried_note = (
               f" I've carried that through your numbers - annual revenue now sits at "
               f"about {_format_currency(revenue_propagated)}."
+            )
+          elif revenue_reconciled:
+            carried_note = (
+              f" Your unit model now lines up with the "
+              f"{_format_currency(revenue_reconciled)} you reported - annual revenue "
+              f"stays as you stated it."
             )
           assistant_final = (
             f"{ack_text}\n\nYou're all set - the intake is complete again and you "
