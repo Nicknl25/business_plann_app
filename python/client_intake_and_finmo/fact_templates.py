@@ -333,8 +333,17 @@ def render_fact_template(
     if isinstance(value, (int, float)) and not isinstance(value, bool):
       return _format_number(value, money=False)
     if isinstance(value, list):
-      # Display lists compactly for templates.
-      return ", ".join([str(v) for v in value if v is not None]).strip()
+      # Natural-language join (#13): a raw comma splice inside prose reads
+      # ungrammatically ("per recurring contract, cleanup job"), so string
+      # lists render as "A and B" / "A, B, and C".
+      parts = [str(v).strip() for v in value if v is not None and str(v).strip()]
+      if not parts:
+        return ""
+      if len(parts) == 1:
+        return parts[0]
+      if len(parts) == 2:
+        return f"{parts[0]} and {parts[1]}"
+      return ", ".join(parts[:-1]) + f", and {parts[-1]}"
     if isinstance(value, dict):
       return ""
     return str(value).strip() if value is not None else ""

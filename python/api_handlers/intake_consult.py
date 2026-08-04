@@ -5563,7 +5563,29 @@ def _normalize_financials_router_patch(
         correctable.update(_financials_stage_spec(_st).get("patch_targets") or ())
     except Exception:
       continue
-  allowed_fields = active_targets | correctable
+  # VOLUNTEERED SIBLINGS ARE ADMITTED (issue #33): a client answering the
+  # total-debt question with "we owe 180k - interest runs 9,200 and
+  # principal 15,000" names all three concepts; narrowing to the active
+  # field dropped the volunteered pair and the flow re-asked questions
+  # the client had already answered. Within a same-topic cluster the
+  # router only writes fields it explicitly identified (a bare number
+  # still lands on the asked field), so sibling fields land and their
+  # stages complete - never re-asked. Future-field protection is
+  # unchanged outside the cluster.
+  _VOLUNTEER_CLUSTERS = (
+    {
+      "total_debt_outstanding",
+      "other_monthly_debt_payments",
+      "annual_interest_payment",
+      "annual_principal_payment",
+    },
+    {"cash_on_hand", "ar_balance", "ap_balance", "inventory_balance"},
+  )
+  volunteered: set[str] = set()
+  for _cluster in _VOLUNTEER_CLUSTERS:
+    if active_targets & _cluster:
+      volunteered |= _cluster
+  allowed_fields = active_targets | correctable | volunteered
   touched: set[str] = set()
   assistant_lower = str(last_assistant or "").strip().lower()
   user_lower = str(user_message or "").strip().lower()
