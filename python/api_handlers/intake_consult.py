@@ -2411,8 +2411,8 @@ def _build_financials_stage_message(
     )
   if stage == "owner_compensation":
     return (
-      "About how much do you pay yourself from the business per month, counting wages, draws, or other owner compensation? "
-      "A rough dollar amount is fine."
+      "About how much do you pay yourself from the business per month, all-in - salary plus any draws or other money you take? "
+      "If you've already mentioned your own salary with the team, include it here rather than adding it on top. A rough figure is fine."
     )
   if stage == "other_operating_expense":
     return (
@@ -4400,7 +4400,7 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "patch_targets": ("owner_compensation",),
     "completion_fields": ("owner_compensation",),
     "confirmable_baseline": False,
-    "clarifier": "What monthly owner compensation should I record?",
+    "clarifier": "What total monthly owner pay - salary plus draws, all-in - should I record?",
   },
   "other_operating_expense": {
     "patch_targets": ("other_operating_expense",),

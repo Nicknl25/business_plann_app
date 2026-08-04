@@ -41,7 +41,7 @@ _DERIVED_FIELDS = {
 _LABELS = {
   "financials.current_revenue": ("annual revenue", "year"),
   "financials.marketing_total_year1": ("marketing budget", "year"),
-  "financials.owner_compensation": ("owner compensation", "month"),
+  "financials.owner_compensation": ("total owner pay", "month"),
   "financials.monthly_rent_expense": ("rent", "month"),
   "financials.other_operating_expense": ("other operating costs", "month"),
   "financials.other_monthly_debt_payments": ("other debt payments", "month"),

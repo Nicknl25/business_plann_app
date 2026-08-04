@@ -2043,7 +2043,7 @@ Financial topics used by the stage flow:
 - Year-1 marketing budget (marketing)
 - Other regular operating bills excluding payroll, marketing, and rent (other operating expense)
 - Rent payments (rent)
-- Owner pay or owner's draws (owner compensation)
+- The owner's total monthly pay, salary plus draws, all-in (owner compensation)
 - Larger one-time equipment/investment spend (capex)
 - Assets the business already uses to operate (rough total value as of last month)
 - Leased/rented equipment payments (if any)
@@ -2059,7 +2059,7 @@ Everyday phrasing guide (adapt as needed; keep it short and natural):
 - Future rent signal: "whether you expect to need paid dedicated business space later"
 - Payroll: "what you paid employees"
 - Employees: "how many people were on payroll"
-- Owner compensation: "money you paid yourself from the business (wages/draws)"
+- Owner compensation: "your total monthly pay from the business - salary plus draws, including any owner salary already mentioned with the team"
 - Capex: "bigger one-time purchases like equipment, vehicles, or build-out"
 - Assets used to operate: "the main equipment/tools/fixtures you already use to run the business and their rough total value"
 - Leased equipment: "equipment or space you pay to use but don't own"
