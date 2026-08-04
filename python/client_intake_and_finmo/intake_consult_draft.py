@@ -1796,13 +1796,14 @@ def _naturalize_year_one_text(text: str) -> str:
 
 
 # Mojibake tripwire (CW-009 F3): five financials stage-acks stored with
-# nested cp1252<->utf8 corruption ("WeÃƒÆ'..."), source hop not yet pinned
-# (the HTTP layer is proven clean - OpenAI escapes non-ASCII, resp.text
-# decodes identically to utf-8). This guard deterministically unwinds the
-# corruption at the persist choke point and logs LOUDLY so the next run
-# localizes the hop: if the tripwire fires, corruption enters upstream of
-# persistence (GPT output / message composition); if client-facing
-# corruption appears while this stays silent, it enters at DB write/read.
+# nested cp1252<->utf8 corruption. ROOT CAUSE FOUND AND FIXED: the ack
+# builders' source literals themselves were corrupted (scripted edits
+# through a cp1252 console pipe, one layer per bad edit pass) - repaired
+# in place. This guard stays as defense-in-depth at the persist choke
+# point: it deterministically unwinds any recurrence and logs LOUDLY so
+# a new corruption source is localized immediately (tripwire firing =
+# corruption upstream of persist; client-facing corruption with a silent
+# tripwire = DB write/read hop).
 _MOJIBAKE_SIGNATURES = ("Ã", "â€")  # utf8-as-cp1252 misreads: 'Ã' at depth>=1
                                      # for accented chars, 'â€' for the
                                      # curly-quote/dash family at depth 1
