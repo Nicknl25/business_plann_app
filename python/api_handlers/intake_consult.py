@@ -5107,6 +5107,186 @@ def _detect_dollar_vs_percent_conflict(
   }
 
 
+def _message_figures(message: str) -> List[float]:
+  """Every numeric figure in a client message: digits (comma-stripped),
+  k/thousand shorthand expanded, and small number words."""
+  msg = str(message or "").lower().replace(",", "")
+  out: List[float] = []
+  for tok, k_suffix in re.findall(r"(\d+(?:\.\d+)?)(\s*k\b)?", msg):
+    try:
+      n = float(tok)
+    except ValueError:
+      continue
+    out.append(n * 1000.0 if k_suffix.strip() else n)
+  for m in re.finditer(r"(\d+(?:\.\d+)?)\s+thousand", msg):
+    out.append(float(m.group(1)) * 1000.0)
+  out.extend(_percent_shaped_figures(msg))
+  return out
+
+
+_DRIVER_LEVER_LEAVES = (
+  "unit_price",
+  "units_per_period_capacity",
+  "units_per_week_capacity",
+  "operating_periods_per_year",
+  "utilization_rate",
+)
+
+
+def _lever_value_derivable(
+  leaf: str, value: Any, figures: List[float], periods: float
+) -> bool:
+  """CW-011 consequence contract: a driver-lever write is legitimate ONLY
+  if its new value is arithmetically derivable from the figures the
+  client actually stated - raw, unit-converted by the period count, or
+  (for utilization) as a ratio of two stated figures (did 16 / turns 22
+  = 72.7%). CW-011's 0.9167 (= 22/24, where 24 appears nowhere in the
+  client's words) fails and reverts; 1.833 (= 22/12) passes."""
+  v = _safe_float(value)
+  if v is None:
+    return True
+  figs = [f for f in figures if f and f > 0]
+  if not figs:
+    return False
+
+  def near(a: float, b: float, tol: float = 0.02) -> bool:
+    return abs(a - b) / max(abs(b), 1e-9) <= tol
+
+  cands: List[float] = []
+  if leaf in ("units_per_period_capacity", "units_per_week_capacity"):
+    for f in figs:
+      cands.append(f)
+      if periods:
+        cands.append(f / periods)
+      cands.append(f / 52.0)
+  elif leaf == "operating_periods_per_year":
+    cands = list(figs)
+  elif leaf == "utilization_rate":
+    for f in figs:
+      if f <= 1.0:
+        cands.append(f)
+      if 1.0 < f <= 100.0:
+        cands.append(f / 100.0)
+    for a in figs:
+      for b in figs:
+        if b > 0 and a < b:
+          cands.append(a / b)
+  elif leaf == "unit_price":
+    for f in figs:
+      cands.append(f)
+      cands.append(f * 1000.0)
+  else:
+    return True
+  return any(near(v, c) for c in cands if c and c > 0)
+
+
+def _reconcile_driver_correction(
+  *,
+  ops_before: Dict[str, Any],
+  ops_after: Dict[str, Any],
+  user_message: str,
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+  """The CW-011 consequence contract, enforced in code: a driver
+  correction may move ONLY levers derivable from the client's own
+  figures. Any other lever write REVERTS to its prior (client-stated)
+  value before the receipt or ack is composed - never a silent second
+  lever. Returns (ops_fixed, note) where note carries the changed
+  product's implied stream in dollars (anchored to the client's stated
+  stream figure when one matches within 5%) and, on the RARE case the
+  named-only fit misses the client's own stated dollars by >5%, a
+  disclose-and-confirm question instead of a silent re-fit."""
+  figures = _message_figures(user_message)
+  if not figures or not isinstance(ops_after, dict):
+    return ops_after, None
+  before_lobs = (ops_before or {}).get("lob_models") or []
+  after_lobs = ops_after.get("lob_models") or []
+  if not (isinstance(before_lobs, list) and isinstance(after_lobs, list)):
+    return ops_after, None
+  reverted: List[Tuple[str, float, float]] = []
+  changed_products: List[Dict[str, Any]] = []
+  for lob_i, lob_after in enumerate(after_lobs):
+    if not isinstance(lob_after, dict) or lob_i >= len(before_lobs):
+      continue
+    lob_before = before_lobs[lob_i] if isinstance(before_lobs[lob_i], dict) else {}
+    prods_after = lob_after.get("products") or []
+    prods_before = lob_before.get("products") or []
+    for p_i, p_after in enumerate(prods_after):
+      if not isinstance(p_after, dict) or p_i >= len(prods_before):
+        continue
+      p_before = prods_before[p_i] if isinstance(prods_before[p_i], dict) else {}
+      periods = _safe_float(p_after.get("operating_periods_per_year")) or \
+        _safe_float(p_before.get("operating_periods_per_year")) or 12.0
+      touched_here = False
+      for leaf in _DRIVER_LEVER_LEAVES:
+        old_v = _safe_float(p_before.get(leaf))
+        new_v = _safe_float(p_after.get(leaf))
+        if new_v is None or old_v is None:
+          continue
+        if abs(new_v - old_v) <= max(1e-9, 0.001 * abs(old_v)):
+          continue
+        touched_here = True
+        if not _lever_value_derivable(leaf, new_v, figures, periods):
+          p_after[leaf] = old_v
+          reverted.append((leaf, new_v, old_v))
+      if touched_here:
+        changed_products.append({"before": p_before, "after": p_after})
+  if not changed_products:
+    return ops_after, None
+  # Stream arithmetic for the (single) corrected product - the client
+  # thinks in dollars, so the ack must too.
+  note: Dict[str, Any] = {"reverted": reverted, "stream_note": "", "confirm": None}
+  p = changed_products[0]["after"]
+  price = _safe_float(p.get("unit_price")) or 0.0
+  cap = _safe_float(p.get("units_per_period_capacity")) or 0.0
+  periods = _safe_float(p.get("operating_periods_per_year")) or 12.0
+  util = _safe_float(p.get("utilization_rate"))
+  util = util if util and 0.0 < util <= 1.0 else 1.0
+  stream = price * cap * periods * util
+  if stream <= 0:
+    return ops_after, note
+  name = str(p.get("product_name") or p.get("unit_name") or "that side").strip()
+  stated_candidates = [f for f in figures if f >= 1000.0]
+  anchor = None
+  for f in stated_candidates:
+    if abs(stream - f) / f <= 0.05:
+      anchor = f
+      break
+  if anchor is not None:
+    note["stream_note"] = (
+      f" Your {name} side now models at about {_format_currency(stream)} a year "
+      f"against the {_format_currency(anchor)} you reported."
+    )
+  else:
+    miss = None
+    for f in stated_candidates:
+      # Only treat a figure as the intended stream target when it is in
+      # the stream's neighborhood (within 40%) - revenue/other figures
+      # in the same message must not masquerade as the stream.
+      if abs(stream - f) / f <= 0.40:
+        miss = f
+        break
+    if miss is not None and price * cap * periods > 0:
+      util_needed = miss / (price * cap * periods)
+      if 0.0 < util_needed <= 1.0:
+        # RARE branch by construction: the client's own figures disagree
+        # beyond tolerance - ask, never silently pick a winner.
+        note["confirm"] = (
+          f" One check: with those numbers the {name} side models at about "
+          f"{_format_currency(stream)} a year, but you mentioned "
+          f"{_format_currency(miss)} - to hit that I'd put utilization at "
+          f"about {util_needed:.0%}. Does that look right?"
+        )
+      else:
+        note["stream_note"] = (
+          f" Your {name} side now models at about {_format_currency(stream)} a year."
+        )
+    else:
+      note["stream_note"] = (
+        f" Your {name} side now models at about {_format_currency(stream)} a year."
+      )
+  return ops_after, note
+
+
 def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
   """Deterministic, frame-declared statement of WHAT must be asked. The
   natural phrasing (HOW) comes from the recovery-phrasing helper; this text
@@ -11251,6 +11431,19 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      # CW-011 consequence contract: enforce BEFORE the receipt is built,
+      # so the receipt and every ack downstream describe the kept truth -
+      # an underivable second-lever move never survives long enough to
+      # need disclosing as an accident.
+      _driver_note = None
+      try:
+        ops_json, _driver_note = _reconcile_driver_correction(
+          ops_before=_receipt_before["ops"],
+          ops_after=ops_json,
+          user_message=str(message or ""),
+        )
+      except Exception:
+        _driver_note = None
       try:
         from client_intake_and_finmo.capture_receipt import numeric_receipt, receipt_summary  # type: ignore
 
@@ -11849,6 +12042,13 @@ def post_intake_consult_handler(*, app, request):
             if _edit_receipt_text
             else (str(router_msg or "").strip() or "Got it - updated.")
           )
+          # CW-011 #2: a structural correction narrates DOLLARS the client
+          # can verify (their stream), never internal lever values alone.
+          if isinstance(_driver_note, dict):
+            if _driver_note.get("confirm"):
+              ack_fallback = (ack_fallback + str(_driver_note["confirm"])).strip()
+            elif _driver_note.get("stream_note"):
+              ack_fallback = (ack_fallback + str(_driver_note["stream_note"])).strip()
           try:
             from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
 
