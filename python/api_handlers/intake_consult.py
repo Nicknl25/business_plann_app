@@ -5107,6 +5107,31 @@ def _detect_dollar_vs_percent_conflict(
   }
 
 
+def _prose_reflection_needed(
+  *,
+  old_value: str,
+  new_value: str,
+  assistant_text: str,
+  user_message: str,
+) -> bool:
+  """CW-011 #3: the prose receipt fires when a tracked proposal field
+  changed from a prior non-empty value on a substantive client turn AND
+  the consultant's own reply does not already reflect the stored content
+  (checked via the stored value's distinctive words - when the GPT
+  complied with the prompt rule, no double-reflection)."""
+  old = str(old_value or "").strip()
+  new = str(new_value or "").strip()
+  if not (old and new) or new == old:
+    return False
+  if len(str(user_message or "").strip()) <= 20:
+    return False
+  distinct = re.findall(r"[a-zA-Z-]{8,}", new)[:6]
+  text = str(assistant_text or "").lower()
+  if distinct and any(w.lower() in text for w in distinct):
+    return False
+  return True
+
+
 def _message_figures(message: str) -> List[float]:
   """Every numeric figure in a client message: digits (comma-stripped),
   k/thousand shorthand expanded, and small number words."""
@@ -12937,6 +12962,37 @@ def post_intake_consult_handler(*, app, request):
         # consultant's prose never confirms numbers (prompt contract), the
         # app does, downstream of the write.
         assistant_text = (assistant_text + "\n\n(Noted: " + _ops_echo + ".)").strip()
+      # CW-011 #3 (B hardening) - the PROSE receipt: when a proposal field
+      # changes from a prior non-empty value on a client turn, the
+      # reflection is built from the STORED value and prepended
+      # structurally. The prompt rule stays (it reads better when the GPT
+      # complies), but the reflection no longer depends on it: CW-010
+      # passed and CW-011 failed on identical code - compliance is
+      # probabilistic, receipts are not.
+      try:
+        _adv_old = str((_ops_before or {}).get("competitive_advantage") or "").strip()
+        _adv_new = str((ops_json or {}).get("competitive_advantage") or "").strip()
+        if _prose_reflection_needed(
+          old_value=_adv_old, new_value=_adv_new,
+          assistant_text=assistant_text, user_message=str(message or ""),
+        ):
+          _reflection = f"Noted - your edge, in your words: {_adv_new}"
+          try:
+            from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+            _reflection = naturalize_recovery(
+              closed_question=(
+                "In ONE warm sentence, reflect back the competitive edge the "
+                f"client just corrected, keeping its substance: {_adv_new}"
+              ),
+              user_message=str(message or ""),
+              fallback=_reflection,
+            )
+          except Exception:
+            pass
+          assistant_text = (str(_reflection).strip() + "\n\n" + assistant_text).strip()
+      except Exception:
+        pass
       try:
         shared_context["operating_model"] = ops_json
       except Exception:
