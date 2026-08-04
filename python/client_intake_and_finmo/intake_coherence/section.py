@@ -349,11 +349,21 @@ def _intake_current_structure(
     prices[key] = line["unit_price"]
     q1 = _f(line.get("q1_revenue_quarterly"))
     lines_quarterly[key] = {"q1": round(q1, 2), "q11": round(q1 * GROWTH_FENCE_Q11, 2)}
-  payroll = _f(financials_json.get("current_payroll")) or _f(financials_json.get("payroll_total_year1"))
-  payroll += _f(financials_json.get("owner_compensation")) * 12.0
+  # Payroll comes from the blessed accessor - people baseline + approved
+  # adjustment, with the owner-comp NON-ADDITIVE guard (evaluator.py:345).
+  # The old inline sum here added owner comp x12 unconditionally onto the
+  # legacy echo fields, double-counting the owner in the bounds input for
+  # every owner-in-people business - the exact divergence the evaluator
+  # was fixed to avoid. One computation, one owner-guard, both sites.
+  basis = basis_from_intake(financials_json=financials_json, ops_json=ops_json)
+  q1_payroll = (
+    round(basis.payroll_quarterly, 2)
+    if basis is not None and basis.payroll_quarterly > 0
+    else None
+  )
   return {
     "q1_revenue": round(ann_rev / 4.0, 2) if ann_rev > 0 else None,
-    "q1_payroll": round(payroll / 4.0, 2) if payroll > 0 else None,
+    "q1_payroll": q1_payroll,
     "q1_rent": round(_f(financials_json.get("monthly_rent_expense")) * 3.0, 2),
     "q1_unit_prices": prices,
     "revenue_lines_quarterly": lines_quarterly,
