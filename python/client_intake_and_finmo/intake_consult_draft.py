@@ -1795,12 +1795,66 @@ def _naturalize_year_one_text(text: str) -> str:
   return value
 
 
+# Mojibake tripwire (CW-009 F3): five financials stage-acks stored with
+# nested cp1252<->utf8 corruption ("WeÃƒÆ'..."), source hop not yet pinned
+# (the HTTP layer is proven clean - OpenAI escapes non-ASCII, resp.text
+# decodes identically to utf-8). This guard deterministically unwinds the
+# corruption at the persist choke point and logs LOUDLY so the next run
+# localizes the hop: if the tripwire fires, corruption enters upstream of
+# persistence (GPT output / message composition); if client-facing
+# corruption appears while this stays silent, it enters at DB write/read.
+_MOJIBAKE_SIGNATURES = ("Ã", "â€")  # utf8-as-cp1252 misreads: 'Ã' at depth>=1
+                                     # for accented chars, 'â€' for the
+                                     # curly-quote/dash family at depth 1
+
+
+def _looks_mojibake(value: str) -> bool:
+  return any(sig in value for sig in _MOJIBAKE_SIGNATURES)
+
+
+def _unwind_mojibake(text: str) -> str:
+  value = str(text or "")
+  if not _looks_mojibake(value):
+    return value
+  for _ in range(10):
+    candidate = None
+    # cp1252 first (the usual Windows hop); latin-1 fallback for the five
+    # bytes cp1252 leaves unmapped (0x81 0x8D 0x8F 0x90 0x9D).
+    for codec in ("cp1252", "latin-1"):
+      try:
+        candidate = value.encode(codec, errors="strict").decode("utf-8", errors="strict")
+        break
+      except (UnicodeEncodeError, UnicodeDecodeError):
+        continue
+    if candidate is None or candidate == value:
+      break
+    value = candidate
+    if not _looks_mojibake(value):
+      break
+  return value
+
+
 def _naturalize_assistant_messages(new_messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
   naturalized: List[Dict[str, str]] = []
   for message in new_messages or []:
     if isinstance(message, dict) and str(message.get("role") or "") == "assistant":
       message = dict(message)
-      message["content"] = _naturalize_year_one_text(str(message.get("content") or ""))
+      content = _naturalize_year_one_text(str(message.get("content") or ""))
+      if _looks_mojibake(content):
+        repaired = _unwind_mojibake(content)
+        if repaired != content:
+          try:
+            import logging
+
+            logging.getLogger("api").warning(
+              "MOJIBAKE_TRIPWIRE: assistant message arrived corrupted at persist "
+              "(unwound %d->%d chars): %r",
+              len(content), len(repaired), content[:80],
+            )
+          except Exception:
+            pass
+          content = repaired
+      message["content"] = content
     naturalized.append(message)
   return naturalized
 

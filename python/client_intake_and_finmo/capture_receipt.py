@@ -121,6 +121,31 @@ def numeric_receipt(
   }
 
 
+# Internal bookkeeping fields must NEVER surface in a client-facing
+# receipt line (CW-009: "While finalizing I tidied the numbers:
+# confidence → $1" - truthful, but internal state is not the client's
+# number). Filtered out entirely, including the only-thing-changed case.
+_INTERNAL_FIELDS = {
+  "confidence",
+  "wage_source",
+  "months_until_hire",
+}
+
+# A field renders as currency ONLY when its name says money (CW-009:
+# "operating periods per year → $12" - the old fallback dollared every
+# unrecognized field). Counts render plain; everything else plain.
+_MONEY_HINTS = (
+  "price", "revenue", "expense", "cost", "cogs", "wage", "payroll",
+  "rent", "cash", "debt", "equity", "asset", "balance", "capex",
+  "lease", "marketing", "interest", "principal", "compensation",
+  "budget", "total", "amount", "spend", "draw", "salary", "funding",
+)
+_COUNT_HINTS = (
+  "num_", "count", "capacity", "periods", "employees", "headcount",
+  "years", "months", "weeks", "days", "jobs", "hires", "units",
+)
+
+
 def _fmt(path: str, value: float) -> str:
   base = re.sub(r"\[\d+\]", "", path)
   label, per = _LABELS.get(base, (None, None))
@@ -132,12 +157,16 @@ def _fmt(path: str, value: float) -> str:
     tail = base.rsplit(".", 1)[-1].replace("_", " ")
     label = tail
     per = "month" if "monthly" in base else ("year" if ("annual" in base or "year1" in base) else None)
+  leaf_name = base.rsplit(".", 1)[-1]
   if 0 < abs(value) < 1 and ("rate" in base or "percent" in base or "share" in base):
     rendered = f"{value * 100:.1f}%"
-  elif "num_" in base or "count" in base or "capacity" in base:
+  elif any(h in leaf_name for h in _COUNT_HINTS):
     rendered = f"{value:,.0f}"
-  else:
+    per = None if "per_" in leaf_name or "periods" in leaf_name else per
+  elif any(h in leaf_name for h in _MONEY_HINTS):
     rendered = f"${value:,.0f}"
+  else:
+    rendered = f"{value:,.0f}"
   return f"{label} → {rendered}" + (f" per {per}" if per else "")
 
 
@@ -145,7 +174,10 @@ def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:
   """Deterministic one-line summary of what ACTUALLY changed - the only
   legal source of numeric acknowledgment content. Empty string when
   nothing was written (callers must then not claim anything was)."""
-  written = list((receipt or {}).get("written") or [])
+  written = [
+    w for w in ((receipt or {}).get("written") or [])
+    if w[0].rsplit(".", 1)[-1].split("[")[0] not in _INTERNAL_FIELDS
+  ]
   if not written:
     return ""
   primary = [w for w in written if w[0].rsplit(".", 1)[-1].split("[")[0] not in _DERIVED_FIELDS
