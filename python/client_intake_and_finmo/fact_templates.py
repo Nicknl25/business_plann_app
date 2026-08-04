@@ -240,7 +240,31 @@ def render_fact_template(
       # Compatibility: ops templates may reference top-level unit_* fields even when
       # ops uses lob_models/products (where top-level unit fields are null by design).
       # Render a best-effort fallback from product drivers so summaries don't show $0/0.
-      if (direct is None or direct == "") and field in (
+      #
+      # Multi-product shadowing (#13, 9th occurrence CW-010): the top-level
+      # echo holds whichever product was captured LAST ($18,500 install),
+      # so a scalar hit here silently dropped the $1,450 maintenance price
+      # from the positioning narrative. When the product rows disagree
+      # with each other, the per-product aggregation (range / natural-
+      # language join) is the truth — the stale scalar defers to it.
+      _use_product_fallback = (direct is None or direct == "")
+      if not _use_product_fallback and field in (
+        "unit_name",
+        "unit_price",
+        "units_per_week_capacity",
+        "units_per_period_capacity",
+      ):
+        _lms = operating_model.get("lob_models")
+        _pvals = set()
+        if isinstance(_lms, list):
+          for _lob in _lms:
+            if isinstance(_lob, dict):
+              for _p in _lob.get("products") or []:
+                if isinstance(_p, dict) and _p.get(field) not in (None, ""):
+                  _pvals.add(str(_p.get(field)))
+        if len(_pvals) > 1:
+          _use_product_fallback = True
+      if _use_product_fallback and field in (
         "unit_name",
         "unit_cadence",
         "unit_price",

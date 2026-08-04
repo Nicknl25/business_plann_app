@@ -342,6 +342,7 @@ def gpt_author_margin_band_once(
   compact: Dict[str, Any],
   stated_cost_facts: Optional[Dict[str, Any]] = None,
   arbitration_note: str = "",
+  retry_nonce: int = 0,
   model: Optional[str] = None,
   seed: int = 1733,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -374,6 +375,14 @@ def gpt_author_margin_band_once(
         "and is being re-authored ONCE with the contradiction spelled "
         "out. Read it carefully and author in the measured basis:\n"
         + arbitration_note
+        + (
+          # CW-010: a HELD turn's re-author must be a fresh, informed
+          # attempt, not a locked replay of the same contradiction. The
+          # nonce enters the payload (new lock key) only on retry turns.
+          f"\n(Fresh re-attempt #{int(retry_nonce)} after a held turn — "
+          "author anew in the measured basis.)"
+          if retry_nonce else ""
+        )
         if arbitration_note else ""
       )},
     ],

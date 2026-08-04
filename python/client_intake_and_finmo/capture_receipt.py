@@ -110,10 +110,21 @@ def numeric_receipt(
         written.append((path, old_value, new_value))
   requested = [str(f) for f in (requested_fields or [])]
   written_fields = {re.sub(r"\[\d+\]", "", p) for p, _, _ in written}
-  dropped = [
-    f for f in requested
-    if f and re.sub(r"\[\d+\]", "", f) not in written_fields
-  ]
+  # A requested field also counts as written when it landed on a NESTED
+  # path with the same leaf (CW-010: unit_price wrote into
+  # ops.lob_models[].products[].unit_price and the flat-path comparison
+  # produced a false "I haven't recorded unit price yet" — a say-do
+  # claim in the wrong direction). Leaf match is deliberately generous:
+  # a false "dropped" note is worse than a missed one.
+  written_leaves = {p.rsplit(".", 1)[-1] for p in written_fields}
+  dropped = []
+  for f in requested:
+    if not f:
+      continue
+    base = re.sub(r"\[\d+\]", "", f)
+    if base in written_fields or base.rsplit(".", 1)[-1] in written_leaves:
+      continue
+    dropped.append(f)
   return {
     "written": written,
     "dropped": dropped,

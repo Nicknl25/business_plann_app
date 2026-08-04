@@ -240,9 +240,10 @@ def _ensure_margin_band(
       "basis."
     )
 
-  def _author(note: str = "") -> Dict[str, Any]:
+  def _author(note: str = "", retry_nonce: int = 0) -> Dict[str, Any]:
     result = gpt_author_margin_band_once(
       compact=compact, stated_cost_facts=facts or None, arbitration_note=note,
+      retry_nonce=retry_nonce,
     )
     if not (result.get("ok") and result.get("judgment")):
       # Failure is never a verdict and never doctrine constants: hold the
@@ -260,6 +261,23 @@ def _ensure_margin_band(
     # Locked-GPT arbitration (the fitted-band anchor pattern): ONE
     # re-authoring with the contradiction spelled out. Judgment stays
     # the owner — nothing is clamped. Still contradictory -> hold.
+    #
+    # CW-010 eternal-hold guard: under the GPT response lock an unchanged
+    # arbitration payload replays the same locked contradiction forever —
+    # fail-loud became fail-forever. A HELD turn's re-author carries the
+    # consecutive-hold count (stamped by the handler's hold branch) as a
+    # fresh-roll nonce: first-call and first-arbitration determinism are
+    # untouched, and successful runs never see a nonce. The tripwire is
+    # deterministic arithmetic on the judgment's own numbers, so a
+    # passing re-attempt IS basis-consistent — there is no slipping past
+    # the guard by luck. After 3 fresh re-attempts the hold escalates
+    # with a distinct exhausted signature (ERROR log -> issue filing ->
+    # human review), never a verdict and never an infinite silent spin.
+    hold_retries = 0
+    try:
+      hold_retries = int(financials_json.get("_judgment_hold_retries") or 0)
+    except Exception:
+      hold_retries = 0
     validated = _author(
       "Your burden ceiling of "
       f"{(validated.get('fixed_cost_burden_max_q11') or 0):.0%} combined with this "
@@ -268,13 +286,31 @@ def _ensure_margin_band(
       "own judged healthy band — meaning the ceiling was authored as if "
       "labor lived in COGS. In THIS file all labor "
       f"({measured_basis.get('payroll_share', 0):.0%} of revenue) is in the "
-      "payroll line. Re-author the ceiling and floors in that basis."
+      "payroll line. Re-author the ceiling and floors in that basis.",
+      retry_nonce=hold_retries,
     )
     if validated.get("basis_contradiction"):
+      if hold_retries >= 3:
+        try:
+          import logging
+
+          logging.getLogger("api").error(
+            "MARGIN_BAND_HOLD_EXHAUSTED: %d fresh arbitration re-attempts "
+            "all basis-contradictory; human review required",
+            hold_retries,
+          )
+        except Exception:
+          pass
+        raise CoherenceJudgmentUnavailable(
+          "margin_band_basis_exhausted",
+          f"burden ceiling basis-contradictory after {hold_retries} fresh "
+          "re-attempts; escalated for human review",
+        )
       raise CoherenceJudgmentUnavailable(
         "margin_band_basis",
         "burden ceiling basis-contradictory with measured cost placement after arbitration",
       )
+  financials_json.pop("_judgment_hold_retries", None)
   state["margin_band_judgment"] = validated
   state.pop("margin_band_error", None)
   return state

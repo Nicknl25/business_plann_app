@@ -5708,6 +5708,33 @@ def _normalize_financials_router_patch(
         if _gf.endswith("_percent_of_revenue"):
           _twin = _gf.replace("_percent_of_revenue", "_total_year1")
           if _twin in touched or "current_cogs" in touched:
+            # Twin-skip, refined (CW-010): both twins present usually
+            # means the percent was re-derived from an authoritative
+            # dollar total — but when the router READ an unmarked bare
+            # figure as a percent it writes both twins itself, and the
+            # blanket skip suppressed the only detector that could catch
+            # the misread ("about twelve" -> 12% -> $127,200 for a $12k
+            # intent). Run the forward check anyway IFF the raw figure
+            # (pct x 100) appears verbatim in the client's words — the
+            # fingerprint that the percent IS the router's direct
+            # reading. Dollar-stated answers ("21,600 for the year" ->
+            # pct 2.06, absent from the message) never fire.
+            _pv = _safe_float(next_financials.get(_gf))
+            if _pv and _pv > 0:
+              _raw_n = _pv * 100.0
+              if any(
+                abs(c - _raw_n) < 0.51
+                for c in _percent_shaped_figures(user_message)
+              ):
+                _pending_tw = _detect_percent_vs_dollar_conflict(
+                  field_name=_gf,
+                  percent_value=float(_pv),
+                  financials_json=next_financials,
+                  user_message=user_message,
+                )
+                if _pending_tw:
+                  next_financials["_basis_clarify_pending"] = _pending_tw
+                  break
             continue  # total is authoritative; percent was re-derived
         _gv = _safe_float(next_financials.get(_gf))
         if _gv is None:
@@ -13719,6 +13746,21 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         pass
       try:
+        # CW-010: stamp the consecutive-hold count so a HELD turn's
+        # arbitration re-author can carry a fresh-roll nonce (the GPT
+        # lock otherwise replays the same contradictory judgment forever
+        # - fail-loud became fail-forever). Underscore key: internal,
+        # never in receipts; cleared on judgment success.
+        _hold_fin = None
+        if "coherence_judgment_unavailable" in str(exc):
+          try:
+            _hold_row = get_draft_runtime_row(conn, draft_id=str(draft_id).strip())
+            _hold_fin = _parse_json_dict(_hold_row.get("financials_json"))
+            _hold_fin["_judgment_hold_retries"] = (
+              int(_hold_fin.get("_judgment_hold_retries") or 0) + 1
+            )
+          except Exception:
+            _hold_fin = None
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
@@ -13726,6 +13768,7 @@ def post_intake_consult_handler(*, app, request):
             *user_turn_to_persist,
             {"role": "assistant", "content": hold_message},
           ],
+          financials_json=_hold_fin,
         )
       except Exception:
         app.logger.exception("TURN_HOLD persist failed draft=%s", draft_id)
