@@ -5017,6 +5017,96 @@ def _detect_percent_vs_dollar_conflict(
   }
 
 
+_SMALL_NUMBER_WORDS = {
+  "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+  "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+  "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+  "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+  "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+  "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+
+
+def _percent_shaped_figures(message: str) -> List[float]:
+  """Bare figures in a client message that COULD be a percent: digit tokens
+  and simple number words (incl. 'twenty five' compounds), 0.5-100 only."""
+  msg = str(message or "").lower().replace(",", "")
+  out: List[float] = []
+  for tok in re.findall(r"\d+(?:\.\d+)?", msg):
+    try:
+      n = float(tok)
+    except ValueError:
+      continue
+    if 0.5 <= n <= 100.0:
+      out.append(n)
+  words = re.findall(r"[a-z]+", msg)
+  index = 0
+  while index < len(words):
+    word = words[index]
+    if word in _SMALL_NUMBER_WORDS:
+      n = float(_SMALL_NUMBER_WORDS[word])
+      if n >= 20 and index + 1 < len(words) and words[index + 1] in _SMALL_NUMBER_WORDS \
+         and _SMALL_NUMBER_WORDS[words[index + 1]] < 10:
+        n += float(_SMALL_NUMBER_WORDS[words[index + 1]])
+        index += 1
+      if 0.5 <= n <= 100.0:
+        out.append(n)
+    index += 1
+  return out
+
+
+def _detect_dollar_vs_percent_conflict(
+  *,
+  field_name: str,
+  dollar_value: float,
+  financials_json: Dict[str, Any],
+  user_message: str,
+) -> Optional[Dict[str, Any]]:
+  """The REVERSE of _detect_percent_vs_dollar_conflict (CW-009 checkpoint-a
+  gap): when the router reads an unmarked bare figure as DOLLARS and writes
+  a cost total ("we're at about twelve" -> marketing_total_year1=12,000),
+  no percent field is ever written, so the forward detector cannot run.
+  Fires ONLY when the client marked no unit, a percent-shaped raw figure
+  (<=100) in their message is what the router scaled into the total
+  (founder shorthand: n -> $n,000), the percent reading is itself
+  plausible, and the two readings diverge >=3x. Emits the SAME pending
+  kind and shape as the forward detector - one clarifier, one resolution
+  path, direction carried in 'recorded'."""
+  msg = str(user_message or "").lower()
+  if "%" in msg or "percent" in msg or "$" in msg or "dollar" in msg:
+    return None
+  if "thousand" in msg or "grand" in msg or re.search(r"\b\d+(?:\.\d+)?k\b", msg):
+    return None  # explicitly dollar-shaped shorthand
+  revenue = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
+  total = _safe_float(dollar_value) or 0.0
+  if revenue <= 0 or total <= 0:
+    return None
+  raw_number = None
+  for n in _percent_shaped_figures(msg):
+    if abs(total - n * 1000.0) <= max(1.0, 0.005 * total):
+      raw_number = n
+      break
+  if raw_number is None:
+    return None  # the written total didn't come from a percent-shaped figure
+  percent_value = raw_number / 100.0
+  if percent_value < 0.005 or percent_value > 0.5:
+    return None  # the percent alternative is implausible; dollars stand
+  percent_reading = percent_value * revenue
+  bigger, smaller = max(percent_reading, total), min(percent_reading, total)
+  if smaller <= 0 or bigger / smaller < 3.0:
+    return None  # readings agree closely enough that it doesn't matter
+  percent_twin = field_name.replace("_total_year1", "_percent_of_revenue")
+  return {
+    "kind": "percent_vs_dollar",
+    "field": percent_twin,
+    "recorded": "dollars",
+    "stated_value": float(percent_value),
+    "percent_reading_dollars": float(percent_reading),
+    "dollar_reading": float(total),
+    "stated_revenue": float(revenue),
+  }
+
+
 def _basis_clarify_closed_question(pending: Dict[str, Any]) -> str:
   """Deterministic, frame-declared statement of WHAT must be asked. The
   natural phrasing (HOW) comes from the recovery-phrasing helper; this text
@@ -5137,8 +5227,38 @@ def _apply_basis_clarify_resolution(
           f"Thanks — {_format_currency(float(dollars))} a year it is."
         )
     else:
-      # percent (or as-stated): the recorded ratio stands.
-      acknowledgement = "Got it — I'll read that as a percent of revenue."
+      recorded = str(pending.get("recorded") or "percent").strip()
+      if recorded == "dollars" and meant == "percent":
+        # Reverse direction (CW-009): the router recorded DOLLARS; the
+        # client says they meant a percent - write the ratio and re-derive
+        # the total from it.
+        pct = _safe_float(pending.get("stated_value"))
+        revenue = _safe_float(pending.get("stated_revenue")) or 0.0
+        if field_name and pct is not None and revenue > 0:
+          total_field = field_name.replace("_percent_of_revenue", "_total_year1")
+          next_financials[field_name] = float(pct)
+          next_financials[total_field] = float(pct) * revenue
+          if total_field == "marketing_total_year1":
+            next_financials = _sync_marketing_field_family(
+              financials_json=next_financials,
+              financials_year1_json=next_year1,
+              marketing_model_json={},
+            )
+          acknowledgement = (
+            f"Got it — {pct * 100:.0f}% of revenue, about "
+            f"{_format_currency(float(pct) * revenue)} a year."
+          )
+        else:
+          acknowledgement = "Got it — I'll read that as a percent of revenue."
+      elif recorded == "dollars":
+        # as-stated: the recorded dollar total stands.
+        kept = _safe_float(pending.get("dollar_reading")) or 0.0
+        acknowledgement = (
+          f"Got it — I'll keep that as {_format_currency(kept)} a year."
+        )
+      else:
+        # percent (or as-stated): the recorded ratio stands.
+        acknowledgement = "Got it — I'll read that as a percent of revenue."
     next_financials.pop("_basis_clarify_pending", None)
     next_financials.pop("_basis_clarify_resolution", None)
     return next_financials, next_year1, acknowledgement
@@ -5566,6 +5686,7 @@ def _normalize_financials_router_patch(
         "revenue_driver": _detect_revenue_driver_basis_conflict,
         "stage_amount": _detect_stage_amount_basis_conflict,
         "percent_vs_dollar": _detect_percent_vs_dollar_conflict,
+        "dollar_vs_percent": _detect_dollar_vs_percent_conflict,
       }
       _gate_ctx = {
         "financials_json": next_financials,
@@ -11118,6 +11239,7 @@ def post_intake_consult_handler(*, app, request):
             "revenue_driver": _detect_revenue_driver_basis_conflict,
             "stage_amount": _detect_stage_amount_basis_conflict,
             "percent_vs_dollar": _detect_percent_vs_dollar_conflict,
+            "dollar_vs_percent": _detect_dollar_vs_percent_conflict,
           }
           _gate_ctx = {
             "financials_json": financials_json or {},

@@ -119,11 +119,25 @@ def gate_numeric(
       pending = det["revenue_driver"](
         ctx.get("financials_json") or {}, ctx.get("financials_year1_json") or {}
       )
-    elif cls == "annual" and field.endswith("_total_year1") and det.get("stage_amount"):
-      pending = det["stage_amount"](
-        field_name=field.rsplit(".", 1)[-1],
-        financials_json=ctx.get("financials_json") or {},
-      )
+    elif cls == "annual" and field.endswith("_total_year1"):
+      # CW-009 checkpoint-a: percent-vs-dollar must be BIDIRECTIONAL. When
+      # the router reads an unmarked bare figure as dollars, no percent
+      # field is written, so the ratio-class dispatch below never runs -
+      # check the dollar side here for totals that have a percent twin.
+      leaf = field.rsplit(".", 1)[-1]
+      twin = leaf.replace("_total_year1", "_percent_of_revenue")
+      if twin != leaf and det.get("dollar_vs_percent"):
+        pending = det["dollar_vs_percent"](
+          field_name=leaf,
+          dollar_value=float(value),
+          financials_json=ctx.get("financials_json") or {},
+          user_message=user_message,
+        )
+      if not pending and det.get("stage_amount"):
+        pending = det["stage_amount"](
+          field_name=leaf,
+          financials_json=ctx.get("financials_json") or {},
+        )
     elif cls == "ratio" and field.endswith("_percent_of_revenue") and det.get("percent_vs_dollar"):
       pending = det["percent_vs_dollar"](
         field_name=field.rsplit(".", 1)[-1],
