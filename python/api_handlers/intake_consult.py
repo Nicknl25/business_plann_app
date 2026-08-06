@@ -5149,6 +5149,24 @@ def _message_figures(message: str) -> List[float]:
   return out
 
 
+def _find_numeric_leaf_value(obj: Any, leaf: str) -> Optional[float]:
+  """First numeric value stored under `leaf` anywhere in a JSON-ish
+  structure (dicts/lists, e.g. lob_models products)."""
+  if isinstance(obj, dict):
+    for k, v in obj.items():
+      if str(k) == leaf and isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+      found = _find_numeric_leaf_value(v, leaf)
+      if found is not None:
+        return found
+  elif isinstance(obj, list):
+    for item in obj:
+      found = _find_numeric_leaf_value(item, leaf)
+      if found is not None:
+        return found
+  return None
+
+
 _DRIVER_LEVER_LEAVES = (
   "unit_price",
   "units_per_period_capacity",
@@ -5187,10 +5205,17 @@ def _lever_value_derivable(
   elif leaf == "operating_periods_per_year":
     cands = list(figs)
   elif leaf == "utilization_rate":
+    # CW-012 (a): "one" from "my one-a-month guess" legitimized
+    # utilization 1.0 via the old raw f<=1.0 branch - the synthetic
+    # tooth message had no figure equal to 1.0 so teeth passed while
+    # live failed. Bare small integers are counts or number words,
+    # never utilization statements: accept only non-integer decimals
+    # ("0.75"), percent-shaped figures above 2 ("75" -> 0.75), and
+    # ratios of two stated figures (did 16 / turns 22 -> 72.7%).
     for f in figs:
-      if f <= 1.0:
+      if f <= 1.0 and abs(f - round(f)) > 1e-9:
         cands.append(f)
-      if 1.0 < f <= 100.0:
+      if 2.0 < f <= 100.0:
         cands.append(f / 100.0)
     for a in figs:
       for b in figs:
@@ -5254,13 +5279,58 @@ def _reconcile_driver_correction(
           p_after[leaf] = old_v
           reverted.append((leaf, new_v, old_v))
       if touched_here:
-        changed_products.append({"before": p_before, "after": p_after})
+        changed_products.append(
+          {"before": p_before, "after": p_after, "lob_index": lob_i, "product_index": p_i}
+        )
   if not changed_products:
+    # CW-012 turn-115 shape: the router model rounds the asked value to
+    # what is ALREADY stored (2.5 -> 2), so no product is touched at all
+    # and the correction vanishes without a trace - four differently-
+    # worded asks failed this way. When the message carries a coherent
+    # triplet against a product's KEPT price and utilization (count x
+    # price x util ~= stated dollars) and that product's current stream
+    # MISSES the stated dollars, land capacity = count / periods here.
+    # Three cohering numbers against stored values is a strong enough
+    # fingerprint that unrelated financial answers never match.
+    count_figs = [f for f in figures if 1.0 < f <= 2000.0 and abs(f - round(f)) < 1e-6]
+    dollar_figs = [f for f in figures if f >= 1000.0]
+    for lob_i, lob_after in enumerate(after_lobs):
+      if not isinstance(lob_after, dict):
+        continue
+      for p_i, p_after in enumerate(lob_after.get("products") or []):
+        if not isinstance(p_after, dict):
+          continue
+        price0 = _safe_float(p_after.get("unit_price")) or 0.0
+        periods0 = _safe_float(p_after.get("operating_periods_per_year")) or 12.0
+        util0 = _safe_float(p_after.get("utilization_rate"))
+        util0 = util0 if util0 and 0.0 < util0 <= 1.0 else 1.0
+        cap0 = _safe_float(p_after.get("units_per_period_capacity")) or 0.0
+        stream0 = price0 * cap0 * periods0 * util0
+        if price0 <= 0:
+          continue
+        for target in dollar_figs:
+          if stream0 > 0 and abs(stream0 - target) / target <= 0.05:
+            continue  # already coherent; nothing to land
+          for count in count_figs:
+            if abs(count * price0 * util0 - target) / target <= 0.02:
+              p_after["units_per_period_capacity"] = count / periods0
+              name0 = str(p_after.get("product_name") or p_after.get("unit_name") or "that side").strip()
+              new_stream = price0 * (count / periods0) * periods0 * util0
+              return ops_after, {
+                "reverted": [],
+                "confirm": None,
+                "stream_note": (
+                  f" Your {name0} side now models at about "
+                  f"{_format_currency(new_stream)} a year against the "
+                  f"{_format_currency(target)} you reported."
+                ),
+              }
     return ops_after, None
   # Stream arithmetic for the (single) corrected product - the client
   # thinks in dollars, so the ack must too.
   note: Dict[str, Any] = {"reverted": reverted, "stream_note": "", "confirm": None}
-  p = changed_products[0]["after"]
+  changed = changed_products[0]
+  p = changed["after"]
   price = _safe_float(p.get("unit_price")) or 0.0
   cap = _safe_float(p.get("units_per_period_capacity")) or 0.0
   periods = _safe_float(p.get("operating_periods_per_year")) or 12.0
@@ -5271,11 +5341,38 @@ def _reconcile_driver_correction(
     return ops_after, note
   name = str(p.get("product_name") or p.get("unit_name") or "that side").strip()
   stated_candidates = [f for f in figures if f >= 1000.0]
-  anchor = None
-  for f in stated_candidates:
-    if abs(stream - f) / f <= 0.05:
-      anchor = f
-      break
+
+  def _find_anchor() -> Optional[float]:
+    for f in stated_candidates:
+      if abs(stream - f) / f <= 0.05:
+        return f
+    return None
+
+  anchor = _find_anchor()
+  if anchor is None and price > 0 and util > 0 and periods > 0:
+    # (e) DETERMINISTIC CAPACITY LANDING (CW-012 blocker): the router
+    # MODEL rounds fractional capacity - 2.5/period became 2 across
+    # three differently-worded asks; there is no code coercion, so
+    # prompt-nudging cannot fix it. When the client's own numbers
+    # cohere - a stated annual count F times price times the KEPT
+    # utilization matches a stated dollar figure D - the capacity
+    # arithmetic runs HERE: capacity = F / periods. GPT interprets
+    # language; Python does the math.
+    count_figs = [
+      f for f in figures if 1.0 < f <= 2000.0 and abs(f - round(f)) < 1e-6
+    ]
+    for target in stated_candidates:
+      hit = False
+      for count in count_figs:
+        if abs(count * price * util - target) / target <= 0.02:
+          p["units_per_period_capacity"] = count / periods
+          cap = count / periods
+          stream = price * cap * periods * util
+          anchor = target
+          hit = True
+          break
+      if hit:
+        break
   if anchor is not None:
     note["stream_note"] = (
       f" Your {name} side now models at about {_format_currency(stream)} a year "
@@ -5294,13 +5391,23 @@ def _reconcile_driver_correction(
       util_needed = miss / (price * cap * periods)
       if 0.0 < util_needed <= 1.0:
         # RARE branch by construction: the client's own figures disagree
-        # beyond tolerance - ask, never silently pick a winner.
+        # beyond tolerance - ask, never silently pick a winner. (c): the
+        # question travels with a pending frame so the client's "yes"
+        # (or a restated percent) LANDS the proposed value structurally
+        # - CW-012's "Yes - 75%" changed nothing because nothing routed
+        # the answer.
         note["confirm"] = (
           f" One check: with those numbers the {name} side models at about "
           f"{_format_currency(stream)} a year, but you mentioned "
           f"{_format_currency(miss)} - to hit that I'd put utilization at "
           f"about {util_needed:.0%}. Does that look right?"
         )
+        note["pending_frame"] = {
+          "lob_index": int(changed["lob_index"]),
+          "product_index": int(changed["product_index"]),
+          "field": "utilization_rate",
+          "proposed": float(util_needed),
+        }
       else:
         note["stream_note"] = (
           f" Your {name} side now models at about {_format_currency(stream)} a year."
@@ -5308,6 +5415,40 @@ def _reconcile_driver_correction(
     else:
       note["stream_note"] = (
         f" Your {name} side now models at about {_format_currency(stream)} a year."
+      )
+  # (d) figure-coverage backstop: a large stated figure that ended up
+  # matched by NOTHING - no kept lever value, no stream, no anchor - is
+  # surfaced instead of silently dropped (CW-012: "you took the 8,000,
+  # you kept the old capacity" - the 30 and the 180,000 both vanished).
+  if note.get("confirm") is None:
+    used = {anchor} if anchor is not None else set()
+    covered_vals = [price, cap, cap * periods, util * 100.0, periods, stream]
+    uncovered: List[float] = []
+    for f in figures:
+      if f < 2.0 or (f in used if used else False):
+        continue
+      if f < 1000.0 and abs(f - round(f)) > 1e-6:
+        continue
+      if any(cv > 0 and abs(f - cv) / max(cv, 1e-9) <= 0.02 for cv in covered_vals):
+        continue
+      if f >= 1000.0 and any(
+        abs(f - sc) / sc <= 0.02 for sc in stated_candidates if sc == (anchor or 0)
+      ):
+        continue
+      if f >= 1000.0 or (2.0 <= f <= 2000.0 and abs(f - round(f)) < 1e-6):
+        if f >= 1000.0 and anchor is not None and abs(f - anchor) / anchor <= 0.02:
+          continue
+        uncovered.append(f)
+    # Figures that legitimately describe OTHER parts of the business
+    # (revenue, other streams) will appear here too - only flag when the
+    # correction's own arithmetic left something visibly unused, and cap
+    # the list to avoid interrogation.
+    if uncovered and len(uncovered) <= 2 and note.get("stream_note") and anchor is None:
+      vals = " and ".join(
+        _format_currency(v) if v >= 1000.0 else f"{v:g}" for v in uncovered[:2]
+      )
+      note["stream_note"] += (
+        f" (I didn't end up using {vals} - if that should change the model, tell me where.)"
       )
   return ops_after, note
 
@@ -11447,6 +11588,35 @@ def post_intake_consult_handler(*, app, request):
         "people": baseline_people_json,
         "market": json.loads(json.dumps(market_json)) if market_json else {},
       }
+      # (c) A pending disclose-and-confirm routes STRUCTURALLY: an
+      # affirmation (or a restated percent matching the proposal) lands
+      # the proposed value before the patch applies, so the receipt
+      # captures it as a real write. CW-012: "Yes - 75%" changed nothing
+      # because only prose carried the question. One-shot: cleared
+      # whatever the answer; a different figure routes normally.
+      _lc_pending = (financials_json or {}).get("_lever_confirm_pending")
+      if isinstance(_lc_pending, dict):
+        financials_json = dict(financials_json or {})
+        financials_json.pop("_lever_confirm_pending", None)
+        try:
+          _lc_msg = str(message or "").strip().lower()
+          _lc_prop = _safe_float(_lc_pending.get("proposed"))
+          _lc_affirm = bool(re.match(
+            r"^\s*(yes|yep|yeah|right|correct|exactly|that'?s right|sounds right|looks right)\b",
+            _lc_msg,
+          ))
+          _lc_restated = _lc_prop is not None and any(
+            f > 0 and (abs(f / 100.0 - _lc_prop) <= 0.02 or abs(f - _lc_prop) <= 0.02)
+            for f in _message_figures(_lc_msg)
+          )
+          if (_lc_affirm or _lc_restated) and _lc_prop is not None:
+            _lc_lobs = (ops_json or {}).get("lob_models") or []
+            _lc_prod = (_lc_lobs[int(_lc_pending["lob_index"])].get("products") or [])[
+              int(_lc_pending["product_index"])
+            ]
+            _lc_prod[str(_lc_pending.get("field") or "utilization_rate")] = float(_lc_prop)
+        except Exception:
+          pass
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -11467,8 +11637,37 @@ def post_intake_consult_handler(*, app, request):
           ops_after=ops_json,
           user_message=str(message or ""),
         )
+        if isinstance(_driver_note, dict) and _driver_note.get("pending_frame"):
+          financials_json = dict(financials_json or {})
+          financials_json["_lever_confirm_pending"] = _driver_note["pending_frame"]
       except Exception:
         _driver_note = None
+      # (b) current_revenue derivability guard (CW-012): an edit-turn
+      # revenue write must be the CLIENT's number - the router asserted
+      # "$996,000 you reported" for a total it computed itself (client
+      # said $880,000). A revenue value matching no stated figure
+      # reverts; the hold/propagate classifier owns revenue implied by
+      # driver changes.
+      try:
+        _rev_before = _safe_float((_receipt_before.get("financials") or {}).get("current_revenue"))
+        _rev_after = _safe_float((financials_json or {}).get("current_revenue"))
+        if (
+          _rev_before is not None and _rev_after is not None
+          and abs(_rev_after - _rev_before) > max(1e-6, 0.001 * abs(_rev_before))
+        ):
+          _rev_figs = _message_figures(str(message or ""))
+          _rev_ok = any(
+            f > 0 and (
+              abs(_rev_after - f) / f <= 0.02
+              or abs(_rev_after - f * 1000.0) / (f * 1000.0) <= 0.02
+            )
+            for f in _rev_figs
+          )
+          if not _rev_ok:
+            financials_json = dict(financials_json or {})
+            financials_json["current_revenue"] = _rev_before
+      except Exception:
+        pass
       try:
         from client_intake_and_finmo.capture_receipt import numeric_receipt, receipt_summary  # type: ignore
 
@@ -12062,11 +12261,46 @@ def post_intake_consult_handler(*, app, request):
         if all((ops_confirmed, market_confirmed, people_confirmed, financials_confirmed)):
           # Layer 2: the re-close acknowledgment is receipt-first - it may
           # only claim what the write-set diff shows actually landed.
-          ack_fallback = (
-            f"Updated: {_edit_receipt_text}."
-            if _edit_receipt_text
-            else (str(router_msg or "").strip() or "Got it - updated.")
+          # (f) CW-012: when the receipt is EMPTY but writes were
+          # requested, router prose is the one voice that can still lie
+          # ("I'll switch to 2.5" while nothing changed) - the say-do
+          # note outranks it. Prose only speaks when nothing was asked.
+          _requested_but_empty = bool(
+            isinstance(_edit_receipt, dict)
+            and not (_edit_receipt.get("written") or [])
+            and (_edit_receipt.get("dropped") or [])
           )
+          if _edit_receipt_text:
+            ack_fallback = f"Updated: {_edit_receipt_text}."
+          elif _requested_but_empty:
+            # A dropped request whose STORED value already equals what
+            # was asked is satisfied, not failed - a restatement acks as
+            # agreement, never as "couldn't record".
+            _unsat_leaves: List[str] = []
+            _state_now = {"financials": financials_json or {}, "ops": ops_json or {}}
+            for _fpath in (_edit_receipt.get("dropped") or []):
+              _leafn = str(_fpath).rsplit(".", 1)[-1]
+              _want = None
+              for _pk, _pv in (patch or {}).items():
+                if str(_pk).rsplit(".", 1)[-1] == _leafn and isinstance(_pv, (int, float)):
+                  _want = float(_pv)
+                  break
+              _have = _find_numeric_leaf_value(_state_now, _leafn)
+              if not (
+                _want is not None and _have is not None
+                and abs(_have - _want) <= max(1e-9, 0.005 * abs(_want))
+              ):
+                _unsat_leaves.append(_leafn.replace("_", " "))
+            if _unsat_leaves:
+              ack_fallback = (
+                "I wasn't able to record "
+                + " and ".join(_unsat_leaves[:3])
+                + " just now - could you give me that once more?"
+              )
+            else:
+              ack_fallback = "Got it - that matches what I already have on file."
+          else:
+            ack_fallback = str(router_msg or "").strip() or "Got it - updated."
           # CW-011 #2: a structural correction narrates DOLLARS the client
           # can verify (their stream), never internal lever values alone.
           if isinstance(_driver_note, dict):
