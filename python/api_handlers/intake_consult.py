@@ -5167,6 +5167,80 @@ def _find_numeric_leaf_value(obj: Any, leaf: str) -> Optional[float]:
   return None
 
 
+def _completion_model_input_tripwire(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_value: Optional[Dict[str, Any]],
+  people_value: Optional[Dict[str, Any]],
+  financials_value: Optional[Dict[str, Any]],
+  financials_year1_value: Optional[Dict[str, Any]],
+  marketing_value: Optional[Dict[str, Any]],
+  logger: Any,
+  draft_id: str = "",
+) -> Optional[Tuple[str, str]]:
+  """Completion-time model-input contract check (CW-013), corrected per
+  CW-014. Returns (label, detail) when completion must HOLD; None to
+  proceed.
+
+  HOLD only for SEMANTIC contract violations - the sections-row class
+  (mis-scaled units, the G&A percent-points crash this exists to catch
+  turns early). Identity fields and assembly preconditions skip with a
+  log: the intake turn handler keys the business name as "name" while
+  the system-run path keys it "business_name" - reading only the latter
+  made an empty name a deterministic four-turn client trap (Bluff City).
+  The name resolves through the same fallback chain production data
+  actually offers."""
+  try:
+    from client_intake_and_finmo.finmo_bridge import build_python_model_input_json  # type: ignore
+    from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+      SIDE_PRODUCER,
+      validate_model_input_at_boundary,
+    )
+
+    name = (
+      str((business_facts or {}).get("business_name") or "").strip()
+      or str((business_facts or {}).get("name") or "").strip()
+      or str((ops_value or {}).get("business_name") or "").strip()
+    )
+    ppe = _safe_float((financials_value or {}).get("initial_assets")) or 0.0
+    model_input = build_python_model_input_json(
+      business_facts={**dict(business_facts or {}), "business_name": name},
+      ops_json=ops_value or {},
+      people_json=people_value or {},
+      financials_json=financials_value or {},
+      financials_year1_json=financials_year1_value or {},
+      marketing_model_json=marketing_value or {},
+      forecast_starting_ppe=ppe,
+      maintenance_rate=0.05,
+      controller_input_seed=[],
+      forecast_quarters=[],
+      business_name=name,
+    )
+    validate_model_input_at_boundary(model_input, side=SIDE_PRODUCER)
+  except Exception as exc:
+    exc_name = type(exc).__name__
+    if "ContractViolation" in exc_name and "sections." in str(exc):
+      try:
+        logger.error(
+          "MODEL_INPUT_CONTRACT_FAILED_AT_COMPLETION draft=%s: %s",
+          draft_id, str(exc)[:400],
+        )
+      except Exception:
+        pass
+      return (
+        "model_input_contract",
+        f"completion-time model-input contract failure: {str(exc)[:300]}",
+      )
+    try:
+      logger.warning(
+        "completion-time model-input tripwire skipped draft=%s: %s: %s",
+        draft_id, exc_name, str(exc)[:200],
+      )
+    except Exception:
+      pass
+  return None
+
+
 # Fields the derivability guard exempts: derived twins and family fields
 # recomputed by the sync tails (guarding them would fight the syncs), and
 # lever-delta fields owned by the walk's own applier in section.py.
@@ -10561,56 +10635,30 @@ def post_intake_consult_handler(*, app, request):
       confirmations_value: Optional[Dict[str, bool]] = None,
       flat_fields_value: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-      # CW-013 PRODUCER-SIDE TRIPWIRE: the intake may not complete on a
-      # draft the model-input contract would reject at submit. Stonewater
-      # completed cleanly, submitted, and crashed on a G&A ratio in
-      # percent-points - a full persona run burned discovering what this
-      # check now catches turns earlier. Failure raises the same honest
-      # hold as any judgment failure (never a verdict, never a silent
-      # completion on an unbuildable draft).
-      try:
-        from client_intake_and_finmo.finmo_bridge import build_python_model_input_json  # type: ignore
-        from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
-          SIDE_PRODUCER,
-          validate_model_input_at_boundary,
+      # CW-013 PRODUCER-SIDE TRIPWIRE (CW-014-corrected): the intake may
+      # not complete on a draft the model-input contract would reject at
+      # submit for a SEMANTIC violation (mis-scaled units - the G&A
+      # percent-points crash). Extracted to a module function so tests
+      # exercise the exact production inputs; identity/assembly gaps
+      # skip-not-hold (a missing name must never trap a client - CW-014
+      # held Bluff City four turns because this dict keys the name as
+      # "name" while the tripwire read "business_name").
+      _tw = _completion_model_input_tripwire(
+        business_facts=business_facts,
+        ops_value=ops_value,
+        people_value=people_value,
+        financials_value=financials_value,
+        financials_year1_value=financials_year1_value,
+        marketing_value=marketing_value,
+        logger=app.logger,
+        draft_id=str(draft_id),
+      )
+      if _tw is not None:
+        from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
+          CoherenceJudgmentUnavailable as _TwHold,
         )
 
-        _tw_ppe = _safe_float((financials_value or {}).get("initial_assets")) or 0.0
-        _tw_mi = build_python_model_input_json(
-          business_facts=dict(business_facts or {}),
-          ops_json=ops_value or {},
-          people_json=people_value or {},
-          financials_json=financials_value or {},
-          financials_year1_json=financials_year1_value or {},
-          marketing_model_json=marketing_value or {},
-          forecast_starting_ppe=_tw_ppe,
-          maintenance_rate=0.05,
-          controller_input_seed=[],
-          forecast_quarters=[],
-          business_name=str((business_facts or {}).get("business_name") or ""),
-        )
-        validate_model_input_at_boundary(_tw_mi, side=SIDE_PRODUCER)
-      except Exception as _tw_exc:
-        _tw_name = type(_tw_exc).__name__
-        if "ContractViolation" in _tw_name:
-          from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-            CoherenceJudgmentUnavailable as _TwHold,
-          )
-
-          app.logger.error(
-            "MODEL_INPUT_CONTRACT_FAILED_AT_COMPLETION draft=%s: %s",
-            draft_id, str(_tw_exc)[:400],
-          )
-          raise _TwHold(
-            "model_input_contract",
-            f"completion-time model-input contract failure: {str(_tw_exc)[:300]}",
-          )
-        # Assembly preconditions (missing PPE etc.) are not contract
-        # verdicts - log and let completion proceed as before.
-        app.logger.warning(
-          "completion-time model-input tripwire skipped draft=%s: %s: %s",
-          draft_id, _tw_name, str(_tw_exc)[:200],
-        )
+        raise _TwHold(*_tw)
       planning_run_json = _build_intake_complete_planning_run_payload()
       realism_memo_json = generate_realism_memo_payload_safe(
         ops_json=ops_value,
