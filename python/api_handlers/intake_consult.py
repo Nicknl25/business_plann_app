@@ -5167,6 +5167,76 @@ def _find_numeric_leaf_value(obj: Any, leaf: str) -> Optional[float]:
   return None
 
 
+# Fields the derivability guard exempts: derived twins and family fields
+# recomputed by the sync tails (guarding them would fight the syncs), and
+# lever-delta fields owned by the walk's own applier in section.py.
+_ROUTER_WRITE_GUARD_EXEMPT = {
+  "marketing_percent_of_revenue",
+  "cogs_percent_of_revenue",
+  "cogs_total_year1",
+  "current_cogs",
+  "current_payroll",
+  "payroll_total_year1",
+  "marketing_adjustment",
+  "payroll_adjustment",
+  "cogs_adjustment",
+  "funding_split_debt_share",
+  "confidence",
+}
+
+
+def _guard_underivable_financials_writes(
+  *,
+  fin_before: Dict[str, Any],
+  fin_after: Dict[str, Any],
+  user_message: str,
+) -> Dict[str, Any]:
+  """CW-013 gate-overwrite ruling, generalized (the Stonewater turn-105
+  event): on a correction turn the router emitted a 21-field financials
+  restatement with values it rescaled by the revenue factor; the
+  disputable-fields whitelist let marketing_total_year1=13,700 through
+  and the ack attributed it to the client. The ruling: a client-stated
+  financials value may only change to a number DERIVABLE from the
+  client's own words - raw, founder-k-scaled, or unit-converted
+  (x12/52/4 family). Anything else reverts BEFORE the receipt exists,
+  so it can never be echoed, attributed, or persisted. First captures
+  (no prior value) stay with the normal applier rules; derived-family
+  fields are exempt (their syncs own them); walk machine patches apply
+  in section.py and never pass through here."""
+  figures = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
+  out = fin_after
+  for key, after_v in list((fin_after or {}).items()):
+    if not isinstance(after_v, (int, float)) or isinstance(after_v, bool):
+      continue
+    name = str(key)
+    if name.startswith(("_", "baseline_")) or name in _ROUTER_WRITE_GUARD_EXEMPT:
+      continue
+    before_v = _safe_float((fin_before or {}).get(name))
+    if before_v is None:
+      continue
+    v = float(after_v)
+    if abs(v - before_v) <= max(1e-6, 0.001 * abs(before_v)):
+      continue
+    # 0.5% tolerance: the router echoes stated numbers near-exactly, and
+    # 2% let 873,000 pass as "216,000 x 4" (1.04% off) in the Stonewater
+    # replay. Derivability is value-based and field-blind - a figure
+    # stated for one thing can legitimize a write to another (inventory
+    # 12,000 vs "$12,000 each"); the correction-scope whitelist upstream
+    # remains the field-level narrowing.
+    derivable = any(
+      any(
+        abs(v - c) / max(abs(c), 1e-9) <= 0.005
+        for c in (f, f * 1000.0, f * 12.0, f / 12.0, f * 52.0, f / 52.0, f * 4.0, f / 4.0)
+      )
+      for f in figures
+    )
+    if not derivable:
+      if out is fin_after:
+        out = dict(fin_after)
+      out[name] = before_v
+  return out
+
+
 _DRIVER_LEVER_LEAVES = (
   "unit_price",
   "units_per_period_capacity",
@@ -11692,30 +11762,19 @@ def post_intake_consult_handler(*, app, request):
           financials_json["_lever_confirm_pending"] = _driver_note["pending_frame"]
       except Exception:
         _driver_note = None
-      # (b) current_revenue derivability guard (CW-012): an edit-turn
-      # revenue write must be the CLIENT's number - the router asserted
-      # "$996,000 you reported" for a total it computed itself (client
-      # said $880,000). A revenue value matching no stated figure
-      # reverts; the hold/propagate classifier owns revenue implied by
-      # driver changes.
+      # GENERALIZED derivability guard (CW-013 gate-overwrite ruling):
+      # supersedes the CW-012 current_revenue-only guard - the live
+      # Stonewater event proved the narrow scope: the same guard caught
+      # the router's mangled revenue (873,000) while marketing_total_
+      # year1=13,700 slipped through the disputable whitelist one field
+      # over. Every client-stated financials write now passes the same
+      # derivability test before the receipt is built.
       try:
-        _rev_before = _safe_float((_receipt_before.get("financials") or {}).get("current_revenue"))
-        _rev_after = _safe_float((financials_json or {}).get("current_revenue"))
-        if (
-          _rev_before is not None and _rev_after is not None
-          and abs(_rev_after - _rev_before) > max(1e-6, 0.001 * abs(_rev_before))
-        ):
-          _rev_figs = _message_figures(str(message or ""))
-          _rev_ok = any(
-            f > 0 and (
-              abs(_rev_after - f) / f <= 0.02
-              or abs(_rev_after - f * 1000.0) / (f * 1000.0) <= 0.02
-            )
-            for f in _rev_figs
-          )
-          if not _rev_ok:
-            financials_json = dict(financials_json or {})
-            financials_json["current_revenue"] = _rev_before
+        financials_json = _guard_underivable_financials_writes(
+          fin_before=_receipt_before.get("financials") or {},
+          fin_after=financials_json or {},
+          user_message=str(message or ""),
+        )
       except Exception:
         pass
       try:
