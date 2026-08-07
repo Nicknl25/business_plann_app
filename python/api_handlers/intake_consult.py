@@ -5289,6 +5289,20 @@ def _completion_model_input_tripwire(
       or str((ops_value or {}).get("business_name") or "").strip()
     )
     ppe = _safe_float((financials_value or {}).get("initial_assets")) or 0.0
+    # Ledger 1d conversion: the tripwire builds with the SAME
+    # Python-derived maintenance_rate the production system-run uses
+    # (NAICS cascade w/ conservative default) - a hardcoded 0.05 here
+    # was checker-vs-production drift, the CW-014 lesson shape.
+    try:
+      _mr_decision = _derive_maintenance_capex_percent_from_naics(
+        business_facts=business_facts or {},
+        ops_json=ops_value or {},
+        financials_json=financials_value or {},
+        financials_year1_json=financials_year1_value or {},
+      )
+      maintenance_rate = float(_mr_decision.get("maintenance_rate") or 0.05)
+    except Exception:
+      maintenance_rate = 0.05
     model_input = build_python_model_input_json(
       business_facts={**dict(business_facts or {}), "business_name": name},
       ops_json=ops_value or {},
@@ -5297,7 +5311,7 @@ def _completion_model_input_tripwire(
       financials_year1_json=financials_year1_value or {},
       marketing_model_json=marketing_value or {},
       forecast_starting_ppe=ppe,
-      maintenance_rate=0.05,
+      maintenance_rate=maintenance_rate,
       controller_input_seed=[],
       forecast_quarters=[],
       business_name=name,
@@ -5667,8 +5681,16 @@ def _reconcile_driver_correction(
     # MISSES the stated dollars, land capacity = count / periods here.
     # Three cohering numbers against stored values is a strong enough
     # fingerprint that unrelated financial answers never match.
-    count_figs = [f for f in figures if 1.0 < f <= 2000.0 and abs(f - round(f)) < 1e-6]
-    dollar_figs = [f for f in figures if f >= 1000.0]
+    # Ledger 1b/1c conversions (approved 2026-08-07): count-shaped and
+    # dollar-shaped are DERIVED per product, never absolute cutoffs. A
+    # count is any integral figure strictly below the dollar target it
+    # would explain (the 2%% three-way coherence is the real
+    # fingerprint - the old <=2000 cap only subtracted real businesses,
+    # e.g. 5,000 deliveries). A dollar target is any figure at or above
+    # the product's own stored unit price (a stream total cannot be
+    # below one unit - the old >=$1,000 floor made sub-$1,000 streams
+    # invisible).
+    integral_figs = [f for f in figures if f > 1.0 and abs(f - round(f)) < 1e-6]
     for lob_i, lob_after in enumerate(after_lobs):
       if not isinstance(lob_after, dict):
         continue
@@ -5683,9 +5705,10 @@ def _reconcile_driver_correction(
         stream0 = price0 * cap0 * periods0 * util0
         if price0 <= 0:
           continue
-        for target in dollar_figs:
+        for target in (f for f in figures if f >= max(1.0, price0)):
           if stream0 > 0 and abs(stream0 - target) / target <= 0.05:
             continue  # already coherent; nothing to land
+          count_figs = [f for f in integral_figs if f < target]
           for count in count_figs:
             if abs(count * price0 * util0 - target) / target <= 0.02:
               p_after["units_per_period_capacity"] = count / periods0
@@ -5761,7 +5784,9 @@ def _reconcile_driver_correction(
   if stream <= 0:
     return ops_after, note
   name = str(p.get("product_name") or p.get("unit_name") or "that side").strip()
-  stated_candidates = [f for f in figures if f >= 1000.0]
+  # Ledger 1c conversion: dollar-shaped floor is the product's own unit
+  # price (derived), not an absolute $1,000.
+  stated_candidates = [f for f in figures if f >= max(1.0, price)]
 
   def _find_anchor() -> Optional[float]:
     for f in stated_candidates:
@@ -5779,12 +5804,12 @@ def _reconcile_driver_correction(
     # utilization matches a stated dollar figure D - the capacity
     # arithmetic runs HERE: capacity = F / periods. GPT interprets
     # language; Python does the math.
-    count_figs = [
-      f for f in figures if 1.0 < f <= 2000.0 and abs(f - round(f)) < 1e-6
+    integral_figs = [
+      f for f in figures if f > 1.0 and abs(f - round(f)) < 1e-6
     ]
     for target in stated_candidates:
       hit = False
-      for count in count_figs:
+      for count in (f for f in integral_figs if f < target):
         if abs(count * price * util - target) / target <= 0.02:
           p["units_per_period_capacity"] = count / periods
           cap = count / periods

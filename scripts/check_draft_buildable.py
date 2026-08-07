@@ -73,19 +73,37 @@ def main() -> int:
 
   business_facts = {"business_name": row.get("business_name")}
   fin_json = _load(row.get("financials_json"))
+  ops_json = _load(row.get("operating_model_json"))
   try:
     starting_ppe = float(fin_json.get("initial_assets") or 0.0)
   except (TypeError, ValueError):
     starting_ppe = 0.0
+  # Ledger 1d: use the SAME Python-derived maintenance_rate production
+  # uses (NAICS cascade w/ conservative default), never a hardcoded 0.05
+  # - checker-vs-production drift is the CW-014 lesson shape.
+  try:
+    from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
+      _derive_maintenance_capex_percent_from_naics,
+    )
+    maintenance_rate = float(
+      _derive_maintenance_capex_percent_from_naics(
+        business_facts=business_facts,
+        ops_json=ops_json,
+        financials_json=fin_json,
+        financials_year1_json=_load(row.get("financials_year1_json")),
+      ).get("maintenance_rate") or 0.05
+    )
+  except Exception:
+    maintenance_rate = 0.05
   model_input = build_python_model_input_json(
     business_facts=business_facts,
-    ops_json=_load(row.get("operating_model_json")),
+    ops_json=ops_json,
     people_json=_load(row.get("people_json")),
     financials_json=fin_json,
     financials_year1_json=_load(row.get("financials_year1_json")),
     marketing_model_json=_load(row.get("marketing_model_json")),
     forecast_starting_ppe=starting_ppe,
-    maintenance_rate=0.05,
+    maintenance_rate=maintenance_rate,
     controller_input_seed=[],
     forecast_quarters=[],
     business_name=str(row.get("business_name") or ""),

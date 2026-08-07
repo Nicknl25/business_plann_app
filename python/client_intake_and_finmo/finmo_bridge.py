@@ -881,8 +881,19 @@ def build_python_finmo_json(
     {"label": "Ending Cash", "values": _series("ending_cash", include_stub=True)},
   ]
   numeric_values = _series("accounting_equation_check", include_stub=True)
-  tolerance = 1.0
-  status_values = ["OK" if abs(value) <= tolerance else "FAIL" for value in numeric_values]
+  # $1 balance-rounding invariant; scale term is a float-noise allowance
+  # only (INTAKE_CONSTANTS_LEDGER 1a) - keeps the workbook status row
+  # consistent with the fatal fail-fast at extreme magnitude.
+  from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
+    accounting_equation_tolerance as _acct_tol,
+  )
+  _asset_scale_values = _series("total_assets", include_stub=True)
+  status_values = [
+    "OK" if abs(value) <= _acct_tol(
+      abs(_asset_scale_values[idx]) if idx < len(_asset_scale_values) else 0.0
+    ) else "FAIL"
+    for idx, value in enumerate(numeric_values)
+  ]
   quarter_rows: List[Dict[str, Any]] = []
   for idx, row in enumerate(quarter_rows_with_stub):
     if not isinstance(row, dict):

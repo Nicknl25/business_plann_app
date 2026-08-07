@@ -8,9 +8,10 @@ disease the verdict-path workstream killed in 2026-07. This ledger lists
 every absolute numeric threshold, tolerance, floor, ceiling, or plausibility
 bound in the intake path with its ruling and reason.
 
-**Status: RESEARCH ARTIFACT — NO CONVERSIONS BUILT.** Section 1 items are
-proposals awaiting Nick's per-item review. Everything in sections 2-3 is
-ruled KEEP with its written reason.
+**Status: RULED AND BUILT.** All four section-1 conversions were approved by
+Nick (2026-08-07) and are now shipped, each with red→green at the scales
+that matter. Everything in sections 2-3 is ruled KEEP with its written
+reason.
 
 **The governing principle**: an intake threshold must be a **true
 invariant**, a **scale-relative ratio**, a **derived bound** (computed from
@@ -21,58 +22,59 @@ plausibility bounds.
 
 ---
 
-## 1. PROPOSED CONVERSIONS — awaiting review, in priority order
+## 1. CONVERTED — approved 2026-08-07, all shipped with red→green
 
-### 1a. Accounting-equation tolerance — $1.00 absolute on float sums (HIGH; fatal check)
+### 1a. Accounting-equation tolerance — `max($1, scale × 1e-8)` (was flat $1; fatal check)
 
-| Site | Constant | Effect |
-|---|---|---|
-| `fail_fast/post_intake_fail_fast/fail_fast.py:1603` `ACCOUNTING_EQUATION_TOLERANCE = 1` | fatal `post_intake_fail_fast_raise` | kills the run |
-| `post_intake_convergence/runtime.py:72` `_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0` | flags accounting-failure quarters | gates the convergence decision |
-| `finmo_bridge.py:884` `tolerance = 1.0` | workbook "OK"/"FAIL" status row | display only (verified — no raise) |
+**THE APPROVED FRAMING (Nick, verbatim requirement)**: *$1 balance-rounding
+invariant preserved; the scale term is a float-noise allowance active only
+at extreme magnitude, NOT a business-relative loosening of the equation.*
+A == L + E is a TRUE INVARIANT and $1 remains the exact tolerance at every
+realistic scale — the relative term exceeds the floor only above ~$100M
+single-quarter magnitude, where float64 summation residue on a *balanced*
+book can itself cross a dollar. Verified: tolerance is exactly $1.00 at
+$2M, $50M, and $100M quarters; a $3 real imbalance at $2M still fails; a
+$50 imbalance at $500M still fails; only the $500M balanced-book $3
+float residue (previously fatal) now passes. Implemented as the shared
+`accounting_equation_tolerance()` in fail_fast.py, used by the fatal
+equation check, the stored-totals companion, the convergence-runtime gate,
+and the workbook OK/FAIL status row (kept consistent with the checks).
 
-**Mechanism**: A − (L+E) is computed from ~15 float components summed per
-side. Float64 residue scales with magnitude — the codebase itself observed
-**1.7e-9 relative residue at $50M quarters** and fixed the identical disease
-at the revenue-formula seam with a hybrid tolerance
-(`REVENUE_DRIVER_FORMULA_TOLERANCE`: `max(0.015, |ref| * 1e-8)`,
-finmo_bridge:1896). At ~$500M-quarter scale the same residue crosses $1 and
-the fatal check fires on arithmetic noise. Dormant at today's client scale;
-structurally guaranteed at large scale — exactly the lease-check shape.
+**Mechanism** (for the record): A − (L+E) is computed from ~15 float
+components summed per side. Float64 residue scales with magnitude — the
+codebase observed **1.7e-9 relative residue at $50M quarters** and fixed the
+identical disease at the revenue-formula seam
+(`REVENUE_DRIVER_FORMULA_TOLERANCE`: `max(0.015, |ref| * 1e-8)`). At
+~$500M-quarter scale the residue crosses $1 and the fatal check fired on
+arithmetic noise — dormant at today's client scale, structurally guaranteed
+at large scale.
 
-**Proposal**: same hybrid, same reasoning as the seam that already learned
-this: `tolerance = max(1.0, total_assets_magnitude * 1e-8)`. The $1 floor
-keeps today's behavior byte-identical for every current business; a genuine
-balance break (dollars, not nano-relative) still fails at any scale.
+### 1b. Triplet-landing count ceiling — CONVERTED (was `f <= 2000` absolute)
 
-### 1b. Triplet-landing count ceiling — `1.0 < f <= 2000.0` absolute (MEDIUM)
+`intake_consult.py` no-touch and anchor-missing landing sites. A count
+candidate is now any integral figure strictly below the dollar target it
+would explain (`f < target`) — the 2% three-way coherence is the real
+fingerprint and is already scale-free. Verified: a "5,000 deliveries a year
+at $180 = $900,000" correction, invisible before, lands capacity 5000/12
+with dollar narration.
 
-`intake_consult.py:5670, 5783, 5859` — a message figure counts as
-count-shaped only up to 2,000. A "five thousand deliveries a year" business
-can never have its triplet landed; the correction dies the Ironbridge way
-(router touches nothing, landing can't fire). **Proposal**: derive the bound
-from the triplet itself — a count candidate is any integral figure strictly
-below the dollar target it would explain (`f < target`); the 2% three-way
-coherence is the real fingerprint and it is already scale-free. The 2000 cap
-adds nothing the coherence doesn't, and subtracts real businesses.
+### 1c. Dollar-figure floor — CONVERTED (was `f >= 1000` absolute)
 
-### 1c. Dollar-figure floor — `f >= 1000.0` absolute (MEDIUM-LOW)
+Dollar-shaped = figure ≥ the product's own stored unit price (a stream
+total cannot be below one unit) — derived, per-product, no constant to
+tune. Verified: a $800/year micro-stream at $4/unit, invisible before,
+lands. The coverage-backstop floors (5851/5855 family) stay as-is per the
+watch-list — their failure mode is a missing nag, never a wrong number.
 
-`intake_consult.py:5671, 5764, 5851, 5855` — a stated stream target below
-$1,000 is invisible to anchoring/landing/coverage. Rare at this product's
-clientele but it is an absolute that doesn't know the business.
-**Proposal**: dollar-shaped = figure ≥ the product's own stored unit price
-(a stream total cannot be below one unit) — derived, per-product, no
-constant to tune.
+### 1d. Completion-tripwire and standalone-checker `maintenance_rate` — CONVERTED (was hardcoded 0.05)
 
-### 1d. Completion-tripwire `maintenance_rate=0.05` (LOW-MEDIUM; consistency)
-
-`intake_consult.py:5300` hardcodes 0.05 into the checker's model-input
-build while the production build derives the rate from the NAICS cohort
-(banded [0.02, 0.15], finmo_bridge). Checker-vs-production divergence is the
-exact CW-014 data-shape lesson. **Proposal**: the tripwire calls the same
-derivation the production path uses (or reads the stored derived rate), so
-green means what it should.
+Both the completion tripwire (`intake_consult.py`) and
+`scripts/check_draft_buildable.py` now call the SAME Python derivation
+production uses (`_derive_maintenance_capex_percent_from_naics`, NAICS
+cascade with conservative default). Verified: Ironbridge's GC NAICS
+(236220) derives 0.02 — a real divergence from the old hardcode — and the
+draft builds clean with it. Checker-vs-production drift was the CW-014
+lesson shape; this closes the seam.
 
 ---
 
@@ -147,14 +149,19 @@ shape, not client numbers.
 
 ---
 
-## 3. Watch-list — kept, revisit on a real business harmed
+## 3. Parked open member — logged firmly, with its resume trigger
+
+| Item | State | Trigger to resume |
+|---|---|---|
+| **Lease check #9 under-payment blind spot** (`post_intake_capital_lease/schedule.py`, precondition `total_principal >= intake_seed`): a schedule whose principal stream NEVER covers the seed skips the term-end check entirely, and no other validator owns the un-closed-by-underpayment class — a lease that structurally never pays off sails through finalize today. Pre-existing, not introduced by the CW-016 tolerance work. | Open, un-built by decision (Nick, 2026-08-07: "don't fix now, but don't let it evaporate") | An under-paying lease schedule appearing in a real run — then it gets its own validator (e.g. horizon-end obligation must be on a trajectory to zero, tolerance from the same derived rounding math) |
+
+## 4. Watch-list — kept, revisit on a real business harmed
 
 | Item | Risk shape |
 |---|---|
 | percent-shaped floor 0.5 (`_percent_shaped_figures`) | a genuine "0.3" percent answer is invisible to percent-vs-dollar detection; no observed case |
 | stage-amount monthly-share ≥ 1% "ordinariness" | a very-low-cost line on a huge business could suppress a real month-vs-year ask; the annual-share arm still guards |
-| check #9 precondition `total_principal >= intake_seed` | an UNDER-paying lease schedule skips the term-end check entirely (pre-existing; the un-closed-by-underpayment class is caught by nothing today — candidate for its own validator if a real case appears) |
-| coverage-figure floors (2.0, sub-$1000 non-integral) | worst case is a missing coverage nag, never a wrong number |
+| coverage-figure floors (2.0, sub-$1000 non-integral, ≤2000 count-shaped in the uncovered-figures nag) | worst case is a missing coverage nag, never a wrong number |
 
 ---
 

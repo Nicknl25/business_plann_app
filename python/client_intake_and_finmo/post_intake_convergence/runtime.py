@@ -41,6 +41,7 @@ from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
   TRANSLATION_TEST_MODE_FAIL_FLAGS,
+  accounting_equation_tolerance,
   post_intake_convergence_test_mode_enabled,
   post_intake_fail_fast_raise,
 )
@@ -240,7 +241,10 @@ def _build_unified_hard_rule_assessment(
     if quarter_index < 1:
       continue
     accounting_gap = abs(float(_safe_float(row.get("accounting_equation_check")) or 0.0))
-    if accounting_gap > _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE:
+    _acct_scale = abs(float(_safe_float(row.get("total_assets")) or 0.0))
+    if accounting_gap > accounting_equation_tolerance(
+      _acct_scale, _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE
+    ):
       accounting_failure_quarters.append(quarter_index)
 
   remaining_hard_issue_codes: List[str] = []

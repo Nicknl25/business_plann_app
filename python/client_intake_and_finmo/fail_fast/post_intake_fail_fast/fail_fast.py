@@ -1602,6 +1602,27 @@ def assert_post_intake_finmo_statement_integrity(
 # downstream stub or rollup loses a row.
 ACCOUNTING_EQUATION_TOLERANCE = 1  # whole-dollar tolerance per iter P3.17 spec
 
+# Float64 sum residue observed in this engine: ~1.7e-9 RELATIVE at $50M
+# quarters (the same measurement that produced finmo_bridge's
+# REVENUE_DRIVER_FORMULA_TOLERANCE hybrid). 1e-8 gives ~6x headroom.
+ACCOUNTING_EQUATION_FLOAT_NOISE_RELATIVE = 1e-8
+
+
+def accounting_equation_tolerance(
+  scale_magnitude: float,
+  floor: float = float(ACCOUNTING_EQUATION_TOLERANCE),
+) -> float:
+  """$1 balance-rounding invariant PRESERVED; the scale term is a
+  float-noise allowance active only at extreme magnitude, NOT a
+  business-relative loosening of the equation (INTAKE_CONSTANTS_LEDGER
+  ruling 1a, approved 2026-08-07). A == L + E is a true invariant and
+  $1 stays the exact tolerance at every realistic scale - the relative
+  term exceeds the floor only above ~$100M single-quarter magnitude,
+  where float64 summation residue on a BALANCED equation can itself
+  cross a dollar. A real imbalance (dollars, not nano-relative) still
+  fails at any scale."""
+  return max(float(floor), abs(float(scale_magnitude)) * ACCOUNTING_EQUATION_FLOAT_NOISE_RELATIVE)
+
 ACCOUNTING_EQUATION_ASSET_FIELDS = (
   "cash",
   "accounts_receivable",
@@ -1656,7 +1677,7 @@ def assert_post_intake_accounting_equation(
     liabilities = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_LIABILITY_FIELDS)
     equity = sum(float(_safe_float(row.get(name)) or 0.0) for name in ACCOUNTING_EQUATION_EQUITY_FIELDS)
     diff = assets - (liabilities + equity)
-    if abs(diff) > float(tolerance):
+    if abs(diff) > accounting_equation_tolerance(assets, float(tolerance)):
       violations.append(
         {
           "quarter_index": quarter,
@@ -1728,7 +1749,9 @@ def assert_post_intake_stored_totals_match_components(
     for label, stored_field, component_sum in checks:
       stored = float(_safe_float(row.get(stored_field)) or 0.0)
       diff = stored - component_sum
-      if abs(diff) > float(tolerance):
+      if abs(diff) > accounting_equation_tolerance(
+        max(abs(stored), abs(component_sum)), float(tolerance)
+      ):
         violations.append(
           {
             "quarter_index": quarter,
