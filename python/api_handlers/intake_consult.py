@@ -5433,6 +5433,248 @@ def _guard_underivable_stage_writes(
   return out
 
 
+_OPS_LEVER_GUARD_LEAVES = (
+  "unit_price",
+  "units_per_week_capacity",
+  "units_per_period_capacity",
+  "utilization_rate",
+)
+
+
+_XSEC_CORRECTION_MARKERS = re.compile(
+  r"\b(wrong|fix|change|set|correct|update|earlier|told you|go back|"
+  r"mistake|actually|not right|instead)\b"
+)
+
+
+def _apply_cross_section_driver_correction(
+  *,
+  ops_json: Dict[str, Any],
+  user_message: str,
+) -> Optional[Tuple[Dict[str, Any], str]]:
+  """CW-017 (b): a mid-intake OPS-DRIVER correction arriving while a
+  FINANCIALS stage question is pending used to be refused with stage
+  fiction ("update that utilization in that step" - a step that does
+  not exist; the conversation is the tool). The identical correction
+  applied instantly post-completion. Route it HERE through the same
+  consequence contract (_reconcile_driver_correction: lever
+  derivability, deterministic landing, dollar narration).
+
+  Deterministic and conservative: fires only when the message names a
+  specific product (token match), names a lever (utilization / price /
+  capacity keyword), carries correction-shaped language, and offers a
+  value derivable from the client's own words that DIFFERS from the
+  stored lever. Returns (new_ops_json, ack_text) on a landed
+  correction; None otherwise (normal stage flow proceeds)."""
+  msg = str(user_message or "").lower()
+  if not msg or not isinstance(ops_json, dict):
+    return None
+  if not _XSEC_CORRECTION_MARKERS.search(msg):
+    return None
+
+  products: List[Tuple[int, int, Dict[str, Any]]] = []
+  for li, lob in enumerate(ops_json.get("lob_models") or []):
+    if not isinstance(lob, dict):
+      continue
+    for pi, p in enumerate(lob.get("products") or []):
+      if isinstance(p, dict):
+        products.append((li, pi, p))
+  if not products:
+    return None
+
+  def _name_tokens(p: Dict[str, Any]) -> List[str]:
+    name = str(p.get("product_name") or p.get("unit_name") or "").lower()
+    return [t for t in re.findall(r"[a-z]+", name) if len(t) >= 4]
+
+  scored = []
+  for li, pi, p in products:
+    toks = _name_tokens(p)
+    hits = sum(1 for t in toks if t in msg)
+    if hits:
+      scored.append((hits, li, pi, p))
+  if not scored:
+    return None
+  scored.sort(key=lambda s: s[0], reverse=True)
+  if len(scored) > 1 and scored[0][0] == scored[1][0]:
+    return None  # ambiguous product reference - do not act
+  _, li, pi, product = scored[0]
+
+  leaf = None
+  new_value: Optional[float] = None
+  figures = _message_figures(msg)
+  if re.search(r"utili[sz]ation|\brun(?:ning)?\s+(?:about\s+)?\d", msg):
+    leaf = "utilization_rate"
+    current = _safe_float(product.get("utilization_rate"))
+    # Utilization values are stated as marked percents ("75%", "75
+    # percent") or written decimals ("0.75") - NEVER inferred from bare
+    # word-numbers ("two years ago" parses as 2 and must not become 2%).
+    cands: List[float] = []
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", msg):
+      v = float(m.group(1)) / 100.0
+      if 0.0 < v <= 1.0:
+        cands.append(v)
+    for m in re.finditer(r"\b(0\.\d+)\b", msg):
+      v = float(m.group(1))
+      if 0.0 < v <= 1.0:
+        cands.append(v)
+    cands = [
+      v for v in cands
+      if current is None or abs(v - current) > max(1e-6, 0.001 * abs(current))
+    ]
+    new_value = cands[-1] if cands else None
+  elif re.search(r"\bprice\b|\bcharge\b|\brate per\b", msg):
+    leaf = "unit_price"
+    current = _safe_float(product.get("unit_price"))
+    cands = [
+      f for f in figures
+      if f > 1.0 and (current is None or abs(f - current) > max(1e-6, 0.001 * abs(current)))
+    ]
+    new_value = cands[-1] if cands else None
+  elif re.search(r"\bcapacity\b", msg):
+    leaf = "units_per_period_capacity"
+    current = _safe_float(product.get("units_per_period_capacity"))
+    cands = [
+      f for f in figures
+      if f > 1.0 and abs(f - round(f)) < 1e-6
+      and (current is None or abs(f - current) > max(1e-6, 0.001 * abs(current)))
+    ]
+    new_value = cands[-1] if cands else None
+  if leaf is None or new_value is None:
+    return None
+
+  ops_after = json.loads(json.dumps(ops_json))
+  try:
+    ops_after["lob_models"][li]["products"][pi][leaf] = float(new_value)
+  except (KeyError, IndexError, TypeError):
+    return None
+  ops_fixed, note = _reconcile_driver_correction(
+    ops_before=ops_json,
+    ops_after=ops_after,
+    user_message=str(user_message or ""),
+  )
+  try:
+    landed = _safe_float(
+      ops_fixed["lob_models"][li]["products"][pi].get(leaf)
+    )
+  except (KeyError, IndexError, TypeError):
+    return None
+  before_v = _safe_float(product.get(leaf))
+  if landed is None or (
+    before_v is not None and abs(landed - before_v) <= max(1e-6, 0.001 * abs(before_v))
+  ):
+    return None  # the consequence contract reverted it - not derivable
+
+  name = str(product.get("product_name") or product.get("unit_name") or "that product").strip()
+  if leaf == "utilization_rate":
+    changed_txt = f"utilization on {name} to {landed * 100:.0f}%"
+  elif leaf == "unit_price":
+    changed_txt = f"the {name} unit price to {_format_currency(landed)}"
+  else:
+    changed_txt = f"{name} capacity to {landed:,.0f}"
+  ack = f"Done - I've updated {changed_txt}."
+  if isinstance(note, dict):
+    extra = str(note.get("confirm") or note.get("stream_note") or "").strip()
+    if extra:
+      ack = (ack + " " + extra).strip()
+  return ops_fixed, ack
+
+
+def _guard_underivable_ops_lever_writes(
+  *,
+  ops_before: Dict[str, Any],
+  ops_after: Dict[str, Any],
+  user_message: str,
+  last_assistant: str = "",
+) -> Dict[str, Any]:
+  """CW-017 (c): the 196 leak - mid-intake ops LEVER writes get the same
+  derivability rule as financials (CW-015): a price/capacity/utilization
+  value may only land when derivable from the turn's actual content.
+  Vanguard: product 1's capacity x its utilization (280 x 0.70 = 196)
+  was echoed into product 2's capture and then justified in prose - a
+  number from NOWHERE in the client's words, caught by the client.
+
+  Scope: unit_price and the capacity leaves guard changes AND first
+  captures; utilization_rate guards CHANGES only (first-capture stage
+  defaults are benign, and a later correction of a stated value is
+  protected); operating_periods_per_year is exempt - it derives from
+  cadence WORDS ("monthly" -> 12), not figures."""
+  figures = [
+    f for f in (
+      _message_figures(str(user_message or ""))
+      + _message_figures(str(last_assistant or ""))
+    ) if f and f > 0
+  ]
+  _msg_l = str(user_message or "").strip().lower()
+  zero_stated = _message_expresses_zero(_msg_l) or (
+    bool(_AFFIRMATION_SHAPE_RE.search(_msg_l))
+    and _message_expresses_zero(str(last_assistant or ""))
+  )
+
+  def _derivable(v: float) -> bool:
+    if abs(v) < 1e-9:
+      return zero_stated
+    if not figures:
+      return False
+    return any(
+      any(
+        abs(v - c) / max(abs(c), 1e-9) <= 0.005
+        for c in (
+          f, f * 1000.0, f * 12.0, f / 12.0, f * 52.0, f / 52.0,
+          f * 4.0, f / 4.0, f / 100.0,
+        )
+      )
+      for f in figures
+    )
+
+  def _guard_leaves(node_before: Any, node_after: Dict[str, Any]) -> None:
+    nb = node_before if isinstance(node_before, dict) else {}
+    for leaf in _OPS_LEVER_GUARD_LEAVES:
+      after_v = node_after.get(leaf)
+      if not isinstance(after_v, (int, float)) or isinstance(after_v, bool):
+        continue
+      before_v = _safe_float(nb.get(leaf))
+      v = float(after_v)
+      if before_v is not None and abs(v - before_v) <= max(1e-6, 0.001 * abs(before_v)):
+        continue
+      if leaf == "utilization_rate" and before_v is None:
+        continue
+      if _derivable(v):
+        continue
+      if before_v is not None:
+        node_after[leaf] = before_v
+      else:
+        node_after.pop(leaf, None)
+
+  if not isinstance(ops_after, dict):
+    return ops_after
+  _guard_leaves(ops_before or {}, ops_after)
+  lobs_after = ops_after.get("lob_models") or []
+  lobs_before = (ops_before or {}).get("lob_models") or []
+  if isinstance(lobs_after, list):
+    for li, lob_a in enumerate(lobs_after):
+      if not isinstance(lob_a, dict):
+        continue
+      lob_b = (
+        lobs_before[li]
+        if isinstance(lobs_before, list) and li < len(lobs_before)
+        and isinstance(lobs_before[li], dict) else {}
+      )
+      prods_a = lob_a.get("products") or []
+      prods_b = lob_b.get("products") or []
+      if not isinstance(prods_a, list):
+        continue
+      for pi, p_a in enumerate(prods_a):
+        if not isinstance(p_a, dict):
+          continue
+        p_b = (
+          prods_b[pi]
+          if isinstance(prods_b, list) and pi < len(prods_b)
+          and isinstance(prods_b[pi], dict) else {}
+        )
+        _guard_leaves(p_b, p_a)
+  return ops_after
+
+
 # Fields the derivability guard exempts: derived twins and family fields
 # recomputed by the sync tails (guarding them would fight the syncs), and
 # lever-delta fields owned by the walk's own applier in section.py.
@@ -11087,6 +11329,15 @@ def post_intake_consult_handler(*, app, request):
         turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
         _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
         ops_json = _apply_model_ops_patch(ops_json, turn.get("patch") if isinstance(turn, dict) else None)
+        try:
+          ops_json = _guard_underivable_ops_lever_writes(
+            ops_before=_ops_before,
+            ops_after=ops_json,
+            user_message=str(message or ""),
+            last_assistant=_last_assistant_message(messages),
+          )
+        except Exception:
+          pass
         _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
         try:
           shared_context["operating_model"] = ops_json
@@ -13146,9 +13397,19 @@ def post_intake_consult_handler(*, app, request):
           followup_turn = {"assistant_message": ""}
 
         if followup_focus == "ops":
+          _ops_before_fu = json.loads(json.dumps(ops_json)) if ops_json else {}
           ops_json = _apply_model_ops_patch(
             ops_json, followup_turn.get("patch") if isinstance(followup_turn, dict) else None
           )
+          try:
+            ops_json = _guard_underivable_ops_lever_writes(
+              ops_before=_ops_before_fu,
+              ops_after=ops_json,
+              user_message=str(message or ""),
+              last_assistant=_last_assistant_message(messages),
+            )
+          except Exception:
+            pass
           try:
             shared_context["operating_model"] = ops_json
           except Exception:
@@ -13680,15 +13941,64 @@ def post_intake_consult_handler(*, app, request):
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
       )
     elif focus == "financials":
-      turn, financials_json = _build_financials_live_turn(
-        conn=conn,
-        intake_context=intake_context,
-        conversation_messages=[*messages, user_msg],
-        shared_context=shared_context,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        guardrail_triggered=guardrail_triggered,
-      )
+      # CW-017 (b): an explicit ops-driver correction mid-financials
+      # routes through the corrections applier instead of being refused
+      # with stage fiction. The stage question stands honestly asked -
+      # the next turn re-asks it; the client hears the driver landed.
+      _xsec = None
+      try:
+        _xsec = _apply_cross_section_driver_correction(
+          ops_json=ops_json, user_message=str(message or ""),
+        )
+      except Exception:
+        _xsec = None
+      if _xsec is not None:
+        ops_json, _xsec_ack = _xsec
+        try:
+          shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
+        _pending_q = ""
+        _la_text = _last_assistant_message(messages)
+        _q_matches = re.findall(r"[^.!?]*\?", _la_text)
+        if _q_matches:
+          _pending_q = _q_matches[-1].strip()
+        _xsec_text = sanitize_fact_template(
+          _xsec_ack
+          + (f"\n\nBack to where we were: {_pending_q}" if _pending_q else "")
+        )
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": _xsec_text}],
+          operating_model_json=ops_json,
+          financials_json=financials_json,
+          marketing_model_json=_refresh_marketing_model(),
+          active_focus=focus,
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "continue",
+            "assistant_message": _xsec_text,
+          }
+        )
+      else:
+        turn, financials_json = _build_financials_live_turn(
+          conn=conn,
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg],
+          shared_context=shared_context,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          guardrail_triggered=guardrail_triggered,
+        )
     else:
       turn = {"assistant_message": _natural_continue(focus=str(focus or "")), "finalize_ready": False}
 
@@ -13707,6 +14017,15 @@ def post_intake_consult_handler(*, app, request):
     if str(focus).strip().lower() == "ops" and isinstance(turn, dict):
       _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
       ops_json = _apply_model_ops_patch(ops_json, turn.get("patch"))
+      try:
+        ops_json = _guard_underivable_ops_lever_writes(
+          ops_before=_ops_before,
+          ops_after=ops_json,
+          user_message=str(message or ""),
+          last_assistant=_last_assistant_message(messages),
+        )
+      except Exception:
+        pass
       _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
       if _ops_echo:
         # Layer 2: every numeric write is SAID, from the write-set - the

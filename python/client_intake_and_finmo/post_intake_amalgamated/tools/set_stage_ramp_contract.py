@@ -149,28 +149,81 @@ def _echo_bands_for_run(conn, *, draft_id: str, planning_run_id: str) -> Dict[st
     return {}
 
 
+# The ramp grid is authored at 2dp (round(v, 2) in the builder), so a
+# grid value can sit up to half a grid unit above the 6dp cohort edge
+# purely from its own rounding (round(0.8057) = 0.81, a 0.43pp phantom
+# breach). Derived-from-rounding-math per the lease-fix discipline: a
+# breach within the rounding residue is not a breach for ANY authority.
+_GRID_ROUNDING_TOLERANCE = 0.005
+
+
+def _manager_ceiling_walls(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Dict[int, float]]:
+  """The manager's per-quarter fitted ceiling walls, keyed by contract
+  field then quarter — the OWNER's ceilings for the demotion test in
+  _check_band_violations. Empty when no managerial forecast exists
+  (raw-cohort fallback: the cohort veto stays)."""
+  walls: Dict[str, Dict[int, float]] = {}
+  try:
+    si = (model_input_json or {}).get("solver_input") if isinstance(model_input_json, dict) else None
+    few = (si or {}).get("fitted_envelope_per_q") if isinstance(si, dict) else None
+    if not isinstance(few, dict):
+      return walls
+    for field, metric in (
+      ("cogs_max", "cogs_percent_of_revenue"),
+      ("marketing_max", "marketing_percent_of_revenue"),
+      ("rd_max", "r_and_d_percent_of_revenue"),
+      ("ga_max", "sga_percent_of_revenue"),
+    ):
+      per_q = ((few.get(metric) or {}).get("max") or {}) if isinstance(few.get(metric), dict) else {}
+      if not isinstance(per_q, dict):
+        continue
+      parsed: Dict[int, float] = {}
+      for qk, qv in per_q.items():
+        try:
+          parsed[int(qk)] = float(qv)
+        except (TypeError, ValueError):
+          continue
+      if parsed:
+        walls[field] = parsed
+  except Exception:
+    return {}
+  return walls
+
+
 def _check_band_violations(
   contract: Dict[str, Any],
   bands: Dict[str, Any],
+  manager_walls: Optional[Dict[str, Dict[int, float]]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
   """Cross-check each per-quarter contract value against the
   corresponding cohort/robust band. Returns (violations, advisories).
 
-  OWNERSHIP (Wave 2, three-tier): the cohort band is a fitted statistic
-  that doesn't know THIS business. For CEILING fields (*_max) it retains
-  its veto (violations). For FLOOR fields (ni_floor, *_floor) the seat is
-  OWNED by the planning-mode policy (early quarters; the producer derives
-  the floors FROM policy and the envelope/validator enforce them) and by
-  the executive-judged ni_margin_floor_q11 at maturity (acceptance gate)
-  — so a floor breach of the cohort band DEMOTES to an ADVISORY: recorded
-  and persisted (informing band recalibration), never independently
-  rejecting. No boundary tolerance exists because none is needed — the
-  informant cannot veto the owner.
+  OWNERSHIP (Wave 2 floors; CW-017 ceilings — the class is now closed on
+  BOTH sides): the cohort band is a fitted statistic that doesn't know
+  THIS business — the informant cannot veto the owner.
+
+  FLOOR fields (ni_floor, *_floor): the seat is OWNED by the
+  planning-mode policy and the executive-judged ni_margin_floor_q11 at
+  maturity — a floor breach DEMOTES to an ADVISORY (Wave 2, 1b47199).
+
+  CEILING fields (*_max): when the MANAGER'S fitted per-quarter wall is
+  the cost authority (the builder's own rule since the managerial-bands
+  wiring) and the contract value sits within that wall, a cohort ceiling
+  breach DEMOTES to an ADVISORY — CW-017 Vanguard: the cohort robust_max
+  (0.8057) vetoed the manager's judged 0.81-0.85 COGS wall for a
+  78%-COGS distributor and killed the run at round 1. The veto is
+  RETAINED when no managerial wall covers the field (raw-cohort
+  fallback: with no judgment present the informant is the only
+  authority) and when the value exceeds the manager's own wall.
+
+  Both directions apply the 2dp grid-rounding tolerance — a phantom
+  breach manufactured by the author's own round(v, 2) is not a breach.
   """
   violations: List[Dict[str, Any]] = []
   advisories: List[Dict[str, Any]] = []
   if not isinstance(contract, dict) or not isinstance(bands, dict) or not bands:
     return violations, advisories
+  walls = manager_walls or {}
   grid = contract.get("quarter_ramp_grid") or []
   if not isinstance(grid, list):
     return violations, advisories
@@ -205,9 +258,9 @@ def _check_band_violations(
       if (
         (is_ceiling or not is_floor)
         and isinstance(r_max, (int, float))
-        and float(value) > float(r_max)
+        and float(value) > float(r_max) + _GRID_ROUNDING_TOLERANCE + 1e-9
       ):
-        violations.append({
+        entry = {
           "code": "stage_ramp_above_band_max",
           "quarter_index": q_idx,
           "field": field,
@@ -215,7 +268,19 @@ def _check_band_violations(
           "band_max": float(r_max),
           "delta": float(value) - float(r_max),
           "units": "fraction",
-        })
+        }
+        _wall_q = (walls.get(field) or {}).get(q_idx)
+        if (
+          _wall_q is not None
+          and float(value) <= float(_wall_q) + _GRID_ROUNDING_TOLERANCE + 1e-9
+        ):
+          # CW-017: the manager's judged wall covers this value — the
+          # cohort informant records its disagreement, never vetoes.
+          entry["code"] = "stage_ramp_ceiling_above_cohort_band_advisory"
+          entry["manager_wall"] = float(_wall_q)
+          advisories.append(entry)
+        else:
+          violations.append(entry)
       if (
         (is_floor or not is_ceiling)
         and isinstance(r_min, (int, float))
@@ -352,9 +417,12 @@ def set_stage_ramp_contract(
   envelope_violations = _check_envelope_violations(candidate)
 
   # 1) Cohort/robust band check (cross-section coherence with drivers).
-  # Ceilings may veto; floor breaches come back as ADVISORIES (the floor
-  # seats are owned by policy / the executive judgment — Wave 2).
-  band_violations, band_advisories = _check_band_violations(candidate, bands_echoed)
+  # Floors: advisory (Wave 2). Ceilings: advisory when covered by the
+  # manager's fitted wall (CW-017), veto retained on raw-cohort fallback.
+  band_violations, band_advisories = _check_band_violations(
+    candidate, bands_echoed,
+    manager_walls=_manager_ceiling_walls(model_input_json),
+  )
   if band_advisories:
     # Persist the advisory so the statistic keeps informing: (a) a
     # runtime-status trace row (queryable per draft), (b) stamped onto

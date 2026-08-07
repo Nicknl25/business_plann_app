@@ -157,7 +157,10 @@ _COUNT_HINTS = (
 )
 
 
-def _fmt(path: str, value: float) -> str:
+_CADENCE_LABELS = {1.0: "annual", 4.0: "quarterly", 12.0: "monthly", 52.0: "weekly"}
+
+
+def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] = None) -> str:
   base = re.sub(r"\[\d+\]", "", path)
   label, per = _LABELS.get(base, (None, None))
   if label is None:
@@ -168,6 +171,16 @@ def _fmt(path: str, value: float) -> str:
     tail = base.rsplit(".", 1)[-1].replace("_", " ")
     label = tail
     per = "month" if "monthly" in base else ("year" if ("annual" in base or "year1" in base) else None)
+  # CW-017 (d): capacity labels are CADENCE-AWARE when the same turn
+  # recorded the product's operating cadence - "a weekly capacity of
+  # 160" on a 1-period/year product misstates the record the client
+  # just corrected. Label from periods; static label only when the
+  # cadence is not in this receipt.
+  _leaf_raw = path.rsplit(".", 1)[-1]
+  if _leaf_raw in ("units_per_week_capacity", "units_per_period_capacity") and periods_by_prefix:
+    _cadence = _CADENCE_LABELS.get(periods_by_prefix.get(path.rsplit(".", 1)[0]) or 0.0)
+    if _cadence:
+      label = f"{_cadence} capacity"
   leaf_name = base.rsplit(".", 1)[-1]
   if 0 < abs(value) < 1 and ("rate" in base or "percent" in base or "share" in base):
     rendered = f"{value * 100:.1f}%"
@@ -194,7 +207,12 @@ def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:
   primary = [w for w in written if w[0].rsplit(".", 1)[-1].split("[")[0] not in _DERIVED_FIELDS
              and not any(w[0].rsplit(".", 1)[-1].startswith(p) for p in _DERIVED_PREFIXES)]
   show = primary or written
-  parts = [_fmt(path, new) for path, _old, new in show[:limit]]
+  periods_by_prefix = {
+    w[0].rsplit(".", 1)[0]: float(w[2])
+    for w in written
+    if w[0].rsplit(".", 1)[-1] == "operating_periods_per_year"
+  }
+  parts = [_fmt(path, new, periods_by_prefix) for path, _old, new in show[:limit]]
   extra = len(show) - limit
   text = "; ".join(parts)
   if extra > 0:
