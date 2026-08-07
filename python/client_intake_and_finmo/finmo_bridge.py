@@ -3619,6 +3619,17 @@ def _build_model_input_overlay(
       stub_value=intake_stub_value,
       live_values=values,
     )
+    # CW-013 belt at EMISSION: every ratio-semantics row is normalized
+    # whatever branch produced its values (table seed, fitted envelope,
+    # driver-movement envelope, grid slots, future branches). The
+    # per-source coercions above fix the known leaks; this guarantees no
+    # branch - present or future - can hand the boundary contract
+    # mis-scaled units again.
+    if str(row.get("input_semantics") or "") == "percent_of_revenue":
+      row["values"] = [
+        round(_coerce_ratio_units(v, revenue_year1=revenue_total_year1), 6)
+        for v in (row.get("values") or [])
+      ]
 
   balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
   ar_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ar_balance")) or 0.0)
