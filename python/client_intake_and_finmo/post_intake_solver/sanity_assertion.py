@@ -24,6 +24,18 @@ from typing import Any, Dict, List, Optional
 
 _DEFAULT_NUMERIC_TOLERANCE = 1e-6
 
+# CW-017 E7 (engine fragility ledger): the flat 1e-6 was applied to
+# DOLLAR-scale metrics as well as ratios - on a $2M quarter it is
+# effectively exact equality against a band edge, feeding two
+# run-killers. Hybrid: the absolute floor stays exact for ratio-scale
+# quantities; the relative term absorbs float residue at dollar scale.
+_NUMERIC_TOLERANCE_RELATIVE = 1e-9
+
+
+def _scaled_tolerance(floor: float, *edges: Optional[float]) -> float:
+  scale = max((abs(float(e)) for e in edges if e is not None), default=0.0)
+  return max(float(floor), scale * _NUMERIC_TOLERANCE_RELATIVE)
+
 
 def _clean_text(value: Any) -> str:
   return str(value or "").strip()
@@ -52,9 +64,10 @@ def _value_is_within_target(
     return False
   if target_min is None and target_max is None:
     return True  # no calibrated target -> trivially within
-  if target_min is not None and produced + numeric_tolerance < float(target_min):
+  tol = _scaled_tolerance(numeric_tolerance, target_min, target_max, produced)
+  if target_min is not None and produced + tol < float(target_min):
     return False
-  if target_max is not None and produced - numeric_tolerance > float(target_max):
+  if target_max is not None and produced - tol > float(target_max):
     return False
   return True
 

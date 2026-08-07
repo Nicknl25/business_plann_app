@@ -124,7 +124,10 @@ def _mini_finmo_distance(check_name: str, mini: Dict[str, Any]) -> Tuple[Optiona
   if check_name == "ebitda_margin_q20_holds_or_improves_vs_q11":
     if q11 is None or q20 is None:
       return None, "fraction"
-    return float(q20 - (q11 - 0.01)), "fraction"
+    from client_intake_and_finmo.post_intake_realism.formulas import (  # type: ignore
+      _EBITDA_Q20_HOLDS_OR_IMPROVES_TOLERANCE as _Q20_TOL,
+    )
+    return float(q20 - (q11 - float(_Q20_TOL))), "fraction"
   if check_name == "gross_margin_supports_ebitda_recovery":
     return (None if g5 is None or g11 is None else float(g11 - g5)), "fraction"
   if check_name == "fixed_cost_burden_reduced_or_scaled_by_q11":
@@ -176,14 +179,24 @@ def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[fl
     cv_thr = _n("stdev_over_mean_threshold")
     growth = _n("q10_over_q1_delta", "q1_to_q10_pct_change")
     growth_thr = _n("q10_over_q1_delta_threshold")
+    # CW-017 E12: fallback thresholds IMPORT from the acceptance gate -
+    # hand-copied duplicates steered the cascade toward stale constants
+    # whenever the gate's threshold moved.
+    from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore
+      REVENUE_FLAT_Q10_OVER_Q1_DELTA_THRESHOLD as _GATE_GROWTH_THR,
+      REVENUE_FLAT_STDEV_OVER_MEAN_THRESHOLD as _GATE_CV_THR,
+    )
     candidates = []
     if cv is not None:
-      candidates.append(cv - (cv_thr if cv_thr is not None else 0.02))
+      candidates.append(cv - (cv_thr if cv_thr is not None else float(_GATE_CV_THR)))
     if growth is not None:
-      candidates.append(growth - (growth_thr if growth_thr is not None else 0.05))
+      candidates.append(growth - (growth_thr if growth_thr is not None else float(_GATE_GROWTH_THR)))
     # Passes if EITHER path clears its threshold -> nearest-to-feasible is max.
     return (max(candidates) if candidates else None), "dimensionless"
   if check_name == "net_income_trajectory_viable":
+    from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore
+      _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11 as _GATE_NI_DELTA_THR,
+    )
     q11 = _n("q11_ni_margin", "q11_margin")
     req_q11 = _n("min_required_q11_margin")
     delta = _n("q5_to_q11_delta")
@@ -192,7 +205,7 @@ def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[fl
     if q11 is not None:
       candidates.append(q11 - (req_q11 if req_q11 is not None else 0.0))
     if delta is not None:
-      candidates.append(delta - (req_delta if req_delta is not None else 0.02))
+      candidates.append(delta - (req_delta if req_delta is not None else float(_GATE_NI_DELTA_THR)))
     # Requires BOTH conditions -> worst (most negative) is the binding gap.
     return (min(candidates) if candidates else None), "fraction"
   # For meta and band-source checks, distance isn't meaningful as a scalar.
@@ -237,7 +250,14 @@ _LEVER_TO_TARGET_METRIC_KEY: Dict[str, str] = {
   "balance_sheet::Inventory Days":           "inventory_days",
 }
 
-_DAYS_IN_QUARTER = 91.25
+# CW-017 E11 (engine fragility ledger): the cascade used a flat 91.25
+# days/quarter while the finalize validator judges the SAME days metrics
+# at per-row actual-calendar days (90/91/92) - so the cascade could
+# steer AR/AP/Inventory days to a value the validator then rejects.
+# ONE authority: the validator's own per-row day count.
+from client_intake_and_finmo.post_intake_runtime_validation.balance_sheet_driver_validation import (  # type: ignore  # noqa: E501
+  _quarter_days_from_finmo_row as _days_in_quarter_for_row,
+)
 
 
 def _section_for_lever(lever_id: str) -> str:
@@ -278,17 +298,17 @@ def _metric_current_from_finmo(metric_key: str, rows: List[Dict[str, Any]]) -> O
     return _ratio("net_income", "revenue")
   if metric_key == "ar_days_dso":
     return _mean([
-      (_f(r.get("accounts_receivable")) / _f(r.get("revenue")) * _DAYS_IN_QUARTER)
+      (_f(r.get("accounts_receivable")) / _f(r.get("revenue")) * _days_in_quarter_for_row(r))
       for r in rows if _f(r.get("revenue"))
     ])
   if metric_key == "ap_days_dpo":
     return _mean([
-      (_f(r.get("accounts_payable")) / _f(r.get("cogs")) * _DAYS_IN_QUARTER)
+      (_f(r.get("accounts_payable")) / _f(r.get("cogs")) * _days_in_quarter_for_row(r))
       for r in rows if _f(r.get("cogs"))
     ])
   if metric_key == "inventory_days":
     return _mean([
-      (_f(r.get("inventory")) / _f(r.get("cogs")) * _DAYS_IN_QUARTER)
+      (_f(r.get("inventory")) / _f(r.get("cogs")) * _days_in_quarter_for_row(r))
       for r in rows if _f(r.get("cogs"))
     ])
   return None

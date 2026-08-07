@@ -168,18 +168,30 @@ def rescale_envelope_to_operator(
         and mn > 1e-12 and mx >= mn
         and (mx * scale) < mn
       ):
-        # Rescaled band sits entirely BELOW the cohort floor: even the
-        # rescaled ceiling is leaner than the leanest cohort business. The
-        # anchor is not credible; treat it as absent (raw cohort band) so the
-        # search ranges stay real.
+        # Rescaled band sits entirely BELOW the cohort floor. RULED
+        # (CW-017 informant-authority, Nick 2026-08-07): a client's
+        # stated fact can never be REMOVED by a cohort statistic. The
+        # pre-arbitration posture keeps the UNION span - the operator's
+        # stated level stays inside the search range (fact preserved,
+        # target anchored to it) while the ceiling keeps raw-cohort
+        # reach so the search can move costs to realistic levels (the
+        # Luna case still cannot manufacture viability: the walk/search
+        # answers viability, not the band floor). The executive anchor
+        # arbitration then rules within its seat - an explicit "cohort"
+        # verdict may still replace the band and mark the fact a data
+        # error (the owner's judgment, retained).
         degenerate[metric] = {
           "operator_level": lvl,
           "cohort_min": mn,
           "cohort_max": mx,
           "side": "below_cohort_floor",
-          "action": "kept_raw_cohort_band",
+          "action": "kept_union_span_fact_preserved",
         }
-        out[metric] = dict(band)
+        out[metric] = {
+          "target": lvl,
+          "min": max(0.0, min(mn * scale, lvl)),
+          "max": mx,
+        }
         continue
       if (
         mn is not None and mx is not None
@@ -788,13 +800,27 @@ def run_band_fitting_pass(
         "credible": _cl is not None,
         "note": "stated level judged not credible; executive substituted a defensible level",
       }
-    else:
+    elif _verdict == "cohort":
+      # The EXECUTIVE explicitly judged the stated level a data error -
+      # the owner's seat may remove a fact; the cohort alone may not.
       operator_facts[_mk] = {
         "level": float(_lvl), "credible": False,
         "note": (
-          "stated level judged a data error; no credible stated level "
-          "exists -- judge the honest level from the business itself and "
-          "the dollar test, not from the cohort statistic"
+          "stated level judged a data error by the executive arbiter; "
+          "judge the honest level from the business itself and the "
+          "dollar test, not from the cohort statistic"
+        ),
+      }
+    else:
+      # NO verdict (arbitration absent or failed): nobody judged, so the
+      # client's stated fact STANDS - an informant outage cannot delete
+      # a fact (CW-017 ruling). The disagreement stays recorded on the
+      # degenerate-anchor trace for the manager's context.
+      operator_facts[_mk] = {
+        "level": float(_lvl), "credible": True,
+        "note": (
+          "anchor disputed vs cohort and unarbitrated - the stated fact "
+          "stands until an executive verdict rules otherwise"
         ),
       }
 

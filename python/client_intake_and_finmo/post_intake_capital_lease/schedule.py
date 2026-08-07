@@ -579,7 +579,8 @@ def fail_fast_lease_interest_components_misaligned(
     interest_total = _safe_int(row.get("interest"))
     debt_interest = _safe_int(row.get("debt_interest_expense"))
     lease_interest = _safe_int(row.get("lease_interest_expense"))
-    if abs(interest_total - (debt_interest + lease_interest)) > tolerance:
+    # CW-017 E5: three independent roundings drift up to $1.50.
+    if abs(interest_total - (debt_interest + lease_interest)) > max(int(tolerance), 2):
       violations.append(
         {
           "quarter_index": quarter,
@@ -615,7 +616,8 @@ def fail_fast_lease_depreciation_components_misaligned(
     depreciation_total = _safe_int(row.get("depreciation"))
     ppe_dep = _safe_int(row.get("ppe_depreciation_expense"))
     lease_dep = _safe_int(row.get("lease_asset_depreciation_expense"))
-    if abs(depreciation_total - (ppe_dep + lease_dep)) > tolerance:
+    # CW-017 E5: three independent roundings drift up to $1.50.
+    if abs(depreciation_total - (ppe_dep + lease_dep)) > max(int(tolerance), 2):
       violations.append(
         {
           "quarter_index": quarter,
@@ -655,7 +657,9 @@ def fail_fast_capital_lease_routing_double_count(
     lease_principal = _safe_int(row.get("lease_principal_repayments"))
     fcf_total = _safe_int(row.get("financing_cash_flow"))
     expected = debt_issuance - debt_repayment + equity - distributions - lease_principal
-    if abs(fcf_total - expected) > tolerance:
+    # CW-017 E5: SIX independent roundings drift up to $3.00 - the
+    # worst remaining flat-tolerance site in this file.
+    if abs(fcf_total - expected) > max(int(tolerance), 3):
       violations.append(
         {
           "quarter_index": quarter,

@@ -2104,7 +2104,15 @@ def build_python_stage_ramp_contract(
       # (negative rev fields are envelope violations; ramp-down is not
       # modeled) — flat is the tightest expressible ceiling.
       _fallback = _jg_qoq_by_q.get(2, qoq_target)
-      return max(0.0, min(_jg_qoq_by_q.get(q, _fallback), qoq_max))
+      # CW-017 informant-authority ruling: the judged growth OWNS the
+      # revenue path - the cohort qoq band informs, it does not cap
+      # (min(judged, cohort_qoq_max) was a veto wearing a coherence-
+      # floor comment). The mechanical 7%%/qtr physics rail in the
+      # initial-grid runner still applies downstream - that fence is
+      # the deliberate one-way rail, not the cohort's. With NO judged
+      # stamp, the cohort qoq_target governs unchanged (fallback veto
+      # retained).
+      return max(0.0, _jg_qoq_by_q.get(q, _fallback))
     return max(0.0, qoq_target)
 
   # rev_max is judged-derived too: the ramp is the ONE choke point every
@@ -2129,7 +2137,11 @@ def build_python_stage_ramp_contract(
     # — flat is the tightest ceiling the contract can express.
     del q
     if _jg_qoq_by_q:
-      return max(0.0, min(qoq_max, max(_jg_qoq_by_q.values()) + _JUDGED_REV_MAX_HEADROOM_QOQ))
+      # CW-017: judged peak + adaptation headroom governs; the cohort
+      # qoq_max no longer caps a judged path (disagreement recorded by
+      # the caller as an advisory). Cohort governs only when no judged
+      # stamp exists.
+      return max(0.0, max(_jg_qoq_by_q.values()) + _JUDGED_REV_MAX_HEADROOM_QOQ)
     return max(0.0, qoq_max)
 
   def _mgr_target(metric: str, q: int, fallback: float) -> float:
@@ -2147,6 +2159,24 @@ def build_python_stage_ramp_contract(
       return float(fallback)
 
   _mgr_bands_active = bool(_fb)
+
+  # CW-017: record (never enforce) the cohort's disagreement when the
+  # judged growth path exceeds the cohort qoq band - the advisory that
+  # replaced the min() cap above.
+  if _jg_qoq_by_q and max(_jg_qoq_by_q.values()) > qoq_max:
+    try:
+      from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+        record_runtime_status,
+      )
+      record_runtime_status(
+        handler="judged_growth_above_cohort_qoq_advisory",
+        status={
+          "judged_peak_qoq": float(max(_jg_qoq_by_q.values())),
+          "cohort_qoq_max": float(qoq_max),
+        },
+      )
+    except Exception:
+      pass
 
   q1_util = _STAGE_FAMILY_Q1_UTILIZATION.get(expected_family, 0.5)
   utilization_curve = _clamped_utilization_curve(

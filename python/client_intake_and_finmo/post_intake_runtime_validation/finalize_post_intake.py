@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging as _logging
+import math
 from typing import Any, Dict, List, Optional
 
 _logger = _logging.getLogger(__name__)
@@ -308,13 +309,20 @@ def _assert_revenue_formula_reconciles(
       )
       continue
     actual = int(round(float(_safe_float(row.get("revenue")) or 0.0)))
-    if abs(int(expected) - int(actual)) > 1:
+    # CW-017 E6: the tolerance derives from the BUNDLE COUNT - each
+    # bundle contributes one int(round()) (up to $0.50 drift) plus the
+    # revenue row's own rounding, so K bundles legitimately drift up to
+    # (K+1) x $0.50. The flat $1 meant a 3+-product business could fail
+    # on pure rounding while a 1-product business never could (the
+    # lease lesson: drift scales with rounding-operation count).
+    _bundle_tol = max(1, int(math.ceil((len(complete_groups) + 1) * 0.5)))
+    if abs(int(expected) - int(actual)) > _bundle_tol:
       violations.append(
         {
           "quarter_index": quarter_index,
           "actual_revenue": actual,
           "expected_capacity_x_price_x_utilization": expected,
-          "allowed_rounding_tolerance_dollars": 1,
+          "allowed_rounding_tolerance_dollars": _bundle_tol,
         }
       )
       break

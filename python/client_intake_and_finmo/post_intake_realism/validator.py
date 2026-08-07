@@ -649,7 +649,9 @@ def validate_industry_realism_bands(
           planning_mode_active=active_mode,
         ))
         continue
-      passed = float(trajectory_value) >= 0.0
+      # CW-017: float-noise epsilon - a trajectory landing at -1e-12
+      # from float summation is AT the boundary, not below it.
+      passed = float(trajectory_value) >= -1e-9
       if is_silenced and not passed:
         # Phase 9 P3 — silenced trajectory rows compute their value but
         # do not contribute to the verdict.

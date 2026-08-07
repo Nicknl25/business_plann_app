@@ -94,17 +94,59 @@ def _echo_bands_for_section(conn, *, draft_id: str, planning_run_id: str) -> Dic
     return {}
 
 
+# lever_id -> fitted-envelope metric key (the manager's wall vocabulary).
+_LEVER_ID_TO_METRIC: Dict[str, str] = {
+  "expenses::Cost of Goods Sold": "cogs_percent_of_revenue",
+  "expenses::Research & Development": "r_and_d_percent_of_revenue",
+  "expenses::General & Administrative": "sga_percent_of_revenue",
+  "expenses::Marketing": "marketing_percent_of_revenue",
+}
+
+_ANCHOR_LABEL_TO_QUARTER: Dict[str, int] = {"q1": 1, "q11": 11, "q20": 20}
+
+
+def _manager_anchor_walls(operating_context: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+  """The manager's fitted per-quarter [min, max] walls keyed by lever_id
+  — the OWNER's envelope for the demotion test below. Empty when no
+  managerial forecast exists (raw-cohort fallback keeps the veto)."""
+  walls: Dict[str, Dict[str, Dict[str, Any]]] = {}
+  try:
+    mi = (operating_context or {}).get("model_input_template") if isinstance(operating_context, dict) else None
+    few = ((mi or {}).get("solver_input") or {}).get("fitted_envelope_per_q") if isinstance(mi, dict) else None
+    if not isinstance(few, dict):
+      return walls
+    for lever_id, metric in _LEVER_ID_TO_METRIC.items():
+      band = few.get(metric)
+      if isinstance(band, dict) and (band.get("min") or band.get("max")):
+        walls[lever_id] = band
+  except Exception:
+    return {}
+  return walls
+
+
 def _check_anchor_band_violations(
   anchors: Dict[str, Any],
   bands: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+  manager_walls: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
   """For each (lever_id, anchor_quarter) in anchors, check the supplied
-  value lies inside the lever's robust band. Returns one entry per
-  out-of-band anchor with delta + units.
-  """
+  value against the lever's robust band. Returns (violations,
+  advisories).
+
+  OWNERSHIP (CW-017 informant-authority ledger, ruled 2026-08-07): the
+  cohort band is an informant. When the MANAGER'S fitted per-quarter
+  envelope covers the lever and the anchor sits inside the manager's
+  own [min, max] wall at that quarter, a cohort-band breach DEMOTES to
+  an ADVISORY — the informant cannot veto the owner (the same
+  demotion floors got in Wave 2 and ceilings got for the stage ramp).
+  The veto is RETAINED when no managerial wall covers the lever
+  (raw-cohort fallback) and when the anchor exceeds the manager's own
+  wall."""
   violations: List[Dict[str, Any]] = []
+  advisories: List[Dict[str, Any]] = []
   if not isinstance(anchors, dict) or not isinstance(bands, dict):
-    return violations
+    return violations, advisories
+  walls = manager_walls or {}
   for lever_id, levered in anchors.items():
     if lever_id not in _DRIVER_LEVER_IDS:
       continue
@@ -124,22 +166,57 @@ def _check_anchor_band_violations(
       ]
     else:
       continue
+
+    def _wall_covers(anchor_label: str, value: float) -> Optional[Dict[str, float]]:
+      wall = walls.get(lever_id)
+      if not isinstance(wall, dict):
+        return None
+      q = _ANCHOR_LABEL_TO_QUARTER.get(anchor_label)
+      if q is None:
+        return None
+      lo = ((wall.get("min") or {}) if isinstance(wall.get("min"), dict) else {}).get(str(q))
+      hi = ((wall.get("max") or {}) if isinstance(wall.get("max"), dict) else {}).get(str(q))
+      try:
+        lo_f = float(lo) if lo is not None else None
+        hi_f = float(hi) if hi is not None else None
+      except (TypeError, ValueError):
+        return None
+      if lo_f is None and hi_f is None:
+        return None
+      if (lo_f is None or value >= lo_f - 1e-9) and (hi_f is None or value <= hi_f + 1e-9):
+        return {"manager_wall_min": lo_f, "manager_wall_max": hi_f}
+      return None
+
     for anchor_label, value in candidates:
       if isinstance(bmin, (int, float)) and value < float(bmin):
-        violations.append({
+        entry = {
           "code": "driver_anchor_below_band_min",
           "lever_id": lever_id, "anchor": anchor_label,
           "actual": value, "band_min": float(bmin),
           "delta": float(bmin) - value, "units": "fraction",
-        })
+        }
+        covered = _wall_covers(anchor_label, value)
+        if covered is not None:
+          entry["code"] = "driver_anchor_below_band_min_advisory"
+          entry.update({k: v for k, v in covered.items() if v is not None})
+          advisories.append(entry)
+        else:
+          violations.append(entry)
       if isinstance(bmax, (int, float)) and value > float(bmax):
-        violations.append({
+        entry = {
           "code": "driver_anchor_above_band_max",
           "lever_id": lever_id, "anchor": anchor_label,
           "actual": value, "band_max": float(bmax),
           "delta": value - float(bmax), "units": "fraction",
-        })
-  return violations
+        }
+        covered = _wall_covers(anchor_label, value)
+        if covered is not None:
+          entry["code"] = "driver_anchor_above_band_max_advisory"
+          entry.update({k: v for k, v in covered.items() if v is not None})
+          advisories.append(entry)
+        else:
+          violations.append(entry)
+  return violations, advisories
 
 
 def set_drivers(
@@ -214,8 +291,23 @@ def set_drivers(
 
   # 0) Economic envelope (B6) — structural sanity check.
   envelope_violations = _check_envelope_violations(anchors)
-  # Band check — cheap, no mutation.
-  band_violations = _check_anchor_band_violations(anchors, bands_echoed)
+  # Band check — cheap, no mutation. Manager-wall-covered breaches come
+  # back as advisories (recorded, never rejecting).
+  band_violations, band_advisories = _check_anchor_band_violations(
+    anchors, bands_echoed,
+    manager_walls=_manager_anchor_walls(operating_context),
+  )
+  if band_advisories:
+    try:
+      from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+        record_runtime_status,
+      )
+      record_runtime_status(
+        handler="driver_anchor_band_advisory",
+        status={"draft_id": _string(draft_id), "advisories": band_advisories},
+      )
+    except Exception:
+      pass
   # REVENUE AUTHORITY check: when the revenue trajectory is
   # deterministically authored (market-grounded growth judgment), the
   # executive may not re-author revenue driver anchors here -- growth

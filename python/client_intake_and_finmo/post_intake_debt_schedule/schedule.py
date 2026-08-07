@@ -716,9 +716,13 @@ def validate_debt_schedule_payload(
     closing = _safe_int(row.get("closing_debt") if row.get("closing_debt") is not None else row.get("closing_principal_balance"))
     interest_rate = float(_safe_float(row.get("interest_rate") if row.get("interest_rate") is not None else row.get("annual_interest_rate")) or 0.0)
     interest = _safe_int(row.get("interest_expense") if row.get("interest_expense") is not None else row.get("estimated_interest_expense"))
-    if int(max(0, opening + issuance - repayment)) != closing:
+    # CW-017 E4: the capital-lease rounding discipline applied to its
+    # debt sibling - four independently int-rounded row fields drift
+    # legitimately up to $2 against exact equality (the $5-lease shape
+    # on a different schedule). Derived tolerance: roundings x $0.50.
+    if abs(int(max(0, opening + issuance - repayment)) - closing) > 2:
       violations.append({"quarter_index": quarter, "reason": "principal_rollforward_invalid", "opening": opening, "new_borrowing": issuance, "repayment": repayment, "closing": closing})
-    if repayment > opening + issuance:
+    if repayment > opening + issuance + 2:
       violations.append({"quarter_index": quarter, "reason": "repayment_exceeds_available_principal", "available": opening + issuance, "repayment": repayment})
     if (opening > 0 or closing > 0 or issuance > 0) and interest_rate <= 0.0:
       violations.append({"quarter_index": quarter, "reason": "debt_present_but_interest_rate_missing"})
@@ -790,7 +794,9 @@ def validate_debt_schedule_post_cash_state(
   under_scheduled = []
   for quarter_index, required_minimum in sorted(minimum_repayment_rows.items()):
     actual = int(round(float(repayment_values[quarter_index - 1]))) if quarter_index - 1 < len(repayment_values) else 0
-    if required_minimum > 0 and actual < required_minimum:
+    # CW-017 E4: two independent roundings; a $1 rounding shortfall is
+    # not an under-scheduled minimum.
+    if required_minimum > 0 and actual < required_minimum - 1:
       under_scheduled.append({"quarter_index": quarter_index, "minimum_principal_payment": required_minimum, "actual_debt_repayment": actual})
   if under_scheduled:
     failures.append({"error": "debt_schedule_minimum_principal_not_applied", "violating_quarters": under_scheduled[:20]})
@@ -846,7 +852,10 @@ def assert_finmo_matches_debt_schedule(
     for schedule_field, finmo_field in comparisons:
       expected = _safe_int(row.get(schedule_field))
       actual = _safe_int(finmo_row.get(finmo_field) if finmo_field != "debt_closing_balance" else (finmo_row.get("debt_closing_balance") if _safe_float(finmo_row.get("debt_closing_balance")) is not None else finmo_row.get("long_term_debt")))
-      if expected != actual:
+      # CW-017 E4: snapshot-vs-FINMO at whole-dollar tolerance (the
+      # capital-lease reconcile treatment its debt sibling never got) -
+      # both sides independently int-rounded from the same float chain.
+      if abs(expected - actual) > 1:
         violations.append({"quarter_index": quarter, "schedule_field": schedule_field, "finmo_field": finmo_field, "schedule_value": expected, "finmo_value": actual})
         break
   if violations:

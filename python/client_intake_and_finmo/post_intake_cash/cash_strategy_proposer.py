@@ -90,6 +90,8 @@ def _allocate_funding_sources_for_quarter(
   debt_issuance_lever_id: str,
   source_remaining_caps: Optional[Dict[str, float]] = None,
   preferred_debt_share: Optional[float] = None,
+  owner_capital_lever_id: str = "",
+  debt_ceiling_active: bool = False,
 ) -> Tuple[List[Dict[str, Any]], int]:
   """FUNDING WATERFALL — fill the quarter's gap from the ordered sources,
   each up to its headroom (and cumulative capacity cap), remainder to the
@@ -139,6 +141,7 @@ def _allocate_funding_sources_for_quarter(
       take = int(max(0, total - prior_amount))
       if take < 1 or exact > headroom:
         return 0
+      _prior_exact = int(prior.get("exact_value")) if isinstance(prior, dict) else 0
       allocations_by_lever[lever_id] = {
         "lever_id": lever_id,
         "funding_amount": int(total),
@@ -148,6 +151,10 @@ def _allocate_funding_sources_for_quarter(
         "cash_support_multiplier": round(multiplier, 6),
         "supporting_metrics": supporting_metrics,
       }
+      # The debt serviceability ceiling caps cumulative PRINCIPAL
+      # (exact_value, grossed up), so decrement by the exact delta.
+      if lever_id in caps:
+        caps[lever_id] = max(0.0, float(caps[lever_id]) - float(max(0, exact - _prior_exact)))
     else:
       take = int(min(want, max(0, headroom - prior_amount)))
       if take < 1:
@@ -193,6 +200,40 @@ def _allocate_funding_sources_for_quarter(
     if remaining <= 0:
       break
     remaining -= _try_take(lever_id, remaining)
+
+  # DEBT-CEILING SUBSTITUTION (root #2): when the serviceability ceiling
+  # stopped debt short of the quarter's need, OWNER EQUITY funds the
+  # remainder — beyond its demonstrated-capacity cap (the equity AMOUNT
+  # is the client's business; the plan surfaces the number, it does not
+  # judge it). The substitution never fails a business for carrying too
+  # much debt: debt was simply the wrong instrument for the excess. The
+  # per-quarter lever bound still applies (the executor contract);
+  # anything truly unfundable stays an honest unfunded remainder.
+  if (
+    remaining > 0
+    and debt_ceiling_active
+    and owner_capital_lever_id
+  ):
+    _owner_prior = allocations_by_lever.get(owner_capital_lever_id)
+    _owner_prior_amt = (
+      int(_owner_prior.get("funding_amount")) if isinstance(_owner_prior, dict) else 0
+    )
+    _saved_owner_cap = caps.pop(owner_capital_lever_id, None)
+    _sub_take = _try_take(owner_capital_lever_id, remaining)
+    if _saved_owner_cap is not None:
+      caps[owner_capital_lever_id] = _saved_owner_cap
+    if _sub_take > 0:
+      remaining -= _sub_take
+      _owner_alloc = allocations_by_lever.get(owner_capital_lever_id)
+      if isinstance(_owner_alloc, dict):
+        _owner_alloc["debt_ceiling_substituted_amount"] = int(
+          int(_owner_alloc.get("debt_ceiling_substituted_amount") or 0) + _sub_take
+        )
+        _owner_alloc["substitution_reason"] = (
+          "debt stopped at its serviceability ceiling (judged believable "
+          "margin at the 1.5x lender coverage floor); owner equity funds "
+          "the remainder"
+        )
 
   allocations = [allocations_by_lever[lid] for lid in ordered_seen if lid in allocations_by_lever]
   return allocations, int(max(0, remaining))
@@ -299,6 +340,14 @@ def propose_cash_strategy_review_decision(
   _owner_cap = _safe_float(_policy.get("owner_capital_cumulative_cap"))
   if _owner_lever and _owner_cap is not None:
     source_remaining_caps[_owner_lever] = max(0.0, float(_owner_cap))
+  # DEBT SERVICEABILITY CEILING (root #2) — cumulative debt draws stop
+  # at the principal whose interest the judged believable margin can
+  # service at the lender coverage floor; the remainder substitutes to
+  # owner equity (see the substitution pass in the allocator).
+  _policy_debt_lever = str(_policy.get("debt_lever_id") or "").strip()
+  _policy_debt_cap = _safe_float(_policy.get("debt_cumulative_cap"))
+  if _policy_debt_lever and _policy_debt_cap is not None:
+    source_remaining_caps[_policy_debt_lever] = max(0.0, float(_policy_debt_cap))
   # CLIENT FUNDING PREFERENCE 'both' — the chosen debt share steers each
   # quarter's blend (absent -> None -> plain waterfall, byte-identical).
   _pref_payload = _policy.get("client_funding_preference") if isinstance(_policy.get("client_funding_preference"), dict) else {}
@@ -332,7 +381,16 @@ def propose_cash_strategy_review_decision(
       debt_issuance_lever_id=debt_issuance_lever_id,
       source_remaining_caps=source_remaining_caps,
       preferred_debt_share=preferred_debt_share,
+      owner_capital_lever_id=_owner_lever,
+      debt_ceiling_active=bool(_policy_debt_lever and _policy_debt_cap is not None),
     )
+    _subs_amount = sum(
+      int(a.get("debt_ceiling_substituted_amount") or 0) for a in allocations
+    )
+    if _subs_amount > 0:
+      proposer_diagnostics.setdefault("debt_ceiling_substitutions", []).append(
+        {"quarter_index": quarter_index, "equity_substituted_for_debt": int(_subs_amount)}
+      )
     if not allocations or unfunded_remainder > 0:
       # The contract requires every required-funding quarter to be fully
       # covered (allocations must sum exactly to the gap). When even the

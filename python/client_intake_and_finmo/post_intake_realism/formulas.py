@@ -1047,7 +1047,17 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
     # supportable -- the value floors at 0 (pass). A high burden WITH weak
     # margins still fails on the raw slack.
     q11_ebitda = _quarter_ebitda_margin(finmo_json, 11)
-    if q11_ebitda is not None and float(q11_ebitda) >= _EBITDA_HEALTHY_FLAT_FLOOR:
+    # CW-017 E13: the judgment governs BOTH halves of this rule. The
+    # healthy floor is the judged band low when the executive authored
+    # one for THIS business - a judged thin-margin business (band low
+    # 2%) shouldn't need the universal constant's bar, and a judged
+    # fat-margin business shouldn't pass on a floor far below its own
+    # band. Constant remains the judgment-absent fallback.
+    _healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
+    _judged_band_low = ((_judgment or {}).get("q11_ebitda_band") or {}).get("low")
+    if _judged_band_low is not None:
+      _healthy_floor = float(_judged_band_low)
+    if q11_ebitda is not None and float(q11_ebitda) >= _healthy_floor:
       return 0.0
   return result
 

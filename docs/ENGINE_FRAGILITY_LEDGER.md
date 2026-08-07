@@ -7,9 +7,29 @@ the SAME shape, this audits the verdict/engine/finalize path for the
 remaining unfired members: (a) absolute thresholds that should be
 scale-relative/derived, (b) exact-equality or sub-rounding tolerances on
 rounded/float-summed money, (c) defaults overriding judgments.
-**Status: RESEARCH ARTIFACT — rulings proposed, NOTHING converted; Nick
-reviews per-item.** Companion: INTAKE_CONSTANTS_LEDGER (intake, done),
-INFORMANT_AUTHORITY_LEDGER (cohort vetoes, done).
+**Status: CONVERTED (Nick, 2026-08-07: "fix all of it").** Per-member
+outcome recorded below; kept-exact members carry written reasons.
+Companion: INTAKE_CONSTANTS_LEDGER (intake), INFORMANT_AUTHORITY_LEDGER
+(cohort vetoes).
+
+## 0. Conversion outcomes (the batch record)
+
+- **E1 statement math** → accounting hybrid on all three comparisons (gross profit, net income chain, stored A=L+E). RED: a .4999/.5001 rounding-boundary straddle was fatal.
+- **E2 FINMO-vs-rebuild (300 comparisons)** → per-field hybrid `max($1, |v|×1e-8)`. Verified through the three full real-case reruns (the check runs on every build).
+- **E3 balance-sheet validator** → STD 5-rounding chain tolerance 3; LTD 3-rounding tolerance 2; stored-totals A=L+E `max($2, hybrid)`. RED: $2 drift errored.
+- **E4 debt schedule** → the capital-lease treatment applied: rollforward ±2 (4 roundings), repayment-exceeds +2, minimum-principal −1, snapshot-vs-FINMO ±1. RED: $2 rollforward drift was a violation.
+- **E5 capital-lease residuals** → interest/depreciation component sums tolerance 2 (3 roundings); FCF tolerance 3 (6 roundings).
+- **E6 revenue bundles** → tolerance derived from bundle count: ceil((K+1)×0.5).
+- **E7 solver 1e-6** → hybrid `max(1e-6, scale×1e-9)` at the enforcement seam (`_value_is_within_target`); ratio-scale behavior byte-identical (floor unchanged), dollar-scale float noise absorbed. RED: a 2e-10 relative residue at $2M failed the band. The loop-internal 1e-6 pacing heuristics (progress/no-op detection in target_seeking_loop) are KEPT — they pace the search, they cannot kill a plan; the kill consumers all flow through the fixed seam.
+- **E8 MAPPING_FORMULA_INT_TOLERANCE = 1** → **KEPT-EXACT WITH PROOF**: its call sites are single comparisons of 2 independently-rounded ints; the integer difference is mathematically bounded ≤ 1 (real drift ≤ 1.0), so 1 is the exact derived tolerance already.
+- **E9 percent bounds** → float-noise epsilon 1e-9 on the three contract validators + the utilization fail-fast. NOT a semantic loosening (1.0000000000000002 is arithmetic; 1.001 still rejects).
+- **E10 quarter-grid envelope** → hybrid `max(1e-6, |edge|×1e-9)`.
+- **E11 WC-days** → cascade imports the validator's own per-row actual-calendar day count (was flat 91.25 vs the validator's 90/91/92). RED: 45.625 vs calendar 46.0 on the same row.
+- **E12 duplicated thresholds** → evaluate_plan imports the gate's constants (CV/growth/NI-delta) and formulas' Q20 tolerance instead of hand copies.
+- **E13 half-honored judgment** → the fixed-cost burden healthy-floor exception now uses the judged band low when present; constant remains judgment-absent fallback.
+- **Realism trajectory `>= 0.0`** → `>= -1e-9` (float-noise epsilon).
+- **Cash-buffer strict-<** → float compare with the hybrid; the buffer floor itself untouched policy.
+- **TRUE INVARIANTS KEPT EXACT** (per the accounting-equation discipline): all sign/zero bounds (cash ≥ 0 semantics, negative-depreciation guards, non-negative seeds), the statement core-field presence checks, contract structural minimums, and every ratio-scale absolute floor — none of these can be tripped by rounding.
 
 ---
 

@@ -1166,6 +1166,8 @@ def _cash_strategy_funding_source_policy(
   debt_schedule_snapshot: Optional[Dict[str, Any]],
   cash_judgment: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Scope cash funding sources before GPT chooses the source mix.
 
@@ -1262,6 +1264,66 @@ def _cash_strategy_funding_source_policy(
         "this business — recorded for the lender narrative; gap coverage "
         "still modeled so the plan is complete."
       )
+    # DEBT SERVICEABILITY CEILING (root #2 — size debt to the band):
+    # the maximum debt whose interest the business can service AT ITS
+    # EXECUTIVE-JUDGED BELIEVABLE MARGIN while clearing the lender's
+    # 1.5x coverage floor, solved backward from coverage. DERIVED from
+    # two existing authorities (the judged Q11 band LOW — the
+    # minimum-soundness margin, so ANY in-band plan covers — and the
+    # SBA rate policy); no new constant, no new judgment. Debt draws
+    # STOP at the ceiling; owner equity funds the remainder (surfaced,
+    # never silent). Judgment or inputs absent -> no ceiling (today's
+    # exact behavior).
+    _debt_cap: Optional[int] = None
+    _debt_cap_provenance: Optional[Dict[str, Any]] = None
+    try:
+      from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (  # type: ignore  # noqa: E501
+        margin_band_from_model_input as _dc_band,
+      )
+      _band = _dc_band(model_input_json)
+      _q11_low = _safe_float(((_band or {}).get("q11") or {}).get("low"))
+      _rate_policy = _cash_strategy_sba_forecast_interest_rate_policy(model_input_json)
+      _annual_rate = _safe_float((_rate_policy or {}).get("annual_rate_decimal"))
+      _q11_rev = None
+      for _row in ((finmo_payload or {}).get("quarter_rows") or []):
+        if isinstance(_row, dict) and int(_safe_float(_row.get("quarter_index")) or 0) == 11:
+          _q11_rev = _safe_float(_row.get("revenue"))
+          break
+      if (
+        _q11_low is not None and _q11_low > 0.0
+        and _annual_rate is not None and _annual_rate > 0.0
+        and _q11_rev is not None and _q11_rev > 0.0
+      ):
+        # Coverage floor mirrors the acceptance gate's judged rail
+        # (gate.py _COVERAGE_FLOOR) — the LENDER's number, untouched.
+        _coverage_floor = 1.5
+        _max_q_interest = (float(_q11_low) * float(_q11_rev)) / _coverage_floor
+        _quarterly_rate = float(_annual_rate) / 4.0
+        _ceiling_principal = _max_q_interest / _quarterly_rate
+        _opening_debt = float(_cash_strategy_debt_opening_seed(
+          model_input_json=model_input_json,
+          finmo_payload=finmo_payload,
+          financials_json=financials_json,
+        ) or 0)
+        _debt_cap = int(max(0.0, _ceiling_principal - _opening_debt))
+        _debt_cap_provenance = {
+          "judged_q11_band_low": round(float(_q11_low), 4),
+          "projected_q11_revenue": int(round(float(_q11_rev))),
+          "coverage_floor": _coverage_floor,
+          "annual_rate_decimal": round(float(_annual_rate), 6),
+          "max_serviceable_quarterly_interest": int(round(_max_q_interest)),
+          "serviceable_principal_ceiling": int(round(_ceiling_principal)),
+          "opening_debt_counted": int(round(_opening_debt)),
+          "additional_debt_cap": _debt_cap,
+          "rule": (
+            "debt stops where its interest would exceed what the "
+            "executive-judged believable margin can service at the "
+            "lender coverage floor; owner equity funds the remainder"
+          ),
+        }
+    except Exception:  # noqa: BLE001 — no ceiling, today's behavior
+      _debt_cap = None
+      _debt_cap_provenance = None
     _policy_payload = {
       "contract_version": "cash_strategy_funding_source_policy_v2_executive_judged",
       "allowed_funding_source_lever_ids": judged_allowed,
@@ -1271,6 +1333,18 @@ def _cash_strategy_funding_source_policy(
       "policy_reasons": _reasons,
       "decision_source": "executive_cash_judgment",
     }
+    if _debt_cap is not None:
+      _policy_payload["debt_cumulative_cap"] = _debt_cap
+      _policy_payload["debt_lever_id"] = str(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID or "").strip()
+      _policy_payload["debt_serviceability"] = _debt_cap_provenance
+      _reasons.append(
+        "DEBT SERVICEABILITY CEILING: additional debt is capped at "
+        f"${_debt_cap:,} — the principal whose interest the judged "
+        "believable margin services at the 1.5x lender coverage floor. "
+        "Funding needs beyond the ceiling are met with owner equity and "
+        "surfaced to the client: the plan is fundable, but not with "
+        "debt alone."
+      )
     if _pref is not None:
       _p_kind = str(_pref.get("preference") or "")
       _p_share = _pref.get("debt_share")
@@ -1603,6 +1677,8 @@ def _build_cash_strategy_review_context_payload(
     debt_schedule_snapshot=copy.deepcopy(debt_schedule_snapshot),
     cash_judgment=_fsp_judged_cash(model_input),
     financials_json=copy.deepcopy(financials),
+    model_input_json=copy.deepcopy(model_input),
+    finmo_payload=copy.deepcopy(finmo),
   )
   allowed_quarters = [
     int(_safe_float(item) or 0)

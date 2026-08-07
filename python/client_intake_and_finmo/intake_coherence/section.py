@@ -24,6 +24,7 @@ Doctrine (locked):
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -175,7 +176,26 @@ def _ensure_margin_band(
   compact = build_operating_model_digest(
     ops_json, people_json, market_json, marketing_model_json,
   )
-  digest_hash = _ctl.stable_digest_hash(compact)
+  # CW-017 #5 (approved 2026-08-07): the BAND-IDENTITY hash excludes
+  # lever VALUES - knob edits (price/capacity/utilization) re-EVALUATE,
+  # they never re-JUDGE; only identity-level changes (what it sells,
+  # structure, cadence, market, team) re-author the band. Revenue
+  # authoring keeps the FULL digest (levers must be in view there).
+  # Vanguard: a $4,000->$4,300 price repair re-keyed the digest and
+  # re-rolled the judged band 6-11%% -> 4-8%% in 86 seconds, so the
+  # same figure was promised against two different bands in one
+  # session.
+  identity = copy.deepcopy(compact) if isinstance(compact, dict) else {}
+  for _lever_key in (
+    "unit_price", "units_per_week_capacity",
+    "units_per_period_capacity", "utilization_rate",
+  ):
+    identity.pop(_lever_key, None)
+  for _line in identity.get("lines_of_business") or []:
+    if isinstance(_line, dict):
+      for _lever_key in ("unit_price", "capacity_units_per_period", "utilization_rate"):
+        _line.pop(_lever_key, None)
+  digest_hash = _ctl.stable_digest_hash(identity)
   if state.get("margin_band_judgment") and state.get("digest_hash") == digest_hash:
     return state
   state = dict(state)

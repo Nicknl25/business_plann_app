@@ -1400,7 +1400,9 @@ def assert_post_intake_revenue_driver_integrity(
       live_values = _row_live_values(row, horizon=horizon)
       for idx, value in enumerate(live_values, start=1):
         number = float(_safe_float(value) or 0.0)
-        if driver == "Utilization" and number > 1.0:
+        # CW-017 E9: float-noise epsilon only - 1.0000000000000002 from
+        # a quotient is arithmetic, not over-capacity.
+        if driver == "Utilization" and number > 1.0 + 1e-9:
           bundle_violations.append(
             {
               "revenue_slot_key": slot,
@@ -1563,11 +1565,16 @@ def assert_post_intake_finmo_statement_integrity(
     net_income = float(_safe_float(row.get("net_income")) or 0.0)
     total_assets = float(_safe_float(row.get("total_assets")) or 0.0)
     total_le = float(_safe_float(row.get("total_liabilities_and_equity")) or 0.0)
-    if int(round(revenue - cogs)) != int(round(gross_profit)):
+    # CW-017 E1 (engine fragility ledger): statement math uses the
+    # accounting hybrid tolerance, never exact int-round equality on
+    # independently-rounded float sums - a .4999/.5001 straddle at the
+    # rounding boundary is arithmetic noise, not a broken statement. A
+    # real break (dollars) still fails at any scale.
+    if abs((revenue - cogs) - gross_profit) > accounting_equation_tolerance(abs(revenue)):
       math_violations.append({"quarter_index": quarter, "field": "gross_profit", "reason": "revenue_minus_cogs_mismatch"})
-    if int(round(ebitda - interest - depreciation - taxes)) != int(round(net_income)):
+    if abs((ebitda - interest - depreciation - taxes) - net_income) > accounting_equation_tolerance(abs(ebitda)):
       math_violations.append({"quarter_index": quarter, "field": "net_income", "reason": "ebitda_less_below_line_mismatch"})
-    if int(round(total_assets)) != int(round(total_le)):
+    if abs(total_assets - total_le) > accounting_equation_tolerance(max(abs(total_assets), abs(total_le))):
       math_violations.append(
         {
           "quarter_index": quarter,
@@ -1956,9 +1963,18 @@ def assert_post_intake_rebuilt_finmo_matches_model_input(
     actual_row = actual_by_q.get(quarter) or {}
     expected_row = expected_by_q.get(quarter) or {}
     for field in fields:
-      actual = int(round(float(_safe_float(actual_row.get(field)) or 0.0)))
-      expected = int(round(float(_safe_float(expected_row.get(field)) or 0.0)))
-      if actual != expected:
+      _actual_f = float(_safe_float(actual_row.get(field)) or 0.0)
+      _expected_f = float(_safe_float(expected_row.get(field)) or 0.0)
+      actual = int(round(_actual_f))
+      expected = int(round(_expected_f))
+      # CW-017 E2: 15 fields x 20 quarters of EXACT int-round equality
+      # between two float pipelines was the largest exact-equality
+      # surface in the audit - one .5-boundary straddle killed the run.
+      # The hybrid keeps $1 at every realistic scale; a genuinely stale
+      # FINMO (dollars apart) still fails.
+      if abs(_actual_f - _expected_f) > accounting_equation_tolerance(
+        max(abs(_actual_f), abs(_expected_f))
+      ):
         violations.append(
           {
             "quarter_index": quarter,
@@ -2024,8 +2040,11 @@ def assert_post_intake_cash_buffer_integrity(
     }
     for item in (envelope.get("quarter_envelopes") or [])
     if isinstance(item, dict)
-    and int(round(float(_safe_float(item.get("ending_cash")) or 0.0)))
-    < _required_floor(item)
+    # CW-017 E-class: float compare with the accounting hybrid instead
+    # of int-round strict-< (a $0.02 real gap could trip via opposing
+    # roundings). The buffer FLOOR itself is untouched policy.
+    and float(_safe_float(item.get("ending_cash")) or 0.0)
+    < float(_required_floor(item)) - accounting_equation_tolerance(abs(float(_required_floor(item))))
   ]
   _raise_if_violations(
     "post_intake_cash_buffer_violation",

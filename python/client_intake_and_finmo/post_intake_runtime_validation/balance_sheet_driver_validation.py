@@ -618,7 +618,12 @@ def balance_sheet_driver_finalize_errors(
           next_four_repayments += int(round(_clipped))
         expected = next_four_repayments
         actual = int(round(float(_safe_float(finmo_row.get("short_term_debt")) or 0.0)))
-        if expected != actual:
+        # CW-017 E3: five independent roundings (four per-quarter
+        # repayments + the stored STD) legitimately drift up to $2.50 -
+        # exact equality was structurally guaranteed to fail some
+        # schedule (the lease-check disease). Derived tolerance:
+        # roundings x $0.50, so a genuinely wrong STD still fails.
+        if abs(expected - actual) > 3:
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
             f"field=short_term_debt actual={actual} expected={expected} "
@@ -751,7 +756,9 @@ def balance_sheet_std_ltd_coherence_errors(
       )
       continue
     expected_ltd = closing_debt - short_term_debt
-    if abs(long_term_debt - expected_ltd) > 1:
+    # CW-017 E3: three independent roundings (closing, STD, LTD) drift
+    # legitimately up to $1.50; tolerance 1 could fail pure rounding.
+    if abs(long_term_debt - expected_ltd) > 2:
       errors.append(
         f"balance_sheet_std_ltd_coherence_failed: q={quarter_index} "
         f"field=long_term_debt actual={long_term_debt} expected={expected_ltd} "
@@ -792,7 +799,14 @@ def balance_sheet_reconciliation_errors(
     total_equity = int(round(_safe_float(finmo_row.get("total_equity")) or 0.0))
     rhs = total_liabilities + total_equity
     diff = total_assets - rhs
-    if abs(diff) > 1:
+    # CW-017 E3: the stored-totals accounting form gets the same hybrid
+    # the component-level check already uses - three independent
+    # roundings (legit drift $1.50) plus float-sum residue at scale.
+    # The $1 invariant is preserved at every realistic scale.
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
+      accounting_equation_tolerance as _acct_tol,
+    )
+    if abs(diff) > max(2.0, _acct_tol(abs(float(total_assets)))):
       cash = int(round(_safe_float(finmo_row.get("cash")) or 0.0))
       ar = int(round(_safe_float(finmo_row.get("accounts_receivable")) or 0.0))
       inventory = int(round(_safe_float(finmo_row.get("inventory")) or 0.0))

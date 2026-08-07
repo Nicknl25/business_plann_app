@@ -2714,11 +2714,18 @@ def validate_quarter_grid_response(
       if isinstance(envelope, dict):
         min_value = float_or_none(envelope.get("min_value"))
         max_value = float_or_none(envelope.get("max_value"))
-        if min_value is not None and float(value) < float(min_value) - 1e-6:
+        # CW-017 E10: one absolute 1e-6 spanned dollars, counts, and
+        # ratios - exact equality at dollar scale. Hybrid: absolute
+        # floor for ratio-scale cells + relative term for money-scale.
+        _env_tol = max(
+          1e-6,
+          max(abs(float(min_value or 0.0)), abs(float(max_value or 0.0))) * 1e-9,
+        )
+        if min_value is not None and float(value) < float(min_value) - _env_tol:
           out_of_envelope_rows.append(
             f"{row_id}::Q{quarter_index}::value={value}::min={min_value}"
           )
-        if max_value is not None and float(value) > float(max_value) + 1e-6:
+        if max_value is not None and float(value) > float(max_value) + _env_tol:
           out_of_envelope_rows.append(
             f"{row_id}::Q{quarter_index}::value={value}::max={max_value}"
           )

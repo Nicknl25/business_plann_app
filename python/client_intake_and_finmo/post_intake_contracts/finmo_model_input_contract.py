@@ -100,6 +100,12 @@ _PERCENT_INPUT_SEMANTICS = frozenset({
   "utilization_ratio",
 })
 
+# CW-017 E9 (engine fragility ledger): float-noise epsilon on the
+# percent bounds - a quotient landing at 1.0000000000000002 is
+# arithmetic, not an out-of-range ratio. NOT a semantic loosening:
+# 1e-9 admits float representation error only.
+_PERCENT_FLOAT_EPSILON = 1e-9
+
 
 # ---------------------------------------------------------------------------
 # Enums (Literals)
@@ -320,7 +326,7 @@ class RevenueRow(BaseModel):
   @model_validator(mode="after")
   def percent_range(self) -> "RevenueRow":
     if self.input_semantics in _PERCENT_INPUT_SEMANTICS:
-      if any(x < 0 or x > 1 for x in self.values):
+      if any(x < -_PERCENT_FLOAT_EPSILON or x > 1 + _PERCENT_FLOAT_EPSILON for x in self.values):
         raise ValueError(
           f"values for input_semantics={self.input_semantics!r} "
           "must be in [0, 1]"
@@ -393,7 +399,7 @@ class ExpenseRow(BaseModel):
   @model_validator(mode="after")
   def percent_range(self) -> "ExpenseRow":
     if self.input_semantics in _PERCENT_INPUT_SEMANTICS:
-      if any(x < 0 or x > 1 for x in self.values):
+      if any(x < -_PERCENT_FLOAT_EPSILON or x > 1 + _PERCENT_FLOAT_EPSILON for x in self.values):
         raise ValueError(
           f"values for input_semantics={self.input_semantics!r} "
           "must be in [0, 1]"
@@ -469,7 +475,7 @@ class BalanceSheetRow(BaseModel):
   @model_validator(mode="after")
   def percent_range(self) -> "BalanceSheetRow":
     if self.input_semantics in _PERCENT_INPUT_SEMANTICS:
-      if any(x < 0 or x > 1 for x in self.values):
+      if any(x < -_PERCENT_FLOAT_EPSILON or x > 1 + _PERCENT_FLOAT_EPSILON for x in self.values):
         raise ValueError(
           f"values for input_semantics={self.input_semantics!r} "
           "must be in [0, 1]"

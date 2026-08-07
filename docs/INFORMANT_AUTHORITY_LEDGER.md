@@ -42,13 +42,13 @@ advisory metrics; judged floors/ceilings replacing constants throughout
 realism/acceptance (the direction-reversed set). Full citation list in the
 sweep record.
 
-## 3. SHOULD-DEMOTE — proposed, AWAITING RULING (unfired members of the fixed class)
+## 3. CONVERTED — all three ruled by Nick (2026-08-07: "demote all three") and shipped
 
-| Member | Location | Shape | Proposal |
-|---|---|---|---|
-| **Driver-anchor band veto** | `set_drivers.py:97-142` | cohort robust bands veto the executive cascade's per-quarter driver anchors, BOTH directions, no demotion — the nearest unfired sibling of the ceiling member; fires the first time the cascade authors anchors for a business outside its cohort's shape | same treatment as stage-ramp: breach demotes to advisory when the manager's fitted envelope covers the metric and the anchor is within it; veto retained otherwise |
-| **Judged growth capped by cohort qoq_max** | `contracts/runner.py:2097-2133` | `min(judged_qoq, cohort_qoq_max)` — a silent cohort ceiling on the executive's judged growth (the comment claims "coherence floor, never an override," but min() is an override) | when a judged growth stamp exists, the cohort qoq_max records disagreement instead of capping; the separately-parked 7% mechanical rail (verdict ledger §3) is NOT touched — that is the deliberate one-way fence |
-| **Degenerate-anchor low side discards the client's stated cost level** | `band_fitting.py:159-207 → 791-799 → 544-554` | operator-stated costs below the cohort floor → `kept_raw_cohort_band` → `credible: False` → the Q1 fact-snap is DISABLED — a cohort statistic removes a client fact from the fact set (THE-RULING adjacent; GPT arbitration exists but is bounded to the operator∪cohort span) | flag for Nick's explicit ruling — this one is about client-stated data, above my pay grade to demote unilaterally |
+| Member | Fix (each with red→green + BOTH negative controls) |
+|---|---|
+| **Driver-anchor band veto** (`set_drivers.py`) | anchors within the manager's fitted per-quarter [min, max] wall demote to `driver_anchor_*_advisory` (both directions), recorded via runtime trace; raw-cohort fallback (no walls) KEEPS the veto, and an anchor above the manager's own wall vetoes. RED: 3 vetoes on manager-covered anchors pre-fix. |
+| **Judged-growth qoq cap** (`contracts/runner.py`) | judged path governs `rev_target`/`rev_max` (peak + 0.03 headroom); the cohort's disagreement is a recorded advisory. RED: judged 12%/qtr was silently HALVED to the 6% cohort default. The 7% mechanical rail downstream is untouched (the deliberate one-way fence). NEG: with no judged stamp, cohort/default governs unchanged. |
+| **Degenerate-anchor client-fact discard** (`band_fitting.py`) | low-side pre-arbitration posture is now `kept_union_span_fact_preserved` — the client's stated level anchors the target and stays inside the search range; ceiling keeps raw-cohort reach. With NO arbitration verdict the fact stays `credible: True` (an informant outage cannot delete a fact); an EXPLICIT executive "cohort" verdict retains removal power (the owner's seat). RED: `kept_raw_cohort_band` (fact erased) pre-fix. High-side behavior unchanged. |
 
 ## 4. RETAINED WITH REASON
 
