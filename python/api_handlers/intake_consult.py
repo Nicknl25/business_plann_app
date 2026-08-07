@@ -10491,6 +10491,56 @@ def post_intake_consult_handler(*, app, request):
       confirmations_value: Optional[Dict[str, bool]] = None,
       flat_fields_value: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+      # CW-013 PRODUCER-SIDE TRIPWIRE: the intake may not complete on a
+      # draft the model-input contract would reject at submit. Stonewater
+      # completed cleanly, submitted, and crashed on a G&A ratio in
+      # percent-points - a full persona run burned discovering what this
+      # check now catches turns earlier. Failure raises the same honest
+      # hold as any judgment failure (never a verdict, never a silent
+      # completion on an unbuildable draft).
+      try:
+        from client_intake_and_finmo.finmo_bridge import build_python_model_input_json  # type: ignore
+        from client_intake_and_finmo.post_intake_contracts.enforcement import (  # type: ignore
+          SIDE_PRODUCER,
+          validate_model_input_at_boundary,
+        )
+
+        _tw_ppe = _safe_float((financials_value or {}).get("initial_assets")) or 0.0
+        _tw_mi = build_python_model_input_json(
+          business_facts=dict(business_facts or {}),
+          ops_json=ops_value or {},
+          people_json=people_value or {},
+          financials_json=financials_value or {},
+          financials_year1_json=financials_year1_value or {},
+          marketing_model_json=marketing_value or {},
+          forecast_starting_ppe=_tw_ppe,
+          maintenance_rate=0.05,
+          controller_input_seed=[],
+          forecast_quarters=[],
+          business_name=str((business_facts or {}).get("business_name") or ""),
+        )
+        validate_model_input_at_boundary(_tw_mi, side=SIDE_PRODUCER)
+      except Exception as _tw_exc:
+        _tw_name = type(_tw_exc).__name__
+        if "ContractViolation" in _tw_name:
+          from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
+            CoherenceJudgmentUnavailable as _TwHold,
+          )
+
+          app.logger.error(
+            "MODEL_INPUT_CONTRACT_FAILED_AT_COMPLETION draft=%s: %s",
+            draft_id, str(_tw_exc)[:400],
+          )
+          raise _TwHold(
+            "model_input_contract",
+            f"completion-time model-input contract failure: {str(_tw_exc)[:300]}",
+          )
+        # Assembly preconditions (missing PPE etc.) are not contract
+        # verdicts - log and let completion proceed as before.
+        app.logger.warning(
+          "completion-time model-input tripwire skipped draft=%s: %s: %s",
+          draft_id, _tw_name, str(_tw_exc)[:200],
+        )
       planning_run_json = _build_intake_complete_planning_run_payload()
       realism_memo_json = generate_realism_memo_payload_safe(
         ops_json=ops_value,

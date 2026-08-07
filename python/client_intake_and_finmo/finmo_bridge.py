@@ -2703,6 +2703,32 @@ def _non_rent_g_and_a_year1(financials_json: Dict[str, Any]) -> float:
   return max(0.0, float(value or 0.0))
 
 
+def _coerce_ratio_units(raw: Any, *, revenue_year1: float) -> float:
+  """Normalize a ratio-semantics baseline to a [0,1] fraction (CW-013).
+
+  Upstream sources - cohort table-seed formulas, fitted-envelope targets,
+  GPT-authored bands - are not unit-reliable: Stonewater's G&A table seed
+  arrived as 1.868782 percent-POINTS, the stub row normalized it (this
+  exact ladder) while the live-quarter rows appended it raw, and the
+  submit crashed at the model-input boundary contract. EVERY ratio
+  baseline passes through this ladder at the consumption seam:
+  fraction as-is; 1-100 treated as percent-points; >100 treated as a
+  raw dollar / mis-scaled value and backed out via revenue or zeroed
+  (better to under-seed than to inject garbage downstream)."""
+  v = _safe_float(raw)
+  if v is None or v <= 0.0:
+    return 0.0
+  if v <= 1.0:
+    return float(v)
+  if v <= 100.0:
+    return float(v) / 100.0
+  if revenue_year1 and revenue_year1 > 0.0:
+    derived = float(v) / float(revenue_year1)
+    if 0.0 < derived <= 1.0:
+      return derived
+  return 0.0
+
+
 def _table_seed_ratio_for_lever(
   lever_id: str,
   *,
@@ -3344,6 +3370,17 @@ def _build_model_input_overlay(
     or _safe_ratio((financials_json or {}).get("rd_percent_of_revenue"))
     or 0.0
   )
+  # CW-013 units seam (same ladder as G&A below): every ratio baseline
+  # is normalized to a fraction ONCE here, whatever upstream produced it.
+  cogs_ratio_forecast = _coerce_ratio_units(
+    cogs_ratio_forecast, revenue_year1=revenue_total_year1
+  )
+  marketing_ratio_forecast = _coerce_ratio_units(
+    marketing_ratio_forecast, revenue_year1=revenue_total_year1
+  )
+  r_and_d_ratio_baseline = _coerce_ratio_units(
+    r_and_d_ratio_baseline, revenue_year1=revenue_total_year1
+  )
   payroll_total_year1 = (
     _safe_float((financials_json or {}).get("payroll_total_year1"))
     or _safe_float((financials_json or {}).get("current_payroll"))
@@ -3370,6 +3407,12 @@ def _build_model_input_overlay(
       annual_revenue=revenue_total_year1,
       default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
     )
+  # CW-013 units seam: whichever source won above, the baseline enters
+  # the live-quarter rows as a FRACTION - the same ladder the stub
+  # already used (Stonewater: 1.868782 percent-points crashed submit).
+  g_and_a_ratio_baseline = _coerce_ratio_units(
+    g_and_a_ratio_baseline, revenue_year1=revenue_total_year1
+  )
   intake_interest_rate_stub = _ratio(
     (financials_json or {}).get("annual_interest_payment"),
     (financials_json or {}).get("total_debt_outstanding"),
@@ -3441,18 +3484,10 @@ def _build_model_input_overlay(
     # via revenue or zero it (better to under-stub than to inject
     # garbage that contaminates downstream).
     def _coerce_ratio_stub(raw: Any, *, revenue_year1: float) -> float:
-      v = _safe_float(raw)
-      if v is None or v <= 0.0:
-        return 0.0
-      if v <= 1.0:
-        return float(v)
-      if v <= 100.0:
-        return float(v) / 100.0
-      if revenue_year1 and revenue_year1 > 0.0:
-        derived = float(v) / float(revenue_year1)
-        if 0.0 < derived <= 1.0:
-          return derived
-      return 0.0
+      # One ladder, one seam: delegates to the module-level normalizer so
+      # the stub and the live-quarter baselines can never disagree again
+      # (CW-013: they did, and only the live rows crashed the contract).
+      return _coerce_ratio_units(raw, revenue_year1=revenue_year1)
 
     intake_stub_value = base_stub_value
     if label == "Cost of Goods Sold":
