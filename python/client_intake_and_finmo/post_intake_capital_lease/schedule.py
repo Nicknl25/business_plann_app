@@ -32,6 +32,24 @@ CAPITAL_LEASE_DEPRECIATION_QUARTERS = 20
 CAPITAL_LEASE_RECONCILE_TOLERANCE = 1  # whole-dollar tolerance per spec
 
 
+def term_end_residual_tolerance(quarters_elapsed: int, rounding_unit: float = 1.0) -> int:
+  """Derived-from-rounding-math tolerance for the term-end zero check
+  (CW-016 Ironbridge build failure). Schedule rows store whole-dollar
+  ints while FINMO amortizes in floats, and validator #9 re-derives the
+  balance by summing the ROUNDED per-quarter principals: each principal
+  contributes up to unit/2 of drift, plus unit/2 each for the seed and
+  the closing's own rounding. Max legitimate residue after q quarters is
+  therefore unit/2 * q + unit - not a guessed constant and not
+  scale-relative, because rounding drift scales with the NUMBER of
+  rounding operations, never with lease size. Anything above this bound
+  cannot be rounding and IS a genuinely un-closed schedule (a $5,000
+  residue still fails at any horizon; the old flat tolerance of 1
+  failed a real plan over a $5 crumb at Q12, where this bound is 7)."""
+  q = max(0, int(quarters_elapsed))
+  unit = max(0.0, float(rounding_unit))
+  return int((unit / 2.0) * q + unit)
+
+
 _FAIL_FAST_PHASE = "POST_INTAKE"
 _FAIL_FAST_STAGE = "capital_lease_schedule"
 
@@ -384,11 +402,11 @@ def validate_capital_lease_schedule_payload(
   if intake_seed > 0 and total_principal >= intake_seed:
     found_nonzero_after_payoff = False
     running = intake_seed
-    for row in rows:
+    for row_index, row in enumerate(rows):
       principal = _safe_int(row.get("principal_payment"))
       closing = _safe_int(row.get("closing_balance"))
       running = max(0, running - principal)
-      if running == 0 and closing > tolerance:
+      if running == 0 and closing > term_end_residual_tolerance(row_index + 1):
         found_nonzero_after_payoff = True
         violations.append(
           {

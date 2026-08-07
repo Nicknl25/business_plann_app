@@ -2555,6 +2555,20 @@ def _build_financials_stage_acknowledgement(
   financials_json: Dict[str, Any],
 ) -> str:
   stage = str(stage_name or "").strip()
+  # CW-016 ask-turn wart: on an ask-first turn the family is REVERTED
+  # (nothing recorded) and a clarifier question follows - an ack built
+  # from the post-write state then renders the hole as a claim ("I'll
+  # use a marketing budget of $0 a year (0% of revenue). Quick check
+  # ..."). When the pending clarifier is about this stage's own family,
+  # the ack may not claim a value at all.
+  _pending = (financials_json or {}).get("_basis_clarify_pending")
+  if isinstance(_pending, dict):
+    _pf = str(_pending.get("field") or "").strip()
+    if _pf and (
+      _pf == stage
+      or (_pf.split("_", 1)[0] and _pf.split("_", 1)[0] == stage.split("_", 1)[0])
+    ):
+      return "Thanks - one quick check before I record that."
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
@@ -5166,6 +5180,42 @@ def _prose_reflection_needed(
   return True
 
 
+_ZERO_EXPRESSION_RE = re.compile(
+  r"(?:\$\s*0(?:\.0+)?\b"
+  r"|(?<![\d.])0(?:\.0+)?(?![\d.])"
+  r"|\bzero\b|\bnone\b|\bnothing\b"
+  r"|\bn/?a\b"
+  r"|\bno\s+(?:one|other|others|additional|extra)\b|\bnobody\b"
+  r"|\bnot\s+any(?:thing|more)?\b"
+  r"|\b(?:don'?t|do\s+not|doesn'?t|does\s+not)\s+have\s+any\b)"
+)
+
+
+def _message_expresses_zero(message: str) -> bool:
+  """True when the message explicitly states a ZERO quantity: "zero",
+  "$0", a standalone "0" token, "none", "nothing", "n/a", "no other/
+  extra ...", "don't have any", or a bare "no"/"nope" answer.
+
+  The derivability guards consult this to admit 0-writes (CW-016 zero
+  loop): zero produces no positive figure, so an honest "zero" answer
+  was categorically underivable - the write dropped, the stage re-asked
+  seven times, and the client falsified "$1 a month" to escape, then
+  couldn't correct it back to $0 through the corrections path either.
+  Deliberately NOT bare "not"/"aren't": correction turns ("they aren't
+  4,000, they're 4,300") must keep dropping stage-default zeros."""
+  msg = str(message or "").strip().lower()
+  if not msg:
+    return False
+  if msg.rstrip(".!") in ("no", "nope"):
+    return True
+  return bool(_ZERO_EXPRESSION_RE.search(msg))
+
+
+_AFFIRMATION_SHAPE_RE = re.compile(
+  r"\b(yes|yeah|yep|yup|correct|right|confirmed|affirmative|exactly|sure)\b"
+)
+
+
 def _message_figures(message: str) -> List[float]:
   """Every numeric figure in a client message: digits (comma-stripped),
   k/thousand shorthand expanded, and small number words."""
@@ -5315,13 +5365,24 @@ def _guard_underivable_stage_writes(
   cost figure). A dropped write leaves the field untouched, so the
   ambiguity clarifier can fire on the client's real figure and the
   stage question stands honestly asked. Ratio-primary fields (COGS
-  percent) add f/100 to the derivability family."""
+  percent) add f/100 to the derivability family.
+
+  ZERO is derivable by STATEMENT, not arithmetic (CW-016 zero loop): an
+  explicit zero answer admits 0-writes. The assistant's own "$0"
+  proposal admits them only on affirmation-shaped replies, so a
+  correction turn with no zero content still drops a stage-default zero
+  even when the pending ask happened to mention "zero"."""
   figures = [
     f for f in (
       _message_figures(str(user_message or ""))
       + _message_figures(str(last_assistant or ""))
     ) if f and f > 0
   ]
+  _msg_l = str(user_message or "").strip().lower()
+  zero_stated = _message_expresses_zero(_msg_l) or (
+    bool(_AFFIRMATION_SHAPE_RE.search(_msg_l))
+    and _message_expresses_zero(str(last_assistant or ""))
+  )
   out = fin_after
   for key, after_v in list((fin_after or {}).items()):
     if not isinstance(after_v, (int, float)) or isinstance(after_v, bool):
@@ -5332,6 +5393,8 @@ def _guard_underivable_stage_writes(
     before_v = _safe_float((fin_before or {}).get(name))
     v = float(after_v)
     if before_v is not None and abs(v - before_v) <= max(1e-6, 0.001 * abs(before_v)):
+      continue
+    if abs(v) < 1e-9 and zero_stated:
       continue
     if not figures:
       derivable = False
@@ -5393,6 +5456,7 @@ def _guard_underivable_financials_writes(
   fields are exempt (their syncs own them); walk machine patches apply
   in section.py and never pass through here."""
   figures = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
+  zero_stated = _message_expresses_zero(str(user_message or ""))
   out = fin_after
   for key, after_v in list((fin_after or {}).items()):
     if not isinstance(after_v, (int, float)) or isinstance(after_v, bool):
@@ -5406,6 +5470,8 @@ def _guard_underivable_financials_writes(
     v = float(after_v)
     if abs(v - before_v) <= max(1e-6, 0.001 * abs(before_v)):
       continue
+    if abs(v) < 1e-9 and zero_stated:
+      continue  # explicit zero answer - derivable by statement (CW-016)
     # 0.5% tolerance: the router echoes stated numbers near-exactly, and
     # 2% let 873,000 pass as "216,000 x 4" (1.04% off) in the Stonewater
     # replay. Derivability is value-based and field-blind - a figure
@@ -5424,6 +5490,56 @@ def _guard_underivable_financials_writes(
         out = dict(fin_after)
       out[name] = before_v
   return out
+
+
+_PROSE_CHANGE_CLAIM_RE = re.compile(
+  r"\b(?:updat\w+|chang\w+|switch\w+|adjust\w+"
+  r"|i'?ll\s+(?:use|set|update|change|record)"
+  r"|i'?ve\s+(?:now\s+)?(?:updated|set|changed|recorded|applied)"
+  r"|setting\s+the)\b"
+)
+
+
+def _prose_claims_unrequested_change(prose: str) -> bool:
+  """(h) CW-016, second live occurrence: on a turn whose write receipt
+  is EMPTY because nothing was even REQUESTED, router prose is the one
+  voice left that can still claim a change ("Got it - updating the
+  maintenance agreement unit price to $4,300" while no write existed;
+  the stored price stayed $4,000 and the client asked three times).
+  True when the prose asserts an update - such prose may not survive
+  as the acknowledgment of an empty-request turn."""
+  text = str(prose or "").lower().replace("’", "'")
+  return bool(_PROSE_CHANGE_CLAIM_RE.search(text))
+
+
+def _driver_correction_disposition(
+  *, pre_implied: float, post_implied: float, stated: float
+) -> str:
+  """F1 (CW-009) + CW-016 (i2): classify a post-convergence driver
+  correction. "propagate" moves stated revenue by the implied factor (a
+  genuine value change, e.g. a price rise); "reconcile" holds the
+  client's stated figure (a structure fix repairing the model's misread
+  of an existing business); "none" when the change is immaterial.
+
+  A correction that lands the implied model ON the stated figure
+  (post_gap <= 1%) is a reconcile REGARDLESS of how small the prior
+  disagreement was. The Ironbridge event: pre_gap 1.17% sat under the
+  8% structure-fix floor, so a $4,000->$4,300 unit-price repair whose
+  whole point was making the model MATCH the client's P&L instead
+  dragged stated revenue to $11,228,731 and the client had to catch it.
+  post_gap ~ 0 IS the structure-fix fingerprint at any pre_gap; a real
+  price change moves the model AWAY from stated (post_gap stays well
+  above 1%), so verified propagate cases (Stonewater +5.8%, Harpeth
+  +4.9%) are untouched."""
+  pre_gap = abs(pre_implied - stated) / stated
+  post_gap = abs(post_implied - stated) / stated
+  factor = post_implied / pre_implied
+  structure_fix = (pre_gap > 0.08 and post_gap < pre_gap) or post_gap <= 0.01
+  if abs(factor - 1.0) > 0.005 and not structure_fix:
+    return "propagate"
+  if structure_fix and post_gap < 0.05:
+    return "reconcile"
+  return "none"
 
 
 _DRIVER_LEVER_LEAVES = (
@@ -5582,6 +5698,52 @@ def _reconcile_driver_correction(
                   f" Your {name0} side now models at about "
                   f"{_format_currency(new_stream)} a year against the "
                   f"{_format_currency(target)} you reported."
+                ),
+              }
+          # (g) CW-016: STATED-PRICE triplet landing. The client
+          # re-priced the unit and supplied the whole arithmetic
+          # ("Thirty-six active agreements at $4,300 a month is
+          # $1,857,600 a year") but the router touched nothing - the
+          # capacity-only landing above can never fit it because the
+          # STORED price is the stale one. When a message price coheres
+          # with a stated count and the stated dollars, land price AND
+          # capacity from the client's own figures. The near-price band
+          # is RELATIVE (within 50% of the product's stored price), so
+          # a $4,300 correction lands on the $4,000 agreements and can
+          # never touch the $385,000 projects. Counts may be raw
+          # (utilization applied on top) or effective (the client
+          # quotes realized units; capacity = count / util), annual or
+          # per-period - the 2% dollar coherence picks the variant.
+          price_figs = [
+            f for f in figures
+            if f > 0 and price0 > 0
+            and abs(f - price0) / price0 <= 0.5
+            and abs(f - price0) > max(1e-9, 0.001 * price0)
+          ]
+          for count in count_figs:
+            for pf in price_figs:
+              landed_cap = None
+              if abs(count * pf * util0 - target) / target <= 0.02:
+                landed_cap = count / periods0  # raw annual count
+              elif abs(count * pf * periods0 * util0 - target) / target <= 0.02:
+                landed_cap = float(count)  # raw per-period count
+              elif abs(count * pf - target) / target <= 0.02:
+                landed_cap = count / (periods0 * util0)  # effective annual
+              elif abs(count * pf * periods0 - target) / target <= 0.02:
+                landed_cap = count / util0  # effective per-period
+              if landed_cap is None or landed_cap <= 0:
+                continue
+              p_after["unit_price"] = float(pf)
+              p_after["units_per_period_capacity"] = float(landed_cap)
+              name0 = str(p_after.get("product_name") or p_after.get("unit_name") or "that side").strip()
+              new_stream = pf * landed_cap * periods0 * util0
+              return ops_after, {
+                "reverted": [],
+                "confirm": None,
+                "stream_note": (
+                  f" Your {name0} side now models at {_format_currency(pf)} "
+                  f"per unit - about {_format_currency(new_stream)} a year "
+                  f"against the {_format_currency(target)} you reported."
                 ),
               }
     return ops_after, None
@@ -12615,7 +12777,22 @@ def post_intake_consult_handler(*, app, request):
             else:
               ack_fallback = "Got it - that matches what I already have on file."
           else:
-            ack_fallback = str(router_msg or "").strip() or "Got it - updated."
+            _prose = str(router_msg or "").strip()
+            _driver_landed = isinstance(_driver_note, dict) and bool(
+              _driver_note.get("confirm") or _driver_note.get("stream_note")
+            )
+            if _prose and not _driver_landed and _prose_claims_unrequested_change(_prose):
+              # (h) CW-016: empty-request turn + change-claiming prose.
+              # Nothing was written and nothing was even asked - the
+              # claim is manufactured. Say so and get the field named,
+              # which is exactly what unblocked the live client.
+              ack_fallback = (
+                "I wasn't able to apply that change just now - could you "
+                "tell me exactly which field to change and the value it "
+                "should be?"
+              )
+            else:
+              ack_fallback = _prose or "Got it - updated."
           # CW-011 #2: a structural correction narrates DOLLARS the client
           # can verify (their stream), never internal lever values alone.
           if isinstance(_driver_note, dict):
@@ -12680,14 +12857,14 @@ def post_intake_consult_handler(*, app, request):
               # (a price rise) starts from a model already in agreement
               # and moves it AWAY - only then does stated revenue follow
               # the drivers.
-              pre_gap = abs(pre_implied - stated) / stated
-              post_gap = abs(post_implied - stated) / stated
-              structure_fix = pre_gap > 0.08 and post_gap < pre_gap
-              if abs(factor - 1.0) > 0.005 and not structure_fix:
+              disposition = _driver_correction_disposition(
+                pre_implied=pre_implied, post_implied=post_implied, stated=stated
+              )
+              if disposition == "propagate":
                 financials_json = dict(financials_json)
                 financials_json["current_revenue"] = float(stated * factor)
                 revenue_propagated = financials_json["current_revenue"]
-              elif structure_fix and post_gap < 0.05:
+              elif disposition == "reconcile":
                 revenue_reconciled = float(stated)
           except Exception:
             pass
