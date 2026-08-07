@@ -594,6 +594,15 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     return ops_obj
 
   def _normalize_unit_dict(d: Dict[str, Any]) -> None:
+    # CW-018 driver-cadence family: fills are CONVERTED, never verbatim.
+    # A verbatim copy put a monthly/annual count into the weekly-named
+    # legacy field, and the engine's fallback multiplies that field by
+    # 13 - a 13x-52x capacity inflation whenever the primary
+    # (period, periods) pair is missing. Converting the fill
+    # (week = period x periods / 52) makes the fallback arithmetically
+    # IDENTICAL to the primary path, so the legacy reader can never
+    # disagree with the canonical one. Annual cadences now default
+    # periods=1 instead of falling into the unknown branch.
     cadence = str(d.get("unit_cadence") or "").strip().lower()
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
@@ -606,20 +615,30 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         d["operating_periods_per_year"] = 52
       return
 
-    if cadence in ("monthly", "contract"):
+    if cadence in ("annual", "yearly", "per year"):
+      if _is_missing_number_value(periods_per_year):
+        d["operating_periods_per_year"] = 1
+      periods_per_year = d.get("operating_periods_per_year")
+
+    _p = _safe_float(periods_per_year)
+    if cadence == "monthly" and _is_missing_number_value(periods_per_year):
+      d["operating_periods_per_year"] = 12
+      _p = 12.0
+
+    if _p is not None and _p > 0:
       if _is_missing_number_value(week) and not _is_missing_number_value(period):
-        d["units_per_week_capacity"] = period
+        _pv = _safe_float(period)
+        if _pv is not None:
+          d["units_per_week_capacity"] = round(_pv * _p / 52.0, 6)
       elif _is_missing_number_value(period) and not _is_missing_number_value(week):
-        d["units_per_period_capacity"] = week
-      if cadence == "monthly" and _is_missing_number_value(periods_per_year):
-        d["operating_periods_per_year"] = 12
+        _wv = _safe_float(week)
+        if _wv is not None:
+          d["units_per_period_capacity"] = round(_wv * 52.0 / _p, 6)
       return
 
-    # Unknown cadence: best-effort fill the missing side only.
-    if _is_missing_number_value(week) and not _is_missing_number_value(period):
-      d["units_per_week_capacity"] = period
-    elif _is_missing_number_value(period) and not _is_missing_number_value(week):
-      d["units_per_period_capacity"] = week
+    # Cadence AND periods both unknown: no honest conversion exists -
+    # fill nothing rather than manufacture a mislabeled number (the
+    # engine's canonical reader falls through its own ladder).
 
   lob_models = ops_obj.get("lob_models")
   product_count = 0
