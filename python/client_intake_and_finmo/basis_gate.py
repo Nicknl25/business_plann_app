@@ -137,6 +137,7 @@ def gate_numeric(
         pending = det["stage_amount"](
           field_name=leaf,
           financials_json=ctx.get("financials_json") or {},
+          user_message=str(user_message or ""),
         )
     elif cls == "ratio" and field.endswith("_percent_of_revenue") and det.get("percent_vs_dollar"):
       pending = det["percent_vs_dollar"](

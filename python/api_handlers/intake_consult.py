@@ -4956,13 +4956,20 @@ def _detect_stage_amount_basis_conflict(
   *,
   field_name: str,
   financials_json: Dict[str, Any],
+  user_message: str = "",
 ) -> Optional[Dict[str, Any]]:
   """Annual-basis stage amount implausibly small against stated revenue:
   the Bridgeburn client's monthly $1,500 marketing landed as $1,500/YEAR —
   0.21% of revenue, a 56x drop from the proposed anchor, unclarified. Fires
   only when the annual reading is tiny (<0.5% of revenue) AND the monthly
   reading is ordinary (>=1%) — a genuinely tiny annual spend answers the
-  one question and proceeds."""
+  one question and proceeds. An EXPLICIT annual marking in the client's
+  words ("a year", "annual", "per year" — CW-015: 'twelve THOUSAND
+  dollars a year' then asked month-or-year anyway) answers the question
+  before it is asked: marked messages never re-ask."""
+  _msg = str(user_message or "").lower()
+  if any(m in _msg for m in ("a year", "per year", "annually", "annual", "for the year", "yearly")):
+    return None
   value = _safe_float((financials_json or {}).get(field_name)) or 0.0
   revenue = _safe_float((financials_json or {}).get("current_revenue")) or 0.0
   if value <= 0.0 or revenue <= 0.0:
@@ -5000,10 +5007,37 @@ def _detect_percent_vs_dollar_conflict(
   if revenue <= 0 or percent_value <= 0.005 or percent_value > 1.0:
     return None
   raw_number = percent_value * 100.0  # "fourteen" -> 0.14 -> 14
+  # The ambiguity is the CLIENT'S bare figure - if the number isn't in
+  # their words (e.g. a percent landed from "yes" to the assistant's
+  # proposal), there is nothing to clarify (CW-015 affirmation control).
+  if not any(abs(c - raw_number) < 0.51 for c in _percent_shaped_figures(msg)):
+    return None
   percent_reading = percent_value * revenue
   dollar_reading = raw_number * 1000.0  # the natural founder shorthand
-  if dollar_reading < 0.002 * revenue or dollar_reading > 0.5 * revenue:
-    return None  # the dollar reading is implausible; percent stands
+  # SCALE-RELATIVE ONLY (CW-015): the old absolute band (dollar reading
+  # within [0.2%, 50%] of revenue) auto-resolved "surely they meant
+  # percent" and went silent on a 64.8x divergence at $6.48M scale -
+  # where $12,000 marketing was the TRUTH at 0.185% of revenue. An
+  # absolute floor just moves the cliff to a different revenue. The only
+  # bound kept is itself a ratio to this business: an expense reading
+  # above revenue is not a live reading. Everything else is decided by
+  # the DIVERGENCE between the readings - if they are 3x apart, the app
+  # does not know, so it asks.
+  if dollar_reading > revenue:
+    return None  # dollar reading exceeds revenue; percent stands
+  # SELF-DISAMBIGUATION (CW-015): when another figure in the client's
+  # own words agrees with one reading ("We're at 76 - call it 4.92
+  # million of product cost": 76% x $6.48M = $4.92M), the client already
+  # answered the question - asking would be interrogation.
+  other_figures = [
+    f for f in _message_figures(msg) if abs(f - raw_number) > 0.51
+  ]
+  for f in other_figures:
+    if f > 0 and (
+      abs(percent_reading - f) / max(f, 1e-9) <= 0.02
+      or abs(dollar_reading - f) / max(f, 1e-9) <= 0.02
+    ):
+      return None
   bigger, smaller = max(percent_reading, dollar_reading), min(percent_reading, dollar_reading)
   if smaller <= 0 or bigger / smaller < 3.0:
     return None  # readings agree closely enough that it doesn't matter
@@ -5145,6 +5179,8 @@ def _message_figures(message: str) -> List[float]:
     out.append(n * 1000.0 if k_suffix.strip() else n)
   for m in re.finditer(r"(\d+(?:\.\d+)?)\s+thousand", msg):
     out.append(float(m.group(1)) * 1000.0)
+  for m in re.finditer(r"(\d+(?:\.\d+)?)\s+million", msg):
+    out.append(float(m.group(1)) * 1_000_000.0)
   out.extend(_percent_shaped_figures(msg))
   return out
 
@@ -5239,6 +5275,85 @@ def _completion_model_input_tripwire(
     except Exception:
       pass
   return None
+
+
+# Mid-intake derived-twin exemptions are FIELD-SPECIFIC (CW-015 #2):
+# marketing's client-primary is the TOTAL (percent derived); COGS's
+# client-primary is the PERCENT (total/echo derived). Only true derived
+# twins are exempt here - the primary of each family is guarded.
+_STAGE_WRITE_GUARD_EXEMPT = {
+  "marketing_percent_of_revenue",
+  "cogs_total_year1",
+  "current_cogs",
+  "current_payroll",
+  "payroll_total_year1",
+  "baseline_payroll_year1",
+  "marketing_adjustment",
+  "payroll_adjustment",
+  "cogs_adjustment",
+  "funding_split_debt_share",
+  "confidence",
+}
+
+
+def _guard_underivable_stage_writes(
+  *,
+  fin_before: Dict[str, Any],
+  fin_after: Dict[str, Any],
+  user_message: str,
+  last_assistant: str = "",
+) -> Dict[str, Any]:
+  """Mid-intake derivability guard (CW-014/15 majors #1-#3): a financials
+  write may only carry a value derivable from the TURN'S ACTUAL CONTENT -
+  the client's message plus the assistant's immediately-preceding
+  proposal (so "yes" to "does 85% match?" lands 0.85 from the proposal's
+  own figures). This kills three observed shapes with one rule: the
+  router-authored estimate ("very lean budget" $15,800 over "twelve"),
+  the router percent-reading echo ($777,600 = 12% x revenue), and the
+  stage-default zero (a correction message consumed as the pending
+  stage's answer wrote "$0 (0%)" direct costs from a message with no
+  cost figure). A dropped write leaves the field untouched, so the
+  ambiguity clarifier can fire on the client's real figure and the
+  stage question stands honestly asked. Ratio-primary fields (COGS
+  percent) add f/100 to the derivability family."""
+  figures = [
+    f for f in (
+      _message_figures(str(user_message or ""))
+      + _message_figures(str(last_assistant or ""))
+    ) if f and f > 0
+  ]
+  out = fin_after
+  for key, after_v in list((fin_after or {}).items()):
+    if not isinstance(after_v, (int, float)) or isinstance(after_v, bool):
+      continue
+    name = str(key)
+    if name.startswith(("_", "baseline_")) or name in _STAGE_WRITE_GUARD_EXEMPT:
+      continue
+    before_v = _safe_float((fin_before or {}).get(name))
+    v = float(after_v)
+    if before_v is not None and abs(v - before_v) <= max(1e-6, 0.001 * abs(before_v)):
+      continue
+    if not figures:
+      derivable = False
+    else:
+      derivable = any(
+        any(
+          abs(v - c) / max(abs(c), 1e-9) <= 0.005
+          for c in (
+            f, f * 1000.0, f * 12.0, f / 12.0, f * 52.0, f / 52.0,
+            f * 4.0, f / 4.0, f / 100.0,
+          )
+        )
+        for f in figures
+      )
+    if not derivable:
+      if out is fin_after:
+        out = dict(fin_after)
+      if before_v is not None:
+        out[name] = before_v
+      else:
+        out.pop(name, None)
+  return out
 
 
 # Fields the derivability guard exempts: derived twins and family fields
@@ -6153,6 +6268,26 @@ def _normalize_financials_router_patch(
     # by the field_basis registry.)
     next_financials[field_name] = float(numeric)
     touched.add(field_name)
+  # Mid-intake derivability guard (CW-015 majors): writes must be
+  # derivable from the turn's content (message + preceding proposal) or
+  # they drop BEFORE the say-do accounting, so the client hears the
+  # truth and the clarifier machinery sees the untouched field.
+  try:
+    _guarded = _guard_underivable_stage_writes(
+      fin_before=financials_json or {},
+      fin_after=next_financials,
+      user_message=str(user_message or ""),
+      last_assistant=str(last_assistant or ""),
+    )
+    if _guarded is not next_financials:
+      for _gf_rm in list(touched):
+        if (_gf_rm in next_financials and _gf_rm not in _guarded) or (
+          _safe_float(_guarded.get(_gf_rm)) != _safe_float(next_financials.get(_gf_rm))
+        ):
+          touched.discard(_gf_rm)
+      next_financials = _guarded
+  except Exception:
+    pass
   # Say-do accounting (issue #23): the caller derives the confirmation
   # from what was ACTUALLY applied. Anything in the patch that did not
   # land is reported so the client hears it — never a false "recorded".
@@ -6236,6 +6371,29 @@ def _normalize_financials_router_patch(
         if _verdict.get("verdict") == "clarify" and _verdict.get("pending"):
           next_financials["_basis_clarify_pending"] = _verdict["pending"]
           break
+      # ASK-FIRST (CW-015): when a clarifier fires on a field family,
+      # NOTHING from that family lands this turn - the question is the
+      # turn, and the resolution applier writes the confirmed reading.
+      # Pre-CW-015 the provisional reading stayed written ("I'll use
+      # $105,600 (12%)... Quick check-") and the family sync could
+      # rebuild a dropped total from a surviving percent twin.
+      _pend_now = next_financials.get("_basis_clarify_pending")
+      if isinstance(_pend_now, dict):
+        _pf = str(_pend_now.get("field") or "").strip()
+        _family = {_pf}
+        if _pf.endswith("_percent_of_revenue"):
+          _family.add(_pf.replace("_percent_of_revenue", "_total_year1"))
+        elif _pf.endswith("_total_year1"):
+          _family.add(_pf.replace("_total_year1", "_percent_of_revenue"))
+        for _ff in _family:
+          if not _ff:
+            continue
+          _before_ff = (financials_json or {}).get(_ff)
+          if _before_ff is None:
+            next_financials.pop(_ff, None)
+          else:
+            next_financials[_ff] = _before_ff
+          touched.discard(_ff)
     except Exception:
       pass
   if "cogs_percent_of_revenue" in touched:
