@@ -5467,6 +5467,57 @@ _MARKED_PRICE_RE = re.compile(
 _MARKED_PRICE_PPY = {"week": 52.0, "month": 12.0, "year": 1.0}
 
 
+def _capacity_effective_volume_correction(
+  v: float,
+  node_after: Dict[str, Any],
+  node_before: Dict[str, Any],
+  user_message: str,
+) -> Optional[float]:
+  """CW-019 (Catawba): derivable-but-MISPLACED - the router wrote the
+  UTILIZED volume into the CAPACITY field ("1,120 jobs at $1,450, which
+  is $1,624,000" -> capacity=1120 on a product stored 1,400 @ 80%).
+  Derivability cannot catch it (1,120 is verbatim in the client's
+  words); the (g) triplet COHERENCE can: the raw reading
+  (v x price x util x periods) misses every dollar figure the client
+  stated while the effective reading (v x price x periods) hits one
+  exactly - so v is the utilized volume and the capacity is v / util.
+  Returns the corrected capacity, or None to keep the write (raw
+  reading coherent, ambiguous, or triplet context missing). This also
+  keeps the correction's post-gap at ~0, so the (i2) disposition
+  reconciles and stated revenue holds - the Catawba $7,925,873
+  overwrite was downstream of exactly this misland."""
+  def _pick(field: str) -> Optional[float]:
+    val = node_after.get(field)
+    if not isinstance(val, (int, float)) or isinstance(val, bool):
+      val = (node_before or {}).get(field)
+    return _safe_float(val)
+
+  price = _pick("unit_price")
+  util = _pick("utilization_rate")
+  periods = _pick("operating_periods_per_year")
+  if not price or price <= 0 or util is None or not (0.0 < util < 1.0):
+    return None
+  if periods is None or periods <= 0:
+    return None
+  dollars = [
+    f for f in _message_figures(str(user_message or "").lower()) if f > price
+  ]
+  if not dollars:
+    return None
+
+  def _hits(x: float) -> bool:
+    return any(abs(x - d) / max(d, 1e-9) <= 0.02 for d in dollars)
+
+  raw_ok = _hits(float(v) * price * util * periods)
+  eff_ok = _hits(float(v) * price * periods)
+  if raw_ok or not eff_ok:
+    return None
+  corrected = float(v) / util
+  if abs(corrected - round(corrected)) < 0.51:
+    return float(round(corrected))
+  return round(corrected, 6)
+
+
 def _marked_price_conversion(user_message: str, product_ppy: Optional[float]) -> Optional[float]:
   """CW-018 #1b: deterministic cadence conversion for a MARKED price
   statement - the driver_price analog of the basis gate's convert
@@ -5694,6 +5745,22 @@ def _guard_underivable_ops_lever_writes(
       if leaf == "utilization_rate" and before_v is None:
         continue
       if _derivable(v):
+        # CW-019: a DERIVABLE capacity write can still be the utilized
+        # volume misplaced into the capacity field - the triplet
+        # coherence cross-check catches what derivability cannot.
+        if leaf == "units_per_period_capacity":
+          _cap_fix = _capacity_effective_volume_correction(
+            v, node_after, nb, str(user_message or "")
+          )
+          if _cap_fix is not None:
+            node_after[leaf] = _cap_fix
+            _p_now = _safe_float(
+              node_after.get("operating_periods_per_year")
+              if node_after.get("operating_periods_per_year") is not None
+              else nb.get("operating_periods_per_year")
+            )
+            if "units_per_week_capacity" in node_after and _p_now and _p_now > 0:
+              node_after["units_per_week_capacity"] = round(_cap_fix * _p_now / 52.0, 6)
         continue
       # CW-018 #1b: a MARKED price statement converts deterministically
       # instead of drop-and-reask. The router's own cadence arithmetic
