@@ -5460,6 +5460,42 @@ _OPS_LEVER_GUARD_LEAVES = (
 )
 
 
+_MARKED_PRICE_RE = re.compile(
+  r"\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?[^.\n]{0,24}?\b(?:per|a|an|each)\s+"
+  r"(week|month|year)\b"
+)
+_MARKED_PRICE_PPY = {"week": 52.0, "month": 12.0, "year": 1.0}
+
+
+def _marked_price_conversion(user_message: str, product_ppy: Optional[float]) -> Optional[float]:
+  """CW-018 #1b: deterministic cadence conversion for a MARKED price
+  statement - the driver_price analog of the basis gate's convert
+  verdict (that class was declared but never wired to a caller; this
+  guard seam is where ops prices actually land). "$1,200 a year" on a
+  12-period product canonicalizes to 100 per period: stated x
+  stated_periods_per_year / product_periods_per_year. Returns None
+  when no marked price exists or the product cadence is unknown - the
+  caller keeps today's drop-and-reask."""
+  if product_ppy is None or product_ppy <= 0:
+    return None
+  msg = str(user_message or "").lower().replace(",", "")
+  last = None
+  for m in _MARKED_PRICE_RE.finditer(msg):
+    last = m
+  if last is None:
+    return None
+  try:
+    stated = float(last.group(1))
+  except (TypeError, ValueError):
+    return None
+  if last.group(2):
+    stated *= 1000.0
+  if stated <= 0:
+    return None
+  stated_ppy = _MARKED_PRICE_PPY[last.group(3)]
+  return round(stated * stated_ppy / float(product_ppy), 6)
+
+
 _XSEC_CORRECTION_MARKERS = re.compile(
   r"\b(wrong|fix|change|set|correct|update|earlier|told you|go back|"
   r"mistake|actually|not right|instead)\b"
@@ -5659,6 +5695,22 @@ def _guard_underivable_ops_lever_writes(
         continue
       if _derivable(v):
         continue
+      # CW-018 #1b: a MARKED price statement converts deterministically
+      # instead of drop-and-reask. The router's own cadence arithmetic
+      # produced X/10 for "X a year" on a monthly product (CW-014) -
+      # the (c) guard rightly dropped that fabrication, but the honest
+      # outcome is the GATE-style conversion: stated x stated_periods /
+      # product_periods, Python arithmetic, never GPT's.
+      if leaf == "unit_price":
+        _ppy = _safe_float(
+          node_after.get("operating_periods_per_year")
+          if node_after.get("operating_periods_per_year") is not None
+          else nb.get("operating_periods_per_year")
+        )
+        _conv = _marked_price_conversion(str(user_message or ""), _ppy)
+        if _conv is not None:
+          node_after[leaf] = _conv
+          continue
       if before_v is not None:
         node_after[leaf] = before_v
       else:

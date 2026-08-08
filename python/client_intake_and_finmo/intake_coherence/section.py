@@ -834,9 +834,17 @@ def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, An
   if band_high is not None and margin > _f(band_high):
     # Above the believable ceiling: honest phrasing — the engine will
     # temper the full plan into the band; never claim "inside".
+    # CW-018 #3: "comfortably above the floor" read as a clean pass of
+    # a figure that is ALSO above the believable ceiling (Vanguard:
+    # 11.5% narrated against a 6-11% band). The wording now names the
+    # tempering explicitly and points the reader at the range, not the
+    # higher stress figure.
     band_txt = (
-      f"comfortably above the {_pct(band_low)} floor judged for your kind of business "
-      f"(the full plan will keep it within the believable {_pct(_f(band_high))} ceiling)"
+      f"that stress figure actually sits above the {_pct(band_low)}-"
+      f"{_pct(_f(band_high))} range judged believable for your kind of "
+      f"business, so the full build will temper it back inside that range "
+      f"- treat {_pct(_f(band_high))} as the honest ceiling, not the "
+      f"figure above it"
     )
   elif band_high is not None:
     band_txt = (

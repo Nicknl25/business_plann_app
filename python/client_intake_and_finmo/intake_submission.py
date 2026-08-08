@@ -9,14 +9,22 @@ from email.message import EmailMessage
 from typing import Any, Dict, Tuple, Set, List
 
 
-ALLOWED_SPECIALS = "!@#$%^&_-"
-
-
+# CW-018 #4: the two-random-specials prefix ("$%PEGJUYN...") rendered as
+# garbage punctuation everywhere the reference code is shown to a client
+# and added zero entropy worth keeping (7 letters + 11 digits is the
+# identity). New ids are alphanumeric only; legacy ids with specials
+# remain valid keys and are display-stripped at render sites.
 def generate_client_id() -> str:
-  specials = "".join(secrets.choice(ALLOWED_SPECIALS) for _ in range(2))
   letters = "".join(secrets.choice(string.ascii_uppercase) for _ in range(7))
   digits = "".join(secrets.choice(string.digits) for _ in range(11))
-  return f"{specials}{letters}{digits}"
+  return f"{letters}{digits}"
+
+
+def display_reference_code(client_id: Any) -> str:
+  """Client-facing rendering of a reference code: alphanumerics only.
+  Legacy ids carry a two-special prefix; the specials were never part
+  of the code's identity."""
+  return "".join(ch for ch in str(client_id or "") if ch.isalnum())
 
 
 def parse_business_start_date(value: Any) -> date:

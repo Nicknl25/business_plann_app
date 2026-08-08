@@ -222,7 +222,13 @@ export default function SubmitStep({
         <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           Intake submitted successfully. Reference code:{" "}
           <span className="font-mono">
-            {submitSuccess.clientId || submitSuccess.intakeSubmissionId || "recorded"}
+            {/* CW-018 #4: legacy client ids carry a two-special prefix
+                ("$%..."); the specials were never part of the code's
+                identity - display alphanumerics only. */}
+            {String(submitSuccess.clientId || submitSuccess.intakeSubmissionId || "recorded").replace(
+              /[^A-Za-z0-9]/g,
+              ""
+            ) || "recorded"}
           </span>
           {submitSuccess.intakeSubmissionId &&
           submitSuccess.clientId &&

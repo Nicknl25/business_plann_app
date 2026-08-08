@@ -6,6 +6,13 @@ from typing import Any, Dict, Optional
 
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 
+# CW-018 #2: the "price per name" idiom, handled as a UNIT before
+# independent per-placeholder substitution can weld a multi-product
+# range ("$3,400-$21,000 per A and B").
+_PRICE_PER_NAME_PATTERN = re.compile(
+  r"\{\{fact:ops\.unit_price\}\}\s+per\s+\{\{fact:ops\.unit_name\}\}"
+)
+
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 
@@ -380,4 +387,36 @@ def render_fact_template(
     raw_value = resolve_value(group, field)
     return format_value(group, field, raw_value)
 
-  return _FACT_PATTERN.sub(_replace, str(text))
+  # CW-018 #2 (positioning splice, 16th occurrence): the idiom
+  # "{{fact:ops.unit_price}} per {{fact:ops.unit_name}}" welded
+  # multi-product businesses into ONE range spanning incomparable
+  # bases - "$3,400-$21,000 per Active account (per month) and Project
+  # package (per job)" reads as one range covering both. When the ops
+  # model carries multiple products with DISTINCT prices, the idiom
+  # renders PAIRED per-product: "$3,400 per Active account and $21,000
+  # per Project package". Single-product and uniform-price cases keep
+  # the existing independent substitution.
+  def _paired_price_per_name(match: re.Match[str]) -> str:
+    om = shared_context.get("operating_model") or {}
+    pairs = []
+    if isinstance(om, dict):
+      for lob in om.get("lob_models") or []:
+        if not isinstance(lob, dict):
+          continue
+        for p in lob.get("products") or []:
+          if not isinstance(p, dict):
+            continue
+          name = str(p.get("unit_name") or p.get("product_name") or "").strip()
+          price = _safe_float(p.get("unit_price"))
+          if name and price is not None and price > 0:
+            pairs.append((name, price))
+    distinct_prices = {round(pr, 6) for _, pr in pairs}
+    if len(pairs) < 2 or len(distinct_prices) < 2:
+      return match.group(0)
+    parts = [f"{_format_number(pr, money=True)} per {nm}" for nm, pr in pairs]
+    if len(parts) == 2:
+      return f"{parts[0]} and {parts[1]}"
+    return ", ".join(parts[:-1]) + f", and {parts[-1]}"
+
+  rendered = _PRICE_PER_NAME_PATTERN.sub(_paired_price_per_name, str(text))
+  return _FACT_PATTERN.sub(_replace, rendered)

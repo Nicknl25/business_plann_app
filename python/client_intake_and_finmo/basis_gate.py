@@ -95,6 +95,33 @@ def gate_numeric(
   # 1) DETERMINISTIC CONVERSION - the client MARKED a basis that differs
   # from canonical on a path that historically copied verbatim. Arithmetic
   # lives here, never in the GPT.
+  #
+  # CW-018 #1b: driver_price is cadence-relative - canonical is PER
+  # PRODUCT PERIOD, so the conversion factor needs the product's
+  # operating_periods_per_year from context. ("$1,200 a year" on a
+  # 12-period product -> 100 per period.) The live seam for ops writes
+  # is the apply-site guard (_marked_price_conversion); this branch
+  # makes the gate's declared class real for any caller that consults
+  # it with product context.
+  if basis in PERIODS_PER_YEAR and cls == "driver_price":
+    try:
+      product_ppy = float(ctx.get("product_periods_per_year") or 0.0)
+    except (TypeError, ValueError):
+      product_ppy = 0.0
+    if product_ppy > 0:
+      stated_periods = PERIODS_PER_YEAR[basis]
+      if abs(product_ppy - stated_periods) > 1e-9:
+        converted = float(value) * (stated_periods / product_ppy)
+        return {
+          "verdict": "convert",
+          "value": converted,
+          "provenance": {
+            "stated_value": float(value),
+            "stated_basis": basis,
+            "canonical": "per_product_period",
+            "factor": stated_periods / product_ppy,
+          },
+        }
   if basis in PERIODS_PER_YEAR and cls in ("monthly", "annual"):
     canonical_periods = PERIODS_PER_YEAR["monthly" if cls == "monthly" else "annual"]
     stated_periods = PERIODS_PER_YEAR[basis]
