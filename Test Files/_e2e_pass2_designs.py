@@ -39,7 +39,7 @@ adj = maybe_labor_adjust_cogs_band(
     naics_6="561720", band_min=0.866712, band_target=0.872091,
     band_max=0.877609, labor_heavy_business=True)
 check("S1 561720 converts to a materials band (~26.8% target)",
-      adj is not None and 0.22 < adj["target"] < 0.32)
+      adj is not None and adj.get("action") == "convert" and 0.22 < adj["target"] < 0.32)
 check("S1 ordering preserved and provenance stamped",
       adj is not None and adj["min"] <= adj["target"] <= adj["max"]
       and adj["provenance"]["basis"] == "labor_adjusted"
@@ -58,10 +58,19 @@ check("S1 NEG overlap sum <= 1 -> None (materials-heavy cohort untouched)",
           naics_6="561720", band_min=0.25, band_target=0.35,
           band_max=0.45, labor_heavy_business=True) is None)
 # THE GUARDRAIL: no payroll coverage anywhere -> no conversion, ever.
-check("S1 GUARDRAIL no payroll coverage -> None (never a guessed subtraction)",
-      maybe_labor_adjust_cogs_band(
-          naics_6="000000", band_min=0.8667, band_target=0.8721,
-          band_max=0.8776, labor_heavy_business=True) is None)
+_g = maybe_labor_adjust_cogs_band(
+    naics_6="000000", band_min=0.8667, band_target=0.8721,
+    band_max=0.8776, labor_heavy_business=True)
+check("S1 GUARDRAIL+RULING no payroll coverage -> DEMOTE (never a guessed subtraction)",
+      _g is not None and _g.get("action") == "demote"
+      and _g["provenance"]["reason"] == "no_payroll_coverage")
+# THE EDGE RULING: overlap proven but subtraction collapses -> DEMOTE.
+_d = maybe_labor_adjust_cogs_band(
+    naics_6="561720", band_min=0.458, band_target=0.4877,
+    band_max=0.5382, labor_heavy_business=True)
+check("S1 RULING proven-overlap-but-unconvertible -> DEMOTE to context",
+      _d is not None and _d.get("action") == "demote"
+      and _d["provenance"]["basis"] == "labor_basis_overlap_unresolvable")
 
 # Seam 2 end-to-end: the ramp builder's band resolver.
 from client_intake_and_finmo.post_intake_contracts.runner import (  # noqa: E402

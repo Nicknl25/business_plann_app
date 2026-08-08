@@ -105,24 +105,41 @@ def maybe_labor_adjust_cogs_band(
     return None
   payroll = cohort_payroll_share(naics_6)
   if payroll is None:
-    return None  # THE GUARDRAIL: no coverage -> no conversion, ever.
+    # THE GUARDRAIL + the edge RULING (Nick, 2026-08-08): a labor-heavy
+    # business whose cohort payroll cannot be resolved gets NO
+    # conversion - and the unverifiable labor-inclusive band DEMOTES TO
+    # CONTEXT rather than keeping steering authority.
+    return {
+      "action": "demote",
+      "provenance": {"basis": "labor_basis_unverifiable", "reason": "no_payroll_coverage"},
+    }
   if target + payroll <= 1.0:
-    return None  # bases do not provably overlap - leave the band alone.
+    return None  # bases provably compatible - the band keeps authority.
   lo = _f(band_min)
   hi = _f(band_max)
   adj_max = max(_MATERIALS_FLOOR, ((hi if hi is not None else target) - payroll))
   if adj_max < 0.02:
-    # The whole band collapses under the subtraction - the cohort COGS
-    # carries no materials-basis information at all here. Decline rather
-    # than manufacture a degenerate band; the operator's own anchor
-    # governs downstream (fitted-band rescale).
-    return None
+    # THE EDGE RULING: overlap is PROVEN (>100% sum) but the subtraction
+    # collapses the whole band - we KNOW the band double-counts labor
+    # and cannot cleanly fix it. A provably-wrong informant does not
+    # keep authority: DEMOTE TO CONTEXT, same as no-coverage. Never a
+    # manufactured band; the operator's own anchor governs downstream.
+    return {
+      "action": "demote",
+      "provenance": {
+        "basis": "labor_basis_overlap_unresolvable",
+        "cohort_cogs_target": round(target, 6),
+        "cohort_payroll_share": round(payroll, 6),
+        "overlap_sum": round(target + payroll, 6),
+      },
+    }
   adj_target = min(max(_MATERIALS_FLOOR, target - payroll), adj_max)
   adj_min = min(
     max(_MATERIALS_FLOOR, (lo - payroll) if lo is not None else adj_target),
     adj_target,
   )
   return {
+    "action": "convert",
     "min": round(adj_min, 6),
     "target": round(adj_target, 6),
     "max": round(adj_max, 6),

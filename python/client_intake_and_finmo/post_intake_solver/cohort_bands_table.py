@@ -249,7 +249,28 @@ def populate_cohort_bands_for_run(
             )
           except Exception:
             _adj = None
-          if _adj is not None:
+          if _adj is not None and _adj.get("action") == "demote":
+            # THE EDGE RULING: provably-wrong (or unverifiable) labor-
+            # inclusive band on a labor-heavy business keeps NO steering
+            # authority - the row is not written (absent band = context
+            # only; consumers' no-band fallbacks govern).
+            skipped += 1
+            try:
+              from client_intake_and_finmo.post_intake_handler_traces import (  # type: ignore
+                record_runtime_status,
+              )
+              record_runtime_status(
+                handler="labor_basis_band_demoted",
+                status={
+                  "draft_id": draft_id, "section": section,
+                  "lever_id": lever_id,
+                  "provenance": _adj.get("provenance"),
+                },
+              )
+            except Exception:
+              pass
+            continue
+          if _adj is not None and _adj.get("action") == "convert":
             _bench_min = _adj["min"]
             _bench_target = _adj["target"]
             _bench_max = _adj["max"]

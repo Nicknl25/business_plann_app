@@ -1829,7 +1829,11 @@ def _cohort_band_target_and_max(
       )
     except Exception:
       _adj = None
-    if _adj is not None:
+    if _adj is not None and _adj.get("action") == "demote":
+      # THE EDGE RULING: the provably-wrong/unverifiable cohort band
+      # keeps no authority - fall back to the conservative defaults.
+      return float(default_target), float(default_max)
+    if _adj is not None and _adj.get("action") == "convert":
       target = _adj["target"]
       max_value = _adj["max"]
   # SANE-FLOOR GUARD (systemic NAICS-mismatch fix): a resolved cohort band may
