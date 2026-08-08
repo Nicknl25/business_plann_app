@@ -195,6 +195,23 @@ def _ensure_margin_band(
     if isinstance(_line, dict):
       for _lever_key in ("unit_price", "capacity_units_per_period", "utilization_rate"):
         _line.pop(_lever_key, None)
+  # CW-020 (Oak City): KNOB-DERIVED values are knob values. The
+  # market_demand slice carries numbers RECOMPUTED from prices/revenue
+  # every turn (required_units = revenue/price etc.) - a $1,300->$1,450
+  # price repair re-keyed the identity through them and re-rolled the
+  # band {7,14}->{8,16}. The market's IDENTITY is who/where it is
+  # (basis summary, geography) - the derived sizing numerics are
+  # revenue-authoring context and are stripped from the band identity.
+  _md = identity.get("market_demand")
+  if isinstance(_md, dict):
+    for _derived_key in (
+      "reachable_market", "reachable_market_b2c", "reachable_market_b2b",
+      "expected_units_year1", "required_units_year1",
+      "expected_customers_or_clients_year1", "capture_rate_year1",
+      "marketing_intensity", "demand_supports_required_units",
+      "required_revenue_year1",
+    ):
+      _md.pop(_derived_key, None)
   digest_hash = _ctl.stable_digest_hash(identity)
   if state.get("margin_band_judgment") and state.get("digest_hash") == digest_hash:
     return state
