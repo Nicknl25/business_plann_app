@@ -229,7 +229,11 @@ def populate_cohort_bands_for_run(
         # the adjustment is applied in code with provenance. Guardrail:
         # the helper returns None (no conversion) unless cohort payroll
         # coverage exists AND the overlap sum proves the bases collide.
-        if str(metric_key or "") == "cogs_percent_of_revenue":
+        if str(metric_key or "") in (
+          "cogs_percent_of_revenue",
+          "cogs_to_revenue_ratio",
+          "expenses::Cost of Goods Sold",
+        ):
           try:
             from client_intake_and_finmo.labor_basis import (  # type: ignore
               maybe_labor_adjust_cogs_band,
