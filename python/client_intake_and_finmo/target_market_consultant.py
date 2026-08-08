@@ -721,14 +721,14 @@ Field rules by mode:
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., membership/subscription vs per-visit vs per-transaction vs contract/retainer). Do not invent a model.
-    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) (consumer demographics and/or B2B firmographics) in plain language (no ACS codes and no NAICS codes).
   - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, Google Maps/Business Profile, Instagram, LinkedIn, industry directories, referral partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
   - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
-- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.product_pricing_summary}} (the whole pricing statement for multi-product businesses), {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 - The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
   - When the client specifies a numeric range (e.g., age 19-58 or income $40k-$120k), select ALL mapping rows whose [min_value, max_value] overlaps that intended range.
   - If the client's boundary falls between buckets, include the nearest bucket that covers it (e.g., min 19 should include an 18-24 bucket; max 58 should include a 55-64 bucket).
@@ -775,14 +775,14 @@ Return ONLY JSON matching the provided schema. No prose.
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., project/contract/retainer vs per-transaction). Do not invent a model.
-    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) as B2B firmographics in plain language (industry terms, size bands, age bands) without listing NAICS codes.
   - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, LinkedIn, industry directories, referral networks, channel partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
   - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
-- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.product_pricing_summary}} (the whole pricing statement for multi-product businesses), {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:
@@ -820,14 +820,14 @@ Hard requirements:
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (consumer + B2B mix). Do not invent a model.
-    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) across BOTH consumer demographics and B2B firmographics in plain language (no ACS codes and no NAICS codes).
   - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, Google Maps/Business Profile, Instagram, LinkedIn, industry directories, referral partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
   - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
-- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.product_pricing_summary}} (the whole pricing statement for multi-product businesses), {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:

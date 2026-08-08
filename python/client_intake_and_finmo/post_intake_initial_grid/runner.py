@@ -624,6 +624,13 @@ def prepare_initial_grid_for_draft(
         "target_annual_revenue": _bp_target_revenue,
         "stage": _bp_stage,
         "business_model": None,
+        # PASS-2 SPEC 1: the per-business confirmation signal for the
+        # labor-basis reconciliation (double-keyed with the cohort's
+        # own >100% cogs+payroll sum).
+        "capacity_driver": (
+          str((ops_json or {}).get("capacity_driver") or "").strip().lower()
+          if isinstance(ops_json, dict) else None
+        ),
       },
     )
     sequence_trace["cohort_bands_populated"] = _bands_summary

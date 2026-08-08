@@ -16,9 +16,63 @@ _PRICE_PER_NAME_PATTERN = re.compile(
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 
+
+def _humanize_unit_text(value: Any) -> str:
+  """PASS-2 SPEC 3: internal snake_case identifiers never reach the
+  client ("commercial_property_month" -> "commercial property month").
+  Shared by every ops name render and the pricing summary."""
+  return str(value or "").replace("_", " ").strip()
+
+
+_PRICING_CADENCE_SUFFIX = {"monthly": "each month", "weekly": "each week"}
+
+
+def build_product_pricing_summary(operating_model: Any) -> str:
+  """PASS-2 SPEC 3 (the splice class-closer, 17 occurrences): ONE
+  placeholder owns the WHOLE pricing sentence for multi-product ops -
+  scalar unit_price/unit_name substitution structurally welds
+  ("$1,200-$86,000 per A, B, and C"). Per-product
+  "$<price> per <humanized name>[ <cadence>]" joined grammatically;
+  the cadence suffix is added only when the unit name doesn't already
+  carry it. Single product degrades to the same scalar form the old
+  path produced; no products -> empty string (sanitizer drops it)."""
+  om = operating_model if isinstance(operating_model, dict) else {}
+  parts = []
+  for lob in om.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for p in lob.get("products") or []:
+      if not isinstance(p, dict):
+        continue
+      name = _humanize_unit_text(p.get("unit_name") or p.get("product_name"))
+      price = _safe_float(p.get("unit_price"))
+      if not name or price is None or price <= 0:
+        continue
+      cadence = str(p.get("unit_cadence") or "").strip().lower()
+      suffix = _PRICING_CADENCE_SUFFIX.get(cadence, "")
+      if suffix and suffix.split()[-1] in name.lower():
+        suffix = ""
+      piece = f"{_format_number(price, money=True)} per {name}"
+      if suffix:
+        piece += f" {suffix}"
+      parts.append(piece)
+  if not parts:
+    # Single-line top-level fallback (legacy ops without lob_models).
+    name = _humanize_unit_text(om.get("unit_name"))
+    price = _safe_float(om.get("unit_price"))
+    if name and price is not None and price > 0:
+      return f"{_format_number(price, money=True)} per {name}"
+    return ""
+  if len(parts) == 1:
+    return parts[0]
+  if len(parts) == 2:
+    return f"{parts[0]} and {parts[1]}"
+  return ", ".join(parts[:-1]) + f", and {parts[-1]}"
+
 OPS_FACT_FIELDS = {
   "consumer_type",
   "business_type",
+  "product_pricing_summary",
   "unit_name",
   "unit_description",
   "unit_cadence",
@@ -242,6 +296,8 @@ def render_fact_template(
       operating_model = shared_context.get("operating_model") or {}
       if not isinstance(operating_model, dict):
         operating_model = {}
+      if field == "product_pricing_summary":
+        return build_product_pricing_summary(operating_model)
       direct = operating_model.get(field)
 
       # Compatibility: ops templates may reference top-level unit_* fields even when
@@ -363,11 +419,15 @@ def render_fact_template(
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
       return _format_number(value, money=False)
+    # PASS-2 SPEC 3: ops name fields humanize (no snake_case to clients).
+    _humanize = group == "ops" and field in ("unit_name", "unit_description")
     if isinstance(value, list):
       # Natural-language join (#13): a raw comma splice inside prose reads
       # ungrammatically ("per recurring contract, cleanup job"), so string
       # lists render as "A and B" / "A, B, and C".
       parts = [str(v).strip() for v in value if v is not None and str(v).strip()]
+      if _humanize:
+        parts = [_humanize_unit_text(v) for v in parts]
       if not parts:
         return ""
       if len(parts) == 1:
@@ -377,6 +437,8 @@ def render_fact_template(
       return ", ".join(parts[:-1]) + f", and {parts[-1]}"
     if isinstance(value, dict):
       return ""
+    if _humanize:
+      return _humanize_unit_text(value)
     return str(value).strip() if value is not None else ""
 
   def _replace(match: re.Match[str]) -> str:

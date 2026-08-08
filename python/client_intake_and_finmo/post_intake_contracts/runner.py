@@ -1787,6 +1787,7 @@ def _cohort_band_target_and_max(
   business_naics_6: str,
   default_target: float,
   default_max: float,
+  labor_heavy_business: bool = False,
 ) -> Tuple[float, float]:
   """Resolve (target, max) from the NAICS cohort band with conservative
   defaults when coverage is missing."""
@@ -1811,6 +1812,26 @@ def _cohort_band_target_and_max(
   max_value = band.get("benchmark_max")
   if max_value is None or float(max_value) < float(target):
     max_value = float(target) * 1.2
+  # PASS-2 SPEC 1 (Option B, seam 2 of 2): labor-heavy basis
+  # reconciliation at the baseline-reader consumer. Guardrail inside the
+  # helper: no cohort payroll coverage -> no conversion, ever.
+  if metric_key == "cogs_percent_of_revenue" and labor_heavy_business:
+    try:
+      from client_intake_and_finmo.labor_basis import (  # type: ignore
+        maybe_labor_adjust_cogs_band,
+      )
+      _adj = maybe_labor_adjust_cogs_band(
+        naics_6=business_naics_6,
+        band_min=band.get("benchmark_min"),
+        band_target=target,
+        band_max=max_value,
+        labor_heavy_business=True,
+      )
+    except Exception:
+      _adj = None
+    if _adj is not None:
+      target = _adj["target"]
+      max_value = _adj["max"]
   # SANE-FLOOR GUARD (systemic NAICS-mismatch fix): a resolved cohort band may
   # RAISE a ceiling above the conservative default, but must never TIGHTEN it
   # below the default. Without this, a NAICS band that fits a different segment
@@ -2014,6 +2035,9 @@ def build_python_stage_ramp_contract(
     business_naics_6=business_naics_6,
     default_target=0.45,
     default_max=0.65,
+    labor_heavy_business=(
+      str((ops_json or {}).get("capacity_driver") or "").strip().lower() == "labor"
+    ),
   )
   _, marketing_max = _cohort_band_target_and_max(
     metric_key="marketing_percent_of_revenue",

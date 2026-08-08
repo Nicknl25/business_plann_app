@@ -163,7 +163,11 @@ def _match_occ_title_with_gpt(
   notes: str,
   business_type: str,
   candidate_titles: List[str],
-) -> Optional[str]:
+) -> Optional[Tuple[str, Optional[str]]]:
+  """Returns (occ_title, seniority_tier) - PASS-2 SPEC 2 layer 2: the
+  same call that reads the narrative to pick the occupation also judges
+  the tier, so '18 years, certified, runs the division' reaches the
+  percentile choice. Same call count, locked/replayable as before."""
   if not role_title or not candidate_titles:
     return None
 
@@ -173,7 +177,13 @@ def _match_occ_title_with_gpt(
   system = (
     "You map a role title to the single best-matching occupation title from a provided list.\n"
     "Return one exact string from the list or an empty string if none fit.\n"
-    "Do not invent new titles."
+    "Do not invent new titles.\n"
+    "Also judge the role's seniority_tier from the title AND the notes: "
+    "'owner' (owns/co-owns the business), 'senior' (manages people, runs a "
+    "division or function, long tenure or advanced credentials described), "
+    "'junior' (entry/assistant/trainee), else 'base'. Judge from what the "
+    "notes actually say - years of experience, certifications, and scope "
+    "of responsibility outrank the bare title."
   )
 
   titles_blob = "\n".join(f"- {t}" for t in candidate_titles)
@@ -203,8 +213,12 @@ def _match_occ_title_with_gpt(
           "additionalProperties": False,
           "properties": {
             "occ_title": {"type": "string"},
+            "seniority_tier": {
+              "type": "string",
+              "enum": ["junior", "base", "senior", "owner"],
+            },
           },
-          "required": ["occ_title"],
+          "required": ["occ_title", "seniority_tier"],
         },
         "strict": True,
       }
@@ -220,20 +234,28 @@ def _match_occ_title_with_gpt(
     raise RuntimeError(_format_openai_error(resp))
 
   data = resp.json()
+
+  def _pair(obj: Dict[str, Any]) -> Optional[Tuple[str, Optional[str]]]:
+    occ = str(obj.get("occ_title") or "").strip()
+    tier = str(obj.get("seniority_tier") or "").strip().lower() or None
+    if tier not in ("junior", "base", "senior", "owner"):
+      tier = None
+    return (occ, tier) if occ else None
+
   output = data.get("output") or []
   for item in output:
     for part in item.get("content", []) or []:
       if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
-        occ = str(part["json"].get("occ_title") or "").strip()
-        return occ or None
+        got = _pair(part["json"])
+        if got:
+          return got
 
   raw = _parse_responses_text(data)
   try:
     parsed = json.loads(raw)
   except Exception:
     return None
-  occ = str(parsed.get("occ_title") or "").strip()
-  return occ or None
+  return _pair(parsed) if isinstance(parsed, dict) else None
 
 
 def _estimate_wage_with_gpt(
@@ -290,8 +312,33 @@ def _estimate_wage_with_gpt(
 
 
 _SENIORITY_JUNIOR_TOKENS = ("junior", "jr", "associate", "assistant", "entry", "trainee", "apprentice")
-_SENIORITY_SENIOR_TOKENS = ("senior", "sr", "lead", "principal", "head")
+# PASS-2 SPEC 2 layer 1: managerial titles were in NO tier list
+# ("managing" != "manager" under word-boundary tokens), so an
+# install-division manager fell to the occupation median while juniors
+# elsewhere landed higher (4 live inversions).
+_SENIORITY_SENIOR_TOKENS = (
+  "senior", "sr", "lead", "principal", "head",
+  "manager", "director", "supervisor", "superintendent", "foreman",
+  "gm", "vp", "president", "executive",
+)
 _SENIORITY_OWNER_TOKENS = ("owner", "partner", "founder", "managing", "chief")
+
+_SENIORITY_RANK = {"junior": 0, None: 1, "base": 1, "senior": 2, "owner": 3}
+
+
+def _compose_seniority(token_tier: Optional[str], narrative_tier: Optional[str]) -> Optional[str]:
+  """PASS-2 SPEC 2 layer 2 composition: the narrative-judged tier and
+  the deterministic title tokens compose RAISE-ONLY - whichever ranks
+  higher wins, so a token can never demote a narrative-senior and vice
+  versa."""
+  nt = narrative_tier if narrative_tier in ("junior", "base", "senior", "owner") else None
+  if token_tier is None and nt is None:
+    return None
+  if token_tier is None:
+    return nt
+  if nt is None:
+    return token_tier
+  return token_tier if _SENIORITY_RANK.get(token_tier, 1) >= _SENIORITY_RANK.get(nt, 1) else nt
 
 
 def _seniority_tier(role_title: str) -> Optional[str]:
@@ -515,6 +562,7 @@ def apply_oews_wages(
         continue
 
     wage_val = None
+    narrative_tier = None
     rows_to_use = us_rows
     if role_title and rows_to_use:
       candidate_titles: List[str] = []
@@ -530,13 +578,16 @@ def apply_oews_wages(
         seen.add(occ_title)
         candidate_titles.append(occ_title)
 
+      matched_title = None
       try:
-        matched_title = _match_occ_title_with_gpt(
+        _matched = _match_occ_title_with_gpt(
           role_title=role_title,
           notes=notes,
           business_type=str(business_type or ""),
           candidate_titles=candidate_titles,
         )
+        if _matched:
+          matched_title, narrative_tier = _matched
       except Exception:
         matched_title = None
 
@@ -555,7 +606,10 @@ def apply_oews_wages(
           )
         if matched_row:
           picked, source = _select_wage(
-            matched_row, prefer_pct10, seniority_tier=_seniority_tier(role_title),
+            matched_row, prefer_pct10,
+            seniority_tier=_compose_seniority(
+              _seniority_tier(role_title), narrative_tier
+            ),
           )
           if picked is not None:
             wage_val = picked
@@ -585,8 +639,45 @@ def apply_oews_wages(
         "wage_source": wage_source or "gpt_estimate",
         "months_until_hire": role.get("months_until_hire"),
         "notes": notes,
+        "_seniority_tier": _compose_seniority(
+          _seniority_tier(role_title), narrative_tier if role_title else None
+        ),
       }
     )
+
+  # PASS-2 SPEC 2 layer 3 - the WITHIN-BUSINESS MONOTONICITY RAIL (the
+  # class-closer): the live inversions were CROSS-OCCUPATION (a senior
+  # title mapping to the base worker occupation's median while juniors
+  # mapped to better-paid occupations), which no within-row percentile
+  # can fix. Invariant: a higher-tier role's DEFAULT may never sit below
+  # a lower-tier role's default in the same business. RAISE-ONLY (never
+  # cheapens anyone); client-stated wages are exempt and untouchable in
+  # both directions.
+  defaulted = [
+    r for r in updated
+    if r.get("annual_wage") is not None
+    and str(r.get("wage_source") or "") != "client_override"
+  ]
+  for r in defaulted:
+    my_rank = _SENIORITY_RANK.get(r.get("_seniority_tier"), 1)
+    floor = 0.0
+    for other in defaulted:
+      if other is r:
+        continue
+      if _SENIORITY_RANK.get(other.get("_seniority_tier"), 1) < my_rank:
+        try:
+          floor = max(floor, float(other.get("annual_wage") or 0.0))
+        except (TypeError, ValueError):
+          continue
+    try:
+      mine = float(r.get("annual_wage") or 0.0)
+    except (TypeError, ValueError):
+      continue
+    if floor > 0 and mine < floor:
+      r["annual_wage"] = floor
+      r["wage_source"] = "oews_seniority_floor"
+  for r in updated:
+    r.pop("_seniority_tier", None)
 
   return updated
 

@@ -220,7 +220,37 @@ def populate_cohort_bands_for_run(
         if result is None:
           skipped += 1
           continue
-        robust_min, robust_max = _robust_clip(section, lever_id, result.benchmark_min, result.benchmark_max)
+        _bench_min = result.benchmark_min
+        _bench_target = result.benchmark_target
+        _bench_max = result.benchmark_max
+        _basis_note = ""
+        # PASS-2 SPEC 1 (Option B, seam 1 of 2): labor-heavy basis
+        # reconciliation at RESOLUTION time - raw cohort rows stay raw;
+        # the adjustment is applied in code with provenance. Guardrail:
+        # the helper returns None (no conversion) unless cohort payroll
+        # coverage exists AND the overlap sum proves the bases collide.
+        if str(metric_key or "") == "cogs_percent_of_revenue":
+          try:
+            from client_intake_and_finmo.labor_basis import (  # type: ignore
+              maybe_labor_adjust_cogs_band,
+            )
+            _adj = maybe_labor_adjust_cogs_band(
+              naics_6=str(business_profile.get("naics_6") or ""),
+              band_min=_bench_min,
+              band_target=_bench_target,
+              band_max=_bench_max,
+              labor_heavy_business=(
+                str(business_profile.get("capacity_driver") or "").strip().lower() == "labor"
+              ),
+            )
+          except Exception:
+            _adj = None
+          if _adj is not None:
+            _bench_min = _adj["min"]
+            _bench_target = _adj["target"]
+            _bench_max = _adj["max"]
+            _basis_note = "+labor_basis_adjusted"
+        robust_min, robust_max = _robust_clip(section, lever_id, _bench_min, _bench_max)
         cur.execute(
           f"""
           INSERT INTO {_TABLE_NAME}
@@ -250,7 +280,7 @@ def populate_cohort_bands_for_run(
           (
             draft_id, planning_run_id, section, lever_id, metric_key,
             result.metric_column,
-            result.benchmark_min, result.benchmark_target, result.benchmark_max,
+            _bench_min, _bench_target, _bench_max,
             robust_min, robust_max,
             int(result.naics_level_used) if result.naics_level_used is not None else None,
             (result.naics_prefix_used or None),
@@ -258,7 +288,7 @@ def populate_cohort_bands_for_run(
             int(result.firm_count) if result.firm_count is not None else None,
             result.confidence_tier,
             result.cohort_table,
-            result.data_source,
+            f"{result.data_source}{_basis_note}" if _basis_note else result.data_source,
             # R10 closure (Cleanup Commit 1): cohort_query persisted
             # as JSON so the SQL audit trail can reconstruct which
             # revenue/stage/date windows produced each cohort band.
