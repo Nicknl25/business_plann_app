@@ -646,6 +646,7 @@ def _validate_stage_ramp_contract_payload(
   planning_mode: Optional[str] = None,
   planning_mode_reason: Optional[str] = None,
   r_and_d_enabled: bool = True,
+  lo_yield_ceilings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   candidate = _normalize_post_intake_contract_payload(
     contract_name="stage_ramp_contract",
@@ -776,6 +777,26 @@ def _validate_stage_ramp_contract_payload(
         default_min=default_lower_bound,
         default_max=default_upper_bound,
       )
+      # BASIS-BLIND-FLOORS FIX: the registry MINIMUM yields to the
+      # owner's ceiling (manager fitted wall / labor-converted band max,
+      # keyed by grid field name) exactly as robust_bound's lo does —
+      # otherwise the validator re-rejects the honest converted ceiling
+      # the bound just admitted (561612: 0.11 < registry lo 0.2). The
+      # upper bound never yields; fields without a ceiling keep the
+      # full floor. The relaxed bound includes the 2dp grid-rounding
+      # residue (the lease-fix discipline, same 0.005 the band checker
+      # applies): the grid is authored at round(v, 2), so a value can
+      # sit up to half a grid unit below the 6dp ceiling purely from
+      # its own rounding (Peachtree rerun: wall 0.070368 -> grid 0.07
+      # re-rejected without the residue).
+      if isinstance(lo_yield_ceilings, dict):
+        _ceiling = lo_yield_ceilings.get(ramp_field_aliases[field])
+        if isinstance(_ceiling, dict):
+          _ceiling = _ceiling.get(quarter_index)
+        if isinstance(_ceiling, (int, float)):
+          _relaxed = float(_ceiling) - 0.005
+          if _relaxed < lower_bound:
+            lower_bound = _relaxed
       if value < lower_bound or value > upper_bound:
         errors.append(
           f"quarter_ramp_grid Q{quarter_index} {field} must be between {lower_bound} and {upper_bound}; received {value}"
@@ -1791,8 +1812,31 @@ def _cohort_band_target_and_max(
 ) -> Tuple[float, float]:
   """Resolve (target, max) from the NAICS cohort band with conservative
   defaults when coverage is missing."""
+  target, max_value, _meta = _cohort_band_target_max_and_meta(
+    metric_key=metric_key,
+    business_naics_6=business_naics_6,
+    default_target=default_target,
+    default_max=default_max,
+    labor_heavy_business=labor_heavy_business,
+  )
+  return target, max_value
+
+
+def _cohort_band_target_max_and_meta(
+  *,
+  metric_key: str,
+  business_naics_6: str,
+  default_target: float,
+  default_max: float,
+  labor_heavy_business: bool = False,
+) -> Tuple[float, float, Dict[str, Any]]:
+  """_cohort_band_target_and_max plus a meta dict the caller needs for
+  the basis-blind-floors fix: {"labor_converted": True, "provenance":
+  {...}} when Spec 1 converted the band to the materials basis (the
+  garbage-low floors must then YIELD to the converted ceiling), or
+  {"labor_demoted": True} when the band lost authority entirely."""
   if not business_naics_6:
-    return float(default_target), float(default_max)
+    return float(default_target), float(default_max), {}
   try:
     from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
       post_intake_industry_baseline_for_naics,
@@ -1801,14 +1845,14 @@ def _cohort_band_target_and_max(
       metric_key=metric_key, naics_6=business_naics_6
     )
   except Exception:
-    return float(default_target), float(default_max)
+    return float(default_target), float(default_max), {}
   if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
-    return float(default_target), float(default_max)
+    return float(default_target), float(default_max), {}
   target = band.get("benchmark_target")
   if target is None:
     target = band.get("benchmark_min") or band.get("benchmark_max")
   if target is None:
-    return float(default_target), float(default_max)
+    return float(default_target), float(default_max), {}
   max_value = band.get("benchmark_max")
   if max_value is None or float(max_value) < float(target):
     max_value = float(target) * 1.2
@@ -1832,10 +1876,20 @@ def _cohort_band_target_and_max(
     if _adj is not None and _adj.get("action") == "demote":
       # THE EDGE RULING: the provably-wrong/unverifiable cohort band
       # keeps no authority - fall back to the conservative defaults.
-      return float(default_target), float(default_max)
+      return float(default_target), float(default_max), {"labor_demoted": True}
     if _adj is not None and _adj.get("action") == "convert":
-      target = _adj["target"]
-      max_value = _adj["max"]
+      # BASIS-BLIND-FLOORS FIX (member 2, Peachtree 561612 round-1
+      # death): the conversion IS the correction for the garbage-low
+      # pathology the sane-floor guard below protects against.
+      # Re-inflating a converted materials ceiling to default_max
+      # re-creates the labor double-count AND guarantees rejection
+      # against the labor-adjusted enforcement band seam 1 wrote for
+      # the same run. Provenance-gated early return: ONLY a converted
+      # max skips the raise; every unconverted band still hits it.
+      return float(_adj["target"]), float(_adj["max"]), {
+        "labor_converted": True,
+        "provenance": _adj.get("provenance") or {},
+      }
   # SANE-FLOOR GUARD (systemic NAICS-mismatch fix): a resolved cohort band may
   # RAISE a ceiling above the conservative default, but must never TIGHTEN it
   # below the default. Without this, a NAICS band that fits a different segment
@@ -1847,7 +1901,7 @@ def _cohort_band_target_and_max(
   # margin table and the 72% COGS target; clamp the ceiling here so the
   # garbage-low case cannot fire a fake violation.
   max_value = max(float(max_value), float(default_max))
-  return float(target), float(max_value)
+  return float(target), float(max_value), {}
 
 
 _STAGE_RAMP_SCHEMA_RANGES_CACHE: Dict[str, Any] = {}
@@ -1888,7 +1942,10 @@ def _robust_bound(value: Any, lo: Any, hi: Any) -> Any:
   return round(v, 2)
 
 
-def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]:
+def robust_bound_stage_ramp_contract(
+  contract: Dict[str, Any],
+  lo_yield_ceilings: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
   """Phase 9 P3.32 K13 (Fix 2 / G-B5, doctrine §10.6) — bound every
   cohort-derived stage_ramp field to the canonical economic envelope
   (the contract-registry ranges the validator enforces).
@@ -1906,7 +1963,20 @@ def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]
   clamp — the envelope is the canonical economic range (cogs widened to
   a principled 0.97 = 3% min gross margin in the same fix), so genuine
   high-COGS sectors (trucking 0.963) are admitted while impossible
-  values are rejected. Systemic across cogs/marketing/rd/ga/lease."""
+  values are rejected. Systemic across cogs/marketing/rd/ga/lease.
+
+  BASIS-BLIND-FLOORS FIX (member 1, Peachtree 561612 round-1 death) —
+  the registry MINIMUMS are garbage-low protection written when every
+  cogs band was labor-INCLUSIVE; on a Spec-1-converted materials basis
+  an honest ceiling sits below them (561612: converted 0.1098 < lo
+  0.2), and raising to lo puts the contract above the run's OWN
+  enforcement band — a manufactured, guaranteed rejection. One
+  authority: the floor must never out-rank the owner. lo_yield_ceilings
+  maps field -> owner ceiling (scalar, or {q: value} per quarter): the
+  manager's fitted wall and/or the labor-converted band max. Where a
+  ceiling sits below lo, lo yields to it; hi always applies; fields
+  without a ceiling keep the full floor (the negative-control
+  direction: unconverted garbage-low values are still floored)."""
   if not isinstance(contract, dict):
     return contract
   ranges = _stage_ramp_schema_field_ranges()
@@ -1917,6 +1987,7 @@ def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]
     contract["utilization_high_watermark"] = _robust_bound(
       contract["utilization_high_watermark"], uhw[0], uhw[1]
     )
+  ceilings = lo_yield_ceilings if isinstance(lo_yield_ceilings, dict) else {}
   grid = contract.get("quarter_ramp_grid")
   if isinstance(grid, list):
     for row in grid:
@@ -1924,7 +1995,21 @@ def robust_bound_stage_ramp_contract(contract: Dict[str, Any]) -> Dict[str, Any]
         continue
       for fn, (lo, hi) in ranges.items():
         if fn in row:
-          row[fn] = _robust_bound(row[fn], lo, hi)
+          lo_eff = lo
+          ceiling = ceilings.get(fn)
+          if isinstance(ceiling, dict):
+            try:
+              ceiling = ceiling.get(int(row.get("q")))
+            except (TypeError, ValueError):
+              ceiling = None
+          if (
+            ceiling is not None
+            and lo is not None
+            and isinstance(ceiling, (int, float))
+            and float(ceiling) < float(lo)
+          ):
+            lo_eff = float(ceiling)
+          row[fn] = _robust_bound(row[fn], lo_eff, hi)
   return contract
 
 
@@ -2034,7 +2119,7 @@ def build_python_stage_ramp_contract(
   # Cost ratio targets + maxes from NAICS cohort with conservative
   # defaults that produce a validator-acceptable envelope when cohort
   # coverage is missing.
-  cogs_target, cogs_max = _cohort_band_target_and_max(
+  cogs_target, cogs_max, _cogs_band_meta = _cohort_band_target_max_and_meta(
     metric_key="cogs_percent_of_revenue",
     business_naics_6=business_naics_6,
     default_target=0.45,
@@ -2261,6 +2346,42 @@ def build_python_stage_ramp_contract(
   # 0.53, rd 0.64) can never set a planning ceiling above the envelope.
   # Guarantees the deterministic builder always emits a validator-valid
   # contract (the §10.6 floor for the common range-violation B5 cause).
+  #
+  # BASIS-BLIND-FLOORS FIX: the registry lo floors yield to the OWNER'S
+  # ceilings — the manager's fitted per-quarter wall, and the
+  # labor-converted cogs band (provenance-gated via _cogs_band_meta).
+  # Without this the lo=0.2 cogs_max minimum raised the honest converted
+  # 0.11 wall to 0.2, above the run's own enforcement band (Peachtree
+  # 561612, guaranteed round-1 rejection for every convert-path
+  # labor-heavy business). Fields with no wall and no conversion keep
+  # the full floor.
+  _lo_yield: Dict[str, Any] = {}
+  for _field, _metric in (
+    ("cogs_max", "cogs_percent_of_revenue"),
+    ("marketing_max", "marketing_percent_of_revenue"),
+    ("rd_max", "r_and_d_percent_of_revenue"),
+    ("ga_max", "sga_percent_of_revenue"),
+  ):
+    _perq: Dict[int, float] = {}
+    for _q in range(1, 21):
+      try:
+        _w = ((( _fw or {}).get(_metric) or {}).get("max") or {}).get(str(_q))
+        if _w is not None:
+          _perq[_q] = float(_w)
+      except (TypeError, ValueError):
+        continue
+    if _perq:
+      _lo_yield[_field] = _perq
+  if _cogs_band_meta.get("labor_converted"):
+    _conv_max = float(cogs_max)
+    _existing = _lo_yield.get("cogs_max")
+    if isinstance(_existing, dict):
+      _lo_yield["cogs_max"] = {
+        _q: min(_existing.get(_q, _conv_max), _conv_max) for _q in range(1, 21)
+      }
+    else:
+      _lo_yield["cogs_max"] = _conv_max
+    _lo_yield["cogs_target"] = float(cogs_target)
   return robust_bound_stage_ramp_contract({
     "stage_family": expected_family,
     "utilization_high_watermark": _MATURE_UTILIZATION_CAP,
@@ -2274,7 +2395,7 @@ def build_python_stage_ramp_contract(
       f"{q1_util:.2f} (Q1) to {_MATURE_UTILIZATION_CAP:.2f} (Q11+). "
       "Stage ramp handler engages if this default fails realism."
     ),
-  })
+  }, lo_yield_ceilings=_lo_yield)
 
 
 def _estimate_stage_ramp_contract_with_gpt(

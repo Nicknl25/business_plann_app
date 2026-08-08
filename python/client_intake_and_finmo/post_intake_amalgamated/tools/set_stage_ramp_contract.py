@@ -190,6 +190,55 @@ def _manager_ceiling_walls(model_input_json: Optional[Dict[str, Any]]) -> Dict[s
   return walls
 
 
+def _lo_yield_ceilings_for_bound(
+  model_input_json: Optional[Dict[str, Any]],
+  bands_echoed: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """BASIS-BLIND-FLOORS FIX — owner ceilings the robust-bound registry
+  MINIMUMS must yield to (field -> scalar or {q: value}).
+
+  Two provenance-gated sources, one authority each: (a) the manager's
+  fitted per-quarter wall (the executive already judged this ceiling);
+  (b) a labor-converted enforcement band — data_source carries
+  '+labor_basis_adjusted', Spec 1's proof the raw floor's
+  labor-INCLUSIVE assumption is false for this business. A garbage-low
+  value with NEITHER provenance still gets the full floor (the
+  negative-control direction — the floor is not disabled, it is
+  out-ranked only by an owner)."""
+  out: Dict[str, Any] = {}
+  for field, per_q in (_manager_ceiling_walls(model_input_json) or {}).items():
+    out[field] = dict(per_q)
+  for lever_id, band in (bands_echoed or {}).items():
+    if not isinstance(band, dict) or not isinstance(lever_id, str):
+      continue
+    if "+labor_basis_adjusted" not in str(band.get("data_source") or ""):
+      continue
+    field = lever_id.split("::", 1)[1] if "::" in lever_id else lever_id
+    r_max = band.get("robust_max")
+    if not isinstance(r_max, (int, float)):
+      continue
+    existing = out.get(field)
+    if isinstance(existing, dict):
+      out[field] = {q: min(v, float(r_max)) for q, v in existing.items()}
+    else:
+      out[field] = float(r_max)
+    # The conversion applies to the WHOLE band: the target seat yields
+    # to the converted band's own floor (561612: converted target 0.01
+    # sits under the registry's 0.05 target minimum).
+    if field.endswith("_max"):
+      r_min = band.get("robust_min")
+      if isinstance(r_min, (int, float)):
+        t_field = field[: -len("_max")] + "_target"
+        t_existing = out.get(t_field)
+        if isinstance(t_existing, dict):
+          out[t_field] = {q: min(v, float(r_min)) for q, v in t_existing.items()}
+        elif isinstance(t_existing, (int, float)):
+          out[t_field] = min(float(t_existing), float(r_min))
+        else:
+          out[t_field] = float(r_min)
+  return out
+
+
 def _check_band_violations(
   contract: Dict[str, Any],
   bands: Dict[str, Any],
@@ -379,7 +428,15 @@ def set_stage_ramp_contract(
     from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
       robust_bound_stage_ramp_contract,
     )
-    candidate = robust_bound_stage_ramp_contract(copy.deepcopy(built))
+    # BASIS-BLIND-FLOORS FIX: this re-bound must apply the same
+    # owner-yield the builder's own bound applied, or it re-raises the
+    # converted/walled ceiling right back to the registry minimum
+    # (lo=0.2 cogs_max > the run's labor-adjusted band -> guaranteed
+    # rejection; the Peachtree 561612 round-1 death).
+    candidate = robust_bound_stage_ramp_contract(
+      copy.deepcopy(built),
+      lo_yield_ceilings=_lo_yield_ceilings_for_bound(model_input_json, bands_echoed),
+    )
 
   business_stage = (
     _string((ops_json or {}).get("business_stage"))
@@ -452,6 +509,12 @@ def set_stage_ramp_contract(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
       r_and_d_enabled=r_and_d_enabled,
+      # BASIS-BLIND-FLOORS FIX: the validator's registry minimums yield
+      # to the same owner ceilings the robust bound yielded to — one
+      # gate, both enforcement points (applies to the GPT-supplied path
+      # too: an honest converted ceiling in a cascade revision must not
+      # be rejected by the labor-inclusive floor).
+      lo_yield_ceilings=_lo_yield_ceilings_for_bound(model_input_json, bands_echoed),
     )
   except RuntimeError as exc:
     validator_violations = _build_violations_from_runtime_error(exc)
