@@ -12,6 +12,15 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // CW-018: listen on all interfaces so the dev server is reachable on
+    // BOTH loopbacks. A default bind came up IPv6-only (::1) on this
+    // machine, so Chrome probes of 127.0.0.1:5173 got
+    // ERR_CONNECTION_REFUSED while the terminal said the server was up.
+    server: {
+      host: true,
+      port: 5173,
+      strictPort: true,
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
