@@ -31,24 +31,15 @@ from typing import Any, Dict, List, Optional
 # conservative 9% when no NAICS row exists.
 _DEFAULT_INTEREST_RATE = 0.09
 _DEFAULT_LOAN_TERM_MONTHS = 84
-_DEFAULT_BUFFER_BASE_MONTHS = 1.5
 
-# Phase 9 Q9 — cash buffer mode multipliers. NAICS base × multiplier =
-# applied buffer target. Floor: never below industry minimum runway
-# (interpreted as 0.5 months of operating cash for any business).
-_CASH_STRATEGY_BUFFER_MULTIPLIERS: Dict[str, float] = {
-  "preserve_cash": 1.5,
-  "balanced": 1.0,
-  "shareholder_return": 0.7,
-}
-_CASH_BUFFER_FLOOR_MONTHS = 0.5
-
-# Industry-typical fixed-cost burden ceiling for the universal viability
-# Q11 check (Payroll + Lease + G&A) / Revenue. 0.65 = 65% of revenue is
-# the upper bound for most small businesses; below this the operating
-# margin can land positive.
-_DEFAULT_FIXED_COST_BURDEN_CEILING_Q11 = 0.65
-_DEFAULT_GROSS_MARGIN_FLOOR_Q11 = 0.20
+# CW-021 heretic kill (Nick-approved, ablation-proven dead): the shadow
+# cash-buffer authority (base/floor/strategy multipliers +
+# cash_buffer_months_for_strategy) and the duplicate Q11 burden/GM
+# constants were removed. Zero call sites existed; runtime poison test
+# confirmed nothing downstream could read them. The LIVE authorities:
+# cash cushion = post_intake_mapping cash policy rows + cash_judgment;
+# Q11 burden/GM = the margin-band judgment with realism/evaluator
+# judgment-absent fallbacks.
 
 _PROFILE_METRIC_KEYS: List[str] = [
   "gross_margin_percent",
@@ -111,13 +102,8 @@ class IndustryProfile:
   target_annual_revenue: Optional[float]
   cap_category: Optional[str]
   bands: Dict[str, IndustryDimensionBand]
-  cash_buffer_base_months: float
-  cash_buffer_floor_months: float
-  cash_strategy_mode_multipliers: Dict[str, float]
   interest_rate: float
   loan_term_months: int
-  fixed_cost_burden_ceiling_q11: float
-  gross_margin_floor_q11: float
   steady_state_basis: str = "naics_edgar"
 
   def to_dict(self) -> Dict[str, Any]:
@@ -127,25 +113,10 @@ class IndustryProfile:
       "target_annual_revenue": self.target_annual_revenue,
       "cap_category": self.cap_category,
       "bands": {k: v.to_dict() for k, v in self.bands.items()},
-      "cash_buffer_base_months": self.cash_buffer_base_months,
-      "cash_buffer_floor_months": self.cash_buffer_floor_months,
-      "cash_strategy_mode_multipliers": dict(self.cash_strategy_mode_multipliers),
       "interest_rate": self.interest_rate,
       "loan_term_months": self.loan_term_months,
-      "fixed_cost_burden_ceiling_q11": self.fixed_cost_burden_ceiling_q11,
-      "gross_margin_floor_q11": self.gross_margin_floor_q11,
       "steady_state_basis": self.steady_state_basis,
     }
-
-  def cash_buffer_months_for_strategy(self, cash_strategy: str) -> float:
-    """Return the cash buffer (in months of operating expense) for the
-    given client-selected cash strategy mode. Per Q9: NAICS base × mode
-    multiplier, floored at the industry minimum runway."""
-    multiplier = self.cash_strategy_mode_multipliers.get(
-      str(cash_strategy or "").strip().lower(), 1.0
-    )
-    applied = float(self.cash_buffer_base_months) * float(multiplier)
-    return max(applied, float(self.cash_buffer_floor_months))
 
   def primary_lever_target(self, lever_id: str) -> Optional[float]:
     """Return the doctrinal industry target for a given lever_id.
@@ -306,11 +277,6 @@ def get_industry_profile(
     target_annual_revenue=float(target_annual_revenue) if target_annual_revenue is not None else None,
     cap_category=cap_category,
     bands=bands,
-    cash_buffer_base_months=_DEFAULT_BUFFER_BASE_MONTHS,
-    cash_buffer_floor_months=_CASH_BUFFER_FLOOR_MONTHS,
-    cash_strategy_mode_multipliers=dict(_CASH_STRATEGY_BUFFER_MULTIPLIERS),
     interest_rate=_DEFAULT_INTEREST_RATE,
     loan_term_months=_DEFAULT_LOAN_TERM_MONTHS,
-    fixed_cost_burden_ceiling_q11=_DEFAULT_FIXED_COST_BURDEN_CEILING_Q11,
-    gross_margin_floor_q11=_DEFAULT_GROSS_MARGIN_FLOOR_Q11,
   )

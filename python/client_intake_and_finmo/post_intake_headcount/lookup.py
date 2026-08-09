@@ -62,7 +62,6 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
     "generic_oews_fallback_allowed": False,
     "generic_oews_fallback_code": "000001",
     "salary_basis": "oews_title_catalog_selected_title",
-    "min_wage_benchmark_ratio": 0.75,
     "min_payroll_tax_benefits_pct": 0.12,
     "default_payroll_tax_benefits_pct": 0.22,
     "max_payroll_tax_benefits_pct": 0.35,
@@ -639,7 +638,6 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
         "generic_oews_fallback_allowed": _clean_bool(raw_row.get("generic_oews_fallback_allowed")),
         "generic_oews_fallback_code": _clean_text(raw_row.get("generic_oews_fallback_code")),
         "salary_basis": _clean_text(raw_row.get("salary_basis")).lower() or "oews_all_occupations_mean",
-        "min_wage_benchmark_ratio": float(raw_row.get("min_wage_benchmark_ratio") or 0.75),
         "min_payroll_tax_benefits_pct": float(raw_row.get("min_payroll_tax_benefits_pct") or 0.12),
         "default_payroll_tax_benefits_pct": float(raw_row.get("default_payroll_tax_benefits_pct") or 0.22),
         "max_payroll_tax_benefits_pct": float(raw_row.get("max_payroll_tax_benefits_pct") or 0.35),
@@ -746,9 +744,10 @@ class PostIntakeHeadcountPolicyLookup:
         errors.append(f"{policy_code}_policy_default_wage_legacy_source_forbidden")
       if _clean_bool(row.get("generic_oews_fallback_allowed")):
         errors.append(f"{policy_code}_generic_oews_fallback_forbidden")
-      min_wage_benchmark_ratio = float(row.get("min_wage_benchmark_ratio") or 0.0)
-      if min_wage_benchmark_ratio <= 0.0 or min_wage_benchmark_ratio > 1.0:
-        errors.append(f"{policy_code}_min_wage_benchmark_ratio_invalid")
+      # CW-021 dead-code kill: min_wage_benchmark_ratio was consumed
+      # NOWHERE in application code — its only live role was this
+      # validity check, which could fail runs over a value that never
+      # prices a wage. Check removed; the DB column stays (harmless).
       min_benefits = float(row.get("min_payroll_tax_benefits_pct") or 0.0)
       default_benefits = float(row.get("default_payroll_tax_benefits_pct") or 0.0)
       max_benefits = float(row.get("max_payroll_tax_benefits_pct") or 0.0)

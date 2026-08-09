@@ -1054,7 +1054,13 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
     # fat-margin business shouldn't pass on a floor far below its own
     # band. Constant remains the judgment-absent fallback.
     _healthy_floor = _EBITDA_HEALTHY_FLAT_FLOOR
-    _judged_band_low = ((_judgment or {}).get("q11_ebitda_band") or {}).get("low")
+    # The VALIDATED stamp's key is "q11" (gpt_margin_band_judgment builds
+    # q11/q20); "q11_ebitda_band" exists only in the raw GPT schema. The
+    # original q11_ebitda_band-only read made this override DEAD against
+    # every stamped judgment - the constant silently kept binding in
+    # judged mode (ablation-proven: poisoning it flipped a judged run).
+    _q11_band = (_judgment or {}).get("q11") or (_judgment or {}).get("q11_ebitda_band") or {}
+    _judged_band_low = _q11_band.get("low") if isinstance(_q11_band, dict) else None
     if _judged_band_low is not None:
       _healthy_floor = float(_judged_band_low)
     if q11_ebitda is not None and float(q11_ebitda) >= _healthy_floor:

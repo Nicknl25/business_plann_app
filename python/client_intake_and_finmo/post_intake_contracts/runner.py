@@ -2114,7 +2114,9 @@ def build_python_stage_ramp_contract(
   else:
     qoq_target = _STAGE_FAMILY_FALLBACK_QOQ_TARGET.get(expected_family, 0.05)
     qoq_max = qoq_target * 1.5
-  qoq_spike_max = qoq_max * 1.3
+  # (CW-021 dead-code kill: the old qoq_spike_max = qoq_max * 1.3 local
+  # was assigned and never read — the grid writes rev_spike_max from
+  # _rev_max_for_q.)
 
   # Cost ratio targets + maxes from NAICS cohort with conservative
   # defaults that produce a validator-acceptable envelope when cohort

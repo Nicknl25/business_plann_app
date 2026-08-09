@@ -122,7 +122,12 @@ def score_viability(
 
   checks: Dict[str, Any] = {}
 
-  ni_passed, ni_detail = _check_net_income_trajectory_viable(finmo_json)
+  # CW-021 NI-demote: the verify judges NI against the JUDGED floor when
+  # one is stamped (model_input was already in hand — omitting it made
+  # the rung verify use the 2pp constant against the executive's own
+  # floor; stored-trace proven, draft a051f479 solved toward 0.03 with
+  # a judged 0.04).
+  ni_passed, ni_detail = _check_net_income_trajectory_viable(finmo_json, model_input_json)
   checks["net_income_trajectory_viable"] = {
     "passed": bool(ni_passed), "advisory": False, "detail": ni_detail,
   }

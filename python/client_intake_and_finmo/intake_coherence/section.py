@@ -618,13 +618,17 @@ def _apply_price_spec(ops_json: Dict[str, Any], prices: List[Dict[str, Any]]) ->
   for l in lobs:
     if not isinstance(l, dict):
       continue
-    lob_name = str(l.get("lob") or l.get("name") or "").strip().lower()
+    # Live ops keys are lob_name/product_name (ops_line_split's own
+    # fallbacks); the bare lob/product/name keys are the legacy shape.
+    # Matching only the legacy keys silently dropped every custom price
+    # on live drafts (ablation batch A side-finding).
+    lob_name = str(l.get("lob") or l.get("lob_name") or l.get("name") or "").strip().lower()
     prods = [dict(p) if isinstance(p, dict) else p for p in (l.get("products") or [])]
     for p in prods:
       if not isinstance(p, dict):
         continue
       n_products += 1
-      key = (lob_name, str(p.get("product") or p.get("name") or "").strip().lower())
+      key = (lob_name, str(p.get("product") or p.get("product_name") or p.get("name") or "").strip().lower())
       if key in by_name and by_name[key] > 0:
         p["unit_price"] = by_name[key]
     l["products"] = prods
@@ -724,8 +728,12 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
     offers = []
     for o in (rnd.get("options") or [])[:2]:
       offers.append(
-        f"{o.get('product')} (worth up to {_fmt(_f(o.get('q11_quarterly_revenue_max')))} a quarter at "
-        f"{round(_f(o.get('gross_margin_pct'), 0.5) * 100)}% margin)"
+        f"{o.get('product')} (worth up to {_fmt(_f(o.get('q11_quarterly_revenue_max')))} a quarter"
+        + (
+          f" at {round(_f(o.get('gross_margin_pct')) * 100)}% margin)"
+          if o.get("gross_margin_pct") is not None
+          else ", margin not yet specified)"
+        )
       )
     return (
       "There are also revenue lines your operation could carry, judged against your real "

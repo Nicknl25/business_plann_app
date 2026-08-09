@@ -305,9 +305,25 @@ def run_restructure_joint_solve(
             trace.append(
               f"ebitda target clamped to judged band target: {_q_key} {round(float(_jt), 4)}"
             )
+      # CW-021 NI-demote (mirrors the compliant EBITDA half): the judged
+      # ni_margin_floor_q11 governs the NI target when stamped — max()
+      # keeps the rung constant as the floor-of-floors, so a judged
+      # floor above 0.03 makes the rescue STRICTER (70/74 real stamps)
+      # and a judged floor below it never thins the rescue under the
+      # rung. Constants remain the judgment-absent seeds.
+      ni_floor = float(rung["ni_margin"])
+      if _judged_band is not None:
+        _jni = _judged_band.get("ni_margin_floor_q11")
+        if _jni is not None:
+          _new_floor = max(ni_floor, float(_jni))
+          if _new_floor > ni_floor and ladder_ix == 1 and q == _TARGET_QUARTERS[0]:
+            trace.append(
+              f"ni floor governed by executive judgment: {round(float(_jni), 4)}"
+            )
+          ni_floor = _new_floor
       targets.append({
         "quarter_index": q,
-        "net_income": round(rev_q * float(rung["ni_margin"]), 2),
+        "net_income": round(rev_q * ni_floor, 2),
         "ebitda": round(rev_q * eb_floor, 2),
       })
     # Guidance anchors: seed the solve at each lever's NI-FAVORABLE

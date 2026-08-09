@@ -56,7 +56,6 @@ GROWTH_FENCE_Q11 = 1.07 ** 10
 
 # Advisory debt arithmetic (the lender's seat — never judged).
 SBA_ANNUAL_RATE = 0.105
-QUARTERLY_DEBT_SERVICE_FACTOR = 0.0405  # ~10yr amortization @ 10.5%, /q
 COVERAGE_FLOOR = 1.5
 
 # Doctrine-constant fallbacks when the margin-band judgment is absent
@@ -472,7 +471,14 @@ def favorable_corner_basis(
   new_line_cogs = 0.0
   for nl in (bounds.get("new_line_candidates") or []):
     cap = _f((nl or {}).get("q11_quarterly_revenue_max"))
-    gm_pct = _f((nl or {}).get("gross_margin_pct"), 0.5)
+    gm_raw = (nl or {}).get("gross_margin_pct")
+    if gm_raw is None:
+      # CW-021 ruling (Nick): NO fabricated margin. The old 0.5 default
+      # alone decided walk-vs-roadmap on a marginal real shape and was
+      # narrated to the client as fact. An unauthored margin earns the
+      # favorable corner NO credit for the line.
+      continue
+    gm_pct = _f(gm_raw)
     new_line_rev += cap
     new_line_cogs += cap * (1.0 - gm_pct)
 
@@ -550,7 +556,6 @@ def evaluate_intake_coherence(
 __all__ = [
   "GROWTH_FENCE_Q11",
   "SBA_ANNUAL_RATE",
-  "QUARTERLY_DEBT_SERVICE_FACTOR",
   "COVERAGE_FLOOR",
   "StructuralBasis",
   "Thresholds",

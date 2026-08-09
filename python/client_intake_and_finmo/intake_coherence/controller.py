@@ -454,7 +454,14 @@ def _new_lines_round(
     cap = _f((nl or {}).get("q11_quarterly_revenue_max"))
     if cap <= 0:
       continue
-    gm_pct = _f((nl or {}).get("gross_margin_pct"), 0.5)
+    gm_raw = (nl or {}).get("gross_margin_pct")
+    if gm_raw is None:
+      # CW-021 ruling: no fabricated margin — an unauthored candidate
+      # cannot be sized as a lever (its closure would be an invented
+      # number). It still appears in roadmap milestones, margin marked
+      # unspecified.
+      continue
+    gm_pct = _f(gm_raw)
     added_rev = cap
     added_cogs = cap * (1.0 - gm_pct)
     # closure: revenue at cap folded straight into the Q11 point
@@ -590,8 +597,13 @@ def roadmap_payload(
       milestones.append({
         "key": f"prove_{str((nl or {}).get('product') or 'channel').strip()}",
         "title": f"prove {str((nl or {}).get('product') or 'a second channel').strip()} with real orders",
-        "detail": f"judged potential up to {_fmt_money(cap)}/quarter at "
-                  f"{round(_f((nl or {}).get('gross_margin_pct'), 0.5) * 100)}% margin - currently an assumption, not revenue",
+        "detail": f"judged potential up to {_fmt_money(cap)}/quarter"
+                  + (
+                    f" at {round(_f((nl or {}).get('gross_margin_pct')) * 100)}% margin"
+                    if (nl or {}).get("gross_margin_pct") is not None
+                    else " (margin not yet specified)"
+                  )
+                  + " - currently an assumption, not revenue",
       })
   return {
     "corner_revenue_display": _fmt_money(_f(cq.get("revenue"))),

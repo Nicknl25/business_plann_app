@@ -329,7 +329,29 @@ def _check_solver_target_no_hard_violations(
   }
 
 
-def _check_revenue_not_flat(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+def _judged_q10_delta(model_input_json: Optional[Dict[str, Any]]) -> Optional[float]:
+  """The judged growth path's own implied Q1->Q10 revenue delta (product
+  of the tapered per-quarter rates, Q2..Q10). None when no stamp."""
+  try:
+    jg = ((model_input_json or {}).get("solver_input") or {}).get("judged_growth")
+    if not isinstance(jg, dict):
+      return None
+    start = float(jg.get("qoq_start"))
+    end = float(jg.get("qoq_end"))
+  except (TypeError, ValueError):
+    return None
+  mult = 1.0
+  span = 18.0  # the ramp's own q2->q20 taper
+  for q in range(2, 11):
+    frac = (q - 2) / span
+    mult *= 1.0 + max(0.0, start * (1.0 - frac) + end * frac)
+  return mult - 1.0
+
+
+def _check_revenue_not_flat(
+  finmo_json: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, Dict[str, Any]]:
   rows = _quarter_rows_by_index(finmo_json)
   series: List[float] = []
   missing: List[int] = []
@@ -357,9 +379,24 @@ def _check_revenue_not_flat(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str,
   q1 = series[0]
   q10 = series[-1]
   q10_over_q1_delta = ((q10 - q1) / q1) if q1 > 0 else 0.0
+  # CW-021 (ablation-proven): this check is a ramp-bypass TRIPWIRE, not
+  # the anti-flat device (rev_target's hard minimum constructs growth
+  # upstream). The fixed 0.05 delta bar hard-failed any honestly-judged
+  # plan under ~2.2%/yr — a veto over the growth authority. When a
+  # judged stamp exists, the bar derives from the judged path (HALF its
+  # own implied Q1->Q10 delta, capped at the constant so it never gets
+  # stricter): a plan tracking a judged-slow path passes; a near-flat
+  # plan against a judged-fast path still trips the wire. No stamp ->
+  # constants unchanged.
+  delta_threshold = REVENUE_FLAT_Q10_OVER_Q1_DELTA_THRESHOLD
+  delta_threshold_source = "constant"
+  judged_delta = _judged_q10_delta(model_input_json)
+  if judged_delta is not None:
+    delta_threshold = min(delta_threshold, judged_delta * 0.5)
+    delta_threshold_source = "judged_growth_half_delta"
   passed = (
     cv >= REVENUE_FLAT_STDEV_OVER_MEAN_THRESHOLD
-    or q10_over_q1_delta >= REVENUE_FLAT_Q10_OVER_Q1_DELTA_THRESHOLD
+    or q10_over_q1_delta >= delta_threshold
   )
   return passed, {
     "values_q1_q10": series,
@@ -368,7 +405,9 @@ def _check_revenue_not_flat(finmo_json: Dict[str, Any]) -> Tuple[bool, Dict[str,
     "stdev_over_mean": round(cv, 6),
     "q10_over_q1_delta": round(q10_over_q1_delta, 6),
     "stdev_over_mean_threshold": REVENUE_FLAT_STDEV_OVER_MEAN_THRESHOLD,
-    "q10_over_q1_delta_threshold": REVENUE_FLAT_Q10_OVER_Q1_DELTA_THRESHOLD,
+    "q10_over_q1_delta_threshold": round(delta_threshold, 6),
+    "delta_threshold_source": delta_threshold_source,
+    "judged_q10_delta": round(judged_delta, 6) if judged_delta is not None else None,
   }
 
 
@@ -911,7 +950,9 @@ def verify_run_acceptance(
   passed, detail = _check_solver_target_no_hard_violations(planning_run_json)
   _record("solver_target_assertion_no_hard_violations", passed, detail)
 
-  passed, detail = _check_revenue_not_flat(finmo_json)
+  passed, detail = _check_revenue_not_flat(
+    finmo_json, _parse_json(draft.get("model_input_json")),
+  )
   _record("revenue_not_flat_q1_q10", passed, detail)
 
   passed, detail = _check_cash_legitimate(finmo_json)
