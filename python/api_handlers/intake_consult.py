@@ -9458,6 +9458,15 @@ def _apply_scoped_patch(
         # deriver recomputes them from their sources every pass.
         continue
       next_financials[field] = value
+      # BASIS-TAGGED COGS at EVERY capture door (Nick's ruling; the
+      # keystone F&F rerun proved the stage applier was the only door
+      # that stamped - a stated $5,900 landing through THIS door sat
+      # untagged for one turn and the next Recalc pass restated it
+      # away ratio-primary, the exact class the ruling kills).
+      if field in ("current_cogs", "cogs_total_year1"):
+        next_financials["cogs_basis"] = "dollars"
+      elif field == "cogs_percent_of_revenue":
+        next_financials["cogs_basis"] = "ratio"
     elif group == "fulfillment":
       next_fulfillment[field] = value
 
@@ -12634,6 +12643,13 @@ def post_intake_consult_handler(*, app, request):
       action = str(intent.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+      # Observability (keystone F&F): the router's verdict for the turn -
+      # a claimed-but-unlanded change is invisible without this line.
+      app.logger.info(
+        "TURN_INTENT draft=%s action=%s patch=%s",
+        draft_id, action,
+        {str(k): v for k, v in (patch or {}).items()} if isinstance(patch, dict) else None,
+      )
 
     # Anti-loop backstop for the rest-of-team payroll step: while the question is
     # live, a continue_chat/confirm_proceed fallthrough would run the people
