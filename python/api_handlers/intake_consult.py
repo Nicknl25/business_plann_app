@@ -4236,12 +4236,18 @@ def _sync_marketing_field_family(
 ) -> Dict[str, Any]:
   next_financials = dict(financials_json or {})
   revenue = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
-  baseline_percent = _safe_float(next_financials.get("baseline_marketing_percent"))
-  baseline_amount = _safe_float(next_financials.get("baseline_marketing"))
+  # LIVE BASELINE (Nick-ruled): the baseline is DERIVED (the demand
+  # model's current offer) - it refreshes from the model every pass, so
+  # marketing_adjustment is always computed against the live baseline,
+  # never a copy-once snapshot. The client-STATED number
+  # (marketing_total_year1) stays durable - same stated-vs-derived
+  # principle as the COGS basis tag.
+  baseline_percent = _safe_float((marketing_model_json or {}).get("baseline_marketing_percent"))
+  baseline_amount = _safe_float((marketing_model_json or {}).get("baseline_marketing"))
   if baseline_percent is None:
-    baseline_percent = _safe_float((marketing_model_json or {}).get("baseline_marketing_percent"))
+    baseline_percent = _safe_float(next_financials.get("baseline_marketing_percent"))
   if baseline_amount is None:
-    baseline_amount = _safe_float((marketing_model_json or {}).get("baseline_marketing"))
+    baseline_amount = _safe_float(next_financials.get("baseline_marketing"))
   if baseline_percent is None and baseline_amount is not None and revenue and revenue > 0:
     baseline_percent = baseline_amount / revenue
   if baseline_amount is None and baseline_percent is not None and revenue is not None:
@@ -7046,17 +7052,25 @@ def _normalize_financials_router_patch(
           touched.discard(_ff)
     except Exception:
       pass
+  # BASIS-TAGGED COGS (Nick-ruled): the capture stamps WHICH form the
+  # client stated - a stated dollar stays that dollar; a stated percent
+  # stays a ratio. The Recalc's family sync honors the stamp (dollars-
+  # primary vs ratio-primary). Legacy drafts without a stamp keep the
+  # old ratio-primary behavior.
   if "cogs_percent_of_revenue" in touched:
+    next_financials["cogs_basis"] = "ratio"
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     percent = float(next_financials.get("cogs_percent_of_revenue") or 0.0)
     next_financials["current_cogs"] = percent * revenue_year1 if revenue_year1 > 0 else 0.0
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
   if "current_cogs" in touched:
+    next_financials["cogs_basis"] = "dollars"
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
       next_financials["cogs_percent_of_revenue"] = float(next_financials["current_cogs"]) / revenue_year1
   if "cogs_total_year1" in touched:
+    next_financials["cogs_basis"] = "dollars"
     next_financials["current_cogs"] = float(next_financials.get("cogs_total_year1") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
@@ -7267,7 +7281,22 @@ def _sync_financials_consult_persistence_state(
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
   cogs_total = _safe_float(next_financials.get("cogs_total_year1"))
   current_cogs = _safe_float(next_financials.get("current_cogs"))
-  if cogs_percent is not None and revenue_year1 > 0:
+  # BASIS-TAGGED (Nick-ruled): a client-stated DOLLAR is durable - it
+  # never re-derives from the ratio under revenue movement (the F&F
+  # $5,900-became-$14,676 class). A stated RATIO keeps ratio-primary
+  # (variable costs scale). Legacy drafts (no stamp): ratio-primary.
+  _cogs_dollars_primary = (
+    str(next_financials.get("cogs_basis") or "").strip().lower() == "dollars"
+  )
+  if _cogs_dollars_primary and (cogs_total is not None or current_cogs is not None):
+    synced_total = max(0.0, float(
+      cogs_total if cogs_total is not None else current_cogs
+    ))
+    next_financials["current_cogs"] = synced_total
+    next_financials["cogs_total_year1"] = synced_total
+    if revenue_year1 > 0:
+      next_financials["cogs_percent_of_revenue"] = float(synced_total / revenue_year1)
+  elif cogs_percent is not None and revenue_year1 > 0:
     cogs_percent = max(0.0, min(float(cogs_percent), 1.0))
     synced_total = float(cogs_percent * revenue_year1)
     next_financials["cogs_percent_of_revenue"] = cogs_percent

@@ -146,6 +146,56 @@ fin6b, y6b = _sync_financials_consult_persistence_state(
     people_json=copy.deepcopy(PPL), ops_json={})
 check("R6 the Recalc is idempotent", fin6a == fin6b and y6a == y6b)
 
+# ============ BASIS RULINGS (Nick): stated durable, derived live ======
+# B1: dollars-basis COGS is DURABLE under revenue movement (the F&F
+# $5,900 -> $14,676 class dies for stated-dollar clients).
+fin_b1 = {"cogs_basis": "dollars", "current_cogs": 5900.0,
+          "cogs_total_year1": 5900.0, "cogs_percent_of_revenue": 0.12,
+          "_financials_revenue_intro_done": False}
+y1_b1 = {"company_revenue_total_year1": 122304.0}
+fin_b1o, _ = _sync_financials_consult_persistence_state(
+    financials_json=fin_b1, financials_year1_json=y1_b1,
+    people_json=None, ops_json={})
+check("B1 stated COGS dollars durable under 2.5x revenue ($5,900 stays; "
+      "ratio re-derives to 4.8%)",
+      fin_b1o["current_cogs"] == 5900.0
+      and abs(fin_b1o["cogs_percent_of_revenue"] - 5900.0 / 122304.0) < 1e-9)
+
+# B2: ratio-basis (stated percent) keeps ratio-primary (variable costs
+# scale with revenue - status quo for percent-stating clients).
+fin_b2 = {"cogs_basis": "ratio", "cogs_percent_of_revenue": 0.12,
+          "current_cogs": 5900.0, "_financials_revenue_intro_done": False}
+fin_b2o, _ = _sync_financials_consult_persistence_state(
+    financials_json=fin_b2, financials_year1_json=y1_b1,
+    people_json=None, ops_json={})
+check("B2 stated ratio stays ratio-primary (12% of $122,304 = $14,676)",
+      abs(fin_b2o["current_cogs"] - 0.12 * 122304.0) < 0.01)
+
+# B3: legacy (no tag) preserves old ratio-primary behavior.
+fin_b3 = {"cogs_percent_of_revenue": 0.12, "current_cogs": 5900.0,
+          "_financials_revenue_intro_done": False}
+fin_b3o, _ = _sync_financials_consult_persistence_state(
+    financials_json=fin_b3, financials_year1_json=y1_b1,
+    people_json=None, ops_json={})
+check("B3 legacy untagged drafts keep ratio-primary (status quo)",
+      abs(fin_b3o["current_cogs"] - 0.12 * 122304.0) < 0.01)
+
+# B4: marketing baseline refreshes LIVE from the model; the stated
+# total stays durable; adjustment computes against the live baseline.
+fin_b4 = {"marketing_total_year1": 600.0, "baseline_marketing": 5000.0,
+          "baseline_marketing_percent": 0.05,
+          "_financials_revenue_intro_done": False}
+fin_b4o, _ = _sync_financials_consult_persistence_state(
+    financials_json=fin_b4, financials_year1_json=y1_b1,
+    marketing_model_json={"baseline_marketing": 8000.0,
+                          "baseline_marketing_percent": 0.0654},
+    people_json=None, ops_json={})
+check("B4 marketing baseline LIVE (5,000 stale copy -> 8,000 model); "
+      "stated $600 durable; adjustment vs live baseline",
+      fin_b4o["baseline_marketing"] == 8000.0
+      and fin_b4o["marketing_total_year1"] == 600.0
+      and fin_b4o["marketing_adjustment"] == 600.0 - 8000.0)
+
 print()
 fails = results.count(False)
 print(f"{len(results) - fails}/{len(results)} passed")
