@@ -279,20 +279,59 @@ check("8b router: owner_compensation not writable; people.owner_pay_monthly is",
       '"owner_compensation": {"type": "number"}' not in _ir_src
       and '"owner_pay_monthly"' in _ir_src)
 
-# #8-statement: the F&F correction through THE one writer - role
-# updated, baseline restamped, mirror derived.
-ppl8 = {"people": [{"role_title": "Owner and Groomer", "annual_wage": 24000.0,
-                    "wage_source": "client_override"}]}
-fin8 = {"baseline_payroll_year1": 24000.0,
-        "payroll_basis_people_roles": [{"role_title": "Owner and Groomer",
-                                        "annual_wage": 24000.0}]}
-fin8b = _apply_owner_pay_statement(monthly=3300.0, people_json=ppl8,
+# #8-statement + CW-023 (Cowork rank-1 on the live confirmation run -
+# THE RED IS THE LIVE RUN: draft 4aa25e24 built on payroll_total_year1
+# 123,000 while the gate walked on baseline 143,400; the basis row held
+# the impossible annual_wage 50,400 / year1_payroll_amount 30,000). The
+# one writer must recompute the WHOLE rollup - every ENGINE-read field,
+# not just the gate's. Exact live shape:
+ppl8 = {"people": [
+    {"role_title": "Owner & Lead Cleaner", "annual_wage": 30000.0,
+     "wage_source": "client_override"},
+    {"role_title": "Lead Cleaner & Trainer", "annual_wage": 31000.0,
+     "wage_source": "client_override"},
+], "rest_of_team_payroll_year1": 62000.0}
+fin8 = {"baseline_payroll_year1": 123000.0, "current_payroll": 123000.0,
+        "payroll_total_year1": 123000.0,
+        "payroll_basis_people_roles": [
+            {"role_title": "Owner & Lead Cleaner", "annual_wage": 30000.0,
+             "year1_payroll_amount": 30000.0, "months_counted_year1": 12}]}
+fin8b = _apply_owner_pay_statement(monthly=4200.0, people_json=ppl8,
                                    financials_json=fin8)
-check("8c the pay statement lands on the ROLE ($3,300/mo -> $39,600 wage), "
-      "baseline restamps, mirror derives",
-      ppl8["people"][0]["annual_wage"] == 39600.0
-      and fin8b["baseline_payroll_year1"] == 39600.0
-      and fin8b["owner_compensation"] == 3300.0)
+_owner_basis = next(r for r in fin8b["payroll_basis_people_roles"]
+                    if "Owner" in str(r.get("role_title")))
+check("8c CW-023: the correction recomputes the FULL rollup - baseline AND "
+      "the engine-read fields (current_payroll/payroll_total_year1 -> 143,400)",
+      ppl8["people"][0]["annual_wage"] == 50400.0
+      and fin8b["baseline_payroll_year1"] == 143400.0
+      and fin8b["current_payroll"] == 143400.0
+      and fin8b["payroll_total_year1"] == 143400.0
+      and fin8b["owner_compensation"] == 4200.0)
+check("8c2 CW-023: no impossible basis row - annual_wage AND "
+      "year1_payroll_amount both carry the corrected wage",
+      _owner_basis["annual_wage"] == 50400.0
+      and _owner_basis["year1_payroll_amount"] == 50400.0)
+check("8c3 rest-of-team survives the recompute (row present, total right)",
+      any(r.get("source") == "rest_of_team_payroll"
+          for r in fin8b["payroll_basis_people_roles"]))
+# the gate sync detects a stale rollup (the live corrupted shape) and
+# heals it canonically:
+fin8s = {"owner_compensation": 4200.0, "baseline_payroll_year1": 143400.0,
+         "current_payroll": 123000.0, "payroll_total_year1": 123000.0,
+         "payroll_basis_people_roles": [
+             {"role_title": "Owner & Lead Cleaner", "annual_wage": 50400.0,
+              "year1_payroll_amount": 30000.0, "months_counted_year1": 12}]}
+ppl8s = {"people": [
+    {"role_title": "Owner & Lead Cleaner", "annual_wage": 50400.0},
+    {"role_title": "Lead Cleaner & Trainer", "annual_wage": 31000.0},
+], "rest_of_team_payroll_year1": 62000.0}
+fin8s2 = _sync_owner_pay_one_home(financials_json=fin8s, people_json=ppl8s)
+check("8c4 CW-023: the gate sync HEALS a stale rollup (the exact live "
+      "corruption shape -> all fields 143,400)",
+      fin8s2["current_payroll"] == 143400.0
+      and fin8s2["payroll_total_year1"] == 143400.0
+      and all(r.get("year1_payroll_amount") == r.get("annual_wage")
+              for r in fin8s2["payroll_basis_people_roles"]))
 
 # #8-scoped-patch: people.owner_pay_monthly routes through the writer;
 # a direct financials.owner_compensation write is DROPPED.
@@ -319,13 +358,15 @@ check("8e sync: mirror follows the ROLE ($48k -> $4,000/mo); stale field "
 
 # #8-legacy: an old draft with the field but no owner role materializes
 # the role ONCE (the field-only class dies forward).
-ppl8f = {"people": []}
+ppl8f = {"people": [{"role_title": "Office Manager", "annual_wage": 52000.0}]}
 fin8f = _sync_owner_pay_one_home(
     financials_json={"owner_compensation": 2000.0, "baseline_payroll_year1": 52000.0},
     people_json=ppl8f)
-check("8f legacy: role materialized at field x 12, baseline restamped",
-      ppl8f["people"] and ppl8f["people"][0]["annual_wage"] == 24000.0
-      and fin8f["baseline_payroll_year1"] == 76000.0)
+check("8f legacy: role materialized at field x 12, rollup recomputed "
+      "(52k staff + 24k owner = 76k)",
+      any(p.get("annual_wage") == 24000.0 for p in ppl8f["people"])
+      and fin8f["baseline_payroll_year1"] == 76000.0
+      and fin8f["payroll_total_year1"] == 76000.0)
 
 # #6: fence-pass + judged-fail is disclosed as a consult, never "clears
 # every test"; flat figure always disclosed.

@@ -9311,6 +9311,7 @@ def _apply_scoped_patch(
             monthly=float(_monthly),
             people_json=next_people,
             financials_json=next_financials,
+            ops_json=next_ops,
           )
         continue
       next_people[field] = value
@@ -11155,13 +11156,37 @@ def _coherence_naturalize(text: str) -> str:
 _OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
 
 
-def _apply_owner_pay_statement(*, monthly, people_json, financials_json):
+def _restamp_payroll_rollup(*, financials_json, people_json, ops_json=None):
+  """CW-023 (Cowork rank-1 on the 000edda confirmation run): a role-wage
+  correction must recompute THE ROLLUP, not hand-patch fields. The old
+  one-writer updated the role + baseline + basis-row annual_wage and
+  left current_payroll / payroll_total_year1 / year1_payroll_amount
+  STALE - the gate walked on $143,400 while the ENGINE built on
+  $123,000 ("converged on one number, built on another", Y1 net income
+  overstated $20,400). One recompute, one stamp - the SAME function and
+  field set the payroll stage autofill uses, so the engine and the gate
+  read the identical rollup. payroll_adjustment (a client-approved
+  delta) is preserved, never zeroed."""
+  fin = dict(financials_json if isinstance(financials_json, dict) else {})
+  baseline = _compute_payroll_baseline(shared_context={
+    "people_capability": people_json if isinstance(people_json, dict) else {},
+    "operating_model": ops_json if isinstance(ops_json, dict) else {},
+  })
+  total = float(baseline.get("baseline_payroll_year1") or 0.0)
+  fin["baseline_payroll_year1"] = total
+  fin["current_payroll"] = total
+  fin["payroll_total_year1"] = total
+  fin["payroll_basis_people_roles"] = baseline.get("payroll_basis_people_roles") or []
+  return fin
+
+
+def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_json=None):
   """CW-022 #8 (Nick-ruled): THE one writer for owner pay. A stated
   monthly figure lands on the OWNER ROLE (created if missing), the
-  payroll baseline restamps by the delta, and owner_compensation is
+  FULL payroll rollup recomputes (CW-023: baseline, echo fields, and
+  basis rows together - never a hand-patch), and owner_compensation is
   derived as the read-only mirror. Mutates people_json in place;
   returns the (possibly copied) financials_json."""
-  fin = dict(financials_json if isinstance(financials_json, dict) else {})
   ppl = people_json if isinstance(people_json, dict) else {}
   people = ppl.get("people")
   if not isinstance(people, list):
@@ -11173,8 +11198,6 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json):
       owner_row = p
       break
   annual = round(float(monthly) * 12.0, 2)
-  role_annual = _safe_float((owner_row or {}).get("annual_wage")) or 0.0
-  delta = annual - role_annual
   if owner_row is None:
     people.append({
       "role_title": "Owner",
@@ -11184,24 +11207,14 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json):
   else:
     owner_row["annual_wage"] = float(annual)
     owner_row["wage_source"] = "client_override"
-  baseline = _safe_float(fin.get("baseline_payroll_year1"))
-  if baseline is not None:
-    fin["baseline_payroll_year1"] = round(max(0.0, baseline + delta), 2)
-  basis_roles = fin.get("payroll_basis_people_roles")
-  if isinstance(basis_roles, list):
-    _matched = False
-    for r in basis_roles:
-      if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
-        r["annual_wage"] = float(annual)
-        _matched = True
-        break
-    if not _matched:
-      basis_roles.append({"role_title": "Owner", "annual_wage": float(annual)})
+  fin = _restamp_payroll_rollup(
+    financials_json=financials_json, people_json=ppl, ops_json=ops_json,
+  )
   fin["owner_compensation"] = round(annual / 12.0, 2)
   return fin
 
 
-def _sync_owner_pay_one_home(*, financials_json, people_json):
+def _sync_owner_pay_one_home(*, financials_json, people_json, ops_json=None):
   """CW-022 #8 Option (a), Nick-ruled: owner pay's ONE home is the
   PEOPLE ROLE; financials.owner_compensation is a one-way derived
   MIRROR kept only for its two post-intake readers - it cannot diverge
@@ -11228,30 +11241,36 @@ def _sync_owner_pay_one_home(*, financials_json, people_json):
   field_monthly = _safe_float(fin.get("owner_compensation"))
   role_annual = _safe_float((owner_row or {}).get("annual_wage"))
   # With the financials door REMOVED (Nick's one-door ruling), the ROLE
-  # is always the truth: (a) role exists -> the mirror follows it;
-  # (b) no role but a legacy field value exists (drafts captured before
-  # the door closed) -> materialize the role from the field ONCE, then
-  # the mirror rule governs forever.
+  # is always the truth: (a) role exists -> the mirror follows it, and
+  # CW-023: a stale ROLLUP (basis rows / echo fields disagreeing with
+  # the people rows) triggers the full canonical recompute - never a
+  # hand-patch of individual fields; (b) no role but a legacy field
+  # value exists (drafts captured before the door closed) -> materialize
+  # the role from the field ONCE, then the mirror rule governs forever.
   if owner_row is not None and role_annual is not None and role_annual >= 0:
     mirror = round(role_annual / 12.0, 2)
-    if field_monthly is None or abs(mirror - field_monthly) > 0.005:
+    stale = False
+    basis_roles = fin.get("payroll_basis_people_roles")
+    if isinstance(basis_roles, list):
+      for r in basis_roles:
+        if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
+          if abs((_safe_float(r.get("annual_wage")) or 0.0) - role_annual) > 0.5 or abs(
+            (_safe_float(r.get("year1_payroll_amount")) or 0.0) - role_annual
+          ) > 0.5:
+            stale = True
+          break
+    if stale:
+      fin = _restamp_payroll_rollup(
+        financials_json=fin, people_json=ppl, ops_json=ops_json,
+      )
+      fin["owner_compensation"] = mirror
+    elif field_monthly is None or abs(mirror - field_monthly) > 0.005:
       fin = dict(fin)
       fin["owner_compensation"] = mirror
-      basis_roles = fin.get("payroll_basis_people_roles")
-      if isinstance(basis_roles, list):
-        for r in basis_roles:
-          if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
-            if _safe_float(r.get("annual_wage")) != role_annual:
-              _prev = _safe_float(r.get("annual_wage")) or 0.0
-              r["annual_wage"] = float(role_annual)
-              baseline = _safe_float(fin.get("baseline_payroll_year1"))
-              if baseline is not None:
-                fin["baseline_payroll_year1"] = round(
-                  max(0.0, baseline + (role_annual - _prev)), 2)
-            break
   elif field_monthly is not None and field_monthly >= 0:
     fin = _apply_owner_pay_statement(
       monthly=float(field_monthly), people_json=ppl, financials_json=fin,
+      ops_json=ops_json,
     )
   return fin
 
@@ -11277,10 +11296,12 @@ def _coherence_gate(
   exactly the class this workstream removes."""
   from client_intake_and_finmo.intake_coherence import section as _coh
 
-  # CW-022 #8: one home for owner pay before any verdict is computed.
+  # CW-022 #8: one home for owner pay before any verdict is computed
+  # (CW-023: ops threaded so a stale rollup recomputes canonically).
   financials_json = _sync_owner_pay_one_home(
     financials_json=financials_json or {},
     people_json=people_json if isinstance(people_json, dict) else {},
+    ops_json=ops_json if isinstance(ops_json, dict) else {},
   )
   return _coh.gate_and_turn(
     ops_json=ops_json or {},
