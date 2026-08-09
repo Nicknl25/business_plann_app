@@ -47,6 +47,7 @@ STATUS_ROADMAP = "roadmap"
 ROUND_PRICING = "pricing"
 ROUND_NEW_LINES = "new_lines"
 ROUND_COSTS = "cost_structure"
+ROUND_VOLUME = "volume"
 
 
 def _fmt_money(v: float) -> str:
@@ -102,6 +103,12 @@ def ops_line_split(
           "product": str(p.get("product_name") or p.get("product") or p.get("name") or "").strip(),
           "unit_price": price,
           "annual_revenue": price * cap * util * periods,
+          # volume-lever drivers (phase 4): the round needs the physical
+          # knobs to land a believable volume move on the ops truth.
+          "units_per_period_capacity": cap,
+          "utilization_rate": util,
+          "operating_periods_per_year": periods,
+          "annual_units": cap * util * periods,
         })
   total = sum(l["annual_revenue"] for l in lines)
   if total <= 0:
@@ -174,6 +181,74 @@ def _effective_pmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float
   if p0 > 0 and cur > 0:
     return max(1.0, min(pmax, (p0 * pmax) / cur))
   return pmax
+
+
+def _effective_vmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float:
+  """Volume analog of the price-ratchet fix (CW-022 #3 pattern): the
+  judged volume ceiling holds in UNITS. volume_multiplier_max is stored
+  as a RATIO - re-based on the live volume, every accepted volume move
+  would inflate the believable ceiling. With the authoring-time annual
+  units stamped, current x m never exceeds authoring x vmax. Un-stamped
+  legacy bounds keep the relative behavior."""
+  vmax = max(1.0, _f((bl or {}).get("volume_multiplier_max"), 1.0))
+  u0 = _f((bl or {}).get("annual_units_at_authoring"))
+  cur = _f(line.get("annual_units"))
+  if u0 > 0 and cur > 0:
+    return max(1.0, min(vmax, (u0 * vmax) / cur))
+  return vmax
+
+
+def _volume_move_basis(
+  basis: StructuralBasis,
+  split: List[Dict[str, Any]],
+  multipliers: Dict[str, float],
+) -> StructuralBasis:
+  """Basis with per-line VOLUME multipliers applied. Corner semantics
+  (favorable_corner_basis): volume carries COGS - the cogs percent
+  HOLDS (more units cost proportionally more to deliver); dollar
+  overheads (G&A, marketing) hold, so their pcts rescale; payroll and
+  rent hold (the bounds author judged the ceiling reachable with the
+  current setup)."""
+  base_rev = basis.q1_revenue_quarterly
+  new_rev = 0.0
+  covered = 0.0
+  for line in split:
+    key = f"{line['lob']}␟{line['product']}"
+    m = max(1.0, _f(multipliers.get(key), 1.0))
+    new_rev += line["q1_revenue_quarterly"] * m
+    covered += line["q1_revenue_quarterly"]
+  new_rev += max(0.0, base_rev - covered)
+  if new_rev <= 0:
+    return basis
+  ratio = base_rev / new_rev
+  return StructuralBasis(
+    q1_revenue_quarterly=new_rev,
+    cogs_pct=basis.cogs_pct,  # volume carries COGS
+    payroll_quarterly=basis.payroll_quarterly,
+    rent_quarterly=basis.rent_quarterly,
+    gna_pct=basis.gna_pct * ratio,
+    marketing_pct=basis.marketing_pct * ratio,
+    interest_quarterly=basis.interest_quarterly,
+    depreciation_quarterly=basis.depreciation_quarterly,
+    growth_to_q11=basis.growth_to_q11,
+    notes=dict(basis.notes),
+  )
+
+
+def _volume_landing(line: Dict[str, Any], m: float) -> Dict[str, Any]:
+  """Land a volume multiplier on the ops truth, utilization-first: fill
+  the book that already exists (util up to 100%), and only the
+  remainder widens capacity - so the physical ceiling stays honest
+  (the anchor-vs-ops check prices capacity at 100%)."""
+  util = max(1e-9, min(1.0, _f(line.get("utilization_rate"), 1.0)))
+  cap = _f(line.get("units_per_period_capacity"))
+  new_util = min(1.0, util * m)
+  cap_mult = (m * util) / new_util if new_util > 0 else 1.0
+  return {
+    "lob": line["lob"], "product": line["product"],
+    "utilization_rate": round(new_util, 4),
+    "units_per_period_capacity": round(cap * cap_mult, 4),
+  }
 
 
 def _price_move_basis(
@@ -365,6 +440,34 @@ def _costs_round(
       "deep_cut": _deep_cut(_cur_annual, new_annual),
     }
 
+  # PHASE 4: the COGS move the corner already spends
+  # (cogs_percent_of_revenue_min routed clients into walks with no COGS
+  # round). BASIS-TAG-AWARE landing: a dollars-basis draft's stated
+  # dollars are the source (patch them); ratio/legacy patches the pct
+  # and the Recalc re-derives the dollars.
+  cogs_floor = _f(floors.get("cogs_percent_of_revenue_min"), basis.cogs_pct)
+  if not client_floors.get("cogs") and cogs_floor < basis.cogs_pct - 1e-6:
+    new_annual = round(cogs_floor * ann_rev, 2)
+    _cur_annual = basis.cogs_pct * ann_rev
+    _cogs_dollars = (
+      str((financials_json or {}).get("cogs_basis") or "").strip().lower() == "dollars"
+    )
+    if _cogs_dollars:
+      field_patch = {"group": "financials", "field": "cogs_total_year1", "value": new_annual}
+      extra = [{"group": "financials", "field": "current_cogs", "value": new_annual}]
+    else:
+      field_patch = {"group": "financials", "field": "cogs_percent_of_revenue",
+                     "value": round(cogs_floor, 6)}
+      extra = []
+    moves["cogs"] = {
+      "basis_patch": {"cogs_pct": cogs_floor},
+      "field_patch": field_patch,
+      "extra_field_patches": extra,
+      "from_display": _fmt_money(_cur_annual),
+      "to_display": _fmt_money(new_annual),
+      "deep_cut": _deep_cut(_cur_annual, new_annual),
+    }
+
   gna_floor = _f(floors.get("g_and_a_percent_of_revenue_min"), basis.gna_pct)
   if not client_floors.get("gna") and gna_floor < basis.gna_pct - 1e-6:
     new_annual = round(gna_floor * ann_rev, 2)
@@ -466,6 +569,7 @@ def _costs_round(
   options = [o for o in (
     _option(list(moves), "right-size all of it"),
     _option(["marketing"], "trim marketing only"),
+    _option(["cogs"], "trim direct costs only"),
     _option([k for k in ("marketing", "rent") if k in moves], "marketing and the space, keep the team as-is"),
   ) if o]
   # dedupe identical id sets
@@ -491,6 +595,91 @@ def _costs_round(
     "best_closure_quarterly": max(0.0, max(o["closes_quarterly"] for o in unique)),
     "options": unique,
     "facts": {k: {"from": m["from_display"], "to": m["to_display"]} for k, m in moves.items()},
+  }
+
+
+def _volume_round(
+  basis: StructuralBasis,
+  thresholds: Thresholds,
+  bounds: Dict[str, Any],
+  split: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """PHASE 4: the volume lever the corner already SPENDS. The corner's
+  optimism includes volume_multiplier_max, so clients were routed into
+  walks whose gap arithmetic assumed a volume move no round could
+  offer (the F&F 'another dog or two' client had no lever). Options at
+  the searcher's own quantization: mid and max of the judged believable
+  volume ceiling, priced with the corner's own projection math."""
+  if not split:
+    return None
+  matched = match_bounds_lines(split, bounds)
+  gap_now = _gap(basis, thresholds)
+  if gap_now <= 0:
+    return None
+
+  def _mults(level: str) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    for line, bl in zip(split, matched):
+      key = f"{line['lob']}␟{line['product']}"
+      vmax = _effective_vmax(line, bl)
+      out[key] = vmax if level == "max" else 1.0 + (vmax - 1.0) * 0.5
+    return out
+
+  options = []
+  for level, label in (
+    ("mid", "grow the book a believable step"),
+    ("max", "fill to the judged demand ceiling"),
+  ):
+    mults = _mults(level)
+    if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
+      continue
+    moved = _volume_move_basis(basis, split, mults)
+    closes = gap_now - _gap(moved, thresholds)
+    volumes = []
+    patch_volumes = []
+    for line in split:
+      key = f"{line['lob']}␟{line['product']}"
+      m = mults[key]
+      volumes.append({
+        "lob": line["lob"], "product": line["product"],
+        "from_annual_units": round(_f(line.get("annual_units"))),
+        "to_annual_units": round(_f(line.get("annual_units")) * m),
+      })
+      patch_volumes.append(_volume_landing(line, m))
+    options.append({
+      "id": f"volume_{level}",
+      "label": label,
+      "recommended": level == "mid" and closes > 0,
+      "volumes": volumes,
+      "closes_quarterly": round(closes, 2),
+      "widens": closes < -0.005,
+      "closes_display": _fmt_money(abs(closes)),
+      # current_revenue moves with the volume (same anchor law as the
+      # price lever); COGS follows by BASIS at apply time - ratio-basis
+      # pct holds (the Recalc re-derives dollars), dollars-basis stated
+      # dollars scale with the volume ratio (volume carries cost).
+      "patch": {
+        "kind": "ops_volume",
+        "volumes": patch_volumes,
+        "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+      },
+    })
+  if not options:
+    return None
+  best = max(0.0, max(o["closes_quarterly"] for o in options))
+  return {
+    "key": ROUND_VOLUME,
+    "best_closure_quarterly": best,
+    "options": options,
+    "facts": {
+      "lines": [
+        {
+          "lob": l["lob"], "product": l["product"],
+          "current_annual_units": round(_f(l.get("annual_units"))),
+          "believable_max_annual_units": round(_f(l.get("annual_units")) * _effective_vmax(l, bl)),
+        } for l, bl in zip(split, matched)
+      ],
+    },
   }
 
 
@@ -568,6 +757,10 @@ def plan_rounds(
     r = _pricing_round(basis, thresholds, bounds, split)
     if r:
       rounds.append(r)
+  if ROUND_VOLUME not in done:
+    r = _volume_round(basis, thresholds, bounds, split)
+    if r:
+      rounds.append(r)
   if ROUND_COSTS not in done:
     r = _costs_round(basis, thresholds, bounds, financials_json)
     if r:
@@ -580,8 +773,9 @@ def plan_rounds(
     return None
   # Actionable rounds first (the client can PICK them); offer-only
   # rounds (new lines, which route back through the ops conversation)
-  # only lead when nothing actionable remains.
-  order = {ROUND_PRICING: 0, ROUND_NEW_LINES: 1, ROUND_COSTS: 2}
+  # only lead when nothing actionable remains. Revenue-side levers
+  # (price, volume - the client's own market story) precede cost trims.
+  order = {ROUND_PRICING: 0, ROUND_VOLUME: 1, ROUND_NEW_LINES: 2, ROUND_COSTS: 3}
   rounds.sort(key=lambda r: (
     bool(r.get("offer_only")),
     -r["best_closure_quarterly"],
@@ -710,7 +904,7 @@ def evaluate_current(
 __all__ = [
   "STATUS_PENDING", "STATUS_WALKING", "STATUS_CONVERGED",
   "STATUS_PARKED", "STATUS_ROADMAP",
-  "ROUND_PRICING", "ROUND_NEW_LINES", "ROUND_COSTS",
+  "ROUND_PRICING", "ROUND_NEW_LINES", "ROUND_COSTS", "ROUND_VOLUME",
   "stable_digest_hash", "ops_line_split", "plan_rounds",
   "corner_check", "roadmap_payload", "evaluate_current",
 ]

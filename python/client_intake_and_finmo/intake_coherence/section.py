@@ -131,6 +131,8 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
     entry = {"id": o.get("id"), "label": o.get("label")}
     if o.get("prices"):
       entry["prices"] = o["prices"]
+    if o.get("volumes"):
+      entry["volumes"] = o["volumes"]
     if o.get("moves"):
       entry["moves"] = {k: v.get("to_display") for k, v in (o.get("moves") or {}).items()}
     options.append(entry)
@@ -669,6 +671,12 @@ def _ensure_bounds(
         _p0 = _f(_ln.get("unit_price"))
         if _p0 > 0:
           _bl["unit_price_at_authoring"] = float(_p0)
+      # PHASE 4: same ratchet fix for the volume ceiling - the judged
+      # multiple holds in UNITS, stamped at authoring time.
+      if isinstance(_bl, dict) and _bl.get("annual_units_at_authoring") is None:
+        _u0 = _f(_ln.get("annual_units"))
+        if _u0 > 0:
+          _bl["annual_units_at_authoring"] = float(_u0)
   except Exception:
     pass
   state.pop("bounds_error", None)
@@ -704,9 +712,10 @@ def apply_router_patch(
   asserted = remaining.pop("coherence.assert_floor", remaining.pop("assert_floor", None))
   if asserted is not None:
     cost = str(asserted).strip().lower()
-    alias = {"overhead": "gna", "opex": "gna", "other": "gna"}
+    alias = {"overhead": "gna", "opex": "gna", "other": "gna",
+             "supplies": "cogs", "materials": "cogs"}
     cost = alias.get(cost, cost)
-    if cost in ("rent", "payroll", "marketing", "gna"):
+    if cost in ("rent", "payroll", "marketing", "gna", "cogs"):
       state = dict(state)
       floors = dict(state.get("client_floors") or {})
       floors[cost] = True
@@ -789,6 +798,37 @@ def apply_router_patch(
         _st_pc["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_pc)
         notes.append(f"option:{option_id}:prices")
+      elif spec.get("kind") == "ops_volume":
+        # PHASE 4: the volume lever. Volume carries COGS: the anchor
+        # moves with the units; ratio-basis COGS needs nothing (the pct
+        # holds and the Recalc re-derives dollars from the new anchor);
+        # dollars-basis stated COGS scales with the volume ratio.
+        next_ops = _apply_volume_spec(next_ops, spec.get("volumes") or [])
+        _old_rev_v = _f(next_fin.get("current_revenue"))
+        if spec.get("current_revenue"):
+          _new_rev_v = float(spec["current_revenue"])
+          next_fin["current_revenue"] = _new_rev_v
+          _st_vw = dict(get_state(next_fin))
+          _lw = dict(_st_vw.get("_lever_writes") or {})
+          _record_lever_write(
+            _lw, "current_revenue",
+            _old_rev_v if _old_rev_v > 0 else None, _new_rev_v)
+          if (
+            str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars"
+            and _old_rev_v > 0 and _new_rev_v > 0
+          ):
+            _kv = _new_rev_v / _old_rev_v
+            _cogs_from = _f(next_fin.get("current_cogs"))
+            for _cf in ("current_cogs", "cogs_total_year1"):
+              _cv = _f(next_fin.get(_cf))
+              if _cv > 0:
+                next_fin[_cf] = round(_cv * _kv, 2)
+            if _cogs_from > 0:
+              _record_lever_write(
+                _lw, "current_cogs", _cogs_from, round(_cogs_from * _kv, 2))
+          _st_vw["_lever_writes"] = _lw
+          next_fin = put_state(next_fin, _st_vw)
+        notes.append(f"option:{option_id}:volume")
       elif spec.get("kind") == "financials_fields":
         _st_cw = dict(get_state(next_fin))
         _lw = dict(_st_cw.get("_lever_writes") or {})
@@ -878,6 +918,55 @@ def _apply_price_spec(ops_json: Dict[str, Any], prices: List[Dict[str, Any]]) ->
   return next_ops
 
 
+def _apply_volume_spec(ops_json: Dict[str, Any], volumes: List[Dict[str, Any]]) -> Dict[str, Any]:
+  """Land per-line volume moves (utilization + capacity) on the ops
+  truth - the _apply_price_spec analog. The landing was computed
+  utilization-first by the round; this just writes the knobs."""
+  next_ops = dict(ops_json or {})
+  lobs = [dict(l) if isinstance(l, dict) else l for l in (next_ops.get("lob_models") or [])]
+  by_name: Dict[Any, Dict[str, Any]] = {}
+  for spec in volumes or []:
+    by_name[(str(spec.get("lob") or "").strip().lower(),
+             str(spec.get("product") or "").strip().lower())] = spec
+  n_products = 0
+  for l in lobs:
+    if not isinstance(l, dict):
+      continue
+    lob_name = str(l.get("lob") or l.get("lob_name") or l.get("name") or "").strip().lower()
+    prods = [dict(p) if isinstance(p, dict) else p for p in (l.get("products") or [])]
+    for p in prods:
+      if not isinstance(p, dict):
+        continue
+      n_products += 1
+      key = (lob_name, str(p.get("product") or p.get("product_name") or p.get("name") or "").strip().lower())
+      spec = by_name.get(key)
+      if not spec:
+        continue
+      _util = _f(spec.get("utilization_rate"))
+      _cap = _f(spec.get("units_per_period_capacity"))
+      if _util > 0:
+        p["utilization_rate"] = min(1.0, _util)
+      if _cap > 0:
+        # write whichever capacity key this product carries (live vs legacy)
+        if p.get("units_per_period_capacity") is not None or p.get("units_per_week_capacity") is None:
+          p["units_per_period_capacity"] = _cap
+        else:
+          p["units_per_week_capacity"] = _cap
+    l["products"] = prods
+  next_ops["lob_models"] = lobs
+  # keep the flat convenience fields in step for single-line models
+  if n_products == 1 and volumes:
+    only = volumes[0] or {}
+    if _f(only.get("utilization_rate")) > 0 and next_ops.get("utilization_rate") is not None:
+      next_ops["utilization_rate"] = min(1.0, _f(only.get("utilization_rate")))
+    if _f(only.get("units_per_period_capacity")) > 0:
+      for flat_key in ("units_per_period_capacity", "units_per_week_capacity"):
+        if next_ops.get(flat_key) is not None:
+          next_ops[flat_key] = _f(only.get("units_per_period_capacity"))
+          break
+  return next_ops
+
+
 def _apply_custom_prices(
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
@@ -951,6 +1040,36 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       "Which fits your business? Whatever you pick, I'll recompute on the spot - "
       f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
     )
+  if key == _ctl.ROUND_VOLUME:
+    lines = []
+    for fact in (rnd.get("facts") or {}).get("lines") or []:
+      lines.append(
+        f"{fact['product']} runs about {fact['current_annual_units']:,} a year now, "
+        f"and the believable demand for your market supports up to "
+        f"{fact['believable_max_annual_units']:,}"
+      )
+    opts = []
+    for i, o in enumerate(rnd.get("options") or [], start=1):
+      vol_bits = ", ".join(
+        f"{v['product']} to about {v['to_annual_units']:,} a year"
+        for v in (o.get("volumes") or [])
+      )
+      rec = " - this is the one I'd suggest" if o.get("recommended") else ""
+      closes_bit = (
+        f"which would actually WIDEN the gap by about {o['closes_display']} on "
+        "these numbers - something is off, tell me which figure looks wrong"
+        if o.get("widens")
+        else f"which closes about {o['closes_display']} of the gap"
+      )
+      opts.append(f"{i}) {o['label'].capitalize()}: {vol_bits}, {closes_bit}{rec}")
+    return (
+      "Another real lever is volume - serving more of the demand that's already "
+      "judged reachable for your market. " + "; ".join(lines) + ". "
+      + " ".join(opts) + ". "
+      "More volume carries its own direct costs - I've counted that. "
+      "Which fits how your business actually books work? I'll recompute on the spot - "
+      f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
+    )
   if key == _ctl.ROUND_COSTS:
     # CW-022 #5: internal move keys never reach the client ("gna" leaked
     # verbatim at Fetch & Fluff turn 112).
@@ -959,6 +1078,7 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       "marketing": "marketing",
       "rent": "the space",
       "payroll": "the team",
+      "cogs": "your direct costs (supplies/materials)",
     }
     opts = []
     for i, o in enumerate(rnd.get("options") or [], start=1):
@@ -1374,6 +1494,8 @@ def gate_and_turn(
         ("marketing", ("marketing", "advertis", "ads")),
         ("rent", ("rent", "lease", "the space")),
         ("payroll", ("payroll", "team", "staff", "wages", "salar")),
+        ("cogs", ("supplies", "materials", "ingredients", "direct costs",
+                  "cost of goods")),
       )
       _cf = dict(state.get("client_floors") or {})
       _floor_hit = False
