@@ -683,6 +683,97 @@ def _ensure_bounds(
   return state
 
 
+def refresh_eval_stamps(
+  financials_json: Dict[str, Any],
+  *,
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """PHASE 5 (display refresh): restamp the deterministic verdict
+  arithmetic EVERY TURN once the F-core judgments exist, so the panel
+  reads live numbers between gate entries instead of gate-time
+  snapshots (the completion-attempt-only regime was the last surface
+  violating rule 4). Judgments are NEVER authored here - a draft
+  without a band stamp is left untouched - and the walk's narrative
+  state (status, round, gap_initial, rounds_done) is not moved. Any
+  failure leaves the stored stamps exactly as they were (display
+  refresh must never break a turn)."""
+  state = get_state(financials_json)
+  band = state.get("margin_band_judgment")
+  if not band:
+    return financials_json
+  try:
+    from client_intake_and_finmo.intake_coherence.evaluator import (
+      growth_multiple_from_judged,
+    )
+    growth_mult = growth_multiple_from_judged(
+      state.get("judged_growth"), ops_json=ops_json,
+    )
+    eval_fence = _ctl.evaluate_current(
+      financials_json=financials_json, ops_json=ops_json,
+      financials_year1_json=financials_year1_json,
+      margin_band=band, growth_to_q11=None,
+    )
+    if eval_fence is None:
+      return financials_json
+    eval_judged = None
+    if growth_mult:
+      eval_judged = _ctl.evaluate_current(
+        financials_json=financials_json, ops_json=ops_json,
+        financials_year1_json=financials_year1_json,
+        margin_band=band, growth_to_q11=growth_mult,
+      )
+    # The gate's own tier choice (two-tier law): judged while walking
+    # or when the fence fails; fence otherwise.
+    use_judged = eval_judged is not None and (
+      state.get("status") == _ctl.STATUS_WALKING
+      or not eval_fence.get("passed")
+    )
+    eval_result = eval_judged if use_judged else eval_fence
+    eval_result["basis_growth"] = {
+      "used": "judged" if use_judged else "fence",
+      "judged_multiple": round(growth_mult, 4) if growth_mult else None,
+    }
+    gap = _f(eval_result.get("gap_quarterly"))
+    state = dict(state)
+    state["eval"] = {
+      "passed": bool(eval_result.get("passed")),
+      "failed": eval_result.get("failed"),
+      "gap_quarterly": gap,
+      "q11": eval_result.get("q11"),
+      "thresholds": eval_result.get("thresholds"),
+      "binding": binding_constraint(eval_result),
+    }
+    state["gap_open"] = gap
+    eval_flat = _ctl.evaluate_current(
+      financials_json=financials_json, ops_json=ops_json,
+      financials_year1_json=financials_year1_json,
+      margin_band=band, growth_to_q11=1.0,
+    )
+    state["eval_flat"] = {
+      "passed": bool((eval_flat or {}).get("passed")) if isinstance(eval_flat, dict) else None,
+      "q11": (eval_flat or {}).get("q11") if isinstance(eval_flat, dict) else None,
+    }
+    # The judged shortfall is a LIVE disclosure, not a latch: it stands
+    # only while the judged tier actually fails on the current numbers.
+    if eval_judged is not None and not use_judged and not eval_judged.get("passed"):
+      state["eval_judged_shortfall"] = _f(eval_judged.get("gap_quarterly"))
+    else:
+      state.pop("eval_judged_shortfall", None)
+    # Walls refresh with the same cadence (phase 3's wall, live).
+    wall = _payroll_share_wall_result(
+      state, ops_json=ops_json, financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+    )
+    if wall is not None:
+      state["walls"] = {"payroll_share": wall}
+    else:
+      state.pop("walls", None)
+    return put_state(financials_json, state)
+  except Exception:
+    return financials_json
+
+
 # --------------------------------------------------------- patch handling
 
 def apply_router_patch(

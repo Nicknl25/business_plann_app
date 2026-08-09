@@ -7340,7 +7340,26 @@ def _sync_financials_consult_persistence_state(
   if monthly_other_opex is not None and monthly_other_opex >= 0:
     next_financials["other_opex_absolute"] = float(monthly_other_opex) * 12.0
 
-  return _ensure_financials_stage_defaults(next_financials), next_year1
+  next_financials = _ensure_financials_stage_defaults(next_financials)
+
+  # PHASE 5 (display refresh): with the Recalc running every turn, the
+  # coherence verdict arithmetic is restamped on the same cadence -
+  # the panel reads live numbers, never gate-time snapshots. Arithmetic
+  # only (judgments cached in state; nothing authored); failure leaves
+  # the stored stamps untouched.
+  try:
+    from client_intake_and_finmo.intake_coherence.section import (
+      refresh_eval_stamps,
+    )
+    next_financials = refresh_eval_stamps(
+      next_financials,
+      ops_json=ops_json if isinstance(ops_json, dict) else {},
+      financials_year1_json=next_year1 if isinstance(next_year1, dict) else {},
+    )
+  except Exception:
+    pass
+
+  return next_financials, next_year1
 
 
 def _extract_ops_proposal_patch(
