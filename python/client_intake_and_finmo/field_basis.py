@@ -35,7 +35,10 @@ AMOUNT = "amount"  # plain dollar amount, no time dimension
 
 FIELD_BASIS: Dict[str, str] = {
   # -- monthly-stored fields -------------------------------------------------
-  "owner_compensation": MONTHLY,
+  # CW-022 #8: owner pay's client-facing field moved to the people scope
+  # (the financials owner_compensation is a derived mirror the router
+  # never writes).
+  "owner_pay_monthly": MONTHLY,
   "other_operating_expense": MONTHLY,
   "monthly_rent_expense": MONTHLY,
   "other_monthly_debt_payments": MONTHLY,

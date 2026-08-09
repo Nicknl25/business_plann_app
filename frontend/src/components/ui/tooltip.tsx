@@ -48,8 +48,6 @@ export const TOOLTIP_TEXT = {
     "Yearly interest paid on loans. Skip if unsure; we will estimate.",
   annualPrincipal:
     "Yearly repayment of loan principal. Skip if unsure; we will estimate.",
-  ownerCompensation:
-    "Your total monthly pay from the business — salary plus any draws, all-in (include any owner salary counted with your team). Skip if unsure; we will assume zero.",
   cashOnHand:
     "Cash the business has available. Skip if unsure; we will estimate.",
 

@@ -2428,11 +2428,9 @@ def _build_financials_stage_message(
       shared_context=shared_context,
       monthly_rent_expense=(financials_json or {}).get("monthly_rent_expense"),
     )
-  if stage == "owner_compensation":
-    return (
-      "About how much do you pay yourself from the business per month, all-in - salary plus any draws or other money you take? "
-      "If you've already mentioned your own salary with the team, include it here rather than adding it on top. A rough figure is fine."
-    )
+  # (CW-022 #8, Nick-ruled: owner pay is a PEOPLE question. The
+  # financials owner_compensation stage was REMOVED - one door, in the
+  # people section, landing on the owner role.)
   if stage == "other_operating_expense":
     return (
       "About how much goes to other regular business bills in a typical month, besides payroll, marketing, and rent - "
@@ -4368,7 +4366,6 @@ _FINANCIALS_STAGE_ORDER: Tuple[str, ...] = (
   "marketing",
   "monthly_rent_expense",
   "future_rent_expected",
-  "owner_compensation",
   "other_operating_expense",
   "current_num_employees",
   "current_capex",
@@ -4428,12 +4425,6 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "completion_fields": ("future_rent_expected",),
     "confirmable_baseline": False,
     "clarifier": "Should I record future dedicated business space as expected, yes or no?",
-  },
-  "owner_compensation": {
-    "patch_targets": ("owner_compensation",),
-    "completion_fields": ("owner_compensation",),
-    "confirmable_baseline": False,
-    "clarifier": "What total monthly owner pay - salary plus draws, all-in - should I record?",
   },
   "other_operating_expense": {
     "patch_targets": ("other_operating_expense",),
@@ -6622,7 +6613,6 @@ _FINANCIALS_FIELD_LABELS = {
   "ap_balance": "operating payables",
   "cash_on_hand": "cash on hand",
   "other_operating_expense": "other operating costs",
-  "owner_compensation": "owner compensation",
   "monthly_rent_expense": "rent",
   "total_debt_outstanding": "outstanding debt",
   "current_num_employees": "employee count",
@@ -6688,7 +6678,6 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
 
 
 _GENERIC_FINANCIALS_SCALAR_FIELDS = {
-  "owner_compensation",
   "other_operating_expense",
   "current_num_employees",
   "current_capex",
@@ -6706,7 +6695,6 @@ _GENERIC_FINANCIALS_SCALAR_FIELDS = {
 }
 
 _GENERIC_FINANCIALS_FIELD_LABELS = {
-  "owner_compensation": "owner compensation",
   "other_operating_expense": "other operating expense",
   "current_num_employees": "current employee count",
   "current_capex": "current capital spending",
@@ -6876,16 +6864,10 @@ def _normalize_financials_router_patch(
       touched.add(field_name)
       continue
     if field_name == "owner_compensation":
-      numeric = _safe_float(raw_value)
-      if numeric is None:
-        continue
-      # No basis second-guessing here: the router is the ONLY basis
-      # normalizer (field_basis registry names the stored basis in the
-      # router frame). The old apply-layer x12 heuristic believed this
-      # monthly field was annual and turned a correct $10,000/mo into
-      # $120,000/mo (Harborline false park, run CW-001).
-      next_financials[field_name] = float(numeric)
-      touched.add(field_name)
+      # CW-022 #8 (Nick-ruled): owner pay's ONE door is the people
+      # section. This field is a deriver-written mirror only — a patch
+      # write here is dropped (the pseudo-field people.owner_pay_monthly
+      # is the statement path; the sync derives this mirror).
       continue
     if field_name == "future_rent_expected":
       next_financials[field_name] = bool(raw_value)
@@ -7990,7 +7972,6 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "total_debt_outstanding",
       "annual_interest_payment",
       "annual_principal_payment",
-      "owner_compensation",
       "cash_on_hand",
       "confidence",
     },
@@ -9319,8 +9300,24 @@ def _apply_scoped_patch(
     elif group == "market":
       next_market[field] = value
     elif group == "people":
+      if field == "owner_pay_monthly":
+        # CW-022 #8 (Nick-ruled): the owner-pay statement path. This
+        # pseudo-field never persists - it lands on the OWNER ROLE
+        # (created if missing), restamps the payroll baseline, and
+        # derives the owner_compensation mirror. THE one writer.
+        _monthly = _safe_float(value)
+        if _monthly is not None and _monthly >= 0:
+          next_financials = _apply_owner_pay_statement(
+            monthly=float(_monthly),
+            people_json=next_people,
+            financials_json=next_financials,
+          )
+        continue
       next_people[field] = value
     elif group == "financials":
+      if field == "owner_compensation":
+        # deriver-written mirror; patch writes are dropped (CW-022 #8).
+        continue
       next_financials[field] = value
     elif group == "fulfillment":
       next_fulfillment[field] = value
@@ -11158,6 +11155,52 @@ def _coherence_naturalize(text: str) -> str:
 _OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
 
 
+def _apply_owner_pay_statement(*, monthly, people_json, financials_json):
+  """CW-022 #8 (Nick-ruled): THE one writer for owner pay. A stated
+  monthly figure lands on the OWNER ROLE (created if missing), the
+  payroll baseline restamps by the delta, and owner_compensation is
+  derived as the read-only mirror. Mutates people_json in place;
+  returns the (possibly copied) financials_json."""
+  fin = dict(financials_json if isinstance(financials_json, dict) else {})
+  ppl = people_json if isinstance(people_json, dict) else {}
+  people = ppl.get("people")
+  if not isinstance(people, list):
+    people = []
+    ppl["people"] = people
+  owner_row = None
+  for p in people:
+    if isinstance(p, dict) and _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
+      owner_row = p
+      break
+  annual = round(float(monthly) * 12.0, 2)
+  role_annual = _safe_float((owner_row or {}).get("annual_wage")) or 0.0
+  delta = annual - role_annual
+  if owner_row is None:
+    people.append({
+      "role_title": "Owner",
+      "annual_wage": float(annual),
+      "wage_source": "client_override",
+    })
+  else:
+    owner_row["annual_wage"] = float(annual)
+    owner_row["wage_source"] = "client_override"
+  baseline = _safe_float(fin.get("baseline_payroll_year1"))
+  if baseline is not None:
+    fin["baseline_payroll_year1"] = round(max(0.0, baseline + delta), 2)
+  basis_roles = fin.get("payroll_basis_people_roles")
+  if isinstance(basis_roles, list):
+    _matched = False
+    for r in basis_roles:
+      if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
+        r["annual_wage"] = float(annual)
+        _matched = True
+        break
+    if not _matched:
+      basis_roles.append({"role_title": "Owner", "annual_wage": float(annual)})
+  fin["owner_compensation"] = round(annual / 12.0, 2)
+  return fin
+
+
 def _sync_owner_pay_one_home(*, financials_json, people_json):
   """CW-022 #8 Option (a), Nick-ruled: owner pay's ONE home is the
   PEOPLE ROLE; financials.owner_compensation is a one-way derived
@@ -11184,37 +11227,32 @@ def _sync_owner_pay_one_home(*, financials_json, people_json):
       break
   field_monthly = _safe_float(fin.get("owner_compensation"))
   role_annual = _safe_float((owner_row or {}).get("annual_wage"))
-  if field_monthly is not None and field_monthly >= 0:
-    annual = round(field_monthly * 12.0, 2)
-    if role_annual is None or abs(annual - role_annual) > 0.5:
-      delta = annual - (role_annual or 0.0)
-      if owner_row is None:
-        people.append({
-          "role_title": "Owner",
-          "annual_wage": float(annual),
-          "wage_source": "client_override",
-        })
-      else:
-        owner_row["annual_wage"] = float(annual)
-        owner_row["wage_source"] = "client_override"
+  # With the financials door REMOVED (Nick's one-door ruling), the ROLE
+  # is always the truth: (a) role exists -> the mirror follows it;
+  # (b) no role but a legacy field value exists (drafts captured before
+  # the door closed) -> materialize the role from the field ONCE, then
+  # the mirror rule governs forever.
+  if owner_row is not None and role_annual is not None and role_annual >= 0:
+    mirror = round(role_annual / 12.0, 2)
+    if field_monthly is None or abs(mirror - field_monthly) > 0.005:
       fin = dict(fin)
-      baseline = _safe_float(fin.get("baseline_payroll_year1"))
-      if baseline is not None:
-        fin["baseline_payroll_year1"] = round(max(0.0, baseline + delta), 2)
+      fin["owner_compensation"] = mirror
       basis_roles = fin.get("payroll_basis_people_roles")
       if isinstance(basis_roles, list):
-        _matched = False
         for r in basis_roles:
           if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
-            r["annual_wage"] = float(annual)
-            _matched = True
+            if _safe_float(r.get("annual_wage")) != role_annual:
+              _prev = _safe_float(r.get("annual_wage")) or 0.0
+              r["annual_wage"] = float(role_annual)
+              baseline = _safe_float(fin.get("baseline_payroll_year1"))
+              if baseline is not None:
+                fin["baseline_payroll_year1"] = round(
+                  max(0.0, baseline + (role_annual - _prev)), 2)
             break
-        if not _matched:
-          basis_roles.append({"role_title": "Owner", "annual_wage": float(annual)})
-  elif role_annual is not None and role_annual > 0:
-    # mirror direction: the field follows the role when unset.
-    fin = dict(fin)
-    fin["owner_compensation"] = round(role_annual / 12.0, 2)
+  elif field_monthly is not None and field_monthly >= 0:
+    fin = _apply_owner_pay_statement(
+      monthly=float(field_monthly), people_json=ppl, financials_json=fin,
+    )
   return fin
 
 

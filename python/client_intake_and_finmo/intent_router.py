@@ -487,6 +487,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "rest_of_team_payroll_year1": {"type": "number"},
 
+      "owner_pay_monthly": {"type": "number"},
+
       "people": {
 
         "type": "array",
@@ -651,8 +653,6 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "annual_interest_payment": {"type": "number"},
 
       "annual_principal_payment": {"type": "number"},
-
-      "owner_compensation": {"type": "number"},
 
       "cash_on_hand": {"type": "number"},
 
@@ -1582,6 +1582,12 @@ def route_intent(
       "people",
       "inferred_roles",
       "rest_of_team_payroll_year1",
+      # CW-022 #8 (Nick-ruled): owner pay is a PEOPLE statement. Any
+      # "I pay myself X" / "set my pay to X" lands here (monthly $) and
+      # the apply layer writes the OWNER ROLE - the financials
+      # owner_compensation field is a derived mirror nothing else
+      # writes.
+      "owner_pay_monthly",
     ],
     "financials": [
 
@@ -1627,8 +1633,6 @@ def route_intent(
       "annual_interest_payment",
 
       "annual_principal_payment",
-
-      "owner_compensation",
 
       "cash_on_hand",
 
@@ -1787,6 +1791,7 @@ def route_intent(
       "- If it is unclear which entry the user meant, return confirm_clarify with one short question.\n"
       "Rest-of-team payroll handling (takes precedence over continue_chat):\n"
       "- If shared_context.people_controller.current_question is rest_of_team_payroll, the app just asked for the total payroll of everyone beyond the owner and key people. A direct answer to that question is NOT continue_chat - translate it into edit_patch on the field named in people_controller.patch_targets (people.rest_of_team_payroll_year1 when fields are group-scoped, rest_of_team_payroll_year1 otherwise).\n"
+      "- OWNER PAY IS A PEOPLE FIELD: when the client states or corrects what they pay THEMSELVES (\"I pay myself $2,000 a month\", \"set my pay to $3,300 a month\"), emit edit_patch on people.owner_pay_monthly with the MONTHLY dollar figure (convert a stated annual figure by /12 and say so). Never write owner pay into any financials field and never into revenue.\n"
       "- Interpret INTENT, not exact wording: any reply that means there are no additional employees (for example no one else, just us, nobody, none, it's only me - including misspellings or informal phrasing) means rest_of_team_payroll_year1 = 0.\n"
       "- If the user gives a monthly figure for that question, convert it to an annual amount before patching.\n"
       "- If the user gives a range, use a single representative number near the middle.\n"

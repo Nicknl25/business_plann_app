@@ -260,35 +260,72 @@ _q = _round_question(_rnd or {"key": "cost_structure", "options": []}, "$12,656"
 check("5c client-facing wording uses 'other operating costs', never 'gna'",
       "gna" not in _q)
 
-# ============ PHASE III: #6 verdict honesty, #4 clarifier, #5 floors, #8 mirror
-from api_handlers.intake_consult import _sync_owner_pay_one_home  # noqa: E402
+# ============ PHASE III: #6 verdict honesty, #4 clarifier, #5 floors,
+# #8 ONE DOOR IN PEOPLE (Nick's extension: financials door REMOVED)
+from api_handlers.intake_consult import (  # noqa: E402
+    _FINANCIALS_STAGE_ORDER, _FINANCIALS_STAGE_SPECS, _apply_owner_pay_statement,
+    _apply_scoped_patch, _sync_owner_pay_one_home,
+)
 
-# #8: the F&F divergence - field $3,300/mo vs role $24k - resolves to
-# the role (one home), baseline restamps, mirror coherent.
-fin8 = {"owner_compensation": 3300.0, "baseline_payroll_year1": 24000.0,
-        "payroll_basis_people_roles": [{"role_title": "Owner and Groomer", "annual_wage": 24000.0}]}
+# #8-door: the financials section no longer asks, specs, or applies it.
+check("8a THE DOOR IS GONE: owner_compensation removed from the financials "
+      "stage order AND stage specs",
+      "owner_compensation" not in _FINANCIALS_STAGE_ORDER
+      and "owner_compensation" not in _FINANCIALS_STAGE_SPECS)
+import client_intake_and_finmo.intent_router as IR  # noqa: E402
+import inspect as _inspect  # noqa: E402
+_ir_src = _inspect.getsource(IR)
+check("8b router: owner_compensation not writable; people.owner_pay_monthly is",
+      '"owner_compensation": {"type": "number"}' not in _ir_src
+      and '"owner_pay_monthly"' in _ir_src)
+
+# #8-statement: the F&F correction through THE one writer - role
+# updated, baseline restamped, mirror derived.
 ppl8 = {"people": [{"role_title": "Owner and Groomer", "annual_wage": 24000.0,
                     "wage_source": "client_override"}]}
-fin8b = _sync_owner_pay_one_home(financials_json=fin8, people_json=ppl8)
-check("8a the correction lands on the ROLE ($3,300/mo -> $39,600 wage)",
-      ppl8["people"][0]["annual_wage"] == 39600.0)
-check("8b baseline restamps by the delta ($24,000 -> $39,600)",
-      fin8b["baseline_payroll_year1"] == 39600.0)
-check("8c basis-roles row follows",
-      fin8b["payroll_basis_people_roles"][0]["annual_wage"] == 39600.0)
-# mirror direction: no field -> field derives from role.
-fin8c = _sync_owner_pay_one_home(
-    financials_json={}, people_json={"people": [{"role_title": "Owner", "annual_wage": 48000.0}]})
-check("8d mirror: field derives from the role when unset ($4,000/mo)",
-      fin8c.get("owner_compensation") == 4000.0)
-# no owner role at all -> role is CREATED (the additive path's replacement).
-ppl8e = {"people": []}
+fin8 = {"baseline_payroll_year1": 24000.0,
+        "payroll_basis_people_roles": [{"role_title": "Owner and Groomer",
+                                        "annual_wage": 24000.0}]}
+fin8b = _apply_owner_pay_statement(monthly=3300.0, people_json=ppl8,
+                                   financials_json=fin8)
+check("8c the pay statement lands on the ROLE ($3,300/mo -> $39,600 wage), "
+      "baseline restamps, mirror derives",
+      ppl8["people"][0]["annual_wage"] == 39600.0
+      and fin8b["baseline_payroll_year1"] == 39600.0
+      and fin8b["owner_compensation"] == 3300.0)
+
+# #8-scoped-patch: people.owner_pay_monthly routes through the writer;
+# a direct financials.owner_compensation write is DROPPED.
+_bf, _op, _mk, ppl8d, fin8d, _ff = _apply_scoped_patch(
+    {"people.owner_pay_monthly": 3300.0, "financials.owner_compensation": 999.0},
+    business_facts={}, ops_json={}, market_json={},
+    people_json={"people": [{"role_title": "Owner", "annual_wage": 24000.0}]},
+    financials_json={"baseline_payroll_year1": 24000.0},
+    fulfillment_json={})
+check("8d scoped patch: pseudo-field lands on the role; direct mirror "
+      "write dropped",
+      ppl8d["people"][0]["annual_wage"] == 39600.0
+      and fin8d.get("owner_compensation") == 3300.0)
+
+# #8-sync: role is truth - a stale mirror NEVER overwrites a people-side
+# correction; the mirror follows the role.
+ppl8e = {"people": [{"role_title": "Owner", "annual_wage": 48000.0}]}
 fin8e = _sync_owner_pay_one_home(
+    financials_json={"owner_compensation": 2000.0}, people_json=ppl8e)
+check("8e sync: mirror follows the ROLE ($48k -> $4,000/mo); stale field "
+      "never wins",
+      fin8e["owner_compensation"] == 4000.0
+      and ppl8e["people"][0]["annual_wage"] == 48000.0)
+
+# #8-legacy: an old draft with the field but no owner role materializes
+# the role ONCE (the field-only class dies forward).
+ppl8f = {"people": []}
+fin8f = _sync_owner_pay_one_home(
     financials_json={"owner_compensation": 2000.0, "baseline_payroll_year1": 52000.0},
-    people_json=ppl8e)
-check("8e no owner role -> role created at field x 12, baseline restamped",
-      ppl8e["people"] and ppl8e["people"][0]["annual_wage"] == 24000.0
-      and fin8e["baseline_payroll_year1"] == 76000.0)
+    people_json=ppl8f)
+check("8f legacy: role materialized at field x 12, baseline restamped",
+      ppl8f["people"] and ppl8f["people"][0]["annual_wage"] == 24000.0
+      and fin8f["baseline_payroll_year1"] == 76000.0)
 
 # #6: fence-pass + judged-fail is disclosed as a consult, never "clears
 # every test"; flat figure always disclosed.
@@ -358,17 +395,20 @@ ff_ops_clean = copy.deepcopy(FF_OPS)
 ff_ops_clean["lob_models"][0]["products"][0]["unit_price"] = 80.0
 ff_fin_clean = {
     "current_revenue": 87360.0, "cogs_percent_of_revenue": 0.12,
-    "current_cogs": 5900.0, "owner_compensation": 3300.0,
+    "current_cogs": 5900.0, # owner_compensation removed - one door (people); mirror derives below
     "baseline_payroll_year1": 24000.0, "other_opex_absolute": 17400.0,
     "payroll_basis_people_roles": [{"role_title": "Owner and Groomer",
                                     "annual_wage": 24000.0}],
 }
 ff_ppl_clean = {"people": [{"role_title": "Owner and Groomer",
                             "annual_wage": 24000.0, "wage_source": "client_override"}]}
-# the wrapper's sync runs first in production - replicate the chain:
+# her turn-111 pay correction now travels the ONE door (the people
+# statement path), then the gate sync mirrors from the role:
+ff_fin_clean = _apply_owner_pay_statement(
+    monthly=3300.0, people_json=ff_ppl_clean, financials_json=ff_fin_clean)
 ff_fin_clean = _sync_owner_pay_one_home(
     financials_json=ff_fin_clean, people_json=ff_ppl_clean)
-check("K1 sync: her corrected pay is IN the cost structure "
+check("K1 one-door: her corrected pay is IN the cost structure "
       f"(baseline ${ff_fin_clean['baseline_payroll_year1']:,.0f})",
       ff_fin_clean["baseline_payroll_year1"] == 39600.0)
 _tiers = {}

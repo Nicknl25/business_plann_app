@@ -48,7 +48,10 @@ COHERENCE_MARKER = "work on paper"
 # as a "patch" (25 fields, duplicated with conflicting bases) — applied
 # wholesale it vandalized four correct captures.
 DISPUTABLE_FIELDS = (
-  "financials.owner_compensation",
+  # CW-022 #8: owner pay disputes travel as people.owner_pay_monthly and
+  # land on the OWNER ROLE (financials.owner_compensation is a derived
+  # mirror nothing writes).
+  "people.owner_pay_monthly",
   "financials.other_operating_expense",
   "financials.monthly_rent_expense",
   "financials.marketing_total_year1",
