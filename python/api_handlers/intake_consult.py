@@ -5999,11 +5999,71 @@ def _lever_value_derivable(
   return any(near(v, c) for c in cands if c and c > 0)
 
 
+def _basis_bound_figures(message: str) -> Tuple[List[float], List[float]]:
+  """(CW-022 #1, STATED-BASIS EXCLUSION) Figures the message itself
+  binds to a monthly or weekly basis ("$3,300 a month", "500 per
+  week"). A basis-bound figure may serve as an ANNUAL dollar target
+  only through its own annualization (x12 / x52) - the raw number is
+  excluded from target candidacy. Root case: Fetch & Fluff's "set my
+  pay to $3,300 a month" landed as an ANNUAL revenue target because
+  shape was the only test."""
+  msg = str(message or "").lower().replace(",", "")
+  monthly: List[float] = []
+  weekly: List[float] = []
+  for m in re.finditer(
+    r"(\d+(?:\.\d+)?)(\s*k\b)?\s*(?:dollars\s+)?(?:a|per|each|/)\s*(?:month\b|mo\b|monthly\b)",
+    msg,
+  ):
+    try:
+      v = float(m.group(1)) * (1000.0 if (m.group(2) or "").strip() else 1.0)
+      monthly.append(v)
+    except ValueError:
+      continue
+  for m in re.finditer(
+    r"(\d+(?:\.\d+)?)(\s*k\b)?\s*(?:dollars\s+)?(?:a|per|each|/)\s*(?:week\b|wk\b|weekly\b)",
+    msg,
+  ):
+    try:
+      v = float(m.group(1)) * (1000.0 if (m.group(2) or "").strip() else 1.0)
+      weekly.append(v)
+    except ValueError:
+      continue
+  return monthly, weekly
+
+
+def _patch_numeric_values_outside_ops(patch: Any) -> List[float]:
+  """(CW-022 #1, ONE FIGURE ONE HOME) Every numeric value the same
+  turn's router patch writes OUTSIDE the ops/driver scope (financials,
+  people, market scalars). A figure that already found its home there
+  may not ALSO be read as a driver-correction target or count."""
+  out: List[float] = []
+  if not isinstance(patch, dict):
+    return out
+
+  def _walk(node: Any) -> None:
+    if isinstance(node, dict):
+      for v in node.values():
+        _walk(v)
+    elif isinstance(node, list):
+      for v in node:
+        _walk(v)
+    elif isinstance(node, (int, float)) and not isinstance(node, bool):
+      out.append(float(node))
+
+  for scope, sub in patch.items():
+    key = str(scope).lower()
+    if "ops" in key or "operating" in key:
+      continue
+    _walk(sub)
+  return out
+
+
 def _reconcile_driver_correction(
   *,
   ops_before: Dict[str, Any],
   ops_after: Dict[str, Any],
   user_message: str,
+  consumed_figures: Optional[List[float]] = None,
 ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
   """The CW-011 consequence contract, enforced in code: a driver
   correction may move ONLY levers derivable from the client's own
@@ -6017,6 +6077,30 @@ def _reconcile_driver_correction(
   figures = _message_figures(user_message)
   if not figures or not isinstance(ops_after, dict):
     return ops_after, None
+  # CW-022 #1 (Nick-ruled, the Fetch & Fluff root): the landing filters
+  # below are RELATIONAL, not shape-only.
+  #   ONE FIGURE ONE HOME - a figure the same turn's non-ops patch
+  #   already consumed (e.g. owner pay 3300 -> financials) is excluded
+  #   from every driver-landing role.
+  #   STATED-BASIS EXCLUSION - a figure the message binds to a monthly/
+  #   weekly basis may be an annual target only as its x12/x52.
+  _consumed = [c for c in (consumed_figures or []) if isinstance(c, (int, float))]
+
+  def _is_consumed(f: float) -> bool:
+    return any(abs(f - c) <= max(0.01, 1e-6 * abs(c)) for c in _consumed)
+
+  _monthly_figs, _weekly_figs = _basis_bound_figures(user_message)
+
+  def _is_basis_bound(f: float) -> bool:
+    return any(abs(f - b) <= 0.01 for b in _monthly_figs) or any(
+      abs(f - b) <= 0.01 for b in _weekly_figs
+    )
+
+  # Annual-target candidates: raw figures minus consumed/basis-bound,
+  # plus the annualizations of unconsumed basis-bound figures.
+  target_figures = [f for f in figures if not _is_consumed(f) and not _is_basis_bound(f)]
+  target_figures += [m * 12.0 for m in _monthly_figs if not _is_consumed(m)]
+  target_figures += [w * 52.0 for w in _weekly_figs if not _is_consumed(w)]
   before_lobs = (ops_before or {}).get("lob_models") or []
   after_lobs = ops_after.get("lob_models") or []
   if not (isinstance(before_lobs, list) and isinstance(after_lobs, list)):
@@ -6070,7 +6154,10 @@ def _reconcile_driver_correction(
     # the product's own stored unit price (a stream total cannot be
     # below one unit - the old >=$1,000 floor made sub-$1,000 streams
     # invisible).
-    integral_figs = [f for f in figures if f > 1.0 and abs(f - round(f)) < 1e-6]
+    integral_figs = [
+      f for f in figures
+      if f > 1.0 and abs(f - round(f)) < 1e-6 and not _is_consumed(f)
+    ]
     for lob_i, lob_after in enumerate(after_lobs):
       if not isinstance(lob_after, dict):
         continue
@@ -6085,10 +6172,20 @@ def _reconcile_driver_correction(
         stream0 = price0 * cap0 * periods0 * util0
         if price0 <= 0:
           continue
-        for target in (f for f in figures if f >= max(1.0, price0)):
+        for target in (f for f in target_figures if f >= max(1.0, price0)):
           if stream0 > 0 and abs(stream0 - target) / target <= 0.05:
             continue  # already coherent; nothing to land
-          count_figs = [f for f in integral_figs if f < target]
+          # CW-022 #1 DISJOINT SHAPES: a figure inside the product's own
+          # near-price band (the (g) branch's +/-50% relative window) is
+          # price-shaped for THIS product and may not double as a count
+          # (Fetch & Fluff: her $80 price served as a count against the
+          # $60 stored price and 80 x 60 x 0.70 = $3,360 coincided with
+          # her $3,300 pay inside the 2% fingerprint).
+          count_figs = [
+            f for f in integral_figs
+            if f < target
+            and not (price0 > 0 and abs(f - price0) / price0 <= 0.5)
+          ]
           for count in count_figs:
             if abs(count * price0 * util0 - target) / target <= 0.02:
               p_after["units_per_period_capacity"] = count / periods0
@@ -6122,6 +6219,7 @@ def _reconcile_driver_correction(
             if f > 0 and price0 > 0
             and abs(f - price0) / price0 <= 0.5
             and abs(f - price0) > max(1e-9, 0.001 * price0)
+            and not _is_consumed(f)
           ]
           for count in count_figs:
             for pf in price_figs:
@@ -6165,8 +6263,9 @@ def _reconcile_driver_correction(
     return ops_after, note
   name = str(p.get("product_name") or p.get("unit_name") or "that side").strip()
   # Ledger 1c conversion: dollar-shaped floor is the product's own unit
-  # price (derived), not an absolute $1,000.
-  stated_candidates = [f for f in figures if f >= max(1.0, price)]
+  # price (derived), not an absolute $1,000. CW-022 #1: candidates come
+  # from the relational target list (consumed + basis-bound excluded).
+  stated_candidates = [f for f in target_figures if f >= max(1.0, price)]
 
   def _find_anchor() -> Optional[float]:
     for f in stated_candidates:
@@ -11056,6 +11155,69 @@ def _coherence_naturalize(text: str) -> str:
   return str(_parse_responses_text(resp.json()) or "").strip() or text
 
 
+_OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
+
+
+def _sync_owner_pay_one_home(*, financials_json, people_json):
+  """CW-022 #8 Option (a), Nick-ruled: owner pay's ONE home is the
+  PEOPLE ROLE; financials.owner_compensation is a one-way derived
+  MIRROR kept only for its two post-intake readers - it cannot diverge
+  because nothing else writes it after this sync. Divergence rule: the
+  FIELD is the newer statement (the owner-pay stage and walk-time
+  corrections run after the people section in every real flow - the
+  Fetch & Fluff $3,300/mo correction stranded in the field while the
+  plan costed the stale $24k role wage), so the role adopts field x 12
+  and the payroll baseline restamps by the delta. Mutates people_json
+  IN PLACE (callers persist their own reference); returns the possibly-
+  copied financials_json. Runs at the ONE chokepoint every completion
+  path traverses (the coherence gate wrapper)."""
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  ppl = people_json if isinstance(people_json, dict) else {}
+  people = ppl.get("people")
+  if not isinstance(people, list):
+    people = []
+    ppl["people"] = people
+  owner_row = None
+  for p in people:
+    if isinstance(p, dict) and _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
+      owner_row = p
+      break
+  field_monthly = _safe_float(fin.get("owner_compensation"))
+  role_annual = _safe_float((owner_row or {}).get("annual_wage"))
+  if field_monthly is not None and field_monthly >= 0:
+    annual = round(field_monthly * 12.0, 2)
+    if role_annual is None or abs(annual - role_annual) > 0.5:
+      delta = annual - (role_annual or 0.0)
+      if owner_row is None:
+        people.append({
+          "role_title": "Owner",
+          "annual_wage": float(annual),
+          "wage_source": "client_override",
+        })
+      else:
+        owner_row["annual_wage"] = float(annual)
+        owner_row["wage_source"] = "client_override"
+      fin = dict(fin)
+      baseline = _safe_float(fin.get("baseline_payroll_year1"))
+      if baseline is not None:
+        fin["baseline_payroll_year1"] = round(max(0.0, baseline + delta), 2)
+      basis_roles = fin.get("payroll_basis_people_roles")
+      if isinstance(basis_roles, list):
+        _matched = False
+        for r in basis_roles:
+          if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
+            r["annual_wage"] = float(annual)
+            _matched = True
+            break
+        if not _matched:
+          basis_roles.append({"role_title": "Owner", "annual_wage": float(annual)})
+  elif role_annual is not None and role_annual > 0:
+    # mirror direction: the field follows the role when unset.
+    fin = dict(fin)
+    fin["owner_compensation"] = round(role_annual / 12.0, 2)
+  return fin
+
+
 def _coherence_gate(
   *,
   ops_json,
@@ -11077,6 +11239,11 @@ def _coherence_gate(
   exactly the class this workstream removes."""
   from client_intake_and_finmo.intake_coherence import section as _coh
 
+  # CW-022 #8: one home for owner pay before any verdict is computed.
+  financials_json = _sync_owner_pay_one_home(
+    financials_json=financials_json or {},
+    people_json=people_json if isinstance(people_json, dict) else {},
+  )
   return _coh.gate_and_turn(
     ops_json=ops_json or {},
     people_json=people_json or {},
@@ -11845,6 +12012,35 @@ def post_intake_consult_handler(*, app, request):
         shared_context_for_router["coherence_controller"] = _coh_frame
       else:
         coherence_round_live = False
+    # CW-022 #6 (Nick-ruled): the router NEVER disclaims the gate's own
+    # verdict. Whenever coherence state exists (converged, walking, or
+    # roadmap - not only while a round is live), ground the model on
+    # what the verdict means: at Fetch & Fluff turn 97 the router saw an
+    # unexplained "$6,354" in the raw state and invented a provenance
+    # ("a separate, internal stress test... idealized"), disavowing the
+    # exact check that unlocks Submit.
+    _coh_state_now = ((financials_json or {}).get("_coherence") or {})
+    if isinstance(_coh_state_now, dict) and _coh_state_now.get("status"):
+      _ev_now = _coh_state_now.get("eval") or {}
+      _flat_now = (_coh_state_now.get("eval_flat") or {}).get("q11") or {}
+      shared_context_for_router = dict(shared_context_for_router or {})
+      shared_context_for_router["coherence_verdict_doctrine"] = {
+        "status": _coh_state_now.get("status"),
+        "explanation": (
+          "The completion-gate verdict the client may quote ('clears every "
+          "structural test' / the kept-per-quarter figure) is THIS app's own "
+          "gate - the check that decides whether intake may close. It is "
+          "evaluated at the strongest believable growth path for this "
+          "business (roughly double first-quarter revenue by maturity), "
+          "never the client's current quarter. When the client asks about "
+          "it: explain that basis honestly in plain language, contrast it "
+          "with today's scale using their stated figures, and NEVER "
+          "describe it as separate from, internal to, or unrelated to this "
+          "plan - it is the test that lets their intake complete."
+        ),
+        "stress_point_quarterly_kept": (_ev_now.get("q11") or {}).get("ebitda"),
+        "todays_scale_quarterly_kept": _flat_now.get("ebitda"),
+      }
     # Layer 1 (universal gate): an in-flight basis question travels with
     # ANY focus - the reply answers it wherever the conversation is, so
     # the router always sees the pending frame.
@@ -12519,6 +12715,30 @@ def post_intake_consult_handler(*, app, request):
             _lc_prod[str(_lc_pending.get("field") or "utilization_rate")] = float(_lc_prop)
         except Exception:
           pass
+      # CW-022 #1 crush-consent resolution: an outstanding big-move
+      # revenue confirmation is answered by plain agreement or by the
+      # client restating the proposed figure. Any other answer drops the
+      # pending frame (the normal capture path handles a new figure -
+      # current_revenue is disputable).
+      _rp_pending = (financials_json or {}).get("_revenue_propagate_pending")
+      if isinstance(_rp_pending, dict):
+        financials_json = dict(financials_json or {})
+        financials_json.pop("_revenue_propagate_pending", None)
+        try:
+          _rp_msg = str(message or "").strip().lower()
+          _rp_prop = _safe_float(_rp_pending.get("proposed"))
+          _rp_affirm = bool(re.match(
+            r"^\s*(yes|yep|yeah|right|correct|exactly|that'?s right|sounds right|looks right)\b",
+            _rp_msg,
+          ))
+          _rp_restated = _rp_prop is not None and any(
+            f > 0 and abs(f - _rp_prop) / max(1.0, _rp_prop) <= 0.02
+            for f in _message_figures(_rp_msg)
+          )
+          if (_rp_affirm or _rp_restated) and _rp_prop is not None:
+            financials_json["current_revenue"] = float(_rp_prop)
+        except Exception:
+          pass
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -12538,6 +12758,10 @@ def post_intake_consult_handler(*, app, request):
           ops_before=_receipt_before["ops"],
           ops_after=ops_json,
           user_message=str(message or ""),
+          # CW-022 #1: figures this turn's patch already consumed outside
+          # ops (owner pay, marketing $, ...) have a home - they may not
+          # also be read as driver targets/counts.
+          consumed_figures=_patch_numeric_values_outside_ops(patch),
         )
         if isinstance(_driver_note, dict) and _driver_note.get("pending_frame"):
           financials_json = dict(financials_json or {})
@@ -13205,6 +13429,15 @@ def post_intake_consult_handler(*, app, request):
                 "tell me exactly which field to change and the value it "
                 "should be?"
               )
+            elif _prose and _driver_landed and _prose_claims_unrequested_change(_prose):
+              # CW-022 #1 (prose-guard bypass CLOSED): a driver landing
+              # used to vouch for the whole turn, so router prose could
+              # claim OTHER changes it never made ("your unit price at
+              # $80" while nothing wrote the price - Fetch & Fluff turn
+              # 112). The landing speaks for itself via stream_note
+              # (appended below); change-claiming prose does not ride
+              # along.
+              ack_fallback = "Got it."
             else:
               ack_fallback = _prose or "Got it - updated."
           # CW-011 #2: a structural correction narrates DOLLARS the client
@@ -13245,6 +13478,7 @@ def post_intake_consult_handler(*, app, request):
           # there the stated number was right and the driver was misread.
           revenue_propagated = None
           revenue_reconciled = None
+          revenue_propagate_question = None
           try:
             pre_draft = get_draft(conn, draft_id=str(draft_id).strip())
             pre_ops = _parse_json_dict(pre_draft.get("operating_model_json"))
@@ -13275,13 +13509,38 @@ def post_intake_consult_handler(*, app, request):
                 pre_implied=pre_implied, post_implied=post_implied, stated=stated
               )
               if disposition == "propagate":
-                financials_json = dict(financials_json)
-                financials_json["current_revenue"] = float(stated * factor)
-                revenue_propagated = financials_json["current_revenue"]
+                if factor < 0.5 or factor > 2.0:
+                  # CW-022 #1 CRUSH-NEEDS-CONSENT: a propagate implying
+                  # the stated revenue halves or doubles is never a
+                  # silent write - Fetch & Fluff's factor 0.051 (a 95%
+                  # collapse from a mislanded capacity) crushed $65,333
+                  # to $3,350 without a question. The verified honest
+                  # propagates (Stonewater +5.8%, Harpeth +4.9%) are
+                  # far inside the consent rail. Deliberate consent
+                  # trigger, not a verdict: the client just confirms.
+                  financials_json = dict(financials_json)
+                  financials_json["_revenue_propagate_pending"] = {
+                    "proposed": float(stated * factor),
+                    "stated": float(stated),
+                    "factor": float(factor),
+                  }
+                  revenue_propagate_question = (
+                    " That change would move your annual revenue from "
+                    f"{_format_currency(stated)} to about "
+                    f"{_format_currency(stated * factor)} - a big move, so I "
+                    "haven't applied it to your revenue yet. Is that really "
+                    "what your numbers should say?"
+                  )
+                else:
+                  financials_json = dict(financials_json)
+                  financials_json["current_revenue"] = float(stated * factor)
+                  revenue_propagated = financials_json["current_revenue"]
               elif disposition == "reconcile":
                 revenue_reconciled = float(stated)
           except Exception:
             pass
+          if revenue_propagate_question:
+            ack_text = (str(ack_text or "").strip() + revenue_propagate_question).strip()
           try:
             financials_year1_json = assemble_financials_year1(shared_live, financials_year1_json)
           except Exception:

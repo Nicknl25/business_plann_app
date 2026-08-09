@@ -158,13 +158,36 @@ def match_bounds_lines(
   return out
 
 
+def _effective_pmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float:
+  """CW-022 #3 (Nick-ruled, intake-pure): the judged price ceiling holds
+  in DOLLARS. The author judges "the highest price this line's real
+  customers demonstrably pay" against the price it was shown, but the
+  schema stores a RATIO — re-based on the live price, every client price
+  move silently inflated the "believable" ceiling (Fetch & Fluff: judged
+  $108 became a $144 offer after the client moved to $80 — the ratchet).
+  With the authoring-time price stamped at storage, the effective
+  multiplier is capped so current x m never exceeds authoring x pmax.
+  Un-stamped legacy bounds keep the old relative behavior."""
+  pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
+  p0 = _f((bl or {}).get("unit_price_at_authoring"))
+  cur = _f(line.get("unit_price"))
+  if p0 > 0 and cur > 0:
+    return max(1.0, min(pmax, (p0 * pmax) / cur))
+  return pmax
+
+
 def _price_move_basis(
   basis: StructuralBasis,
   split: List[Dict[str, Any]],
   multipliers: Dict[str, float],
 ) -> StructuralBasis:
-  """Basis with per-line price multipliers applied: revenue scales,
-  COGS dollars hold (volume held — price is pure margin)."""
+  """Basis with per-line price multipliers applied: revenue scales, and
+  ALL dollar-denominated costs hold (volume held — price is pure
+  margin). CW-022 #7: G&A and marketing derive from FIXED dollar fields
+  in basis_from_intake, so holding only COGS dollars while G&A/marketing
+  scaled with revenue made this projection disagree with the re-eval the
+  panel gap runs — the closes-$0 lie (a price rise projected as
+  WORSENING the gap on a fixed-cost-heavy shape)."""
   base_rev = basis.q1_revenue_quarterly
   new_rev = 0.0
   covered = 0.0
@@ -176,15 +199,15 @@ def _price_move_basis(
   new_rev += max(0.0, base_rev - covered)  # any un-split remainder unmoved
   if new_rev <= 0:
     return basis
-  # COGS dollars held: pct rescales by revenue ratio.
+  # Dollar costs held: pcts rescale by the revenue ratio.
   ratio = base_rev / new_rev
   return StructuralBasis(
     q1_revenue_quarterly=new_rev,
     cogs_pct=basis.cogs_pct * ratio,
     payroll_quarterly=basis.payroll_quarterly,
     rent_quarterly=basis.rent_quarterly,
-    gna_pct=basis.gna_pct,
-    marketing_pct=basis.marketing_pct,
+    gna_pct=basis.gna_pct * ratio,
+    marketing_pct=basis.marketing_pct * ratio,
     interest_quarterly=basis.interest_quarterly,
     depreciation_quarterly=basis.depreciation_quarterly,
     growth_to_q11=basis.growth_to_q11,
@@ -231,7 +254,7 @@ def _pricing_round(
     out: Dict[str, float] = {}
     for line, bl in zip(split, matched):
       key = f"{line['lob']}␟{line['product']}"
-      pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
+      pmax = _effective_pmax(line, bl)  # CW-022 #3: absolute-dollar ceiling
       out[key] = pmax if level == "max" else 1.0 + (pmax - 1.0) * 0.5
     return out
 
@@ -257,10 +280,14 @@ def _pricing_round(
     options.append({
       "id": f"pricing_{level}",
       "label": label,
-      "recommended": level == "mid",
+      # CW-022 #7: a lever that widens the gap is never recommended, and
+      # negative closes are SURFACED, not masked to $0 (a negative closes
+      # on a price INCREASE is the corrupt-anchor tripwire).
+      "recommended": level == "mid" and closes > 0,
       "prices": prices,
-      "closes_quarterly": round(max(0.0, closes), 2),
-      "closes_display": _fmt_money(max(0.0, closes)),
+      "closes_quarterly": round(closes, 2),
+      "widens": closes < -0.005,
+      "closes_display": _fmt_money(abs(closes)),
       # current_revenue MUST move with the prices: the engine's Q1
       # anchor (and the legitimate rescale) key on it — a price move
       # without the new anchor would be silently rescaled away.
@@ -272,7 +299,7 @@ def _pricing_round(
     })
   if not options:
     return None
-  best = max(o["closes_quarterly"] for o in options)
+  best = max(0.0, max(o["closes_quarterly"] for o in options))
   return {
     "key": ROUND_PRICING,
     "best_closure_quarterly": best,
@@ -282,8 +309,9 @@ def _pricing_round(
         {
           "lob": l["lob"], "product": l["product"],
           "current_price": l["unit_price"],
-          "believable_max": round(
-            l["unit_price"] * max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0)), 2),
+          # CW-022 #3: the displayed believable max is the ABSOLUTE
+          # ceiling, never the re-based ratio.
+          "believable_max": round(l["unit_price"] * _effective_pmax(l, bl), 2),
         } for l, bl in zip(split, matched)
       ],
     },
@@ -314,27 +342,42 @@ def _costs_round(
 
   moves: Dict[str, Dict[str, Any]] = {}
 
+  # CW-022 #5 DOLLAR-SANITY (the reasoning version, no hardcoded
+  # essential-list): a percent-of-revenue floor applied to the live
+  # revenue can demand a cut far below what the client has STATED the
+  # line actually costs (Fetch & Fluff: 18% x corrupted revenue asked
+  # her $17,400 insurance/fuel/maintenance line down to $603). A move
+  # cutting a stated line by more than half is a DEEP CUT: it is never
+  # recommended, and its wording asks what's inside the line before
+  # anything is applied — the client owns what the number means.
+  def _deep_cut(current_annual: float, new_annual: float) -> bool:
+    return current_annual > 0 and new_annual < 0.5 * current_annual
+
   mkt_floor = _f(floors.get("marketing_percent_of_revenue_min"), basis.marketing_pct)
   if not client_floors.get("marketing") and mkt_floor < basis.marketing_pct - 1e-6:
     new_annual = round(mkt_floor * ann_rev, 2)
+    _cur_annual = basis.marketing_pct * ann_rev
     moves["marketing"] = {
       "basis_patch": {"marketing_pct": mkt_floor},
       "field_patch": {"group": "financials", "field": "marketing_total_year1", "value": new_annual},
-      "from_display": _fmt_money(basis.marketing_pct * ann_rev),
+      "from_display": _fmt_money(_cur_annual),
       "to_display": _fmt_money(new_annual),
+      "deep_cut": _deep_cut(_cur_annual, new_annual),
     }
 
   gna_floor = _f(floors.get("g_and_a_percent_of_revenue_min"), basis.gna_pct)
   if not client_floors.get("gna") and gna_floor < basis.gna_pct - 1e-6:
     new_annual = round(gna_floor * ann_rev, 2)
+    _cur_annual = basis.gna_pct * ann_rev
     # patch the MONTHLY field: the sync tail re-derives
     # other_opex_absolute = monthly*12 every turn.
     moves["gna"] = {
       "basis_patch": {"gna_pct": gna_floor},
       "field_patch": {"group": "financials", "field": "other_operating_expense",
                       "value": round(new_annual / 12.0, 2)},
-      "from_display": _fmt_money(basis.gna_pct * ann_rev),
+      "from_display": _fmt_money(_cur_annual),
       "to_display": _fmt_money(new_annual),
+      "deep_cut": _deep_cut(_cur_annual, new_annual),
     }
 
   rent_floor_q = _f(fac.get("min_quarterly_rent"))
@@ -392,7 +435,7 @@ def _costs_round(
   if not moves:
     return None
 
-  def _option(ids: List[str], label: str, recommended: bool) -> Optional[Dict[str, Any]]:
+  def _option(ids: List[str], label: str) -> Optional[Dict[str, Any]]:
     picked = {k: moves[k] for k in ids if k in moves}
     if not picked:
       return None
@@ -403,21 +446,27 @@ def _costs_round(
       fields.append(m["field_patch"])
       fields.extend(m.get("extra_field_patches") or [])
     closes = gap_now - _gap(_costs_move_basis(basis, patch), thresholds)
+    deep = any(m.get("deep_cut") for m in picked.values())
     return {
       "id": "costs_" + "_".join(sorted(picked)),
-      "label": label,
-      "recommended": recommended,
+      "label": label + (
+        " - only if what's inside those lines can really shrink; tell me "
+        "what's in them first" if deep else ""
+      ),
+      "recommended": False,  # assigned below by reasoning, never hardcoded
+      "deep_cut": deep,
       "moves": {k: {kk: vv for kk, vv in m.items() if kk not in ("basis_patch", "extra_field_patches")}
                 for k, m in picked.items()},
-      "closes_quarterly": round(max(0.0, closes), 2),
-      "closes_display": _fmt_money(max(0.0, closes)),
+      "closes_quarterly": round(closes, 2),
+      "widens": closes < -0.005,
+      "closes_display": _fmt_money(abs(closes)),
       "patch": {"kind": "financials_fields", "fields": fields},
     }
 
   options = [o for o in (
-    _option(list(moves), "right-size all of it", True),
-    _option(["marketing"], "trim marketing only", False),
-    _option([k for k in ("marketing", "rent") if k in moves], "marketing and the space, keep the team as-is", False),
+    _option(list(moves), "right-size all of it"),
+    _option(["marketing"], "trim marketing only"),
+    _option([k for k in ("marketing", "rent") if k in moves], "marketing and the space, keep the team as-is"),
   ) if o]
   # dedupe identical id sets
   seen = set()
@@ -429,9 +478,17 @@ def _costs_round(
     unique.append(o)
   if not unique:
     return None
+  # CW-022 #5: the recommendation is REASONED - the largest genuine
+  # closure among options that neither widen the gap nor demand a deep
+  # cut into a client-stated line. If none qualifies, nothing is
+  # recommended and the client chooses (the old code hardcoded the
+  # maximal-cut bundle as "the one I'd suggest" by construction).
+  _candidates = [o for o in unique if o["closes_quarterly"] > 0 and not o.get("deep_cut")]
+  if _candidates:
+    max(_candidates, key=lambda o: o["closes_quarterly"])["recommended"] = True
   return {
     "key": ROUND_COSTS,
-    "best_closure_quarterly": max(o["closes_quarterly"] for o in unique),
+    "best_closure_quarterly": max(0.0, max(o["closes_quarterly"] for o in unique)),
     "options": unique,
     "facts": {k: {"from": m["from_display"], "to": m["to_display"]} for k, m in moves.items()},
   }
@@ -549,7 +606,10 @@ def corner_check(
   for line, bl in zip(split, match_bounds_lines(split, bounds)):
     corner_split.append({
       "q1_revenue_quarterly": line["q1_revenue_quarterly"],
-      "price_multiplier_max": _f((bl or {}).get("price_multiplier_max"), 1.0),
+      # CW-022 #3: the corner's optimism uses the same absolute-dollar
+      # price ceiling as the pricing round - the ratchet must not widen
+      # the corner either.
+      "price_multiplier_max": _effective_pmax(line, bl),
       "volume_multiplier_max": _f((bl or {}).get("volume_multiplier_max"), 1.0),
     })
   corner = favorable_corner_basis(

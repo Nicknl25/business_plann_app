@@ -496,6 +496,22 @@ def _ensure_bounds(
     bounds=raw["bounds"],
     stated_owner_annual_wage=stated_owner_annual_wage(people_json),
   )
+  # CW-022 #3 (intake-pure, author file untouched): the author judged
+  # the price ceiling against the prices it was SHOWN, but stores only a
+  # ratio. Stamp each line's authoring-time unit price into OUR stored
+  # copy so every walk consumer can hold the ABSOLUTE dollar ceiling —
+  # re-based ratios inflated a judged $108 into a $144 offer (the
+  # ratchet). Storage-time stamp; nothing post-intake reads this copy.
+  try:
+    _split0 = _ctl.ops_line_split(ops_json, financials_json)
+    _matched0 = _ctl.match_bounds_lines(_split0, state["bounds"])
+    for _ln, _bl in zip(_split0, _matched0):
+      if isinstance(_bl, dict) and _bl.get("unit_price_at_authoring") is None:
+        _p0 = _f(_ln.get("unit_price"))
+        if _p0 > 0:
+          _bl["unit_price_at_authoring"] = float(_p0)
+  except Exception:
+    pass
   state.pop("bounds_error", None)
   return state
 
@@ -574,7 +590,30 @@ def apply_router_patch(
       if spec.get("kind") == "ops_prices":
         next_ops = _apply_price_spec(next_ops, spec.get("prices") or [])
         if spec.get("current_revenue"):
-          next_fin["current_revenue"] = float(spec["current_revenue"])
+          # CW-022 #7: a price-only move holds COGS DOLLARS (volume
+          # held), so the stated cogs PERCENT must rescale with the
+          # anchor — leaving it fixed silently inflated the client's
+          # stated supplies dollars by the price ratio (Fetch & Fluff:
+          # $5,900 became $14,676).
+          _old_rev = _f(next_fin.get("current_revenue"))
+          _new_rev = float(spec["current_revenue"])
+          next_fin["current_revenue"] = _new_rev
+          if _old_rev > 0 and _new_rev > 0 and abs(_new_rev - _old_rev) > 0.005 * _old_rev:
+            _k = _old_rev / _new_rev
+            _cpct = _f(next_fin.get("cogs_percent_of_revenue"))
+            if _cpct > 0:
+              next_fin["cogs_percent_of_revenue"] = round(_cpct * _k, 6)
+        # CW-022 #4: an accepted price lever owes the client the demand
+        # question - stamp it; the next gate message leads with it.
+        _st_pc = get_state(next_fin)
+        _st_pc = dict(_st_pc)
+        _st_pc["price_clarifier_due"] = {
+          "prices": [
+            {"product": p.get("product"), "to": p.get("unit_price")}
+            for p in (spec.get("prices") or [])
+          ],
+        }
+        next_fin = put_state(next_fin, _st_pc)
         notes.append(f"option:{option_id}:prices")
       elif spec.get("kind") == "financials_fields":
         for fp in spec.get("fields") or []:
@@ -657,7 +696,8 @@ def _apply_custom_prices(
   old_total = sum(l["q1_revenue_quarterly"] for l in split) or 1.0
   new_total = 0.0
   for line, bl in zip(split, matched):
-    pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
+    # CW-022 #3: custom prices clamp to the ABSOLUTE judged ceiling.
+    pmax = _ctl._effective_pmax(line, bl)
     wanted = None
     for ov_name, ov_val in overrides.items():
       ov_price = ov_val.get("unit_price") if isinstance(ov_val, dict) else ov_val
@@ -698,8 +738,14 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
         f"{p['product']} at ${p['to']:,.2f}" for p in (o.get("prices") or [])
       )
       rec = " - this is the one I'd suggest" if o.get("recommended") else ""
-      opts.append(f"{i}) {o['label'].capitalize()}: {price_bits}, which closes about "
-                  f"{o['closes_display']} of the gap{rec}")
+      # CW-022 #7: a widening projection is said out loud, never "$0".
+      closes_bit = (
+        f"which would actually WIDEN the gap by about {o['closes_display']} on "
+        "these numbers - something is off, tell me which figure looks wrong"
+        if o.get("widens")
+        else f"which closes about {o['closes_display']} of the gap"
+      )
+      opts.append(f"{i}) {o['label'].capitalize()}: {price_bits}, {closes_bit}{rec}")
     return (
       "The biggest lever is pricing. " + "; ".join(lines) + ". "
       + " ".join(opts) + ". "
@@ -708,15 +754,28 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
     )
   if key == _ctl.ROUND_COSTS:
+    # CW-022 #5: internal move keys never reach the client ("gna" leaked
+    # verbatim at Fetch & Fluff turn 112).
+    _move_labels = {
+      "gna": "your other operating costs",
+      "marketing": "marketing",
+      "rent": "the space",
+      "payroll": "the team",
+    }
     opts = []
     for i, o in enumerate(rnd.get("options") or [], start=1):
       move_bits = ", ".join(
-        f"{name} from {m.get('from_display')} to {m.get('to_display')}"
+        f"{_move_labels.get(name, name)} from {m.get('from_display')} to {m.get('to_display')}"
         for name, m in (o.get("moves") or {}).items()
       )
       rec = " - this is the one I'd suggest" if o.get("recommended") else ""
-      opts.append(f"{i}) {o['label'].capitalize()}: {move_bits}, closing about "
-                  f"{o['closes_display']}{rec}")
+      closes_bit = (
+        f"which would actually WIDEN the gap by about {o['closes_display']} on "
+        "these numbers - something is off, tell me which figure looks wrong"
+        if o.get("widens")
+        else f"closing about {o['closes_display']}"
+      )
+      opts.append(f"{i}) {o['label'].capitalize()}: {move_bits}, {closes_bit}{rec}")
     return (
       "Next lever: the cost structure is carrying more than a mature quarter needs, "
       "and every floor here was judged against what it really takes to run your business. "
@@ -851,7 +910,12 @@ def _roadmap_message(payload: Dict[str, Any]) -> str:
   )
 
 
-def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, Any]) -> str:
+def _converged_suffix(
+  eval_result: Dict[str, Any],
+  thresholds_info: Dict[str, Any],
+  flat_q11: Optional[Dict[str, Any]] = None,
+  judged_gap: Optional[float] = None,
+) -> str:
   q11 = eval_result.get("q11") or {}
   margin = _f(q11.get("ebitda_margin"))
   band_low = _f(thresholds_info.get("band_low"))
@@ -887,17 +951,77 @@ def _converged_suffix(eval_result: Dict[str, Any], thresholds_info: Dict[str, An
   # quarter. Presenting a structural stress test as "your typical quarter"
   # made a 48.5% figure sit on screen beside its own 24% ceiling with no
   # explanation. The bar-clearing is what's being announced; say so.
+  # CW-022 #6 (Nick-ruled): BOTH tiers disclosed, always. The flat
+  # (today's-scale) figure is the number the client can check against
+  # their own life - its absence is why Fetch & Fluff's founder had to
+  # out-audit the tool ("that doesn't match my life at all").
+  flat_txt = ""
+  if isinstance(flat_q11, dict):
+    _flat_eb = _f(flat_q11.get("ebitda"))
+    if _flat_eb >= 0:
+      flat_txt = (
+        f" At today's scale, before any growth, the same structure keeps "
+        f"about {_fmt(_flat_eb)} a quarter."
+      )
+    else:
+      flat_txt = (
+        f" At today's scale the same structure doesn't yet cover its costs "
+        f"(about {_fmt(abs(_flat_eb))} short a quarter) - the growth path is "
+        "what closes that."
+      )
+  if judged_gap is not None and judged_gap > 0:
+    # Fence-pass + judged-fail: NEVER "clears every test". The boolean
+    # divergence between the two computed tiers routes to consult
+    # wording - the judged eval was always computed here and used to be
+    # DISCARDED at this exact spot.
+    return (
+      " One thing worth sitting with together before you lean on this: at the "
+      "strongest believable version of your business, the structure can work - "
+      f"a mature quarter at that stress point keeps about {_fmt(_f(q11.get('ebitda')))} "
+      f"({_pct(margin)} of revenue), {band_txt}. But at the growth we'd actually "
+      f"plan for, it still comes up about {_fmt(judged_gap)} a quarter short."
+      + flat_txt +
+      " If you want, we can work those levers together right now - pricing, "
+      "costs, or another line of revenue - or you can submit and the full build "
+      "will run its own final checks. Every number you just set is yours."
+    )
   return (
     " One more thing worth knowing: your numbers clear every structural test we can "
     "run right now. That's a stress test, not a forecast - at the strongest believable "
     f"version of your business, a mature quarter would keep about {_fmt(_f(q11.get('ebitda')))} "
-    f"({_pct(margin)} of revenue), {band_txt}. The full build will shape the realistic "
+    f"({_pct(margin)} of revenue), {band_txt}."
+    + flat_txt +
+    " The full build will shape the realistic "
     "quarter-by-quarter path and run its own final checks - and every number you just "
     "set is yours."
   )
 
 
 # ------------------------------------------------------------------ gate
+
+def _ops_implied_and_ceiling(ops_json: Dict[str, Any]) -> Tuple[float, float]:
+  """(CW-022 #2) The operation's own annual revenue arithmetic:
+  implied = sum(price x capacity x periods x utilization) and the
+  physical ceiling = the same at utilization 1.0. Zero when the model
+  carries no unit-driven products (non-unit businesses skip the check)."""
+  implied = 0.0
+  ceiling = 0.0
+  for lob in (ops_json or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for p in lob.get("products") or []:
+      if not isinstance(p, dict):
+        continue
+      price = _f(p.get("unit_price"))
+      cap = _f(p.get("units_per_period_capacity"))
+      periods = _f(p.get("operating_periods_per_year")) or 12.0
+      util = _f(p.get("utilization_rate"))
+      util = util if 0.0 < util <= 1.0 else 1.0
+      if price > 0 and cap > 0:
+        implied += price * cap * periods * util
+        ceiling += price * cap * periods
+  return implied, ceiling
+
 
 def gate_and_turn(
   *,
@@ -959,6 +1083,94 @@ def gate_and_turn(
       )
       message = _safe_naturalize(fallback, lambda _t: naturalize(context))
     return {"assistant_message": message}, financials_json, ""
+
+  # CW-022 #2 (Nick-ruled): ANCHOR-vs-OPS COHERENCE before any verdict.
+  # The stated revenue anchor and the operation's own arithmetic must be
+  # in the same reality before the gate evaluates anything - at Fetch &
+  # Fluff's turn 112 they diverged 26x (a corrupted anchor) and the walk
+  # ran four rounds of dollar narration on garbage. Two deliberate
+  # CONSENT TRIGGERS (holds that ask, never verdicts): (a) anchor
+  # outside [0.5x, 2x] of the ops-implied revenue - the capture side
+  # already probes at 1.5x, this is the gate's backstop; (b) anchor
+  # above the PHYSICAL ceiling (capacity x price x periods at 100%
+  # utilization) - a plan cannot promise revenue the stated operation
+  # cannot produce. Non-unit-driven models (implied == 0) skip.
+  _stated_anchor = _f(financials_json.get("current_revenue"))
+  _implied, _phys_ceiling = _ops_implied_and_ceiling(ops_json)
+  if _stated_anchor > 0 and _implied > 0:
+    _ratio = _stated_anchor / _implied
+    _hold_reason = None
+    if _stated_anchor > _phys_ceiling * 1.02:
+      _hold_reason = (
+        f"your stated annual revenue ({_fmt(_stated_anchor)}) is more than your "
+        f"operation can physically produce even flat-out - at your stated "
+        f"capacity and prices, 100% utilization tops out around "
+        f"{_fmt(_phys_ceiling)} a year"
+      )
+    elif _ratio < 0.5 or _ratio > 2.0:
+      _hold_reason = (
+        f"your stated annual revenue ({_fmt(_stated_anchor)}) doesn't line up "
+        f"with what your operation's own numbers produce - capacity x price x "
+        f"utilization works out to about {_fmt(_implied)} a year"
+      )
+    if _hold_reason:
+      message = (
+        "Before I run the final checks, one thing doesn't add up: "
+        + _hold_reason
+        + ". Which is right - should I correct the revenue figure, or is one "
+        "of the drivers (price, capacity, or utilization) out of date?"
+      )
+      return {"assistant_message": message}, financials_json, ""
+
+  # CW-022 #4 (Nick-ruled): the price-acceptance clarifier. An accepted
+  # price lever stamps price_clarifier_due; the very next gate message
+  # leads with the demand question - the client is the best demand
+  # oracle for an operating business (Fetch & Fluff volunteered exactly
+  # this fact unprompted and nothing could consume it).
+  _pc_question = ""
+  _pc = state.get("price_clarifier_due")
+  if isinstance(_pc, dict):
+    state = dict(state)
+    state.pop("price_clarifier_due", None)
+    _pc_bits = ", ".join(
+      f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
+      for p in (_pc.get("prices") or []) if p.get("to") is not None
+    )
+    if _pc_bits:
+      _pc_question = (
+        f"Quick check on the new price before we lean on it: at {_pc_bits}, "
+        "do you expect your current customers to stay? If some would leave, "
+        "tell me how many you'd realistically keep and I'll rerun the "
+        "numbers on that. "
+      )
+    financials_json = put_state(financials_json, state)
+
+  # CW-022 #5 (floor-assertion backstop): a mid-walk protest that a cost
+  # line cannot be cut must LAND even inside a multi-intent turn (Fetch
+  # & Fluff's "I can't cut that, I'd be driving uninsured" never reached
+  # client_floors because the router chose another action that turn).
+  # Deterministic, conservative phrases only; floors only ever ADD.
+  if state.get("status") == _ctl.STATUS_WALKING and str(user_text or "").strip():
+    _low = str(user_text).lower()
+    if re.search(r"(can'?t|cannot|won'?t|not going to|refuse to)\s+(cut|touch|reduce|trim|drop)", _low) \
+       or "non-negotiable" in _low or "non negotiable" in _low:
+      _floor_words = (
+        ("gna", ("insurance", "fuel", "maintenance", "utilities", "software",
+                 "licens", "bills", "overhead", "other costs")),
+        ("marketing", ("marketing", "advertis", "ads")),
+        ("rent", ("rent", "lease", "the space")),
+        ("payroll", ("payroll", "team", "staff", "wages", "salar")),
+      )
+      _cf = dict(state.get("client_floors") or {})
+      _floor_hit = False
+      for _bucket, _words in _floor_words:
+        if not _cf.get(_bucket) and any(w in _low for w in _words):
+          _cf[_bucket] = True
+          _floor_hit = True
+      if _floor_hit:
+        state = dict(state)
+        state["client_floors"] = _cf
+        financials_json = put_state(financials_json, state)
 
   state = _ensure_margin_band(
     state,
@@ -1042,7 +1254,35 @@ def gate_and_turn(
   if eval_result.get("passed"):
     state["status"] = _ctl.STATUS_CONVERGED
     state.pop("round", None)
-    suffix = _converged_suffix(eval_result, eval_result.get("thresholds") or {})
+    # CW-022 #6: the flat (today's-scale) tier is free arithmetic -
+    # always computed for disclosure; and a fence-tier pass whose
+    # already-computed judged tier FAILS is disclosed as a divergence
+    # (boolean trigger, no thresholds - the judged eval used to be
+    # discarded right here).
+    eval_flat = None
+    try:
+      eval_flat = _ctl.evaluate_current(
+        financials_json=financials_json, ops_json=ops_json,
+        financials_year1_json=financials_year1_json, margin_band=band,
+        growth_to_q11=1.0,
+      )
+    except Exception:
+      eval_flat = None
+    flat_q11 = (eval_flat or {}).get("q11") if isinstance(eval_flat, dict) else None
+    state["eval_flat"] = {
+      "passed": bool((eval_flat or {}).get("passed")) if isinstance(eval_flat, dict) else None,
+      "q11": flat_q11,
+    }
+    judged_gap = None
+    if eval_judged is not None and not use_judged and not eval_judged.get("passed"):
+      judged_gap = _f(eval_judged.get("gap_quarterly"))
+      state["eval_judged_shortfall"] = judged_gap
+    suffix = _converged_suffix(
+      eval_result, eval_result.get("thresholds") or {},
+      flat_q11=flat_q11, judged_gap=judged_gap,
+    )
+    if _pc_question:
+      suffix = _pc_question + suffix
     state["converged_suffix"] = suffix
     financials_json = put_state(financials_json, state)
     return None, financials_json, suffix
@@ -1144,6 +1384,8 @@ def gate_and_turn(
 
   state["round"] = rnd
   question = _round_question(rnd, _fmt(gap))
+  if _pc_question:
+    question = _pc_question + question
   message = (ack + question) if not first_walk else (_opening(eval_result, thresholds.band_low) + "\n\n" + question)
   if naturalize is not None:
     message = _safe_naturalize(message, naturalize)

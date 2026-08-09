@@ -19,6 +19,7 @@ type CoherenceState = {
     thresholds?: Record<string, unknown>;
   };
   early_eval?: { stable_fail?: boolean; q11?: Record<string, number> };
+  eval_flat?: { passed?: boolean | null; q11?: Record<string, number> };
   round?: {
     key?: string;
     options?: Array<{
@@ -77,15 +78,30 @@ export default function CoherencePanel({
 
   if (status === "converged") {
     const thresholds = (state.eval?.thresholds || {}) as Record<string, unknown>;
+    {/* CW-022 #6: the CW-003 framing rule reaches the panel too — this is
+        the STRESS-POINT figure (strongest believable growth), never "a
+        typical quarter"; today's-scale figure shown alongside when the
+        gate computed it. */}
+    const flatQ11 = (state.eval_flat?.q11 || {}) as Record<string, unknown>;
+    const flatEbitda = typeof flatQ11.ebitda === "number" ? (flatQ11.ebitda as number) : null;
     return (
       <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-xs text-emerald-200/90">
         <div className="font-semibold text-emerald-300">
           Clears every structural test we can run right now
         </div>
         <div className="mt-1 text-emerald-100/80">
-          A typical mature quarter keeps about {money(q11.ebitda)} ({pct(q11.ebitda_margin)} of
-          revenue), against the range judged believable for this kind of business. The full
-          build shapes the quarter-by-quarter path and runs its own final checks.
+          At the strongest believable version of this business — a stress test, not a
+          forecast — a mature quarter keeps about {money(q11.ebitda)} ({pct(q11.ebitda_margin)} of
+          revenue), against the range judged believable for this kind of business.
+          {flatEbitda !== null && flatEbitda >= 0 && (
+            <> At today&apos;s scale, before any growth, the same structure keeps about{" "}
+            {money(flatEbitda)} a quarter.</>
+          )}
+          {flatEbitda !== null && flatEbitda < 0 && (
+            <> At today&apos;s scale the structure doesn&apos;t yet cover its costs — the
+            growth path is what closes that.</>
+          )}
+          {" "}The full build shapes the quarter-by-quarter path and runs its own final checks.
         </div>
         {/* Anchor disclosure: the stress figure is anchored on STATED revenue,
             so driver-level corrections legitimately may not move it while the
