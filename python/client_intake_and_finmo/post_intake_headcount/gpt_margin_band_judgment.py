@@ -176,6 +176,22 @@ _SUBMIT_TOOL: Dict[str, Any] = {
             "every real labor business a failure)."
           ),
         },
+        "labor_intensity_class": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "expert"],
+          "description": (
+            "How labor-intensive a business of THIS character "
+            "structurally is — judged from what the work physically "
+            "requires, never from any plan number. 'low': capital/"
+            "inventory-driven, few hands per revenue dollar "
+            "(distribution, e-commerce, equipment rental). 'medium': "
+            "balanced labor and assets (retail with service counter, "
+            "light manufacturing). 'high': the service IS people's "
+            "hours (cleaning, landscaping, restaurants, salons, "
+            "trades). 'expert': credentialed-specialist hours at "
+            "premium wages (law, medicine, engineering consultancy)."
+          ),
+        },
         "margin_character": {
           "type": "string",
           "description": (
@@ -198,7 +214,7 @@ _SUBMIT_TOOL: Dict[str, Any] = {
         "q11_ebitda_band", "q20_ebitda_band",
         "gross_margin_floor_q11", "fixed_cost_burden_max_q11",
         "ni_margin_floor_q11", "labor_treatment",
-        "margin_character", "rationale",
+        "labor_intensity_class", "margin_character", "rationale",
       ],
     },
   },
@@ -297,6 +313,14 @@ _SYSTEM_PROMPT = (
   "lives inside the ceiling. Judging as if crew labor were in COGS "
   "brands every real labor business a failure. Echo labor_treatment to "
   "confirm this basis.\n"
+  "8. LABOR INTENSITY CLASS: name how labor-intensive this business "
+  "structurally is (low / medium / high / expert) from what the work "
+  "physically requires — the same structural reasoning as your burden "
+  "ceiling, expressed as the staffing character of the type. A business "
+  "whose service IS people's hours is 'high' even when its stated "
+  "payroll happens to be low; a capital-driven reseller is 'low' even "
+  "with a big team on paper. Same fence: judge the TYPE, never a plan "
+  "number.\n"
   "Call submit_margin_band_judgment exactly once."
 )
 
@@ -556,9 +580,23 @@ def validate_margin_band_judgment(
   if labor_treatment != "all_labor_in_payroll_line":
     notes.append("labor_treatment_missing_or_unrecognized")
 
+  # LABOR INTENSITY CLASS (walls-table v1, additive): the judged
+  # staffing character of the TYPE. Invalid/missing -> None + note; the
+  # intake payroll-share wall simply cannot evaluate without it
+  # (absence of judgment is never a verdict).
+  labor_intensity_class: Optional[str] = None
+  lic_raw = str(judgment.get("labor_intensity_class") or "").strip().lower()
+  if lic_raw in ("low", "medium", "high", "expert"):
+    labor_intensity_class = lic_raw
+  elif lic_raw:
+    notes.append(f"labor_intensity_class_unrecognized:{lic_raw[:40]}")
+  else:
+    notes.append("labor_intensity_class_missing")
+
   return {
     "basis_contradiction": basis_contradiction,
     "labor_treatment": labor_treatment or None,
+    "labor_intensity_class": labor_intensity_class,
     "q11": {
       "low": round(q11_low, 4),
       "high": round(q11_high, 4),

@@ -294,6 +294,47 @@ def _compute_band_identity_digest(
   return _ctl.stable_digest_hash(identity), compact
 
 
+def _payroll_share_wall_result(
+  state: Dict[str, Any],
+  *,
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  """WALLS TABLE v1 (phase 3): the payroll-share tier wall, evaluated
+  on the engine's own judged basis (stated annual payroll / annual
+  revenue anchor - the exact ratio the engine's payload validator
+  enforces raw). The labor-intensity class comes from the margin-band
+  judgment (the executive judges the TYPE's staffing character at
+  F-core, same fence). No judged class, or no stated payroll/revenue
+  -> None: absence of judgment is never a verdict."""
+  band = state.get("margin_band_judgment")
+  cls = (band or {}).get("labor_intensity_class") if isinstance(band, dict) else None
+  if not cls:
+    return None
+  from client_intake_and_finmo.intake_coherence.walls import payroll_share_wall
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (
+    authoritative_annual_revenue,
+  )
+  ann = _f(authoritative_annual_revenue(
+    ops_json=ops_json,
+    financials_year1_json=financials_year1_json,
+    financials_json=financials_json,
+  ))
+  eval_basis = basis_from_intake(
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    ops_json=ops_json,
+  )
+  if eval_basis is None or ann <= 0:
+    return None
+  return payroll_share_wall(
+    labor_intensity_class=cls,
+    payroll_annual=eval_basis.payroll_quarterly * 4.0,
+    revenue_annual=ann,
+  )
+
+
 def _ensure_margin_band(
   state: Dict[str, Any],
   *,
@@ -1422,6 +1463,44 @@ def gate_and_turn(
   state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:
     state["gap_initial"] = gap
+
+  # ---------- WALLS (phase 3): engine acceptance walls in view ----------
+  # The payroll-share tier wall is enforced RAW by the engine's payload
+  # builder (its exception bypasses every retry loop - deterministic
+  # refusal). Sparrow converged at intake and died there at 0.72 vs the
+  # high-class 0.70, three runs in a row. The gate now evaluates the
+  # SAME wall on the same basis and refuses to converge into a build
+  # the engine will certainly reject - the walk stays open with both
+  # honest dollar exits named. Recomputed live every turn (the Recalc
+  # keeps the ratio current); never stamped stale.
+  _wall_pay = _payroll_share_wall_result(
+    state, ops_json=ops_json, financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
+  if _wall_pay is not None:
+    state["walls"] = {"payroll_share": _wall_pay}
+  else:
+    state.pop("walls", None)
+  if eval_result.get("passed") and _wall_pay is not None and not _wall_pay.get("passed"):
+    if state.get("status") == _ctl.STATUS_CONVERGED:
+      state.pop("status", None)
+    _cls_word = {"low": "capital-driven", "medium": "balanced-labor",
+                 "high": "labor-intensive", "expert": "expert-labor"}.get(
+                   str(_wall_pay.get("class")), str(_wall_pay.get("class")))
+    message = (
+      "The profit math clears, but one structural wall still stands: your "
+      f"team costs are {_wall_pay['value']:.0%} of revenue, and a "
+      f"{_cls_word} business like this one is financed at no more than "
+      f"{_wall_pay['max_pct']:.0%} - the plan builder enforces that ceiling "
+      "exactly, so I can't close the plan on these numbers. Two honest ways "
+      f"through: revenue at or above {_fmt(_wall_pay['revenue_to_clear'])} a "
+      "year with the team you have, or team cost at or below "
+      f"{_fmt(_wall_pay['payroll_to_clear'])} at today's revenue. Which of "
+      "those is closest to your reality - or is one of the two numbers "
+      "(team cost, revenue) not what you meant?"
+    )
+    financials_json = put_state(financials_json, state)
+    return {"assistant_message": message}, financials_json, ""
 
   # ---------- PASS: converge, complete with the readback ----------
   if eval_result.get("passed"):
