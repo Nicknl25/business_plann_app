@@ -11296,9 +11296,14 @@ _OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
 # THE RECALC's derived twins - writable ONLY by the canonical pass
 # (generalizing the airtight opex model to every family). Sources stay
 # patchable: people rows / rest_of_team (payroll), ops products +
-# current_revenue (revenue), cogs_percent_of_revenue (ratio-primary,
-# pending Nick's basis ruling), marketing_total_year1 (dollar-primary),
-# other_operating_expense (monthly).
+# current_revenue (revenue), marketing_total_year1 (dollar-primary),
+# other_operating_expense (monthly). COGS is BASIS-TAGGED (Nick's
+# ruling): BOTH sides are capture SOURCES - a stated percent tags
+# ratio-primary, a stated dollar tags dollars-primary at the write
+# (the in-patch family sync stamps cogs_basis and re-derives the
+# other side). The keystone F&F rerun proved the old blanket drop
+# wrong: her stated $5,900 was silently discarded at capture, the
+# exact restatement class the ruling exists to kill.
 _RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
   "owner_compensation",
   "baseline_payroll_year1",
@@ -11306,8 +11311,6 @@ _RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
   "payroll_total_year1",
   "payroll_basis_people_roles",
   "other_opex_absolute",
-  "current_cogs",
-  "cogs_total_year1",
   "marketing_percent_of_revenue",
 })
 

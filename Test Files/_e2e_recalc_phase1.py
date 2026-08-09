@@ -102,26 +102,33 @@ check("R2c deep fold: rest -> 0, non-owner wage scales (40,000 -> 20,000), "
       and ppl2c["people"][0]["annual_wage"] == 50400.0)
 
 # R3: derived twins are UNPATCHABLE (the generalized opex model).
+# COGS dollars are NOT in the set (Nick's basis ruling, proven by the
+# keystone F&F rerun): a stated dollar is a capture SOURCE - the write
+# lands and tags dollars-primary; blanket-dropping it silently
+# discarded her stated $5,900 at the capture moment.
 _bf, _op, _mk, _pp, fin3, _ff = _apply_scoped_patch(
     {"financials.current_payroll": 999.0,
      "financials.payroll_total_year1": 999.0,
      "financials.baseline_payroll_year1": 999.0,
      "financials.other_opex_absolute": 999.0,
-     "financials.current_cogs": 999.0,
+     "financials.current_cogs": 5900.0,
      "financials.marketing_percent_of_revenue": 0.99,
      "financials.cash_on_hand": 5000.0},
     business_facts={}, ops_json={}, market_json={},
     people_json={}, financials_json={"current_payroll": 143400.0},
     fulfillment_json={})
 check("R3 derived twins unpatchable; sources still patchable "
-      "(cash landed, payroll echo did not)",
-      fin3["current_payroll"] == 143400.0 and "current_cogs" not in fin3
+      "(cash + stated cogs dollars landed, payroll echo did not)",
+      fin3["current_payroll"] == 143400.0 and fin3.get("current_cogs") == 5900.0
       and fin3.get("cash_on_hand") == 5000.0)
-check("R3b the unpatchable set covers the full derived family",
+check("R3b the unpatchable set covers the derived family and ONLY it "
+      "(cogs dollar fields are capture sources)",
       {"current_payroll", "payroll_total_year1", "baseline_payroll_year1",
-       "payroll_basis_people_roles", "other_opex_absolute", "current_cogs",
-       "cogs_total_year1", "marketing_percent_of_revenue",
-       "owner_compensation"} <= set(_RECALC_DERIVED_FINANCIALS_FIELDS))
+       "payroll_basis_people_roles", "other_opex_absolute",
+       "marketing_percent_of_revenue",
+       "owner_compensation"} <= set(_RECALC_DERIVED_FINANCIALS_FIELDS)
+      and "current_cogs" not in _RECALC_DERIVED_FINANCIALS_FIELDS
+      and "cogs_total_year1" not in _RECALC_DERIVED_FINANCIALS_FIELDS)
 
 # R4: the blocked-turn persist carries every touched section.
 _sig = inspect.signature(_coherence_blocked_response)
