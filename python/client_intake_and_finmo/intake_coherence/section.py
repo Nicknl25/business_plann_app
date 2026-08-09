@@ -798,9 +798,18 @@ def refresh_eval_stamps(
     else:
       state.pop("eval_judged_shortfall", None)
     # Walls refresh with the same cadence (phase 3's wall, live).
+    # ANCHOR BASIS here, deliberately: this refresh runs MID-Recalc,
+    # where financials_year1_json can be a transiently rebuilt (ramped)
+    # total the engine never reads - on the real Sparrow draft that
+    # stamped the wall passed-at-53% in the same turn the gate blocked
+    # at 72%. The gate's own computation (stored year1, the engine's
+    # exact read) is the authoritative verdict and restamps at every
+    # completion attempt; the display refresh uses the anchor so it
+    # cannot contradict the gate on the drafts we actually see (stored
+    # year1 echoes the anchor).
     wall = _payroll_share_wall_result(
       state, ops_json=ops_json, financials_json=financials_json,
-      financials_year1_json=financials_year1_json,
+      financials_year1_json={},
     )
     if wall is not None:
       state["walls"] = {"payroll_share": wall}
