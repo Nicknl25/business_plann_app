@@ -2219,6 +2219,8 @@ def _advance_persisted_financials_stage(
     financials_json=persisted_financials,
     financials_year1_json=persisted_year1,
     marketing_model_json=persisted_marketing or {},
+    people_json=dict((shared_context or {}).get("people_capability") or {}),
+    ops_json=dict((shared_context or {}).get("operating_model") or {}),
   )
   if synced_financials != persisted_financials or synced_year1 != persisted_year1:
     persisted_financials, persisted_year1, persisted_marketing = _persist_and_reload_financials_progress(
@@ -7175,8 +7177,72 @@ def _sync_financials_consult_persistence_state(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  """THE RECALC (Nick-approved live-truth architecture, phase 1). This
+  is the ONE canonical dependency-ordered derive-everything pass:
+  people -> payroll rollup -> owner mirror -> ops -> year1 rescale ->
+  revenue echo -> COGS family -> payroll echo -> marketing family ->
+  opex annual. It runs at the top of every handler turn, after every
+  edit patch, and at every stage advance - so EVERY derived value
+  recomputes from its source on every change, regardless of which
+  section the change touched (the CW-023 class killer: a wage
+  correction on ANY role now restamps the rollup the engine builds on,
+  not just the owner's). Derived twins are unpatchable everywhere else.
+
+  BASIS RULES pending Nick's ruling (current behavior preserved, not
+  chosen here): COGS is ratio-primary (stated dollars convert to ratio
+  at capture and re-derive under revenue movement); marketing is
+  dollar-primary with a copy-once baseline. One rule per number - the
+  open decisions are surfaced in the phase-1 report."""
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  _people_has_substance = isinstance(people_json, dict) and bool(
+    (people_json.get("people") or [])
+    or (people_json.get("inferred_roles") or [])
+    or (_safe_float(people_json.get("rest_of_team_payroll_year1")) or 0) > 0
+  )
+  if _people_has_substance:
+    # ---- payroll sub-graph (people is the source of truth) ----
+    # LEGACY FOLD (Nick-ruled): a nonzero payroll_adjustment (the old
+    # walk delta the engine could never read) materializes into the
+    # people truth ONCE - rest-of-team absorbs first, any remainder
+    # scales non-owner wages proportionally (the accepted walk option
+    # was the client's consent to the aggregate target) - then the
+    # field retires to 0 and the rollup IS the number everywhere.
+    _adj = _safe_float(next_financials.get("payroll_adjustment"))
+    if _adj is not None and abs(_adj) > 0.005:
+      _rest = _safe_float(people_json.get("rest_of_team_payroll_year1"))
+      _leftover = _adj
+      if _rest is not None and _rest > 0:
+        _new_rest = _rest + _adj
+        people_json["rest_of_team_payroll_year1"] = round(max(0.0, _new_rest), 2)
+        _leftover = min(0.0, _new_rest)
+      if abs(_leftover) > 0.005:
+        _others = [
+          p for p in (people_json.get("people") or [])
+          if isinstance(p, dict)
+          and not _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
+          and (_safe_float(p.get("annual_wage")) or 0.0) > 0
+        ]
+        _tot = sum(float(p["annual_wage"]) for p in _others)
+        if _tot > 0:
+          _f_scale = max(0.0, (_tot + _leftover) / _tot)
+          for p in _others:
+            p["annual_wage"] = round(float(p["annual_wage"]) * _f_scale, 2)
+      next_financials["payroll_adjustment"] = 0.0
+    # The FULL rollup recomputes from people every pass - baseline,
+    # echo fields, and basis rows together (CW-023 canonical stamp).
+    next_financials = _restamp_payroll_rollup(
+      financials_json=next_financials, people_json=people_json,
+      ops_json=ops_json,
+    )
+    # Owner mirror follows the role (one-door; legacy field-only drafts
+    # materialize the role once inside the sync).
+    next_financials = _sync_owner_pay_one_home(
+      financials_json=next_financials, people_json=people_json,
+      ops_json=ops_json,
+    )
   # current_revenue is only an authoritative rescale target once the client has
   # actually established the revenue baseline (revenue_intro answered). Before
   # that it is a derived echo that may predate later-entered lines of business;
@@ -9316,8 +9382,10 @@ def _apply_scoped_patch(
         continue
       next_people[field] = value
     elif group == "financials":
-      if field == "owner_compensation":
-        # deriver-written mirror; patch writes are dropped (CW-022 #8).
+      if field in _RECALC_DERIVED_FINANCIALS_FIELDS:
+        # THE RECALC owns every derived twin (the generalized opex
+        # model): patch writes to derived fields are dropped - the one
+        # deriver recomputes them from their sources every pass.
         continue
       next_financials[field] = value
     elif group == "fulfillment":
@@ -11155,6 +11223,24 @@ def _coherence_naturalize(text: str) -> str:
 
 _OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
 
+# THE RECALC's derived twins - writable ONLY by the canonical pass
+# (generalizing the airtight opex model to every family). Sources stay
+# patchable: people rows / rest_of_team (payroll), ops products +
+# current_revenue (revenue), cogs_percent_of_revenue (ratio-primary,
+# pending Nick's basis ruling), marketing_total_year1 (dollar-primary),
+# other_operating_expense (monthly).
+_RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
+  "owner_compensation",
+  "baseline_payroll_year1",
+  "current_payroll",
+  "payroll_total_year1",
+  "payroll_basis_people_roles",
+  "other_opex_absolute",
+  "current_cogs",
+  "cogs_total_year1",
+  "marketing_percent_of_revenue",
+})
+
 
 def _restamp_payroll_rollup(*, financials_json, people_json, ops_json=None):
   """CW-023 (Cowork rank-1 on the 000edda confirmation run): a role-wage
@@ -11351,15 +11437,29 @@ def _coherence_blocked_response(
   assistant_message: str,
   financials_json,
   business_facts,
+  ops_json=None,
+  people_json=None,
+  financials_year1_json=None,
 ):
   """Persist a coherence turn (completion blocked) and build the
   standard turn response. active_focus stays financials â€” the section
-  is a stop inside the finish line, not a new stepper section."""
+  is a stop inside the finish line, not a new stepper section.
+
+  RECALC single-persist rule: a blocked turn persists EVERY section it
+  touched. The old financials-only persist dropped same-turn walk-
+  applied ops price changes, the rebuilt year1, and people-row writes -
+  the next turn then rebuilt from OLD ops and rescaled capacity to the
+  new anchor (a price increase silently became a volume increase)."""
   append_messages(
     conn,
     draft_id=str(draft_id).strip(),
     new_messages=[user_msg, {"role": "assistant", "content": assistant_message}],
     financials_json=financials_json,
+    operating_model_json=ops_json if isinstance(ops_json, dict) else None,
+    people_json=people_json if isinstance(people_json, dict) else None,
+    financials_year1_json=(
+      financials_year1_json if isinstance(financials_year1_json, dict) else None
+    ),
     active_focus="financials",
     business_facts=business_facts,
   )
@@ -11551,6 +11651,8 @@ def post_intake_consult_handler(*, app, request):
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
       marketing_model_json=marketing_model_json,
+      people_json=people_json,
+      ops_json=ops_json,
     )
     shared_context["financials"] = financials_json
     if isinstance(financials_year1_json, dict) and financials_year1_json:
@@ -12343,6 +12445,9 @@ def post_intake_consult_handler(*, app, request):
             assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
             financials_json=financials_json,
             business_facts=business_facts,
+            ops_json=ops_json,
+            people_json=people_json,
+            financials_year1_json=financials_year1_json,
           )
         if _coh_suffix:
           assistant_final = (assistant_final + _coh_suffix).strip()
@@ -12680,6 +12785,9 @@ def post_intake_consult_handler(*, app, request):
             assistant_message=_coh_section.park_message(),
             financials_json=financials_json,
             business_facts=business_facts,
+            ops_json=ops_json,
+            people_json=people_json,
+            financials_year1_json=financials_year1_json,
           )
 
       # Target Market: after we generate a marketing_plan_summary, we present it for
@@ -12953,6 +13061,8 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
           marketing_model_json=marketing_model_json,
+          people_json=people_json,
+          ops_json=ops_json,
         )
         shared_context["financials"] = financials_json
         if isinstance(financials_year1_json, dict) and financials_year1_json:
@@ -13625,6 +13735,9 @@ def post_intake_consult_handler(*, app, request):
               assistant_message=blocked_message,
               financials_json=financials_json,
               business_facts=business_facts,
+              ops_json=ops_json,
+              people_json=people_json,
+              financials_year1_json=financials_year1_json,
             )
           carried_note = ""
           if revenue_propagated:
@@ -13823,6 +13936,9 @@ def post_intake_consult_handler(*, app, request):
                 assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
                 financials_json=financials_json,
                 business_facts=business_facts,
+                ops_json=ops_json,
+                people_json=people_json,
+                financials_year1_json=financials_year1_json,
               )
             if _coh_suffix:
               assistant_final = (assistant_final + _coh_suffix).strip()
@@ -14237,6 +14353,9 @@ def post_intake_consult_handler(*, app, request):
             assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
             financials_json=financials_json,
             business_facts=business_facts,
+            ops_json=ops_json,
+            people_json=people_json,
+            financials_year1_json=financials_year1_json,
           )
         if _coh_suffix:
           next_assistant = (next_assistant + _coh_suffix).strip()
@@ -14423,12 +14542,32 @@ def post_intake_consult_handler(*, app, request):
           _xsec_ack
           + (f"\n\nBack to where we were: {_pending_q}" if _pending_q else "")
         )
+        # RECALC single-persist: the ops change re-derives year1 + the
+        # financials families IN THIS TURN and everything touched is
+        # persisted together (the old path persisted ops+financials
+        # only, leaving the stored year1 stale for pollers until some
+        # later turn happened to persist it).
+        try:
+          financials_year1_json = assemble_financials_year1(
+            shared_context, financials_year1_json,
+          )
+          financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            marketing_model_json=marketing_model_json,
+            people_json=people_json,
+            ops_json=ops_json,
+          )
+        except Exception:
+          pass
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": _xsec_text}],
           operating_model_json=ops_json,
+          people_json=people_json,
           financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
           marketing_model_json=_refresh_marketing_model(),
           active_focus=focus,
           business_facts=business_facts,
@@ -14917,6 +15056,9 @@ def post_intake_consult_handler(*, app, request):
           assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
           financials_json=financials_json,
           business_facts=business_facts,
+          ops_json=ops_json,
+          people_json=people_json,
+          financials_year1_json=financials_year1_json,
         )
       if _coh_suffix:
         assistant_final = (assistant_final + _coh_suffix).strip()
