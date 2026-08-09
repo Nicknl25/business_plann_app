@@ -9746,6 +9746,53 @@ def _run_unified_post_grid_system_run(
   except Exception as exc:
     logger.warning("persist_adaptation_cascade_outcome_failed: %s", exc)
   return result
+def _run_entry_recalc(*, conn, draft_id: str) -> None:
+  """RUN-ENTRY RECALC (Nick-ruled, closes the legacy audit's one
+  structural gap): rule 4 - recompute everything before it's used -
+  applied at the RUN use-site. The run path built directly on stored
+  fields, so a supervisor/API rerun of a dormant draft consumed
+  whatever the last (possibly pre-architecture) sync persisted: 240
+  drafts carry internally incoherent payroll trios at rest, and the
+  supervisor demonstrably reruns old drafts (Sparrow, 08-09).
+
+  One call to THE canonical pass over the STORED sections, persisted
+  before the grid build reads them. Safety by construction: the Recalc
+  derives from sources deterministically, so a coherent draft
+  recomputes to the numbers it already has (nothing persists); only
+  incoherent drafts change, toward correct. Stored year1 is passed
+  as-is (no re-assemble: there are no new edits at run entry, and the
+  Recalc's own authoritative rescale governs internally). Failure is
+  LOUD - building on unrecomputed numbers is the exact class this
+  closes, so the run fails with a clear reason instead."""
+  draft = get_draft(conn, draft_id=draft_id)
+  fin0 = _parse_json_dict(draft.get("financials_json"))
+  y10 = _parse_json_dict(draft.get("financials_year1_json"))
+  ppl = _parse_json_dict(draft.get("people_json"))
+  ppl0 = copy.deepcopy(ppl)
+  ops = _parse_json_dict(draft.get("operating_model_json"))
+  mkt = _parse_json_dict(draft.get("marketing_model_json"))
+  fin1, y11 = _sync_financials_consult_persistence_state(
+    financials_json=copy.deepcopy(fin0),
+    financials_year1_json=copy.deepcopy(y10),
+    marketing_model_json=mkt,
+    people_json=ppl,  # the fold mutates people truth in place
+    ops_json=ops,
+  )
+  changed: Dict[str, Any] = {}
+  if fin1 != fin0:
+    changed["financials_json"] = fin1
+  if y11 != y10:
+    changed["financials_year1_json"] = y11
+  if ppl != ppl0:
+    changed["people_json"] = ppl
+  if changed:
+    logger.info(
+      "RUN_ENTRY_RECALC draft=%s recomputed sections=%s",
+      draft_id, sorted(changed),
+    )
+    append_messages(conn, draft_id=draft_id, new_messages=[], **changed)
+
+
 def _run_planning_system_for_draft_unified(
   *,
   conn,
@@ -9754,6 +9801,11 @@ def _run_planning_system_for_draft_unified(
   planning_run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
   _bind_post_intake_runtime_dependencies()
+
+  # RUN-ENTRY RECALC (Nick-ruled): the run is a use-site - recompute
+  # the stored sections through the canonical pass before the grid
+  # build reads them. Loud on failure by design.
+  _run_entry_recalc(conn=conn, draft_id=str(draft_id).strip())
 
   # Phase 9 P3.32 K11 L-4 â€” open the handler trace run at the TRUE entry,
   # BEFORE the initial-grid build (which runs payroll Handler C). draft_id
