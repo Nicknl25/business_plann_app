@@ -80,7 +80,10 @@ OPS = {"lob_models": [{"lob_name": "Cleaning", "products": [{
     "product_name": "House cleans", "unit_price": 110.0,
     "units_per_period_capacity": 50.0, "operating_periods_per_year": 52.0,
     "utilization_rate": 0.7}]}]}
+# production shape: the Recalc always echoes payroll_total_year1 (the
+# exact field the engine's ratio reads - the wall mirrors that basis).
 FIN = {"current_revenue": 199294.0, "baseline_payroll_year1": 143400.0,
+       "current_payroll": 143400.0, "payroll_total_year1": 143400.0,
        "other_opex_absolute": 17400.0, "marketing_total_year1": 600.0,
        "cogs_percent_of_revenue": 0.08}
 turn, fin_out, sfx = gate_and_turn(

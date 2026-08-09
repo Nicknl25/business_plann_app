@@ -316,25 +316,29 @@ def _payroll_share_wall_result(
   if not cls:
     return None
   from client_intake_and_finmo.intake_coherence.walls import payroll_share_wall
-  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (
-    authoritative_annual_revenue,
+  # THE ENGINE'S OWN RATIO, verbatim (keystone lesson: the first cut
+  # used the gate's eval basis - year1-prorated payroll - and read the
+  # REAL Sparrow draft at 0.53 while the engine killed it at 0.72. The
+  # wall must judge the exact arithmetic the engine judges:
+  # payroll_total_year1 over the year1 revenue anchor).
+  from client_intake_and_finmo.post_intake_headcount.schedule import (
+    _intake_implied_operating_intensity,
   )
-  ann = _f(authoritative_annual_revenue(
-    ops_json=ops_json,
-    financials_year1_json=financials_year1_json,
-    financials_json=financials_json,
-  ))
-  eval_basis = basis_from_intake(
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    ops_json=ops_json,
+  _intensity = _intake_implied_operating_intensity(
+    financials=financials_json if isinstance(financials_json, dict) else {},
+    year1=financials_year1_json if isinstance(financials_year1_json, dict) else {},
   )
-  if eval_basis is None or ann <= 0:
+  _implied = _intensity.get("implied_payroll_percent_of_revenue")
+  if _implied is None:
     return None
+  # payroll_share_wall wants the dollar pair for the priced exits; feed
+  # it the same numbers the ratio came from.
+  _pay = _f(financials_json.get("payroll_total_year1"))
+  _rev = (_pay / float(_implied)) if _pay > 0 and float(_implied) > 0 else 0.0
   return payroll_share_wall(
     labor_intensity_class=cls,
-    payroll_annual=eval_basis.payroll_quarterly * 4.0,
-    revenue_annual=ann,
+    payroll_annual=_pay,
+    revenue_annual=_rev,
   )
 
 
@@ -525,8 +529,6 @@ def _ensure_margin_band(
     if validated.get("basis_contradiction"):
       if hold_retries >= 3:
         try:
-          import logging
-
           logging.getLogger("api").error(
             "MARGIN_BAND_HOLD_EXHAUSTED: %d fresh arbitration re-attempts "
             "all basis-contradictory; human review required",
