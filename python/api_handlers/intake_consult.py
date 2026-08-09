@@ -9465,6 +9465,15 @@ def _apply_scoped_patch(
       # away ratio-primary, the exact class the ruling kills).
       if field in ("current_cogs", "cogs_total_year1"):
         next_financials["cogs_basis"] = "dollars"
+        # The dollar twins are ONE number - writing either sets both,
+        # exactly as the stage door does. (Second keystone layer: the
+        # tag landed but the stale other twin outranked the fresh
+        # write in the dollars-primary sync - 10,483 overwrote the
+        # just-stated 5,900.)
+        _cogs_dollar = _safe_float(value)
+        if _cogs_dollar is not None and _cogs_dollar >= 0:
+          next_financials["current_cogs"] = float(_cogs_dollar)
+          next_financials["cogs_total_year1"] = float(_cogs_dollar)
       elif field == "cogs_percent_of_revenue":
         next_financials["cogs_basis"] = "ratio"
     elif group == "fulfillment":
