@@ -9411,6 +9411,28 @@ def _apply_scoped_patch(
           next_business[part_key] = None
     elif group == "ops":
       next_ops[field] = value
+      # LIVE-TRUTH ONE-HOME (keystone F&F finding): every reader of the
+      # drivers - engine, digest, gate, ops_line_split - reads
+      # lob_models[].products[]. A flat-key driver write on a
+      # single-product model lands on the PRODUCT ROW too; the flat
+      # field is a legacy mirror, never a second home. (F&F's
+      # price-60/capacity-40 correction sat in the flat fields while
+      # the product row kept 112/30 - the receipt acked the change and
+      # the whole pipeline kept building on the corrected-away numbers.)
+      if field in (
+        "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+        "operating_periods_per_year", "utilization_rate", "unit_cadence",
+        "unit_name",
+      ):
+        _lms = next_ops.get("lob_models")
+        if isinstance(_lms, list) and len(_lms) == 1 and isinstance(_lms[0], dict):
+          _prods = _lms[0].get("products")
+          if isinstance(_prods, list) and len(_prods) == 1 and isinstance(_prods[0], dict):
+            _lm0 = dict(_lms[0])
+            _p0 = dict(_prods[0])
+            _p0[field] = value
+            _lm0["products"] = [_p0]
+            next_ops["lob_models"] = [_lm0]
     elif group == "market":
       next_market[field] = value
     elif group == "people":

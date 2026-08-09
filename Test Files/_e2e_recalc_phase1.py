@@ -137,6 +137,31 @@ fin5, _ = _sync_financials_consult_persistence_state(
 check("R5 empty people leaves stated payroll untouched (88,000)",
       fin5["current_payroll"] == 88000.0)
 
+# R5b: ONE-HOME ops drivers (keystone F&F finding): a flat-key driver
+# write on a single-product model lands on the product row every
+# reader actually reads - never a second home (price 60/capacity 40
+# sat in the flat fields while the product kept 112/30 and the
+# pipeline kept building on the corrected-away numbers).
+_ops_fork = {"unit_price": 112, "units_per_week_capacity": 30,
+             "lob_models": [{"lob_name": "Primary line of business",
+                             "products": [{"product_name": "Mobile grooming appointment",
+                                           "unit_price": 112,
+                                           "units_per_period_capacity": 30,
+                                           "units_per_week_capacity": 30,
+                                           "utilization_rate": 0.7,
+                                           "operating_periods_per_year": 52}]}]}
+_bf5, ops5b, _mk5, _pp5, _fin5b, _ff5 = _apply_scoped_patch(
+    {"ops.unit_price": 60.0, "ops.units_per_week_capacity": 40.0,
+     "ops.units_per_period_capacity": 40.0},
+    business_facts={}, ops_json=_ops_fork, market_json={},
+    people_json={}, financials_json={}, fulfillment_json={})
+_p5b = ops5b["lob_models"][0]["products"][0]
+check("R5b flat ops driver write lands on the PRODUCT row (60/40 in "
+      "both homes, no fork)",
+      _p5b["unit_price"] == 60.0
+      and _p5b["units_per_period_capacity"] == 40.0
+      and ops5b["unit_price"] == 60.0)
+
 # R6: idempotence - a second pass changes nothing (spreadsheet law).
 fin6a, y6a = _sync_financials_consult_persistence_state(
     financials_json=copy.deepcopy(FIN), financials_year1_json={},
