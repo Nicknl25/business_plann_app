@@ -159,7 +159,81 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
 
 # ------------------------------------------------- F-core artifact stamps
 
-def _ensure_margin_band(
+def _financials_identity_basis(
+  state: Dict[str, Any], financials_json: Dict[str, Any]
+) -> Dict[str, Any]:
+  """PHASE 2 (Nick-ruled invalidation honesty): the judged artifacts
+  were authored FROM financials facts, so the identity includes the
+  CLIENT-STATED financials basis - a stated-fact CORRECTION re-judges.
+  The walk's OWN lever writes are excluded (CW-020: lever moves
+  re-evaluate, never re-judge): each _lever_writes entry records
+  {"from": pre-lever value, "to": written value}; while the current
+  value is still the lever's "to", the basis substitutes "from" - so
+  the digest stays byte-identical to the one the band was authored
+  under (excluding-by-drop would itself re-key on lever accept). A
+  later client correction to a DIFFERENT value re-enters the digest."""
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  lever_writes = state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else {}
+
+  def _incl(field: str, value: Optional[float], places: int = 2) -> Optional[float]:
+    if value is None:
+      return None
+    entry = lever_writes.get(field)
+    tol = max(10.0 ** -places, 1e-6 * abs(value))
+    if isinstance(entry, dict):
+      to_v = _f(entry.get("to")) if entry.get("to") is not None else None
+      if to_v is not None and abs(to_v - value) <= tol:
+        fr_v = _f(entry.get("from")) if entry.get("from") is not None else None
+        # substitute the pre-lever value: identity as authored
+        return round(float(fr_v), places) if fr_v is not None else None
+    elif entry is not None:
+      lw = _f(entry)
+      if lw is not None and abs(lw - value) <= tol:
+        return None  # legacy scalar entry: exclude
+    return round(float(value), places)
+
+  basis: Dict[str, Any] = {}
+  for field in (
+    "current_revenue", "baseline_payroll_year1", "other_opex_absolute",
+    "marketing_total_year1", "monthly_rent_expense",
+  ):
+    v = _incl(field, _f(fin.get(field)) if fin.get(field) is not None else None)
+    if v is not None:
+      basis[field] = v
+  if str(fin.get("cogs_basis") or "").strip().lower() == "dollars":
+    v = _incl("current_cogs", _f(fin.get("current_cogs")) if fin.get("current_cogs") is not None else None)
+    if v is not None:
+      basis["cogs_dollars"] = v
+  else:
+    v = fin.get("cogs_percent_of_revenue")
+    if v is not None:
+      vv = _incl("cogs_percent_of_revenue", _f(v), places=6)
+      if vv is not None:
+        basis["cogs_ratio"] = vv
+  return basis
+
+
+def _record_lever_write(
+  lever_writes: Dict[str, Any], field: str,
+  from_value: Optional[float], to_value: Optional[float],
+) -> None:
+  """Record a walk lever's write as {"from", "to"}. When levers chain
+  (a second accept moves the same field again), the epoch ORIGIN is
+  preserved: if the pre-write value is the previous entry's "to", keep
+  the previous "from" - the identity substitutes the value the band
+  was authored under, however many levers later. A client correction
+  re-keys the digest, which resets the epoch (_lever_writes cleared)."""
+  if to_value is None:
+    return
+  prev = lever_writes.get(field)
+  if isinstance(prev, dict) and prev.get("to") is not None and from_value is not None:
+    prev_to = _f(prev.get("to"))
+    if prev_to is not None and abs(prev_to - from_value) <= max(0.01, 1e-6 * abs(from_value)):
+      from_value = _f(prev.get("from")) if prev.get("from") is not None else None
+  lever_writes[field] = {"from": from_value, "to": float(to_value)}
+
+
+def _compute_band_identity_digest(
   state: Dict[str, Any],
   *,
   ops_json: Dict[str, Any],
@@ -167,12 +241,11 @@ def _ensure_margin_band(
   market_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
   financials_json: Dict[str, Any],
-  financials_year1_json: Dict[str, Any],
-) -> Dict[str, Any]:
-  """Author the margin band ONCE at F-core, stamped with the compact
-  digest hash. Knob edits re-evaluate; only an identity-level digest
-  change re-judges. Post-intake reuses this stamp (initial_grid runner
-  checks it before authoring)."""
+) -> Tuple[str, Dict[str, Any]]:
+  """The band-identity digest (CW-017 #5 + CW-020 strips + the phase-2
+  financials basis), factored so BOTH _ensure_margin_band and the
+  roadmap re-evaluation check compute the same identity. Returns
+  (digest_hash, compact)."""
   from client_intake_and_finmo.post_intake_amalgamated.mirror import (
     build_operating_model_digest,
   )
@@ -215,7 +288,31 @@ def _ensure_margin_band(
       "required_revenue_year1",
     ):
       _md.pop(_derived_key, None)
-  digest_hash = _ctl.stable_digest_hash(identity)
+  # PHASE 2: the client-stated financials basis joins the identity -
+  # corrections re-judge; the walk's own lever writes are excluded.
+  identity["_financials_basis"] = _financials_identity_basis(state, financials_json)
+  return _ctl.stable_digest_hash(identity), compact
+
+
+def _ensure_margin_band(
+  state: Dict[str, Any],
+  *,
+  ops_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Author the margin band ONCE at F-core, stamped with the compact
+  digest hash. Knob edits re-evaluate; only an identity-level digest
+  change re-judges. Post-intake reuses this stamp (initial_grid runner
+  checks it before authoring)."""
+  digest_hash, compact = _compute_band_identity_digest(
+    state,
+    ops_json=ops_json, people_json=people_json, market_json=market_json,
+    marketing_model_json=marketing_model_json, financials_json=financials_json,
+  )
   if state.get("margin_band_judgment") and state.get("digest_hash") == digest_hash:
     return state
   state = dict(state)
@@ -233,8 +330,26 @@ def _ensure_margin_band(
       state["growth_frozen_during_round"] = True
     else:
       stale_keys.append("judged_growth")
+    # PHASE 2: a roadmap is a verdict about the OLD identity - an
+    # identity change (including a corrected stated fact) clears it so
+    # the gate re-evaluates, exactly as the roadmap's own wording
+    # promises ("tell me and we'll rerun the same arithmetic").
+    if state.get("status") == _ctl.STATUS_ROADMAP:
+      stale_keys.append("roadmap")
+      state.pop("status", None)
     for stale_key in stale_keys:
       state.pop(stale_key, None)
+    # PHASE 2: a genuine identity change (digest moved even WITH the
+    # lever substitutions active) resets the lever epoch - the band
+    # re-authors at the current values, so future digests compare
+    # against them raw. Restamp with the epoch cleared.
+    if state.get("_lever_writes"):
+      state.pop("_lever_writes", None)
+      digest_hash, compact = _compute_band_identity_digest(
+        state,
+        ops_json=ops_json, people_json=people_json, market_json=market_json,
+        marketing_model_json=marketing_model_json, financials_json=financials_json,
+      )
   state["digest_hash"] = digest_hash
   from client_intake_and_finmo.post_intake_headcount.band_fitting import (
     operator_cost_levels,
@@ -592,20 +707,20 @@ def apply_router_patch(
       spec = chosen.get("patch") or {}
       if spec.get("kind") == "ops_prices":
         next_ops = _apply_price_spec(next_ops, spec.get("prices") or [])
+        _old_rev = _f(next_fin.get("current_revenue"))
+        _cpct_before = _f(next_fin.get("cogs_percent_of_revenue"))
         if spec.get("current_revenue"):
           # CW-022 #7: a price-only move holds COGS DOLLARS (volume
           # held), so the stated cogs PERCENT must rescale with the
           # anchor — leaving it fixed silently inflated the client's
           # stated supplies dollars by the price ratio (Fetch & Fluff:
           # $5,900 became $14,676).
-          _old_rev = _f(next_fin.get("current_revenue"))
           _new_rev = float(spec["current_revenue"])
           next_fin["current_revenue"] = _new_rev
           if _old_rev > 0 and _new_rev > 0 and abs(_new_rev - _old_rev) > 0.005 * _old_rev:
             _k = _old_rev / _new_rev
-            _cpct = _f(next_fin.get("cogs_percent_of_revenue"))
-            if _cpct > 0:
-              next_fin["cogs_percent_of_revenue"] = round(_cpct * _k, 6)
+            if _cpct_before > 0:
+              next_fin["cogs_percent_of_revenue"] = round(_cpct_before * _k, 6)
         # CW-022 #4: an accepted price lever owes the client the demand
         # question - stamp it; the next gate message leads with it.
         _st_pc = get_state(next_fin)
@@ -616,12 +731,51 @@ def apply_router_patch(
             for p in (spec.get("prices") or [])
           ],
         }
+        # PHASE 2: record the lever's own writes so the band-identity
+        # digest can exclude them (lever moves re-evaluate, never
+        # re-judge - CW-020); a later CLIENT correction to a different
+        # value re-enters the digest and re-judges.
+        _lw = dict(_st_pc.get("_lever_writes") or {})
+        if spec.get("current_revenue"):
+          _record_lever_write(
+            _lw, "current_revenue",
+            _old_rev if _old_rev > 0 else None, float(spec["current_revenue"]))
+        _cpct_now = _f(next_fin.get("cogs_percent_of_revenue"))
+        if _cpct_now > 0 and _cpct_now != _cpct_before:
+          _record_lever_write(
+            _lw, "cogs_percent_of_revenue",
+            _cpct_before if _cpct_before > 0 else None, float(_cpct_now))
+        _st_pc["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_pc)
         notes.append(f"option:{option_id}:prices")
       elif spec.get("kind") == "financials_fields":
+        _st_cw = dict(get_state(next_fin))
+        _lw = dict(_st_cw.get("_lever_writes") or {})
         for fp in spec.get("fields") or []:
           if fp.get("group") == "financials" and fp.get("field"):
-            next_fin[str(fp["field"])] = fp.get("value")
+            _field = str(fp["field"])
+            _value = fp.get("value")
+            # PHASE 2: record the lever write in the terms the identity
+            # digest reads (the Recalc will re-derive the twins) -
+            # pre-write value captured BEFORE the field lands.
+            if _field == "payroll_adjustment":
+              _base = _f(next_fin.get("baseline_payroll_year1"))
+              _record_lever_write(
+                _lw, "baseline_payroll_year1",
+                _base if _base > 0 else None,
+                round((_base or 0.0) + (_f(_value) or 0.0), 2))
+            elif _field == "other_operating_expense":
+              _opex = _f(next_fin.get("other_opex_absolute"))
+              _record_lever_write(
+                _lw, "other_opex_absolute",
+                _opex if _opex > 0 else None,
+                round((_f(_value) or 0.0) * 12.0, 2))
+            else:
+              _prior = _f(next_fin.get(_field)) if next_fin.get(_field) is not None else None
+              _record_lever_write(_lw, _field, _prior, _f(_value))
+            next_fin[_field] = _value
+        _st_cw["_lever_writes"] = _lw
+        next_fin = put_state(next_fin, _st_cw)
         notes.append(f"option:{option_id}:costs")
 
   overrides = remaining.pop("ops.product_overrides", remaining.pop("product_overrides", None))
@@ -1059,33 +1213,49 @@ def gate_and_turn(
   # intake cannot close on a promise the corrected numbers no longer earn.
 
   if state.get("status") == _ctl.STATUS_ROADMAP:
-    # Roadmap already delivered — keep the door open without repeating
-    # the whole speech, never complete, and actually ENGAGE with what
-    # the client just said (a canned line every turn reads as a loop —
-    # the walk E2E's runner literally flagged it as one).
-    fallback = (
-      "We're in roadmap territory - the full picture is a few messages up. "
-      "Ask me anything about those numbers or milestones, and when one of them "
-      "changes in the real world, tell me and we'll rerun the same arithmetic. "
-      "Nothing ships until the plan can work on paper."
+    # PHASE 2 (Nick-ruled): the roadmap is NOT a latch. If the identity
+    # (including the client-stated financials basis) changed since the
+    # roadmap was delivered, clear it and fall through to a fresh
+    # evaluation - the wording's promise, kept.
+    _rm_digest, _ = _compute_band_identity_digest(
+      state,
+      ops_json=ops_json, people_json=people_json, market_json=market_json,
+      marketing_model_json=marketing_model_json, financials_json=financials_json,
     )
-    message = fallback
-    if naturalize is not None and str(user_text or "").strip():
-      payload = state.get("roadmap") or {}
-      context = (
-        "You are the intake consultant. The client's business plan cannot work yet: even "
-        "the most favorable believable configuration falls short by about "
-        f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter. "
-        "You have already delivered the full roadmap: "
-        + "; ".join(f"{m.get('title')} ({m.get('detail')})" for m in payload.get("milestones") or [])
-        + ". The client just said: \"" + str(user_text).strip()[:600] + "\". "
-        "Reply in 2-4 warm, plain sentences: respond to what they actually said, connect it "
-        "to the roadmap milestones where it fits, and close by reminding them their numbers "
-        "stay saved and nothing ships until the plan can work on paper. Do not invent any "
-        "new figure. Keep the phrase 'work on paper'."
+    if state.get("digest_hash") and state.get("digest_hash") != _rm_digest:
+      state = dict(state)
+      for _k in ("roadmap", "corner", "bounds", "round", "status", "_lever_writes"):
+        state.pop(_k, None)
+      financials_json = put_state(financials_json, state)
+      # fall through to the normal gate flow below (the fresh
+      # _ensure_margin_band restamps the digest at the new epoch)
+    else:
+      # Roadmap stands (identity unchanged) — keep the door open without
+      # repeating the whole speech, never complete, and ENGAGE with what
+      # the client just said (a canned line every turn reads as a loop).
+      fallback = (
+        "We're in roadmap territory - the full picture is a few messages up. "
+        "Ask me anything about those numbers or milestones, and when one of them "
+        "changes in the real world, tell me and we'll rerun the same arithmetic. "
+        "Nothing ships until the plan can work on paper."
       )
-      message = _safe_naturalize(fallback, lambda _t: naturalize(context))
-    return {"assistant_message": message}, financials_json, ""
+      message = fallback
+      if naturalize is not None and str(user_text or "").strip():
+        payload = state.get("roadmap") or {}
+        context = (
+          "You are the intake consultant. The client's business plan cannot work yet: even "
+          "the most favorable believable configuration falls short by about "
+          f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter. "
+          "You have already delivered the full roadmap: "
+          + "; ".join(f"{m.get('title')} ({m.get('detail')})" for m in payload.get("milestones") or [])
+          + ". The client just said: \"" + str(user_text).strip()[:600] + "\". "
+          "Reply in 2-4 warm, plain sentences: respond to what they actually said, connect it "
+          "to the roadmap milestones where it fits, and close by reminding them their numbers "
+          "stay saved and nothing ships until the plan can work on paper. Do not invent any "
+          "new figure. Keep the phrase 'work on paper'."
+        )
+        message = _safe_naturalize(fallback, lambda _t: naturalize(context))
+      return {"assistant_message": message}, financials_json, ""
 
   # CW-022 #2 (Nick-ruled): ANCHOR-vs-OPS COHERENCE before any verdict.
   # The stated revenue anchor and the operation's own arithmetic must be
