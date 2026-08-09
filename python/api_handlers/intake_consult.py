@@ -12182,14 +12182,23 @@ def post_intake_consult_handler(*, app, request):
       if str(focus).strip().lower() == "financials"
       else None
     )
-    shared_context_for_router = shared_context
+    # The router reads intake FACTS - never the engine's build
+    # artifacts. model_input_json / finmo_json are post-run outputs
+    # that reach hundreds of KB (Fetch & Fluff: a 685KB model input
+    # blew the router's context window on the first post-run turn the
+    # draft ever took - latent since those keys joined
+    # build_shared_context; only post-run drafts ever see it).
+    _ROUTER_CONTEXT_EXCLUDED_KEYS = ("model_input_json", "finmo_json")
+    shared_context_for_router = {
+      k: v for k, v in (shared_context or {}).items()
+      if k not in _ROUTER_CONTEXT_EXCLUDED_KEYS
+    }
     try:
       router_candidates = ops_json.get("business_type_candidates")
       if isinstance(router_candidates, list) and router_candidates:
-        shared_context_for_router = dict(shared_context or {})
         shared_context_for_router["business_type_candidates"] = router_candidates
     except Exception:
-      shared_context_for_router = shared_context
+      pass
     # People rest-of-team payroll step: hand the router the same controller-style
     # frame the financials stages use, so a direct answer to the question becomes
     # an edit_patch instead of falling through to continue_chat (which would send
