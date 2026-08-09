@@ -25,6 +25,7 @@ Doctrine (locked):
 from __future__ import annotations
 
 import copy
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -357,6 +358,40 @@ def _ensure_margin_band(
     marketing_model_json=marketing_model_json, financials_json=financials_json,
   )
   if state.get("margin_band_judgment") and state.get("digest_hash") == digest_hash:
+    # PHASE 3 MIGRATION BACKFILL (found by the keystone rerun): stamps
+    # authored before the walls table carry no labor_intensity_class,
+    # and with the identity unchanged they never re-author - so the
+    # payroll wall was silently DEAD on every legacy draft (Sparrow's
+    # 17:23 rerun stamp replayed "clears every structural test" at a
+    # 72% share). The band must NOT re-roll on an unchanged identity
+    # (CW-017), so the missing judgment is authored ALONE - same judge,
+    # same fence, band numbers untouched. Transient failure leaves it
+    # absent (no wall this turn, retried next turn) and logs loudly.
+    _mbj = state.get("margin_band_judgment")
+    if isinstance(_mbj, dict) and not _mbj.get("labor_intensity_class"):
+      try:
+        from client_intake_and_finmo.post_intake_headcount.gpt_margin_band_judgment import (
+          gpt_author_labor_intensity_class_once,
+        )
+        _res = gpt_author_labor_intensity_class_once(compact=compact)
+        if _res.get("ok"):
+          state = dict(state)
+          _mbj = dict(_mbj)
+          _mbj["labor_intensity_class"] = _res["labor_intensity_class"]
+          _mbj["notes"] = list(_mbj.get("notes") or []) + [
+            "labor_intensity_class_backfilled"
+          ]
+          state["margin_band_judgment"] = _mbj
+        else:
+          logging.getLogger("intake_coherence.section").error(
+            "labor_intensity_class backfill failed (%s) - the payroll "
+            "wall stays absent for this draft until a later turn "
+            "succeeds", _res.get("error"),
+          )
+      except Exception:
+        logging.getLogger("intake_coherence.section").exception(
+          "labor_intensity_class backfill crashed - wall absent this turn",
+        )
     return state
   state = dict(state)
   # Identity-level change: EVERY judged artifact keyed to the old

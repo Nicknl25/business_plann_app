@@ -114,6 +114,33 @@ else:
     check("W4c (n/a - wall passed)", True)
     check("W4d wall stamped for the panel", bool(wall_state))
 
+# W5: MIGRATION BACKFILL (found by the keystone rerun of the REAL
+# Sparrow draft): a legacy stamp with a MATCHING digest but no class
+# gets the class authored ALONE - band numbers untouched, no re-roll.
+from client_intake_and_finmo.intake_coherence.section import (  # noqa: E402
+    _compute_band_identity_digest, _ensure_margin_band,
+)
+_d_now, _ = _compute_band_identity_digest(
+    {}, ops_json=OPS, people_json={}, market_json={},
+    marketing_model_json={}, financials_json=FIN)
+_legacy_band = {"q11": {"low": 0.12, "high": 0.22, "target": 0.17},
+                "q20": {"low": 0.14, "high": 0.25, "target": 0.195},
+                "fixed_cost_burden_max_q11": 0.82,
+                "margin_character": "labor-bound personal services",
+                "notes": []}
+_st_legacy = {"margin_band_judgment": dict(_legacy_band), "digest_hash": _d_now}
+_st_after = _ensure_margin_band(
+    _st_legacy, ops_json=copy.deepcopy(OPS), people_json={}, market_json={},
+    marketing_model_json={}, financials_json=dict(FIN),
+    financials_year1_json={})
+_mbj_after = _st_after.get("margin_band_judgment") or {}
+check("W5 legacy stamp backfilled with a judged class (live GPT), band "
+      f"numbers untouched (class={_mbj_after.get('labor_intensity_class')!r})",
+      _mbj_after.get("labor_intensity_class") in ("low", "medium", "high", "expert")
+      and _mbj_after.get("q11") == _legacy_band["q11"]
+      and _mbj_after.get("fixed_cost_burden_max_q11") == 0.82
+      and "labor_intensity_class_backfilled" in (_mbj_after.get("notes") or []))
+
 print()
 fails = results.count(False)
 print(f"{len(results) - fails}/{len(results)} passed")

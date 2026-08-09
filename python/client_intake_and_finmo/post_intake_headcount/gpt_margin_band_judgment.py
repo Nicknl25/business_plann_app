@@ -446,6 +446,97 @@ def gpt_author_margin_band_once(
   return {"ok": True, "judgment": parsed, "error": None}
 
 
+_CLASS_ONLY_TOOL: Dict[str, Any] = {
+  "type": "function",
+  "function": {
+    "name": "submit_labor_intensity_class",
+    "description": "Submit the labor-intensity class judgment. Call exactly once.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "labor_intensity_class": _SUBMIT_TOOL["function"]["parameters"]["properties"]["labor_intensity_class"],
+      },
+      "required": ["labor_intensity_class"],
+    },
+  },
+}
+
+
+def gpt_author_labor_intensity_class_once(
+  *,
+  compact: Dict[str, Any],
+  model: Optional[str] = None,
+  seed: int = 1733,
+  timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+  _http: Optional[Callable[..., Any]] = None,
+) -> Dict[str, Any]:
+  """BACKFILL AUTHOR (walls-table migration): band stamps authored
+  before phase 3 carry no labor_intensity_class, and their identity is
+  unchanged - so the band must NOT re-roll (CW-017 band stability), but
+  the missing judgment is authored ALONE. Same judge, same fence
+  (nothing about the plan's numbers or verdicts), band numbers
+  untouched. Returns {ok, labor_intensity_class, error}."""
+  api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+  if api_key is None:
+    return {"ok": False, "labor_intensity_class": None, "error": "openai_api_key_unset"}
+  http_fn = _http
+  if http_fn is None:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      post_openai_with_retries,
+    )
+    http_fn = post_openai_with_retries
+  system = (
+    "You are the EXECUTIVE-MANAGER naming how labor-intensive one specific "
+    "business structurally is. Judge the TYPE from what the work physically "
+    "requires - never any plan number. 'low': capital/inventory-driven, few "
+    "hands per revenue dollar. 'medium': balanced labor and assets. 'high': "
+    "the service IS people's hours (cleaning, landscaping, restaurants, "
+    "salons, trades). 'expert': credentialed-specialist hours at premium "
+    "wages (law, medicine, engineering consultancy). A business whose "
+    "service is hours is 'high' even when its stated payroll happens to be "
+    "low. Call submit_labor_intensity_class exactly once."
+  )
+  payload = {
+    "model": _resolve_model(model),
+    "messages": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": (
+        "BUSINESS COMPACT (what this business IS):\n"
+        + json.dumps(compact or {}, ensure_ascii=False, default=str)
+      )},
+    ],
+    "tools": [_CLASS_ONLY_TOOL],
+    "tool_choice": {"type": "function", "function": {"name": "submit_labor_intensity_class"}},
+    "seed": int(seed),
+  }
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  try:
+    resp = http_fn(
+      url=_OPENAI_URL, headers=headers, payload=payload,
+      timeout_seconds=timeout_seconds,
+      retryable_status=(429, 500, 502, 503, 504), max_attempts=3,
+    )
+  except Exception as exc:
+    return {"ok": False, "labor_intensity_class": None,
+            "error": f"http_error:{type(exc).__name__}:{str(exc)[:200]}"}
+  status = int(getattr(resp, "status_code", 0) or 0)
+  if status != 200:
+    return {"ok": False, "labor_intensity_class": None, "error": f"http_status_{status}"}
+  try:
+    body = resp.json()
+    message = (body.get("choices") or [{}])[0].get("message") or {}
+    fn = ((message.get("tool_calls") or [{}])[0] or {}).get("function") or {}
+    args_raw = fn.get("arguments")
+    parsed = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+  except Exception as exc:
+    return {"ok": False, "labor_intensity_class": None,
+            "error": f"tool_call_parse_failed:{type(exc).__name__}"}
+  cls = str((parsed or {}).get("labor_intensity_class") or "").strip().lower()
+  if cls not in ("low", "medium", "high", "expert"):
+    return {"ok": False, "labor_intensity_class": None, "error": f"class_invalid:{cls[:40]}"}
+  return {"ok": True, "labor_intensity_class": cls, "error": None}
+
+
 def validate_margin_band_judgment(
   *,
   judgment: Dict[str, Any],
