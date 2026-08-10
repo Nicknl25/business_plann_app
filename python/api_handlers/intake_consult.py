@@ -1090,14 +1090,12 @@ def _resolve_cogs_baseline_or_raise(
   conn,
   ops_json: Dict[str, Any],
   shared_context: Dict[str, Any],
-  estimate_cogs_percent_from_context,
   financials_year1_json: Dict[str, Any],
 ) -> Dict[str, Any]:
   baseline = _compute_cogs_baseline(
     conn=conn,
     ops_json=ops_json,
     shared_context=shared_context,
-    estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
     financials_year1_json=financials_year1_json,
   )
   if isinstance(baseline, dict):
@@ -1112,7 +1110,6 @@ def _compute_cogs_baseline(
   conn,
   ops_json: Dict[str, Any],
   shared_context: Dict[str, Any],
-  estimate_cogs_percent_from_context,
   financials_year1_json: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
   revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
@@ -2436,18 +2433,18 @@ def _maybe_autocomplete_revenue_intro(
   return next_financials
 
 
-def _financials_baseline_estimators() -> Tuple[Any, Any]:
+def _financials_baseline_estimators() -> Any:
+  """The marketing baseline estimator only - the plain COGS estimator is
+  DELETED (CW-024 #110/#111 cleanup; the fit judge is the one COGS path)."""
   try:
     from financials_consultant import (  # type: ignore
-      estimate_cogs_percent_from_context as _estimate_cogs_percent_from_context,
       estimate_marketing_baseline_from_context as _estimate_marketing_baseline_from_context,
     )
   except Exception:
     from client_intake_and_finmo.financials_consultant import (  # type: ignore
-      estimate_cogs_percent_from_context as _estimate_cogs_percent_from_context,
       estimate_marketing_baseline_from_context as _estimate_marketing_baseline_from_context,
     )
-  return _estimate_cogs_percent_from_context, _estimate_marketing_baseline_from_context
+  return _estimate_marketing_baseline_from_context
 
 
 def _build_financials_stage_message(
@@ -2461,7 +2458,7 @@ def _build_financials_stage_message(
   conn,
 ) -> str:
   stage = str(stage_name or "").strip()
-  estimate_cogs_percent_from_context, estimate_marketing_baseline_from_context = _financials_baseline_estimators()
+  estimate_marketing_baseline_from_context = _financials_baseline_estimators()
   if stage == "revenue_intro":
     return _build_financials_revenue_intro_message(
       intake_context=intake_context,
@@ -2473,7 +2470,6 @@ def _build_financials_stage_message(
       conn=conn,
       ops_json=dict((shared_context or {}).get("operating_model") or {}),
       shared_context=shared_context,
-      estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
       financials_year1_json=financials_year1_json,
     )
     return _build_cogs_baseline_message(baseline)
@@ -2574,7 +2570,7 @@ def _financials_stage_default_patch(
   conn,
 ) -> Optional[Dict[str, Any]]:
   stage = str(stage_name or "").strip()
-  estimate_cogs_percent_from_context, estimate_marketing_baseline_from_context = _financials_baseline_estimators()
+  estimate_marketing_baseline_from_context = _financials_baseline_estimators()
   if stage == "revenue_intro":
     baseline_revenue = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if baseline_revenue is None:
@@ -2587,7 +2583,6 @@ def _financials_stage_default_patch(
       conn=conn,
       ops_json=dict((shared_context or {}).get("operating_model") or {}),
       shared_context=shared_context,
-      estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
       financials_year1_json=financials_year1_json,
     )
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
@@ -12328,7 +12323,7 @@ def post_intake_consult_handler(*, app, request):
     # NameError and the bare except swallowed it to {} fleet-wide for
     # months. Bind it here, and the swallow below is GONE per the
     # no-silent-degradation doctrine.
-    _, _marketing_estimator = _financials_baseline_estimators()
+    _marketing_estimator = _financials_baseline_estimators()
 
     def _refresh_marketing_model() -> Dict[str, Any]:
       nonlocal marketing_model_json, shared_context

@@ -524,6 +524,7 @@ def _costs_round(
   bounds: Dict[str, Any],
   financials_json: Dict[str, Any],
   demand: Optional[Dict[str, Any]] = None,
+  essentials: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   """Cost-structure options at the judged floors. Patch specs are
   financials-field edits (annual dollars, the fields intake owns)."""
@@ -534,6 +535,27 @@ def _costs_round(
   floors = bounds.get("cost_floors") or {}
   team = bounds.get("team") or {}
   fac = bounds.get("facility") or {}
+  # THE ESSENTIALS JUDGE (CW-024, Nick-ruled supersede of the CW-022 #5
+  # ask-first): a REASONED composition verdict per composite line. The
+  # cut floor for a judged line rises to the CONSERVATIVE (high) edge of
+  # its essential share - only the discretionary slice is ever offered,
+  # and the wording names what stays protected. Absent/withheld -> the
+  # ask-first wording remains (absence of judgment is never a verdict).
+  _ess_lines = (essentials or {}).get("lines") if isinstance(essentials, dict) else None
+  _ess_lines = _ess_lines if isinstance(_ess_lines, dict) else {}
+
+  def _essential_floor_pct(line_key: str, current_pct: float) -> Optional[Dict[str, Any]]:
+    _e = _ess_lines.get(line_key)
+    if not isinstance(_e, dict):
+      return None
+    _band = _e.get("essential_fraction_band")
+    if not (isinstance(_band, (list, tuple)) and len(_band) == 2):
+      return None
+    _hi = max(0.0, min(1.0, _f(_band[1])))
+    return {
+      "floor_pct": current_pct * _hi,
+      "named": str(_e.get("named_essentials") or "").strip(),
+    }
   # Client-asserted floors: costs the client declared committed (signed
   # lease, employment contracts). The walk may NEVER propose cutting
   # them — the corresponding move simply does not exist.
@@ -594,6 +616,9 @@ def _costs_round(
   # dollars are the source (patch them); ratio/legacy patches the pct
   # and the Recalc re-derives the dollars.
   cogs_floor = _f(floors.get("cogs_percent_of_revenue_min"), basis.cogs_pct)
+  _ess_cogs = _essential_floor_pct("cogs", basis.cogs_pct)
+  if _ess_cogs:
+    cogs_floor = max(cogs_floor, _ess_cogs["floor_pct"])
   if not client_floors.get("cogs") and cogs_floor < basis.cogs_pct - 1e-6:
     new_annual = round(cogs_floor * ann_rev, 2)
     _cur_annual = basis.cogs_pct * ann_rev
@@ -612,11 +637,17 @@ def _costs_round(
       "field_patch": field_patch,
       "extra_field_patches": extra,
       "from_display": _fmt_money(_cur_annual),
-      "to_display": _fmt_money(new_annual),
+      "to_display": _fmt_money(new_annual)
+                    + (f" (keeps the {_ess_cogs['named']} the work itself needs)"
+                       if _ess_cogs and _ess_cogs.get("named") else ""),
       "deep_cut": _deep_cut(_cur_annual, new_annual),
+      "essentials_reasoned": bool(_ess_cogs),
     }
 
   gna_floor = _f(floors.get("g_and_a_percent_of_revenue_min"), basis.gna_pct)
+  _ess_gna = _essential_floor_pct("gna", basis.gna_pct)
+  if _ess_gna:
+    gna_floor = max(gna_floor, _ess_gna["floor_pct"])
   if not client_floors.get("gna") and gna_floor < basis.gna_pct - 1e-6:
     new_annual = round(gna_floor * ann_rev, 2)
     _cur_annual = basis.gna_pct * ann_rev
@@ -627,8 +658,11 @@ def _costs_round(
       "field_patch": {"group": "financials", "field": "other_operating_expense",
                       "value": round(new_annual / 12.0, 2)},
       "from_display": _fmt_money(_cur_annual),
-      "to_display": _fmt_money(new_annual),
+      "to_display": _fmt_money(new_annual)
+                    + (f" (keeps the {_ess_gna['named']} your business runs on)"
+                       if _ess_gna and _ess_gna.get("named") else ""),
       "deep_cut": _deep_cut(_cur_annual, new_annual),
+      "essentials_reasoned": bool(_ess_gna),
     }
 
   # RENT LEASE-GATE (Nick-ruled, build 3): rent is a COMMITMENT, not a
@@ -709,10 +743,22 @@ def _costs_round(
     closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
     deep = any(m.get("deep_cut") for m in picked.values())
     lease_unknown = any(m.get("lease_unknown") for m in picked.values())
+    # CW-024 (Nick-ruled supersede of CW-022 #5): when EVERY deep-cut
+    # move in this option was sized by the essentials judge, the cut
+    # already protects what the business can't drop - the wording says
+    # so instead of assigning the client homework. The ask-first
+    # question survives ONLY where the judge could not tell.
+    _deep_unreasoned = any(
+      m.get("deep_cut") and not m.get("essentials_reasoned")
+      for m in picked.values()
+    )
     _suffix = ""
-    if deep:
+    if deep and _deep_unreasoned:
       _suffix += (" - only if what's inside those lines can really shrink; "
                   "tell me what's in them first")
+    elif deep:
+      _suffix += (" - sized around the costs your business can't do without, "
+                  "so only the flexible part moves")
     if lease_unknown:
       _suffix += (" - and only if your space is month-to-month or the lease "
                   "is ending; if it's a signed commitment, say so and I'll "
@@ -956,6 +1002,9 @@ def plan_rounds(
   # edge only. Absent/withheld -> rounds keep pre-demand behavior.
   demand = ((financials_json or {}).get("_coherence") or {}).get("demand_response")
   demand = demand if isinstance(demand, dict) and not demand.get("withheld") else None
+  essentials = ((financials_json or {}).get("_coherence") or {}).get("essentials_response")
+  essentials = (essentials if isinstance(essentials, dict)
+                and not essentials.get("withheld") else None)
   rounds = []
   if ROUND_PRICING not in done:
     r = _pricing_round(basis, thresholds, bounds, split, demand=demand)
@@ -966,7 +1015,8 @@ def plan_rounds(
     if r:
       rounds.append(r)
   if ROUND_COSTS not in done:
-    r = _costs_round(basis, thresholds, bounds, financials_json, demand=demand)
+    r = _costs_round(basis, thresholds, bounds, financials_json, demand=demand,
+                     essentials=essentials)
     if r:
       rounds.append(r)
   if ROUND_NEW_LINES not in done:
@@ -1054,7 +1104,8 @@ def roadmap_payload(
     if cap > 0:
       milestones.append({
         "key": f"prove_{str((nl or {}).get('product') or 'channel').strip()}",
-        "title": f"prove {str((nl or {}).get('product') or 'a second channel').strip()} with real orders",
+        "title": (f"a pilot for {str((nl or {}).get('product') or 'a second channel').strip()}"
+                  " - a few real orders from customers you already serve"),
         "detail": f"realistic potential up to {_fmt_money(cap)}/quarter"
                   + (
                     f" at {round(_f((nl or {}).get('gross_margin_pct')) * 100)}% margin"

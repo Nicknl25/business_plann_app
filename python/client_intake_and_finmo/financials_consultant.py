@@ -642,88 +642,11 @@ def fit_cogs_percent_from_evidence(
   return None
 
 
-def _cogs_estimate_schema() -> Dict[str, Any]:
-  return {
-    "name": "financials_cogs_estimate",
-    "schema": {
-      "type": "object",
-      "additionalProperties": False,
-      "properties": {
-        "estimated_cogs_percent": {"type": "number"},
-        "brief_rationale": {"type": "string"},
-      },
-      "required": ["estimated_cogs_percent", "brief_rationale"],
-    },
-  }
-
-
-def estimate_cogs_percent_from_context(
-  *,
-  cogs_estimate_context: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
-  if not isinstance(cogs_estimate_context, dict):
-    return None
-  naics_6 = str(cogs_estimate_context.get("business_naics_6") or "").strip()
-  financials_year1_json = dict(cogs_estimate_context.get("financials_year1_json") or {})
-  revenue_year1 = float(financials_year1_json.get("company_revenue_total_year1") or 0.0)
-  if revenue_year1 <= 0 or not naics_6:
-    return None
-
-  api_key = _require_openai_key()
-  model = _openai_model()
-  schema_wrapper = _cogs_estimate_schema()
-  payload = {
-    "model": model,
-    "input": [
-      {
-        "role": "system",
-        "content": (
-          "You are producing a single Year-1 direct-cost estimate for a business-plan intake when exact industry COGS benchmark coverage is unavailable.\n"
-          "Return one best estimated COGS percent of revenue as a decimal fraction, not a range.\n"
-          "COGS here means direct fulfillment/delivery costs only. Do not include payroll, rent, owner pay, marketing, or general overhead unless the business model clearly makes them direct fulfillment costs.\n"
-          "Use the exact 6-digit NAICS, business type, operating model, pricing, capacity, cadence, staffing context, and all other provided business facts.\n"
-          "Do not use broad parent-NAICS averages. Do not ask questions. You must return one usable estimate."
-        ),
-      },
-      {
-        "role": "user",
-        "content": json.dumps(cogs_estimate_context, ensure_ascii=False),
-      },
-    ],
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": schema_wrapper["name"],
-        "schema": schema_wrapper["schema"],
-        "strict": True,
-      }
-    },
-  }
-  url = "https://api.openai.com/v1/responses"
-  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  for _ in range(2):
-    try:
-      resp = _post_openai(url=url, headers=headers, payload=payload)
-    except Exception:
-      continue
-    if resp.status_code >= 400:
-      continue
-    try:
-      parsed = _parse_responses_json(resp.json())
-    except Exception:
-      continue
-    if not isinstance(parsed, dict):
-      continue
-    try:
-      percent = float(parsed.get("estimated_cogs_percent"))
-    except Exception:
-      continue
-    percent = max(0.0, min(percent, 1.0))
-    return {
-      "estimated_cogs_percent": percent,
-      "brief_rationale": str(parsed.get("brief_rationale") or "").strip(),
-    }
-  return None
+# CW-024 #110/#111 cleanup (Nick-ruled: dead code is a heretic-minting
+# surface): estimate_cogs_percent_from_context and its schema are GONE.
+# Every COGS proposal - covered or uncovered NAICS - comes from
+# fit_cogs_percent_from_evidence with a band and a reconciliation; the
+# plain point-estimator path no longer exists to be called.
 
 
 def _payroll_reply_schema() -> Dict[str, Any]:

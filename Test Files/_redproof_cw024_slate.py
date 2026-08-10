@@ -461,9 +461,6 @@ guarded("RP12 CORE the gate's evaluator judges the CORRECTED payroll, not the "
 # ------------------ RP13: fitted COGS band on an uncovered NAICS (GPT)
 def rp13():
     from api_handlers.intake_consult import _compute_cogs_baseline
-    from client_intake_and_finmo.financials_consultant import (
-        estimate_cogs_percent_from_context,
-    )
 
     class _Cur:
         def execute(self, *a, **k):
@@ -489,7 +486,6 @@ def rp13():
             "business_type": "Grounds maintenance and landscaping services",
             "business_stage": "existing",
         }},
-        estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
         financials_year1_json={"company_revenue_total_year1": 265000.0},
     )
     if not isinstance(baseline, dict):

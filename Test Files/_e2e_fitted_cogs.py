@@ -31,9 +31,6 @@ from api_handlers.intake_consult import (  # noqa: E402
     _build_cogs_baseline_message, _build_financials_stage_acknowledgement,
     _financials_stage_default_patch, _resolve_cogs_baseline_or_raise,
 )
-from client_intake_and_finmo.financials_consultant import (  # noqa: E402
-    estimate_cogs_percent_from_context,
-)
 
 conn = mysql.connector.connect(
     host=os.getenv("MYSQL_HOST"), user=os.getenv("MYSQL_USER"),
@@ -66,7 +63,6 @@ Y1 = {"company_revenue_total_year1": 384000.0}
 # cohort 88%.
 baseline = _resolve_cogs_baseline_or_raise(
     conn=conn, ops_json=OPS_JANITORIAL, shared_context=SHARED,
-    estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
     financials_year1_json=Y1)
 pct = float(baseline.get("baseline_cogs_percent") or 0.0)
 rationale = str(baseline.get("cogs_basis_rationale") or "")
@@ -131,19 +127,20 @@ ack = _build_financials_stage_acknowledgement(
 check("F3b ack is range-flavored and invites correction, never flat "
       "fact", "typically runs" in ack and "correct me" in ack)
 
-# F4: honest degradation - an UNCOVERED NAICS keeps the plain
-# materials estimator (no cohort evidence, no fabricated band).
+# F4: an UNCOVERED NAICS also goes through the fit judge (CW-024
+# #110/#111 - the plain estimator is deleted): no fabricated cohort
+# evidence field, a real band, sane pct.
 OPS_UNCOVERED = dict(OPS_JANITORIAL, business_naics_6="812910",
                      business_type="Pet grooming",
                      business_description_summary="Mobile pet grooming.")
 baseline_u = _resolve_cogs_baseline_or_raise(
     conn=conn, ops_json=OPS_UNCOVERED,
     shared_context={"operating_model": OPS_UNCOVERED},
-    estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
     financials_year1_json=Y1)
-check("F4 uncovered NAICS: plain estimator fallback, no cohort "
+check("F4 uncovered NAICS: fit-judge fallback with a band, no cohort "
       f"evidence field, sane pct ({float(baseline_u['baseline_cogs_percent']):.1%})",
       "cogs_fit_cohort_cost_of_revenue" not in baseline_u
+      and isinstance(baseline_u.get("cogs_fit_band"), list)
       and 0.0 < float(baseline_u["baseline_cogs_percent"]) <= 0.6)
 
 conn.close()

@@ -411,6 +411,10 @@ def _ensure_margin_band(
       market_json=market_json, ops_json=ops_json,
       financials_json=financials_json,
     )
+    state = _ensure_essentials_response(
+      state, compact=compact, ops_json=ops_json,
+      financials_json=financials_json,
+    )
     return state
   state = dict(state)
   # Identity-level change: EVERY judged artifact keyed to the old
@@ -422,7 +426,8 @@ def _ensure_margin_band(
   # $75 of a $2,700 move). Growth re-derives when the walk is over.
   if state.get("digest_hash") and state.get("digest_hash") != digest_hash:
     stale_keys = ["growth_error", "bounds", "bounds_error", "corner", "round",
-                  "demand_response"]
+                  "demand_response", "essentials_response",
+                  "corner_collapse_hold"]
     round_live = state.get("status") == _ctl.STATUS_WALKING and state.get("round")
     if round_live:
       state["growth_frozen_during_round"] = True
@@ -565,10 +570,15 @@ def _ensure_margin_band(
   state["margin_band_judgment"] = validated
   state.pop("margin_band_error", None)
   # THE DEMAND JUDGE rides the same F-core seam (Nick-ruled #5):
-  # authored with the band, invalidated with the band.
+  # authored with the band, invalidated with the band. THE ESSENTIALS
+  # JUDGE rides it too (CW-024).
   state = _ensure_demand_response(
     state, compact=compact, marketing_model_json=marketing_model_json,
     market_json=market_json, ops_json=ops_json,
+    financials_json=financials_json,
+  )
+  state = _ensure_essentials_response(
+    state, compact=compact, ops_json=ops_json,
     financials_json=financials_json,
   )
   return state
@@ -688,6 +698,74 @@ def _ensure_demand_response(
   except Exception:
     logging.getLogger("intake_coherence.section").exception(
       "DEMAND_JUDGE_AUTHOR_CRASHED - levers keep pre-demand behavior",
+    )
+  return state
+
+
+def _ensure_essentials_response(
+  state: Dict[str, Any],
+  *,
+  compact: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """THE ESSENTIALS JUDGE stamp (CW-024, Nick-ruled supersede of the
+  CW-022 #5 ask-first): authored once per identity alongside the band
+  and the demand judgment; identity change clears it with the other
+  judged artifacts. FAIL-SOFT: essentials ENRICH the costs round, they
+  never gate - a failed authoring logs loudly and retries at the next
+  gate entry, and the round keeps the ask-first wording (absence of
+  judgment is never a verdict). THIN evidence is enforced in the
+  validator: withheld verdicts, ask-first preserved."""
+  if state.get("essentials_response"):
+    return state
+  try:
+    from client_intake_and_finmo.intake_coherence.gpt_essentials_judgment import (
+      essentials_evidence_level,
+      gpt_author_essentials_once,
+      validate_essentials,
+    )
+    evidence = essentials_evidence_level(ops_json, financials_json)
+    if evidence["level"] != "rich":
+      state = dict(state)
+      state["essentials_response"] = validate_essentials(
+        judgment={}, evidence=evidence,
+      )
+      return state
+    _rev = _f(financials_json.get("current_revenue"))
+    _gna_ann = _f(financials_json.get("other_opex_absolute"))
+    if _gna_ann <= 0:
+      _gna_ann = _f(financials_json.get("other_operating_expense")) * 12.0
+    _cogs_ann = _f(financials_json.get("cogs_total_year1"))
+    if _cogs_ann <= 0:
+      _cogs_ann = _f(financials_json.get("current_cogs"))
+    if _cogs_ann <= 0 and _rev > 0:
+      _cogs_ann = _f(financials_json.get("cogs_percent_of_revenue")) * _rev
+    cost_lines = {
+      "other_operating_costs_annual": round(_gna_ann, 2),
+      "direct_costs_annual": round(_cogs_ann, 2),
+      "annual_revenue_stated": round(_rev, 2),
+      "for_context_not_inside_these_lines": {
+        "payroll_annual": _f(financials_json.get("current_payroll")),
+        "rent_monthly": _f(financials_json.get("monthly_rent_expense")),
+        "marketing_annual": _f(financials_json.get("marketing_total_year1")),
+      },
+    }
+    result = gpt_author_essentials_once(compact=compact, cost_lines=cost_lines)
+    if not (result.get("ok") and result.get("judgment")):
+      logging.getLogger("intake_coherence.section").error(
+        "ESSENTIALS_JUDGE_AUTHOR_FAILED (%s) - costs round keeps the "
+        "ask-first wording until a later gate entry succeeds",
+        result.get("error"),
+      )
+      return state
+    state = dict(state)
+    state["essentials_response"] = validate_essentials(
+      judgment=result["judgment"], evidence=evidence,
+    )
+  except Exception:
+    logging.getLogger("intake_coherence.section").exception(
+      "ESSENTIALS_JUDGE_AUTHOR_CRASHED - costs round keeps ask-first wording",
     )
   return state
 
@@ -1685,19 +1763,26 @@ def _opening(eval_result: Dict[str, Any], band_low: float) -> str:
 
 
 def _roadmap_message(payload: Dict[str, Any]) -> str:
+  # POSTURE (c) (Nick-ruled): DISTANCE framing, never failure framing.
+  # The client's real, running business is the starting point; the gap
+  # is a measured distance with named paths that use what they already
+  # have; the close is an invitation, not homework. The two hard
+  # promises (numbers stay saved and rerunnable; nothing ships
+  # pretending, nothing fakes) are kept VERBATIM.
   miles = "; ".join(
     f"{m['title']} ({m['detail']})" for m in payload.get("milestones") or []
   )
   return (
-    "I have to be straight with you, because this plan will face a lender: we checked "
-    "every realistic version of the numbers you've described - prices at the top of "
-    "the market range, every cost at its floor, every opportunity added - and even that "
-    f"best case comes up short (about {payload.get('corner_gap_display')} a quarter at "
-    "the ceiling). That's not a judgment of you; it's arithmetic about this shape of "
-    "the business, and writing a plan that pretends otherwise would not survive the "
-    "first hard question. So instead of a plan that says you fail, let's build the "
-    "roadmap to the business that can have a plan. What would have to become true: "
-    + miles + ". Your numbers stay right here - when one of those changes, come back "
+    "Here's where things honestly stand. The business you've described is real "
+    "and running - what we're measuring is distance, not worth. On today's "
+    "shape, even the strongest realistic version of the numbers sits about "
+    f"{payload.get('corner_gap_display')} a quarter away from a plan a lender "
+    "would fund, and a plan that papered over that wouldn't survive the first "
+    "hard question. So here are the fastest real paths to close that distance, "
+    "built from what you already have, biggest first: " + miles + ". "
+    "Which of those is closest to something you're already doing? Start there "
+    "and the distance shrinks fastest - tell me which one and we'll shape it "
+    "together. Your numbers stay right here - when one of those changes, come back "
     "and we rerun the same arithmetic. Nothing ships saying the business doesn't work "
     "on paper, and nothing gets faked to say it does."
   )
@@ -1861,7 +1946,8 @@ def gate_and_turn(
     if state.get("digest_hash") and state.get("digest_hash") != _rm_digest:
       state = dict(state)
       for _k in ("roadmap", "corner", "bounds", "round", "status",
-                 "_lever_writes", "demand_response"):
+                 "_lever_writes", "demand_response", "essentials_response",
+                 "corner_collapse_hold"):
         state.pop(_k, None)
       financials_json = put_state(financials_json, state)
       # fall through to the normal gate flow below (the fresh
@@ -1880,16 +1966,18 @@ def gate_and_turn(
       if naturalize is not None and str(user_text or "").strip():
         payload = state.get("roadmap") or {}
         context = (
-          "You are the intake consultant. The client's business plan cannot work yet: even "
-          "the most favorable realistic configuration falls short by about "
-          f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter. "
-          "You have already delivered the full roadmap: "
+          "You are the intake consultant. The client's numbers currently sit about "
+          f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter "
+          "away from a plan a lender would fund - a DISTANCE to close, never a failure "
+          "of the client or the business. You have already delivered the paths that close "
+          "it: "
           + "; ".join(f"{m.get('title')} ({m.get('detail')})" for m in payload.get("milestones") or [])
           + ". The client just said: \"" + str(user_text).strip()[:600] + "\". "
-          "Reply in 2-4 warm, plain sentences: respond to what they actually said, connect it "
-          "to the roadmap milestones where it fits, and close by reminding them their numbers "
-          "stay saved and nothing ships until the plan can work on paper. Do not invent any "
-          "new figure. Keep the phrase 'work on paper'."
+          "Reply in 2-4 warm, plain sentences: respond to what they actually said, connect "
+          "it to the closest path where it fits (their existing customers and strengths are "
+          "the vehicle), and close by reminding them their numbers stay saved and nothing "
+          "ships until the plan can work on paper. Never frame it as their failure. Do not "
+          "invent any new figure. Keep the phrase 'work on paper'."
         )
         message = _safe_naturalize(fallback, lambda _t: naturalize(context))
       return {"assistant_message": message}, financials_json, ""
@@ -2207,6 +2295,94 @@ def gate_and_turn(
     return None, financials_json, suffix
 
   # ---------- FAIL: bounds once, corner-first ----------
+  def _pick_receipt() -> str:
+    """POSTURE (a) (Nick-ruled two-beat): the client's just-landed move
+    is acknowledged BEFORE any verdict - engaging can never earn
+    terminal defeat as its direct answer (Cedar Ridge turn 117: 'trim
+    direct costs only' was answered with the defeat speech and no
+    receipt). Deterministic from the same gap state the walking ack
+    uses; a move that didn't help is still received honestly."""
+    if prev_gap is None:
+      return ""
+    if gap < _f(prev_gap) - 0.5:
+      closed = _f(prev_gap) - gap
+      initial = _f(state.get("gap_initial")) or closed
+      pct_total = min(100, round((1 - gap / initial) * 100)) if initial > 0 else 0
+      return (
+        f"First: that change is in, and it moved the plan - the gap closed "
+        f"by {_fmt(closed)} a quarter ({pct_total}% of the way). "
+      )
+    if state.get("round"):
+      return (
+        "First: that change is recorded exactly as you chose it. It didn't "
+        "move the numbers the way we hoped, so here's the honest picture. "
+      )
+    return ""
+
+  _LEVER_LABELS = {
+    "current_revenue": "annual revenue",
+    "marketing_total_year1": "the marketing budget",
+    "cogs_total_year1": "direct costs",
+    "current_cogs": "direct costs",
+    "cogs_percent_of_revenue": "the direct-cost share",
+    "other_operating_expense": "other operating costs",
+    "monthly_rent_expense": "rent",
+    "payroll_adjustment": "team payroll",
+  }
+
+  def _recent_changes_display() -> str:
+    """The walk's own writes, in plain words - what the tripwire
+    disclosure points at."""
+    parts = []
+    for fld, w in (state.get("_lever_writes") or {}).items():
+      if not isinstance(w, dict):
+        continue
+      label = _LEVER_LABELS.get(str(fld), str(fld).replace("_", " "))
+      _fr, _to = w.get("from"), w.get("to")
+      if "percent" in str(fld) or "share" in label:
+        parts.append(f"{label} {_f(_fr) * 100:.0f}% to {_f(_to) * 100:.0f}%"
+                     if _fr is not None else f"{label} to {_f(_to) * 100:.0f}%")
+      else:
+        parts.append(f"{label} {_fmt(_f(_fr))} to {_fmt(_f(_to))}"
+                     if _fr is not None else f"{label} to {_fmt(_f(_to))}")
+    return "; ".join(parts[:5]) if parts else "the adjustments we made together"
+
+  def _deliver_roadmap(corner_obj, bounds_obj, was_walking):
+    """POSTURE (b) (Nick-ruled): a corner that collapses MID-WALK is a
+    TRIPWIRE, not a verdict - mid-course, worse-after-a-change usually
+    means an input is off, not the business (Cedar Ridge: the phantom).
+    One hold turn disclosing what changed; a correction re-keys the
+    identity and re-derives everything, a confirmation (or unchanged
+    inputs next turn) delivers the roadmap - WITH the pick receipt
+    first (posture a). At GATE ENTRY (never walked), the roadmap keeps
+    its immediate timing."""
+    nonlocal financials_json
+    if was_walking and not state.get("corner_collapse_hold"):
+      state["corner_collapse_hold"] = {
+        "gap_quarterly": _f(corner_obj.get("gap_quarterly")),
+      }
+      financials_json = put_state(financials_json, state)
+      msg = (
+        _pick_receipt()
+        + "Before I take this any further: the strongest version of your "
+        "numbers just got worse, and mid-course that usually means an "
+        "input is off rather than the business. What changed on my side: "
+        + _recent_changes_display() + ". If one of those figures isn't "
+        "right, tell me the real one and I'll rerun everything. If they're "
+        "all right, say so and I'll lay out the full picture straight."
+      )
+      return {"assistant_message": msg}, financials_json, ""
+    state["status"] = _ctl.STATUS_ROADMAP
+    state.pop("corner_collapse_hold", None)
+    payload = _ctl.roadmap_payload(
+      corner=corner_obj, eval_result=eval_result, bounds=bounds_obj or {},
+    )
+    state["roadmap"] = payload
+    financials_json = put_state(financials_json, state)
+    return {
+      "assistant_message": (_pick_receipt() + _roadmap_message(payload)).strip(),
+    }, financials_json, ""
+
   state = _ensure_bounds(
     state,
     ops_json=ops_json, people_json=people_json, market_json=market_json,
@@ -2232,17 +2408,15 @@ def gate_and_turn(
   )
   thresholds = thresholds_from_margin_band(band)
 
+  _was_walking = state.get("status") == _ctl.STATUS_WALKING
+
   if not bounds.get("feasible_region_exists", True):
     # ONLY the executive's honest "no believable region" answer routes
     # here. An author failure raised CoherenceJudgmentUnavailable in
     # _ensure_bounds — a transient error is a hold, never a roadmap.
     corner = {"passed": False, "q11": {}, "gap_quarterly": gap}
     state["corner"] = corner
-    state["status"] = _ctl.STATUS_ROADMAP
-    payload = _ctl.roadmap_payload(corner=corner, eval_result=eval_result, bounds=bounds or {})
-    state["roadmap"] = payload
-    financials_json = put_state(financials_json, state)
-    return {"assistant_message": _roadmap_message(payload)}, financials_json, ""
+    return _deliver_roadmap(corner, bounds, _was_walking)
 
   if state.get("corner") is None:
     state["corner"] = _ctl.corner_check(
@@ -2252,11 +2426,7 @@ def gate_and_turn(
   corner = state["corner"]
 
   if not corner.get("passed"):
-    state["status"] = _ctl.STATUS_ROADMAP
-    payload = _ctl.roadmap_payload(corner=corner, eval_result=eval_result, bounds=bounds)
-    state["roadmap"] = payload
-    financials_json = put_state(financials_json, state)
-    return {"assistant_message": _roadmap_message(payload)}, financials_json, ""
+    return _deliver_roadmap(corner, bounds, _was_walking)
 
   # ---------- WALKING ----------
   first_walk = state.get("status") != _ctl.STATUS_WALKING
