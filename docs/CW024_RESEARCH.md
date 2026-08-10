@@ -290,6 +290,70 @@ every string passes the plain-language bar, every fix gets pinned, and every
 split path gets both sides proven — so the app is never again dumber than the
 client it is advising.
 
+## PREVENTION REFRAME (Nick-directed): unrepresentable-by-construction shapes
+
+Ruling: wherever a guard/tripwire/disclosure CATCHES a problem, push up a
+level — fix the root so the bad state cannot exist. Default prevention;
+justify any surviving guard. Reframed shapes per item:
+
+1. **#109 correction doors — PREVENTION (changed shape)**: the root is "a
+   class of correction with no door," so the fix is DOOR COMPLETENESS: every
+   client-visible number has a landing — `people.total_team_payroll` (lands
+   through the existing fold + sub-ruling-(ii) hold), roster-edit shapes
+   (`people.remove_role` / dedupe), both added to DISPUTABLE_FIELDS so
+   mid-round turns carry them (the funnel problem dissolves for doored
+   numbers). "Unlandable correction" stops existing for anything the client
+   can see. **Surviving guard, justified**: the no-silent-drop receipt stays
+   ONLY as the backstop for free-text numbers the router genuinely cannot
+   attribute — that case is not makeable unrepresentable (language is open),
+   so disclosure is the honest floor, not the mechanism.
+2. **#108 double-count — PREVENTION (changed shape)**: no reconciliation
+   guard, no duplicate tripwire. Root A: a group-of-N can never persist as a
+   key-person row — the people applier converts plural/group-shaped rows to
+   the rest-of-team representation AT WRITE (person rows are single humans by
+   construction). Root B: the rest-of-team question fires only over people
+   not already captured and ENUMERATES who is counted ("beyond you and
+   Hector — everyone else"). With both, the same people cannot be entered
+   twice: there is nothing to reconcile because the overlap is
+   unrepresentable. (The rollup-vs-revenue tripwire from the original shape
+   is DROPPED — machinery catching the impossible.)
+3. **#117/#118 ask-then-ignore — PREVENTION (changed shape)**: a solicitation
+   HELPER becomes the only way a question-expecting-an-answer reaches the
+   client — it renders the text AND registers the pending frame + consumer in
+   one call (the pattern the rest-of-team question already uses). A question
+   without a consumer becomes unbuildable through the only door that builds
+   questions; the test standard asserts every interrogative client string
+   site uses the helper. #118 wiring: `price_clarifier_due` becomes a real
+   frame whose consumer scales utilization/anchor to the CLIENT's fraction
+   (overriding the 0.80 edge, as ruled) with lever writes. #117: an
+   acceptance whose text carries explicit contradiction is NOT representable
+   as a clean accept — the stage cannot record while the contradiction is
+   unresolved (the existing ask-first hold pattern, structural).
+4. **#115 capex-zero — PREVENTION (changed shape)**: a stage answer can never
+   be synthesized from a message that does not name the stage's field or a
+   figure attributable to it (explicit none/zero tokens included) — otherwise
+   the turn is NOT a stage answer and routes as correction/chat. Zero
+   synthesis becomes unrepresentable. #84's protection is restored keyed on
+   DOORED fields (not patchable fields — the interaction that killed it),
+   with a pinned regression test.
+5. **#116 park — PREVENTION**: a turn that answers a pending solicitation
+   cannot be a park by construction (frame present → park intent ignored,
+   answer consumed); park requires an explicit stop-intent or a confirm
+   question; Send stays enabled while parked.
+6. **#113 — already the prevention shape** (Nick: "the model"): acceptance
+   cannot move the market fact by construction; the client-statement valve is
+   the stated-fact door doing its normal job.
+7. **#110/#111 — PREVENTION**: the unguarded path is DELETED — one estimator;
+   a COGS proposal without band + reconciliation becomes unrepresentable
+   (the raw cohort average and the plain estimator cease to exist as code
+   paths).
+8. **#114 — PREVENTION**: a volume option above 100% of stored capacity is
+   unrepresentable without an explicit consent step; `capacity_driver=labor`
+   gates the growth half to hire-timing instead.
+9. **Copy + lint (#8)**: the lint makes jargon regression test-impossible;
+   strings-only otherwise. **Test standard (#9)**: job shifts to proving the
+   preventions hold + pinning regressions — not forever-catching.
+
 ## THE SLATE FOR RULING (suggested order)
 1. Correction doors + universal no-silent-drop receipt (#109 core, enables #115/#116 class) 
 2. Rest-of-team reconciliation + group-capture rule (#108)
