@@ -62,19 +62,28 @@ def recalc(d):
     return fin, y1, ppl
 
 
-# P1: coherent (post-keystone Sparrow) -> identical.
+# P1: coherent (post-keystone Sparrow) -> the NUMBERS never move and
+# the pass is a FIXED POINT. (Display-stamp schema enrichment - e.g. a
+# new q20_hold key in _coherence.eval - is legitimate; the safety
+# contract is about the engine-read fields and convergence.)
 d = load("4aa25e24")
 fin, y1, ppl = recalc(d)
-same_fin = fin == d["financials_json"]
-same_y1 = y1 == d["financials_year1_json"]
-same_ppl = ppl == d["people_json"]
-if not same_fin:
-    diff = {k: (d["financials_json"].get(k), fin.get(k))
-            for k in set(d["financials_json"]) | set(fin)
-            if d["financials_json"].get(k) != fin.get(k)}
-    print(f"   fin diff: {json.dumps(diff, default=str)[:600]}")
-check(f"P1 coherent draft ({d['business_name']}) recomputes byte-identical "
-      "(nothing would persist)", same_fin and same_y1 and same_ppl)
+_ENGINE_READ = ("baseline_payroll_year1", "current_payroll",
+                "payroll_total_year1", "current_revenue", "current_cogs",
+                "cogs_total_year1", "cogs_percent_of_revenue",
+                "other_opex_absolute", "marketing_total_year1",
+                "owner_compensation", "payroll_adjustment")
+nums_same = all(fin.get(k) == d["financials_json"].get(k) for k in _ENGINE_READ)
+check(f"P1 coherent draft ({d['business_name']}): every engine-read "
+      "field recomputes identical + people/y1 unchanged",
+      nums_same and y1 == d["financials_year1_json"] and ppl == d["people_json"])
+fin_b, y1_b, ppl_b = recalc({"financials_json": fin, "financials_year1_json": y1,
+                             "people_json": ppl,
+                             "operating_model_json": d["operating_model_json"],
+                             "marketing_model_json": d["marketing_model_json"],
+                             "business_name": ""})
+check("P1b the pass is a fixed point (second recompute byte-identical)",
+      fin_b == fin and y1_b == y1 and ppl_b == ppl)
 
 # P2: incoherent legacy (Anderson & Blake) -> heals toward correct.
 # The oracle is THE canonical rollup (_compute_payroll_baseline), not a

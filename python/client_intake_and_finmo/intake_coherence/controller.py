@@ -483,17 +483,13 @@ def _costs_round(
   def _deep_cut(current_annual: float, new_annual: float) -> bool:
     return current_annual > 0 and new_annual < 0.5 * current_annual
 
-  mkt_floor = _f(floors.get("marketing_percent_of_revenue_min"), basis.marketing_pct)
-  if not client_floors.get("marketing") and mkt_floor < basis.marketing_pct - 1e-6:
-    new_annual = round(mkt_floor * ann_rev, 2)
-    _cur_annual = basis.marketing_pct * ann_rev
-    moves["marketing"] = {
-      "basis_patch": {"marketing_pct": mkt_floor},
-      "field_patch": {"group": "financials", "field": "marketing_total_year1", "value": new_annual},
-      "from_display": _fmt_money(_cur_annual),
-      "to_display": _fmt_money(new_annual),
-      "deep_cut": _deep_cut(_cur_annual, new_annual),
-    }
+  # MARKETING OFFER PULLED (Nick-ruled, build 4): with the demand
+  # machinery dormant, a marketing cut books as PURE SAVINGS - no
+  # modeled revenue consequence - which is exactly the no-consequence
+  # cut shape the doctrine forbids. No machine-offered marketing cut
+  # until demand wakes (queued); a client-VOLUNTEERED marketing number
+  # still lands normally via correction, and the client floor stands.
+  # (The old move: cut marketing_total_year1 to the judged floor.)
 
   # PHASE 4: the COGS move the corner already spends
   # (cogs_percent_of_revenue_min routed clients into walks with no COGS
@@ -538,6 +534,14 @@ def _costs_round(
       "deep_cut": _deep_cut(_cur_annual, new_annual),
     }
 
+  # RENT LEASE-GATE (Nick-ruled, build 3): rent is a COMMITMENT, not a
+  # dial. Intake does not capture lease status (initial_lease is
+  # equipment; the rent stage asks only the amount), so the honest gate
+  # is ASK-FIRST: the move is never recommended and leads with the
+  # lease question - a signed lease lands the existing client floor, a
+  # month-to-month/expiring answer makes the cut legitimate. (If lease
+  # status should become a first-class captured fact, that is a new
+  # intake question - flagged for Nick, not added here.)
   rent_floor_q = _f(fac.get("min_quarterly_rent"))
   if not client_floors.get("rent") and 0 < rent_floor_q < basis.rent_quarterly - 1e-6:
     monthly = round(rent_floor_q / 3.0, 2)
@@ -546,6 +550,7 @@ def _costs_round(
       "field_patch": {"group": "financials", "field": "monthly_rent_expense", "value": monthly},
       "from_display": _fmt_money(basis.rent_quarterly) + "/quarter",
       "to_display": _fmt_money(rent_floor_q) + "/quarter",
+      "lease_unknown": True,
     }
 
   # PAYROLL CAUSE-SPLIT (Nick-ruled Option A): the round reads the
@@ -601,14 +606,21 @@ def _costs_round(
       fields.extend(m.get("extra_field_patches") or [])
     closes = gap_now - _gap(_costs_move_basis(basis, patch), thresholds)
     deep = any(m.get("deep_cut") for m in picked.values())
+    lease_unknown = any(m.get("lease_unknown") for m in picked.values())
+    _suffix = ""
+    if deep:
+      _suffix += (" - only if what's inside those lines can really shrink; "
+                  "tell me what's in them first")
+    if lease_unknown:
+      _suffix += (" - and only if your space is month-to-month or the lease "
+                  "is ending; if it's a signed commitment, say so and I'll "
+                  "hold rent where it is")
     return {
       "id": "costs_" + "_".join(sorted(picked)),
-      "label": label + (
-        " - only if what's inside those lines can really shrink; tell me "
-        "what's in them first" if deep else ""
-      ),
+      "label": label + _suffix,
       "recommended": False,  # assigned below by reasoning, never hardcoded
       "deep_cut": deep,
+      "lease_unknown": lease_unknown,
       "moves": {k: {kk: vv for kk, vv in m.items() if kk not in ("basis_patch", "extra_field_patches")}
                 for k, m in picked.items()},
       "closes_quarterly": round(closes, 2),
@@ -619,9 +631,8 @@ def _costs_round(
 
   options = [o for o in (
     _option(list(moves), "right-size all of it"),
-    _option(["marketing"], "trim marketing only"),
     _option(["cogs"], "trim direct costs only"),
-    _option([k for k in ("marketing", "rent") if k in moves], "marketing and the space, keep the team as-is"),
+    _option([k for k in ("gna", "rent") if k in moves], "overhead and the space, keep the team as-is"),
   ) if o]
   # dedupe identical id sets
   seen = set()
@@ -638,7 +649,10 @@ def _costs_round(
   # cut into a client-stated line. If none qualifies, nothing is
   # recommended and the client chooses (the old code hardcoded the
   # maximal-cut bundle as "the one I'd suggest" by construction).
-  _candidates = [o for o in unique if o["closes_quarterly"] > 0 and not o.get("deep_cut")]
+  # RENT LEASE-GATE: an option touching rent is never RECOMMENDED while
+  # lease status is unknown - same reasoning rail as the deep cut.
+  _candidates = [o for o in unique if o["closes_quarterly"] > 0
+                 and not o.get("deep_cut") and not o.get("lease_unknown")]
   if _candidates:
     max(_candidates, key=lambda o: o["closes_quarterly"])["recommended"] = True
   return {

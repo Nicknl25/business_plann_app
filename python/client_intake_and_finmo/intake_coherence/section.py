@@ -720,6 +720,36 @@ def _ensure_bounds(
   return state
 
 
+def _q20_hold(eval_result: Optional[Dict[str, Any]],
+              band: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+  """Q20 SECOND POINT (Nick-ruled, INTERNAL ONLY): consume the
+  already-authored mature (Q20) band as a direction check. With
+  percent costs scaling and fixed costs flat, the structure's margin
+  at flat-from-Q11 revenue equals its Q11 margin - so margin_q11 >=
+  q20.low answers 'can this structure HOLD maturity without relying on
+  unspecified post-Q11 growth'. Stamped for state/panel/telemetry;
+  never a verdict, never a client-facing question (the ruling), and
+  NOT a trajectory simulator."""
+  if not isinstance(eval_result, dict) or not isinstance(band, dict):
+    return None
+  q20 = band.get("q20") if isinstance(band.get("q20"), dict) else None
+  q11 = eval_result.get("q11") if isinstance(eval_result.get("q11"), dict) else None
+  if not q20 or not q11:
+    return None
+  rev = _f(q11.get("revenue"))
+  if rev <= 0 or q20.get("low") is None:
+    return None
+  margin = _f(q11.get("ebitda")) / rev
+  q20_low = _f(q20.get("low"))
+  return {
+    "passed": margin >= q20_low - 1e-9,
+    "margin_q11": round(margin, 4),
+    "q20_low": round(q20_low, 4),
+    "direction": "holds_mature_floor" if margin >= q20_low - 1e-9
+                 else "relies_on_post_q11_growth",
+  }
+
+
 def refresh_eval_stamps(
   financials_json: Dict[str, Any],
   *,
@@ -780,6 +810,7 @@ def refresh_eval_stamps(
       "q11": eval_result.get("q11"),
       "thresholds": eval_result.get("thresholds"),
       "binding": binding_constraint(eval_result),
+      "q20_hold": _q20_hold(eval_result, band),
     }
     state["gap_open"] = gap
     eval_flat = _ctl.evaluate_current(
@@ -1751,6 +1782,8 @@ def gate_and_turn(
     # The inequality that computes the gap, in client-facing terms — the
     # panel renders THIS, never a fixed band-floor template (CW-002).
     "binding": binding_constraint(eval_result),
+    # Q20 SECOND POINT (Nick-ruled): internal direction check only.
+    "q20_hold": _q20_hold(eval_result, band),
   }
   state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:
