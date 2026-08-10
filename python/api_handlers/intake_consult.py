@@ -1212,16 +1212,40 @@ def _compute_cogs_baseline(
     # Fit judge unavailable: the plain materials-only estimator is the
     # honest fallback - never the raw cost-of-revenue average.
 
-  estimated = estimate_cogs_percent_from_context(
-    cogs_estimate_context=_build_cogs_estimate_context(
-      ops_json=ops_json,
-      shared_context=shared_context,
-      financials_year1_json=financials_year1_json,
-    ),
+  # CW-024 #110/#111 (Nick-ruled, prevention as DELETION): the plain
+  # point-estimator path is GONE. Every COGS proposal - covered or
+  # uncovered NAICS - comes from the fit judge with a band, a
+  # reconciliation, and the range wording; a bandless proposal is
+  # unrepresentable. Cedar Ridge (561730, uncovered) got a flat 42% on
+  # ~6% true materials through the old path. The fit judge without
+  # cohort evidence judges from the business context alone; if it
+  # cannot produce a defensible band it returns None and the caller
+  # raises - never a fabricated confident point.
+  from client_intake_and_finmo.financials_consultant import (
+    fit_cogs_percent_from_evidence,
   )
-  if not estimated:
+  fitted = fit_cogs_percent_from_evidence(
+    cogs_fit_context={
+      "cohort_evidence": None,
+      "cohort_evidence_note": (
+        "no public-company cohort coverage exists for this NAICS - judge "
+        "materials-only COGS from the business context alone, and say so "
+        "in the reconciliation"
+      ),
+      "intake_basis_rule": (
+        "in this intake ALL labor lives in the payroll line; COGS means "
+        "materials, supplies, and direct non-labor fulfillment only"
+      ),
+      **_build_cogs_estimate_context(
+        ops_json=ops_json,
+        shared_context=shared_context,
+        financials_year1_json=financials_year1_json,
+      ),
+    },
+  )
+  if not isinstance(fitted, dict):
     return None
-  baseline_cogs_percent = float(estimated.get("estimated_cogs_percent") or 0.0)
+  baseline_cogs_percent = float(fitted["proposed_cogs_percent"])
   baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
   return {
     "baseline_cogs_percent": baseline_cogs_percent,
@@ -1231,7 +1255,8 @@ def _compute_cogs_baseline(
     "cogs_basis_naics": naics_6,
     "cogs_basis_years_used": [],
     "revenue_year1": revenue_year1,
-    "cogs_basis_rationale": str(estimated.get("brief_rationale") or "").strip(),
+    "cogs_basis_rationale": fitted["basis_reconciliation"],
+    "cogs_fit_band": fitted["materials_cogs_percent_band"],
   }
 
 
@@ -2832,11 +2857,56 @@ def _rest_of_team_payroll_pending(
 _REST_OF_TEAM_PAYROLL_MARKER = "payroll for the rest of your team"
 
 
-def _build_rest_of_team_payroll_question(acknowledgement: str = "") -> str:
+_ACCEPT_MISMATCH_RE = re.compile(
+  r"nothing like|not (?:even )?close to what|don'?t spend (?:any|that|anything)"
+  r"|isn'?t what i (?:spend|pay)|way (?:more|less) than i", re.I,
+)
+
+
+def _acceptance_mismatch_hold(*, stage_name: str, user_message: str) -> Optional[str]:
+  """CW-024 #117 (Nick-ruled, prevention shape): an acceptance whose own
+  text says the number is NOT the client's reality ("I don't spend
+  anything like that today") is unrepresentable as a clean accept - the
+  strongest possible clarify trigger cannot be recorded as agreement.
+  Returns the clarify question, or None for a clean accept."""
+  if not _ACCEPT_MISMATCH_RE.search(str(user_message or "")):
+    return None
+  stage = str(stage_name or "").strip()
+  topic = {
+    "marketing": "marketing",
+    "cogs": "supplies and materials",
+  }.get(stage, "this line")
+  return (
+    f"Before I write that down - you said that's nothing like what you "
+    f"actually spend on {topic} today. Let's use your real number as the "
+    f"starting point: roughly what do you spend now, per month or per "
+    f"year? (I'll keep the recommended level in view separately.)"
+  )
+
+
+def _build_rest_of_team_payroll_question(
+  acknowledgement: str = "",
+  people_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  # CW-024 #108: ENUMERATE who is already counted, by name/title - the
+  # question covers only people NOT yet captured, said explicitly, so
+  # restating an already-captured crew total is structurally invited
+  # NOT to happen ("everyone else" is anchored to a visible list).
+  _counted = []
+  for p in ((people_json or {}).get("people") or []):
+    if isinstance(p, dict):
+      _nm = str(p.get("full_name") or p.get("role_title") or "").strip()
+      if _nm:
+        _counted.append(_nm)
+  _who = (
+    "yourself and " + ", ".join(_counted[:4])
+    if _counted else "yourself and the key people we just covered"
+  )
   question = (
-    "Beyond yourself and the key people we just covered, roughly what does "
-    f"{_REST_OF_TEAM_PAYROLL_MARKER} come to per year? A rough annual figure is "
-    "fine - and it's fine if there isn't anyone else on payroll."
+    f"Beyond {_who} - people we already have down individually - roughly "
+    f"what does {_REST_OF_TEAM_PAYROLL_MARKER} come to per year? Only count "
+    "people we haven't listed yet. A rough annual figure is fine - and it's "
+    "fine if there isn't anyone else on payroll."
   )
   ack = str(acknowledgement or "").strip()
   return f"{ack}\n\n{question}".strip() if ack else question
@@ -7036,6 +7106,27 @@ def _normalize_financials_router_patch(
       next_financials = _guarded
   except Exception:
     pass
+  # CW-024 #115 (prevention): a stage answer can never be SYNTHESIZED.
+  # A ZERO landing when the client never said none/zero and no zero
+  # figure appears in the message is a manufactured answer (the
+  # capex-zero recurrence: "my payroll is 225,000, please correct it"
+  # -> "I'll use 0 for current capital spending"). The write reverts
+  # and the field stays pending - the message was not this stage's
+  # answer.
+  _zero_token = re.search(
+    r"\b(no|none|zero|nothing|haven'?t|didn'?t|don'?t have|not yet)\b",
+    str(user_message or ""), re.I,
+  )
+  if not _zero_token and not any(abs(f) < 0.5 for f in _message_figures(user_message)):
+    for _sf in list(touched):
+      if _safe_float(next_financials.get(_sf)) == 0.0:
+        _prev_sf = (financials_json or {}).get(_sf)
+        if _prev_sf is None:
+          next_financials.pop(_sf, None)
+        else:
+          next_financials[_sf] = _prev_sf
+        touched.discard(_sf)
+
   # Say-do accounting (issue #23): the caller derives the confirmation
   # from what was ACTUALLY applied. Anything in the patch that did not
   # land is reported so the client hears it — never a false "recorded".
@@ -7325,6 +7416,33 @@ def _sync_financials_consult_persistence_state(
     or (_safe_float(people_json.get("rest_of_team_payroll_year1")) or 0) > 0
   )
   if _people_has_substance:
+    # CW-024 #108 (Nick-ruled, prevention shape): a GROUP-of-N can never
+    # persist as a key-person row - person rows are single humans by
+    # construction. A plural/group-shaped row (title carries "members",
+    # "crews", or a "(N ..." count) converts into the rest-of-team
+    # representation on every canonical pass: equal to the existing rest
+    # figure (±5%) -> the SAME people, dedupe (the Cedar Ridge $361k on
+    # a true $225k); otherwise the wage moves into rest (total
+    # preserved, one home). With the crew already IN rest, the
+    # rest-of-team question never fires for it - the double-ask dies by
+    # construction, and there is nothing left to reconcile.
+    _rows0 = [p for p in (people_json.get("people") or []) if isinstance(p, dict)]
+    _group_rows = [
+      p for p in _rows0
+      if _GROUP_ROW_RE.search(str(p.get("role_title") or ""))
+      and (_safe_float(p.get("annual_wage")) or 0.0) > 0
+      and not _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
+    ]
+    if _group_rows:
+      _rest0 = _safe_float(people_json.get("rest_of_team_payroll_year1")) or 0.0
+      for _g in _group_rows:
+        _gw = float(_g["annual_wage"])
+        if _rest0 > 0 and abs(_rest0 - _gw) <= 0.05 * max(_rest0, _gw):
+          pass  # same people stated twice - dedupe (rest keeps them)
+        else:
+          _rest0 = _rest0 + _gw
+      people_json["rest_of_team_payroll_year1"] = round(_rest0, 2)
+      people_json["people"] = [p for p in _rows0 if p not in _group_rows]
     # ---- payroll sub-graph (people is the source of truth) ----
     # LEGACY FOLD (Nick-ruled): a nonzero payroll_adjustment (the old
     # walk delta the engine could never read) materializes into the
@@ -7600,6 +7718,8 @@ def _run_financials_turn_and_sync(
   assistant_message = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
   patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
   cash_strategy_mode = _cash_strategy_decision_mode(last_assistant) if active_stage == "cash_strategy" else ""
+  _door_ack = ""
+  _people_keys: Dict[str, Any] = {}
 
   if isinstance(_pending_clarify_live, dict) and _pending_clarify_live:
     # The app's basis question is the open thread: only a resolution moves
@@ -7619,6 +7739,13 @@ def _run_financials_turn_and_sync(
       }, next_financials
 
   if action == "confirm_proceed":
+    # CW-024 #117: an accept whose text contradicts the number cannot
+    # record as agreement - hold with the real-number question.
+    _mismatch_q = _acceptance_mismatch_hold(
+      stage_name=active_stage, user_message=user_message,
+    )
+    if _mismatch_q:
+      return {"assistant_message": _mismatch_q, "finalize_ready": False}, next_financials
     default_patch = _financials_stage_default_patch(
       stage_name=active_stage,
       shared_context=stage_shared_context,
@@ -7630,7 +7757,51 @@ def _run_financials_turn_and_sync(
       patch = {f"financials.{k}": v for k, v in default_patch.items()}
       action = "edit_patch"
 
-  if action == "edit_patch" and patch:
+  # CW-024 #109/#115: PEOPLE-DOOR keys land even inside the stage flow,
+  # on ANY router action - the Cedar Ridge total-payroll correction
+  # arrived while the capex question was pending, the router labeled the
+  # turn answer_readonly, and the correction had no path here. Applied
+  # via the one scoped apply (owner door, total door, roster edits) and
+  # the people change persists immediately (this flow's own persists
+  # carry financials only).
+  if isinstance(patch, dict) and patch:
+    _people_keys = {k: v for k, v in patch.items() if str(k).startswith("people.")}
+    if _people_keys:
+      _stage_people = dict((stage_shared_context or {}).get("people_capability") or {})
+      _stage_ops = dict((stage_shared_context or {}).get("operating_model") or {})
+      _bf2, _op2, _mk2, _stage_people, next_financials, _ff2 = _apply_scoped_patch(
+        _people_keys, business_facts={}, ops_json=_stage_ops, market_json={},
+        people_json=_stage_people, financials_json=next_financials,
+        fulfillment_json={},
+      )
+      stage_shared_context = dict(stage_shared_context or {})
+      stage_shared_context["people_capability"] = _stage_people
+      try:
+        append_messages(
+          conn,
+          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+          new_messages=[], people_json=_stage_people,
+        )
+      except Exception:
+        logger.exception("STAGE_PEOPLE_DOOR_PERSIST_FAILED")
+      # Deterministic receipt for the landed door - the reply below is
+      # built from the write, never from router prose.
+      if "people.total_team_payroll" in _people_keys:
+        _v = _safe_float(_people_keys.get("people.total_team_payroll"))
+        if _v is not None:
+          _door_ack = (
+            f"Recorded: total team payroll {_format_currency(float(_v))} a year."
+          )
+      elif "people.remove_role" in _people_keys:
+        _door_ack = (
+          f"Removed \"{str(_people_keys['people.remove_role']).strip()}\" "
+          "from the roster."
+        )
+      patch = {k: v for k, v in patch.items() if not str(k).startswith("people.")}
+      if not patch:
+        patch = {"financials._people_door_only": True}
+
+  if action == "edit_patch" and isinstance(patch, dict) and patch:
     _patch_report: Dict[str, Any] = {}
     normalized_patch = _normalize_financials_router_patch(
       patch=patch,
@@ -7750,18 +7921,63 @@ def _run_financials_turn_and_sync(
       )
       return next_turn, updated_financials
 
+  # CW-024 #115 (the actual turn-38 chain, issue-DB evidence): the
+  # router proposed writes, EVERY one of them dropped, and its prose
+  # still claimed one ("Got it - I will use 0 for current capital
+  # spending"). A reply that can claim a write it did not make is
+  # unrepresentable at this site: when a patch-carrying turn (ANY
+  # action - turn 38 was answer_readonly) lands nothing, the reply is
+  # built deterministically - the landed people-door receipt (if any),
+  # the unlanded-figure disclosure, and the standing stage question.
+  # Router prose never ships here.
+  _requested_writes = [
+    k for k in (patch or {})
+    if str(k).split(".", 1)[-1] != "_people_door_only"
+  ] if isinstance(patch, dict) else []
+  if _requested_writes:
+    next_financials = _stamp_unlanded_figures_note(
+      financials_json=next_financials,
+      people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
+      ops_json=dict((stage_shared_context or {}).get("operating_model") or {}),
+      user_message=user_message,
+      applied_notes=[],
+      patch=_people_keys,
+    )
+    _unl = next_financials.get("_unlanded_note")
+    _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
+    _fig_txt = " and ".join(f"${float(f):,.0f}" for f in (_figs or []))
+    _disclose = (
+      f"You gave me {_fig_txt} and I couldn't tell where to record it - "
+      "tell me which line that belongs to and I'll put it there. "
+      if _fig_txt else
+      ("" if _door_ack else "I wasn't able to apply that change yet. ")
+    )
+    if _figs:
+      next_financials = dict(next_financials)
+      next_financials.pop("_unlanded_note", None)
+    _standing_q = _build_financials_stage_clarifier(active_stage)
+    return {
+      "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
+      "finalize_ready": False,
+    }, next_financials
+
   if action == "answer_readonly" and assistant_message:
-    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+    _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
+    return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
   if action == "confirm_clarify" and assistant_message:
-    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+    _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
+    return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
+  _tail_msg = _natural_recovery(
+    _build_financials_stage_clarifier(active_stage),
+    user_message=str(user_message or ""),
+    fallback=_build_financials_stage_clarifier(active_stage),
+  )
+  if _door_ack:
+    _tail_msg = f"{_door_ack} {_tail_msg}".strip()
   return {
-    "assistant_message": _natural_recovery(
-      _build_financials_stage_clarifier(active_stage),
-      user_message=str(user_message or ""),
-      fallback=_build_financials_stage_clarifier(active_stage),
-    ),
+    "assistant_message": _tail_msg,
     "finalize_ready": False,
   }, next_financials
 
@@ -9544,6 +9760,47 @@ def _apply_scoped_patch(
     elif group == "market":
       next_market[field] = value
     elif group == "people":
+      if field == "total_team_payroll":
+        # CW-024 #109 (Nick-ruled, prevention shape): THE DOOR for a
+        # stated team total - the correction Cedar Ridge's client made
+        # seven times with nowhere to land. The statement becomes a
+        # delta against the CANONICAL rollup and rides the ruled fold
+        # (rest-of-team absorbs; a remainder that could only land by
+        # changing named people's pay HOLDS with the how question -
+        # sub-ruling (ii)). Client truth lands, one door, no silent
+        # drop possible for this class again.
+        _stated_total = _safe_float(value)
+        if _stated_total is not None and _stated_total >= 0:
+          _canon = _compute_payroll_baseline(shared_context={
+            "people_capability": next_people,
+            "operating_model": next_ops,
+          })
+          _canon_total = _safe_float(
+            (_canon or {}).get("baseline_payroll_year1")
+            if isinstance(_canon, dict) else _canon
+          ) or 0.0
+          _delta = round(float(_stated_total) - _canon_total, 2)
+          if abs(_delta) > 0.005:
+            next_financials = dict(next_financials)
+            next_financials["payroll_adjustment"] = _delta
+        continue
+      if field == "remove_role":
+        # CW-024 #109: THE DOOR for a roster edit ("remove the
+        # duplicate crew entry"). Matches by title, case-insensitive
+        # substring; removes from people[] or inferred_roles[]; the
+        # Recalc restamps the rollup canonically.
+        _target = str(value or "").strip().lower()
+        if _target:
+          next_people = dict(next_people)
+          for _list_key in ("people", "inferred_roles"):
+            _rows = [r for r in (next_people.get(_list_key) or [])
+                     if isinstance(r, dict)]
+            _kept = [r for r in _rows
+                     if _target not in str(r.get("role_title") or "").lower()
+                     and _target not in str(r.get("full_name") or "").lower()]
+            if len(_kept) != len(_rows):
+              next_people[_list_key] = _kept
+        continue
       if field == "phase_planned_hires":
         # HIRE-TIMING LEVER (Nick-ruled cause-split): phase PLANNED
         # hires later - pushes months_until_hire on inferred_roles
@@ -9877,6 +10134,62 @@ def _run_unified_post_grid_system_run(
   except Exception as exc:
     logger.warning("persist_adaptation_cascade_outcome_failed: %s", exc)
   return result
+def _stamp_unlanded_figures_note(
+  *,
+  financials_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  user_message: str,
+  applied_notes: Optional[List[str]] = None,
+  patch: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """CW-024 #109 BACKSTOP (Nick-ruled: the one surviving guard, and only
+  for what cannot be made unrepresentable - free text is open-ended).
+  A money figure in the client's message that landed NOWHERE this turn
+  is never silently dropped: the next reply must disclose it and ask
+  where it belongs. Cedar Ridge: seven payroll corrections vanished
+  without a word while the walk kept negotiating a phantom.
+
+  'Placed' means: written by this turn's patch, part of an applied
+  option, or matching a value already stored (a restatement). Only
+  substantial figures (>= $100) count - counts/percent-shaped small
+  numbers are the router's business."""
+  figures = [f for f in _message_figures(user_message) if abs(f) >= 100.0]
+  if not figures:
+    return financials_json
+  placed: List[float] = []
+  for v in (patch or {}).values():
+    fv = _safe_float(v)
+    if fv is not None:
+      placed.append(abs(fv))
+      placed.append(abs(fv) * 12.0)   # monthly statements land annualized
+      placed.append(abs(fv) / 12.0)
+  def _collect(obj, depth=0):
+    if depth > 3:
+      return
+    if isinstance(obj, dict):
+      for vv in obj.values():
+        _collect(vv, depth + 1)
+    elif isinstance(obj, list):
+      for vv in obj[:40]:
+        _collect(vv, depth + 1)
+    else:
+      fv = _safe_float(obj)
+      if fv is not None and abs(fv) >= 100.0:
+        placed.append(abs(fv))
+  for section in (financials_json, people_json, ops_json):
+    _collect(section if isinstance(section, dict) else {})
+  unplaced = [
+    f for f in figures
+    if not any(abs(abs(f) - p) <= max(1.0, 0.01 * abs(f)) for p in placed)
+  ]
+  if not unplaced:
+    return financials_json
+  next_fin = dict(financials_json or {})
+  next_fin["_unlanded_note"] = {"figures": [round(f, 2) for f in unplaced[:3]]}
+  return next_fin
+
+
 def _run_entry_recalc(*, conn, draft_id: str) -> None:
   """RUN-ENTRY RECALC (Nick-ruled, closes the legacy audit's one
   structural gap): rule 4 - recompute everything before it's used -
@@ -11497,6 +11810,12 @@ def _coherence_naturalize(text: str) -> str:
 
 _OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
 
+# CW-024 #108: plurality/group markers - a row matching this is a crew,
+# not a person. Deliberately conservative ("Crew Foreman" is a single
+# human and does NOT match; "Grounds Maintenance Crew Members" and
+# "Field Crew Team (4 crew members)" do).
+_GROUP_ROW_RE = re.compile(r"\bmembers\b|\bcrews\b|\(\s*\d+\s", re.I)
+
 # THE RECALC's derived twins - writable ONLY by the canonical pass
 # (generalizing the airtight opex model to every family). Sources stay
 # patchable: people rows / rest_of_team (payroll), ops products +
@@ -11962,6 +12281,7 @@ def post_intake_consult_handler(*, app, request):
       financials_year1_json = base_year1
     else:
       financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+    _people_before_recalc = copy.deepcopy(people_json) if isinstance(people_json, dict) else people_json
     financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
@@ -11969,6 +12289,22 @@ def post_intake_consult_handler(*, app, request):
       people_json=people_json,
       ops_json=ops_json,
     )
+    # CW-024 #115 durability: the canonical pass can mutate PEOPLE truth
+    # in place (the fold, the group-row normalization). Turns whose
+    # reply path persists only financials would retire the adjustment
+    # while LOSING the people change - so a people mutation persists
+    # here, immediately, regardless of which reply path follows.
+    if isinstance(people_json, dict) and people_json != _people_before_recalc:
+      try:
+        append_messages(
+          conn, draft_id=str(draft_id).strip(), new_messages=[],
+          people_json=people_json, financials_json=financials_json,
+        )
+      except Exception:
+        logger.exception(
+          "PEOPLE_RECALC_PERSIST_FAILED draft=%s - fold/normalization "
+          "result may not be durable this turn", draft_id,
+        )
     shared_context["financials"] = financials_json
     if isinstance(financials_year1_json, dict) and financials_year1_json:
       shared_context["financials_year1_json"] = financials_year1_json
@@ -12531,7 +12867,7 @@ def post_intake_consult_handler(*, app, request):
           "The completion-gate verdict the client may quote ('clears every "
           "structural test' / the kept-per-quarter figure) is THIS app's own "
           "gate - the check that decides whether intake may close. It is "
-          "evaluated at the strongest believable growth path for this "
+          "evaluated at the strongest realistic growth path for this "
           "business (roughly double first-quarter revenue by maturity), "
           "never the client's current quarter. When the client asks about "
           "it: explain that basis honestly in plain language, contrast it "
@@ -12926,6 +13262,12 @@ def post_intake_consult_handler(*, app, request):
       and action == "continue_chat"
       and not (isinstance(patch, dict) and patch)
     ):
+      # CW-024 #109 backstop: a chat-routed round turn carrying a money
+      # figure that landed nowhere is disclosed, never silently dropped.
+      financials_json = _stamp_unlanded_figures_note(
+        financials_json=financials_json, people_json=people_json,
+        ops_json=ops_json, user_message=str(message or ""), patch=None,
+      )
       _coh_reask = _coh_section.reask_message(financials_json)
       if _coh_reask:
         action = "confirm_clarify"
@@ -12955,6 +13297,15 @@ def post_intake_consult_handler(*, app, request):
       try:
         active_stage = str(current_financials_stage or "").strip()
         stage_spec = _financials_stage_spec(active_stage)
+        # CW-024 #117: acceptance-with-contradiction cannot record.
+        if active_stage and _acceptance_mismatch_hold(
+          stage_name=active_stage, user_message=str(message or ""),
+        ):
+          action = "continue_chat"
+          router_msg = _acceptance_mismatch_hold(
+            stage_name=active_stage, user_message=str(message or ""),
+          )
+          stage_spec = {}
         if active_stage and bool(stage_spec.get("confirmable_baseline")):
           default_patch = _financials_stage_default_patch(
             stage_name=active_stage,
@@ -13116,10 +13467,20 @@ def post_intake_consult_handler(*, app, request):
       # and the honest park. Remaining ordinary keys continue through
       # the generic scoped apply below.
       if coherence_round_live and isinstance(patch, dict):
+        _patch_before_apply = dict(patch)
         patch, ops_json, financials_json, _coh_notes = _coh_section.apply_router_patch(
           patch=patch,
           ops_json=ops_json,
           financials_json=financials_json,
+          user_text=str(message or ""),
+        )
+        # CW-024 #109 backstop: an option/decline turn whose message ALSO
+        # carried a money figure that landed nowhere gets the disclosure
+        # (the Cedar Ridge decline-plus-correction turns).
+        financials_json = _stamp_unlanded_figures_note(
+          financials_json=financials_json, people_json=people_json,
+          ops_json=ops_json, user_message=str(message or ""),
+          applied_notes=_coh_notes, patch=_patch_before_apply,
         )
         shared_context["operating_model"] = ops_json
         shared_context["financials"] = financials_json
@@ -13571,7 +13932,7 @@ def post_intake_consult_handler(*, app, request):
         # as a people.rest_of_team_payroll_year1 patch and re-enters this path.
         if _rest_of_team_payroll_pending(people_json, ops_json):
           assistant_text = sanitize_fact_template(
-            _build_rest_of_team_payroll_question("Got it - updated.")
+            _build_rest_of_team_payroll_question("Got it - updated.", people_json=people_json)
           )
           append_messages(
             conn,
@@ -13771,7 +14132,7 @@ def post_intake_consult_handler(*, app, request):
         # answers the one payroll question before People hands off.
         if _rest_of_team_payroll_pending(people_json, ops_json):
           assistant_text = sanitize_fact_template(
-            _build_rest_of_team_payroll_question("Got it.")
+            _build_rest_of_team_payroll_question("Got it.", people_json=people_json)
           )
           append_messages(
             conn,
@@ -14581,7 +14942,7 @@ def post_intake_consult_handler(*, app, request):
         and _rest_of_team_payroll_pending(people_json, ops_json)
       ):
         assistant_text = sanitize_fact_template(
-          _build_rest_of_team_payroll_question("Great.")
+          _build_rest_of_team_payroll_question("Great.", people_json=people_json)
         )
         append_messages(
           conn,

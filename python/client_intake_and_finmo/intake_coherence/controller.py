@@ -177,8 +177,14 @@ def _effective_pmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float
   multiplier is capped so current x m never exceeds authoring x pmax.
   Un-stamped legacy bounds keep the old relative behavior."""
   pmax = max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
-  p0 = _f((bl or {}).get("unit_price_at_authoring"))
+  # CW-024 #113: the DURABLE MARKET FACT outranks everything - the
+  # ceiling in dollars survives re-authoring epochs, so acceptance can
+  # never walk the client up an unbounded ladder.
+  _fact = _f((bl or {}).get("price_ceiling_market_fact"))
   cur = _f(line.get("unit_price"))
+  if _fact > 0 and cur > 0:
+    return max(1.0, min(pmax, _fact / cur))
+  p0 = _f((bl or {}).get("unit_price_at_authoring"))
   if p0 > 0 and cur > 0:
     return max(1.0, min(pmax, (p0 * pmax) / cur))
   return pmax
@@ -410,7 +416,10 @@ def _pricing_round(
     return out
 
   options = []
-  for level, label in (("mid", "meet the market"), ("max", "top of the judged range")):
+  # CW-024 copy ruling: labels speak plain client language - never
+  # "judged", never "range" as a noun-of-record.
+  for level, label in (("mid", "a middle step up"),
+                       ("max", "the top of what your market pays")):
     mults = _mults(level)
     if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
       continue
@@ -574,8 +583,8 @@ def _costs_round(
       },
       "from_display": _fmt_money(_cur_annual_mkt),
       "to_display": (_fmt_money(_new_annual_mkt)
-                     + f" (judged to retain ~{_demand_mult_lo:.0%} of demand"
-                     " at the low end)"),
+                     + f" (expect to keep ~{_demand_mult_lo:.0%} of the customers"
+                     " that spend brings in)"),
       "deep_cut": _deep_cut(_cur_annual_mkt, _new_annual_mkt),
     }
 
@@ -793,6 +802,13 @@ def _volume_round(
     if _total_units > 0:
       demand_mult_cap = max(1.0, _f(_vh["supported_units_max"]) / _total_units)
 
+  # CW-024 #114 (Nick-ruled, prevention shape): a volume option beyond
+  # 100% utilization of STORED capacity is unrepresentable - the round
+  # only fills the book the client already described; growing capacity
+  # is the client's to volunteer (and for labor-bound shops that is the
+  # hire-timing conversation, not a volume option). Cedar Ridge was
+  # offered 42-51 concurrent properties against a stored ceiling of 40
+  # after saying "crew is the thing I can't get."
   def _mults(level: str) -> Dict[str, float]:
     out: Dict[str, float] = {}
     for line, bl in zip(split, matched):
@@ -800,13 +816,18 @@ def _volume_round(
       vmax = _effective_vmax(line, bl)
       if demand_mult_cap is not None:
         vmax = min(vmax, demand_mult_cap)
+      # Fill-the-book ceiling: utilization to 1.0 of stored capacity.
+      _util = _f(line.get("utilization_rate"), 1.0)
+      _fill_cap = (1.0 / _util) if 0 < _util < 1.0 else 1.0
+      vmax = min(vmax, _fill_cap)
       out[key] = vmax if level == "max" else 1.0 + (vmax - 1.0) * 0.5
     return out
 
   options = []
+  # CW-024 copy ruling: plain client language in labels.
   for level, label in (
-    ("mid", "grow the book a believable step"),
-    ("max", "fill to the judged demand ceiling"),
+    ("mid", "take on a bit more work"),
+    ("max", "fill your book to what your market has room for"),
   ):
     mults = _mults(level)
     if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
@@ -1026,7 +1047,7 @@ def roadmap_payload(
     milestones.append({
       "key": "payroll_staging",
       "title": "payroll staged to revenue, not to the plan",
-      "detail": f"the believable team floor is {_fmt_money(_f(team.get('min_annual_payroll')))}/yr - and even that floor needs more revenue under it",
+      "detail": f"the least a team like yours can realistically cost is {_fmt_money(_f(team.get('min_annual_payroll')))}/yr - and even that floor needs more revenue under it",
     })
   for nl in (bounds.get("new_line_candidates") or [])[:2]:
     cap = _f((nl or {}).get("q11_quarterly_revenue_max"))
@@ -1034,7 +1055,7 @@ def roadmap_payload(
       milestones.append({
         "key": f"prove_{str((nl or {}).get('product') or 'channel').strip()}",
         "title": f"prove {str((nl or {}).get('product') or 'a second channel').strip()} with real orders",
-        "detail": f"judged potential up to {_fmt_money(cap)}/quarter"
+        "detail": f"realistic potential up to {_fmt_money(cap)}/quarter"
                   + (
                     f" at {round(_f((nl or {}).get('gross_margin_pct')) * 100)}% margin"
                     if (nl or {}).get("gross_margin_pct") is not None

@@ -168,10 +168,10 @@ rnd_m = _costs_round(basis_m, TH, BOUNDS_M, FIN_M, demand=DEMAND)
 mv = {k: m for o in (rnd_m or {}).get("options", [])
       for k, m in (o.get("moves") or {}).items()}
 check("D7 marketing move revived WITH its demand consequence "
-      "(retain ~85% at the low end in the display)",
+      "(keep ~85% of the customers, in the display - CW-024 copy)",
       "marketing" in mv
       and mv["marketing"]["demand_consequence"]["demand_mult_lo"] == 0.85
-      and "retain ~85%" in mv["marketing"]["to_display"])
+      and "keep ~85%" in mv["marketing"]["to_display"])
 rnd_m_thin = _costs_round(basis_m, TH, BOUNDS_M, FIN_M, demand=None)
 mv_thin = {k: m for o in (rnd_m_thin or {}).get("options", [])
            for k, m in (o.get("moves") or {}).items()}

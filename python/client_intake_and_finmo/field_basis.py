@@ -39,6 +39,8 @@ FIELD_BASIS: Dict[str, str] = {
   # (the financials owner_compensation is a derived mirror the router
   # never writes).
   "owner_pay_monthly": MONTHLY,
+  # CW-024 #109: the stated team total is ANNUAL by definition.
+  "total_team_payroll": ANNUAL,
   "other_operating_expense": MONTHLY,
   "monthly_rent_expense": MONTHLY,
   "other_monthly_debt_payments": MONTHLY,

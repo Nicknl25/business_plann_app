@@ -53,6 +53,11 @@ DISPUTABLE_FIELDS = (
   # land on the OWNER ROLE (financials.owner_compensation is a derived
   # mirror nothing writes).
   "people.owner_pay_monthly",
+  # CW-024 #109 (prevention shape): DOOR COMPLETENESS - the stated team
+  # total and roster edits land mid-round like any stated fact. The
+  # Cedar Ridge client corrected payroll seven times with no door.
+  "people.total_team_payroll",
+  "people.remove_role",
   "financials.other_operating_expense",
   "financials.monthly_rent_expense",
   "financials.marketing_total_year1",
@@ -138,6 +143,8 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
       entry["moves"] = {k: v.get("to_display") for k, v in (o.get("moves") or {}).items()}
     options.append(entry)
   patch_targets = ["coherence.option", "coherence.assert_floor"]
+  if isinstance(state.get("retention_pending"), dict):
+    patch_targets.append("coherence.retention_answer")
   if rnd.get("key") == _ctl.ROUND_PRICING:
     patch_targets.append("ops.product_overrides")
   else:
@@ -784,6 +791,26 @@ def _ensure_bounds(
   try:
     _split0 = _ctl.ops_line_split(ops_json, financials_json)
     _matched0 = _ctl.match_bounds_lines(_split0, state["bounds"])
+    # CW-024 #113 (Nick-ruled, prevention shape): the judged price
+    # ceiling is a DURABLE MARKET FACT in dollars. It survives identity
+    # re-keys (the fact lives outside every stale-pop list) and can be
+    # re-judged ONLY when the MARKET-side slice changes - a client
+    # accepting a price is not market evidence and cannot move it. This
+    # kills the cross-epoch ratchet ($650->$910->$1,183->$1,597: each
+    # re-authoring judged a relative multiplier against the price it
+    # was shown, which was the just-accepted one). The VALVE: a client-
+    # STATED market fact changes market_json, which changes the slice
+    # hash, which honestly re-opens the judgment - statements yes,
+    # acceptance never.
+    _market_slice_hash = _ctl.stable_digest_hash({
+      "market": {k: market_json.get(k) for k in (
+        "consumer_type", "selections", "gender_age_intent", "income_intent",
+        "marketing_plan_summary")} if isinstance(market_json, dict) else {},
+      "business_type": (ops_json or {}).get("business_type"),
+      "naics": (ops_json or {}).get("business_naics_6"),
+      "geography": (ops_json or {}).get("geographic_coverage"),
+    })
+    _facts = dict(state.get("price_market_facts") or {})
     for _ln, _bl in zip(_split0, _matched0):
       if isinstance(_bl, dict) and _bl.get("unit_price_at_authoring") is None:
         _p0 = _f(_ln.get("unit_price"))
@@ -795,6 +822,27 @@ def _ensure_bounds(
         _u0 = _f(_ln.get("annual_units"))
         if _u0 > 0:
           _bl["annual_units_at_authoring"] = float(_u0)
+      if isinstance(_bl, dict):
+        _lkey = f"{_ln.get('lob')}␟{_ln.get('product')}"
+        _prior_fact = _facts.get(_lkey)
+        if (
+          isinstance(_prior_fact, dict)
+          and _prior_fact.get("market_slice_hash") == _market_slice_hash
+          and _f(_prior_fact.get("ceiling_dollars")) > 0
+        ):
+          # Same market -> the prior judged ceiling STANDS, whatever
+          # this re-authoring says.
+          _bl["price_ceiling_market_fact"] = float(_prior_fact["ceiling_dollars"])
+        else:
+          _p_auth = _f(_bl.get("unit_price_at_authoring"))
+          _pmax_rel = max(1.0, _f(_bl.get("price_multiplier_max"), 1.0))
+          if _p_auth > 0:
+            _facts[_lkey] = {
+              "ceiling_dollars": round(_p_auth * _pmax_rel, 2),
+              "market_slice_hash": _market_slice_hash,
+            }
+            _bl["price_ceiling_market_fact"] = _facts[_lkey]["ceiling_dollars"]
+    state["price_market_facts"] = _facts
   except Exception:
     pass
   state.pop("bounds_error", None)
@@ -934,11 +982,19 @@ def refresh_eval_stamps(
 
 # --------------------------------------------------------- patch handling
 
+_EXPLICIT_PARK_RE = re.compile(
+  r"save it for now|park it|pause (?:this|it|here)|stop here|hold off"
+  r"|come back (?:to this )?later|that'?s enough for (?:now|today)"
+  r"|let'?s stop|put (?:this|it) on hold", re.I,
+)
+
+
 def apply_router_patch(
   *,
   patch: Dict[str, Any],
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  user_text: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], List[str]]:
   """Intercept coherence-scoped keys before the generic scoped apply.
 
@@ -973,13 +1029,81 @@ def apply_router_patch(
       next_fin = put_state(next_fin, state)
       notes.append(f"client_floor:{cost}")
 
+  # CW-024 #118 CONSUMER: the client's retention answer re-lands the
+  # numbers over the judge's conservative edge (client truth > judge,
+  # as ruled). Value: a fraction (0-1] or {kept, of}. Scales the
+  # utilization and anchor from the landed retained_used to the
+  # client's own fraction; lever writes keep CW-020.
+  _ret_answer = remaining.pop("coherence.retention_answer",
+                              remaining.pop("retention_answer", None))
+  _ret_pending = state.get("retention_pending")
+  if _ret_answer is not None and isinstance(_ret_pending, dict):
+    _frac = None
+    if isinstance(_ret_answer, dict):
+      _k, _o = _f(_ret_answer.get("kept")), _f(_ret_answer.get("of"))
+      if _k > 0 and _o > 0:
+        _frac = min(1.0, _k / _o)
+    else:
+      _frac = _f(_ret_answer)
+      if _frac is not None and _frac > 1.0:
+        _frac = _frac / 100.0
+    _used = _f(_ret_pending.get("retained_used"), 1.0) or 1.0
+    if _frac is not None and 0.0 < _frac <= 1.0 and abs(_frac - _used) > 1e-6:
+      _adj = _frac / _used
+      _rev0 = _f(next_fin.get("current_revenue"))
+      if _rev0 > 0:
+        _rev1 = round(_rev0 * _adj, 2)
+        next_fin = dict(next_fin)
+        next_fin["current_revenue"] = _rev1
+        state = dict(state)
+        _lw = dict(state.get("_lever_writes") or {})
+        _record_lever_write(_lw, "current_revenue", _rev0, _rev1)
+        state["_lever_writes"] = _lw
+      _vols = []
+      for _l in (next_ops.get("lob_models") or []):
+        if not isinstance(_l, dict):
+          continue
+        for _p in (_l.get("products") or []):
+          if not isinstance(_p, dict):
+            continue
+          _u = _f(_p.get("utilization_rate"), 1.0)
+          _vols.append({
+            "lob": _l.get("lob_name") or _l.get("lob") or "",
+            "product": _p.get("product_name") or _p.get("product") or "",
+            "utilization_rate": round(max(0.01, min(1.0, _u * _adj)), 4),
+          })
+      next_ops = _apply_volume_spec(next_ops, _vols)
+      if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
+        for _cf in ("current_cogs", "cogs_total_year1"):
+          _cv = _f(next_fin.get(_cf))
+          if _cv > 0:
+            next_fin[_cf] = round(_cv * _adj, 2)
+    state = dict(state)
+    state.pop("retention_pending", None)
+    next_fin = put_state(next_fin, state)
+    notes.append("retention_answer")
+
   parked = remaining.pop("coherence.parked", remaining.pop("parked", None))
   if parked is not None and str(parked).strip().lower() in ("true", "1", "yes"):
-    state = dict(state)
-    state["status"] = _ctl.STATUS_PARKED
-    next_fin = put_state(next_fin, state)
-    notes.append("parked")
-    return remaining, next_ops, next_fin, notes
+    # CW-024 #116 (Nick-ruled, prevention shape): a park can only come
+    # from an EXPLICIT stop-intent in the client's own words. A turn
+    # that ANSWERS the app's questions cannot be a park - the Cedar
+    # Ridge client itemized their cost lines and named the wrong figure
+    # and got parked with Send disabled. A router park without the
+    # marker is ignored and the turn continues as whatever else it
+    # carried.
+    _answered_something = "retention_answer" in notes or bool(
+      [k for k in remaining if str(k).split(".")[-1] not in ("parked",)]
+      and any(str(k).startswith(("people.", "financials.", "ops."))
+              for k in remaining)
+    )
+    if _EXPLICIT_PARK_RE.search(str(user_text or "")) and not _answered_something:
+      state = dict(state)
+      state["status"] = _ctl.STATUS_PARKED
+      next_fin = put_state(next_fin, state)
+      notes.append("parked")
+      return remaining, next_ops, next_fin, notes
+    notes.append("park_ignored_no_explicit_intent")
 
   option_id = remaining.pop("coherence.option", remaining.pop("option", None))
   if option_id is not None and str(option_id).strip().lower() in ("decline", "declined", "none", "keep"):
@@ -1029,6 +1153,9 @@ def apply_router_patch(
             {"product": p.get("product"), "to": p.get("unit_price")}
             for p in (spec.get("prices") or [])
           ],
+          # CW-024 #118: the landing's assumed retention rides along so
+          # the client's answer can replace it precisely.
+          "retained_used": _f(spec.get("retained_fraction"), 1.0) or 1.0,
         }
         # PHASE 2: record the lever's own writes so the band-identity
         # digest can exclude them (lever moves re-evaluate, never
@@ -1353,8 +1480,8 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
     lines = []
     for fact in (rnd.get("facts") or {}).get("lines") or []:
       lines.append(
-        f"{fact['product']} is at ${fact['current_price']:,.2f} and the believable "
-        f"range for your market runs up to ${fact['believable_max']:,.2f}"
+        f"{fact['product']} is at ${fact['current_price']:,.2f} and similar "
+        f"businesses in your market charge up to about ${fact['believable_max']:,.2f}"
       )
     opts = []
     for i, o in enumerate(rnd.get("options") or [], start=1):
@@ -1375,14 +1502,14 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
     if isinstance(_ra, dict) and _ra.get("fraction_lo") is not None:
       _ra_txt = (
         f"These projections assume you keep at least "
-        f"{float(_ra['fraction_lo']):.0%} of your current demand at the "
-        "higher price (a judgment from your market's own numbers) - you "
-        "know your customers best, so your answer beats that judgment. "
+        f"{float(_ra['fraction_lo']):.0%} of your current customers at the "
+        "higher price (based on what your market's own numbers show) - you "
+        "know your customers best, so your answer beats that estimate. "
       )
     return (
       "The biggest lever is pricing. " + "; ".join(lines) + ". "
       + " ".join(opts) + ". " + _ra_txt +
-      "You can also give me exact prices and I'll keep them inside the believable range. "
+      "You can also give me exact prices and I'll keep them in line with what your market pays. "
       "Which fits your business? Whatever you pick, I'll recompute on the spot - "
       f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
     )
@@ -1391,7 +1518,7 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
     for fact in (rnd.get("facts") or {}).get("lines") or []:
       lines.append(
         f"{fact['product']} runs about {fact['current_annual_units']:,} a year now, "
-        f"and the believable demand for your market supports up to "
+        f"and your market realistically has room for up to "
         f"{fact['believable_max_annual_units']:,}"
       )
     opts = []
@@ -1409,8 +1536,8 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       )
       opts.append(f"{i}) {o['label'].capitalize()}: {vol_bits}, {closes_bit}{rec}")
     return (
-      "Another real lever is volume - serving more of the demand that's already "
-      "judged reachable for your market. " + "; ".join(lines) + ". "
+      "Another real lever is volume - serving more of the demand your market "
+      "already has. " + "; ".join(lines) + ". "
       + " ".join(opts) + ". "
       "More volume carries its own direct costs - I've counted that. "
       "Which fits how your business actually books work? I'll recompute on the spot - "
@@ -1444,7 +1571,7 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       opts.append(f"{i}) {o['label'].capitalize()}: {move_bits}, {closes_bit}{rec}")
     return (
       "Next lever: the cost structure is carrying more than a mature quarter needs, "
-      "and every floor here was judged against what it really takes to run your business. "
+      "and every floor here reflects what it really takes to run your business. "
       + " ".join(opts) + ". "
       "Which works for you? I'll recompute right away - "
       f"{gap_display} a quarter is what's left to make this work on paper."
@@ -1461,7 +1588,7 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
         )
       )
     return (
-      "There are also revenue lines your operation could carry, judged against your real "
+      "There are also revenue lines your operation could carry, sized against your real "
       "capacity: " + " and ".join(offers) + ". Adding one means we revisit your operating "
       "setup together - tell me if you want to, or we can keep working with what's here. "
       f"Either way, {gap_display} a quarter is what's left to make this work on paper."
@@ -1546,11 +1673,11 @@ def _opening(eval_result: Dict[str, Any], band_low: float) -> str:
   binding = binding_constraint(eval_result)
   return (
     "Before we wrap up, I put your numbers together the way a lender will read them - "
-    "your business once it's up and running, a few years in, on the strongest believable "
+    "your business once it's up and running, a few years in, on the strongest realistic "
     "growth path for it. Even there it doesn't quite hold: about "
     f"{_fmt(_f(q11.get('revenue')))} comes in, and {binding['sentence']}. "
     f"That's the whole gap: about {_fmt(_f(eval_result.get('gap_quarterly')))} a quarter. "
-    "Here's the good news: we already checked the most favorable believable version of "
+    "Here's the good news: we already checked the most favorable realistic version of "
     "your business, and a version that works exists - nothing here has happened yet, "
     "it's all still on paper, which is exactly where we fix it. One thing at a time, "
     "biggest first."
@@ -1563,7 +1690,7 @@ def _roadmap_message(payload: Dict[str, Any]) -> str:
   )
   return (
     "I have to be straight with you, because this plan will face a lender: we checked "
-    "every believable version of the numbers you've described - prices at the top of "
+    "every realistic version of the numbers you've described - prices at the top of "
     "the market range, every cost at its floor, every opportunity added - and even that "
     f"best case comes up short (about {payload.get('corner_gap_display')} a quarter at "
     "the ceiling). That's not a judgment of you; it's arithmetic about this shape of "
@@ -1596,18 +1723,18 @@ def _converged_suffix(
     # higher stress figure.
     band_txt = (
       f"that stress figure actually sits above the {_pct(band_low)}-"
-      f"{_pct(_f(band_high))} range judged believable for your kind of "
-      f"business, so the full build will temper it back inside that range "
+      f"{_pct(_f(band_high))} that healthy businesses like yours actually "
+      f"run, so the full build will temper it back to that level "
       f"- treat {_pct(_f(band_high))} as the honest ceiling, not the "
       f"figure above it"
     )
   elif band_high is not None:
     band_txt = (
-      f"inside the {_pct(band_low)}-{_pct(_f(band_high))} range judged believable "
-      "for your kind of business"
+      f"inside the {_pct(band_low)}-{_pct(_f(band_high))} that healthy "
+      "businesses like yours actually run"
     )
   else:
-    band_txt = "above the floor judged believable for your kind of business"
+    band_txt = "above the floor healthy businesses like yours actually run at"
   # THE PROMISE NAMES ITS TIER — permanently, not as interim copy. This
   # verdict is the structural checks coherence can run in the room; the
   # cash pass, the engine's own path-shaping, and landing noise always
@@ -1642,7 +1769,7 @@ def _converged_suffix(
     # DISCARDED at this exact spot.
     return (
       " One thing worth sitting with together before you lean on this: at the "
-      "strongest believable version of your business, the structure can work - "
+      "strongest realistic version of your business, the structure can work - "
       f"a mature quarter at that stress point keeps about {_fmt(_f(q11.get('ebitda')))} "
       f"({_pct(margin)} of revenue), {band_txt}. But at the growth we'd actually "
       f"plan for, it still comes up about {_fmt(judged_gap)} a quarter short."
@@ -1653,7 +1780,7 @@ def _converged_suffix(
     )
   return (
     " One more thing worth knowing: your numbers clear every structural test we can "
-    "run right now. That's a stress test, not a forecast - at the strongest believable "
+    "run right now. That's a stress test, not a forecast - at the strongest realistic "
     f"version of your business, a mature quarter would keep about {_fmt(_f(q11.get('ebitda')))} "
     f"({_pct(margin)} of revenue), {band_txt}."
     + flat_txt +
@@ -1754,7 +1881,7 @@ def gate_and_turn(
         payload = state.get("roadmap") or {}
         context = (
           "You are the intake consultant. The client's business plan cannot work yet: even "
-          "the most favorable believable configuration falls short by about "
+          "the most favorable realistic configuration falls short by about "
           f"{payload.get('corner_gap_display') or 'a meaningful amount'} per mature quarter. "
           "You have already delivered the full roadmap: "
           + "; ".join(f"{m.get('title')} ({m.get('detail')})" for m in payload.get("milestones") or [])
@@ -1826,7 +1953,30 @@ def gate_and_turn(
         "tell me how many you'd realistically keep and I'll rerun the "
         "numbers on that. "
       )
+      # CW-024 #118 (Nick-ruled: no question without a consumer). The
+      # clarifier now registers its CONSUMER: a pending frame carrying
+      # the retained fraction the landing assumed, so the client's own
+      # answer ("30 of my 34") re-lands the numbers OVER the judge's
+      # conservative edge - the ruled precedence, finally wired.
+      state["retention_pending"] = {
+        "prices": _pc.get("prices") or [],
+        "retained_used": _f(_pc.get("retained_used"), 1.0) or 1.0,
+      }
     financials_json = put_state(financials_json, state)
+
+  # CW-024 #109 BACKSTOP surface: a money figure that landed nowhere is
+  # disclosed on the very next message - never a silent drop.
+  _unl = financials_json.get("_unlanded_note")
+  if isinstance(_unl, dict) and _unl.get("figures"):
+    _figs_txt = ", ".join(f"{_fmt(f)}" for f in _unl["figures"][:3])
+    financials_json = dict(financials_json)
+    financials_json.pop("_unlanded_note", None)
+    _pc_question = (
+      f"First - you gave me {_figs_txt} and I couldn't tell where it "
+      "belongs, so I haven't recorded it. Tell me which line that figure "
+      "is (for example: team payroll, revenue, rent, supplies) and I'll "
+      "set it before anything else. "
+    ) + _pc_question
 
   # SUB-RULING (ii) surface (Nick, cause-split slate): the fold applied
   # what was honest and HELD the remainder - the very next gate message
@@ -1986,8 +2136,8 @@ def gate_and_turn(
       "The profit math clears, but one structural wall still stands: your "
       f"team costs are {_wall_pay['value']:.0%} of revenue, and a "
       f"{_cls_word} business like this one is financed at no more than "
-      f"{_wall_pay['max_pct']:.0%} - the plan builder enforces that ceiling "
-      "exactly, so I can't close the plan on these numbers. "
+      f"{_wall_pay['max_pct']:.0%} - a lender won't finance a plan above that "
+      "level, so I can't close the plan on these numbers. "
     )
     if _cause["kind"] == "owner_dominated":
       _tail = (
@@ -2144,8 +2294,8 @@ def gate_and_turn(
     state.pop("round", None)
     financials_json = put_state(financials_json, state)
     msg = (
-      f"We're close but not quite there - {_fmt(gap)} a quarter still open, and the "
-      "levers inside the believable ranges are used up. We can revisit any number "
+      f"We're close but not quite there - {_fmt(gap)} a quarter still open, and "
+      "every realistic adjustment is already in. We can revisit any number "
       "you'd like to change, or leave everything saved right here and pick it up "
       "when you're ready - nothing goes out until it can work on paper."
     )

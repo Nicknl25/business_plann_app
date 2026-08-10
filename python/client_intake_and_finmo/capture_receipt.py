@@ -117,18 +117,42 @@ def numeric_receipt(
   # claim in the wrong direction). Leaf match is deliberately generous:
   # a false "dropped" note is worse than a missed one.
   written_leaves = {p.rsplit(".", 1)[-1] for p in written_fields}
+  # CW-024 #89: "not recorded yet" is judged against the POST-WRITE
+  # state, not the write-set. A field that already holds a value (from
+  # this turn or any prior one) cannot be named "not recorded" - and a
+  # derived twin (baseline_*, adjustments) is bookkeeping, never a
+  # client-facing gap.
+  after_leaves: Dict[str, float] = {}
+  for domain in after:
+    after_leaves.update(_numeric_leaves((after or {}).get(domain) or {}, domain))
+  stored_fields = {re.sub(r"\[\d+\]", "", p) for p in after_leaves}
+  stored_leaves = {p.rsplit(".", 1)[-1] for p in stored_fields}
   dropped = []
   for f in requested:
     if not f:
       continue
     base = re.sub(r"\[\d+\]", "", f)
-    if base in written_fields or base.rsplit(".", 1)[-1] in written_leaves:
+    leaf = base.rsplit(".", 1)[-1]
+    if base in written_fields or leaf in written_leaves:
+      continue
+    if base in stored_fields or leaf in stored_leaves:
+      continue
+    if leaf in _DERIVED_FIELDS or any(leaf.startswith(p) for p in _DERIVED_PREFIXES):
       continue
     dropped.append(f)
+  # CW-024 #95: the capacity label's cadence comes from the STORED
+  # state (same-turn writes are already in `after`), so "weekly
+  # capacity" can never be said against a monthly-stored cadence.
+  periods_by_prefix = {
+    path.rsplit(".", 1)[0]: value
+    for path, value in after_leaves.items()
+    if path.rsplit(".", 1)[-1] == "operating_periods_per_year"
+  }
   return {
     "written": written,
     "dropped": dropped,
     "clarify": clarify_pending or None,
+    "periods_by_prefix": periods_by_prefix,
   }
 
 
@@ -207,11 +231,12 @@ def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:
   primary = [w for w in written if w[0].rsplit(".", 1)[-1].split("[")[0] not in _DERIVED_FIELDS
              and not any(w[0].rsplit(".", 1)[-1].startswith(p) for p in _DERIVED_PREFIXES)]
   show = primary or written
-  periods_by_prefix = {
-    w[0].rsplit(".", 1)[0]: float(w[2])
-    for w in written
-    if w[0].rsplit(".", 1)[-1] == "operating_periods_per_year"
-  }
+  # CW-024 #95: stored-state cadence map (stamped by numeric_receipt)
+  # first; write-set fallback keeps old receipts renderable.
+  periods_by_prefix = dict((receipt or {}).get("periods_by_prefix") or {})
+  for w in written:
+    if w[0].rsplit(".", 1)[-1] == "operating_periods_per_year":
+      periods_by_prefix[w[0].rsplit(".", 1)[0]] = float(w[2])
   parts = [_fmt(path, new, periods_by_prefix) for path, _old, new in show[:limit]]
   extra = len(show) - limit
   text = "; ".join(parts)

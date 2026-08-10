@@ -489,6 +489,10 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "owner_pay_monthly": {"type": "number"},
 
+      "total_team_payroll": {"type": "number"},
+
+      "remove_role": {"type": "string"},
+
       "people": {
 
         "type": "array",
@@ -1588,6 +1592,10 @@ def route_intent(
       # owner_compensation field is a derived mirror nothing else
       # writes.
       "owner_pay_monthly",
+      # CW-024 #109 (Nick-ruled): the stated TEAM TOTAL and roster
+      # edits are people statements with their own doors.
+      "total_team_payroll",
+      "remove_role",
     ],
     "financials": [
 
@@ -1792,6 +1800,8 @@ def route_intent(
       "Rest-of-team payroll handling (takes precedence over continue_chat):\n"
       "- If shared_context.people_controller.current_question is rest_of_team_payroll, the app just asked for the total payroll of everyone beyond the owner and key people. A direct answer to that question is NOT continue_chat - translate it into edit_patch on the field named in people_controller.patch_targets (people.rest_of_team_payroll_year1 when fields are group-scoped, rest_of_team_payroll_year1 otherwise).\n"
       "- OWNER PAY IS A PEOPLE FIELD: when the client states or corrects what they pay THEMSELVES (\"I pay myself $2,000 a month\", \"set my pay to $3,300 a month\"), emit edit_patch on people.owner_pay_monthly with the MONTHLY dollar figure (convert a stated annual figure by /12 and say so). Never write owner pay into any financials field and never into revenue.\n"
+      "- TOTAL TEAM PAYROLL IS A PEOPLE FIELD: when the client states or corrects their TOTAL payroll (\"my payroll is $225,000\", \"my total annual payroll is X\", \"fix the payroll figure to X\"), emit edit_patch on people.total_team_payroll with the ANNUAL dollar figure - even when other intents are present in the same message, even while options are on the table. A stated payroll total is a fact that must land; it is never an option choice and never ignorable.\n"
+      "- REMOVING A ROSTER ENTRY: when the client says a person/role/crew entry is a duplicate or should be removed (\"remove the duplicate crew entry\", \"the crew got counted twice\"), emit edit_patch on people.remove_role with the entry's title text. Pair it with people.total_team_payroll when they also state the corrected total.\n"
       "- Interpret INTENT, not exact wording: any reply that means there are no additional employees (for example no one else, just us, nobody, none, it's only me - including misspellings or informal phrasing) means rest_of_team_payroll_year1 = 0.\n"
       "- If the user gives a monthly figure for that question, convert it to an annual amount before patching.\n"
       "- If the user gives a range, use a single representative number near the middle.\n"
@@ -1803,6 +1813,7 @@ def route_intent(
       extra_instructions
       + "Coherence lever handling (takes precedence over continue_chat and confirm_proceed):\n"
       "- shared_context.coherence_controller means the app just asked the client to choose how to close a viability gap. The offered options (ids, labels, exact numbers) are in coherence_controller.options.\n"
+      "- If coherence_controller.patch_targets includes coherence.retention_answer, the app just asked how many current customers would stay at a new price. ANY retention answer (\"I'd keep 30 of my 34\", \"maybe lose one or two\", \"about 90 percent\") is edit_patch on coherence.retention_answer with either a fraction (0-1) or {\"kept\": N, \"of\": M}. This applies even when the same message also picks an option or says other things - the retention answer must always land.\n"
       "- If the client picks an option by number, label, rough description, or brief agreement (yes, go ahead, do that, the suggested one - including misspellings and informal phrasing), return edit_patch with field coherence.option set to that option's id. Brief agreement means the option marked recommended/suggested.\n"
       "- If the client gives their own concrete prices for named products, return edit_patch with ops.product_overrides mapping each product name to an object with unit_price. Do not refuse prices outside the mentioned range - the app clamps them safely.\n"
       "- If the client gives a concrete dollar amount for a cost the question covered (marketing, rent, payroll, overhead), return edit_patch on the matching field from coherence_controller.patch_targets, converting the client's stated basis to that field's declared basis in coherence_controller.field_bases - convert, never copy.\n"
