@@ -7443,6 +7443,24 @@ def _sync_financials_consult_persistence_state(
           _rest0 = _rest0 + _gw
       people_json["rest_of_team_payroll_year1"] = round(_rest0, 2)
       people_json["people"] = [p for p in _rows0 if p not in _group_rows]
+    # CW-024 #109 door landing (order-safe): a client-stated team total
+    # becomes the delta HERE, against the canonical rollup of the
+    # NORMALIZED roster - so the group-row dedupe and the stated total
+    # can never both correct the same phantom (real Cedar: dedupe alone
+    # heals 361k to the client's exact 225k and the target lands 0).
+    _stated_target = _safe_float(next_financials.get("payroll_stated_total_target"))
+    if _stated_target is not None and _stated_target >= 0:
+      _canon_now = _compute_payroll_baseline(shared_context={
+        "people_capability": people_json,
+        "operating_model": ops_json if isinstance(ops_json, dict) else {},
+      })
+      _canon_total_now = _safe_float(
+        (_canon_now or {}).get("baseline_payroll_year1")
+      ) or 0.0
+      _target_delta = round(float(_stated_target) - _canon_total_now, 2)
+      if abs(_target_delta) > 0.005:
+        next_financials["payroll_adjustment"] = _target_delta
+      next_financials.pop("payroll_stated_total_target", None)
     # ---- payroll sub-graph (people is the source of truth) ----
     # LEGACY FOLD (Nick-ruled): a nonzero payroll_adjustment (the old
     # walk delta the engine could never read) materializes into the
@@ -9769,20 +9787,16 @@ def _apply_scoped_patch(
         # changing named people's pay HOLDS with the how question -
         # sub-ruling (ii)). Client truth lands, one door, no silent
         # drop possible for this class again.
+        # ORDER-SAFE (real-Cedar finding): the stated total is stored as
+        # a TARGET, not a delta. The RECALC computes the delta against
+        # the canonical rollup AFTER group-row normalization - computing
+        # it here double-corrected Cedar Ridge (group dedupe healed the
+        # roster to 225k AND the pre-dedupe delta subtracted 136k more,
+        # landing 89k). A target is idempotent under any roster shape.
         _stated_total = _safe_float(value)
         if _stated_total is not None and _stated_total >= 0:
-          _canon = _compute_payroll_baseline(shared_context={
-            "people_capability": next_people,
-            "operating_model": next_ops,
-          })
-          _canon_total = _safe_float(
-            (_canon or {}).get("baseline_payroll_year1")
-            if isinstance(_canon, dict) else _canon
-          ) or 0.0
-          _delta = round(float(_stated_total) - _canon_total, 2)
-          if abs(_delta) > 0.005:
-            next_financials = dict(next_financials)
-            next_financials["payroll_adjustment"] = _delta
+          next_financials = dict(next_financials)
+          next_financials["payroll_stated_total_target"] = float(_stated_total)
         continue
       if field == "remove_role":
         # CW-024 #109: THE DOOR for a roster edit ("remove the
