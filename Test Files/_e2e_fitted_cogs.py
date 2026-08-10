@@ -97,6 +97,24 @@ check("F2 stub fields fitted: cogs pct == proposal, dollars == pct x "
 check("F2b proposal stamps cogs_basis='ratio' (a proposal is never a "
       "stated dollar - Nick ruling #3)",
       patch.get("cogs_basis") == "ratio")
+
+# F2b-PROD (CW-024 #112 restoration): the ratio stamp must SURVIVE the
+# PRODUCTION apply path - _normalize_financials_router_patch filtered
+# the unknown field and the touched-twin inference re-tagged 'dollars'
+# (the Cedar Ridge run shipped an app-proposed 42% masquerading as
+# durable client dollars). The dict-level F2b above was exactly the
+# test hole: it proved the builder, not the applied result.
+from api_handlers.intake_consult import _normalize_financials_router_patch  # noqa: E402
+
+_router_patch = {f"financials.{k}": v for k, v in patch.items()}
+_applied = _normalize_financials_router_patch(
+    patch=_router_patch, active_stage="cogs",
+    financials_json={"_financials_revenue_intro_done": True},
+    financials_year1_json=Y1, last_assistant="", user_message="")
+check("F2b-PROD the ratio stamp survives the production apply "
+      f"(cogs_basis={( _applied or {}).get('cogs_basis')!r}, twins landed)",
+      isinstance(_applied, dict) and _applied.get("cogs_basis") == "ratio"
+      and abs(float(_applied.get("cogs_total_year1") or 0) - patch["cogs_total_year1"]) < 1.0)
 check("F2c the band rides the patch for the ack",
       isinstance(patch.get("cogs_fit_band"), list))
 

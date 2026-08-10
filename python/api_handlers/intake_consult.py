@@ -7167,6 +7167,17 @@ def _normalize_financials_router_patch(
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
       next_financials["cogs_percent_of_revenue"] = float(next_financials["current_cogs"]) / revenue_year1
+  # CW-024 #112 (standing-ruling restoration): an EXPLICIT cogs_basis in
+  # the patch outranks the touched-twin inference. The cogs stage
+  # DEFAULT proposal stamps "ratio" (Nick ruling #3: a proposal is a
+  # ratio-anchor, never a client-stated dollar), but this filter dropped
+  # the unknown field and the twin inference re-tagged "dollars" - the
+  # Cedar Ridge run shipped an app-proposed 42% masquerading as durable
+  # client dollars. Only the two legal values pass; anything else is
+  # ignored (a client patch never carries this field).
+  _explicit_basis = patch.get("financials.cogs_basis", patch.get("cogs_basis"))
+  if str(_explicit_basis or "").strip().lower() in ("ratio", "dollars"):
+    next_financials["cogs_basis"] = str(_explicit_basis).strip().lower()
   if "current_payroll" in touched:
     next_financials["payroll_total_year1"] = float(next_financials.get("current_payroll") or 0.0)
   if "payroll_total_year1" in touched:
