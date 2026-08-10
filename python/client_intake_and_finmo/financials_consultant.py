@@ -527,6 +527,121 @@ def validate_cogs_setup(
   return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
 
 
+def _cogs_fit_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_cogs_fit",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "materials_cogs_percent_band": {
+          "type": "array", "items": {"type": "number"},
+          "minItems": 2, "maxItems": 2,
+        },
+        "proposed_cogs_percent": {"type": "number"},
+        "basis_reconciliation": {"type": "string"},
+      },
+      "required": ["materials_cogs_percent_band", "proposed_cogs_percent",
+                   "basis_reconciliation"],
+    },
+  }
+
+
+def fit_cogs_percent_from_evidence(
+  *,
+  cogs_fit_context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  """THE FITTED COGS PROPOSAL (Nick-ruled, fitted-proposals slate #1;
+  the demand-judge pattern applied to the one misfit anchor).
+
+  The cohort number enters AS EVIDENCE, correctly labeled: it is
+  public-company COST OF REVENUE by NAICS, which for labor-delivered
+  services INCLUDES their crew labor (janitorial filings average ~88%)
+  - while THIS intake's basis keeps ALL labor in payroll and COGS
+  means materials/direct non-labor only. The judge must RECONCILE the
+  cohort number with the business's actual materials shape and return
+  a band + a proposal inside it. FITTED PROPOSAL, NEVER JUDGED FINAL:
+  the client owns the number and the executive builds the plan.
+
+  Returns {proposed_cogs_percent, materials_cogs_percent_band, basis_
+  reconciliation} or None (callers fall back to the plain estimator -
+  the honest degradation chain, never a fabricated confident fit)."""
+  if not isinstance(cogs_fit_context, dict):
+    return None
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _cogs_fit_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are fitting a Year-1 direct-cost (COGS) PROPOSAL to one specific business for a business-plan intake.\n"
+          "EVIDENCE VOCABULARY: cohort_evidence.cost_of_revenue_percent is the average COST OF REVENUE reported in public-company filings for this NAICS. "
+          "For labor-delivered services that figure INCLUDES the companies' own service labor - it is NOT a materials number.\n"
+          "THIS intake's basis is different and non-negotiable: ALL labor (including service/field/production labor) lives in the payroll line. "
+          "COGS here means materials, supplies, and direct non-labor fulfillment costs ONLY.\n"
+          "YOUR JOB: reconcile the cohort evidence with this business's actual size, model, and unit economics, and return:\n"
+          "- materials_cogs_percent_band: the believable RANGE of materials-only COGS percent for a business of THIS type and size (decimal fractions; at least 3 points wide - a tighter claim is false precision),\n"
+          "- proposed_cogs_percent: one starting proposal INSIDE that band,\n"
+          "- basis_reconciliation: 2-4 sentences that EXPLICITLY reconcile the cohort figure (e.g. 'filings show ~88% cost of revenue because their crews are in it; here labor is in payroll; materials for this operation run ~X-Y%').\n"
+          "Never include payroll, rent, owner pay, marketing, or overhead in the proposal. Use the exact business facts provided. Do not ask questions."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(cogs_fit_context, ensure_ascii=False),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  for _ in range(2):
+    try:
+      resp = _post_openai(url=url, headers=headers, payload=payload)
+    except Exception:
+      continue
+    if resp.status_code >= 400:
+      continue
+    try:
+      parsed = _parse_responses_json(resp.json())
+    except Exception:
+      continue
+    if not isinstance(parsed, dict):
+      continue
+    band = parsed.get("materials_cogs_percent_band")
+    try:
+      lo, hi = float(band[0]), float(band[1])
+      proposed = float(parsed.get("proposed_cogs_percent"))
+    except (TypeError, ValueError, IndexError):
+      continue
+    lo, hi = max(0.0, min(1.0, min(lo, hi))), max(0.0, min(1.0, max(lo, hi)))
+    # Anti-false-precision floor (widen DOWNWARD - the conservative
+    # direction for a cost is the LOWER edge staying honest, so widen
+    # the band toward zero rather than inflating the top).
+    if hi - lo < 0.03:
+      lo = max(0.0, hi - 0.03)
+    proposed = max(lo, min(hi, proposed))
+    reconciliation = str(parsed.get("basis_reconciliation") or "").strip()
+    if not reconciliation:
+      continue  # a fit without its reconciliation is not a fit
+    return {
+      "proposed_cogs_percent": proposed,
+      "materials_cogs_percent_band": [round(lo, 4), round(hi, 4)],
+      "basis_reconciliation": reconciliation[:600],
+    }
+  return None
+
+
 def _cogs_estimate_schema() -> Dict[str, Any]:
   return {
     "name": "financials_cogs_estimate",

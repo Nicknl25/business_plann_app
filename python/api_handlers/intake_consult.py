@@ -1157,17 +1157,60 @@ def _compute_cogs_baseline(
       years_used.append(year)
 
   if percents:
-    baseline_cogs_percent = float(sum(percents) / len(percents))
-    baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
-    return {
-      "baseline_cogs_percent": baseline_cogs_percent,
-      "baseline_cogs": baseline_cogs,
-      "cogs_adjustment": 0.0,
-      "cogs_total_year1": baseline_cogs,
-      "cogs_basis_naics": naics_6,
-      "cogs_basis_years_used": years_used[:2],
-      "revenue_year1": revenue_year1,
-    }
+    # FITTED PROPOSAL (Nick-ruled, fitted-proposals slate #1): the
+    # cohort average is PUBLIC-COMPANY COST OF REVENUE - for
+    # labor-delivered services it carries their crew labor (janitorial
+    # 561720 averages ~88%), while THIS intake keeps all labor in
+    # payroll and COGS means materials only. The raw average landing as
+    # the client's materials anchor was the 10x janitorial misfit. The
+    # cohort number now enters the FIT JUDGE as labeled EVIDENCE and
+    # the proposal is the judged materials-only fit - with the honest
+    # degradation chain: fit judge -> plain materials estimator ->
+    # raise. The raw average is NEVER proposed again.
+    cohort_avg = float(sum(percents) / len(percents))
+    from client_intake_and_finmo.financials_consultant import (
+      fit_cogs_percent_from_evidence,
+    )
+    fitted = fit_cogs_percent_from_evidence(
+      cogs_fit_context={
+        "cohort_evidence": {
+          "naics_code": naics_6,
+          "cost_of_revenue_percent": round(cohort_avg, 4),
+          "years_used": years_used[:2],
+          "label": (
+            "average COST OF REVENUE from public-company filings in this "
+            "NAICS - includes those companies' own service/production "
+            "labor; NOT a materials-only number"
+          ),
+        },
+        "intake_basis_rule": (
+          "in this intake ALL labor lives in the payroll line; COGS means "
+          "materials, supplies, and direct non-labor fulfillment only"
+        ),
+        **_build_cogs_estimate_context(
+          ops_json=ops_json,
+          shared_context=shared_context,
+          financials_year1_json=financials_year1_json,
+        ),
+      },
+    )
+    if isinstance(fitted, dict):
+      baseline_cogs_percent = float(fitted["proposed_cogs_percent"])
+      baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
+      return {
+        "baseline_cogs_percent": baseline_cogs_percent,
+        "baseline_cogs": baseline_cogs,
+        "cogs_adjustment": 0.0,
+        "cogs_total_year1": baseline_cogs,
+        "cogs_basis_naics": naics_6,
+        "cogs_basis_years_used": years_used[:2],
+        "revenue_year1": revenue_year1,
+        "cogs_basis_rationale": fitted["basis_reconciliation"],
+        "cogs_fit_band": fitted["materials_cogs_percent_band"],
+        "cogs_fit_cohort_cost_of_revenue": round(cohort_avg, 4),
+      }
+    # Fit judge unavailable: the plain materials-only estimator is the
+    # honest fallback - never the raw cost-of-revenue average.
 
   estimated = estimate_cogs_percent_from_context(
     cogs_estimate_context=_build_cogs_estimate_context(
@@ -2534,6 +2577,13 @@ def _financials_stage_default_patch(
       "cogs_basis_naics": baseline.get("cogs_basis_naics"),
       "cogs_basis_years_used": baseline.get("cogs_basis_years_used") or [],
       "cogs_basis_rationale": str(baseline.get("cogs_basis_rationale") or "").strip(),
+      # Nick-ruled #3: a PROPOSAL is a ratio-anchor, never a client-
+      # stated dollar - the basis doctrine keeps it live-refreshing
+      # until the client STATES a figure (which then becomes durable in
+      # the form given and overrides).
+      "cogs_basis": "ratio",
+      # Nick-ruled #2: the band rides so the ack can speak in ranges.
+      "cogs_fit_band": baseline.get("cogs_fit_band"),
     }
   if stage == "current_payroll":
     baseline = _compute_payroll_baseline(shared_context=shared_context)
@@ -2591,7 +2641,23 @@ def _build_financials_stage_acknowledgement(
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
-    return f"Got it. I’ll use direct costs of {total} a year ({percent} of revenue)."
+    # Nick-ruled #2 (the accept-trap softener): a PROPOSED anchor is
+    # never stated as flat fact - the range invites correction instead
+    # of demanding acceptance, because for most clients the first offer
+    # is the last word.
+    band = (financials_json or {}).get("cogs_fit_band")
+    if isinstance(band, (list, tuple)) and len(band) == 2:
+      lo = _format_percent(band[0])
+      hi = _format_percent(band[1])
+      return (
+        f"For materials and supplies, a business like yours typically runs "
+        f"{lo}-{hi} of revenue. I'll start at {total} a year ({percent}) - "
+        "correct me if your actual materials cost differs."
+      )
+    return (
+      f"I’ll start with direct costs of {total} a year ({percent} of "
+      "revenue) - correct me if your actual materials cost differs."
+    )
   if stage == "current_payroll":
     return f"Got it. I’ll use payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))} a year."
   if stage == "marketing":
@@ -2694,6 +2760,18 @@ def _build_financials_live_turn(
 
 
 def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
+  # Nick-ruled #2: the proposal speaks in the fitted RANGE when one
+  # exists - a range invites correction; a flat fact invites silent
+  # acceptance of a possibly-misfit number.
+  band = cogs_baseline.get("cogs_fit_band")
+  if isinstance(band, (list, tuple)) and len(band) == 2:
+    return (
+      f"For direct costs - materials, supplies, and other non-labor costs tied directly to delivering the work - "
+      f"a business like yours typically runs about {_format_percent(band[0])}-{_format_percent(band[1])} of revenue. "
+      f"I'd start at {_format_percent(cogs_baseline.get('baseline_cogs_percent'))}, which works out to around "
+      f"{_format_currency(cogs_baseline.get('baseline_cogs'))}.\n\n"
+      "Does that broadly match your actual materials cost, or should we adjust it?"
+    )
   return (
     f"For direct costs - things like materials, supplies, and other costs tied directly to delivering the work - a reasonable starting point is about "
     f"{_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of revenue, which works out to around "
