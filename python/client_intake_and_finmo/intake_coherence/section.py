@@ -396,6 +396,14 @@ def _ensure_margin_band(
         logging.getLogger("intake_coherence.section").exception(
           "labor_intensity_class backfill crashed - wall absent this turn",
         )
+    # DEMAND JUDGE BACKFILL (same pattern): stamps authored before the
+    # judge shipped carry no demand_response - author it alone, band
+    # numbers untouched.
+    state = _ensure_demand_response(
+      state, compact=compact, marketing_model_json=marketing_model_json,
+      market_json=market_json, ops_json=ops_json,
+      financials_json=financials_json,
+    )
     return state
   state = dict(state)
   # Identity-level change: EVERY judged artifact keyed to the old
@@ -406,7 +414,8 @@ def _ensure_margin_band(
   # revenue 187.6k -> 175.1k, so the client's accepted rent cut closed
   # $75 of a $2,700 move). Growth re-derives when the walk is over.
   if state.get("digest_hash") and state.get("digest_hash") != digest_hash:
-    stale_keys = ["growth_error", "bounds", "bounds_error", "corner", "round"]
+    stale_keys = ["growth_error", "bounds", "bounds_error", "corner", "round",
+                  "demand_response"]
     round_live = state.get("status") == _ctl.STATUS_WALKING and state.get("round")
     if round_live:
       state["growth_frozen_during_round"] = True
@@ -548,6 +557,13 @@ def _ensure_margin_band(
   financials_json.pop("_judgment_hold_retries", None)
   state["margin_band_judgment"] = validated
   state.pop("margin_band_error", None)
+  # THE DEMAND JUDGE rides the same F-core seam (Nick-ruled #5):
+  # authored with the band, invalidated with the band.
+  state = _ensure_demand_response(
+    state, compact=compact, marketing_model_json=marketing_model_json,
+    market_json=market_json, ops_json=ops_json,
+    financials_json=financials_json,
+  )
   return state
 
 
@@ -601,6 +617,71 @@ def _ensure_growth_judgment(
     "mature_annual_growth": j["mature_annual_growth"],
   }
   state.pop("growth_error", None)
+  return state
+
+
+def _ensure_demand_response(
+  state: Dict[str, Any],
+  *,
+  compact: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """THE DEMAND JUDGE stamp (Nick-ruled #5: the F-core seam). Authored
+  once per identity alongside the band; identity change clears it with
+  the other judged artifacts. FAIL-SOFT by design: demand ENRICHES the
+  levers, it never gates - a failed authoring logs loudly and retries
+  at the next gate entry, and the levers fall back to their pre-demand
+  behavior (absence of judgment is never a verdict). The THIN rule is
+  enforced in the validator: thin evidence -> verdicts withheld."""
+  if state.get("demand_response"):
+    return state
+  try:
+    from client_intake_and_finmo.intake_coherence.gpt_demand_judgment import (
+      demand_evidence_level,
+      gpt_author_demand_response_once,
+      validate_demand_response,
+    )
+    evidence = demand_evidence_level(marketing_model_json, market_json)
+    if evidence["level"] != "rich":
+      # Withheld-by-evidence needs no GPT call: stamp the honest thin
+      # verdict directly (visibly thin, nothing fabricated).
+      state = dict(state)
+      state["demand_response"] = validate_demand_response(
+        judgment={}, evidence=evidence,
+      )
+      return state
+    split = _ctl.ops_line_split(ops_json, financials_json)
+    price_facts = {
+      "lines": [
+        {"lob": l["lob"], "product": l["product"],
+         "unit_price": l["unit_price"],
+         "annual_units": round(_f(l.get("annual_units")))}
+        for l in split
+      ],
+      "stated_annual_revenue": _f(financials_json.get("current_revenue")),
+    }
+    result = gpt_author_demand_response_once(
+      compact=compact, marketing_model=marketing_model_json or {},
+      price_facts=price_facts,
+    )
+    if not (result.get("ok") and result.get("judgment")):
+      logging.getLogger("intake_coherence.section").error(
+        "DEMAND_JUDGE_AUTHOR_FAILED (%s) - levers keep pre-demand "
+        "behavior until a later gate entry succeeds",
+        result.get("error"),
+      )
+      return state
+    state = dict(state)
+    state["demand_response"] = validate_demand_response(
+      judgment=result["judgment"], evidence=evidence,
+    )
+  except Exception:
+    logging.getLogger("intake_coherence.section").exception(
+      "DEMAND_JUDGE_AUTHOR_CRASHED - levers keep pre-demand behavior",
+    )
   return state
 
 
@@ -953,6 +1034,39 @@ def apply_router_patch(
         # digest can exclude them (lever moves re-evaluate, never
         # re-judge - CW-020); a later CLIENT correction to a different
         # value re-enters the digest and re-judges.
+        # DEMAND JUDGE landing (Nick-ruled #2): an accepted price move
+        # carries its judged retained-demand consequence INTO THE TRUTH
+        # - utilization scales by the conservative retained edge (so
+        # ops-implied revenue equals the landed anchor and the
+        # anchor-vs-ops check holds), and COGS follows the retained
+        # volume (ratio-basis pct x retained; dollars-basis stated
+        # dollars x retained). The client's clarifier answer afterwards
+        # re-lands whatever they actually expect (client > judge).
+        _retained = _f(spec.get("retained_fraction"))
+        if _retained is not None and 0.0 < _retained < 1.0 - 1e-9:
+          _vol_specs = []
+          for _l in (next_ops.get("lob_models") or []):
+            if not isinstance(_l, dict):
+              continue
+            for _p in (_l.get("products") or []):
+              if not isinstance(_p, dict):
+                continue
+              _u = _f(_p.get("utilization_rate"), 1.0)
+              _vol_specs.append({
+                "lob": _l.get("lob_name") or _l.get("lob") or "",
+                "product": _p.get("product_name") or _p.get("product") or "",
+                "utilization_rate": round(max(0.01, _u * _retained), 4),
+              })
+          next_ops = _apply_volume_spec(next_ops, _vol_specs)
+          _cpct_mid = _f(next_fin.get("cogs_percent_of_revenue"))
+          if _cpct_mid > 0:
+            next_fin["cogs_percent_of_revenue"] = round(_cpct_mid * _retained, 6)
+          if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
+            _cogs_from_r = _f(next_fin.get("current_cogs"))
+            for _cf in ("current_cogs", "cogs_total_year1"):
+              _cv = _f(next_fin.get(_cf))
+              if _cv > 0:
+                next_fin[_cf] = round(_cv * _retained, 2)
         _lw = dict(_st_pc.get("_lever_writes") or {})
         if spec.get("current_revenue"):
           _record_lever_write(
@@ -963,6 +1077,14 @@ def apply_router_patch(
           _record_lever_write(
             _lw, "cogs_percent_of_revenue",
             _cpct_before if _cpct_before > 0 else None, float(_cpct_now))
+        if (
+          str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars"
+          and _retained is not None and 0.0 < _retained < 1.0 - 1e-9
+        ):
+          _cd_now = _f(next_fin.get("current_cogs"))
+          if _cd_now > 0:
+            _record_lever_write(
+              _lw, "current_cogs", round(_cd_now / _retained, 2), _cd_now)
         _st_pc["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_pc)
         notes.append(f"option:{option_id}:prices")
@@ -1038,6 +1160,38 @@ def apply_router_patch(
                 _lw, "baseline_payroll_year1",
                 _base if _base > 0 else None,
                 round((_base or 0.0) + _delta, 2))
+        # DEMAND-COUPLED marketing landing (Nick-ruled): the accepted
+        # cut lands its judged demand consequence - anchor and
+        # utilization scale by the conservative retained edge; the
+        # projection and the truth agree (never pure savings).
+        _dl = spec.get("demand_landing")
+        _dmult = _f((_dl or {}).get("demand_mult_lo")) if isinstance(_dl, dict) else None
+        if _dmult is not None and 0.0 < _dmult < 1.0 - 1e-9:
+          _rev_before_m = _f(next_fin.get("current_revenue"))
+          if _rev_before_m > 0:
+            _rev_after_m = round(_rev_before_m * _dmult, 2)
+            next_fin["current_revenue"] = _rev_after_m
+            _record_lever_write(
+              _lw, "current_revenue", _rev_before_m, _rev_after_m)
+          _vol_specs_m = []
+          for _l in (next_ops.get("lob_models") or []):
+            if not isinstance(_l, dict):
+              continue
+            for _p in (_l.get("products") or []):
+              if not isinstance(_p, dict):
+                continue
+              _u = _f(_p.get("utilization_rate"), 1.0)
+              _vol_specs_m.append({
+                "lob": _l.get("lob_name") or _l.get("lob") or "",
+                "product": _p.get("product_name") or _p.get("product") or "",
+                "utilization_rate": round(max(0.01, _u * _dmult), 4),
+              })
+          next_ops = _apply_volume_spec(next_ops, _vol_specs_m)
+          if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
+            for _cf in ("current_cogs", "cogs_total_year1"):
+              _cv = _f(next_fin.get(_cf))
+              if _cv > 0:
+                next_fin[_cf] = round(_cv * _dmult, 2)
         _st_cw["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_cw)
         notes.append(f"option:{option_id}:costs")
@@ -1216,9 +1370,18 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
         else f"which closes about {o['closes_display']} of the gap"
       )
       opts.append(f"{i}) {o['label'].capitalize()}: {price_bits}, {closes_bit}{rec}")
+    _ra = (rnd.get("facts") or {}).get("retained_assumption")
+    _ra_txt = ""
+    if isinstance(_ra, dict) and _ra.get("fraction_lo") is not None:
+      _ra_txt = (
+        f"These projections assume you keep at least "
+        f"{float(_ra['fraction_lo']):.0%} of your current demand at the "
+        "higher price (a judgment from your market's own numbers) - you "
+        "know your customers best, so your answer beats that judgment. "
+      )
     return (
       "The biggest lever is pricing. " + "; ".join(lines) + ". "
-      + " ".join(opts) + ". "
+      + " ".join(opts) + ". " + _ra_txt +
       "You can also give me exact prices and I'll keep them inside the believable range. "
       "Which fits your business? Whatever you pick, I'll recompute on the spot - "
       f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
@@ -1570,7 +1733,8 @@ def gate_and_turn(
     )
     if state.get("digest_hash") and state.get("digest_hash") != _rm_digest:
       state = dict(state)
-      for _k in ("roadmap", "corner", "bounds", "round", "status", "_lever_writes"):
+      for _k in ("roadmap", "corner", "bounds", "round", "status",
+                 "_lever_writes", "demand_response"):
         state.pop(_k, None)
       financials_json = put_state(financials_json, state)
       # fall through to the normal gate flow below (the fresh

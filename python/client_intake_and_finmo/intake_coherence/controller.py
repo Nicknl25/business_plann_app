@@ -256,6 +256,7 @@ def _price_move_basis(
   basis: StructuralBasis,
   split: List[Dict[str, Any]],
   multipliers: Dict[str, float],
+  retained: float = 1.0,
 ) -> StructuralBasis:
   """Basis with per-line price multipliers applied: revenue scales, and
   ALL dollar-denominated costs hold (volume held — price is pure
@@ -263,23 +264,33 @@ def _price_move_basis(
   in basis_from_intake, so holding only COGS dollars while G&A/marketing
   scaled with revenue made this projection disagree with the re-eval the
   panel gap runs — the closes-$0 lie (a price rise projected as
-  WORSENING the gap on a fixed-cost-heavy shape)."""
+  WORSENING the gap on a fixed-cost-heavy shape).
+
+  DEMAND JUDGE (Nick-ruled #2): `retained` is the CONSERVATIVE edge of
+  the judged retained-demand band. Moved lines keep only that fraction
+  of their units — revenue scales by m×retained, COGS dollars scale by
+  retained (fewer units cost less to deliver), fixed overheads hold.
+  The raise-price-and-keep-everyone fantasy dies here."""
+  retained = min(1.0, max(0.0, _f(retained, 1.0) or 1.0))
   base_rev = basis.q1_revenue_quarterly
   new_rev = 0.0
   covered = 0.0
   for line in split:
     key = f"{line['lob']}␟{line['product']}"
     m = max(1.0, _f(multipliers.get(key), 1.0))
-    new_rev += line["q1_revenue_quarterly"] * m
+    new_rev += line["q1_revenue_quarterly"] * m * retained
     covered += line["q1_revenue_quarterly"]
   new_rev += max(0.0, base_rev - covered)  # any un-split remainder unmoved
   if new_rev <= 0:
     return basis
-  # Dollar costs held: pcts rescale by the revenue ratio.
   ratio = base_rev / new_rev
+  # COGS dollars scale with RETAINED volume on the moved share; the
+  # unmoved remainder keeps full dollars.
+  moved_share = covered / base_rev if base_rev > 0 else 1.0
+  cogs_dollar_factor = (1.0 - moved_share) + moved_share * retained
   return StructuralBasis(
     q1_revenue_quarterly=new_rev,
-    cogs_pct=basis.cogs_pct * ratio,
+    cogs_pct=basis.cogs_pct * ratio * cogs_dollar_factor,
     payroll_quarterly=basis.payroll_quarterly,
     rent_quarterly=basis.rent_quarterly,
     gna_pct=basis.gna_pct * ratio,
@@ -370,15 +381,25 @@ def _pricing_round(
   thresholds: Thresholds,
   bounds: Dict[str, Any],
   split: List[Dict[str, Any]],
+  demand: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   """Price options per the searcher's own quantization: mid
-  (1 + (pmax-1)*0.5) and max. Patch specs are ops-field edits."""
+  (1 + (pmax-1)*0.5) and max. Patch specs are ops-field edits.
+  DEMAND JUDGE: when a judged price_response exists, projections and
+  landings assume the CONSERVATIVE retained-demand edge; the client's
+  own clarifier answer afterwards overrides (client truth > judge)."""
   if not split:
     return None
   matched = match_bounds_lines(split, bounds)
   gap_now = _gap(basis, thresholds)
   if gap_now <= 0:
     return None
+  _pr = (demand or {}).get("price_response") if isinstance(demand, dict) else None
+  retained_lo = 1.0
+  retained_verdict = None
+  if isinstance(_pr, dict) and _pr.get("retained_fraction_band"):
+    retained_lo = min(1.0, max(0.0, _f(_pr["retained_fraction_band"][0], 1.0)))
+    retained_verdict = str(_pr.get("verdict") or "") or None
 
   def _mults(level: str) -> Dict[str, float]:
     out: Dict[str, float] = {}
@@ -393,7 +414,7 @@ def _pricing_round(
     mults = _mults(level)
     if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
       continue
-    moved = _price_move_basis(basis, split, mults)
+    moved = _price_move_basis(basis, split, mults, retained=retained_lo)
     closes = gap_now - _gap(moved, thresholds)
     prices = []
     patch_prices = []
@@ -421,10 +442,16 @@ def _pricing_round(
       # current_revenue MUST move with the prices: the engine's Q1
       # anchor (and the legitimate rescale) key on it — a price move
       # without the new anchor would be silently rescaled away.
+      "retained_assumption": (
+        {"fraction_lo": round(retained_lo, 4), "verdict": retained_verdict}
+        if retained_lo < 1.0 - 1e-9 else None
+      ),
       "patch": {
         "kind": "ops_prices",
         "prices": patch_prices,
         "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+        **({"retained_fraction": round(retained_lo, 4)}
+           if retained_lo < 1.0 - 1e-9 else {}),
       },
     })
   if not options:
@@ -435,6 +462,10 @@ def _pricing_round(
     "best_closure_quarterly": best,
     "options": options,
     "facts": {
+      "retained_assumption": (
+        {"fraction_lo": round(retained_lo, 4), "verdict": retained_verdict}
+        if retained_lo < 1.0 - 1e-9 else None
+      ),
       "lines": [
         {
           "lob": l["lob"], "product": l["product"],
@@ -448,11 +479,42 @@ def _pricing_round(
   }
 
 
+def _marketing_cut_move_basis(
+  basis: StructuralBasis,
+  mkt_floor_pct: float,
+  demand_mult: float,
+) -> StructuralBasis:
+  """DEMAND-COUPLED marketing cut (Nick-ruled: the marketing lever
+  wakes ONLY with its demand consequence priced). Revenue retains the
+  conservative-edge fraction of demand at floor spend; COGS pct holds
+  (variable with revenue); fixed overheads hold (their pcts rise);
+  marketing lands at the floor pct of the reduced revenue."""
+  demand_mult = min(1.0, max(0.0, _f(demand_mult, 1.0) or 1.0))
+  base_rev = basis.q1_revenue_quarterly
+  new_rev = base_rev * demand_mult
+  if new_rev <= 0:
+    return basis
+  ratio = base_rev / new_rev
+  return StructuralBasis(
+    q1_revenue_quarterly=new_rev,
+    cogs_pct=basis.cogs_pct,
+    payroll_quarterly=basis.payroll_quarterly,
+    rent_quarterly=basis.rent_quarterly,
+    gna_pct=basis.gna_pct * ratio,
+    marketing_pct=max(0.0, _f(mkt_floor_pct, 0.0) or 0.0),
+    interest_quarterly=basis.interest_quarterly,
+    depreciation_quarterly=basis.depreciation_quarterly,
+    growth_to_q11=basis.growth_to_q11,
+    notes=dict(basis.notes),
+  )
+
+
 def _costs_round(
   basis: StructuralBasis,
   thresholds: Thresholds,
   bounds: Dict[str, Any],
   financials_json: Dict[str, Any],
+  demand: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   """Cost-structure options at the judged floors. Patch specs are
   financials-field edits (annual dollars, the fields intake owns)."""
@@ -483,13 +545,39 @@ def _costs_round(
   def _deep_cut(current_annual: float, new_annual: float) -> bool:
     return current_annual > 0 and new_annual < 0.5 * current_annual
 
-  # MARKETING OFFER PULLED (Nick-ruled, build 4): with the demand
-  # machinery dormant, a marketing cut books as PURE SAVINGS - no
-  # modeled revenue consequence - which is exactly the no-consequence
-  # cut shape the doctrine forbids. No machine-offered marketing cut
-  # until demand wakes (queued); a client-VOLUNTEERED marketing number
-  # still lands normally via correction, and the client floor stands.
-  # (The old move: cut marketing_total_year1 to the judged floor.)
+  # MARKETING REVIVED WITH ITS DEMAND CONSEQUENCE (Nick-ruled demand
+  # judge): the cut is offered ONLY when a judged marketing_response
+  # exists (rich evidence), and it is priced on the COUPLED basis -
+  # revenue retains the conservative edge of the judged
+  # demand-at-reduced-spend band, so the projection can never book a
+  # cut as pure savings. A 'dependent' verdict's coupled projection
+  # widens the gap and the existing rails then never recommend it.
+  # Thin/withheld evidence -> the offer stays pulled (build-4 state).
+  _mr = (demand or {}).get("marketing_response") if isinstance(demand, dict) else None
+  mkt_floor = _f(floors.get("marketing_percent_of_revenue_min"), basis.marketing_pct)
+  if (
+    isinstance(_mr, dict) and _mr.get("demand_at_reduced_spend_band")
+    and not client_floors.get("marketing")
+    and mkt_floor < basis.marketing_pct - 1e-6
+  ):
+    _demand_mult_lo = min(1.0, max(0.0, _f(_mr["demand_at_reduced_spend_band"][0], 1.0)))
+    _new_annual_mkt = round(mkt_floor * ann_rev * _demand_mult_lo, 2)
+    _cur_annual_mkt = basis.marketing_pct * ann_rev
+    moves["marketing"] = {
+      "basis_patch": {},  # closes computed on the coupled basis below
+      "coupled_basis": _marketing_cut_move_basis(basis, mkt_floor, _demand_mult_lo),
+      "field_patch": {"group": "financials", "field": "marketing_total_year1",
+                      "value": _new_annual_mkt},
+      "demand_consequence": {
+        "verdict": str(_mr.get("verdict") or ""),
+        "demand_mult_lo": round(_demand_mult_lo, 4),
+      },
+      "from_display": _fmt_money(_cur_annual_mkt),
+      "to_display": (_fmt_money(_new_annual_mkt)
+                     + f" (judged to retain ~{_demand_mult_lo:.0%} of demand"
+                     " at the low end)"),
+      "deep_cut": _deep_cut(_cur_annual_mkt, _new_annual_mkt),
+    }
 
   # PHASE 4: the COGS move the corner already spends
   # (cogs_percent_of_revenue_min routed clients into walks with no COGS
@@ -604,7 +692,12 @@ def _costs_round(
       patch.update(m["basis_patch"])
       fields.append(m["field_patch"])
       fields.extend(m.get("extra_field_patches") or [])
-    closes = gap_now - _gap(_costs_move_basis(basis, patch), thresholds)
+    # A demand-coupled move (marketing) prices its closes on the COUPLED
+    # basis - revenue consequence included - with the other picked
+    # moves' patches applied on top.
+    _coupled = [m["coupled_basis"] for m in picked.values() if m.get("coupled_basis")]
+    _base_for_patch = _coupled[0] if _coupled else basis
+    closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
     deep = any(m.get("deep_cut") for m in picked.values())
     lease_unknown = any(m.get("lease_unknown") for m in picked.values())
     _suffix = ""
@@ -621,12 +714,19 @@ def _costs_round(
       "recommended": False,  # assigned below by reasoning, never hardcoded
       "deep_cut": deep,
       "lease_unknown": lease_unknown,
-      "moves": {k: {kk: vv for kk, vv in m.items() if kk not in ("basis_patch", "extra_field_patches")}
+      "moves": {k: {kk: vv for kk, vv in m.items()
+                    if kk not in ("basis_patch", "extra_field_patches", "coupled_basis")}
                 for k, m in picked.items()},
       "closes_quarterly": round(closes, 2),
       "widens": closes < -0.005,
       "closes_display": _fmt_money(abs(closes)),
-      "patch": {"kind": "financials_fields", "fields": fields},
+      "patch": {
+        "kind": "financials_fields", "fields": fields,
+        **({"demand_landing": next(
+              m["demand_consequence"] for m in picked.values()
+              if m.get("demand_consequence"))}
+           if any(m.get("demand_consequence") for m in picked.values()) else {}),
+      },
     }
 
   options = [o for o in (
@@ -668,6 +768,7 @@ def _volume_round(
   thresholds: Thresholds,
   bounds: Dict[str, Any],
   split: List[Dict[str, Any]],
+  demand: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   """PHASE 4: the volume lever the corner already SPENDS. The corner's
   optimism includes volume_multiplier_max, so clients were routed into
@@ -681,12 +782,24 @@ def _volume_round(
   gap_now = _gap(basis, thresholds)
   if gap_now <= 0:
     return None
+  # DEMAND JUDGE ceiling: "do more" only where the judged reachable
+  # demand supports it - the effective volume multiple is capped by
+  # supported_units_max over the CURRENT total units. Below 1.0 means
+  # demand does not even support growth; the round then offers nothing.
+  _vh = (demand or {}).get("volume_headroom") if isinstance(demand, dict) else None
+  demand_mult_cap = None
+  if isinstance(_vh, dict) and _f(_vh.get("supported_units_max")) > 0:
+    _total_units = sum(_f(l.get("annual_units")) for l in split)
+    if _total_units > 0:
+      demand_mult_cap = max(1.0, _f(_vh["supported_units_max"]) / _total_units)
 
   def _mults(level: str) -> Dict[str, float]:
     out: Dict[str, float] = {}
     for line, bl in zip(split, matched):
       key = f"{line['lob']}␟{line['product']}"
       vmax = _effective_vmax(line, bl)
+      if demand_mult_cap is not None:
+        vmax = min(vmax, demand_mult_cap)
       out[key] = vmax if level == "max" else 1.0 + (vmax - 1.0) * 0.5
     return out
 
@@ -817,17 +930,22 @@ def plan_rounds(
   yet walked. Returns None when nothing movable remains."""
   done = set(rounds_done or [])
   split = ops_line_split(ops_json, financials_json)
+  # THE DEMAND JUDGE stamp (state-carried, F-core-authored): every
+  # demand-dependent round consumes the judged response - conservative
+  # edge only. Absent/withheld -> rounds keep pre-demand behavior.
+  demand = ((financials_json or {}).get("_coherence") or {}).get("demand_response")
+  demand = demand if isinstance(demand, dict) and not demand.get("withheld") else None
   rounds = []
   if ROUND_PRICING not in done:
-    r = _pricing_round(basis, thresholds, bounds, split)
+    r = _pricing_round(basis, thresholds, bounds, split, demand=demand)
     if r:
       rounds.append(r)
   if ROUND_VOLUME not in done:
-    r = _volume_round(basis, thresholds, bounds, split)
+    r = _volume_round(basis, thresholds, bounds, split, demand=demand)
     if r:
       rounds.append(r)
   if ROUND_COSTS not in done:
-    r = _costs_round(basis, thresholds, bounds, financials_json)
+    r = _costs_round(basis, thresholds, bounds, financials_json, demand=demand)
     if r:
       rounds.append(r)
   if ROUND_NEW_LINES not in done:

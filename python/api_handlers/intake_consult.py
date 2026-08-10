@@ -3927,10 +3927,24 @@ def _compute_marketing_model_json(
     financials_year1_json=financials_year1_json,
     business_facts=business_facts,
   )
+  # VOCAB NORMALIZATION (Nick-ruled #1): live drafts carry "b2c" while
+  # the basis branches expect consumer/mixed/b2b - "b2c" matched
+  # NOTHING and even the fallbacks skipped (the bypass-path dormancy
+  # kill). One seam maps every observed spelling to the machinery's
+  # vocabulary.
+  _raw_basis_type = str(
+    (market_json or {}).get("consumer_type")
+    or (ops_json or {}).get("consumer_type") or ""
+  ).strip().lower()
+  _basis_type = {
+    "b2c": "consumer", "consumer": "consumer",
+    "b2b": "b2b",
+    "mixed": "mixed", "both": "mixed", "b2c_and_b2b": "mixed",
+  }.get(_raw_basis_type, "consumer")
   base_model: Dict[str, Any] = {
     "version": 3,
     "signature": signature,
-    "market_basis_type": str((market_json or {}).get("consumer_type") or (ops_json or {}).get("consumer_type") or "").strip().lower() or "consumer",
+    "market_basis_type": _basis_type,
     "geography_basis": {},
     "b2c_basis_counts": [],
     "b2b_basis_counts": {},
@@ -11870,6 +11884,13 @@ def post_intake_consult_handler(*, app, request):
     if isinstance(financials_year1_json, dict) and financials_year1_json:
       shared_context["financials_year1_json"] = financials_year1_json
 
+    # DEMAND REVIVAL (Nick-ruled #1): the estimator was NEVER BOUND in
+    # this scope after the 04-02 refactor - every refresh raised
+    # NameError and the bare except swallowed it to {} fleet-wide for
+    # months. Bind it here, and the swallow below is GONE per the
+    # no-silent-degradation doctrine.
+    _, _marketing_estimator = _financials_baseline_estimators()
+
     def _refresh_marketing_model() -> Dict[str, Any]:
       nonlocal marketing_model_json, shared_context
       try:
@@ -11881,9 +11902,18 @@ def post_intake_consult_handler(*, app, request):
           financials_year1_json=financials_year1_json,
           business_facts=business_facts,
           existing_marketing_model_json=marketing_model_json,
-          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          estimate_marketing_baseline_from_context=_marketing_estimator,
         )
       except Exception:
+        # FAIL LOUD (Nick-ruled #1): a failed demand estimation keeps
+        # the PREVIOUS model (never degrades to {}) and the failure is
+        # visible - the silent swallow is what hid a dead demand model
+        # for months.
+        logger.exception(
+          "MARKETING_MODEL_REFRESH_FAILED draft=%s - keeping previous "
+          "model; demand-dependent judgments will see stale/absent "
+          "demand evidence", draft_id,
+        )
         marketing_model_json = dict(marketing_model_json or {})
       shared_context["marketing"] = marketing_model_json
       return marketing_model_json
