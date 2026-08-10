@@ -7211,6 +7211,11 @@ def _sync_financials_consult_persistence_state(
   dollar-primary with a copy-once baseline. One rule per number - the
   open decisions are surfaced in the phase-1 report."""
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  # ONE-HOME mirror heal (rides the canonical pass): stale flat driver
+  # mirrors re-sync from the product row on every touch - the at-rest
+  # fork shape can no longer persist. Mutates ops_json in place (turn
+  # paths persist ops; the run-entry recalc detects and persists too).
+  _sync_ops_flat_mirror(ops_json)
   _people_has_substance = isinstance(people_json, dict) and bool(
     (people_json.get("people") or [])
     or (people_json.get("inferred_roles") or [])
@@ -9770,13 +9775,14 @@ def _run_entry_recalc(*, conn, draft_id: str) -> None:
   ppl = _parse_json_dict(draft.get("people_json"))
   ppl0 = copy.deepcopy(ppl)
   ops = _parse_json_dict(draft.get("operating_model_json"))
+  ops0 = copy.deepcopy(ops)
   mkt = _parse_json_dict(draft.get("marketing_model_json"))
   fin1, y11 = _sync_financials_consult_persistence_state(
     financials_json=copy.deepcopy(fin0),
     financials_year1_json=copy.deepcopy(y10),
     marketing_model_json=mkt,
     people_json=ppl,  # the fold mutates people truth in place
-    ops_json=ops,
+    ops_json=ops,     # the flat-mirror heal mutates ops in place
   )
   changed: Dict[str, Any] = {}
   if fin1 != fin0:
@@ -9785,6 +9791,8 @@ def _run_entry_recalc(*, conn, draft_id: str) -> None:
     changed["financials_year1_json"] = y11
   if ppl != ppl0:
     changed["people_json"] = ppl
+  if ops != ops0:
+    changed["operating_model_json"] = ops
   if changed:
     logger.info(
       "RUN_ENTRY_RECALC draft=%s recomputed sections=%s",
@@ -11383,6 +11391,44 @@ _RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
   "other_opex_absolute",
   "marketing_percent_of_revenue",
 })
+
+
+_OPS_FLAT_MIRROR_FIELDS = (
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+  "operating_periods_per_year", "utilization_rate",
+)
+
+
+def _sync_ops_flat_mirror(ops_json) -> bool:
+  """ONE-HOME heal-on-touch (Nick-ruled, stuck-fork fix): the product
+  row is the canonical home of the drivers - every reader (engine,
+  digest, gate, line split) reads lob_models[].products[]. The flat
+  top-level fields are a legacy MIRROR. Writes land on both since
+  a432465; any at-rest divergence (defect-era or pre-architecture) is a
+  stale mirror - ground-truthed on both live forked drafts: the product
+  side carried the conversation's RESOLVED value (agreed capacity 55 vs
+  the 70 goal-as-milestone; the chosen ramp utilization vs the
+  superseded 88%). Single-product models only; mutates in place;
+  returns True when anything changed."""
+  if not isinstance(ops_json, dict):
+    return False
+  lms = ops_json.get("lob_models")
+  if not (isinstance(lms, list) and len(lms) == 1 and isinstance(lms[0], dict)):
+    return False
+  prods = lms[0].get("products")
+  if not (isinstance(prods, list) and len(prods) == 1 and isinstance(prods[0], dict)):
+    return False
+  product = prods[0]
+  changed = False
+  for field in _OPS_FLAT_MIRROR_FIELDS:
+    pv = _safe_float(product.get(field))
+    fv = _safe_float(ops_json.get(field))
+    if pv is None or ops_json.get(field) is None:
+      continue  # mirror only fills what both homes carry
+    if fv is None or abs(fv - pv) > max(1e-9, 0.0005 * abs(pv)):
+      ops_json[field] = product.get(field)
+      changed = True
+  return changed
 
 
 def _restamp_payroll_rollup(*, financials_json, people_json, ops_json=None):

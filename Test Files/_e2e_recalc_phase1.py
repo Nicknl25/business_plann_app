@@ -169,6 +169,34 @@ check("R5b flat ops driver write lands on the PRODUCT row (60/40 in "
       and _p5b["units_per_period_capacity"] == 40.0
       and ops5b["unit_price"] == 60.0)
 
+# R5c: MIRROR HEAL-ON-TOUCH (Nick-ruled stuck-fork fix): an at-rest
+# flat-vs-product fork re-syncs from the PRODUCT row (the canonical
+# home; ground-truthed on both live forked drafts) on every Recalc
+# pass. Multi-product models untouched.
+from api_handlers.intake_consult import _sync_ops_flat_mirror  # noqa: E402
+
+_ops_stale = {"unit_price": 875, "units_per_week_capacity": 70,
+              "utilization_rate": 0.88,
+              "lob_models": [{"lob_name": "L", "products": [{
+                  "product_name": "session", "unit_price": 875,
+                  "units_per_week_capacity": 55,
+                  "units_per_period_capacity": 55,
+                  "utilization_rate": 0.7636}]}]}
+_sync_financials_consult_persistence_state(
+    financials_json={"_financials_revenue_intro_done": False},
+    financials_year1_json={}, people_json=None, ops_json=_ops_stale)
+check("R5c stale flat mirror heals FROM the product row on the Recalc "
+      "pass (70/0.88 -> 55/0.7636)",
+      _ops_stale["units_per_week_capacity"] == 55
+      and _ops_stale["utilization_rate"] == 0.7636
+      and _ops_stale["lob_models"][0]["products"][0]["units_per_week_capacity"] == 55)
+_ops_multi = {"unit_price": 99,
+              "lob_models": [{"lob_name": "L", "products": [
+                  {"product_name": "a", "unit_price": 10},
+                  {"product_name": "b", "unit_price": 20}]}]}
+check("R5c2 multi-product models untouched (no single canonical row)",
+      _sync_ops_flat_mirror(_ops_multi) is False and _ops_multi["unit_price"] == 99)
+
 # R6: idempotence - a second pass changes nothing (spreadsheet law).
 fin6a, y6a = _sync_financials_consult_persistence_state(
     financials_json=copy.deepcopy(FIN), financials_year1_json={},
