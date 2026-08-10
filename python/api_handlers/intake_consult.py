@@ -7237,18 +7237,18 @@ def _sync_financials_consult_persistence_state(
         _new_rest = _rest + _adj
         people_json["rest_of_team_payroll_year1"] = round(max(0.0, _new_rest), 2)
         _leftover = min(0.0, _new_rest)
+      # SUB-RULING (ii) (Nick, cause-split slate): apply what's honest,
+      # HOLD the rest. The rest-of-team aggregate is the client's own
+      # non-named number - it absorbs. A remainder that could only land
+      # by scaling NAMED people's wages is NEVER silently applied (the
+      # old proportional scale was unnamed per-person pay cuts); it is
+      # DROPPED from the plan's numbers (no phantom credit - the gate
+      # evaluates what actually landed) and flagged for the
+      # conversation to ask HOW (hours, role change, departure).
       if abs(_leftover) > 0.005:
-        _others = [
-          p for p in (people_json.get("people") or [])
-          if isinstance(p, dict)
-          and not _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
-          and (_safe_float(p.get("annual_wage")) or 0.0) > 0
-        ]
-        _tot = sum(float(p["annual_wage"]) for p in _others)
-        if _tot > 0:
-          _f_scale = max(0.0, (_tot + _leftover) / _tot)
-          for p in _others:
-            p["annual_wage"] = round(float(p["annual_wage"]) * _f_scale, 2)
+        next_financials["_payroll_fold_hold"] = {
+          "unapplied": round(float(_leftover), 2),
+        }
       next_financials["payroll_adjustment"] = 0.0
     # The FULL rollup recomputes from people every pass - baseline,
     # echo fields, and basis rows together (CW-023 canonical stamp).
@@ -9441,6 +9441,29 @@ def _apply_scoped_patch(
     elif group == "market":
       next_market[field] = value
     elif group == "people":
+      if field == "phase_planned_hires":
+        # HIRE-TIMING LEVER (Nick-ruled cause-split): phase PLANNED
+        # hires later - pushes months_until_hire on inferred_roles
+        # (the roles the client has not yet hired; the data model
+        # cannot phase an existing person). The Recalc's canonical
+        # rollup re-prorates year-1 payroll. Pseudo-field: never
+        # persists as-is.
+        _months_add = None
+        if isinstance(value, dict):
+          _months_add = _safe_float(value.get("months_add"))
+        elif value is not None:
+          _months_add = _safe_float(value)
+        if _months_add is not None and _months_add > 0:
+          next_people = dict(next_people)
+          _roles = [dict(r) if isinstance(r, dict) else r
+                    for r in (next_people.get("inferred_roles") or [])]
+          for _r in _roles:
+            if not isinstance(_r, dict):
+              continue
+            _cur_m = _safe_float(_r.get("months_until_hire")) or 0.0
+            _r["months_until_hire"] = int(min(12, _cur_m + _months_add))
+          next_people["inferred_roles"] = _roles
+        continue
       if field == "owner_pay_monthly":
         # CW-022 #8 (Nick-ruled): the owner-pay statement path. This
         # pseudo-field never persists - it lands on the OWNER ROLE

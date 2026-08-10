@@ -992,6 +992,21 @@ def apply_router_patch(
               _prior = _f(next_fin.get(_field)) if next_fin.get(_field) is not None else None
               _record_lever_write(_lw, _field, _prior, _f(_value))
             next_fin[_field] = _value
+          elif fp.get("group") and fp.get("field"):
+            # PAYROLL CAUSE-SPLIT (Nick-ruled): people-group option
+            # fields (owner_pay_monthly, phase_planned_hires) route to
+            # the generic scoped apply, which owns the one-door and
+            # pseudo-field mechanics. The accepted lever's baseline
+            # effect is excluded from the identity (CW-020) via the
+            # expected post-Recalc baseline.
+            remaining[f"{fp['group']}.{fp['field']}"] = fp.get("value")
+            _delta = _f(fp.get("expected_baseline_delta"))
+            if _delta is not None and abs(_delta) > 0.005:
+              _base = _f(next_fin.get("baseline_payroll_year1"))
+              _record_lever_write(
+                _lw, "baseline_payroll_year1",
+                _base if _base > 0 else None,
+                round((_base or 0.0) + _delta, 2))
         _st_cw["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_cw)
         notes.append(f"option:{option_id}:costs")
@@ -1215,6 +1230,8 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       "marketing": "marketing",
       "rent": "the space",
       "payroll": "the team",
+      "owner_draw": "your own pay (your choice entirely)",
+      "hire_timing": "when the planned hires start",
       "cogs": "your direct costs (supplies/materials)",
     }
     opts = []
@@ -1616,6 +1633,22 @@ def gate_and_turn(
       )
     financials_json = put_state(financials_json, state)
 
+  # SUB-RULING (ii) surface (Nick, cause-split slate): the fold applied
+  # what was honest and HELD the remainder - the very next gate message
+  # says so and asks HOW, and the plan carries no phantom credit.
+  _fold_hold = financials_json.get("_payroll_fold_hold")
+  if isinstance(_fold_hold, dict) and _f(_fold_hold.get("unapplied")) != 0:
+    _unap = abs(_f(_fold_hold.get("unapplied")))
+    financials_json = dict(financials_json)
+    financials_json.pop("_payroll_fold_hold", None)
+    _pc_question = (
+      f"On the team number: I applied what could honestly land, but the "
+      f"remaining {_fmt(_unap)} a year would mean changing specific "
+      "people's pay - I won't assume that. If it's real, tell me how it "
+      "happens (fewer hours, a role change, a departure) and I'll put it "
+      "in properly; otherwise the plan runs without it. "
+    ) + _pc_question
+
   # CW-022 #5 (floor-assertion backstop): a mid-walk protest that a cost
   # line cannot be cut must LAND even inside a multi-intent turn (Fetch
   # & Fluff's "I can't cut that, I'd be driving uninsured" never reached
@@ -1746,20 +1779,48 @@ def gate_and_turn(
     _cls_word = {"low": "capital-driven", "medium": "balanced-labor",
                  "high": "labor-intensive", "expert": "expert-labor"}.get(
                    str(_wall_pay.get("class")), str(_wall_pay.get("class")))
-    message = (
+    # CAUSE-AWARE EXITS (Nick-ruled Option A): the wall names the exit
+    # that matches WHY payroll is what it is - never a generic
+    # cut-the-team dial. Owner-dominated -> the owner's own draw;
+    # planned hires -> timing; existing staff -> revenue is the honest
+    # closer (a real team change is the client's to volunteer).
+    _cause = _ctl.payroll_cause_split(financials_json)
+    _head = (
       "The profit math clears, but one structural wall still stands: your "
       f"team costs are {_wall_pay['value']:.0%} of revenue, and a "
       f"{_cls_word} business like this one is financed at no more than "
       f"{_wall_pay['max_pct']:.0%} - the plan builder enforces that ceiling "
-      "exactly, so I can't close the plan on these numbers. Two honest ways "
-      f"through: revenue at or above {_fmt(_wall_pay['revenue_to_clear'])} a "
-      "year with the team you have, or team cost at or below "
-      f"{_fmt(_wall_pay['payroll_to_clear'])} at today's revenue. Which of "
-      "those is closest to your reality - or is one of the two numbers "
-      "(team cost, revenue) not what you meant?"
+      "exactly, so I can't close the plan on these numbers. "
     )
+    if _cause["kind"] == "owner_dominated":
+      _tail = (
+        "Most of that payroll is your own pay, which makes this yours to "
+        f"choose: revenue at or above {_fmt(_wall_pay['revenue_to_clear'])} "
+        "a year clears it with your pay as-is, or your own draw at or below "
+        f"{_fmt(_wall_pay['payroll_to_clear'] / 12.0)} a month clears it at "
+        "today's revenue. Which fits how you want to run it - or is one of "
+        "the numbers not what you meant?"
+      )
+    elif _cause["kind"] == "planned_hires":
+      _tail = (
+        "A real part of that payroll is hires you haven't made yet, so "
+        "timing is an honest lever: revenue at or above "
+        f"{_fmt(_wall_pay['revenue_to_clear'])} a year clears it on the "
+        "current plan, or starting the planned hires later in the year "
+        "brings year-1 team cost down without cutting anyone. Which fits "
+        "your reality - or is one of the numbers not what you meant?"
+      )
+    else:
+      _tail = (
+        "That payroll is your real, current team - I won't propose cutting "
+        "anyone's pay from arithmetic. The honest way through is revenue: "
+        f"at or above {_fmt(_wall_pay['revenue_to_clear'])} a year the plan "
+        "clears with the team you have (pricing and volume are the levers "
+        "we can work right now). If the team itself is going to change in "
+        "the real world, tell me how and I'll put it in properly."
+      )
     financials_json = put_state(financials_json, state)
-    return {"assistant_message": message}, financials_json, ""
+    return {"assistant_message": _head + _tail}, financials_json, ""
 
   # ---------- PASS: converge, complete with the readback ----------
   if eval_result.get("passed"):

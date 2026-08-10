@@ -87,19 +87,23 @@ check("R2b adjustment retired to 0; rollup = the folded truth (132,400) "
       and fin2["payroll_total_year1"] == 132400.0
       and fin2["baseline_payroll_year1"] == 132400.0)
 
-# R2c: a delta deeper than rest-of-team scales non-owner wages
-# proportionally (consented via the accepted option); owner untouched.
+# R2c: SUB-RULING (ii) (Nick, cause-split slate): a delta deeper than
+# rest-of-team NEVER silently scales named people's wages. Rest absorbs
+# what it can; the remainder is DROPPED (no phantom credit) and flagged
+# for the conversation to ask HOW.
 ppl2c = copy.deepcopy(PPL)
 fin2c_in = copy.deepcopy(FIN)
 fin2c_in["payroll_adjustment"] = -82000.0  # rest 62k + 20k more
 fin2c, _ = _sync_financials_consult_persistence_state(
     financials_json=fin2c_in, financials_year1_json={},
     people_json=ppl2c, ops_json={})
-check("R2c deep fold: rest -> 0, non-owner wage scales (40,000 -> 20,000), "
-      "owner untouched (50,400)",
+check("R2c deep fold holds the remainder: rest -> 0, named wages "
+      "UNTOUCHED, $20k flagged for the ask, adjustment retired",
       ppl2c["rest_of_team_payroll_year1"] == 0.0
-      and ppl2c["people"][1]["annual_wage"] == 20000.0
-      and ppl2c["people"][0]["annual_wage"] == 50400.0)
+      and ppl2c["people"][1]["annual_wage"] == 40000.0
+      and ppl2c["people"][0]["annual_wage"] == 50400.0
+      and abs((fin2c.get("_payroll_fold_hold") or {}).get("unapplied", 0) + 20000.0) < 0.01
+      and fin2c["payroll_adjustment"] == 0.0)
 
 # R3: derived twins are UNPATCHABLE (the generalized opex model).
 # COGS dollars are NOT in the set (Nick's basis ruling, proven by the

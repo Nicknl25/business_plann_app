@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from client_intake_and_finmo.intake_coherence.evaluator import (
@@ -305,6 +306,60 @@ def _costs_move_basis(basis: StructuralBasis, patch: Dict[str, float]) -> Struct
   )
 
 
+_OWNER_TITLE_RE_CTL = re.compile(r"owner|principal|founder|managing|partner", re.I)
+
+
+def payroll_cause_split(financials_json: Dict[str, Any]) -> Dict[str, Any]:
+  """PAYROLL CAUSE CLASSIFICATION (Nick-ruled Option A): read the
+  payroll basis rows (the canonical rollup's own receipts) and name
+  WHY the payroll is what it is, so the walk offers only the honest
+  lever for the actual cause. Components:
+    owner_annual    - rows whose title matches the one-door owner
+                      pattern (the same regex the owner-pay writer uses)
+    phasable_annual - inferred_role rows still countable in year 1
+                      (months_counted > 0): hire TIMING can remove this
+                      without cutting anyone
+    staffed_annual  - everything else: named real people + the client's
+                      stated rest-of-team (never machine-cut)
+  kind = the DOMINANT component ('owner_dominated' / 'planned_hires' /
+  'staffed'); ties break toward the least-invasive honest lever
+  (owner-draw, then timing, then staffed/no-offer)."""
+  rows = (financials_json or {}).get("payroll_basis_people_roles")
+  rows = rows if isinstance(rows, list) else []
+  owner_annual = 0.0
+  phasable_annual = 0.0
+  staffed_annual = 0.0
+  planned_titles: List[str] = []
+  for r in rows:
+    if not isinstance(r, dict):
+      continue
+    amount = _f(r.get("year1_payroll_amount"))
+    if amount <= 0:
+      continue
+    title = str(r.get("role_title") or "")
+    source = str(r.get("source") or "").strip().lower()
+    if _OWNER_TITLE_RE_CTL.search(title):
+      owner_annual += amount
+    elif source == "inferred_role":
+      phasable_annual += amount
+      planned_titles.append(title or "planned hire")
+    else:
+      staffed_annual += amount
+  parts = (
+    ("owner_dominated", owner_annual),
+    ("planned_hires", phasable_annual),
+    ("staffed", staffed_annual),
+  )
+  kind = max(parts, key=lambda p: p[1])[0] if any(v > 0 for _, v in parts) else "staffed"
+  return {
+    "kind": kind,
+    "owner_annual": round(owner_annual, 2),
+    "phasable_annual": round(phasable_annual, 2),
+    "staffed_annual": round(staffed_annual, 2),
+    "planned_titles": planned_titles,
+  }
+
+
 def _gap(basis: StructuralBasis, thresholds: Thresholds) -> float:
   result = evaluate_structural(basis, thresholds)
   return _f(result.get("gap_quarterly"))
@@ -493,47 +548,43 @@ def _costs_round(
       "to_display": _fmt_money(rent_floor_q) + "/quarter",
     }
 
-  # Team floor is authored in stated-wage terms — the same basis the
-  # evaluator reads (people baseline + adjustment + additive owner comp).
-  # The machine patch MUST land the panel exactly on the displayed target:
-  # target = floor×4 minus whatever owner-comp the evaluator adds back.
+  # PAYROLL CAUSE-SPLIT (Nick-ruled Option A): the round reads the
+  # payroll BASIS ROWS and offers ONLY the honest lever for the actual
+  # cause. The old aggregate-delta move materialized as a proportional
+  # wage cut across real staff (the cut-insurance disease) and silently
+  # NO-OPPED on owner-only teams; it is never offered again.
+  #   owner-dominated  -> OWNER-DRAW (one-door, the owner's own choice)
+  #   planned hires    -> HIRE TIMING (phase starts later; cuts no one)
+  #   existing staff   -> NO cut offer; revenue levers are the closers
   payroll_floor_q = _f(team.get("min_annual_payroll")) / 4.0
   if not client_floors.get("payroll") and 0 < payroll_floor_q < basis.payroll_quarterly - 1e-6:
-    pb = (basis.notes or {}).get("payroll_basis") or {}
-    owner_additive = _f(pb.get("owner_comp_additive"))
-    baseline_annual = _f(financials_json.get("baseline_payroll_year1"))
-    target_annual = round(max(0.0, payroll_floor_q * 4.0 - owner_additive), 2)
-    if baseline_annual > 0:
-      # People stays the single source of payroll truth: the lever
-      # expresses a client-approved DELTA from the people baseline via
-      # payroll_adjustment — the exact field the evaluator adds back —
-      # never a rewrite of the baseline or the legacy echo fields.
-      # (The old code subtracted RAW owner comp and patched
-      # payroll_total_year1; with a corrupted owner comp the clamp
-      # produced value 0.0 under a "$65,000/quarter" display —
-      # Harborline CW-001.)
-      field_patch = {
-        "group": "financials", "field": "payroll_adjustment",
-        "value": round(target_annual - baseline_annual, 2),
+    needed_annual = round((basis.payroll_quarterly - payroll_floor_q) * 4.0, 2)
+    cause = payroll_cause_split(financials_json)
+    if cause["kind"] == "owner_dominated" and cause["owner_annual"] > 0:
+      _cut = min(needed_annual, cause["owner_annual"])
+      _new_owner_annual = round(cause["owner_annual"] - _cut, 2)
+      moves["owner_draw"] = {
+        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut / 4.0, 2)},
+        "field_patch": {"group": "people", "field": "owner_pay_monthly",
+                        "value": round(_new_owner_annual / 12.0, 2),
+                        "expected_baseline_delta": round(-_cut, 2)},
+        "from_display": _fmt_money(cause["owner_annual"] / 12.0) + "/month (your pay)",
+        "to_display": _fmt_money(_new_owner_annual / 12.0) + "/month (your pay)",
       }
-      extra_patches: List[Dict[str, Any]] = []
-    else:
-      # Legacy drafts with no people baseline keep the paired echo-field
-      # contract (sync keeps them together; autocomplete guard keys on
-      # current_payroll being set).
-      field_patch = {
-        "group": "financials", "field": "payroll_total_year1", "value": target_annual,
+    elif cause["kind"] == "planned_hires" and cause["phasable_annual"] > 0:
+      _cut = min(needed_annual, cause["phasable_annual"])
+      moves["hire_timing"] = {
+        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut / 4.0, 2)},
+        "field_patch": {"group": "people", "field": "phase_planned_hires",
+                        "value": {"months_add": 12},
+                        "expected_baseline_delta": round(-_cut, 2)},
+        "from_display": ", ".join(cause["planned_titles"][:3]) + " starting as planned",
+        "to_display": "those hires phased later (year-1 payroll down "
+                      + _fmt_money(_cut) + ")",
       }
-      extra_patches = [
-        {"group": "financials", "field": "current_payroll", "value": target_annual},
-      ]
-    moves["payroll"] = {
-      "basis_patch": {"payroll_quarterly": payroll_floor_q},
-      "field_patch": field_patch,
-      "extra_field_patches": extra_patches,
-      "from_display": _fmt_money(basis.payroll_quarterly) + "/quarter",
-      "to_display": _fmt_money(payroll_floor_q) + "/quarter",
-    }
+    # staffed-dominant: deliberately NO move. The tension is surfaced by
+    # the wall/narration; the revenue rounds are the honest closers, and
+    # a client-volunteered team change is respected via correction.
 
   if not moves:
     return None

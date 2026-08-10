@@ -104,9 +104,13 @@ if _share > _max:
     check("W4b gate REFUSES to converge into the engine kill (turn blocked, "
           "not converged)",
           turn is not None and st.get("status") != "converged")
-    check("W4c the wall message prices both exits (revenue up / team cost down)",
-          "team costs" in msg and "revenue at or above" in msg
-          and "team cost at or below" in msg)
+    # CAUSE-AWARE (Nick-ruled Option A): this fixture has no basis rows
+    # -> staffed cause -> the wall points at REVENUE and invites a real
+    # team change, and NEVER proposes a cut.
+    check("W4c staffed cause: revenue-first exit, no machine cut proposed",
+          "team costs" in msg and "at or above" in msg
+          and "won't propose cutting" in msg
+          and "team cost at or below" not in msg)
     check("W4d wall stamped for the panel (failed, mirror ok)",
           wall_state.get("passed") is False and wall_state.get("mirror_ok") is True)
 else:
