@@ -1901,6 +1901,39 @@ def _ops_implied_and_ceiling(ops_json: Dict[str, Any]) -> Tuple[float, float]:
   return implied, ceiling
 
 
+def _owner_draw_exit_tail(cause: Dict[str, Any], wall_pay: Dict[str, Any]) -> str:
+  """CW-026 ruling #2 (Nick-approved): the owner-draw exit at the
+  payroll wall. The draw ceiling is what's left of the payroll ceiling
+  AFTER the rest of the team - the old copy offered payroll_to_clear/12
+  (the WHOLE team ceiling) as the owner's personal draw, telling an
+  underpaid founder she had 3.6x headroom when she'd need to cut. At
+  zero or below, the draw exit is NOT offered at all: an unreachable
+  exit is unrepresentable as a choice, and revenue is named as the way
+  through."""
+  others_annual = (
+    _f((cause or {}).get("staffed_annual"))
+    + _f((cause or {}).get("phasable_annual"))
+  )
+  draw_ceiling = _f((wall_pay or {}).get("payroll_to_clear")) - others_annual
+  revenue_txt = _fmt(_f((wall_pay or {}).get("revenue_to_clear")))
+  if draw_ceiling > 0:
+    return (
+      "Most of that payroll is your own pay, which makes this yours to "
+      f"choose: revenue at or above {revenue_txt} a year clears it with "
+      "your pay as-is, or your own draw at or below "
+      f"{_fmt(draw_ceiling / 12.0)} a month - with the rest of the team "
+      "paid as-is - clears it at today's revenue. Which fits how you "
+      "want to run it - or is one of the numbers not what you meant?"
+    )
+  return (
+    "Most of that payroll is your own pay, but even at a minimal draw "
+    "the rest of the team is above the line on its own - so revenue is "
+    f"the honest way through: at or above {revenue_txt} a year the plan "
+    "clears with everyone paid as-is. Or if the team itself is going to "
+    "change in the real world, tell me how and I'll put it in properly."
+  )
+
+
 def gate_and_turn(
   *,
   ops_json: Dict[str, Any],
@@ -2069,6 +2102,7 @@ def gate_and_turn(
   # SUB-RULING (ii) surface (Nick, cause-split slate): the fold applied
   # what was honest and HELD the remainder - the very next gate message
   # says so and asks HOW, and the plan carries no phantom credit.
+  # (CW-026 ruling #2's owner-draw tail lives in _owner_draw_exit_tail.)
   _fold_hold = financials_json.get("_payroll_fold_hold")
   if isinstance(_fold_hold, dict) and _f(_fold_hold.get("unapplied")) != 0:
     _unap = abs(_f(_fold_hold.get("unapplied")))
@@ -2080,6 +2114,22 @@ def gate_and_turn(
       "people's pay - I won't assume that. If it's real, tell me how it "
       "happens (fewer hours, a role change, a departure) and I'll put it "
       "in properly; otherwise the plan runs without it. "
+    ) + _pc_question
+
+  # CW-026 ruling #1 surface: two DIFFERENT client statements about the
+  # owner's own pay merged to one row - the kept figure stands for now,
+  # and the very next gate message asks which one is real. Never a
+  # silent pick.
+  _owner_hold = financials_json.get("_owner_wage_conflict_hold")
+  if isinstance(_owner_hold, dict) and _f(_owner_hold.get("other")) > 0:
+    financials_json = dict(financials_json)
+    financials_json.pop("_owner_wage_conflict_hold", None)
+    _pc_question = (
+      f"One check on your own pay: I have two different figures from you "
+      f"- {_fmt(_f(_owner_hold.get('kept')))} and "
+      f"{_fmt(_f(_owner_hold.get('other')))} a year. I'm using "
+      f"{_fmt(_f(_owner_hold.get('kept')))} for now - tell me which one "
+      "is right and I'll set it. "
     ) + _pc_question
 
   # CW-022 #5 (floor-assertion backstop): a mid-walk protest that a cost
@@ -2228,14 +2278,7 @@ def gate_and_turn(
       "level, so I can't close the plan on these numbers. "
     )
     if _cause["kind"] == "owner_dominated":
-      _tail = (
-        "Most of that payroll is your own pay, which makes this yours to "
-        f"choose: revenue at or above {_fmt(_wall_pay['revenue_to_clear'])} "
-        "a year clears it with your pay as-is, or your own draw at or below "
-        f"{_fmt(_wall_pay['payroll_to_clear'] / 12.0)} a month clears it at "
-        "today's revenue. Which fits how you want to run it - or is one of "
-        "the numbers not what you meant?"
-      )
+      _tail = _owner_draw_exit_tail(_cause, _wall_pay)
     elif _cause["kind"] == "planned_hires":
       _tail = (
         "A real part of that payroll is hires you haven't made yet, so "

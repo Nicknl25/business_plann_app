@@ -2956,12 +2956,25 @@ def _rest_inclusion_resolve(
   pending: Dict[str, Any],
   user_message: str,
 ) -> Optional[float]:
-  """Resolution of the inclusion check, deterministic: a fresh figure
-  wins (normal capture); plain agreement means the named people were
-  inside (use the remainder); an explicit 'separate/no' keeps the
-  stated figure. Anything else drops the frame unresolved."""
+  """Resolution of the inclusion check, deterministic. CW-026 ruling #3
+  (Nick-approved): the REFERENCE-VS-STATEMENT law at its second surface
+  - figures matching the frame's own stated/named_sum are references
+  ("Yes, Rosalie's $37,000 is inside that $99,000. So $62,000 is
+  right" restates both frame figures before the fresh one) and can
+  never be read as answers. A surviving FRESH figure wins; a fresh
+  figure equal to the remainder doubles as confirmation; plain
+  agreement means the named people were inside (remainder); an explicit
+  'separate/no' keeps the stated figure. Anything else drops the frame
+  unresolved."""
   msg = str(user_message or "").strip().lower()
-  figs = [f for f in _message_figures(msg) if f >= 100.0]
+  _stated = _safe_float((pending or {}).get("stated"))
+  _named = _safe_float((pending or {}).get("named_sum"))
+  figs = [
+    f for f in _message_figures(msg)
+    if f >= 100.0 and not any(
+      r and abs(f - r) <= max(1.0, 0.01 * r) for r in (_stated, _named)
+    )
+  ]
   neg = bool(re.search(
     r"\b(no|nope|separate|not includ\w*|besides|on top)\b", msg))
   aff = bool(re.search(
@@ -2972,8 +2985,27 @@ def _rest_inclusion_resolve(
   if aff and not neg:
     return _safe_float((pending or {}).get("remainder"))
   if neg:
-    return _safe_float((pending or {}).get("stated"))
+    return _stated
   return None
+
+
+def _figure_stated_in_message(value: Any, user_message: str) -> bool:
+  """CW-026 ruling #4: is this dollar value the CLIENT's own figure?
+  Same derivability family as the stage-write guard (k-shorthand,
+  monthly/weekly/quarterly annualization) but against the client's
+  message ONLY - the assistant's proposal deliberately does not count,
+  because an echoed anchor is not a client statement."""
+  v = _safe_float(value)
+  if v is None or abs(v) < 1e-9:
+    return False
+  for f in _message_figures(str(user_message or "")):
+    if f <= 0:
+      continue
+    for c in (f, f * 1000.0, f * 12.0, f / 12.0, f * 52.0, f / 52.0,
+              f * 4.0, f / 4.0):
+      if abs(abs(v) - c) / max(c, 1e-9) <= 0.005:
+        return True
+  return False
 
 
 def _trace_cogs_basis_flip(next_financials: Dict[str, Any], site: str) -> None:
@@ -7358,15 +7390,24 @@ def _normalize_financials_router_patch(
     next_financials["current_cogs"] = percent * revenue_year1 if revenue_year1 > 0 else 0.0
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
   if "current_cogs" in touched:
-    _trace_cogs_basis_flip(next_financials, "normalize:current_cogs")
-    next_financials["cogs_basis"] = "dollars"
+    # CW-026 ruling #4 (Nick-approved, the flip trace named this site):
+    # the basis flips to dollars ONLY when the dollar figure is in the
+    # CLIENT's message. The router echoing the app's own proposed
+    # anchor ("I'd start at 9%, around $26,250" -> edit_patch
+    # current_cogs=26250, derivable from last_assistant) is an app
+    # echo, not a client dollar statement - the value lands, the stamp
+    # HOLDS. Client-stated dollars stay durable (the F&F ruling).
+    if _figure_stated_in_message(next_financials.get("current_cogs"), user_message):
+      _trace_cogs_basis_flip(next_financials, "normalize:current_cogs")
+      next_financials["cogs_basis"] = "dollars"
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
       next_financials["cogs_percent_of_revenue"] = float(next_financials["current_cogs"]) / revenue_year1
   if "cogs_total_year1" in touched:
-    _trace_cogs_basis_flip(next_financials, "normalize:cogs_total_year1")
-    next_financials["cogs_basis"] = "dollars"
+    if _figure_stated_in_message(next_financials.get("cogs_total_year1"), user_message):
+      _trace_cogs_basis_flip(next_financials, "normalize:cogs_total_year1")
+      next_financials["cogs_basis"] = "dollars"
     next_financials["current_cogs"] = float(next_financials.get("cogs_total_year1") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
@@ -7556,6 +7597,56 @@ def _sync_financials_consult_persistence_state(
           _rest0 = _rest0 + _gw
       people_json["rest_of_team_payroll_year1"] = round(_rest0, 2)
       people_json["people"] = [p for p in _rows0 if p not in _group_rows]
+    # CW-026 ruling #1 (Nick-approved): OWNER-ROW UNIQUENESS - the
+    # sibling of the group-row block. One human, one owner row, at every
+    # canonical pass, whatever path minted the duplicate (Sumac: the
+    # owner-pay door correctly created a bare row before the finalize
+    # materialized Delia's - the timing collision left two owner rows
+    # and the cause-split read an owner drawing 26% as "owner
+    # dominated"). The more complete row survives; client_override
+    # outranks benchmark wages; near-equal (5%) override wages merge
+    # silently (the same statement twice); genuinely different override
+    # wages raise the fold-hold-style question - never a silent pick.
+    _rows1 = [p for p in (people_json.get("people") or []) if isinstance(p, dict)]
+    _owner_rows = [
+      p for p in _rows1
+      if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
+    ]
+    if len(_owner_rows) > 1:
+      def _row_completeness(p: Dict[str, Any]) -> int:
+        return (
+          (2 if str(p.get("full_name") or "").strip() else 0)
+          + (1 if str(p.get("relevant_background") or "").strip() else 0)
+          + (1 if str(p.get("primary_responsibilities") or "").strip() else 0)
+        )
+      _keep = max(_owner_rows, key=_row_completeness)
+      _keep_w = _safe_float(_keep.get("annual_wage")) or 0.0
+      _keep_src = str(_keep.get("wage_source") or "").strip().lower()
+      for _o in _owner_rows:
+        if _o is _keep:
+          continue
+        _ow = _safe_float(_o.get("annual_wage")) or 0.0
+        _o_src = str(_o.get("wage_source") or "").strip().lower()
+        if _o_src == "client_override" and _keep_src != "client_override":
+          _keep["annual_wage"] = _ow
+          _keep["wage_source"] = "client_override"
+          _keep_w = _ow
+          _keep_src = "client_override"
+        elif (
+          _o_src == "client_override" and _keep_src == "client_override"
+          and _keep_w > 0 and _ow > 0
+          and abs(_ow - _keep_w) > 0.05 * max(_ow, _keep_w)
+        ):
+          # Two different client statements about the same person's pay:
+          # hold, never a silent pick. The kept row's wage stands for
+          # this pass; the question surfaces at the gate.
+          next_financials["_owner_wage_conflict_hold"] = {
+            "kept": round(_keep_w, 2), "other": round(_ow, 2),
+          }
+      people_json["people"] = [
+        p for p in _rows1
+        if p is _keep or p not in _owner_rows
+      ]
     # CW-024 #109 door landing (order-safe): a client-stated team total
     # becomes the delta HERE, against the canonical rollup of the
     # NORMALIZED roster - so the group-row dedupe and the stated total
