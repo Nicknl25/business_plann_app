@@ -6952,7 +6952,11 @@ def _normalize_financials_router_patch(
     return None
   stage_name = str(active_stage or "").strip()
   active_targets = set(_financials_stage_spec(stage_name).get("patch_targets") or ())
-  if not active_targets:
+  # CW-025 rank-1: an EMPTY stage name is the completed-financials state,
+  # not an unknown stage - corrections still land there (whitelist =
+  # every COMPLETED stage's fields, via the correctable set below). Only
+  # a NAMED stage with no spec is a hard reject.
+  if not active_targets and stage_name:
     return None
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
   # Basis-clarify resolution rides outside the stage-field whitelist: it
@@ -7652,6 +7656,131 @@ def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
   return ""
 
 
+_WRITE_CLAIM_RE = re.compile(
+  r"\bI(?:'|’)?ll\s+(?:use|record|set|put|update)\b"
+  r"|\bI\s+will\s+(?:use|record|set|put|update)\b"
+  r"|\bI(?:'|’)?ve\s+(?:recorded|set|updated|noted)\b"
+  r"|\brecorded\b|\bupdated\s+(?:the|your)\b",
+  re.I,
+)
+
+
+def _apply_stage_people_door_keys(
+  *,
+  patch: Optional[Dict[str, Any]],
+  stage_shared_context: Dict[str, Any],
+  next_financials: Dict[str, Any],
+  conn,
+  intake_context: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any], str]:
+  """CW-024 #109/#115 + CW-025 rank-1: the ONE people-door apply, used by
+  every financials surface - active stage or completed. People.* keys
+  land via the scoped apply, the people change persists immediately
+  (this flow's own persists carry financials only), and the receipt is
+  built deterministically from the landed write, never router prose."""
+  _door_ack = ""
+  if not (isinstance(patch, dict) and patch):
+    return patch, next_financials, stage_shared_context, _door_ack
+  # ONE DOOR (CW-025 R8, live-router evidence): the router corrects
+  # payroll as financials.current_payroll / payroll_total_year1 -
+  # DERIVED fields THE RECALC rebuilds from people every pass, so a
+  # direct write evaporates in the same call frame. Total team payroll
+  # has ONE door (people.total_team_payroll): the financials-shaped
+  # write REMAPS to the door instead of landing dead. Semantically
+  # identical to the payroll stage's own set_total (delta becomes
+  # payroll_adjustment against the people baseline).
+  for _pk in ("financials.current_payroll", "current_payroll",
+              "financials.payroll_total_year1", "payroll_total_year1"):
+    if _pk in patch and "people.total_team_payroll" not in patch:
+      _pv = _safe_float(patch.get(_pk))
+      if _pv is not None and _pv > 0:
+        patch = dict(patch)
+        patch.pop(_pk, None)
+        patch["people.total_team_payroll"] = _pv
+      break
+  _people_keys = {k: v for k, v in patch.items() if str(k).startswith("people.")}
+  if not _people_keys:
+    return patch, next_financials, stage_shared_context, _door_ack
+  _stage_people = dict((stage_shared_context or {}).get("people_capability") or {})
+  _stage_ops = dict((stage_shared_context or {}).get("operating_model") or {})
+  _bf2, _op2, _mk2, _stage_people, next_financials, _ff2 = _apply_scoped_patch(
+    _people_keys, business_facts={}, ops_json=_stage_ops, market_json={},
+    people_json=_stage_people, financials_json=next_financials,
+    fulfillment_json={},
+  )
+  stage_shared_context = dict(stage_shared_context or {})
+  stage_shared_context["people_capability"] = _stage_people
+  try:
+    append_messages(
+      conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      new_messages=[], people_json=_stage_people,
+    )
+  except Exception:
+    logger.exception("STAGE_PEOPLE_DOOR_PERSIST_FAILED")
+  if "people.total_team_payroll" in _people_keys:
+    _v = _safe_float(_people_keys.get("people.total_team_payroll"))
+    if _v is not None:
+      _door_ack = (
+        f"Recorded: total team payroll {_format_currency(float(_v))} a year."
+      )
+  elif "people.rest_of_team_payroll_year1" in _people_keys:
+    _v = _safe_float(_people_keys.get("people.rest_of_team_payroll_year1"))
+    if _v is not None:
+      _door_ack = (
+        f"Recorded: rest-of-team payroll {_format_currency(float(_v))} a year."
+      )
+  elif "people.remove_role" in _people_keys:
+    _door_ack = (
+      f"Removed \"{str(_people_keys['people.remove_role']).strip()}\" "
+      "from the roster."
+    )
+  elif "people.owner_pay_monthly" in _people_keys:
+    _v = _safe_float(_people_keys.get("people.owner_pay_monthly"))
+    if _v is not None:
+      _door_ack = (
+        f"Recorded: owner pay {_format_currency(float(_v))} a month."
+      )
+  patch = {k: v for k, v in patch.items() if not str(k).startswith("people.")}
+  if not patch:
+    patch = {"financials._people_door_only": True}
+  return patch, next_financials, stage_shared_context, _door_ack
+
+
+def _unlanded_figures_disclosure(
+  *,
+  next_financials: Dict[str, Any],
+  stage_shared_context: Dict[str, Any],
+  user_message: str,
+  landed_patch: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], str]:
+  """CW-025 rank-1: the no-silent-drop backstop runs on EVERY branch -
+  landed, partial, prose-only - not only the lands-nothing path.
+  Brightline [63]: the $24,000 equipment answer landed while the bundled
+  $166,000 payroll correction vanished without a word. The post-apply
+  financials/people state counts as 'placed', so anything the turn DID
+  land never re-discloses; what remains is spoken in the same breath."""
+  fin = _stamp_unlanded_figures_note(
+    financials_json=next_financials,
+    people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
+    ops_json=dict((stage_shared_context or {}).get("operating_model") or {}),
+    user_message=user_message,
+    applied_notes=[],
+    patch=landed_patch,
+  )
+  _unl = fin.get("_unlanded_note")
+  _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
+  if not _figs:
+    return next_financials, ""
+  fin = dict(fin)
+  fin.pop("_unlanded_note", None)
+  _fig_txt = " and ".join(f"${float(f):,.0f}" for f in _figs)
+  return fin, (
+    f"You gave me {_fig_txt} and I couldn't tell where to record it - "
+    "tell me which line that belongs to and I'll put it there."
+  )
+
+
 def _run_financials_turn_and_sync(
   *,
   route_intent,
@@ -7693,7 +7822,100 @@ def _run_financials_turn_and_sync(
     return ctx
 
   if not active_stage:
-    return _build_financials_completion_turn(), next_financials
+    # CW-025 RANK-1 PREVENTION (Nick-ruled): NO turn returns before the
+    # router runs - by construction. This early return was the last
+    # unrouted surface: with every stage complete, corrections at the
+    # wall ("Tanya got counted twice... my real total is $166,000")
+    # made ZERO GPT calls and the gate replayed the same wall verbatim,
+    # three times. The completed state now routes like any other turn:
+    # people doors apply, financials corrections land through the same
+    # normalize (whitelist = every COMPLETED stage's fields), THE Recalc
+    # folds the change, both sections persist - and only then does the
+    # completion turn, and the gate behind it, ship. The receipt and any
+    # unlanded-figure disclosure ride the turn so the caller can put
+    # them BEFORE the gate's verdict (two-beat rule).
+    if not str(user_message or "").strip():
+      return _build_financials_completion_turn(), next_financials
+    completed_context = _stage_context(None, next_financials, prior_assistant=last_assistant)
+    completed_shared = dict(completed_context.get("shared_context") or {})
+    routed = route_intent(
+      consult_type="financials",
+      user_message=str(user_message).strip(),
+      baseline_json=next_financials,
+      shared_context=completed_shared,
+      recent_messages=conversation_messages[-30:] if conversation_messages else [],
+      confirm_question_override="",
+      active_focus="financials",
+    )
+    action = str(routed.get("action") or "").strip()
+    prose = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
+    patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+    patch, next_financials, completed_shared, _door_ack = _apply_stage_people_door_keys(
+      patch=patch, stage_shared_context=completed_shared,
+      next_financials=next_financials, conn=conn, intake_context=intake_context,
+    )
+    _applied_fields: List[str] = []
+    if isinstance(patch, dict) and patch:
+      _rep: Dict[str, Any] = {}
+      normalized = _normalize_financials_router_patch(
+        patch=patch, active_stage="", financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        last_assistant=last_assistant, user_message=user_message, report=_rep,
+      )
+      if isinstance(normalized, dict) and normalized:
+        next_financials = normalized
+        _applied_fields = list(_rep.get("applied") or [])
+    _landed_any = bool(_door_ack or _applied_fields)
+    if _landed_any:
+      # THE Recalc, in the same call frame: the gate reads current_payroll
+      # right after this returns, so the landed correction must be folded
+      # and persisted NOW, not at the next turn's preamble.
+      next_financials, financials_year1_json = _sync_financials_consult_persistence_state(
+        financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
+        people_json=dict((completed_shared or {}).get("people_capability") or {}),
+        ops_json=dict((completed_shared or {}).get("operating_model") or {}),
+      )
+      next_financials, financials_year1_json, _ = _persist_and_reload_financials_progress(
+        conn=conn,
+        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+        business_facts=business_facts,
+        financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
+      )
+    if _applied_fields and not _door_ack:
+      # Write-derived receipt (never router prose): name each landed
+      # field with the value that actually stuck.
+      _parts = []
+      for _f in _applied_fields[:3]:
+        _fv = _safe_float(next_financials.get(_f))
+        _label = _f.replace("_", " ")
+        _parts.append(
+          f"{_label} {_format_currency(float(_fv))}" if _fv is not None else _label
+        )
+      _door_ack = "Recorded: " + ", ".join(_parts) + "."
+    next_financials, _disclose_txt = _unlanded_figures_disclosure(
+      next_financials=next_financials,
+      stage_shared_context=completed_shared,
+      user_message=user_message,
+    )
+    _receipt = " ".join(x for x in (_door_ack, _disclose_txt) if x).strip()
+    _is_question = "?" in str(user_message or "")
+    if not _landed_any and not _disclose_txt and _is_question \
+       and action in ("answer_readonly", "confirm_clarify") and prose \
+       and not _WRITE_CLAIM_RE.search(prose):
+      # A genuine question at the completed state gets its answer; prose
+      # carrying a write-claim is unrepresentable here (nothing landed).
+      return {"assistant_message": prose, "finalize_ready": False}, next_financials
+    _turn = _build_financials_completion_turn(acknowledgement=_receipt)
+    _turn["_door_receipt"] = _receipt
+    _turn["_updated_people_json"] = dict(
+      (completed_shared or {}).get("people_capability") or {}
+    )
+    _turn["_updated_financials_year1_json"] = dict(financials_year1_json or {})
+    return _turn, next_financials
 
   stage_context = _stage_context(active_stage, next_financials, prior_assistant=last_assistant)
   stage_shared_context = dict(stage_context.get("shared_context") or {})
@@ -7780,39 +8002,10 @@ def _run_financials_turn_and_sync(
   if isinstance(patch, dict) and patch:
     _people_keys = {k: v for k, v in patch.items() if str(k).startswith("people.")}
     if _people_keys:
-      _stage_people = dict((stage_shared_context or {}).get("people_capability") or {})
-      _stage_ops = dict((stage_shared_context or {}).get("operating_model") or {})
-      _bf2, _op2, _mk2, _stage_people, next_financials, _ff2 = _apply_scoped_patch(
-        _people_keys, business_facts={}, ops_json=_stage_ops, market_json={},
-        people_json=_stage_people, financials_json=next_financials,
-        fulfillment_json={},
+      patch, next_financials, stage_shared_context, _door_ack = _apply_stage_people_door_keys(
+        patch=patch, stage_shared_context=stage_shared_context,
+        next_financials=next_financials, conn=conn, intake_context=intake_context,
       )
-      stage_shared_context = dict(stage_shared_context or {})
-      stage_shared_context["people_capability"] = _stage_people
-      try:
-        append_messages(
-          conn,
-          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
-          new_messages=[], people_json=_stage_people,
-        )
-      except Exception:
-        logger.exception("STAGE_PEOPLE_DOOR_PERSIST_FAILED")
-      # Deterministic receipt for the landed door - the reply below is
-      # built from the write, never from router prose.
-      if "people.total_team_payroll" in _people_keys:
-        _v = _safe_float(_people_keys.get("people.total_team_payroll"))
-        if _v is not None:
-          _door_ack = (
-            f"Recorded: total team payroll {_format_currency(float(_v))} a year."
-          )
-      elif "people.remove_role" in _people_keys:
-        _door_ack = (
-          f"Removed \"{str(_people_keys['people.remove_role']).strip()}\" "
-          "from the roster."
-        )
-      patch = {k: v for k, v in patch.items() if not str(k).startswith("people.")}
-      if not patch:
-        patch = {"financials._people_door_only": True}
 
   if action == "edit_patch" and isinstance(patch, dict) and patch:
     _patch_report: Dict[str, Any] = {}
@@ -7838,6 +8031,18 @@ def _run_financials_turn_and_sync(
         _note = _unapplied_fields_note(_dropped)
         if _note:
           acknowledgement = f"{acknowledgement} {_note}".strip()
+      # CW-025 rank-1 (Brightline [63]): the backstop runs on the LANDED
+      # branch too - a figure bundled alongside the stage answer that
+      # landed nowhere is disclosed in the same reply, never dropped.
+      normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+        next_financials=normalized_patch,
+        stage_shared_context=stage_shared_context,
+        user_message=user_message,
+      )
+      if _partial_disclose:
+        acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
+      if _door_ack:
+        acknowledgement = f"{_door_ack} {acknowledgement}".strip()
       next_context = _stage_context(active_stage, normalized_patch)
       next_turn, updated_financials, _ = _advance_persisted_financials_stage(
         conn=conn,
@@ -7877,6 +8082,14 @@ def _run_financials_turn_and_sync(
             stage_name=active_stage,
             financials_json=normalized_patch,
           )
+          # CW-025 rank-1: backstop on every landed branch.
+          normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+            next_financials=normalized_patch,
+            stage_shared_context=stage_shared_context,
+            user_message=user_message,
+          )
+          if _partial_disclose:
+            acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
           next_context = _stage_context(active_stage, normalized_patch)
           next_turn, updated_financials, _ = _advance_persisted_financials_stage(
             conn=conn,
@@ -7919,6 +8132,16 @@ def _run_financials_turn_and_sync(
         stage_name=active_stage,
         financials_json=normalized_patch,
       )
+      # CW-025 rank-1: backstop on every landed branch.
+      normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+        next_financials=normalized_patch,
+        stage_shared_context=stage_shared_context,
+        user_message=user_message,
+      )
+      if _partial_disclose:
+        acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
+      if _door_ack:
+        acknowledgement = f"{_door_ack} {acknowledgement}".strip()
       next_context = _stage_context(active_stage, normalized_patch)
       next_turn, updated_financials, _ = _advance_persisted_financials_stage(
         conn=conn,
@@ -7943,43 +8166,49 @@ def _run_financials_turn_and_sync(
   # built deterministically - the landed people-door receipt (if any),
   # the unlanded-figure disclosure, and the standing stage question.
   # Router prose never ships here.
+  # CW-025 rank-1: nothing has landed on ANY path that reaches here (the
+  # landed branches returned above), so the backstop runs UNCONDITIONALLY
+  # - patch-carrying or prose-only alike. Brightline [65]: "My total
+  # annual payroll is $166,000." with the lease question pending produced
+  # a patchless answer_readonly turn, so the old patch-gated backstop
+  # never saw the vanishing figure.
+  next_financials, _disclose_txt = _unlanded_figures_disclosure(
+    next_financials=next_financials,
+    stage_shared_context=stage_shared_context,
+    user_message=user_message,
+    landed_patch=_people_keys or None,
+  )
   _requested_writes = [
     k for k in (patch or {})
     if str(k).split(".", 1)[-1] != "_people_door_only"
   ] if isinstance(patch, dict) else []
-  if _requested_writes:
-    next_financials = _stamp_unlanded_figures_note(
-      financials_json=next_financials,
-      people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
-      ops_json=dict((stage_shared_context or {}).get("operating_model") or {}),
-      user_message=user_message,
-      applied_notes=[],
-      patch=_people_keys,
-    )
-    _unl = next_financials.get("_unlanded_note")
-    _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
-    _fig_txt = " and ".join(f"${float(f):,.0f}" for f in (_figs or []))
+  _is_question = "?" in str(user_message or "")
+  if (_disclose_txt and not _is_question) or _requested_writes:
+    # A STATED figure that landed nowhere, or a patch that landed
+    # nothing: the reply is deterministic - receipt, disclosure,
+    # standing question. Router prose never ships from this state.
     _disclose = (
-      f"You gave me {_fig_txt} and I couldn't tell where to record it - "
-      "tell me which line that belongs to and I'll put it there. "
-      if _fig_txt else
+      f"{_disclose_txt} " if _disclose_txt else
       ("" if _door_ack else "I wasn't able to apply that change yet. ")
     )
-    if _figs:
-      next_financials = dict(next_financials)
-      next_financials.pop("_unlanded_note", None)
     _standing_q = _build_financials_stage_clarifier(active_stage)
     return {
       "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
       "finalize_ready": False,
     }, next_financials
 
-  if action == "answer_readonly" and assistant_message:
+  # WRITE-CLAIM SHIP GATE (CW-025 rank-1, prevention): prose that claims
+  # a write ("I'll use $0 for monthly lease") cannot ship from a branch
+  # where no write landed - the false claim is unrepresentable at the
+  # shipping boundary, whatever the router labeled the turn.
+  _prose_claims_write = bool(
+    assistant_message and _WRITE_CLAIM_RE.search(assistant_message)
+  )
+  if action in ("answer_readonly", "confirm_clarify") and assistant_message \
+     and not _prose_claims_write:
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
-    return {"assistant_message": _msg, "finalize_ready": False}, next_financials
-
-  if action == "confirm_clarify" and assistant_message:
-    _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
+    if _disclose_txt:
+      _msg = f"{_msg} {_disclose_txt}".strip()
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
   _tail_msg = _natural_recovery(
@@ -7987,6 +8216,8 @@ def _run_financials_turn_and_sync(
     user_message=str(user_message or ""),
     fallback=_build_financials_stage_clarifier(active_stage),
   )
+  if _disclose_txt:
+    _tail_msg = f"{_disclose_txt} {_tail_msg}".strip()
   if _door_ack:
     _tail_msg = f"{_door_ack} {_tail_msg}".strip()
   return {
@@ -13112,6 +13343,18 @@ def post_intake_consult_handler(*, app, request):
 
       if bool((financials_turn or {}).get("transition_to_done")):
         assistant_final = str((financials_turn or {}).get("assistant_message") or "").strip()
+        # CW-025 rank-1: the completed-state turn may have landed a
+        # correction - the gate must read the UPDATED people (the wall
+        # recomputed on stale people three times at Brightline), and the
+        # landed-write receipt always precedes the gate's verdict
+        # (two-beat rule: acknowledgment before any wall).
+        _upd_people = (financials_turn or {}).get("_updated_people_json")
+        if isinstance(_upd_people, dict) and _upd_people:
+          people_json = _upd_people
+        _upd_year1 = (financials_turn or {}).get("_updated_financials_year1_json")
+        if isinstance(_upd_year1, dict) and _upd_year1:
+          financials_year1_json = _upd_year1
+        _fin_receipt = str((financials_turn or {}).get("_door_receipt") or "").strip()
         _coh_turn, financials_json, _coh_suffix = _coherence_gate(
           ops_json=ops_json,
           people_json=people_json,
@@ -13122,12 +13365,15 @@ def post_intake_consult_handler(*, app, request):
           user_text=message,
         )
         if _coh_turn is not None:
+          _wall_msg = str(_coh_turn.get("assistant_message") or "").strip()
+          if _fin_receipt:
+            _wall_msg = f"{_fin_receipt}\n\n{_wall_msg}".strip()
           return _coherence_blocked_response(
             conn=conn,
             draft_id=draft_id,
             client_id=client_id,
             user_msg=user_msg,
-            assistant_message=str(_coh_turn.get("assistant_message") or "").strip(),
+            assistant_message=_wall_msg,
             financials_json=financials_json,
             business_facts=business_facts,
             ops_json=ops_json,
