@@ -7861,19 +7861,256 @@ def _apply_stage_people_door_keys(
   return patch, next_financials, stage_shared_context, _door_ack
 
 
+# CW-026 FORWARD-MOVE RULE (Nick-ruled, structural): keyword attribution
+# first - a message naming its own field is not ambiguous. Order matters
+# (owner pay before payroll; rest-of-team before payroll).
+_FIGURE_FIELD_RULES: Tuple[Tuple[str, str, str], ...] = (
+  (r"\bprice\b|\bcharge\b|\brate\b|per (?:property|visit|unit|contract|job)",
+   "ops.unit_price", "unit price"),
+  (r"\bcapacity\b|\bproperties\b|\bclients\b|\bcustomers\b|\baccounts\b|\bvisits\b",
+   "ops.units_per_period_capacity", "capacity"),
+  (r"rest of (?:the )?team|\bcrew\b|cleaners|the other (?:two|three|four|guys)",
+   "people.rest_of_team_payroll_year1", "rest-of-team payroll"),
+  (r"pay myself|my (?:own )?pay\b|owner pay|\bdraw\b",
+   "people.owner_pay_monthly", "owner pay"),
+  (r"\bpayroll\b|\bwages\b|team cost",
+   "people.total_team_payroll", "total team payroll"),
+  (r"\bmaterials\b|\bsupplies\b|direct costs?|\bcogs\b",
+   "financials.current_cogs", "direct costs"),
+  (r"\bmarketing\b|advertis",
+   "financials.marketing_total_year1", "marketing"),
+  (r"\brent\b|\blease\b|\bstorage\b|\bspace\b",
+   "financials.monthly_rent_expense", "monthly rent"),
+  (r"\brevenue\b|\bsales\b|bring(?:ing)? in|top line",
+   "financials.current_revenue", "current revenue"),
+)
+
+
+def _infer_figure_landing(
+  *,
+  figure: float,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """CW-026 (Nick-ruled): 'stuck' is structurally impossible - an
+  unlanded figure ALWAYS resolves to a landing target. Keyword
+  attribution first ("unit price is now 650" names its field - that is
+  not ambiguous). With no keyword, infer the nearest stored value by
+  log-distance and PROPOSE it - the worst case is a wrong proposal the
+  client corrects, never a dead stop. Always returns a move:
+  {key, value, label, attributed}."""
+  import math
+
+  msg = str(user_message or "")
+  fig = float(figure)
+  for _pat, _key, _label in _FIGURE_FIELD_RULES:
+    if re.search(_pat, msg, re.I):
+      _val = fig
+      if _key == "people.owner_pay_monthly" and fig > 20000:
+        _val = round(fig / 12.0, 2)   # stated annual -> the door's monthly
+      return {"key": _key, "value": _val, "label": _label, "attributed": True}
+  # No keyword: nearest stored value by relative (log) distance.
+  _line = {}
+  for lm in (ops_json or {}).get("lob_models") or []:
+    for pr in (lm or {}).get("products") or []:
+      if isinstance(pr, dict):
+        _line = pr
+        break
+    if _line:
+      break
+  _people_total = 0.0
+  for _p in (people_json or {}).get("people") or []:
+    _w = _safe_float((_p or {}).get("annual_wage"))
+    if _w:
+      _people_total += _w
+  _people_total += _safe_float((people_json or {}).get("rest_of_team_payroll_year1")) or 0.0
+  cands = [
+    ("ops.unit_price", _safe_float(_line.get("unit_price")), "unit price"),
+    ("ops.units_per_period_capacity",
+     _safe_float(_line.get("units_per_period_capacity")), "capacity"),
+    ("financials.monthly_rent_expense",
+     _safe_float((financials_json or {}).get("monthly_rent_expense")), "monthly rent"),
+    ("financials.marketing_total_year1",
+     _safe_float((financials_json or {}).get("marketing_total_year1")), "marketing"),
+    ("financials.current_cogs",
+     _safe_float((financials_json or {}).get("current_cogs")), "direct costs"),
+    ("people.rest_of_team_payroll_year1",
+     _safe_float((people_json or {}).get("rest_of_team_payroll_year1")),
+     "rest-of-team payroll"),
+    ("people.total_team_payroll", _people_total or None, "total team payroll"),
+    ("financials.current_revenue",
+     _safe_float((financials_json or {}).get("current_revenue")), "current revenue"),
+  ]
+  best = None
+  for _key, _stored, _label in cands:
+    if not _stored or _stored <= 0 or fig <= 0:
+      continue
+    _d = abs(math.log(fig / _stored))
+    if best is None or _d < best[0]:
+      best = (_d, _key, _label)
+  if best is None:
+    # Nothing stored to compare against - propose revenue (the broadest
+    # line); still a forward move, never a stop.
+    return {"key": "financials.current_revenue", "value": fig,
+            "label": "current revenue", "attributed": False}
+  return {"key": best[1], "value": fig, "label": best[2], "attributed": False}
+
+
+def _apply_forward_move(
+  *,
+  move: Dict[str, Any],
+  stage_shared_context: Dict[str, Any],
+  next_financials: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  conn,
+  intake_context: Dict[str, Any],
+  user_message: str,
+  last_assistant: str,
+) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+  """CW-026: land the inferred move through the REAL door for its group
+  (people door / ops scoped apply + lever guard / financials normalize)
+  and return (financials, shared_context, copy). The copy is a receipt
+  when the message named its field (attributed), or a propose-confirm
+  when the field was inferred - either way the turn MOVED FORWARD."""
+  key = str(move.get("key") or "")
+  val = move.get("value")
+  label = str(move.get("label") or "that line")
+  attributed = bool(move.get("attributed"))
+  shared = dict(stage_shared_context or {})
+  landed = False
+  if key.startswith("people."):
+    _p, next_financials, shared, _ack = _apply_stage_people_door_keys(
+      patch={key: val}, stage_shared_context=shared,
+      next_financials=next_financials, conn=conn, intake_context=intake_context,
+    )
+    landed = True
+  elif key.startswith("ops."):
+    _ops = dict(shared.get("operating_model") or {})
+    _ops_before = copy.deepcopy(_ops)
+    _bf, _ops, _mk, _pp, next_financials, _ff = _apply_scoped_patch(
+      {key: val}, business_facts={}, ops_json=_ops, market_json={},
+      people_json=dict(shared.get("people_capability") or {}),
+      financials_json=next_financials, fulfillment_json={},
+    )
+    try:
+      _ops = _guard_underivable_ops_lever_writes(
+        ops_before=_ops_before, ops_after=_ops,
+        user_message=user_message, last_assistant=last_assistant,
+      )
+    except Exception:
+      pass
+    _sync_ops_flat_mirror(_ops)
+    shared["operating_model"] = _ops
+    try:
+      append_messages(
+        conn,
+        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+        new_messages=[], operating_model_json=_ops,
+      )
+    except Exception:
+      logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
+    landed = True
+  elif key == "financials.current_revenue":
+    # REVENUE'S ONE DOOR IS THE DRIVERS (same law as payroll->people):
+    # THE RECALC re-derives current_revenue from the ops drivers every
+    # pass, so a bare revenue write evaporates. A stated revenue lands
+    # by scaling utilization toward it (clamped to real capacity), then
+    # the echo restamps from the moved drivers.
+    _cur_rev = _safe_float(next_financials.get("current_revenue")) or 0.0
+    _vf = _safe_float(val) or 0.0
+    if _cur_rev > 0 and _vf > 0:
+      _ratio = _vf / _cur_rev
+      _ops2 = dict(shared.get("operating_model") or {})
+      for _lm in _ops2.get("lob_models") or []:
+        for _pr in (_lm or {}).get("products") or []:
+          _u = _safe_float((_pr or {}).get("utilization_rate"))
+          if _u and _u > 0:
+            _pr["utilization_rate"] = round(min(1.0, max(0.01, _u * _ratio)), 4)
+      _sync_ops_flat_mirror(_ops2)
+      shared["operating_model"] = _ops2
+      try:
+        append_messages(
+          conn,
+          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+          new_messages=[], operating_model_json=_ops2,
+        )
+      except Exception:
+        logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
+      next_financials = dict(next_financials)
+      next_financials["current_revenue"] = _vf
+      landed = True
+  else:
+    normalized = _normalize_financials_router_patch(
+      patch={key: val}, active_stage="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+      last_assistant=last_assistant, user_message=user_message,
+    )
+    if isinstance(normalized, dict) and normalized:
+      next_financials = normalized
+      landed = True
+  if key.endswith(("units_per_period_capacity", "units_per_week_capacity")):
+    _fmt = f"{float(val):,.0f}"
+  elif key.endswith("owner_pay_monthly"):
+    _fmt = f"{_format_currency(float(val))} a month"
+  else:
+    _fmt = _format_currency(float(val))
+  if not landed:
+    # The guard refused even the inferred landing (underivable shape).
+    # Still a forward move: name the proposal and invite the fix.
+    return next_financials, shared, (
+      f"It looks like you mean {label} - I couldn't apply {_fmt} there "
+      "safely, so tell me the exact line and I'll set it."
+    )
+  if attributed:
+    return next_financials, shared, f"Recorded: {label} {_fmt}."
+  return next_financials, shared, (
+    f"It looks like you mean {label} - I've set it to {_fmt}. "
+    "If that's not right, tell me which line it belongs to and I'll move it."
+  )
+
+
+def _prior_section_values(sections: Optional[List[Any]]) -> List[float]:
+  """Numeric values stored at TURN ENTRY (depth-3). A figure matching a
+  turn-entry value is a REFERENCE ('change it from $128,000 to $93,000'
+  names the old value), never a new statement - without this, the
+  forward-move re-lands the 'from' figure over the just-landed 'to'."""
+  out: List[float] = []
+
+  def _collect(obj, depth=0):
+    if depth > 3:
+      return
+    if isinstance(obj, dict):
+      for vv in obj.values():
+        _collect(vv, depth + 1)
+    elif isinstance(obj, list):
+      for vv in obj[:40]:
+        _collect(vv, depth + 1)
+    else:
+      fv = _safe_float(obj)
+      if fv is not None and abs(fv) >= 1.0:
+        out.append(abs(fv))
+  for s in (sections or []):
+    _collect(s if isinstance(s, (dict, list)) else {})
+  return out
+
+
 def _unlanded_figures_disclosure(
   *,
   next_financials: Dict[str, Any],
   stage_shared_context: Dict[str, Any],
   user_message: str,
   landed_patch: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], str]:
-  """CW-025 rank-1: the no-silent-drop backstop runs on EVERY branch -
-  landed, partial, prose-only - not only the lands-nothing path.
-  Brightline [63]: the $24,000 equipment answer landed while the bundled
-  $166,000 payroll correction vanished without a word. The post-apply
-  financials/people state counts as 'placed', so anything the turn DID
-  land never re-discloses; what remains is spoken in the same breath."""
+  prior_sections: Optional[List[Any]] = None,
+) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]]]:
+  """CW-025 rank-1 backstop, CW-026 forward-move shape: a figure the
+  client gave that landed nowhere ALWAYS produces a landing move - the
+  'I couldn't tell where to record it, you tell me' dead-end is
+  unrepresentable. Returns (financials, copy_prefix, move) where move is
+  the inferred landing to apply ({key, value, label, attributed}) or
+  None when every figure placed."""
   fin = _stamp_unlanded_figures_note(
     financials_json=next_financials,
     people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
@@ -7884,15 +8121,54 @@ def _unlanded_figures_disclosure(
   )
   _unl = fin.get("_unlanded_note")
   _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
+  if _figs and prior_sections:
+    _pv = _prior_section_values(prior_sections)
+    _figs = [
+      f for f in _figs
+      if not any(abs(abs(f) - p) <= max(1.0, 0.01 * abs(f)) for p in _pv)
+    ]
   if not _figs:
-    return next_financials, ""
+    # SMALL-FIGURE ATTRIBUTION (CW-026 F2): the $100 backstop threshold
+    # is right for dollars but wrong for counts and small unit prices -
+    # "I can take on 40 properties now" carries a 40 the stamp never
+    # sees. A keyword-ATTRIBUTED price/capacity correction admits small
+    # figures; a restatement of the stored value stays a no-op.
+    _msg = str(user_message or "")
+    _small = [f for f in _message_figures(_msg) if 0 < abs(f) < 100.0]
+    if _small:
+      _ops_l = {}
+      for _lm in (dict((stage_shared_context or {}).get("operating_model") or {})
+                  .get("lob_models") or []):
+        for _pr in (_lm or {}).get("products") or []:
+          if isinstance(_pr, dict):
+            _ops_l = _pr
+            break
+        if _ops_l:
+          break
+      for _pat, _key, _label in _FIGURE_FIELD_RULES:
+        if _key not in ("ops.unit_price", "ops.units_per_period_capacity"):
+          continue
+        if not re.search(_pat, _msg, re.I):
+          continue
+        _stored = _safe_float(_ops_l.get(_key.split(".", 1)[1]))
+        for _f in _small:
+          if _stored and abs(_f - _stored) <= max(0.5, 0.01 * abs(_stored)):
+            continue   # restatement of the stored value
+          return next_financials, "", {
+            "key": _key, "value": float(_f), "label": _label,
+            "attributed": True,
+          }
+    return next_financials, "", None
   fin = dict(fin)
   fin.pop("_unlanded_note", None)
-  _fig_txt = " and ".join(f"${float(f):,.0f}" for f in _figs)
-  return fin, (
-    f"You gave me {_fig_txt} and I couldn't tell where to record it - "
-    "tell me which line that belongs to and I'll put it there."
+  move = _infer_figure_landing(
+    figure=float(_figs[0]),
+    user_message=user_message,
+    financials_json=fin,
+    people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
+    ops_json=dict((stage_shared_context or {}).get("operating_model") or {}),
   )
+  return fin, "", move
 
 
 def _run_financials_turn_and_sync(
@@ -7912,6 +8188,13 @@ def _run_financials_turn_and_sync(
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
+  # CW-026: turn-entry snapshot - figures matching these stored values
+  # are references ("from $128,000 to $93,000"), never new statements.
+  _entry_prior_sections = [
+    copy.deepcopy(next_financials),
+    copy.deepcopy(dict((shared_context or {}).get("people_capability") or {})),
+    copy.deepcopy(dict((shared_context or {}).get("operating_model") or {})),
+  ]
 
   def _stage_context(
     stage_name: Optional[str],
@@ -7979,26 +8262,6 @@ def _run_financials_turn_and_sync(
       if isinstance(normalized, dict) and normalized:
         next_financials = normalized
         _applied_fields = list(_rep.get("applied") or [])
-    _landed_any = bool(_door_ack or _applied_fields)
-    if _landed_any:
-      # THE Recalc, in the same call frame: the gate reads current_payroll
-      # right after this returns, so the landed correction must be folded
-      # and persisted NOW, not at the next turn's preamble.
-      next_financials, financials_year1_json = _sync_financials_consult_persistence_state(
-        financials_json=next_financials,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
-        people_json=dict((completed_shared or {}).get("people_capability") or {}),
-        ops_json=dict((completed_shared or {}).get("operating_model") or {}),
-      )
-      next_financials, financials_year1_json, _ = _persist_and_reload_financials_progress(
-        conn=conn,
-        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
-        business_facts=business_facts,
-        financials_json=next_financials,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
-      )
     if _applied_fields and not _door_ack:
       # Write-derived receipt (never router prose): name each landed
       # field with the value that actually stuck.
@@ -8010,14 +8273,72 @@ def _run_financials_turn_and_sync(
           f"{_label} {_format_currency(float(_fv))}" if _fv is not None else _label
         )
       _door_ack = "Recorded: " + ", ".join(_parts) + "."
-    next_financials, _disclose_txt = _unlanded_figures_disclosure(
+    # CW-026 FORWARD MOVE (Nick-ruled, structural): an unlanded figure
+    # ALWAYS resolves to a landing - attributed by the message's own
+    # words ("unit price is now 650" -> ops.unit_price) or inferred and
+    # PROPOSED. The "I couldn't tell where to record it, you tell me"
+    # dead-end is unrepresentable: there is no branch where a correction
+    # turn ends without a landing or a proposed landing.
+    next_financials, _unused_txt, _move = _unlanded_figures_disclosure(
       next_financials=next_financials,
       stage_shared_context=completed_shared,
       user_message=user_message,
+      prior_sections=_entry_prior_sections,
     )
-    _receipt = " ".join(x for x in (_door_ack, _disclose_txt) if x).strip()
+    _move_copy = ""
+    if _move and "?" not in str(user_message or ""):
+      # A QUESTION carrying a figure is a question, not a statement -
+      # its hypothetical never lands (F12 invariant).
+      next_financials, completed_shared, _move_copy = _apply_forward_move(
+        move=_move, stage_shared_context=completed_shared,
+        next_financials=next_financials,
+        financials_year1_json=financials_year1_json,
+        conn=conn, intake_context=intake_context,
+        user_message=user_message, last_assistant=last_assistant,
+      )
+    _landed_any = bool(_door_ack or _applied_fields or _move_copy)
+    if _landed_any:
+      # THE Recalc, in the same call frame: the gate reads current_payroll
+      # right after this returns, so the landed correction must be folded
+      # and persisted NOW, not at the next turn's preamble.
+      # FOLD DURABILITY (CW-026 live revert, my own gap): the fold
+      # retires payroll_adjustment INTO PEOPLE in memory - persisting
+      # financials alone reverts the correction on the next turn's
+      # reload (133,000 -> 141,999.96 at Sumac Ridge). People persist
+      # whenever the sync changed them.
+      _ppl_work = copy.deepcopy(
+        dict((completed_shared or {}).get("people_capability") or {})
+      )
+      _ppl_before = copy.deepcopy(_ppl_work)
+      next_financials, financials_year1_json = _sync_financials_consult_persistence_state(
+        financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
+        people_json=_ppl_work,
+        ops_json=dict((completed_shared or {}).get("operating_model") or {}),
+      )
+      if _ppl_work != _ppl_before:
+        completed_shared = dict(completed_shared or {})
+        completed_shared["people_capability"] = _ppl_work
+        try:
+          append_messages(
+            conn,
+            draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+            new_messages=[], people_json=_ppl_work,
+          )
+        except Exception:
+          logger.exception("COMPLETED_FOLD_PEOPLE_PERSIST_FAILED")
+      next_financials, financials_year1_json, _ = _persist_and_reload_financials_progress(
+        conn=conn,
+        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+        business_facts=business_facts,
+        financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
+      )
+    _receipt = " ".join(x for x in (_door_ack, _move_copy) if x).strip()
     _is_question = "?" in str(user_message or "")
-    if not _landed_any and not _disclose_txt and _is_question \
+    if not _landed_any and _is_question \
        and action in ("answer_readonly", "confirm_clarify") and prose \
        and not _WRITE_CLAIM_RE.search(prose):
       # A genuine question at the completed state gets its answer; prose
@@ -8145,16 +8466,26 @@ def _run_financials_turn_and_sync(
         _note = _unapplied_fields_note(_dropped)
         if _note:
           acknowledgement = f"{acknowledgement} {_note}".strip()
-      # CW-025 rank-1 (Brightline [63]): the backstop runs on the LANDED
-      # branch too - a figure bundled alongside the stage answer that
-      # landed nowhere is disclosed in the same reply, never dropped.
-      normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+      # CW-025 rank-1 (Brightline [63]) + CW-026 forward move: a figure
+      # bundled alongside the stage answer that landed nowhere LANDS
+      # (attributed or proposed) in the same reply, never dropped and
+      # never bounced back as a question.
+      normalized_patch, _unused_txt, _pmove = _unlanded_figures_disclosure(
         next_financials=normalized_patch,
         stage_shared_context=stage_shared_context,
         user_message=user_message,
+        prior_sections=_entry_prior_sections,
       )
-      if _partial_disclose:
-        acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
+      if _pmove:
+        normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
+          move=_pmove, stage_shared_context=stage_shared_context,
+          next_financials=normalized_patch,
+          financials_year1_json=financials_year1_json,
+          conn=conn, intake_context=intake_context,
+          user_message=user_message, last_assistant=last_assistant,
+        )
+        if _pm_copy:
+          acknowledgement = f"{acknowledgement} {_pm_copy}".strip()
       if _door_ack:
         acknowledgement = f"{_door_ack} {acknowledgement}".strip()
       next_context = _stage_context(active_stage, normalized_patch)
@@ -8196,14 +8527,23 @@ def _run_financials_turn_and_sync(
             stage_name=active_stage,
             financials_json=normalized_patch,
           )
-          # CW-025 rank-1: backstop on every landed branch.
-          normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+          # CW-025 rank-1 + CW-026 forward move on every landed branch.
+          normalized_patch, _unused_txt, _pmove = _unlanded_figures_disclosure(
             next_financials=normalized_patch,
             stage_shared_context=stage_shared_context,
             user_message=user_message,
+            prior_sections=_entry_prior_sections,
           )
-          if _partial_disclose:
-            acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
+          if _pmove:
+            normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
+              move=_pmove, stage_shared_context=stage_shared_context,
+              next_financials=normalized_patch,
+              financials_year1_json=financials_year1_json,
+              conn=conn, intake_context=intake_context,
+              user_message=user_message, last_assistant=last_assistant,
+            )
+            if _pm_copy:
+              acknowledgement = f"{acknowledgement} {_pm_copy}".strip()
           next_context = _stage_context(active_stage, normalized_patch)
           next_turn, updated_financials, _ = _advance_persisted_financials_stage(
             conn=conn,
@@ -8246,14 +8586,23 @@ def _run_financials_turn_and_sync(
         stage_name=active_stage,
         financials_json=normalized_patch,
       )
-      # CW-025 rank-1: backstop on every landed branch.
-      normalized_patch, _partial_disclose = _unlanded_figures_disclosure(
+      # CW-025 rank-1 + CW-026 forward move on every landed branch.
+      normalized_patch, _unused_txt, _pmove = _unlanded_figures_disclosure(
         next_financials=normalized_patch,
         stage_shared_context=stage_shared_context,
         user_message=user_message,
+        prior_sections=_entry_prior_sections,
       )
-      if _partial_disclose:
-        acknowledgement = f"{acknowledgement} {_partial_disclose}".strip()
+      if _pmove:
+        normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
+          move=_pmove, stage_shared_context=stage_shared_context,
+          next_financials=normalized_patch,
+          financials_year1_json=financials_year1_json,
+          conn=conn, intake_context=intake_context,
+          user_message=user_message, last_assistant=last_assistant,
+        )
+        if _pm_copy:
+          acknowledgement = f"{acknowledgement} {_pm_copy}".strip()
       if _door_ack:
         acknowledgement = f"{_door_ack} {acknowledgement}".strip()
       next_context = _stage_context(active_stage, normalized_patch)
@@ -8286,25 +8635,40 @@ def _run_financials_turn_and_sync(
   # annual payroll is $166,000." with the lease question pending produced
   # a patchless answer_readonly turn, so the old patch-gated backstop
   # never saw the vanishing figure.
-  next_financials, _disclose_txt = _unlanded_figures_disclosure(
+  next_financials, _unused_txt, _tail_move = _unlanded_figures_disclosure(
     next_financials=next_financials,
     stage_shared_context=stage_shared_context,
     user_message=user_message,
     landed_patch=_people_keys or None,
+    prior_sections=_entry_prior_sections,
   )
   _requested_writes = [
     k for k in (patch or {})
     if str(k).split(".", 1)[-1] != "_people_door_only"
   ] if isinstance(patch, dict) else []
   _is_question = "?" in str(user_message or "")
-  if (_disclose_txt and not _is_question) or _requested_writes:
-    # A STATED figure that landed nowhere, or a patch that landed
-    # nothing: the reply is deterministic - receipt, disclosure,
-    # standing question. Router prose never ships from this state.
-    _disclose = (
-      f"{_disclose_txt} " if _disclose_txt else
-      ("" if _door_ack else "I wasn't able to apply that change yet. ")
+  if _tail_move and not _is_question:
+    # CW-026 FORWARD MOVE: a STATED figure that landed nowhere LANDS -
+    # attributed by the message's own words or inferred-and-proposed.
+    # The dead-end ("tell me which line that belongs to", full stop) is
+    # unrepresentable; the worst case is a wrong proposal the client
+    # corrects on the next turn.
+    next_financials, stage_shared_context, _move_copy = _apply_forward_move(
+      move=_tail_move, stage_shared_context=stage_shared_context,
+      next_financials=next_financials,
+      financials_year1_json=financials_year1_json,
+      conn=conn, intake_context=intake_context,
+      user_message=user_message, last_assistant=last_assistant,
     )
+    _standing_q = _build_financials_stage_clarifier(active_stage)
+    return {
+      "assistant_message": f"{_door_ack} {_move_copy} {_standing_q}".strip(),
+      "finalize_ready": False,
+    }, next_financials
+  if _requested_writes:
+    # A patch that landed nothing and no stated figure to move: honest
+    # non-apply plus the standing question.
+    _disclose = "" if _door_ack else "I wasn't able to apply that change yet. "
     _standing_q = _build_financials_stage_clarifier(active_stage)
     return {
       "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
@@ -8321,8 +8685,6 @@ def _run_financials_turn_and_sync(
   if action in ("answer_readonly", "confirm_clarify") and assistant_message \
      and not _prose_claims_write:
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
-    if _disclose_txt:
-      _msg = f"{_msg} {_disclose_txt}".strip()
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
   _tail_msg = _natural_recovery(
@@ -8330,8 +8692,6 @@ def _run_financials_turn_and_sync(
     user_message=str(user_message or ""),
     fallback=_build_financials_stage_clarifier(active_stage),
   )
-  if _disclose_txt:
-    _tail_msg = f"{_disclose_txt} {_tail_msg}".strip()
   if _door_ack:
     _tail_msg = f"{_door_ack} {_tail_msg}".strip()
   return {
@@ -13632,16 +13992,35 @@ def post_intake_consult_handler(*, app, request):
       and action == "continue_chat"
       and not (isinstance(patch, dict) and patch)
     ):
-      # CW-024 #109 backstop: a chat-routed round turn carrying a money
-      # figure that landed nowhere is disclosed, never silently dropped.
-      financials_json = _stamp_unlanded_figures_note(
-        financials_json=financials_json, people_json=people_json,
-        ops_json=ops_json, user_message=str(message or ""), patch=None,
+      # CW-024 #109 backstop, CW-026 forward-move shape: a chat-routed
+      # round turn carrying a money figure that landed nowhere LANDS it
+      # (attributed or inferred-and-proposed) - never a disclosure that
+      # hands the attribution back to the client.
+      _rl_shared = {
+        "people_capability": people_json,
+        "operating_model": ops_json,
+        "marketing": _refresh_marketing_model(),
+      }
+      financials_json, _unused_rl, _rl_move = _unlanded_figures_disclosure(
+        next_financials=financials_json,
+        stage_shared_context=_rl_shared,
+        user_message=str(message or ""),
       )
+      _rl_copy = ""
+      if _rl_move and "?" not in str(message or ""):
+        financials_json, _rl_shared, _rl_copy = _apply_forward_move(
+          move=_rl_move, stage_shared_context=_rl_shared,
+          next_financials=financials_json,
+          financials_year1_json=financials_year1_json,
+          conn=conn, intake_context={"draft_id": str(draft_id).strip()},
+          user_message=str(message or ""), last_assistant=last_assistant,
+        )
+        people_json = dict(_rl_shared.get("people_capability") or people_json)
+        ops_json = dict(_rl_shared.get("operating_model") or ops_json)
       _coh_reask = _coh_section.reask_message(financials_json)
       if _coh_reask:
         action = "confirm_clarify"
-        router_msg = _coh_reask
+        router_msg = f"{_rl_copy} {_coh_reask}".strip() if _rl_copy else _coh_reask
         patch = None
 
     if (
