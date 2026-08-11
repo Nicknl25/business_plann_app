@@ -118,6 +118,25 @@ are the named invariants — 9/9 on the fix).
   rollup 108,000 (was 141,999.96). On ff1da19 → two rows → RED. Also
   the conflict shape: two DIFFERENT override wages → one row +
   `_owner_wage_conflict_hold` stamped. (Q5/Q6/Q7)
+## CW-027 legs (one-shot fixes, baseline `18f5ca5`)
+
+Reference red-proofs: `Test Files/_redproof_cw027.py` (W1-W4; 1/4 on
+18f5ca5 - W2 is the named invariant - 4/4 on the fix).
+
+- **R18 rejected-figure-reference**: the verbatim Wren [67] line
+  ("...Nowhere near $28,000.") at the marketing stage with the real
+  proposal as last_assistant and a recorded router landing
+  marketing_total_year1=4800 → marketing lands 4,800, current_cogs
+  STAYS 99,840, reply contains no "$28,000" capture. On 18f5ca5 the
+  forward-move infers current_cogs=28,000 → RED. (W1; pair the W2
+  invariant: a bundled STATEMENT figure still moves.)
+- **R19 retention-consumed**: a live retention_pending frame
+  {retained_used: 1.0} + the verbatim Wren [97] answer through
+  `_parse_retention_answer` + `section.apply_retention_answer` →
+  utilization 0.78→0.702, revenue scales, frame CLEARED. On 18f5ca5
+  neither function exists (the frame sat unconsumed into the build) →
+  RED. (W3; pair W4: bare figures are not retention answers.)
+
 - **I13 owner-draw-clears**: `section._owner_draw_exit_tail` with
   cause {staffed 30000, phasable 0} + wall {payroll_to_clear 122500} →
   offers $7,708/mo (not $10,208); zero-case (staffed 130000) → NO

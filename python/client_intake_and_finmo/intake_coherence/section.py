@@ -1114,52 +1114,12 @@ def apply_router_patch(
   # client's own fraction; lever writes keep CW-020.
   _ret_answer = remaining.pop("coherence.retention_answer",
                               remaining.pop("retention_answer", None))
-  _ret_pending = state.get("retention_pending")
-  if _ret_answer is not None and isinstance(_ret_pending, dict):
-    _frac = None
-    if isinstance(_ret_answer, dict):
-      _k, _o = _f(_ret_answer.get("kept")), _f(_ret_answer.get("of"))
-      if _k > 0 and _o > 0:
-        _frac = min(1.0, _k / _o)
-    else:
-      _frac = _f(_ret_answer)
-      if _frac is not None and _frac > 1.0:
-        _frac = _frac / 100.0
-    _used = _f(_ret_pending.get("retained_used"), 1.0) or 1.0
-    if _frac is not None and 0.0 < _frac <= 1.0 and abs(_frac - _used) > 1e-6:
-      _adj = _frac / _used
-      _rev0 = _f(next_fin.get("current_revenue"))
-      if _rev0 > 0:
-        _rev1 = round(_rev0 * _adj, 2)
-        next_fin = dict(next_fin)
-        next_fin["current_revenue"] = _rev1
-        state = dict(state)
-        _lw = dict(state.get("_lever_writes") or {})
-        _record_lever_write(_lw, "current_revenue", _rev0, _rev1)
-        state["_lever_writes"] = _lw
-      _vols = []
-      for _l in (next_ops.get("lob_models") or []):
-        if not isinstance(_l, dict):
-          continue
-        for _p in (_l.get("products") or []):
-          if not isinstance(_p, dict):
-            continue
-          _u = _f(_p.get("utilization_rate"), 1.0)
-          _vols.append({
-            "lob": _l.get("lob_name") or _l.get("lob") or "",
-            "product": _p.get("product_name") or _p.get("product") or "",
-            "utilization_rate": round(max(0.01, min(1.0, _u * _adj)), 4),
-          })
-      next_ops = _apply_volume_spec(next_ops, _vols)
-      if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
-        for _cf in ("current_cogs", "cogs_total_year1"):
-          _cv = _f(next_fin.get(_cf))
-          if _cv > 0:
-            next_fin[_cf] = round(_cv * _adj, 2)
-    state = dict(state)
-    state.pop("retention_pending", None)
-    next_fin = put_state(next_fin, state)
-    notes.append("retention_answer")
+  if _ret_answer is not None:
+    next_fin, next_ops, _ret_applied = apply_retention_answer(
+      next_fin, next_ops, _ret_answer,
+    )
+    if _ret_applied:
+      notes.append("retention_answer")
 
   parked = remaining.pop("coherence.parked", remaining.pop("parked", None))
   if parked is not None and str(parked).strip().lower() in ("true", "1", "yes"):
@@ -1899,6 +1859,71 @@ def _ops_implied_and_ceiling(ops_json: Dict[str, Any]) -> Tuple[float, float]:
         implied += price * cap * periods * util
         ceiling += price * cap * periods
   return implied, ceiling
+
+
+def apply_retention_answer(
+  financials_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  answer: Any,
+) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
+  """CW-024 #118 consumer, ONE authority (CW-027: also invoked by the
+  handler's any-surface frame resolver - the Wren Hollow 90% answer
+  arrived at the done-focus surface where no round was live, the app
+  SAID it would rerun, and never applied it). The client's retention
+  answer re-lands the numbers over the judge's conservative edge
+  (client truth > judge, as ruled): a fraction (0-1] or {kept, of}
+  scales revenue, utilization (clamped), and dollar-basis COGS from the
+  landed retained_used to the client's own fraction, then clears the
+  frame. Returns (financials, ops, applied)."""
+  state = get_state(financials_json)
+  pending = state.get("retention_pending")
+  if not isinstance(pending, dict):
+    return financials_json, ops_json, False
+  frac = None
+  if isinstance(answer, dict):
+    k, o = _f(answer.get("kept")), _f(answer.get("of"))
+    if k > 0 and o > 0:
+      frac = min(1.0, k / o)
+  else:
+    frac = _f(answer)
+    if frac is not None and frac > 1.0:
+      frac = frac / 100.0
+  next_fin = dict(financials_json)
+  next_ops = ops_json
+  used = _f(pending.get("retained_used"), 1.0) or 1.0
+  if frac is not None and 0.0 < frac <= 1.0 and abs(frac - used) > 1e-6:
+    adj = frac / used
+    rev0 = _f(next_fin.get("current_revenue"))
+    if rev0 > 0:
+      rev1 = round(rev0 * adj, 2)
+      next_fin["current_revenue"] = rev1
+      state = dict(state)
+      lw = dict(state.get("_lever_writes") or {})
+      _record_lever_write(lw, "current_revenue", rev0, rev1)
+      state["_lever_writes"] = lw
+    vols = []
+    for l in (next_ops.get("lob_models") or []):
+      if not isinstance(l, dict):
+        continue
+      for p in (l.get("products") or []):
+        if not isinstance(p, dict):
+          continue
+        u = _f(p.get("utilization_rate"), 1.0)
+        vols.append({
+          "lob": l.get("lob_name") or l.get("lob") or "",
+          "product": p.get("product_name") or p.get("product") or "",
+          "utilization_rate": round(max(0.01, min(1.0, u * adj)), 4),
+        })
+    next_ops = _apply_volume_spec(next_ops, vols)
+    if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
+      for cf in ("current_cogs", "cogs_total_year1"):
+        cv = _f(next_fin.get(cf))
+        if cv > 0:
+          next_fin[cf] = round(cv * adj, 2)
+  state = dict(state)
+  state.pop("retention_pending", None)
+  next_fin = put_state(next_fin, state)
+  return next_fin, next_ops, True
 
 
 def _owner_draw_exit_tail(cause: Dict[str, Any], wall_pay: Dict[str, Any]) -> str:

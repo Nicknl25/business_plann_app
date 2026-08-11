@@ -8163,6 +8163,67 @@ def _apply_forward_move(
   )
 
 
+def _parse_retention_answer(message: str) -> Optional[Any]:
+  """CW-027: deterministic parse of a retention-shaped answer while the
+  frame is live. Requires keep/stay/retain/lose context - a bare number
+  is not a retention answer. Returns a percent (the consumer /100s
+  values > 1), a fraction, {kept, of}, or None."""
+  msg = str(message or "").lower()
+  if not re.search(r"\b(keep|stay|staying|retain|los(?:e|ing)|leave)\b", msg):
+    return None
+  m = re.search(r"\b(\d{1,3})\s*(?:%|percent\b)", msg)
+  if m:
+    v = float(m.group(1))
+    if 0 < v <= 100:
+      return v
+  m = re.search(
+    r"keep\s+(?:about |maybe |roughly )?(\d+)\s+(?:of|out of)\s+(?:my |the )?(\d+)",
+    msg)
+  if m:
+    return {"kept": float(m.group(1)), "of": float(m.group(2))}
+  _WORD_N = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+             "seven": 7, "eight": 8, "nine": 9, "ten": 10, "twenty": 20}
+  m = re.search(
+    r"los(?:e|ing)\s+(?:about |maybe )?one in (?:every )?(\d+|[a-z]+)", msg)
+  if m:
+    _tok = m.group(1)
+    n = float(_tok) if _tok.isdigit() else float(_WORD_N.get(_tok, 0))
+    if n > 1:
+      return round((n - 1.0) / n * 100.0, 1)
+  m = re.search(r"\b(0?\.\d+)\b", msg)
+  if m and re.search(r"\b(keep|stay|retain)", msg):
+    return float(m.group(1))
+  return None
+
+
+_NEGATION_FIGURE_RE = re.compile(
+  r"(?:nowhere near|not even|nothing like|no way (?:it'?s|near)?|way off from|"
+  r"far from|isn'?t|wasn'?t|not)\s+(?:about |around |the |your |a |even )*"
+  r"\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?",
+  re.I,
+)
+
+
+def _negated_figures(user_message: str) -> List[float]:
+  """CW-027 (Nick-ruled one-shot): figures in REJECTION/NEGATION context
+  ("nowhere near $28,000", "not $500", "nothing like that $40,000") are
+  REFERENCES - the third surface of the reference-vs-statement law. A
+  rejected number is the most predictable place a figure appears without
+  being an offer; it can never be captured as a value. The live Wren
+  Hollow line: "Nowhere near $28,000" became $28,000 of direct costs,
+  overwriting the client's stated $99,840."""
+  out: List[float] = []
+  for m in _NEGATION_FIGURE_RE.finditer(str(user_message or "")):
+    try:
+      v = float(m.group(1).replace(",", ""))
+    except ValueError:
+      continue
+    if m.group(2):
+      v *= 1000.0
+    out.append(v)
+  return out
+
+
 def _prior_section_values(sections: Optional[List[Any]]) -> List[float]:
   """Numeric values stored at TURN ENTRY (depth-3). A figure matching a
   turn-entry value is a REFERENCE ('change it from $128,000 to $93,000'
@@ -8195,6 +8256,7 @@ def _unlanded_figures_disclosure(
   user_message: str,
   landed_patch: Optional[Dict[str, Any]] = None,
   prior_sections: Optional[List[Any]] = None,
+  last_assistant: str = "",
 ) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]]]:
   """CW-025 rank-1 backstop, CW-026 forward-move shape: a figure the
   client gave that landed nowhere ALWAYS produces a landing move - the
@@ -8218,6 +8280,18 @@ def _unlanded_figures_disclosure(
       f for f in _figs
       if not any(abs(abs(f) - p) <= max(1.0, 0.01 * abs(f)) for p in _pv)
     ]
+  if _figs:
+    # CW-027 (the reference-vs-statement law, third surface): a NEGATED
+    # figure ("nowhere near $28,000") and a figure from the app's OWN
+    # last message (the proposal anchor - $28,000 vs the $28,080 the
+    # app just proposed) are references, never values to capture.
+    _refs = _negated_figures(user_message) + [
+      f for f in _message_figures(str(last_assistant or "")) if f > 0
+    ]
+    _figs = [
+      f for f in _figs
+      if not any(abs(abs(f) - abs(r)) <= max(1.0, 0.01 * abs(f)) for r in _refs)
+    ]
   if not _figs:
     # SMALL-FIGURE ATTRIBUTION (CW-026 F2): the $100 backstop threshold
     # is right for dollars but wrong for counts and small unit prices -
@@ -8225,7 +8299,15 @@ def _unlanded_figures_disclosure(
     # sees. A keyword-ATTRIBUTED price/capacity correction admits small
     # figures; a restatement of the stored value stays a no-op.
     _msg = str(user_message or "")
-    _small = [f for f in _message_figures(_msg) if 0 < abs(f) < 100.0]
+    _small_refs = _negated_figures(_msg) + [
+      f for f in _message_figures(str(last_assistant or "")) if f > 0
+    ]
+    _small = [
+      f for f in _message_figures(_msg)
+      if 0 < abs(f) < 100.0
+      and not any(abs(abs(f) - abs(r)) <= max(0.5, 0.01 * abs(f))
+                  for r in _small_refs)
+    ]
     if _small:
       _ops_l = {}
       for _lm in (dict((stage_shared_context or {}).get("operating_model") or {})
@@ -8375,6 +8457,7 @@ def _run_financials_turn_and_sync(
       stage_shared_context=completed_shared,
       user_message=user_message,
       prior_sections=_entry_prior_sections,
+      last_assistant=last_assistant,
     )
     _move_copy = ""
     if _move and "?" not in str(user_message or ""):
@@ -8566,6 +8649,7 @@ def _run_financials_turn_and_sync(
         stage_shared_context=stage_shared_context,
         user_message=user_message,
         prior_sections=_entry_prior_sections,
+        last_assistant=last_assistant,
       )
       if _pmove:
         normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
@@ -8624,6 +8708,7 @@ def _run_financials_turn_and_sync(
             stage_shared_context=stage_shared_context,
             user_message=user_message,
             prior_sections=_entry_prior_sections,
+            last_assistant=last_assistant,
           )
           if _pmove:
             normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
@@ -8683,6 +8768,7 @@ def _run_financials_turn_and_sync(
         stage_shared_context=stage_shared_context,
         user_message=user_message,
         prior_sections=_entry_prior_sections,
+        last_assistant=last_assistant,
       )
       if _pmove:
         normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
@@ -8732,6 +8818,7 @@ def _run_financials_turn_and_sync(
     user_message=user_message,
     landed_patch=_people_keys or None,
     prior_sections=_entry_prior_sections,
+    last_assistant=last_assistant,
   )
   _requested_writes = [
     k for k in (patch or {})
@@ -13115,6 +13202,46 @@ def post_intake_consult_handler(*, app, request):
     if isinstance(financials_year1_json, dict) and financials_year1_json:
       shared_context["financials_year1_json"] = financials_year1_json
 
+    # CW-027 (Nick-ruled one-shot): a LIVE retention frame resolves at
+    # ANY surface, deterministically - the pending-frame pattern's third
+    # instance. Wren Hollow answered "Call it 90% staying" at the
+    # done-focus surface, the app SAID it would rerun, and the frame sat
+    # unconsumed (utilization stayed 0.78 into the build). A retention-
+    # shaped answer (percent/fraction with keep/stay/retain/lose
+    # context, or "N of my M") applies the ONE consumer and clears the
+    # frame - the prose's rerun claim becomes true by construction.
+    try:
+      from client_intake_and_finmo.intake_coherence import section as _coh_ret
+      _ret_state = _coh_ret.get_state(financials_json)
+      if isinstance(_ret_state.get("retention_pending"), dict) \
+         and str(message or "").strip():
+        _ret_ans = _parse_retention_answer(str(message or ""))
+        if _ret_ans is not None:
+          financials_json, ops_json, _ret_ok = _coh_ret.apply_retention_answer(
+            financials_json, ops_json, _ret_ans,
+          )
+          if _ret_ok:
+            financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
+              financials_json=financials_json,
+              financials_year1_json=financials_year1_json,
+              marketing_model_json=marketing_model_json,
+              people_json=people_json,
+              ops_json=ops_json,
+            )
+            try:
+              append_messages(
+                conn, draft_id=str(draft_id).strip(), new_messages=[],
+                financials_json=financials_json,
+                financials_year1_json=financials_year1_json,
+                operating_model_json=ops_json,
+              )
+            except Exception:
+              logger.exception("RETENTION_RESOLVE_PERSIST_FAILED draft=%s", draft_id)
+            shared_context["financials"] = financials_json
+            shared_context["operating_model"] = ops_json
+    except Exception:
+      logger.exception("RETENTION_FRAME_RESOLVE_FAILED draft=%s", draft_id)
+
     # DEMAND REVIVAL (Nick-ruled #1): the estimator was NEVER BOUND in
     # this scope after the 04-02 refactor - every refresh raised
     # NameError and the bare except swallowed it to {} fleet-wide for
@@ -14096,6 +14223,7 @@ def post_intake_consult_handler(*, app, request):
         next_financials=financials_json,
         stage_shared_context=_rl_shared,
         user_message=str(message or ""),
+        last_assistant=last_assistant,
       )
       _rl_copy = ""
       if _rl_move and "?" not in str(message or ""):
