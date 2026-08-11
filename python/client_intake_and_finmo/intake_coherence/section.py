@@ -2070,13 +2070,51 @@ def gate_and_turn(
         f"utilization works out to about {_fmt(_implied)} a year"
       )
     if _hold_reason:
-      message = (
-        "Before I run the final checks, one thing doesn't add up: "
-        + _hold_reason
-        + ". Which is right - should I correct the revenue figure, or is one "
-        "of the drivers (price, capacity, or utilization) out of date?"
-      )
+      # CW-028 LOOP PIN (Nick-ruled): this hold can NEVER re-issue
+      # verbatim. Alder & Vine landed two capacity corrections and got
+      # the identical hold three times because a stale twin kept the
+      # computed numbers unchanged - the client was arbitrating blind.
+      # On a repeat signature the hold EXPOSES ITS OPERANDS (the exact
+      # stored drivers it computes from), so a stale stored number is
+      # visible to the client on the second ask, always.
+      _sig = f"{round(_stated_anchor)}|{round(_implied)}|{round(_phys_ceiling)}"
+      _prev_sig = str(state.get("_anchor_hold_sig") or "")
+      state = dict(state)
+      state["_anchor_hold_sig"] = _sig
+      financials_json = put_state(financials_json, state)
+      if _prev_sig == _sig:
+        _driver_bits = []
+        for _lm2 in (ops_json or {}).get("lob_models") or []:
+          for _pr2 in (_lm2 or {}).get("products") or []:
+            if not isinstance(_pr2, dict):
+              continue
+            _driver_bits.append(
+              f"{_pr2.get('product_name') or 'your product'}: "
+              f"${_f(_pr2.get('unit_price')):,.2f} x "
+              f"{_f(_pr2.get('units_per_period_capacity')):,.0f} per "
+              f"{str(_pr2.get('unit_cadence') or 'period')} x "
+              f"{_f(_pr2.get('operating_periods_per_year')):,.0f} periods a year"
+            )
+        message = (
+          "We're going in a circle, so let me show you exactly what I'm "
+          "computing from - " + "; ".join(_driver_bits[:3]) + ". That's "
+          f"where the {_fmt(_phys_ceiling)} comes from, against your stated "
+          f"{_fmt(_stated_anchor)}. Which of those stored numbers is wrong? "
+          "Name it and the figure, and I'll set it."
+        )
+      else:
+        message = (
+          "Before I run the final checks, one thing doesn't add up: "
+          + _hold_reason
+          + ". Which is right - should I correct the revenue figure, or is one "
+          "of the drivers (price, capacity, or utilization) out of date?"
+        )
       return {"assistant_message": message}, financials_json, ""
+    if state.get("_anchor_hold_sig"):
+      # Reconciled: the repeat-signature latch clears with the hold.
+      state = dict(state)
+      state.pop("_anchor_hold_sig", None)
+      financials_json = put_state(financials_json, state)
 
   # CW-022 #4 (Nick-ruled): the price-acceptance clarifier. An accepted
   # price lever stamps price_clarifier_due; the very next gate message

@@ -137,6 +137,36 @@ Reference red-proofs: `Test Files/_redproof_cw027.py` (W1-W4; 1/4 on
   neither function exists (the frame sat unconsumed into the build) →
   RED. (W3; pair W4: bare figures are not retention answers.)
 
+## CW-028 legs (Alder & Vine, baseline `af791ec`)
+
+Reference red-proofs: `Test Files/_redproof_cw028.py` (X1-X9; 0/9 on
+af791ec, 9/9 on the fix - X5's fixture must keep the stored capacity
+CLEAN pre-capture or the restatement skip makes old code vacuously
+green; X6 is the positive invariant Nick required).
+
+- **R20 capacity-twin-invariant**: weekly cadence => period twin
+  derives from the weekly value at the canonical pass (X1: 2 -> 185
+  through `_sync_financials_consult_persistence_state`).
+- **R21 reconciliation-loop-pin**: the anchor-vs-ops hold can never
+  re-issue verbatim - the repeat exposes its stored operands (X2:
+  two identical-signature holds through `gate_and_turn`; second
+  message differs and shows the drivers).
+- **R22 sibling-figure-references**: the reference-vs-statement law's
+  self-attribution forms - ratio-twin-of-landed (X3, the verbatim
+  [55]), arithmetic-of-landed (X4, the verbatim [81]),
+  count-of-persons (X5, the verbatim [85]) - PLUS the positive
+  invariant X6 (real capacity statements still capture 40, both
+  phrasings). All four asserts belong to one leg.
+- **R23 compound-word-numbers**: "one hundred and eighty-five
+  checkouts" -> figures contain 185 never 85, and the mover
+  attributes capacity 185 (X7).
+- **R24 owner-never-third-party** (copy leg, VS's call per Nick):
+  `_build_rest_of_team_payroll_question` never names an owner-titled
+  row alongside "yourself" (X8) - guards the CW-024 double-count
+  invitation. Cheap, deterministic, no stored-state cut.
+- **(fold into R22 or I07)**: X9 repair receipt - an extra applied
+  non-stage field is always named in the ack.
+
 - **I13 owner-draw-clears**: `section._owner_draw_exit_tail` with
   cause {staffed 30000, phasable 0} + wall {payroll_to_clear 122500} →
   offers $7,708/mo (not $10,208); zero-case (staffed 130000) → NO

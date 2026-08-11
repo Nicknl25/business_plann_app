@@ -3034,6 +3034,12 @@ def _build_rest_of_team_payroll_question(
   _counted = []
   for p in ((people_json or {}).get("people") or []):
     if isinstance(p, dict):
+      # CW-028 (Cowork finding 3): the OWNER is "yourself" - naming
+      # them again alongside it reads as a third party ("Beyond
+      # yourself and Marisol Okafor...") and invites the double-count
+      # the enumeration exists to prevent.
+      if _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
+        continue
       _nm = str(p.get("full_name") or p.get("role_title") or "").strip()
       if _nm:
         _counted.append(_nm)
@@ -5397,7 +5403,7 @@ _SMALL_NUMBER_WORDS = {
 def _percent_shaped_figures(message: str) -> List[float]:
   """Bare figures in a client message that COULD be a percent: digit tokens
   and simple number words (incl. 'twenty five' compounds), 0.5-100 only."""
-  msg = str(message or "").lower().replace(",", "")
+  msg = _normalize_word_numbers(str(message or "").lower().replace(",", ""))
   out: List[float] = []
   for tok in re.findall(r"\d+(?:\.\d+)?", msg):
     try:
@@ -5535,10 +5541,48 @@ _AFFIRMATION_SHAPE_RE = re.compile(
 )
 
 
+_WORD_UNITS = {
+  "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+  "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+  "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+  "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_WORD_TENS = {
+  "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+  "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_COMPOUND_HUNDRED_RE = re.compile(
+  r"\b(one|two|three|four|five|six|seven|eight|nine)\s+hundred"
+  r"(?:\s+and)?(?:[\s-]+("
+  r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+  r")(?:[\s-]+(one|two|three|four|five|six|seven|eight|nine))?"
+  r"|[\s-]+(ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+  r"seventeen|eighteen|nineteen|one|two|three|four|five|six|seven|"
+  r"eight|nine))?\b",
+)
+
+
+def _normalize_word_numbers(msg: str) -> str:
+  """CW-028 (Nick-approved): compound word-numbers become digits before
+  figure parsing - 'one hundred and eighty-five' is 185, never the
+  'eighty-five' fragment (the Alder capacity answer captured as 85).
+  Consuming the phrase means the fragment can't double-fire."""
+  def _sub(m: "re.Match") -> str:
+    n = _WORD_UNITS[m.group(1)] * 100
+    if m.group(2):
+      n += _WORD_TENS[m.group(2)]
+      if m.group(3):
+        n += _WORD_UNITS[m.group(3)]
+    elif m.group(4):
+      n += _WORD_UNITS[m.group(4)]
+    return str(n)
+  return _COMPOUND_HUNDRED_RE.sub(_sub, msg)
+
+
 def _message_figures(message: str) -> List[float]:
   """Every numeric figure in a client message: digits (comma-stripped),
   k/thousand shorthand expanded, and small number words."""
-  msg = str(message or "").lower().replace(",", "")
+  msg = _normalize_word_numbers(str(message or "").lower().replace(",", ""))
   out: List[float] = []
   for tok, k_suffix in re.findall(r"(\d+(?:\.\d+)?)(\s*k\b)?", msg):
     try:
@@ -7563,6 +7607,9 @@ def _sync_financials_consult_persistence_state(
   # mirrors re-sync from the product row on every touch - the at-rest
   # fork shape can no longer persist. Mutates ops_json in place (turn
   # paths persist ops; the run-entry recalc detects and persists too).
+  # CW-028: capacity twins heal FIRST so the flat mirror copies the
+  # healed row, not the divergent one.
+  _sync_capacity_twins(ops_json)
   _sync_ops_flat_mirror(ops_json)
   _people_has_substance = isinstance(people_json, dict) and bool(
     (people_json.get("people") or [])
@@ -7958,7 +8005,9 @@ def _apply_stage_people_door_keys(
 _FIGURE_FIELD_RULES: Tuple[Tuple[str, str, str], ...] = (
   (r"\bprice\b|\bcharge\b|\brate\b|per (?:property|visit|unit|contract|job)",
    "ops.unit_price", "unit price"),
-  (r"\bcapacity\b|\bproperties\b|\bclients\b|\bcustomers\b|\baccounts\b|\bvisits\b",
+  (r"\bcapacity\b|\bproperties\b|\bclients\b|\bcustomers\b|\baccounts\b|"
+   r"\bvisits\b|\bjobs\b|\borders\b|\bcheckouts\b|\bcalls\b|"
+   r"\bappointments\b|per week|a week|per day|a day",
    "ops.units_per_period_capacity", "capacity"),
   (r"rest of (?:the )?team|\bcrew\b|cleaners|the other (?:two|three|four|guys)",
    "people.rest_of_team_payroll_year1", "rest-of-team payroll"),
@@ -8092,6 +8141,7 @@ def _apply_forward_move(
       )
     except Exception:
       pass
+    _sync_capacity_twins(_ops)
     _sync_ops_flat_mirror(_ops)
     shared["operating_model"] = _ops
     try:
@@ -8292,6 +8342,26 @@ def _unlanded_figures_disclosure(
       f for f in _figs
       if not any(abs(abs(f) - abs(r)) <= max(1.0, 0.01 * abs(f)) for r in _refs)
     ]
+  if _figs:
+    # CW-028 ARITHMETIC-OF-LANDED (the "$9,360 in payments" capture):
+    # a figure equal to the sum/difference of this turn's PLACED
+    # figures is the client showing their work ("the payments come to
+    # $9,360, so if $2,600 is interest the principal is about $6,760"),
+    # never a new fact. Pairs over the message's own placed figures.
+    _placed_msg = [
+      f for f in _message_figures(user_message)
+      if abs(f) >= 100.0 and f not in _figs
+    ]
+    if len(_placed_msg) >= 2:
+      _combos = set()
+      for _i, _a in enumerate(_placed_msg[:20]):
+        for _b in _placed_msg[_i + 1:20]:
+          _combos.add(round(abs(_a) + abs(_b), 2))
+          _combos.add(round(abs(abs(_a) - abs(_b)), 2))
+      _figs = [
+        f for f in _figs
+        if not any(abs(abs(f) - c) <= max(1.0, 0.005 * abs(f)) for c in _combos)
+      ]
   if not _figs:
     # SMALL-FIGURE ATTRIBUTION (CW-026 F2): the $100 backstop threshold
     # is right for dollars but wrong for counts and small unit prices -
@@ -8302,11 +8372,37 @@ def _unlanded_figures_disclosure(
     _small_refs = _negated_figures(_msg) + [
       f for f in _message_figures(str(last_assistant or "")) if f > 0
     ]
+    # CW-028 ratio-twin at the small path ("48% of the sale price"): a
+    # stored/landed RATIO's percent form is the same fact, a reference.
+    for _rv in (fin or {}).values():
+      _rf = _safe_float(_rv)
+      if _rf is not None and 0.0 < abs(_rf) <= 1.5:
+        _small_refs.append(abs(_rf) * 100.0)
+    # CW-028 COUNT-OF-PERSONS (the "two designers...accounts" capture):
+    # a small figure immediately followed by a person-noun is a count
+    # of people, never a capacity/price value - whatever keywords
+    # appear elsewhere in the sentence.
+    _person_counts: List[float] = []
+    for _pm in re.finditer(
+      r"(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)"
+      r"\s+(?:designers?|people|persons?|staff|employees?|techs?|"
+      r"technicians?|guys|folks|workers?|partners?|owners?|managers?|"
+      r"cleaners?|crew(?:\s+members?)?|assistants?|associates?)\b",
+      _msg, re.I,
+    ):
+      _tok = _pm.group(1).lower()
+      _WN = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+      try:
+        _person_counts.append(float(_WN.get(_tok) or float(_tok)))
+      except ValueError:
+        continue
     _small = [
       f for f in _message_figures(_msg)
       if 0 < abs(f) < 100.0
       and not any(abs(abs(f) - abs(r)) <= max(0.5, 0.01 * abs(f))
                   for r in _small_refs)
+      and not any(abs(abs(f) - c) <= 0.01 for c in _person_counts)
     ]
     if _small:
       _ops_l = {}
@@ -8640,6 +8736,28 @@ def _run_financials_turn_and_sync(
         _note = _unapplied_fields_note(_dropped)
         if _note:
           acknowledgement = f"{acknowledgement} {_note}".strip()
+      # CW-028 REPAIR RECEIPT (Nick-ruled): the ack names EVERY applied
+      # field, not only the stage's own - a correction to a
+      # mover-landed or correctable field is always visible to the
+      # client (the Alder $9,360 repair landed silently).
+      _stage_targets = set(
+        _financials_stage_spec(active_stage).get("patch_targets") or ()
+      )
+      _extra_applied = [
+        f for f in (_patch_report.get("applied") or [])
+        if f not in _stage_targets
+      ]
+      if _extra_applied:
+        _xparts = []
+        for _xf in _extra_applied[:3]:
+          _xv = _safe_float(normalized_patch.get(_xf))
+          _xparts.append(
+            f"{_xf.replace('_', ' ')} {_format_currency(float(_xv))}"
+            if _xv is not None else _xf.replace("_", " ")
+          )
+        acknowledgement = (
+          f"{acknowledgement} Also recorded: {', '.join(_xparts)}."
+        ).strip()
       # CW-025 rank-1 (Brightline [63]) + CW-026 forward move: a figure
       # bundled alongside the stage answer that landed nowhere LANDS
       # (attributed or proposed) in the same reply, never dropped and
@@ -11057,6 +11175,11 @@ def _stamp_unlanded_figures_note(
       placed.append(abs(fv))
       placed.append(abs(fv) * 12.0)   # monthly statements land annualized
       placed.append(abs(fv) / 12.0)
+      if abs(fv) <= 1.5:
+        # CW-028 ratio-twin (the "48% of the sale price" capture): a
+        # landed RATIO places its percent form - 48 and 0.48 are the
+        # same fact twice, never a second figure to attribute.
+        placed.append(abs(fv) * 100.0)
   def _collect(obj, depth=0):
     if depth > 3:
       return
@@ -11070,6 +11193,9 @@ def _stamp_unlanded_figures_note(
       fv = _safe_float(obj)
       if fv is not None and abs(fv) >= 100.0:
         placed.append(abs(fv))
+      elif fv is not None and 0.0 < abs(fv) <= 1.5:
+        # Stored ratios place their percent form too (CW-028).
+        placed.append(abs(fv) * 100.0)
   for section in (financials_json, people_json, ops_json):
     _collect(section if isinstance(section, dict) else {})
   unplaced = [
@@ -12735,6 +12861,33 @@ _OPS_FLAT_MIRROR_FIELDS = (
   "unit_price", "units_per_week_capacity", "units_per_period_capacity",
   "operating_periods_per_year", "utilization_rate",
 )
+
+
+def _sync_capacity_twins(ops_json) -> bool:
+  """CW-028 (Nick-ruled, the Alder & Vine loop): capacity twins CANNOT
+  diverge under cadence - a weekly cadence means the period IS the week,
+  so units_per_period_capacity DERIVES from units_per_week_capacity at
+  every canonical pass. The live failure: the client's landed 185/week
+  sat beside a stale period twin of 2, and the drivers-conflict check
+  read the stale side - the app manufactured a contradiction and asked
+  the client to arbitrate it, unwinnably. One authority, derived, at
+  every pass - the same invariant pattern as owner-row and group-row.
+  Mutates in place; returns True when anything changed."""
+  changed = False
+  if not isinstance(ops_json, dict):
+    return False
+  for _lm in ops_json.get("lob_models") or []:
+    for _pr in (_lm or {}).get("products") or []:
+      if not isinstance(_pr, dict):
+        continue
+      _cad = str(_pr.get("unit_cadence") or "").strip().lower()
+      _wk = _safe_float(_pr.get("units_per_week_capacity"))
+      _per = _safe_float(_pr.get("units_per_period_capacity"))
+      if _cad == "weekly" and _wk is not None and _wk > 0 \
+         and (_per is None or abs(_per - _wk) > 1e-9):
+        _pr["units_per_period_capacity"] = float(_wk)
+        changed = True
+  return changed
 
 
 def _sync_ops_flat_mirror(ops_json) -> bool:
