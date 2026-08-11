@@ -2879,6 +2879,118 @@ def _acceptance_mismatch_hold(*, stage_name: str, user_message: str) -> Optional
   )
 
 
+def _rest_inclusion_check(
+  *,
+  patch: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+  user_message: str,
+  messages: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+  """CW-025 rank-2a (Brightline: Tanya Brill counted twice): the
+  enumerated rest-of-team question fired and the client STILL answered
+  with the whole-crew total ("The cleaners come to $128,000 a year all
+  together") after stating the correct decomposition themselves
+  ("$31,000 each, so that's $93,000 for them"). A rest-of-team figure
+  that plausibly CONTAINS an already-named wage - inclusion language in
+  the answer, or the client's own remainder figure in the recent
+  transcript - cannot record silently. Returns {"question", "frame"}
+  for a one-turn deterministic check, or None for a clean capture."""
+  _key = next((k for k in (patch or {})
+               if "rest_of_team_payroll_year1" in str(k)), None)
+  if _key is None:
+    return None
+  if isinstance((people_json or {}).get("_rest_inclusion_pending"), dict):
+    return None
+  stated = _safe_float((patch or {}).get(_key))
+  named: List[Tuple[str, float]] = []
+  for _p in ((people_json or {}).get("people") or []):
+    if not isinstance(_p, dict):
+      continue
+    _ttl = str(_p.get("role_title") or "")
+    if _OWNER_TITLE_RE.search(_ttl):
+      continue
+    _w = _safe_float(_p.get("annual_wage"))
+    _nm = str(_p.get("full_name") or _ttl or "").strip()
+    if _w and _w > 0 and _nm:
+      named.append((_nm, float(_w)))
+  if not stated or not named or stated <= min(w for _, w in named):
+    return None
+  named_sum = sum(w for _, w in named)
+  remainder = stated - named_sum
+  if remainder <= 0:
+    return None
+  incl_lang = bool(re.search(
+    r"all together|altogether|\btotal\b|includ\w+|everyone|"
+    r"whole (?:team|crew)|combined|in all",
+    str(user_message or ""), re.I))
+  rem_evidence = False
+  for _mm in [m for m in (messages or [])[-12:]
+              if isinstance(m, dict) and m.get("role") == "user"]:
+    if any(
+      abs(f - remainder) <= max(1.0, 0.005 * remainder)
+      for f in _message_figures(str(_mm.get("content") or ""))
+    ):
+      rem_evidence = True
+      break
+  if not (incl_lang or rem_evidence):
+    return None
+  names_txt = " and ".join(f"{n} (${w:,.0f})" for n, w in named[:3])
+  who = "them" if len(named) > 1 else named[0][0]
+  return {
+    "question": (
+      f"Quick check so nobody gets counted twice: is {names_txt} inside "
+      f"that ${stated:,.0f}, or is ${stated:,.0f} only the people we "
+      f"haven't listed? If it includes {who}, I'll put down "
+      f"${remainder:,.0f} for the rest of the team."
+    ),
+    "frame": {
+      "stated": float(stated),
+      "named_sum": float(named_sum),
+      "remainder": round(float(remainder), 2),
+    },
+  }
+
+
+def _rest_inclusion_resolve(
+  *,
+  pending: Dict[str, Any],
+  user_message: str,
+) -> Optional[float]:
+  """Resolution of the inclusion check, deterministic: a fresh figure
+  wins (normal capture); plain agreement means the named people were
+  inside (use the remainder); an explicit 'separate/no' keeps the
+  stated figure. Anything else drops the frame unresolved."""
+  msg = str(user_message or "").strip().lower()
+  figs = [f for f in _message_figures(msg) if f >= 100.0]
+  neg = bool(re.search(
+    r"\b(no|nope|separate|not includ\w*|besides|on top)\b", msg))
+  aff = bool(re.search(
+    r"\b(yes|yeah|yep|right|correct|includes?|included|inside|"
+    r"with (?:her|him|them)|all together|altogether)\b", msg))
+  if figs:
+    return float(figs[0])
+  if aff and not neg:
+    return _safe_float((pending or {}).get("remainder"))
+  if neg:
+    return _safe_float((pending or {}).get("stated"))
+  return None
+
+
+def _trace_cogs_basis_flip(next_financials: Dict[str, Any], site: str) -> None:
+  """CW-025 rank-2b observability: Brightline's ratio->dollars re-tag
+  (issue #112 recurrence) could not be reproduced from any writer in
+  isolation - the acceptance patch survives both normalize (explicit
+  basis honored) and the scoped apply (builder key order). Stamp the
+  site whenever the tag ACTUALLY flips away from ratio live, so the
+  next occurrence names its mechanism for free. Inert bookkeeping -
+  no behavior change."""
+  try:
+    if str(next_financials.get("cogs_basis") or "").strip().lower() == "ratio":
+      next_financials["_cogs_basis_flip_trace"] = {"site": str(site)[:80]}
+  except Exception:
+    pass
+
+
 def _build_rest_of_team_payroll_question(
   acknowledgement: str = "",
   people_json: Optional[Dict[str, Any]] = None,
@@ -7246,12 +7358,14 @@ def _normalize_financials_router_patch(
     next_financials["current_cogs"] = percent * revenue_year1 if revenue_year1 > 0 else 0.0
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
   if "current_cogs" in touched:
+    _trace_cogs_basis_flip(next_financials, "normalize:current_cogs")
     next_financials["cogs_basis"] = "dollars"
     next_financials["cogs_total_year1"] = float(next_financials.get("current_cogs") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
     if revenue_year1 and revenue_year1 > 0:
       next_financials["cogs_percent_of_revenue"] = float(next_financials["current_cogs"]) / revenue_year1
   if "cogs_total_year1" in touched:
+    _trace_cogs_basis_flip(next_financials, "normalize:cogs_total_year1")
     next_financials["cogs_basis"] = "dollars"
     next_financials["current_cogs"] = float(next_financials.get("cogs_total_year1") or 0.0)
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
@@ -10092,6 +10206,7 @@ def _apply_scoped_patch(
       # untagged for one turn and the next Recalc pass restated it
       # away ratio-primary, the exact class the ruling kills).
       if field in ("current_cogs", "cogs_total_year1"):
+        _trace_cogs_basis_flip(next_financials, f"scoped_apply:{field}")
         next_financials["cogs_basis"] = "dollars"
         # The dollar twins are ONE number - writing either sets both,
         # exactly as the stage door does. (Second keystone layer: the
@@ -13869,6 +13984,65 @@ def post_intake_consult_handler(*, app, request):
             financials_json["current_revenue"] = float(_rp_prop)
         except Exception:
           pass
+      # CW-025 rank-2a resolution: an outstanding rest-of-team inclusion
+      # question ("is Tanya's $35,000 inside that $128,000?") resolves
+      # deterministically and re-injects the resolved figure through the
+      # NORMAL capture path - receipt, review, and transition machinery
+      # all behave exactly as a plain answer.
+      _ri_pending = (people_json or {}).get("_rest_inclusion_pending")
+      if isinstance(_ri_pending, dict):
+        people_json = dict(people_json or {})
+        people_json.pop("_rest_inclusion_pending", None)
+        try:
+          _ri_val = _rest_inclusion_resolve(
+            pending=_ri_pending, user_message=str(message or ""),
+          )
+          if _ri_val is not None and _ri_val >= 0:
+            patch = dict(patch or {})
+            patch["people.rest_of_team_payroll_year1"] = float(_ri_val)
+            action = "edit_patch"
+        except Exception:
+          pass
+      # CW-025 rank-2a tripwire (Brightline: Tanya Brill counted twice):
+      # the enumerated question fired and the client STILL answered with
+      # the whole-crew total ("The cleaners come to $128,000 a year all
+      # together") after stating the correct decomposition themselves
+      # ("$31,000 each, so that's $93,000 for them"). A rest-of-team
+      # figure that plausibly CONTAINS an already-named wage - inclusion
+      # language in the answer, or the client's own remainder figure in
+      # the recent transcript - cannot record silently: one deterministic
+      # check question, then the resolved figure lands normally.
+      try:
+        _ri_hold = _rest_inclusion_check(
+          patch=patch, people_json=people_json,
+          user_message=str(message or ""), messages=messages,
+        )
+      except Exception:
+        logger.exception("REST_INCLUSION_TRIPWIRE_FAILED")
+        _ri_hold = None
+      if _ri_hold:
+        people_json = dict(people_json or {})
+        people_json["_rest_inclusion_pending"] = _ri_hold["frame"]
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": _ri_hold["question"]}],
+          people_json=people_json,
+          active_focus=str(focus or "people"),
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": str(focus or "people"),
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "continue",
+            "assistant_message": _ri_hold["question"],
+          }
+        )
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,

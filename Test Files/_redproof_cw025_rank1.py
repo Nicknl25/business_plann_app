@@ -386,5 +386,66 @@ def r8():
 guarded("R8 LIVE router at completed state: [89] emits a people door, lands 166,000", r8)
 
 
+# ---------------------------------------------------------------- rank 2a
+# The inclusion tripwire (Tanya counted twice AT CAPTURE): the enumerated
+# question fired live and the client still restated the whole-crew total.
+# These drive the helpers the handler calls at the people apply site.
+
+MSG_41 = (
+    "Yes — Tanya Brill, my lead cleaner. She's been with me since the "
+    "second month, holds keys for about half my buildings and trains "
+    "anybody new. Nine years cleaning, no formal schooling past high "
+    "school, she has her bloodborne pathogens card too. She's at "
+    "$35,000. The other three cleaners are at $31,000 each, so that's "
+    "$93,000 for them. Four cleaners, $128,000 all together."
+)
+MSG_45 = "The cleaners come to $128,000 a year all together."
+
+
+def r9():
+    hold = ic._rest_inclusion_check(
+        patch={"people.rest_of_team_payroll_year1": 128000},
+        people_json=copy.deepcopy(BRIGHT_PEOPLE),
+        user_message=MSG_45,
+        messages=[{"role": "user", "content": MSG_41}],
+    )
+    if not hold:
+        return False
+    q = hold["question"]
+    return ("Tanya Brill" in q and "$93,000" in q
+            and abs(hold["frame"]["remainder"] - 93000.0) < 0.5)
+
+
+guarded("R9 [45] inclusion tripwire: whole-crew total cannot record silently; asks the Tanya question with $93,000", r9)
+
+
+def r10():
+    frame = {"stated": 128000.0, "named_sum": 35000.0, "remainder": 93000.0}
+    a = ic._rest_inclusion_resolve(
+        pending=frame, user_message="Yes, Tanya's included in that.")
+    b = ic._rest_inclusion_resolve(
+        pending=frame, user_message="No, that's separate from Tanya.")
+    c = ic._rest_inclusion_resolve(
+        pending=frame, user_message="It's $90,000 for the others.")
+    return (abs((a or 0) - 93000.0) < 0.5 and abs((b or 0) - 128000.0) < 0.5
+            and abs((c or 0) - 90000.0) < 0.5)
+
+
+guarded("R10 inclusion resolution: included->93,000, separate->128,000, fresh figure wins", r10)
+
+
+def r11():
+    hold = ic._rest_inclusion_check(
+        patch={"people.rest_of_team_payroll_year1": 93000},
+        people_json=copy.deepcopy(BRIGHT_PEOPLE),
+        user_message="About $93,000 for the three other cleaners.",
+        messages=[{"role": "user", "content": MSG_41}],
+    )
+    return hold is None
+
+
+guarded("R11 INVARIANT clean capture: a plain others-only answer records without a check question", r11)
+
+
 print(f"\n{sum(1 for r in results if r)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)
