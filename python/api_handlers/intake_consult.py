@@ -4549,12 +4549,15 @@ def _sync_marketing_field_family(
   # never a copy-once snapshot. The client-STATED number
   # (marketing_total_year1) stays durable - same stated-vs-derived
   # principle as the COGS basis tag.
+  # UNIVERSAL ENGINE phase 3: the baseline derives from THE MODEL ONLY.
+  # The old fallback read the baseline's own stale copy out of
+  # financials when a caller passed no model - so a changed model could
+  # recompute the adjustment against a cached snapshot (the CW-027
+  # near-miss). With no model provided, the previously derived cells
+  # are left UNTOUCHED and the adjustment is not recomputed - "not
+  # re-derivable right now" is honest; a stale re-derivation is not.
   baseline_percent = _safe_float((marketing_model_json or {}).get("baseline_marketing_percent"))
   baseline_amount = _safe_float((marketing_model_json or {}).get("baseline_marketing"))
-  if baseline_percent is None:
-    baseline_percent = _safe_float(next_financials.get("baseline_marketing_percent"))
-  if baseline_amount is None:
-    baseline_amount = _safe_float(next_financials.get("baseline_marketing"))
   if baseline_percent is None and baseline_amount is not None and revenue and revenue > 0:
     baseline_percent = baseline_amount / revenue
   if baseline_amount is None and baseline_percent is not None and revenue is not None:
