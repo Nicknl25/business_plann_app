@@ -137,6 +137,48 @@ Reference red-proofs: `Test Files/_redproof_cw027.py` (W1-W4; 1/4 on
   neither function exists (the frame sat unconsumed into the build) →
   RED. (W3; pair W4: bare figures are not retention answers.)
 
+## HARDENING (VS, 2026-08-11 late): baseline integrity check needed
+
+The first full pass after R20-R24 reported 37/37 - but the af791ec
+worktree was PARTIAL (the 18:17 index.lock crash interrupted its
+`checkout -f -- python`; `realism_memo.py` was missing), so the five
+new legs' baseline reds were IMPORT CRASHES, not behavior - rc=1
+either way, invisible to the exit-code check. `ensure_baseline`'s
+marker test (intake_consult.py exists) passes a partial tree.
+
+Fix for prove.py: after materializing a baseline, run a completeness
+probe in a clean subprocess - `python -c "import api_handlers.
+intake_consult"` with the root's python first on sys.path - and treat
+failure as `baseline unavailable` (quarantine), never as RED. VS
+re-materialized af791ec and re-proved R20-R24: 5/5, all behavioral
+(R22's red names every moved sibling field).
+
+## SEVEN NEVER-RED LEGS (first trustworthy pass, 2026-08-11 night)
+
+With all baselines rebuilt LOCALLY and probe-verified (both modules),
+30/37 proved behaviorally. Seven went GREEN-ON-BASE - they never
+reproduced their bug on a complete tree; their earlier reds were
+import crashes: **R02, R05, R06, I02, I07, I08, I11**.
+
+For each: diagnose leg-vs-app the way you did R07/I09. The APP fixes
+are separately proven (VS's Test Files suites use the stash protocol
+against the real repo tree - e.g. payroll 0/8 on 5b5ffbb, twice), so
+these are LEG problems. VS's leading hypothesis for the 5b5ffbb pair
+(R02/I02): entry-state drift - the fixture builds with the BASELINE's
+stage machinery and may leave a stage active on older commits, so the
+correction lands through the stage-flow door (which existed at
+5b5ffbb) instead of the broken completed-state path. Check the
+fixture asserts `_next_financials_stage(fin) is None` under the
+ROOT's own code, and mirror VS's Test Files fixtures (which do go red
+on those baselines). I07/I08/I11/R05/R06: likely stage/fixture drift
+of the same family against their older baselines.
+
+Also for the record: all eleven bad trees traced to ONE origin - they
+were created from your remote session (/sessions/... mounts, locked
+worktrees, slow-mount checkout timeouts, absolute paths breaking
+local repair). Baselines must be materialized on the machine that
+runs the prove. The registry is clean now; prove rebuilds locally.
+
 ## CW-028 legs (Alder & Vine, baseline `af791ec`)
 
 Reference red-proofs: `Test Files/_redproof_cw028.py` (X1-X9; 0/9 on
