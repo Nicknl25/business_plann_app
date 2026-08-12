@@ -366,3 +366,58 @@ checks), _ws1b_intake_smoke.py (9 checks),
 _ws1b_thistledown_fixture.py (R28's fixture),
 _ws2_retention_probe.py (R30's probe), _ws1b_multiline_e2e.py
 (R26's SIGMA==blend==finmo E2E + workbook structure).
+
+## Shakedown audit (_prove_20260812_ws1ws2_shakedown.txt, build 50da8fe)
+
+41 behavioural + 5 structural-absence, 0 DRIFT. R28 + R30 PROVEN
+clean on first contact. The 15 baseline re-checkouts were the
+expected workbook-package repair, not an error. Per-leg diagnoses
+for the four quarantined:
+
+- **R26 (RED on current = LEG ASSERTION WRONG-WAY, app is correct)**:
+  the leg moved a LINE row's percent and expected COGS to respond.
+  On the current build the engine moved -0.00 BY DESIGN: COGS % rows
+  are controller_write=False/derived - a raw line-row edit is not a
+  sanctioned write, and apply_derived_driver_policies_to_model_input
+  reconciles lines BACK to the blend (the blend is the ONE lever;
+  lines follow it, never lead it). That snap-back is R27's lockstep
+  working, not a dead read. Re-fixture R26 as the EQUALITY invariant
+  it was spec'd as: build a per-line-ACTIVE payload through the
+  production door (ops product rows carrying
+  cogs_percent_of_line_revenue -> build_python_model_input_json, or
+  clone the plcogs43 checkpoint) and assert
+  Sigma(line_rev x line_pct) == total_rev x blend == finmo cogs per
+  period. For a RESPONSE probe, move the BLEND
+  (expenses::Cost of Goods Sold) and assert the lines scale and the
+  Sigma tracks - never move a derived line row and expect COGS to
+  follow.
+- **R29 (current build: both fields present=True - only the vocab
+  probe misses)**: it found only 'unsure'. The source carries all
+  three tokens in THREE places: the chat-turn patch schema enum
+  (intake_consultant.py ~line 490s: ["confident_single",
+  "confident_multi", "unsure", None]), the _final_schema enum
+  (~line 157), and the gate prompt (~lines 270-274). Point the
+  vocabulary probe at the chat-turn schema enum (or a plain source
+  grep of intake_consultant.py) - whatever artifact it scans today
+  is a subset that happens to contain only 'unsure'.
+- **R31 (UNEARNED both sides: fixture gap, mini's predicted trap at
+  a different door)**: build_python_model_input_json raised
+  forecast_starting_ppe_missing - the fixture's financials_json has
+  no initial_assets. Fix: give the fixture financials
+  "initial_assets": <any positive number> OR pass
+  forecast_starting_ppe explicitly (VS's committed floor script and
+  smokes pass forecast_starting_ppe / draft-real financials). Same
+  payload works on 9d2c41c - both sides then hash.
+- **R32 (SETUP: builder entry point - mini's guesses were both
+  wrong)**: the real entry is
+  client_statements_output_excel.workbook_builder.
+  build_client_financial_model_workbook(data: DraftWorkbookData)
+  -> openpyxl Workbook (no draft-id variant at build level; the
+  draft-id wrapper is export_client_workbook.
+  export_workbook_for_draft_id, which SAVES to disk - use the
+  builder, not the exporter, for an in-memory grid hash).
+  DraftWorkbookData comes from
+  client_statements_output_excel.data.draft_data_from_row(row) -
+  feed it a draft-shaped dict carrying model_input_json /
+  finmo_json / payroll etc. Then hash (sheet, row-label, column) ->
+  formula string, sorted.
