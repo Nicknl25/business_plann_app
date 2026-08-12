@@ -134,7 +134,11 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
     )
     write_section_header(ws, row, display)
     row += 1
-    for driver in ["Capacity", "Unit Price", "Utilization"]:
+    # WS1(b): the per-line "COGS %" source row exists only on multi-line
+    # drafts whose lines carry their own COGS percents — single-line
+    # workbooks are unchanged.
+    slot_drivers = ["Capacity", "Unit Price", "Utilization"] + (["COGS %"] if "COGS %" in group else [])
+    for driver in slot_drivers:
       source = group.get(driver, {"values": []})
       fmt = NUMBER_FORMAT if driver == "Capacity" else CURRENCY_FORMAT if driver == "Unit Price" else PERCENT_FORMAT
       write_values_row(

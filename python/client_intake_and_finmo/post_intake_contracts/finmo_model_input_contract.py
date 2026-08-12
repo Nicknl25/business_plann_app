@@ -98,6 +98,9 @@ _PERCENT_INPUT_SEMANTICS = frozenset({
   "percent_of_prior_ppe",
   "percent_of_long_term_debt",
   "utilization_ratio",
+  # WS1(b) per-line COGS source rows (driver="COGS %"): a fraction of
+  # the line's OWN revenue, bounded [0, 1] like every other ratio.
+  "percent_of_line_revenue",
 })
 
 # CW-017 E9 (engine fragility ledger): float-noise epsilon on the
@@ -180,6 +183,8 @@ RevenueInputSemantics = Literal[
   "currency_per_unit",
   "utilization_ratio",
   "direct_input",
+  # WS1(b) per-line COGS source rows (driver="COGS %"):
+  "percent_of_line_revenue",
 ]
 
 #: Expense row ``input_semantics``. Pass-through source per the ``ValueKind``
@@ -282,6 +287,14 @@ class RevenueRow(BaseModel):
   active, the Capacity row gets ``controller_write=False`` and
   ``derived_driver="payroll_supported_capacity"`` (set by
   ``post_intake_headcount/schedule.py:2596-2597``).
+
+  WS1(b) per-line COGS: multi-line drafts whose products carry
+  per-line COGS percents emit a FOURTH per-slot row with
+  ``driver="COGS %"``, ``controller_write=False`` and
+  ``derived_driver="per_line_cogs_source"``. The solver's one COGS
+  lever remains ``expenses::Cost of Goods Sold`` (the revenue-weighted
+  blend); per-line rows follow it in lockstep. Single-line drafts
+  never emit the row.
   """
 
   named_range: Literal["model_input_revenue"]
@@ -289,7 +302,7 @@ class RevenueRow(BaseModel):
   lever_id: str = Field(min_length=1)
   lob: str = Field(min_length=1)
   product: str = Field(min_length=1)
-  driver: Literal["Capacity", "Unit Price", "Utilization"]
+  driver: Literal["Capacity", "Unit Price", "Utilization", "COGS %"]
   revenue_slot_key: str = Field(min_length=1, pattern=r"^lob_\d+_product_\d+$")
   value_kind: ValueKind
   input_semantics: RevenueInputSemantics
@@ -662,24 +675,42 @@ class ModelInputSections(BaseModel):
 
   @model_validator(mode="after")
   def revenue_slots_complete_triple(self) -> "ModelInputSections":
+    """Every slot carries the canonical driver triple. WS1(b): a slot
+    MAY additionally carry one ``COGS %`` per-line source row — and per
+    the all-or-nothing activation rule, when ANY slot carries one,
+    EVERY slot must (a half-split model is unrepresentable)."""
     by_slot: Dict[str, List[RevenueRow]] = {}
     for r in self.revenue:
       by_slot.setdefault(r.revenue_slot_key, []).append(r)
     expected_drivers = {"Capacity", "Unit Price", "Utilization"}
+    slots_with_cogs = {
+      slot_key for slot_key, rows in by_slot.items()
+      if any(r.driver == "COGS %" for r in rows)
+    }
+    if slots_with_cogs and slots_with_cogs != set(by_slot.keys()):
+      raise ValueError(
+        "per-line COGS is all-or-nothing: slots "
+        f"{sorted(set(by_slot.keys()) - slots_with_cogs)} lack the "
+        "'COGS %' row while others carry it"
+      )
     for slot_key, rows in by_slot.items():
+      has_cogs = slot_key in slots_with_cogs
+      expected = expected_drivers | ({"COGS %"} if has_cogs else set())
       drivers = {r.driver for r in rows}
-      if drivers != expected_drivers:
-        missing = expected_drivers - drivers
-        extra = drivers - expected_drivers
+      if drivers != expected:
+        missing = expected - drivers
+        extra = drivers - expected
         raise ValueError(
           f"revenue slot {slot_key!r} must have exactly "
-          f"{{Capacity, Unit Price, Utilization}}; "
-          f"missing={sorted(missing)}, extra={sorted(extra)}"
+          f"{{Capacity, Unit Price, Utilization}}"
+          + (" + {COGS %}" if has_cogs else "")
+          + f"; missing={sorted(missing)}, extra={sorted(extra)}"
         )
-      if len(rows) != 3:
+      expected_count = 4 if has_cogs else 3
+      if len(rows) != expected_count:
         raise ValueError(
           f"revenue slot {slot_key!r} has {len(rows)} rows; "
-          "expected exactly 3 (one per canonical driver)"
+          f"expected exactly {expected_count} (one per driver)"
         )
     return self
 

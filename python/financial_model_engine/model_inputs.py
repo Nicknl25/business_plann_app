@@ -368,6 +368,11 @@ class QuarterRevenueProduct:
   product_name: str
   revenue_slot_key: str = ""
   drivers: RevenueDriverSet = field(default_factory=RevenueDriverSet)
+  # WS1(b) per-line COGS: this line's COGS as a ratio of ITS OWN revenue.
+  # None means "no per-line data" — the quarter falls back to the single
+  # blended ``expenses.cogs_percent`` scalar exactly as before, so
+  # single-line drafts are untouched by construction.
+  cogs_percent: Optional[float] = None
 
   def lever_id(self, driver_name: str) -> str:
     return "::".join(
@@ -380,7 +385,7 @@ class QuarterRevenueProduct:
     )
 
   def to_controller_product(self) -> Dict[str, Any]:
-    return {
+    payload: Dict[str, Any] = {
       "product_name": self.product_name,
       "revenue_slot_key": self.revenue_slot_key,
       "capacity_units": round(self.drivers.capacity_units, 6),
@@ -388,6 +393,11 @@ class QuarterRevenueProduct:
       "units": round(self.drivers.units, 6),
       "price": round(self.drivers.unit_price, 6),
     }
+    # Key emitted ONLY when per-line COGS is present so single-line
+    # controller seeds stay byte-identical.
+    if self.cogs_percent is not None:
+      payload["cogs_percent"] = round(self.cogs_percent, 6)
+    return payload
 
 
 @dataclass(slots=True)
@@ -447,6 +457,52 @@ class FinancialModelQuarter:
   @property
   def revenue(self) -> float:
     return sum(group.revenue for group in self.revenue_groups)
+
+  def _all_products(self) -> List[QuarterRevenueProduct]:
+    return [product for group in self.revenue_groups for product in group.products]
+
+  def per_line_cogs_amount(self) -> Optional[float]:
+    """WS1(b): quarter COGS as the sum over lines of
+    ``line_revenue x line_cogs_percent``. Returns ``None`` (per-line
+    INACTIVE) unless EVERY product carries a per-line percent — the
+    all-or-nothing rule that keeps single-line drafts on the exact
+    legacy ``revenue * expenses.cogs_percent`` path."""
+    products = self._all_products()
+    if not products or any(item.cogs_percent is None for item in products):
+      return None
+    return sum(
+      item.drivers.revenue * max(0.0, float(item.cogs_percent or 0.0))
+      for item in products
+    )
+
+  def lockstep_scale_per_line_cogs(self, target_blend: float) -> None:
+    """WS1(b) solver lockstep: the blended ``Cost of Goods Sold`` lever
+    stays the ONE COGS lever. When it moves and per-line COGS is
+    active, every line percent scales by the same multiplier so the
+    lines keep their relative cost structure and the summed COGS
+    matches the new blend. Tolerance guard: intake authors the blend
+    as the revenue-weighted sum of the lines, so round-trips land
+    within float noise — only a genuine lever move rescales."""
+    products = self._all_products()
+    if not products or any(item.cogs_percent is None for item in products):
+      return
+    revenue = self.revenue
+    if revenue <= 0.0:
+      return
+    effective_blend = sum(
+      item.drivers.revenue * max(0.0, float(item.cogs_percent or 0.0))
+      for item in products
+    ) / revenue
+    target = max(0.0, _safe_float(target_blend))
+    if abs(effective_blend - target) <= 1e-9 + 1e-5 * abs(target):
+      return
+    if effective_blend <= 0.0:
+      for item in products:
+        item.cogs_percent = target
+      return
+    scale = target / effective_blend
+    for item in products:
+      item.cogs_percent = max(0.0, float(item.cogs_percent or 0.0)) * scale
 
   def find_or_create_group(self, lob_name: str) -> QuarterRevenueProductGroup:
     target_lob = _text(lob_name)
@@ -557,6 +613,10 @@ class FinancialModelInputs:
           product.drivers.unit_price = _safe_float(raw_value)
         elif driver == "Utilization":
           product.drivers.utilization = _safe_float(raw_value)
+        elif driver == "COGS %":
+          # WS1(b) per-line COGS source row (multi-line drafts only;
+          # the row simply never exists on single-line drafts).
+          product.cogs_percent = _safe_float(raw_value)
     next_book._load_simple_rows(
       section_name="expenses",
       rows=sections.get("expenses") or [],
@@ -620,6 +680,8 @@ class FinancialModelInputs:
           product_entry.drivers.capacity_units = _safe_float(product.get("capacity_units"))
           product_entry.drivers.unit_price = _safe_float(product.get("price"))
           product_entry.drivers.utilization = _safe_float(product.get("utilization"))
+          if product.get("cogs_percent") is not None:
+            product_entry.cogs_percent = _safe_float(product.get("cogs_percent"))
       quarter.expenses.cogs_percent = _safe_float(item.get("cogs_percent"))
       quarter.expenses.marketing_percent = _safe_float(item.get("marketing_percent"))
       quarter.expenses.r_and_d_percent = _safe_float(item.get("r_and_d_percent"))
@@ -677,9 +739,11 @@ class FinancialModelInputs:
     tax_percent: Optional[float] = None,
     capex: Optional[float] = None,
   ) -> None:
-    expenses = self.quarter(quarter_index).expenses
+    quarter = self.quarter(quarter_index)
+    expenses = quarter.expenses
     if cogs_percent is not None:
       expenses.cogs_percent = _safe_float(cogs_percent)
+      quarter.lockstep_scale_per_line_cogs(expenses.cogs_percent)
     if marketing_percent is not None:
       expenses.marketing_percent = _safe_float(marketing_percent)
     if r_and_d_percent is not None:
@@ -776,18 +840,21 @@ class FinancialModelInputs:
             ordered_slot_keys.append(slot_key)
     revenue_products: Dict[str, Dict[str, Any]] = {}
     for slot_key in ordered_slot_keys:
-      revenue_products[slot_key] = {"capacity": [0.0 for _ in range(self.quarter_count)], "unit_price": [0.0 for _ in range(self.quarter_count)], "utilization": [0.0 for _ in range(self.quarter_count)], "lob": "", "product": "", "revenue_slot_key": slot_key}
+      revenue_products[slot_key] = {"capacity": [0.0 for _ in range(self.quarter_count)], "unit_price": [0.0 for _ in range(self.quarter_count)], "utilization": [0.0 for _ in range(self.quarter_count)], "cogs_percent": [0.0 for _ in range(self.quarter_count)], "has_cogs_percent": False, "lob": "", "product": "", "revenue_slot_key": slot_key}
     for quarter in self.quarters:
       for group in quarter.revenue_groups:
         for product in group.products:
           slot_key = _text(product.revenue_slot_key) or f"{_text(group.lob_name)}::{_text(product.product_name)}"
-          entry = revenue_products.setdefault(slot_key, {"capacity": [0.0 for _ in range(self.quarter_count)], "unit_price": [0.0 for _ in range(self.quarter_count)], "utilization": [0.0 for _ in range(self.quarter_count)], "lob": "", "product": "", "revenue_slot_key": slot_key})
+          entry = revenue_products.setdefault(slot_key, {"capacity": [0.0 for _ in range(self.quarter_count)], "unit_price": [0.0 for _ in range(self.quarter_count)], "utilization": [0.0 for _ in range(self.quarter_count)], "cogs_percent": [0.0 for _ in range(self.quarter_count)], "has_cogs_percent": False, "lob": "", "product": "", "revenue_slot_key": slot_key})
           entry["lob"] = _text(group.lob_name)
           entry["product"] = _text(product.product_name)
           idx = quarter.quarter_index - 1
           entry["capacity"][idx] = round(product.drivers.capacity_units, 6)
           entry["unit_price"][idx] = round(product.drivers.unit_price, 6)
           entry["utilization"][idx] = round(product.drivers.utilization, 6)
+          if product.cogs_percent is not None:
+            entry["cogs_percent"][idx] = round(float(product.cogs_percent), 6)
+            entry["has_cogs_percent"] = True
     for slot_key in ordered_slot_keys:
       entry = revenue_products[slot_key]
       lob = entry["lob"] or "LOB 1"
@@ -826,6 +893,24 @@ class FinancialModelInputs:
           },
         ]
       )
+      if entry.get("has_cogs_percent"):
+        # WS1(b): fourth per-slot row, emitted ONLY when per-line COGS
+        # is active — single-line serializations stay byte-identical.
+        # controller_write=False: the solver's one COGS lever remains
+        # the blended expenses row; lines follow via lockstep.
+        revenue_rows.append(
+          {
+            "named_range": "model_input_revenue",
+            "controller_write": False,
+            "derived_driver": "per_line_cogs_source",
+            "lever_id": "::".join(["revenue", lob, product, "COGS %"]),
+            "lob": lob,
+            "product": product,
+            "driver": "COGS %",
+            "revenue_slot_key": entry["revenue_slot_key"],
+            "values": entry["cogs_percent"],
+          }
+        )
     return {
       "engine_contract_version": "financial_model_inputs_v1",
       "business_name": self.business_name,
@@ -1090,6 +1175,10 @@ class FinancialModelInputs:
     value = row.get_value(quarter_index)
     if label == "Cost of Goods Sold":
       quarter.expenses.cogs_percent = value
+      # WS1(b): the blended row is the ONE COGS lever; when it moves,
+      # per-line percents (if active) scale in lockstep. No-op within
+      # float tolerance and on single-line drafts.
+      quarter.lockstep_scale_per_line_cogs(value)
     elif label == "Marketing":
       quarter.expenses.marketing_percent = value
     elif label == "Research & Development":

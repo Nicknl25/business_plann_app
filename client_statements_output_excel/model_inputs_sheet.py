@@ -93,12 +93,14 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
     revenue_slots[slot][text(source.get("driver"))] = slot
   for slot in ordered_slots:
     display = revenue_slots[slot]["display"]
-    for driver in ["Capacity", "Unit Price", "Utilization", "Revenue"]:
+    for driver in ["Capacity", "Unit Price", "Utilization", "COGS %", "Revenue"]:
       source_key = f"{slot}::{driver}"
       source_row = ctx.schedule_row(REVENUE_SHEET, source_key)
       if not source_row:
+        # "COGS %" rows exist only on multi-line per-line-COGS drafts;
+        # absent rows (all single-line workbooks) skip untouched.
         continue
-      fmt = NUMBER_FORMAT if driver == "Capacity" else PERCENT_FORMAT if driver == "Utilization" else CURRENCY_FORMAT
+      fmt = NUMBER_FORMAT if driver == "Capacity" else PERCENT_FORMAT if driver in ("Utilization", "COGS %") else CURRENCY_FORMAT
       _write_linked_row(
         ws,
         ctx,

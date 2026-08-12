@@ -1053,6 +1053,60 @@ def _build_cogs_baseline_signature(
   return f"{naics}::{revenue_signature}" if revenue_signature or naics else ""
 
 
+def _cogs_revenue_lines(
+  *,
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  """WS1(b): the N distinct revenue lines of a multi-line business, with
+  their annual revenue shares (from the year-1 assembly, which is
+  derived from these same ops rows). Returns [] when the business has
+  fewer than two lines - every per-line COGS surface guards on that,
+  so single-line drafts never see any of this."""
+  lines: List[Dict[str, Any]] = []
+  for lob in (ops_json or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip()
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      product_name = str(product.get("product_name") or product.get("name") or "").strip()
+      lines.append({
+        "line_name": f"{lob_name} / {product_name}".strip(" /"),
+        "lob_name": lob_name,
+        "product_name": product_name,
+        "unit_name": str(product.get("unit_name") or "").strip(),
+        "unit_price": product.get("unit_price"),
+        "unit_cadence": str(product.get("unit_cadence") or "").strip(),
+        "cogs_percent_of_line_revenue": product.get("cogs_percent_of_line_revenue"),
+      })
+  if len(lines) < 2:
+    return []
+  by_key: Dict[str, float] = {}
+  company_total = 0.0
+  for lob in (financials_year1_json or {}).get("lobs") or []:
+    if not isinstance(lob, dict):
+      continue
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      revenue = _safe_float(product.get("revenue_total_year1")) or 0.0
+      key = f"{str(lob.get('lob_name') or '').strip().lower()}::{str(product.get('product_name') or '').strip().lower()}"
+      by_key[key] = revenue
+      company_total += revenue
+  for line in lines:
+    key = f"{line['lob_name'].strip().lower()}::{line['product_name'].strip().lower()}"
+    revenue = by_key.get(key)
+    line["est_annual_revenue"] = round(revenue, 2) if revenue is not None else None
+    line["revenue_share"] = (
+      round(revenue / company_total, 4)
+      if revenue is not None and company_total > 0
+      else None
+    )
+  return lines
+
+
 def _build_cogs_estimate_context(
   *,
   ops_json: Dict[str, Any],
@@ -1061,7 +1115,21 @@ def _build_cogs_estimate_context(
 ) -> Dict[str, Any]:
   people_ctx = dict((shared_context or {}).get("people_capability") or {})
   market_ctx = dict((shared_context or {}).get("target_market") or {})
+  # WS1(b): a multi-line business hands the judge its lines so the fit
+  # comes back per-line in the SAME call. The key is absent on
+  # single-line drafts - their GPT payload is unchanged.
+  revenue_lines = _cogs_revenue_lines(
+    ops_json=ops_json, financials_year1_json=financials_year1_json,
+  )
+  per_line_extra: Dict[str, Any] = (
+    {"revenue_lines": [
+      {k: v for k, v in line.items() if k != "cogs_percent_of_line_revenue"}
+      for line in revenue_lines
+    ]}
+    if revenue_lines else {}
+  )
   return {
+    **per_line_extra,
     "business_type": str((ops_json or {}).get("business_type") or "").strip(),
     "business_naics_6": str((ops_json or {}).get("business_naics_6") or "").strip(),
     "unit_name": str((ops_json or {}).get("unit_name") or "").strip(),
@@ -1083,6 +1151,67 @@ def _build_cogs_estimate_context(
     "inferred_roles": people_ctx.get("inferred_roles") or [],
     "financials_year1_json": financials_year1_json or {},
   }
+
+
+def _attach_per_line_cogs(
+  *,
+  baseline: Dict[str, Any],
+  fitted: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """WS1(b): fold the judge's per-line proposals into the baseline.
+  ALL-OR-NOTHING: every revenue line must have exactly one matched
+  proposal, else the baseline stays blend-only (honest degradation -
+  never a half-split model). On success the blend RE-DERIVES in Python
+  as the revenue-share-weighted average of the line percents (Python
+  proposes structure; the judge's own blend is advisory)."""
+  proposals = fitted.get("per_line_proposals") if isinstance(fitted, dict) else None
+  if not isinstance(proposals, list) or not proposals:
+    return baseline
+  lines = _cogs_revenue_lines(
+    ops_json=ops_json, financials_year1_json=financials_year1_json,
+  )
+  if len(lines) < 2 or len(proposals) != len(lines):
+    return baseline
+  def _norm(value: Any) -> str:
+    return str(value or "").strip().lower()
+  by_name = {_norm(item.get("line_name")): item for item in proposals if isinstance(item, dict)}
+  if len(by_name) != len(lines):
+    return baseline
+  matched: List[Dict[str, Any]] = []
+  for line in lines:
+    proposal = (
+      by_name.get(_norm(line.get("line_name")))
+      or by_name.get(_norm(line.get("product_name")))
+    )
+    if proposal is None:
+      return baseline
+    pct = _safe_float(proposal.get("proposed_cogs_percent"))
+    if pct is None:
+      return baseline
+    matched.append({
+      "lob_name": line.get("lob_name"),
+      "product_name": line.get("product_name"),
+      "line_name": line.get("line_name"),
+      "cogs_percent": max(0.0, min(1.0, float(pct))),
+      "band": list(proposal.get("materials_cogs_percent_band") or []),
+      "shares_cost_structure_with": proposal.get("shares_cost_structure_with"),
+      "revenue_share": line.get("revenue_share"),
+      "est_annual_revenue": line.get("est_annual_revenue"),
+    })
+  shares = [_safe_float(item.get("revenue_share")) for item in matched]
+  if all(s is not None for s in shares) and sum(s for s in shares if s) > 0:
+    blend = sum(
+      float(item["cogs_percent"]) * float(share)
+      for item, share in zip(matched, shares)
+    ) / sum(s for s in shares if s)
+    revenue_year1 = float(baseline.get("revenue_year1") or 0.0)
+    baseline["baseline_cogs_percent"] = float(blend)
+    baseline["baseline_cogs"] = float(revenue_year1 * blend)
+    baseline["cogs_total_year1"] = float(revenue_year1 * blend)
+  baseline["cogs_per_line"] = matched
+  return baseline
 
 
 def _resolve_cogs_baseline_or_raise(
@@ -1194,18 +1323,23 @@ def _compute_cogs_baseline(
     if isinstance(fitted, dict):
       baseline_cogs_percent = float(fitted["proposed_cogs_percent"])
       baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
-      return {
-        "baseline_cogs_percent": baseline_cogs_percent,
-        "baseline_cogs": baseline_cogs,
-        "cogs_adjustment": 0.0,
-        "cogs_total_year1": baseline_cogs,
-        "cogs_basis_naics": naics_6,
-        "cogs_basis_years_used": years_used[:2],
-        "revenue_year1": revenue_year1,
-        "cogs_basis_rationale": fitted["basis_reconciliation"],
-        "cogs_fit_band": fitted["materials_cogs_percent_band"],
-        "cogs_fit_cohort_cost_of_revenue": round(cohort_avg, 4),
-      }
+      return _attach_per_line_cogs(
+        baseline={
+          "baseline_cogs_percent": baseline_cogs_percent,
+          "baseline_cogs": baseline_cogs,
+          "cogs_adjustment": 0.0,
+          "cogs_total_year1": baseline_cogs,
+          "cogs_basis_naics": naics_6,
+          "cogs_basis_years_used": years_used[:2],
+          "revenue_year1": revenue_year1,
+          "cogs_basis_rationale": fitted["basis_reconciliation"],
+          "cogs_fit_band": fitted["materials_cogs_percent_band"],
+          "cogs_fit_cohort_cost_of_revenue": round(cohort_avg, 4),
+        },
+        fitted=fitted,
+        ops_json=ops_json,
+        financials_year1_json=financials_year1_json,
+      )
     # Fit judge unavailable: the plain materials-only estimator is the
     # honest fallback - never the raw cost-of-revenue average.
 
@@ -1244,17 +1378,22 @@ def _compute_cogs_baseline(
     return None
   baseline_cogs_percent = float(fitted["proposed_cogs_percent"])
   baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
-  return {
-    "baseline_cogs_percent": baseline_cogs_percent,
-    "baseline_cogs": baseline_cogs,
-    "cogs_adjustment": 0.0,
-    "cogs_total_year1": baseline_cogs,
-    "cogs_basis_naics": naics_6,
-    "cogs_basis_years_used": [],
-    "revenue_year1": revenue_year1,
-    "cogs_basis_rationale": fitted["basis_reconciliation"],
-    "cogs_fit_band": fitted["materials_cogs_percent_band"],
-  }
+  return _attach_per_line_cogs(
+    baseline={
+      "baseline_cogs_percent": baseline_cogs_percent,
+      "baseline_cogs": baseline_cogs,
+      "cogs_adjustment": 0.0,
+      "cogs_total_year1": baseline_cogs,
+      "cogs_basis_naics": naics_6,
+      "cogs_basis_years_used": [],
+      "revenue_year1": revenue_year1,
+      "cogs_basis_rationale": fitted["basis_reconciliation"],
+      "cogs_fit_band": fitted["materials_cogs_percent_band"],
+    },
+    fitted=fitted,
+    ops_json=ops_json,
+    financials_year1_json=financials_year1_json,
+  )
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -2561,6 +2700,53 @@ def _build_financials_stage_message(
   return "What number should I record for this financial item?"
 
 
+def _apply_per_line_cogs_to_ops(
+  *,
+  cogs_per_line: List[Dict[str, Any]],
+  shared_context: Dict[str, Any],
+  conn,
+  draft_id: str,
+) -> bool:
+  """WS1(b): the line percents' ONE HOME is the ops product row
+  (cogs_percent_of_line_revenue). Mutates the shared ops model in
+  place and persists it; THE RECALC then derives the financials blend
+  from these rows on every pass (unpatchable), and the bridge emits
+  the per-line COGS %% rows the engine and workbook consume."""
+  ops = (shared_context or {}).get("operating_model")
+  if not isinstance(ops, dict) or not isinstance(cogs_per_line, list):
+    return False
+  def _norm(value: Any) -> str:
+    return str(value or "").strip().lower()
+  wrote = False
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = _norm(lob.get("lob_name") or lob.get("name"))
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      product_name = _norm(product.get("product_name") or product.get("name"))
+      for item in cogs_per_line:
+        if not isinstance(item, dict):
+          continue
+        if _norm(item.get("product_name")) == product_name and (
+          not _norm(item.get("lob_name")) or _norm(item.get("lob_name")) == lob_name
+        ):
+          pct = _safe_float(item.get("cogs_percent"))
+          if pct is not None:
+            product["cogs_percent_of_line_revenue"] = round(max(0.0, min(1.0, float(pct))), 4)
+            wrote = True
+          break
+  if wrote and draft_id:
+    try:
+      append_messages(
+        conn, draft_id=draft_id, new_messages=[], operating_model_json=ops,
+      )
+    except Exception:
+      logger.exception("PER_LINE_COGS_OPS_PERSIST_FAILED")
+  return wrote
+
+
 def _financials_stage_default_patch(
   *,
   stage_name: str,
@@ -2568,6 +2754,7 @@ def _financials_stage_default_patch(
   financials_year1_json: Dict[str, Any],
   business_facts: Dict[str, Any],
   conn,
+  draft_id: str = "",
 ) -> Optional[Dict[str, Any]]:
   stage = str(stage_name or "").strip()
   estimate_marketing_baseline_from_context = _financials_baseline_estimators()
@@ -2585,6 +2772,18 @@ def _financials_stage_default_patch(
       shared_context=shared_context,
       financials_year1_json=financials_year1_json,
     )
+    # WS1(b): on a multi-line business the accepted proposal lands the
+    # line percents on their ops product rows (the one home); the
+    # financials fields below carry the DERIVED blend, which THE RECALC
+    # re-derives from those rows on every subsequent pass.
+    _per_line = baseline.get("cogs_per_line")
+    if isinstance(_per_line, list) and len(_per_line) >= 2:
+      _apply_per_line_cogs_to_ops(
+        cogs_per_line=_per_line,
+        shared_context=shared_context,
+        conn=conn,
+        draft_id=str(draft_id or "").strip(),
+      )
     revenue_year1 = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     total = float(baseline.get("baseline_cogs") or 0.0)
     return {
@@ -2780,6 +2979,36 @@ def _build_financials_live_turn(
 
 
 def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
+  # WS1(b) (Nick-ruled, the Thistledown #138 fixture): a multi-line
+  # business hears its costs split BY LINE, named plainly, with the
+  # blend as arithmetic - and an explicit invitation to collapse. The
+  # client is the authority on how many DISTINCT COGS exist.
+  per_line = cogs_baseline.get("cogs_per_line")
+  if isinstance(per_line, list) and len(per_line) >= 2:
+    parts: List[str] = []
+    for item in per_line:
+      if not isinstance(item, dict):
+        continue
+      name = str(item.get("product_name") or item.get("line_name") or "this line").strip()
+      band_line = item.get("band")
+      pct_txt = _format_percent(item.get("cogs_percent"))
+      if isinstance(band_line, (list, tuple)) and len(band_line) == 2:
+        parts.append(
+          f"- {name}: about {pct_txt} of that line's revenue "
+          f"(typical range {_format_percent(band_line[0])}-{_format_percent(band_line[1])})"
+        )
+      else:
+        parts.append(f"- {name}: about {pct_txt} of that line's revenue")
+    lines_block = "\n".join(parts)
+    return (
+      "Your lines of business earn differently, so I'm setting up direct costs - materials, supplies, "
+      "and other non-labor costs tied to delivering the work - separately for each:\n"
+      f"{lines_block}\n"
+      f"Together that blends to about {_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of total revenue, "
+      f"around {_format_currency(cogs_baseline.get('baseline_cogs'))} a year.\n\n"
+      "Do those match your actual costs per line? Correct either one on its own - or if the costs "
+      "really run about the same across lines, say so and I'll treat them as one."
+    )
   # Nick-ruled #2: the proposal speaks in the fitted RANGE when one
   # exists - a range invites correction; a flat fact invites silent
   # acceptance of a possibly-misfit number.
@@ -7781,6 +8010,56 @@ def _sync_financials_consult_persistence_state(
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
   cogs_total = _safe_float(next_financials.get("cogs_total_year1"))
   current_cogs = _safe_float(next_financials.get("current_cogs"))
+  # WS1(b) PER-LINE COGS (Nick-ruled, N-line): when EVERY product row of
+  # a multi-line ops model carries cogs_percent_of_line_revenue, the
+  # financials COGS family is DERIVED - the revenue-weighted sum of the
+  # lines - and unpatchable here (same law as every derived twin). A
+  # client-stated company-total DOLLAR (basis=dollars) scales every
+  # line percent by ONE multiplier first (the intake-side lockstep),
+  # then the family re-derives and basis returns to ratio.
+  _pl_derived = False
+  _pl_lines = (
+    _cogs_revenue_lines(ops_json=ops_json, financials_year1_json=next_year1)
+    if isinstance(ops_json, dict) else []
+  )
+  if (
+    _pl_lines
+    and revenue_year1 > 0
+    and not basis_clarify_pending
+    and all(_safe_float(line.get("cogs_percent_of_line_revenue")) is not None for line in _pl_lines)
+    and all(_safe_float(line.get("est_annual_revenue")) is not None for line in _pl_lines)
+  ):
+    _pl_total = sum(
+      max(0.0, _safe_float(line.get("est_annual_revenue")) or 0.0)
+      * max(0.0, min(1.0, _safe_float(line.get("cogs_percent_of_line_revenue")) or 0.0))
+      for line in _pl_lines
+    )
+    _pl_stated = (
+      cogs_total if cogs_total is not None else current_cogs
+    )
+    if (
+      str(next_financials.get("cogs_basis") or "").strip().lower() == "dollars"
+      and _pl_stated is not None and _pl_stated > 0 and _pl_total > 0
+      and abs(_pl_total - float(_pl_stated)) > max(1.0, 0.001 * float(_pl_stated))
+    ):
+      _pl_scale = float(_pl_stated) / _pl_total
+      for _lm_pl in ops_json.get("lob_models") or []:
+        for _pr_pl in (_lm_pl or {}).get("products") or []:
+          _pp = _safe_float((_pr_pl or {}).get("cogs_percent_of_line_revenue"))
+          if _pp is not None:
+            _pr_pl["cogs_percent_of_line_revenue"] = round(
+              max(0.0, min(1.0, float(_pp) * _pl_scale)), 4
+            )
+      _pl_total = sum(
+        max(0.0, _safe_float(line.get("est_annual_revenue")) or 0.0)
+        * max(0.0, min(1.0, (_safe_float(line.get("cogs_percent_of_line_revenue")) or 0.0) * _pl_scale))
+        for line in _pl_lines
+      )
+    next_financials["cogs_percent_of_revenue"] = float(_pl_total / revenue_year1)
+    next_financials["current_cogs"] = float(_pl_total)
+    next_financials["cogs_total_year1"] = float(_pl_total)
+    next_financials["cogs_basis"] = "ratio"
+    _pl_derived = True
   # BASIS-TAGGED (Nick-ruled): a client-stated DOLLAR is durable - it
   # never re-derives from the ratio under revenue movement (the F&F
   # $5,900-became-$14,676 class). A stated RATIO keeps ratio-primary
@@ -7788,7 +8067,9 @@ def _sync_financials_consult_persistence_state(
   _cogs_dollars_primary = (
     str(next_financials.get("cogs_basis") or "").strip().lower() == "dollars"
   )
-  if _cogs_dollars_primary and (cogs_total is not None or current_cogs is not None):
+  if _pl_derived:
+    pass
+  elif _cogs_dollars_primary and (cogs_total is not None or current_cogs is not None):
     synced_total = max(0.0, float(
       cogs_total if cogs_total is not None else current_cogs
     ))
@@ -8154,6 +8435,7 @@ def _apply_forward_move(
       return _safe_float(fin_d.get(key.split(".", 1)[1]))
     return None
 
+  _retention_ask = ""
   _before_val = _target_value_now(next_financials, shared)
   _val_f = _safe_float(val)
   if (_before_val is not None and _val_f is not None
@@ -8219,6 +8501,40 @@ def _apply_forward_move(
       )
     except Exception:
       logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
+    # WS2 (Nick-ruled, the retention probe's finding): a PRICE landing
+    # at this door stamps the SAME retention frame the walk's pricing
+    # round stamps - price_clarifier_due only fired from rounds, so a
+    # direct client-stated price change never solicited retention and
+    # a volunteered "I'd keep 85%" had no live frame to consume. One
+    # stamp at the door; the existing any-surface consumer does the
+    # rest.
+    if key.split(".", 1)[1] == "unit_price":
+      try:
+        from client_intake_and_finmo.intake_coherence import section as _coh_rt
+        _rt_state = dict(_coh_rt.get_state(next_financials))
+        _rt_prices = []
+        for _lm_rt in _ops_live.get("lob_models") or []:
+          for _pr_rt in (_lm_rt or {}).get("products") or []:
+            if isinstance(_pr_rt, dict) and _safe_float(_pr_rt.get("unit_price")):
+              _rt_prices.append({
+                "product": str(_pr_rt.get("product_name") or "your product"),
+                "to": float(_safe_float(_pr_rt.get("unit_price"))),
+              })
+        _rt_state["retention_pending"] = {
+          "prices": _rt_prices, "retained_used": 1.0,
+        }
+        next_financials = _coh_rt.put_state(next_financials, _rt_state)
+        _retention_ask = (
+          " Quick check on the new price before we lean on it: do you "
+          "expect your current customers to stay at that level? If some "
+          "would leave, tell me how many you'd realistically keep and "
+          "I'll rerun the numbers on that."
+        )
+      except Exception:
+        logger.exception("PRICE_DOOR_RETENTION_STAMP_FAILED")
+        _retention_ask = ""
+    else:
+      _retention_ask = ""
     landed = True
   elif key == "financials.current_revenue":
     # REVENUE'S ONE DOOR IS THE DRIVERS (same law as payroll->people):
@@ -8276,10 +8592,11 @@ def _apply_forward_move(
       "safely, so tell me the exact line and I'll set it."
     )
   if attributed:
-    return next_financials, shared, f"Recorded: {label} {_fmt}."
+    return next_financials, shared, f"Recorded: {label} {_fmt}.{_retention_ask}"
   return next_financials, shared, (
     f"It looks like you mean {label} - I've set it to {_fmt}. "
     "If that's not right, tell me which line it belongs to and I'll move it."
+    + _retention_ask
   )
 
 
@@ -8795,6 +9112,7 @@ def _run_financials_turn_and_sync(
       financials_year1_json=financials_year1_json,
       business_facts=business_facts,
       conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
     )
     if isinstance(default_patch, dict) and default_patch:
       patch = {f"financials.{k}": v for k, v in default_patch.items()}
@@ -9482,6 +9800,9 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "legal_entity",
       "lob_models",
       "confidence",
+      # WS1(a) (Nick-ruled): the line-split confidence gate's outputs.
+      "line_split_confidence",
+      "split_rationale",
     },
     "market": {
       "consumer_type",
@@ -10805,6 +11126,88 @@ def _start_instruction_for_focus(focus: str) -> str:
   return "Continue."
 
 
+def _changed_product_prices(
+  *,
+  ops_before: Any,
+  ops_after: Any,
+) -> List[Dict[str, Any]]:
+  """WS2: the product unit prices that CHANGED this turn, matched by
+  lob+product name. Every door that can move a price converges on this
+  comparison - the retention frame stamps whenever it is non-empty."""
+  def _price_map(ops: Any) -> Dict[str, Any]:
+    mapping: Dict[str, Any] = {}
+    lobs = ops.get("lob_models") if isinstance(ops, dict) else None
+    for lob in lobs if isinstance(lobs, list) else []:
+      if not isinstance(lob, dict):
+        continue
+      lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
+      for product in lob.get("products") or []:
+        if not isinstance(product, dict):
+          continue
+        price = _safe_float(product.get("unit_price"))
+        if price is None:
+          continue
+        product_name = str(product.get("product_name") or product.get("name") or "").strip()
+        mapping[f"{lob_name}::{product_name.lower()}"] = (product_name, float(price))
+    return mapping
+  before = _price_map(ops_before)
+  after = _price_map(ops_after)
+  changed: List[Dict[str, Any]] = []
+  for key, (product_name, new_price) in after.items():
+    old = before.get(key)
+    if old is not None and abs(old[1] - new_price) > max(0.005, 0.0001 * abs(new_price)):
+      changed.append({"product": product_name, "from": old[1], "to": new_price})
+  return changed
+
+
+def _carry_forward_per_line_cogs(
+  *,
+  existing: Any,
+  incoming: List[Any],
+) -> List[Any]:
+  """WS1(b): preserve captured cogs_percent_of_line_revenue across
+  consultant lob_models restatements. An incoming product row that
+  does not explicitly state a percent (missing or null) inherits the
+  existing row's value, matched by lob+product name."""
+  existing_by_key: Dict[str, Any] = {}
+  for lob in existing if isinstance(existing, list) else []:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      pct = _safe_float(product.get("cogs_percent_of_line_revenue"))
+      if pct is None:
+        continue
+      product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+      existing_by_key[f"{lob_name}::{product_name}"] = float(pct)
+      existing_by_key.setdefault(product_name, float(pct))
+  if not existing_by_key:
+    return incoming
+  next_lobs: List[Any] = []
+  for lob in incoming:
+    if not isinstance(lob, dict):
+      next_lobs.append(lob)
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
+    next_products: List[Any] = []
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        next_products.append(product)
+        continue
+      if _safe_float(product.get("cogs_percent_of_line_revenue")) is None:
+        product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+        inherited = existing_by_key.get(f"{lob_name}::{product_name}")
+        if inherited is None:
+          inherited = existing_by_key.get(product_name)
+        if inherited is not None:
+          product = {**product, "cogs_percent_of_line_revenue": inherited}
+      next_products.append(product)
+    next_lobs.append({**lob, "products": next_products})
+  return next_lobs
+
+
 def _apply_scoped_patch(
   patch: Dict[str, Any],
   *,
@@ -10851,6 +11254,14 @@ def _apply_scoped_patch(
         ):
           next_business[part_key] = None
     elif group == "ops":
+      # WS1(b): a consultant lob_models RESTATEMENT carries only its
+      # schema fields - captured per-line COGS percents ride forward
+      # from the existing rows unless the incoming row explicitly
+      # states a new one (null means "no statement", never "erase").
+      if field == "lob_models" and isinstance(value, list):
+        value = _carry_forward_per_line_cogs(
+          existing=next_ops.get("lob_models"), incoming=value,
+        )
       # UNIVERSAL ENGINE phase 2 (one home, one engine): a driver write
       # lands on the PRODUCT ROW - the one home every reader consumes -
       # and the ENGINE derives every other cell at the write door
@@ -14629,6 +15040,7 @@ def post_intake_consult_handler(*, app, request):
             financials_year1_json=financials_year1_json,
             business_facts=business_facts,
             conn=conn,
+            draft_id=str(draft_id or "").strip(),
           )
           if isinstance(default_patch, dict) and default_patch:
             action = "edit_patch"
@@ -15018,6 +15430,39 @@ def post_intake_consult_handler(*, app, request):
           financials_json["_lever_confirm_pending"] = _driver_note["pending_frame"]
       except Exception:
         _driver_note = None
+      # WS2 (Nick-ruled, the retention probe's finding): ANY door that
+      # changes a product's unit price stamps the retention frame
+      # (retained_used=1.0) - the walk's pricing round, the forward-move
+      # door, and THIS edit_patch path (the probe proved the router
+      # lands prices here, bypassing the mover). The existing
+      # any-surface consumer does the rest.
+      _ws2_retention_ask = ""
+      try:
+        _ws2_changed = _changed_product_prices(
+          ops_before=_receipt_before.get("ops") or {}, ops_after=ops_json,
+        )
+        if _ws2_changed:
+          from client_intake_and_finmo.intake_coherence import section as _coh_rt2
+          financials_json = dict(financials_json or {})
+          _rt_state2 = dict(_coh_rt2.get_state(financials_json))
+          _rt_prices2 = [
+            {"product": str(item.get("product") or "your product"),
+             "to": float(item.get("to") or 0.0)}
+            for item in _ws2_changed
+          ]
+          _rt_state2["retention_pending"] = {
+            "prices": _rt_prices2, "retained_used": 1.0,
+          }
+          financials_json = _coh_rt2.put_state(financials_json, _rt_state2)
+          _ws2_retention_ask = (
+            " Quick check on the new price before we lean on it: do you "
+            "expect your current customers to stay at that level? If some "
+            "would leave, tell me how many you'd realistically keep and "
+            "I'll rerun the numbers on that."
+          )
+      except Exception:
+        logger.exception("PRICE_EDIT_RETENTION_STAMP_FAILED")
+        _ws2_retention_ask = ""
       # GENERALIZED derivability guard (CW-013 gate-overwrite ruling):
       # supersedes the CW-012 current_revenue-only guard - the live
       # Stonewater event proved the narrow scope: the same guard caught
@@ -15712,6 +16157,10 @@ def post_intake_consult_handler(*, app, request):
             )
           except Exception:
             ack_text = ack_fallback
+          # WS2: the retention question rides AFTER naturalization so the
+          # one-sentence paraphrase can never drop it.
+          if _ws2_retention_ask:
+            ack_text = f"{ack_text}{_ws2_retention_ask}".strip()
           shared_live = dict(shared_context or {})
           shared_live["operating_model"] = ops_json
           shared_live["target_market"] = market_json

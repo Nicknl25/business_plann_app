@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from .data import DraftWorkbookData
+from .data import DraftWorkbookData, text
 from .excel_utils import (
   ANNUAL_START_COL,
   CURRENCY_FORMAT,
@@ -160,8 +160,31 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
   for idx in range(PERIOD_COUNT):
     period = data.periods[idx] if idx < len(data.periods) else {}
     ws.cell(row=6, column=PERIOD_START_COL + idx, value=period.get("days_in_quarter") or 0)
+
+  # WS1(b) per-line COGS: on multi-line drafts whose revenue slots carry
+  # "COGS %" source rows, the P&L shows one real formula row per line
+  # (line revenue x line percent) and the Cost of Goods Sold row becomes
+  # the SUM over them. Single-line drafts have no such slots and render
+  # the exact legacy layout.
+  per_line_cogs_slots: List[Tuple[str, str]] = []
+  _seen_cogs_slots = set()
+  for source in data.revenue_rows:
+    if text(source.get("driver")) != "COGS %":
+      continue
+    slot = text(source.get("revenue_slot_key")) or f"{text(source.get('lob'))}::{text(source.get('product'))}"
+    if slot in _seen_cogs_slots:
+      continue
+    _seen_cogs_slots.add(slot)
+    display = " / ".join([text(source.get("lob")) or "LOB", text(source.get("product")) or "Product"])
+    per_line_cogs_slots.append((slot, display))
+  per_line_cogs_labels = [f"Cost of Goods Sold - {display}" for _slot, display in per_line_cogs_slots]
+  pl_lines = list(PL_LINES)
+  if per_line_cogs_labels:
+    _cogs_index = pl_lines.index("Cost of Goods Sold")
+    pl_lines[_cogs_index:_cogs_index] = per_line_cogs_labels
+
   row = 7
-  row = _write_statement_rows(ws, ctx, statement="Income Statement", lines=PL_LINES, start_row=row)
+  row = _write_statement_rows(ws, ctx, statement="Income Statement", lines=pl_lines, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Balance Sheet", lines=BS_LINES, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Cash Flow", lines=CF_LINES, start_row=row)
 
@@ -178,7 +201,23 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
 
     # Income Statement
     _set_formula(ws, ctx.finmo_row("Income Statement", "Revenue"), col, f"={_mi(ctx, 'is::Revenue', col)}")
-    _set_formula(ws, ctx.finmo_row("Income Statement", "Cost of Goods Sold"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'is::Cost of Goods Sold', col)}")
+    if per_line_cogs_labels:
+      # Each line's COGS tracks ITS OWN revenue; the total is the sum.
+      for (slot, _display), line_label in zip(per_line_cogs_slots, per_line_cogs_labels):
+        _set_formula(
+          ws,
+          ctx.finmo_row("Income Statement", line_label),
+          col,
+          f"={_mi(ctx, f'revenue::{slot}::Revenue', col)}*{_mi(ctx, f'revenue::{slot}::COGS %', col)}",
+        )
+      _set_formula(
+        ws,
+        ctx.finmo_row("Income Statement", "Cost of Goods Sold"),
+        col,
+        f"=SUM({_fr(ctx, 'Income Statement', per_line_cogs_labels[0], col)}:{_fr(ctx, 'Income Statement', per_line_cogs_labels[-1], col)})",
+      )
+    else:
+      _set_formula(ws, ctx.finmo_row("Income Statement", "Cost of Goods Sold"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'is::Cost of Goods Sold', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "Gross Profit"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}-{_fr(ctx, 'Income Statement', 'Cost of Goods Sold', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "Marketing"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'is::Marketing', col)}")
     _set_formula(ws, ctx.finmo_row("Income Statement", "Research & Development"), col, f"={_fr(ctx, 'Income Statement', 'Revenue', col)}*{_mi(ctx, 'is::Research & Development', col)}")

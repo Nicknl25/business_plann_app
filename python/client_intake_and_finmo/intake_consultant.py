@@ -101,6 +101,7 @@ def _final_schema() -> Dict[str, Any]:
                     "operating_periods_per_year": {"type": ["number", "null"]},
                     "utilization_rate": {"type": ["number", "null"]},
                     "unit_price": {"type": "number"},
+                    "cogs_percent_of_line_revenue": {"type": ["number", "null"]},
                   },
                   "required": [
                     "product_name",
@@ -112,6 +113,7 @@ def _final_schema() -> Dict[str, Any]:
                     "operating_periods_per_year",
                     "utilization_rate",
                     "unit_price",
+                    "cogs_percent_of_line_revenue",
                   ],
                 },
               },
@@ -152,6 +154,11 @@ def _final_schema() -> Dict[str, Any]:
         "primary_growth_lever": {"type": "string"},
         "legal_entity": {"type": "string"},
         "confidence": {"type": "number"},
+        "line_split_confidence": {
+          "type": ["string", "null"],
+          "enum": ["confident_single", "confident_multi", "unsure", None],
+        },
+        "split_rationale": {"type": ["string", "null"]},
       },
       "required": [
         "consumer_type",
@@ -177,6 +184,8 @@ def _final_schema() -> Dict[str, Any]:
         "primary_growth_lever",
         "legal_entity",
         "confidence",
+        "line_split_confidence",
+        "split_rationale",
       ],
     },
   }
@@ -258,10 +267,14 @@ Business stage inference (RIGHT AFTER BUSINESS TYPE CONFIRMATION):
 
 Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
 - A LOB means distinct operations. Listen for this in the first "what does the business do?" answer.
-- If multiple distinct operations are described or clearly implied, propose splitting them into separate LOBs and confirm in one short question before proceeding.
-- If the client prefers to keep them combined, treat it as a single LOB.
+- THE LINE-SPLIT CONFIDENCE GATE (REQUIRED - set line_split_confidence every time):
+  - "confident_single": one product/line is obvious from the description. Do NOT ask the client to confirm the obvious - never ask a split question. Set split_rationale briefly.
+  - "confident_multi": the description clearly carries distinct revenue lines with different economics (e.g. selling goods AND servicing them). Do NOT ask a separate split question - PROPOSE the split INSIDE the restatement, named plainly (for example: "I'm setting this up as two lines - bike sales and repairs - because they earn differently"), and in the same restatement invite the collapse: "If you'd rather plan them as one line, say so." Set split_rationale briefly.
+  - "unsure": you genuinely cannot tell. Ask ONE short question BEFORE modeling products (for example: "Do the two sides of the business earn differently enough that you'd want to plan them as separate lines, or should we treat them as one?").
+- THE CLIENT IS THE FINAL AUTHORITY, at any point: "treat them as one" collapses a proposed split (re-model as a single line immediately, no pushback); "those are really two different businesses" splits a proposed single. Honor either the moment it is said.
 - When defining the unit, if the client mentions more than one distinct unit/product, propose tracking multiple products and confirm.
 - If multiple LOBs/products are confirmed, capture unit_name, unit_description, unit_cadence, units_per_period_capacity, unit_price, and units_per_week_capacity for each product, one product at a time.
+- cogs_percent_of_line_revenue: CAPTURE-ONLY. Set it on a product ONLY when the client explicitly states that line's direct-cost/materials percent (for example "bike materials run about half the sale price" -> 0.5). Never estimate or invent it - the financials conversation proposes it properly. Leave null otherwise; null never erases a previously captured value.
 - For each product, also capture a Year-1 practical utilization rate as a percentage of practical capacity (for example 70%).
 - Do NOT ask the client to choose a "primary" product when multiple are confirmed.
 
@@ -469,6 +482,14 @@ Output rules:
           "primary_growth_lever": {"type": ["string", "null"]},
           "legal_entity": {"type": ["string", "null"]},
           "competitive_advantage": {"type": ["string", "null"]},
+          # WS1(a) (Nick-ruled): the line-split confidence gate rides
+          # every turn so the decision lands when it is made, not only
+          # at finalize.
+          "line_split_confidence": {
+            "type": ["string", "null"],
+            "enum": ["confident_single", "confident_multi", "unsure", None],
+          },
+          "split_rationale": {"type": ["string", "null"]},
           "lob_models": {
             "type": ["array", "null"],
             "items": {
@@ -494,6 +515,7 @@ Output rules:
                       "operating_periods_per_year": {"type": ["number", "null"]},
                       "utilization_rate": {"type": ["number", "null"]},
                       "unit_price": {"type": ["number", "null"]},
+                      "cogs_percent_of_line_revenue": {"type": ["number", "null"]},
                     },
                     "required": [
                       "product_name",
@@ -505,6 +527,7 @@ Output rules:
                       "operating_periods_per_year",
                       "utilization_rate",
                       "unit_price",
+                      "cogs_percent_of_line_revenue",
                     ],
                   },
                 },
@@ -533,6 +556,8 @@ Output rules:
           "primary_growth_lever",
           "legal_entity",
           "competitive_advantage",
+          "line_split_confidence",
+          "split_rationale",
           "lob_models",
         ],
       },
@@ -643,6 +668,7 @@ Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or s
 Multi-LOB/products:
 - If the conversation confirms multiple LOBs and/or multiple products, populate lob_models accordingly.
 - For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, operating_periods_per_year, utilization_rate, and unit_price.
+- cogs_percent_of_line_revenue: CAPTURE-ONLY - set it only when the conversation explicitly stated that line's direct-cost/materials percent; otherwise null (null never erases a previously captured value).
 - When multiple LOBs or multiple products are confirmed, set top-level unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, operating_periods_per_year, and unit_price to null.
 - When only one LOB with one product is confirmed, set top-level unit fields, top-level operating_periods_per_year, and top-level utilization_rate to that single product.
 """.strip()

@@ -57,7 +57,7 @@ def _quarter_days(quarter_end: date) -> int:
 FORMULA_REGISTRY: Dict[str, str] = {
   "Accounting Equation Check": "Total Assets - Total Liabilities & Equity",
   "Revenue": "SUM(all product revenue) where product revenue = capacity_units * unit_price * utilization",
-  "Cost of Goods Sold": "Revenue * expenses::Cost of Goods Sold",
+  "Cost of Goods Sold": "Revenue * expenses::Cost of Goods Sold; WS1(b) per-line variant (only when EVERY product carries a per-line COGS percent): SUM(product revenue * product COGS %) — the blended expenses row stays the ONE solver lever and per-line percents follow it in lockstep",
   "Gross Profit": "Revenue - Cost of Goods Sold",
   "Marketing": "Revenue * expenses::Marketing",
   "Research & Development": "Revenue * expenses::Research & Development",
@@ -441,7 +441,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     days_in_quarter = _quarter_days(quarter_end)
 
     revenue = quarter.revenue
-    cogs = revenue * quarter.expenses.cogs_percent
+    # WS1(b) per-line COGS: when EVERY product carries a per-line
+    # percent, COGS is the sum of line_revenue x line_percent — each
+    # line tracks its own revenue natively, no blend projected forward.
+    # Otherwise (all single-line drafts) the EXACT legacy scalar path.
+    per_line_cogs = quarter.per_line_cogs_amount()
+    cogs = per_line_cogs if per_line_cogs is not None else revenue * quarter.expenses.cogs_percent
     gross_profit = revenue - cogs
     marketing = revenue * quarter.expenses.marketing_percent
     r_and_d = revenue * quarter.expenses.r_and_d_percent

@@ -540,9 +540,37 @@ def _cogs_fit_schema() -> Dict[str, Any]:
         },
         "proposed_cogs_percent": {"type": "number"},
         "basis_reconciliation": {"type": "string"},
+        # WS1(b) per-line COGS (Nick-ruled, N-line from the start): when
+        # the context lists revenue_lines (N>=2 distinct revenue lines),
+        # the judge proposes one materials percent PER LINE in the same
+        # breath. Null on single-line businesses.
+        "per_line_proposals": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "line_name": {"type": "string"},
+              "proposed_cogs_percent": {"type": "number"},
+              "materials_cogs_percent_band": {
+                "type": "array", "items": {"type": "number"},
+                "minItems": 2, "maxItems": 2,
+              },
+              # Names another line when the two genuinely share one cost
+              # structure (they then carry the SAME percent) - the
+              # client stays the authority on how many DISTINCT COGS
+              # exist. Null when this line's cost structure is its own.
+              "shares_cost_structure_with": {"type": ["string", "null"]},
+            },
+            "required": [
+              "line_name", "proposed_cogs_percent",
+              "materials_cogs_percent_band", "shares_cost_structure_with",
+            ],
+          },
+        },
       },
       "required": ["materials_cogs_percent_band", "proposed_cogs_percent",
-                   "basis_reconciliation"],
+                   "basis_reconciliation", "per_line_proposals"],
     },
   }
 
@@ -586,6 +614,10 @@ def fit_cogs_percent_from_evidence(
           "- materials_cogs_percent_band: the believable RANGE of materials-only COGS percent for a business of THIS type and size (decimal fractions; at least 3 points wide - a tighter claim is false precision),\n"
           "- proposed_cogs_percent: one starting proposal INSIDE that band,\n"
           "- basis_reconciliation: 2-4 sentences that EXPLICITLY reconcile the cohort figure (e.g. 'filings show ~88% cost of revenue because their crews are in it; here labor is in payroll; materials for this operation run ~X-Y%').\n"
+          "PER-LINE COGS - only when the context includes revenue_lines (a business with N>=2 distinct revenue lines): also return per_line_proposals with EXACTLY one entry per revenue_lines item, using that item's line_name verbatim. "
+          "Each entry is a materials-only percent OF THAT LINE'S OWN revenue with its own band (product/retail lines usually carry high materials percents; service/labor lines usually carry low ones - the whole point of splitting). "
+          "Lines that genuinely share one cost structure get the SAME percent and band, and each names the other in shares_cost_structure_with; distinct structures leave it null. "
+          "When revenue_lines is present, proposed_cogs_percent (top-level) must be the revenue-share-weighted blend of the line percents. When revenue_lines is absent, per_line_proposals must be null.\n"
           "Never include payroll, rent, owner pay, marketing, or overhead in the proposal. Use the exact business facts provided. Do not ask questions."
         ),
       },
@@ -634,11 +666,52 @@ def fit_cogs_percent_from_evidence(
     reconciliation = str(parsed.get("basis_reconciliation") or "").strip()
     if not reconciliation:
       continue  # a fit without its reconciliation is not a fit
-    return {
+    result = {
       "proposed_cogs_percent": proposed,
       "materials_cogs_percent_band": [round(lo, 4), round(hi, 4)],
       "basis_reconciliation": reconciliation[:600],
     }
+    # WS1(b): per-line proposals ride the SAME judged fit (one breath,
+    # no extra call). Each line clamps like the top-level: band into
+    # [0,1], anti-false-precision floor widening DOWNWARD, proposal
+    # inside its band. A malformed entry drops the whole per-line set
+    # (the caller falls back to the blend - honest degradation, never
+    # a half-split).
+    raw_lines = parsed.get("per_line_proposals")
+    if isinstance(raw_lines, list) and raw_lines:
+      per_line: List[Dict[str, Any]] = []
+      for entry in raw_lines:
+        if not isinstance(entry, dict):
+          per_line = []
+          break
+        line_name = str(entry.get("line_name") or "").strip()
+        line_band = entry.get("materials_cogs_percent_band")
+        try:
+          line_lo, line_hi = float(line_band[0]), float(line_band[1])
+          line_proposed = float(entry.get("proposed_cogs_percent"))
+        except (TypeError, ValueError, IndexError):
+          per_line = []
+          break
+        if not line_name:
+          per_line = []
+          break
+        line_lo, line_hi = (
+          max(0.0, min(1.0, min(line_lo, line_hi))),
+          max(0.0, min(1.0, max(line_lo, line_hi))),
+        )
+        if line_hi - line_lo < 0.03:
+          line_lo = max(0.0, line_hi - 0.03)
+        line_proposed = max(line_lo, min(line_hi, line_proposed))
+        shared_with = str(entry.get("shares_cost_structure_with") or "").strip()
+        per_line.append({
+          "line_name": line_name,
+          "proposed_cogs_percent": line_proposed,
+          "materials_cogs_percent_band": [round(line_lo, 4), round(line_hi, 4)],
+          "shares_cost_structure_with": shared_with or None,
+        })
+      if per_line:
+        result["per_line_proposals"] = per_line
+    return result
   return None
 
 

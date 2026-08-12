@@ -274,3 +274,51 @@ green; X6 is the positive invariant Nick required).
   function doesn't exist → RED. The invariant in words: the offered
   draw ACTUALLY clears the wall, and an unreachable exit is never
   offered. (Q8/Q9)
+
+## WS1/WS2 legs (per-line COGS + confidence gate + retention door, baseline = the commit BEFORE this one)
+
+Reference proofs: scratchpad `_ws1b_engine_smoke.py` (10 checks),
+`_ws1b_intake_smoke.py` (9 checks), `_ws1b_thistledown_fixture.py`
+(RED on baseline: one blended 52% for the two-line bike shop; GREEN:
+per-line 52%/22% + copy names both lines), `_retention_probe.py`
+(RED on baseline: price lands, no frame, 85% ignored; GREEN: frame
+stamped, question rides receipt, utilization 0.72->0.612).
+
+- **R26 per-line-cogs-sigma-invariant** (THE invariant leg): on any
+  model_input_json whose revenue slots carry `driver="COGS %"` rows,
+  for EVERY period index: Sigma(line_rev x line_pct) equals
+  total_rev x blend_row_value within 0.5% (line_rev = Capacity x
+  Unit Price x Utilization at that index; blend row =
+  expenses::Cost of Goods Sold). And finmo cogs equals the Sigma.
+  Structural absence on single-line drafts: NO COGS % rows exist and
+  the serialized model_input_json is byte-identical to baseline
+  (the non-negotiable floor: FINMO_SHA/MODEL_INPUT_SHA of a rerun of
+  a clean single-line draft must match across old/new code - proven
+  live on Sunny 6feac758).
+- **R27 per-line-lockstep**: writing `expenses::Cost of Goods Sold`
+  (set_simple_driver or raw-JSON apply through
+  apply_derived_driver_policies_to_model_input) scales every line
+  percent by ONE multiplier (same ratio to 1e-12) and the Sigma
+  matches the new blend. No per-line solver levers exist
+  (COGS % rows are controller_write=False,
+  derived_driver="per_line_cogs_source").
+- **R28 per-line-proposal-fixture** (Thistledown #138): a two-line
+  ops model through `_compute_cogs_baseline` returns cogs_per_line
+  (one entry per line, retail pct > service pct) and
+  `_build_cogs_baseline_message` names each line with its own band,
+  blend as arithmetic, collapse invited. Baseline: no cogs_per_line,
+  single blended proposal.
+- **R29 line-split-confidence-gate** (WS1a): consultant chat-turn
+  patch schema carries line_split_confidence/split_rationale
+  (structural absence on baseline); recorded fixtures: obvious
+  single -> confident_single + no split question; goods+servicing ->
+  confident_multi + split proposed INSIDE the restatement + collapse
+  invited; "treat them as one" -> collapses without pushback.
+- **R30 price-change-stamps-retention** (WS2): ANY door that changes
+  a product unit_price stamps `retention_pending`
+  (retained_used=1.0) - proven at the edit_patch door
+  (`_changed_product_prices` + stamp after
+  `_reconcile_driver_correction`) and the forward-move door. The
+  existing any-surface consumer then scales utilization on the
+  answer. Baseline: the probe's exact turns leave
+  retention_pending=False and utilization unmoved.

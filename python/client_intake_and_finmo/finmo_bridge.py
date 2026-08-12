@@ -267,6 +267,9 @@ def _revenue_input_semantics(driver: str) -> Dict[str, str]:
     return {"value_kind": "direct_number", "input_semantics": "currency_per_unit"}
   if driver_text == "utilization":
     return {"value_kind": "ratio", "input_semantics": "utilization_ratio"}
+  if driver_text == "cogs %":
+    # WS1(b) per-line COGS source row: fraction of the line's OWN revenue.
+    return {"value_kind": "ratio", "input_semantics": "percent_of_line_revenue"}
   return {"value_kind": "direct_number", "input_semantics": "direct_input"}
 
 
@@ -2140,6 +2143,10 @@ def apply_derived_driver_policies_to_model_input(
       "capacity_shaping": deepcopy(capacity_shaping_runtime),
       "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
     }
+  # WS1(b): per-line COGS rows follow the blended lever in lockstep.
+  # Runs on every mutation/compute path (build, solver apply, rescue);
+  # a strict no-op on single-line drafts.
+  _reconcile_per_line_cogs_rows(next_payload)
   return next_payload
 
 
@@ -2509,6 +2516,10 @@ def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict
           "capacity": _quarter_capacity_from_ops_product(product=product, ops_json=ops),
           "unit_price": _safe_float(product.get("unit_price") if product.get("unit_price") is not None else ops.get("unit_price")),
           "utilization": _safe_ratio(product.get("utilization_rate") if product.get("utilization_rate") is not None else ops.get("utilization_rate")),
+          # WS1(b) per-line COGS: intake authors this on every product
+          # row of a multi-line business (N lines, N percents; shared
+          # groups carry the same value). None on single-line drafts.
+          "cogs_percent_of_line_revenue": _safe_ratio(product.get("cogs_percent_of_line_revenue")),
         }
   if catalog:
     return catalog
@@ -2523,6 +2534,110 @@ def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict
     "utilization": _safe_ratio(ops.get("utilization_rate")),
   }
   return catalog
+
+
+def _derived_blend_cogs_from_catalog(
+  ops_catalog: Dict[Tuple[int, int], Dict[str, Any]],
+) -> Optional[float]:
+  """WS1(b): the revenue-weighted blended COGS ratio derived from N
+  per-line percents. Returns None (per-line INACTIVE) unless the
+  business has >= 2 lines and EVERY line carries its own percent —
+  the same all-or-nothing rule as the row emission, so single-line
+  drafts never reach this path."""
+  items = [item for item in (ops_catalog or {}).values() if isinstance(item, dict)]
+  if len(items) < 2:
+    return None
+  weighted = 0.0
+  total_revenue = 0.0
+  for item in items:
+    line_pct = _safe_ratio(item.get("cogs_percent_of_line_revenue"))
+    if line_pct is None:
+      return None
+    line_revenue = (
+      max(0.0, _safe_float(item.get("capacity")) or 0.0)
+      * max(0.0, _safe_float(item.get("unit_price")) or 0.0)
+      * max(0.0, _safe_ratio(item.get("utilization")) or 0.0)
+    )
+    weighted += line_revenue * max(0.0, line_pct)
+    total_revenue += line_revenue
+  if total_revenue <= 0.0:
+    return None
+  return round(weighted / total_revenue, 6)
+
+
+def _reconcile_per_line_cogs_rows(model_input_json: Dict[str, Any]) -> None:
+  """WS1(b) lockstep reconcile, IN PLACE on raw model_input_json: the
+  blended ``expenses::Cost of Goods Sold`` row is the ONE COGS lever.
+  Per period, when its value disagrees (beyond float tolerance) with
+  the revenue-weighted sum of the per-line ``COGS %`` rows, every
+  line percent scales by the same multiplier — the lines keep their
+  relative cost structure and the summed COGS matches the blend.
+
+  No-op when no ``COGS %`` rows exist (single-line drafts: byte
+  identical) or when any slot lacks one (partial capture: per-line
+  inactive everywhere, same all-or-nothing rule as the engine)."""
+  sections = model_input_json.get("sections") if isinstance(model_input_json, dict) else None
+  if not isinstance(sections, dict):
+    return
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  cogs_rows_by_slot: Dict[str, Dict[str, Any]] = {}
+  drivers_by_slot: Dict[str, Dict[str, Dict[str, Any]]] = {}
+  for row in revenue_rows:
+    slot = str(row.get("revenue_slot_key") or "").strip() or f"{str(row.get('lob') or '').strip()}::{str(row.get('product') or '').strip()}"
+    driver = str(row.get("driver") or "").strip()
+    drivers_by_slot.setdefault(slot, {})[driver] = row
+    if driver == "COGS %":
+      cogs_rows_by_slot[slot] = row
+  if not cogs_rows_by_slot:
+    return
+  if set(cogs_rows_by_slot.keys()) != set(drivers_by_slot.keys()):
+    return
+  blend_row = next(
+    (
+      row for row in (sections.get("expenses") or [])
+      if isinstance(row, dict) and str(row.get("label") or "").strip() == "Cost of Goods Sold"
+    ),
+    None,
+  )
+  if blend_row is None:
+    return
+  blend_values = list(blend_row.get("values") or [])
+
+  def _row_value_at(row: Dict[str, Any], index: int) -> float:
+    values = row.get("values") or []
+    return max(0.0, _safe_float(values[index]) or 0.0) if index < len(values) else 0.0
+
+  for index in range(len(blend_values)):
+    total_revenue = 0.0
+    weighted = 0.0
+    line_slots: List[Tuple[Dict[str, Any], float]] = []
+    for slot, drivers in drivers_by_slot.items():
+      line_revenue = (
+        _row_value_at(drivers.get("Capacity") or {}, index)
+        * _row_value_at(drivers.get("Unit Price") or {}, index)
+        * _row_value_at(drivers.get("Utilization") or {}, index)
+      )
+      line_pct = _row_value_at(cogs_rows_by_slot[slot], index)
+      total_revenue += line_revenue
+      weighted += line_revenue * line_pct
+      line_slots.append((cogs_rows_by_slot[slot], line_pct))
+    if total_revenue <= 0.0:
+      continue
+    effective_blend = weighted / total_revenue
+    target = max(0.0, _safe_float(blend_values[index]) or 0.0)
+    if abs(effective_blend - target) <= 1e-9 + 1e-5 * abs(target):
+      continue
+    if effective_blend <= 0.0:
+      for cogs_row, _line_pct in line_slots:
+        values = cogs_row.get("values") or []
+        if index < len(values):
+          values[index] = round(target, 6)
+      continue
+    scale = target / effective_blend
+    for cogs_row, line_pct in line_slots:
+      values = cogs_row.get("values") or []
+      if index < len(values):
+        values[index] = round(line_pct * scale, 6)
 
 
 def _infer_revenue_driver_map_from_forecast_quarter(
@@ -2861,6 +2976,17 @@ def _python_model_input_template(
       str(item.get("revenue_slot_key") or "").strip(),
     ),
   )
+  # WS1(b) all-or-nothing activation: per-line COGS rows exist only when
+  # the business has N>=2 lines AND every line carries its own percent.
+  # Single-line drafts (and partial captures) never emit the row, so
+  # their model_input_json stays byte-identical.
+  per_line_cogs_active = (
+    len(revenue_items) >= 2
+    and all(
+      _safe_ratio(item.get("cogs_percent_of_line_revenue")) is not None
+      for item in revenue_items
+    )
+  )
   controller_write_levers: List[Dict[str, Any]] = []
   lever_catalog: Dict[str, Dict[str, Any]] = {}
 
@@ -2919,6 +3045,22 @@ def _python_model_input_template(
           "revenue_slot_key": revenue_slot_key,
           "label_path": f"{lob_name} > {product_name} > {driver_name}",
           **semantics,
+        }
+      )
+    if per_line_cogs_active:
+      # WS1(b): fourth per-slot row, only when EVERY product of a
+      # multi-line business carries a per-line COGS percent. NOT
+      # registered as a controller-write lever — the solver's one COGS
+      # lever stays expenses::Cost of Goods Sold; these rows follow it
+      # in lockstep (reconciled in apply_derived_driver_policies).
+      revenue_rows.append(
+        {
+          **_clone(base_meta),
+          "controller_write": False,
+          "derived_driver": "per_line_cogs_source",
+          "lever_id": _revenue_lever_id(lob_name, product_name, "COGS %"),
+          "driver": "COGS %",
+          **_revenue_input_semantics("COGS %"),
         }
       )
 
@@ -3189,6 +3331,17 @@ def _build_model_input_overlay(
       intake_stub_value = round(_safe_float(baseline_driver_map.get("unit_price")) or base_stub_value or 0.0, 6)
     elif driver == "Utilization":
       intake_stub_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or base_stub_value or 0.0, 6)
+    elif driver == "COGS %":
+      # WS1(b): the line percent is an intake-authored policy value,
+      # constant across the horizon at build time. Solver-era blend
+      # moves propagate onto these rows via the lockstep reconcile in
+      # apply_derived_driver_policies_to_model_input.
+      _line_cogs = round(_safe_ratio(baseline_driver_map.get("cogs_percent_of_line_revenue")) or base_stub_value or 0.0, 6)
+      row["values"] = _compose_period_values(
+        stub_value=_line_cogs,
+        live_values=[_line_cogs for _ in slots],
+      )
+      continue
     values: List[float] = []
     if projection_mode:
       for slot_idx, child_map in enumerate(quarter_child_maps):
@@ -3240,6 +3393,15 @@ def _build_model_input_overlay(
     )) or 0.0,
   )
   cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
+  # WS1(b): on a multi-line draft where every line carries its own COGS
+  # percent, the top-level blend is DERIVED — the revenue-weighted
+  # average of the line percents — never independently patchable. The
+  # expenses::Cost of Goods Sold row then agrees with the per-line
+  # rows by construction (the lockstep reconcile in
+  # apply_derived_driver_policies_to_model_input is a no-op at build).
+  _per_line_blend = _derived_blend_cogs_from_catalog(ops_catalog)
+  if _per_line_blend is not None:
+    cogs_ratio_baseline = _per_line_blend
   naics_6 = _naics_6_from_ops(ops_json)
   naics_2 = naics_6[:2] if naics_6 and len(naics_6) >= 2 else None
   # Phase 2: assemble the per-business driver movement envelope once and
