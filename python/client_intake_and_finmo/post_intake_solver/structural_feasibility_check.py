@@ -32,6 +32,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+def _ops_driver(ops, field):
+    """UNIVERSAL ENGINE phase 4 (VS): row-first driver read - the
+    product row is the one home; the flat key survives only on rowless
+    legacy payloads and serves as the fallback for exactly them."""
+    if isinstance(ops, dict):
+        for _lm in ops.get("lob_models") or []:
+            for _pr in (_lm or {}).get("products") or []:
+                if isinstance(_pr, dict) and _pr.get(field) is not None:
+                    return _pr.get(field)
+        return ops.get(field)
+    return None
+
+
 
 # Plausible-maximum utilization for the upper-bound revenue estimate.
 # 0.95 because hitting 100% sustained is not realistic; 0.80 would be
@@ -110,11 +123,11 @@ def capacity_driven_annual_revenue(
   """
   ops = ops_json if isinstance(ops_json, dict) else {}
   capacity = (
-    _safe_float(ops.get("units_per_period_capacity"))
-    or _safe_float(ops.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(ops, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(ops, "units_per_week_capacity"))
   )
-  unit_price = _safe_float(ops.get("unit_price"))
-  periods = _safe_float(ops.get("operating_periods_per_year")) or 12.0
+  unit_price = _safe_float(_ops_driver(ops, "unit_price"))
+  periods = _safe_float(_ops_driver(ops, "operating_periods_per_year")) or 12.0
   if capacity and unit_price and capacity > 0 and unit_price > 0:
     return float(capacity) * float(unit_price) * float(periods) * float(upper_bound_utilization)
   return None
@@ -255,11 +268,11 @@ def _build_recommended_adjustments(
   recs: List[Dict[str, Any]] = []
 
   capacity = (
-    _safe_float(ops_json.get("units_per_period_capacity"))
-    or _safe_float(ops_json.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(ops_json, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(ops_json, "units_per_week_capacity"))
   )
-  unit_price = _safe_float(ops_json.get("unit_price"))
-  periods = _safe_float(ops_json.get("operating_periods_per_year")) or 12.0
+  unit_price = _safe_float(_ops_driver(ops_json, "unit_price"))
+  periods = _safe_float(_ops_driver(ops_json, "operating_periods_per_year")) or 12.0
 
   if capacity and unit_price and capacity > 0 and unit_price > 0:
     additional_revenue = float(gap) * 1.10

@@ -65,12 +65,16 @@ def d1():
         print("  (D1: _derive_ops_cells absent)")
         return False
     fn(ops)
+    # Phase 4 contract: rows exist -> the flat cells are RETIRED
+    # (stripped), and the row-first read serves every driver.
+    row_first = getattr(ic, "_ops_driver_value")
     return (
-        abs(float(ops.get("unit_price")) - 120.0) < 1e-9
-        and abs(float(ops.get("utilization_rate")) - 0.8) < 1e-9
-        and str(ops.get("unit_cadence")) == "contract"
-        and abs(float(ops.get("operating_periods_per_year") or 0) - 12.0) < 1e-9
-        and str(ops.get("unit_name")) == "consulting day"
+        "unit_price" not in ops and "utilization_rate" not in ops
+        and "unit_cadence" not in ops
+        and abs(float(row_first(ops, "unit_price")) - 120.0) < 1e-9
+        and abs(float(row_first(ops, "utilization_rate")) - 0.8) < 1e-9
+        and str(row_first(ops, "unit_cadence")) == "contract"
+        and abs(float(row_first(ops, "operating_periods_per_year")) - 12.0) < 1e-9
     )
 
 
@@ -84,11 +88,13 @@ def d2():
         market_json={}, people_json={}, financials_json={},
         fulfillment_json={})
     row = ops2["lob_models"][0]["products"][0]
+    row_first = getattr(ic, "_ops_driver_value")
     return (
         abs(float(row.get("unit_price")) - 135.0) < 1e-9      # row landed
-        and abs(float(ops2.get("unit_price")) - 135.0) < 1e-9  # flat derived
-        and abs(float(ops2.get("utilization_rate")) - 0.8) < 1e-9  # OTHER stale flat healed in the same call
-        and str(ops2.get("unit_cadence")) == "contract"
+        and "unit_price" not in ops2                           # flat retired
+        and "utilization_rate" not in ops2                     # stale flat GONE, not healed
+        and abs(float(row_first(ops2, "utilization_rate")) - 0.8) < 1e-9
+        and str(row_first(ops2, "unit_cadence")) == "contract"
     )
 
 
@@ -115,7 +121,7 @@ def d4():
     # Under contract cadence the period cell is canonical (40 stands)
     # and the week cell derives 40*52/52 = 40 - consistent, no fork.
     return (str(row.get("unit_cadence")) == "contract"
-            and str(ops2.get("unit_cadence")) == "contract"
+            and "unit_cadence" not in ops2
             and abs(float(row.get("units_per_week_capacity")) - 40.0) < 0.01)
 
 

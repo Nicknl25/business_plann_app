@@ -167,11 +167,11 @@ _bf5, ops5b, _mk5, _pp5, _fin5b, _ff5 = _apply_scoped_patch(
     business_facts={}, ops_json=_ops_fork, market_json={},
     people_json={}, financials_json={}, fulfillment_json={})
 _p5b = ops5b["lob_models"][0]["products"][0]
-check("R5b flat ops driver write lands on the PRODUCT row (60/40 in "
-      "both homes, no fork)",
+check("R5b flat ops driver write lands on the PRODUCT row and the flat "
+      "cell is RETIRED (one home, no second copy to fork)",
       _p5b["unit_price"] == 60.0
       and _p5b["units_per_period_capacity"] == 40.0
-      and ops5b["unit_price"] == 60.0)
+      and "unit_price" not in ops5b)
 
 # R5c: UNIVERSAL ENGINE (was: mirror heal-on-touch): an at-rest
 # flat-vs-product fork DERIVES from the PRODUCT row (the one home) on
@@ -188,17 +188,18 @@ _ops_stale = {"unit_price": 875, "units_per_week_capacity": 70,
 _sync_financials_consult_persistence_state(
     financials_json={"_financials_revenue_intro_done": False},
     financials_year1_json={}, people_json=None, ops_json=_ops_stale)
-check("R5c stale flat mirror heals FROM the product row on the Recalc "
-      "pass (70/0.88 -> 55/0.7636)",
-      _ops_stale["units_per_week_capacity"] == 55
-      and _ops_stale["utilization_rate"] == 0.7636
+check("R5c stale flat cells are RETIRED on the Recalc pass (rows exist "
+      "-> flat keys stripped; the row is the one home)",
+      "units_per_week_capacity" not in _ops_stale
+      and "utilization_rate" not in _ops_stale
       and _ops_stale["lob_models"][0]["products"][0]["units_per_week_capacity"] == 55)
 _ops_multi = {"unit_price": 99,
               "lob_models": [{"lob_name": "L", "products": [
                   {"product_name": "a", "unit_price": 10},
                   {"product_name": "b", "unit_price": 20}]}]}
-check("R5c2 multi-product flat cells untouched (no single canonical row)",
-      _derive_ops_cells(_ops_multi) is False and _ops_multi["unit_price"] == 99)
+check("R5c2 multi-product flat cells are retired too (rows exist; "
+      "readers are row-first)",
+      _derive_ops_cells(_ops_multi) is True and "unit_price" not in _ops_multi)
 
 # R6: idempotence - a second pass changes nothing (spreadsheet law).
 fin6a, y6a = _sync_financials_consult_persistence_state(

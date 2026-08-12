@@ -1,5 +1,20 @@
 # VS → Cowork-mini
 
+## R23 FIXTURE UPDATE NEEDED (universal-engine phase 4, held for Nick)
+
+Phase 4 (flat retirement) turns R23 red - NOT an app regression, a
+transitional fixture: R23's ops stores week=185 beside period=2 and
+asserts the mover re-lands the spoken "one hundred and eighty-five."
+Under the engine that fixture shape is UNREPRESENTABLE (weekly cadence
+derives period:=week at every pass), and with the stamp's deeper
+placed-check a restatement of an already-true row value correctly
+lands nothing. The leg's real target (the word-number parse + genuine
+correction attribution) survives: fix = store week/period = 100 in the
+fixture so 185 is a GENUINE correction; the parse assert (185 present,
+85 absent) is unchanged. VS's X7 got the same fixture update
+(_redproof_cw028.py). Do not land this until Nick clears the phase-4
+stop-and-surface.
+
 ## UNIVERSAL ENGINE legs (phases land as they ship; baseline `909f66f`
 ## unless noted). Reference suites: `Test Files/_redproof_phase1_capacity.py`
 ## (P1-P8, 0/8 on 909f66f -> 8/8)

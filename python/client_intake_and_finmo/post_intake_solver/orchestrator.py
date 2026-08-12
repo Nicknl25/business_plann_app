@@ -43,6 +43,19 @@ from __future__ import annotations
 import copy
 from typing import Any, Callable, Dict, List, Optional
 
+def _ops_driver(ops, field):
+    """UNIVERSAL ENGINE phase 4 (VS): row-first driver read - the
+    product row is the one home; the flat key survives only on rowless
+    legacy payloads and serves as the fallback for exactly them."""
+    if isinstance(ops, dict):
+        for _lm in ops.get("lob_models") or []:
+            for _pr in (_lm or {}).get("products") or []:
+                if isinstance(_pr, dict) and _pr.get(field) is not None:
+                    return _pr.get(field)
+        return ops.get(field)
+    return None
+
+
 
 _DEFAULT_PREFLIGHT_MAX_ITERATIONS = 12
 _DEFAULT_POSTFLIGHT_MAX_ITERATIONS = 16
@@ -812,11 +825,11 @@ def _apply_restoration_to_model_input(
   revenue_rows = sections.get("revenue")
   if isinstance(revenue_rows, list) and not revenue_authored:
     new_capacity = (
-      _safe_float(adjusted_ops_json.get("units_per_period_capacity"))
-      or _safe_float(adjusted_ops_json.get("units_per_week_capacity"))
+      _safe_float(_ops_driver(adjusted_ops_json, "units_per_period_capacity"))
+      or _safe_float(_ops_driver(adjusted_ops_json, "units_per_week_capacity"))
     )
-    new_price = _safe_float(adjusted_ops_json.get("unit_price"))
-    new_util = _safe_float(adjusted_ops_json.get("utilization_rate"))
+    new_price = _safe_float(_ops_driver(adjusted_ops_json, "unit_price"))
+    new_util = _safe_float(_ops_driver(adjusted_ops_json, "utilization_rate"))
     for row in revenue_rows:
       if not isinstance(row, dict):
         continue

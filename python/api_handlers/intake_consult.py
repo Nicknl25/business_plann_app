@@ -3963,14 +3963,16 @@ def _build_marketing_estimate_context(
       "consumer_type": ops_json.get("consumer_type"),
       "business_type": ops_json.get("business_type"),
       "business_naics_6": ops_json.get("business_naics_6"),
-      "unit_name": ops_json.get("unit_name"),
+      # UNIVERSAL ENGINE phase 4: drivers read ROW-FIRST (flat retired;
+      # the flat fallback serves rowless legacy drafts only).
+      "unit_name": _ops_driver_value(ops_json, "unit_name"),
       "unit_description": ops_json.get("unit_description"),
-      "unit_cadence": ops_json.get("unit_cadence"),
-      "unit_price": ops_json.get("unit_price"),
-      "units_per_week_capacity": ops_json.get("units_per_week_capacity"),
-      "units_per_period_capacity": ops_json.get("units_per_period_capacity"),
-      "operating_periods_per_year": ops_json.get("operating_periods_per_year"),
-      "utilization_rate": ops_json.get("utilization_rate"),
+      "unit_cadence": _ops_driver_value(ops_json, "unit_cadence"),
+      "unit_price": _ops_driver_value(ops_json, "unit_price"),
+      "units_per_week_capacity": _ops_driver_value(ops_json, "units_per_week_capacity"),
+      "units_per_period_capacity": _ops_driver_value(ops_json, "units_per_period_capacity"),
+      "operating_periods_per_year": _ops_driver_value(ops_json, "operating_periods_per_year"),
+      "utilization_rate": _ops_driver_value(ops_json, "utilization_rate"),
       "shipping_method": ops_json.get("shipping_method"),
       "sales_modality": ops_json.get("sales_modality"),
       "geographic_scope": ops_json.get("geographic_scope"),
@@ -8339,7 +8341,10 @@ def _prior_section_values(sections: Optional[List[Any]]) -> List[float]:
   out: List[float] = []
 
   def _collect(obj, depth=0):
-    if depth > 3:
+    # depth 5 reaches ops product rows (ops -> lob_models -> lm ->
+    # products -> row values); the retired flat cells used to carry
+    # these values shallow (UNIVERSAL ENGINE phase 4).
+    if depth > 5:
       return
     if isinstance(obj, dict):
       for vv in obj.values():
@@ -11272,7 +11277,10 @@ def _stamp_unlanded_figures_note(
         # same fact twice, never a second figure to attribute.
         placed.append(abs(fv) * 100.0)
   def _collect(obj, depth=0):
-    if depth > 3:
+    # depth 5 reaches ops product rows (ops -> lob_models -> lm ->
+    # products -> row values); the retired flat cells used to carry
+    # these values shallow (UNIVERSAL ENGINE phase 4).
+    if depth > 5:
       return
     if isinstance(obj, dict):
       for vv in obj.values():
@@ -12958,6 +12966,19 @@ _OPS_FLAT_DERIVED_FIELDS = (
 )
 
 
+def _ops_driver_value(ops_json, field: str):
+  """UNIVERSAL ENGINE phase 4: THE row-first driver read. The product
+  row is the one home; the flat key survives only on rowless legacy
+  drafts and serves as the fallback for exactly them."""
+  if isinstance(ops_json, dict):
+    for _lm in ops_json.get("lob_models") or []:
+      for _pr in (_lm or {}).get("products") or []:
+        if isinstance(_pr, dict) and _pr.get(field) is not None:
+          return _pr.get(field)
+    return ops_json.get(field)
+  return None
+
+
 def _capacity_canonical_field(cadence: str) -> str:
   """UNIVERSAL ENGINE (Nick-ruled): ONE writable capacity cell per
   cadence. Weekly cadence: the week figure is what the client states -
@@ -13030,51 +13051,39 @@ def _derive_capacity_cells(ops_json) -> bool:
           ):
             _pr["units_per_week_capacity"] = round(float(_derived_wk), 4)
             changed = True
-  if isinstance(_lms, list) and len(_lms) == 1 and isinstance(_lms[0], dict):
-    _prods = _lms[0].get("products")
-    if isinstance(_prods, list) and len(_prods) == 1 and isinstance(_prods[0], dict):
-      _single_row = _prods[0]
-  if _single_row is not None:
-    for _cf in ("units_per_week_capacity", "units_per_period_capacity"):
-      _rv = _single_row.get(_cf)
-      if _rv is not None and _safe_float(ops_json.get(_cf)) != _safe_float(_rv):
-        ops_json[_cf] = _rv
-        changed = True
+  # (Phase 4: the single-row flat-capacity setter is gone - flat cells
+  # are RETIRED by _derive_ops_cells whenever rows exist.)
   return changed
 
 
 def _derive_ops_cells(ops_json) -> bool:
-  """UNIVERSAL ENGINE phase 2 (subsumes and DELETES
+  """UNIVERSAL ENGINE phases 2+4 (subsumes and DELETES
   _sync_ops_flat_mirror): the product row is the ONE home of every
   driver - capacity derives canonical-per-cadence via
-  _derive_capacity_cells, and on single-product models EVERY flat
-  driver cell (price, periods, utilization, cadence, unit name, both
-  capacity cells) derives from the row unconditionally, missing cells
-  included. There is no reconcile-after left for ops: the old mirror
-  required both homes populated and tolerated sub-0.05% drift; a
-  derivation has no such seams. Mutates in place; returns True when
-  anything changed."""
+  _derive_capacity_cells, and the legacy FLAT driver cells are
+  RETIRED: whenever product rows exist, the flat keys are STRIPPED at
+  the canonical pass (migration-by-touch). Every reader is row-first
+  (audited: finmo_bridge, the solver trio, the ops payload builder),
+  so a flat cell can never again carry a second copy of a driver -
+  there is nothing left to reconcile AND nothing left to go stale.
+  Rowless legacy drafts keep their flat cells untouched (the readers'
+  flat fallback serves exactly them). Mutates in place; returns True
+  when anything changed."""
   changed = _derive_capacity_cells(ops_json)
   if not isinstance(ops_json, dict):
     return changed
-  lms = ops_json.get("lob_models")
-  if not (isinstance(lms, list) and len(lms) == 1 and isinstance(lms[0], dict)):
+  _has_rows = any(
+    isinstance(_pr, dict)
+    for _lm in (ops_json.get("lob_models") or [])
+    for _pr in ((_lm or {}).get("products") or [])
+  )
+  if not _has_rows:
     return changed
-  prods = lms[0].get("products")
-  if not (isinstance(prods, list) and len(prods) == 1 and isinstance(prods[0], dict)):
-    return changed
-  product = prods[0]
-  for field in _OPS_FLAT_DERIVED_FIELDS:
-    rv = product.get(field)
-    if rv is None:
-      continue
-    if field in ("unit_cadence", "unit_name"):
-      if str(ops_json.get(field) or "") != str(rv or ""):
-        ops_json[field] = rv
-        changed = True
-      continue
-    if _safe_float(ops_json.get(field)) != _safe_float(rv):
-      ops_json[field] = rv
+  for field in _OPS_FLAT_DERIVED_FIELDS + (
+    "units_per_week_capacity", "units_per_period_capacity",
+  ):
+    if field in ops_json:
+      ops_json.pop(field, None)
       changed = True
   return changed
 

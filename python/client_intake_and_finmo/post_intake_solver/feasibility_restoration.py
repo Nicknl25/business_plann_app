@@ -48,6 +48,19 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+def _ops_driver(ops, field):
+    """UNIVERSAL ENGINE phase 4 (VS): row-first driver read - the
+    product row is the one home; the flat key survives only on rowless
+    legacy payloads and serves as the fallback for exactly them."""
+    if isinstance(ops, dict):
+        for _lm in ops.get("lob_models") or []:
+            for _pr in (_lm or {}).get("products") or []:
+                if isinstance(_pr, dict) and _pr.get(field) is not None:
+                    return _pr.get(field)
+        return ops.get(field)
+    return None
+
+
 
 def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "":
@@ -99,12 +112,12 @@ class RestorationResult:
 
 def _capacity_revenue_from_ops(ops_json: Dict[str, Any]) -> Optional[float]:
   capacity = (
-    _safe_float(ops_json.get("units_per_period_capacity"))
-    or _safe_float(ops_json.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(ops_json, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(ops_json, "units_per_week_capacity"))
   )
-  unit_price = _safe_float(ops_json.get("unit_price"))
-  periods = _safe_float(ops_json.get("operating_periods_per_year")) or 12.0
-  utilization = _safe_float(ops_json.get("utilization_rate")) or _UTILIZATION_BAND_MAX
+  unit_price = _safe_float(_ops_driver(ops_json, "unit_price"))
+  periods = _safe_float(_ops_driver(ops_json, "operating_periods_per_year")) or 12.0
+  utilization = _safe_float(_ops_driver(ops_json, "utilization_rate")) or _UTILIZATION_BAND_MAX
   utilization = min(utilization, _UTILIZATION_BAND_MAX)
   if capacity and unit_price and capacity > 0 and unit_price > 0:
     return float(capacity) * float(unit_price) * float(periods) * float(utilization)
@@ -120,16 +133,16 @@ def _apply_price_lift(
 ) -> float:
   """Lever 2: raise unit_price within band. Returns the revenue lift
   contribution toward closing the gap."""
-  current_price = _safe_float(adjusted_ops.get("unit_price"))
+  current_price = _safe_float(_ops_driver(adjusted_ops, "unit_price"))
   if current_price is None or current_price <= 0:
     return 0.0
   capacity = (
-    _safe_float(adjusted_ops.get("units_per_period_capacity"))
-    or _safe_float(adjusted_ops.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(adjusted_ops, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(adjusted_ops, "units_per_week_capacity"))
   )
-  periods = _safe_float(adjusted_ops.get("operating_periods_per_year")) or 12.0
+  periods = _safe_float(_ops_driver(adjusted_ops, "operating_periods_per_year")) or 12.0
   utilization = min(
-    _safe_float(adjusted_ops.get("utilization_rate")) or _UTILIZATION_BAND_MAX,
+    _safe_float(_ops_driver(adjusted_ops, "utilization_rate")) or _UTILIZATION_BAND_MAX,
     _UTILIZATION_BAND_MAX,
   )
   if not capacity or capacity <= 0 or not periods or periods <= 0:
@@ -170,7 +183,7 @@ def _apply_utilization_lift(
   adjustments: List[Dict[str, Any]],
 ) -> float:
   """Lever 3: raise utilization toward 0.95 ceiling."""
-  current_util = _safe_float(adjusted_ops.get("utilization_rate"))
+  current_util = _safe_float(_ops_driver(adjusted_ops, "utilization_rate"))
   if current_util is None or current_util >= _UTILIZATION_BAND_MAX:
     return 0.0
   if current_util <= 0:
@@ -180,11 +193,11 @@ def _apply_utilization_lift(
     return 0.0
 
   capacity = (
-    _safe_float(adjusted_ops.get("units_per_period_capacity"))
-    or _safe_float(adjusted_ops.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(adjusted_ops, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(adjusted_ops, "units_per_week_capacity"))
   )
-  unit_price = _safe_float(adjusted_ops.get("unit_price"))
-  periods = _safe_float(adjusted_ops.get("operating_periods_per_year")) or 12.0
+  unit_price = _safe_float(_ops_driver(adjusted_ops, "unit_price"))
+  periods = _safe_float(_ops_driver(adjusted_ops, "operating_periods_per_year")) or 12.0
   if not (capacity and unit_price and capacity > 0 and unit_price > 0):
     return 0.0
 
@@ -235,13 +248,13 @@ def _apply_capacity_expansion(
   if current_gap_annual <= 0:
     return 0.0
   current_capacity = (
-    _safe_float(adjusted_ops.get("units_per_period_capacity"))
-    or _safe_float(adjusted_ops.get("units_per_week_capacity"))
+    _safe_float(_ops_driver(adjusted_ops, "units_per_period_capacity"))
+    or _safe_float(_ops_driver(adjusted_ops, "units_per_week_capacity"))
   )
-  unit_price = _safe_float(adjusted_ops.get("unit_price"))
-  periods = _safe_float(adjusted_ops.get("operating_periods_per_year")) or 12.0
+  unit_price = _safe_float(_ops_driver(adjusted_ops, "unit_price"))
+  periods = _safe_float(_ops_driver(adjusted_ops, "operating_periods_per_year")) or 12.0
   utilization = min(
-    _safe_float(adjusted_ops.get("utilization_rate")) or _UTILIZATION_BAND_MAX,
+    _safe_float(_ops_driver(adjusted_ops, "utilization_rate")) or _UTILIZATION_BAND_MAX,
     _UTILIZATION_BAND_MAX,
   )
   if not (current_capacity and unit_price and current_capacity > 0 and unit_price > 0):

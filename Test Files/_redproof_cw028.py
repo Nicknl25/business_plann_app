@@ -282,12 +282,20 @@ def x7():
         "My weekly capacity is one hundred and eighty-five checkouts.")
     if 185.0 not in figs or 85.0 in figs:
         return False
+    # UNIVERSAL ENGINE update: the stored week here must DIFFER from the
+    # stated 185 - under the engine the old divergent fixture (week 185
+    # beside period 2) is unrepresentable, and a restatement of an
+    # already-true row value correctly lands nothing.
     fin = _fin()
+    ops = copy.deepcopy(ALDER_OPS)
+    ops["lob_models"][0]["products"][0]["units_per_week_capacity"] = 100.0
+    ops["lob_models"][0]["products"][0]["units_per_period_capacity"] = 100.0
     turn, fin_out = _run(
         "My weekly capacity is one hundred and eighty-five checkouts.",
         SpyRouter({"action": "answer_readonly", "assistant_message": "",
                    "patch": None}),
-        fin, last="Which is right - the revenue figure or one of the drivers?")
+        fin, ops=ops,
+        last="Which is right - the revenue figure or one of the drivers?")
     msg = _msg_of(turn)
     return "185" in msg and "capacity 85" not in msg
 
