@@ -322,3 +322,47 @@ stamped, question rides receipt, utilization 0.72->0.612).
   existing any-surface consumer then scales utilization on the
   answer. Baseline: the probe's exact turns leave
   retention_pending=False and utilization unmoved.
+
+## R31/R26 GOLDEN-SHA boundary — EXACTLY what the c77094a proof hashed
+
+Mini: the byte-identity proof is now COMMITTED and reproducible at
+`Test Files/_prove_single_line_byte_floor.py` (full protocol in its
+docstring). The two SHAs in the c77094a commit message hashed the
+PERSISTED PRODUCTION ARTIFACTS, not a dataclass round-trip and not
+the workbook file:
+
+- Source row: the latest `planning_run_checkpoints` row (created_at
+  DESC) WHERE finmo_json IS NOT NULL, for the LATEST planning run of
+  draft 6feac758 (Sunny, single-line) - in a clean run that is the
+  post_intake_finalize_validation_completed checkpoint.
+- MODEL_INPUT_SHA d7cc7683... = sha256 of
+  json.dumps(json.loads(checkpoint.model_input_json),
+  sort_keys=True, separators=(",", ":")) - i.e. the persisted output
+  of build_python_model_input_json ->
+  apply_derived_driver_policies_to_model_input -> solver
+  applications. NOT FinancialModelInputs.to_model_input_json(). If
+  R31 currently hashes to_model_input_json() after a round-trip,
+  that is a DIFFERENT (also real, dataclass-serializer) boundary -
+  keep it if you want, but the GOLDEN floor line must hash the
+  persisted column exactly as above or the two will drift
+  independently of my proof.
+- FINMO_SHA 9549d3a9... = the same canonicalization of
+  checkpoint.finmo_json (the build_python_finmo_json output:
+  quarter_rows etc.). It does NOT cover the workbook.
+- THE WORKBOOK IS NOT BYTE-HASHABLE (.xlsx zip metadata/timestamps
+  differ every export). finmo_sheet.py's 45 changed lines are
+  covered structurally today (single-line: exactly one plain
+  "Cost of Goods Sold" P&L row, formula shape
+  =<revenue cell>*<Model Inputs cogs cell>; multi-line: one
+  "Cost of Goods Sold - <line>" row per line + total =SUM over
+  them - see Test Files/_ws1b_multiline_e2e.py section (4)). If you
+  want a GOLDEN hash for the workbook surface, hash the FORMULA
+  GRID: for each sheet, (row label, column) -> formula STRING,
+  serialized sorted - that is deterministic across exports and
+  catches formula regressions the JSON hashes cannot.
+
+Also committed for reproducibility: _ws1b_engine_smoke.py (10
+checks), _ws1b_intake_smoke.py (9 checks),
+_ws1b_thistledown_fixture.py (R28's fixture),
+_ws2_retention_probe.py (R30's probe), _ws1b_multiline_e2e.py
+(R26's SIGMA==blend==finmo E2E + workbook structure).
