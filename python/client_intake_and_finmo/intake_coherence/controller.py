@@ -1079,10 +1079,14 @@ def roadmap_payload(
   corner: Dict[str, Any],
   eval_result: Dict[str, Any],
   bounds: Dict[str, Any],
+  client_goal: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Milestones in the client's own numbers when even the corner
   fails: each unsatisfiable constraint becomes 'what would have to
-  become true'."""
+  become true'. CLIENT_GOAL (Nick-ruled, conversational-state audit
+  #1): the client's own stated 12-month goal - captured at ops, and
+  the roadmap anchors to it, so the one most personal answer in the
+  intake is what the paths build toward, never a discarded flavor."""
   cq = corner.get("q11") or {}
   milestones = []
   lines = bounds.get("existing_lines") or []
@@ -1114,12 +1118,18 @@ def roadmap_payload(
                   )
                   + " - currently an assumption, not revenue",
       })
-  return {
+  payload = {
     "corner_revenue_display": _fmt_money(_f(cq.get("revenue"))),
     "corner_ebitda_display": _fmt_money(_f(cq.get("ebitda"))),
     "corner_gap_display": _fmt_money(_f(corner.get("gap_quarterly"))),
     "milestones": milestones,
   }
+  if isinstance(client_goal, dict) and str(client_goal.get("description") or "").strip():
+    payload["client_goal"] = {
+      "description": str(client_goal.get("description") or "").strip(),
+      "timing": str(client_goal.get("timing") or "").strip(),
+    }
+  return payload
 
 
 def evaluate_current(

@@ -1732,9 +1732,24 @@ def _roadmap_message(payload: Dict[str, Any]) -> str:
   miles = "; ".join(
     f"{m['title']} ({m['detail']})" for m in payload.get("milestones") or []
   )
+  # THE CLIENT'S OWN GOAL anchors the roadmap when they gave one (the
+  # conversational-state audit #1, Nick-ruled): the paths build toward
+  # the ambition they named, in their words - never a discarded answer.
+  _goal = payload.get("client_goal") or {}
+  _goal_txt = str(_goal.get("description") or "").strip()
+  _goal_line = ""
+  if _goal_txt:
+    _timing = str(_goal.get("timing") or "").strip()
+    _goal_line = (
+      f"You told me your goal: {_goal_txt}"
+      + (f" ({_timing.lower()})" if _timing else "")
+      + " - that's what these paths build toward. "
+    )
   return (
     "Here's where things honestly stand. The business you've described is real "
-    "and running - what we're measuring is distance, not worth. On today's "
+    "and running - what we're measuring is distance, not worth. "
+    + _goal_line +
+    "On today's "
     "shape, even the strongest realistic version of the numbers sits about "
     f"{payload.get('corner_gap_display')} a quarter away from a plan a lender "
     "would fund, and a plan that papered over that wouldn't survive the first "
@@ -2495,8 +2510,14 @@ def gate_and_turn(
       return {"assistant_message": msg}, financials_json, ""
     state["status"] = _ctl.STATUS_ROADMAP
     state.pop("corner_collapse_hold", None)
+    _goal = None
+    for _ms in (ops_json or {}).get("milestones") or []:
+      if isinstance(_ms, dict) and str(_ms.get("description") or "").strip():
+        _goal = _ms
+        break
     payload = _ctl.roadmap_payload(
       corner=corner_obj, eval_result=eval_result, bounds=bounds_obj or {},
+      client_goal=_goal,
     )
     state["roadmap"] = payload
     financials_json = put_state(financials_json, state)
