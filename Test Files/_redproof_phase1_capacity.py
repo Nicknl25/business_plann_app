@@ -255,15 +255,20 @@ def p4():
 guarded("P4 PRODUCT-PATTERN [87]: 4 x 20 = 80 lands the TOTAL, never the factor", p4)
 
 
-# P5 --- no-op writes never receipt
+# P5 --- no-op writes never receipt (the LIVE Fernhill shape: the
+# people-door echo - "Recorded: total team payroll $621,000" on a
+# stated total equal to the stored rollup. A capacity-echo fixture is
+# vacuous on old code: the restatement skip already suppressed it
+# before the mover ran, and the crash-red variant proves nothing.)
 def p5():
     fin = _fern_fin()
     ops = copy.deepcopy(FERN_OPS)
-    _row0(ops)["units_per_period_capacity"] = 80.0
-    ic._derive_capacity_cells(ops)
     did = _mk_draft(fin, ops)
+    door = {"action": "edit_patch", "assistant_message": "",
+            "patch": {"people.total_team_payroll": 621000}}
     turn, fin_out, shared = _turn(
-        did, "Capacity, 80.", SpyRouter(READONLY), fin, ops,
+        did, "My total payroll is $621,000, as I said.",
+        SpyRouter(door), fin, ops,
         last="Which of those stored numbers is wrong?")
     msg = str((turn or {}).get("assistant_message") or "")
     return "Recorded:" not in msg

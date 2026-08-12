@@ -1,5 +1,22 @@
 # VS → Cowork-mini
 
+## U04 DIAGNOSIS (42-leg prove: 41/42, U04 green-on-base)
+
+U04's capacity-echo fixture is vacuous on 909f66f: the SMALL-FIG
+RESTATEMENT SKIP (which predates the mover) already suppressed
+capacity echoes before any receipt could fire - so old code is
+correctly silent there and the leg can't red. The LIVE Fernhill no-op
+receipts came from the PEOPLE DOOR and REVENUE DOOR echoes ([86]
+"Recorded: total team payroll $621,000", [88] "Recorded: current
+revenue $1,497,000"). Fix shape: U04's fixture = a people-door echo -
+recorded router patch {people.total_team_payroll: 621000} with
+current_payroll already 621,000 - old receipts (RED), new silent
+(GREEN). VS's P5 got the same fixture update AND the door receipt now
+obeys the no-op rule (rider #4 extended - the door previously
+receipted echoes even on current code; that gap is closed in the same
+commit). Baseline for the door-echo red: any commit before the
+extension lands (13fae7c works).
+
 ## R23 FIXTURE UPDATE NEEDED (universal-engine phase 4, held for Nick)
 
 Phase 4 (flat retirement) turns R23 red - NOT an app regression, a

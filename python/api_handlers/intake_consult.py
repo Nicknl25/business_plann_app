@@ -7978,9 +7978,20 @@ def _apply_stage_people_door_keys(
   if "people.total_team_payroll" in _people_keys:
     _v = _safe_float(_people_keys.get("people.total_team_payroll"))
     if _v is not None:
-      _door_ack = (
-        f"Recorded: total team payroll {_format_currency(float(_v))} a year."
-      )
+      # CW-029 rider #4 extended (U04 diagnosis): the DOOR receipt obeys
+      # the same no-op rule as the mover - a stated total equal to the
+      # stored rollup is an echo, and an echo never says "Recorded:"
+      # (the live Fernhill turn receipted "total team payroll $621,000"
+      # while the real problem stood - false motion reads as change).
+      _cur_pay = _safe_float(next_financials.get("current_payroll"))
+      if _cur_pay is not None and abs(_cur_pay - float(_v)) <= max(
+        1.5, 0.001 * abs(float(_v))
+      ):
+        _door_ack = ""
+      else:
+        _door_ack = (
+          f"Recorded: total team payroll {_format_currency(float(_v))} a year."
+        )
   elif "people.rest_of_team_payroll_year1" in _people_keys:
     _v = _safe_float(_people_keys.get("people.rest_of_team_payroll_year1"))
     if _v is not None:
