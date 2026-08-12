@@ -7607,11 +7607,10 @@ def _sync_financials_consult_persistence_state(
   # mirrors re-sync from the product row on every touch - the at-rest
   # fork shape can no longer persist. Mutates ops_json in place (turn
   # paths persist ops; the run-entry recalc detects and persists too).
-  # UNIVERSAL ENGINE phase 1: capacity DERIVES (canonical-per-cadence,
-  # all products, flat cells included) before the residual mirror runs
-  # for the fields it still owns.
-  _derive_capacity_cells(ops_json)
-  _sync_ops_flat_mirror(ops_json)
+  # UNIVERSAL ENGINE phase 2: every ops driver DERIVES from the
+  # product row at the canonical pass - capacity canonical-per-cadence
+  # plus every flat driver cell. No mirror, nothing to reconcile.
+  _derive_ops_cells(ops_json)
   _people_has_substance = isinstance(people_json, dict) and bool(
     (people_json.get("people") or [])
     or (people_json.get("inferred_roles") or [])
@@ -8193,8 +8192,7 @@ def _apply_forward_move(
       )
     except Exception:
       pass
-    _derive_capacity_cells(_ops_new)
-    _sync_ops_flat_mirror(_ops_new)
+    _derive_ops_cells(_ops_new)
     _ops_live.clear()
     _ops_live.update(_ops_new)
     try:
@@ -8226,8 +8224,7 @@ def _apply_forward_move(
           _u = _safe_float((_pr or {}).get("utilization_rate"))
           if _u and _u > 0:
             _pr["utilization_rate"] = round(min(1.0, max(0.01, _u * _ratio)), 4)
-      _derive_capacity_cells(_ops2)
-      _sync_ops_flat_mirror(_ops2)
+      _derive_ops_cells(_ops2)
       try:
         append_messages(
           conn,
@@ -10835,20 +10832,19 @@ def _apply_scoped_patch(
         ):
           next_business[part_key] = None
     elif group == "ops":
-      next_ops[field] = value
-      # LIVE-TRUTH ONE-HOME (keystone F&F finding): every reader of the
-      # drivers - engine, digest, gate, ops_line_split - reads
-      # lob_models[].products[]. A flat-key driver write on a
-      # single-product model lands on the PRODUCT ROW too; the flat
-      # field is a legacy mirror, never a second home. (F&F's
-      # price-60/capacity-40 correction sat in the flat fields while
-      # the product row kept 112/30 - the receipt acked the change and
-      # the whole pipeline kept building on the corrected-away numbers.)
-      if field in (
+      # UNIVERSAL ENGINE phase 2 (one home, one engine): a driver write
+      # lands on the PRODUCT ROW - the one home every reader consumes -
+      # and the ENGINE derives every other cell at the write door
+      # (flat mirrors, the capacity twin). The old dual-write kept the
+      # flat copy alive as a second hand-maintained home; it is gone.
+      # Non-driver ops fields (naics, descriptions...) stay flat keys.
+      _driver_write = field in (
         "unit_price", "units_per_week_capacity", "units_per_period_capacity",
         "operating_periods_per_year", "utilization_rate", "unit_cadence",
         "unit_name",
-      ):
+      )
+      _row_landed = False
+      if _driver_write:
         _lms = next_ops.get("lob_models")
         if isinstance(_lms, list) and len(_lms) == 1 and isinstance(_lms[0], dict):
           _prods = _lms[0].get("products")
@@ -10858,6 +10854,11 @@ def _apply_scoped_patch(
             _p0[field] = value
             _lm0["products"] = [_p0]
             next_ops["lob_models"] = [_lm0]
+            _row_landed = True
+      if not _row_landed:
+        next_ops[field] = value
+      if _driver_write:
+        _derive_ops_cells(next_ops)
     elif group == "market":
       next_market[field] = value
     elif group == "people":
@@ -12944,11 +12945,13 @@ _RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
 })
 
 
-# UNIVERSAL ENGINE phase 1: capacity left this list - both capacity
-# fields are now derived by _derive_capacity_cells (canonical-per-
-# cadence), never reconciled-after by the mirror.
-_OPS_FLAT_MIRROR_FIELDS = (
+# UNIVERSAL ENGINE phase 2: the flat driver cells are DERIVED from the
+# product row (the one home) - the whole set, unconditionally, filling
+# missing cells too. The reconcile-after mirror (_sync_ops_flat_mirror)
+# is DELETED; there is nothing left to reconcile.
+_OPS_FLAT_DERIVED_FIELDS = (
   "unit_price", "operating_periods_per_year", "utilization_rate",
+  "unit_cadence", "unit_name",
 )
 
 
@@ -13037,34 +13040,38 @@ def _derive_capacity_cells(ops_json) -> bool:
   return changed
 
 
-def _sync_ops_flat_mirror(ops_json) -> bool:
-  """ONE-HOME heal-on-touch (Nick-ruled, stuck-fork fix): the product
-  row is the canonical home of the drivers - every reader (engine,
-  digest, gate, line split) reads lob_models[].products[]. The flat
-  top-level fields are a legacy MIRROR. Writes land on both since
-  a432465; any at-rest divergence (defect-era or pre-architecture) is a
-  stale mirror - ground-truthed on both live forked drafts: the product
-  side carried the conversation's RESOLVED value (agreed capacity 55 vs
-  the 70 goal-as-milestone; the chosen ramp utilization vs the
-  superseded 88%). Single-product models only; mutates in place;
-  returns True when anything changed."""
+def _derive_ops_cells(ops_json) -> bool:
+  """UNIVERSAL ENGINE phase 2 (subsumes and DELETES
+  _sync_ops_flat_mirror): the product row is the ONE home of every
+  driver - capacity derives canonical-per-cadence via
+  _derive_capacity_cells, and on single-product models EVERY flat
+  driver cell (price, periods, utilization, cadence, unit name, both
+  capacity cells) derives from the row unconditionally, missing cells
+  included. There is no reconcile-after left for ops: the old mirror
+  required both homes populated and tolerated sub-0.05% drift; a
+  derivation has no such seams. Mutates in place; returns True when
+  anything changed."""
+  changed = _derive_capacity_cells(ops_json)
   if not isinstance(ops_json, dict):
-    return False
+    return changed
   lms = ops_json.get("lob_models")
   if not (isinstance(lms, list) and len(lms) == 1 and isinstance(lms[0], dict)):
-    return False
+    return changed
   prods = lms[0].get("products")
   if not (isinstance(prods, list) and len(prods) == 1 and isinstance(prods[0], dict)):
-    return False
+    return changed
   product = prods[0]
-  changed = False
-  for field in _OPS_FLAT_MIRROR_FIELDS:
-    pv = _safe_float(product.get(field))
-    fv = _safe_float(ops_json.get(field))
-    if pv is None or ops_json.get(field) is None:
-      continue  # mirror only fills what both homes carry
-    if fv is None or abs(fv - pv) > max(1e-9, 0.0005 * abs(pv)):
-      ops_json[field] = product.get(field)
+  for field in _OPS_FLAT_DERIVED_FIELDS:
+    rv = product.get(field)
+    if rv is None:
+      continue
+    if field in ("unit_cadence", "unit_name"):
+      if str(ops_json.get(field) or "") != str(rv or ""):
+        ops_json[field] = rv
+        changed = True
+      continue
+    if _safe_float(ops_json.get(field)) != _safe_float(rv):
+      ops_json[field] = rv
       changed = True
   return changed
 

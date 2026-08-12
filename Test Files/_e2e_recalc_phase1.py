@@ -173,11 +173,10 @@ check("R5b flat ops driver write lands on the PRODUCT row (60/40 in "
       and _p5b["units_per_period_capacity"] == 40.0
       and ops5b["unit_price"] == 60.0)
 
-# R5c: MIRROR HEAL-ON-TOUCH (Nick-ruled stuck-fork fix): an at-rest
-# flat-vs-product fork re-syncs from the PRODUCT row (the canonical
-# home; ground-truthed on both live forked drafts) on every Recalc
-# pass. Multi-product models untouched.
-from api_handlers.intake_consult import _sync_ops_flat_mirror  # noqa: E402
+# R5c: UNIVERSAL ENGINE (was: mirror heal-on-touch): an at-rest
+# flat-vs-product fork DERIVES from the PRODUCT row (the one home) on
+# every Recalc pass. Multi-product flat cells untouched (retired later).
+from api_handlers.intake_consult import _derive_ops_cells  # noqa: E402
 
 _ops_stale = {"unit_price": 875, "units_per_week_capacity": 70,
               "utilization_rate": 0.88,
@@ -198,8 +197,8 @@ _ops_multi = {"unit_price": 99,
               "lob_models": [{"lob_name": "L", "products": [
                   {"product_name": "a", "unit_price": 10},
                   {"product_name": "b", "unit_price": 20}]}]}
-check("R5c2 multi-product models untouched (no single canonical row)",
-      _sync_ops_flat_mirror(_ops_multi) is False and _ops_multi["unit_price"] == 99)
+check("R5c2 multi-product flat cells untouched (no single canonical row)",
+      _derive_ops_cells(_ops_multi) is False and _ops_multi["unit_price"] == 99)
 
 # R6: idempotence - a second pass changes nothing (spreadsheet law).
 fin6a, y6a = _sync_financials_consult_persistence_state(
