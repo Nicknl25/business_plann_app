@@ -7607,9 +7607,10 @@ def _sync_financials_consult_persistence_state(
   # mirrors re-sync from the product row on every touch - the at-rest
   # fork shape can no longer persist. Mutates ops_json in place (turn
   # paths persist ops; the run-entry recalc detects and persists too).
-  # CW-028: capacity twins heal FIRST so the flat mirror copies the
-  # healed row, not the divergent one.
-  _sync_capacity_twins(ops_json)
+  # UNIVERSAL ENGINE phase 1: capacity DERIVES (canonical-per-cadence,
+  # all products, flat cells included) before the residual mirror runs
+  # for the fields it still owns.
+  _derive_capacity_cells(ops_json)
   _sync_ops_flat_mirror(ops_json)
   _people_has_substance = isinstance(people_json, dict) and bool(
     (people_json.get("people") or [])
@@ -8120,6 +8121,34 @@ def _apply_forward_move(
   attributed = bool(move.get("attributed"))
   shared = dict(stage_shared_context or {})
   landed = False
+
+  def _target_value_now(fin_d: Dict[str, Any], shared_d: Dict[str, Any]):
+    if key.startswith("ops."):
+      _f_name = key.split(".", 1)[1]
+      for _lm_t in (shared_d.get("operating_model") or {}).get("lob_models") or []:
+        for _pr_t in (_lm_t or {}).get("products") or []:
+          if isinstance(_pr_t, dict):
+            return _safe_float(_pr_t.get(_f_name))
+      return None
+    if key == "people.total_team_payroll":
+      return _safe_float(fin_d.get("current_payroll"))
+    if key == "people.rest_of_team_payroll_year1":
+      return _safe_float(
+        (shared_d.get("people_capability") or {}).get("rest_of_team_payroll_year1"))
+    if key.startswith("financials."):
+      return _safe_float(fin_d.get(key.split(".", 1)[1]))
+    return None
+
+  _before_val = _target_value_now(next_financials, shared)
+  _val_f = _safe_float(val)
+  if (_before_val is not None and _val_f is not None
+      and abs(_before_val - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
+    # CW-029 rider #4 (Nick-approved): a write that leaves the stored
+    # value unchanged never says "Recorded:" - the Fernhill turn
+    # receipted echo writes of revenue and payroll while the real
+    # problem stood, and false motion reads as change. A no-op is not
+    # a landing; nothing is claimed.
+    return next_financials, shared, ""
   if key.startswith("people."):
     _p, next_financials, shared, _ack = _apply_stage_people_door_keys(
       patch={key: val}, stage_shared_context=shared,
@@ -8127,28 +8156,52 @@ def _apply_forward_move(
     )
     landed = True
   elif key.startswith("ops."):
-    _ops = dict(shared.get("operating_model") or {})
-    _ops_before = copy.deepcopy(_ops)
-    _bf, _ops, _mk, _pp, next_financials, _ff = _apply_scoped_patch(
-      {key: val}, business_facts={}, ops_json=_ops, market_json={},
+    # UNIVERSAL ENGINE phase 1 (the Fernhill persist-seam fix): the
+    # mover operated on a COPY of the shared ops - it applied and
+    # persisted correctly, then a later persist in the same turn
+    # re-wrote ops from the caller's stale reference and the landing
+    # evaporated (three receipted corrections, then the client
+    # capitulated to revenue computed from the stale twin). The live
+    # ops object is mutated THROUGH, so every reference in the turn -
+    # handler scope, shared context, gate readers - sees one truth.
+    _ops_live = shared.get("operating_model")
+    if not isinstance(_ops_live, dict):
+      _ops_live = {}
+      shared["operating_model"] = _ops_live
+    _ops_before = copy.deepcopy(_ops_live)
+    # Capacity writes land on the CANONICAL cell for the row's cadence.
+    if key.split(".", 1)[1] in (
+      "units_per_period_capacity", "units_per_week_capacity",
+    ):
+      _cad0 = ""
+      for _lm0 in _ops_live.get("lob_models") or []:
+        for _pr0 in (_lm0 or {}).get("products") or []:
+          if isinstance(_pr0, dict):
+            _cad0 = str(_pr0.get("unit_cadence") or "")
+            break
+        break
+      key = "ops." + _capacity_canonical_field(_cad0)
+    _bf, _ops_new, _mk, _pp, next_financials, _ff = _apply_scoped_patch(
+      {key: val}, business_facts={}, ops_json=_ops_live, market_json={},
       people_json=dict(shared.get("people_capability") or {}),
       financials_json=next_financials, fulfillment_json={},
     )
     try:
-      _ops = _guard_underivable_ops_lever_writes(
-        ops_before=_ops_before, ops_after=_ops,
+      _ops_new = _guard_underivable_ops_lever_writes(
+        ops_before=_ops_before, ops_after=_ops_new,
         user_message=user_message, last_assistant=last_assistant,
       )
     except Exception:
       pass
-    _sync_capacity_twins(_ops)
-    _sync_ops_flat_mirror(_ops)
-    shared["operating_model"] = _ops
+    _derive_capacity_cells(_ops_new)
+    _sync_ops_flat_mirror(_ops_new)
+    _ops_live.clear()
+    _ops_live.update(_ops_new)
     try:
       append_messages(
         conn,
         draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
-        new_messages=[], operating_model_json=_ops,
+        new_messages=[], operating_model_json=_ops_live,
       )
     except Exception:
       logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
@@ -8163,14 +8216,18 @@ def _apply_forward_move(
     _vf = _safe_float(val) or 0.0
     if _cur_rev > 0 and _vf > 0:
       _ratio = _vf / _cur_rev
-      _ops2 = dict(shared.get("operating_model") or {})
+      # Mutate-through (same persist-seam fix as the ops branch).
+      _ops2 = shared.get("operating_model")
+      if not isinstance(_ops2, dict):
+        _ops2 = {}
+        shared["operating_model"] = _ops2
       for _lm in _ops2.get("lob_models") or []:
         for _pr in (_lm or {}).get("products") or []:
           _u = _safe_float((_pr or {}).get("utilization_rate"))
           if _u and _u > 0:
             _pr["utilization_rate"] = round(min(1.0, max(0.01, _u * _ratio)), 4)
+      _derive_capacity_cells(_ops2)
       _sync_ops_flat_mirror(_ops2)
-      shared["operating_model"] = _ops2
       try:
         append_messages(
           conn,
@@ -8414,13 +8471,43 @@ def _unlanded_figures_disclosure(
             break
         if _ops_l:
           break
+      # CW-029 [87] (Nick-approved rider): "four people x 20 days each,
+      # so the team can put out about 80... That is the capacity
+      # number." The TOTAL is preferred deterministically - a figure
+      # equal to the PRODUCT of two other message figures outranks its
+      # own factors, and a figure adjacent to the client's summary
+      # marker outranks statement order. The old first-figure pick
+      # captured 20.
+      _all_msg_figs = [f for f in _message_figures(_msg) if f > 0]
+      _summary_m = re.search(
+        r"that(?:'s| is) the .{0,24}?number|in total|all together|"
+        r"altogether|comes? (?:out )?to|so the (?:team|shop|crew)",
+        _msg, re.I,
+      )
+
+      def _fig_rank(f: float) -> Tuple[int, int]:
+        _is_product = any(
+          abs(_a * _b - f) <= max(0.01, 0.005 * abs(f))
+          for _i, _a in enumerate(_all_msg_figs)
+          for _b in _all_msg_figs[_i + 1:]
+        )
+        _near_summary = 0
+        if _summary_m:
+          _fd = ("%g" % f)
+          for _fm in re.finditer(re.escape(_fd), _msg):
+            if -20 <= _summary_m.start() - _fm.end() <= 90:
+              _near_summary = 1
+              break
+        return (-int(_is_product), -_near_summary)
+
+      _small_ranked = sorted(_small, key=_fig_rank)
       for _pat, _key, _label in _FIGURE_FIELD_RULES:
         if _key not in ("ops.unit_price", "ops.units_per_period_capacity"):
           continue
         if not re.search(_pat, _msg, re.I):
           continue
         _stored = _safe_float(_ops_l.get(_key.split(".", 1)[1]))
-        for _f in _small:
+        for _f in _small_ranked:
           if _stored and abs(_f - _stored) <= max(0.5, 0.01 * abs(_stored)):
             continue   # restatement of the stored value
           return next_financials, "", {
@@ -12857,35 +12944,95 @@ _RECALC_DERIVED_FINANCIALS_FIELDS = frozenset({
 })
 
 
+# UNIVERSAL ENGINE phase 1: capacity left this list - both capacity
+# fields are now derived by _derive_capacity_cells (canonical-per-
+# cadence), never reconciled-after by the mirror.
 _OPS_FLAT_MIRROR_FIELDS = (
-  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
-  "operating_periods_per_year", "utilization_rate",
+  "unit_price", "operating_periods_per_year", "utilization_rate",
 )
 
 
-def _sync_capacity_twins(ops_json) -> bool:
-  """CW-028 (Nick-ruled, the Alder & Vine loop): capacity twins CANNOT
-  diverge under cadence - a weekly cadence means the period IS the week,
-  so units_per_period_capacity DERIVES from units_per_week_capacity at
-  every canonical pass. The live failure: the client's landed 185/week
-  sat beside a stale period twin of 2, and the drivers-conflict check
-  read the stale side - the app manufactured a contradiction and asked
-  the client to arbitrate it, unwinnably. One authority, derived, at
-  every pass - the same invariant pattern as owner-row and group-row.
+def _capacity_canonical_field(cadence: str) -> str:
+  """UNIVERSAL ENGINE (Nick-ruled): ONE writable capacity cell per
+  cadence. Weekly cadence: the week figure is what the client states -
+  it is canonical and the period twin derives equal (period == week).
+  Every other cadence (monthly/contract/one-time...): the period figure
+  is what the engine consumes - it is canonical and the week figure is
+  a derived display mirror."""
+  return (
+    "units_per_week_capacity"
+    if str(cadence or "").strip().lower() == "weekly"
+    else "units_per_period_capacity"
+  )
+
+
+def _derive_capacity_cells(ops_json) -> bool:
+  """UNIVERSAL ENGINE phase 1 (replaces _sync_capacity_twins, which is
+  DELETED): capacity has ONE canonical cell per cadence and every other
+  representation DERIVES from it on every canonical pass - all
+  products, all cadences. Divergence is unrepresentable at rest.
+
+  CW-029 Fernhill was the proof of need: period=45 sat beside week=80
+  under CONTRACT cadence (the old rule was weekly-only), the conflict
+  check read the stale side, three receipted corrections evaporated,
+  and the client capitulated to a plan built $201k under their own
+  revenue. Under this derivation the twins cannot disagree, whichever
+  one legacy data happens to carry: canonical wins when both exist;
+  a missing canonical ADOPTS from the mirror once, then derives.
+
+  Single-product models also derive the two flat capacity fields from
+  the row here - the flat mirror no longer owns capacity at all.
   Mutates in place; returns True when anything changed."""
   changed = False
   if not isinstance(ops_json, dict):
     return False
-  for _lm in ops_json.get("lob_models") or []:
+  _single_row = None
+  _lms = ops_json.get("lob_models")
+  for _lm in _lms or []:
     for _pr in (_lm or {}).get("products") or []:
       if not isinstance(_pr, dict):
         continue
       _cad = str(_pr.get("unit_cadence") or "").strip().lower()
       _wk = _safe_float(_pr.get("units_per_week_capacity"))
       _per = _safe_float(_pr.get("units_per_period_capacity"))
-      if _cad == "weekly" and _wk is not None and _wk > 0 \
-         and (_per is None or abs(_per - _wk) > 1e-9):
-        _pr["units_per_period_capacity"] = float(_wk)
+      _periods = _safe_float(_pr.get("operating_periods_per_year"))
+      if _cad == "weekly":
+        if _wk is None and _per is not None and _per > 0:
+          _pr["units_per_week_capacity"] = float(_per)   # adopt once
+          _wk = _per
+          changed = True
+        if _wk is not None and _wk > 0 and (
+          _per is None or abs((_per or 0.0) - _wk) > 1e-9
+        ):
+          _pr["units_per_period_capacity"] = float(_wk)
+          changed = True
+      else:
+        if _per is None and _wk is not None and _wk > 0:
+          # Adopt once: legacy rows that only carry the week figure.
+          _adopt = (
+            _wk * 52.0 / _periods if _periods and _periods > 0 else _wk
+          )
+          _pr["units_per_period_capacity"] = round(float(_adopt), 4)
+          _per = _adopt
+          changed = True
+        if _per is not None and _per > 0:
+          _derived_wk = (
+            _per * _periods / 52.0 if _periods and _periods > 0 else _per
+          )
+          if _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
+            1e-9, 0.0005 * abs(_derived_wk)
+          ):
+            _pr["units_per_week_capacity"] = round(float(_derived_wk), 4)
+            changed = True
+  if isinstance(_lms, list) and len(_lms) == 1 and isinstance(_lms[0], dict):
+    _prods = _lms[0].get("products")
+    if isinstance(_prods, list) and len(_prods) == 1 and isinstance(_prods[0], dict):
+      _single_row = _prods[0]
+  if _single_row is not None:
+    for _cf in ("units_per_week_capacity", "units_per_period_capacity"):
+      _rv = _single_row.get(_cf)
+      if _rv is not None and _safe_float(ops_json.get(_cf)) != _safe_float(_rv):
+        ops_json[_cf] = _rv
         changed = True
   return changed
 
@@ -13328,6 +13475,7 @@ def post_intake_consult_handler(*, app, request):
     else:
       financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
     _people_before_recalc = copy.deepcopy(people_json) if isinstance(people_json, dict) else people_json
+    _ops_before_recalc = copy.deepcopy(ops_json) if isinstance(ops_json, dict) else ops_json
     financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
@@ -13350,6 +13498,23 @@ def post_intake_consult_handler(*, app, request):
         logger.exception(
           "PEOPLE_RECALC_PERSIST_FAILED draft=%s - fold/normalization "
           "result may not be durable this turn", draft_id,
+        )
+    # UNIVERSAL ENGINE (Nick-ruled property 3, PERSISTENCE): the engine
+    # persists what it changed, ITSELF - never the callers. The same
+    # rule for OPS: a capacity derivation or mirror heal at the
+    # canonical pass reaches SQL now, not whenever a later ops-carrying
+    # persist happens to run (Sumac and Fernhill both revalued
+    # correctly in memory and drifted at exactly this seam).
+    if isinstance(ops_json, dict) and ops_json != _ops_before_recalc:
+      try:
+        append_messages(
+          conn, draft_id=str(draft_id).strip(), new_messages=[],
+          operating_model_json=ops_json,
+        )
+      except Exception:
+        logger.exception(
+          "OPS_RECALC_PERSIST_FAILED draft=%s - derived capacity may "
+          "not be durable this turn", draft_id,
         )
     shared_context["financials"] = financials_json
     if isinstance(financials_year1_json, dict) and financials_year1_json:

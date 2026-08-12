@@ -2079,9 +2079,23 @@ def gate_and_turn(
       # visible to the client on the second ask, always.
       _sig = f"{round(_stated_anchor)}|{round(_implied)}|{round(_phys_ceiling)}"
       _prev_sig = str(state.get("_anchor_hold_sig") or "")
+      _reps = int(state.get("_anchor_hold_reps") or 0)
       state = dict(state)
       state["_anchor_hold_sig"] = _sig
+      state["_anchor_hold_reps"] = (_reps + 1) if _prev_sig == _sig else 0
       financials_json = put_state(financials_json, state)
+      if _prev_sig == _sig and _reps >= 1:
+        # CW-029 rider #5 (Nick-approved): the operand message itself
+        # can never repeat verbatim either - the SECOND repeat
+        # escalates to the direct set, so the client has a one-line
+        # exit from any residual circle.
+        message = (
+          "Let's cut through this: name the stored number that's wrong "
+          "and the figure it should be - for example 'capacity is 80 a "
+          "month' or 'the price is $2,400' or 'revenue is $1,497,000' - "
+          "and I'll set it everywhere it lives, then re-run the check."
+        )
+        return {"assistant_message": message}, financials_json, ""
       if _prev_sig == _sig:
         _driver_bits = []
         for _lm2 in (ops_json or {}).get("lob_models") or []:
@@ -2110,10 +2124,11 @@ def gate_and_turn(
           "of the drivers (price, capacity, or utilization) out of date?"
         )
       return {"assistant_message": message}, financials_json, ""
-    if state.get("_anchor_hold_sig"):
+    if state.get("_anchor_hold_sig") or state.get("_anchor_hold_reps"):
       # Reconciled: the repeat-signature latch clears with the hold.
       state = dict(state)
       state.pop("_anchor_hold_sig", None)
+      state.pop("_anchor_hold_reps", None)
       financials_json = put_state(financials_json, state)
 
   # CW-022 #4 (Nick-ruled): the price-acceptance clarifier. An accepted

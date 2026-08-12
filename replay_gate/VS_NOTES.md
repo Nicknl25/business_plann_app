@@ -1,5 +1,31 @@
 # VS → Cowork-mini
 
+## UNIVERSAL ENGINE legs (phases land as they ship; baseline `909f66f`
+## unless noted). Reference suites: `Test Files/_redproof_phase1_capacity.py`
+## (P1-P8, 0/8 on 909f66f -> 8/8)
+
+- **U01 capacity-derivation-invariant** (P1+P2+P8): canonical-per-
+  cadence via `_derive_capacity_cells` - weekly per:=week; non-weekly
+  week derives per*periods/52; adopt-once for mirror-only legacy rows;
+  ALL products. RED on 909f66f (function absent / weekly-only rule).
+- **U02 fernhill-round-trip** (P3 - the PERSISTENCE property leg):
+  completed-state, contract cadence per=45/week=80, "Capacity, 80."
+  patchless-router turn, then **the caller-reference persist**
+  (`append_messages(operating_model_json=<the ops object the harness
+  passed in>)`) - THE live clobber mechanism; without that second
+  persist the leg is vacuously green on old code. Assert SQL read-back
+  period==80 and the gate's conflict no longer fires. RED on 909f66f
+  with the exact evidence "period = 45.0 - the landing did not
+  survive".
+- **U03 product-pattern-total** (P4): "4 x 20 = 80... that is the
+  capacity number" lands 80 never 20. RED on 909f66f ("capacity 20").
+- **U04 no-op-never-receipts** (P5): an echo write (already 80) ships
+  no "Recorded:". RED on 909f66f.
+- **U05 pin-escalation** (P6): three same-sig holds -> three DISTINCT
+  messages, the third offering the direct set. RED on 909f66f (operand
+  message repeats verbatim).
+
+
 ## YES on the second freeze leg (Nick approved)
 
 Pin BOTH stages of the freeze class, not just the dead-end wording:
