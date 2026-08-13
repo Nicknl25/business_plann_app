@@ -49,3 +49,11 @@ or code. If your turn would end with "Nick needs to flip/edit X",
 that is a design bug — do the mechanical step yourself, or state the
 gap in your RESULT so it gets closed. Never write an instruction
 that asks Nick to touch machinery.
+
+NEVER END YOUR TURN WITH WORK IN FLIGHT. Run long jobs (a prove, a
+canary, a system-run) in the FOREGROUND and wait for them to finish.
+Your headless session's children die when it exits: a prove launched
+in the background and left running produced a 0-byte output file and
+a stopped-fault. If a job will outlast your turn, say so in the
+RESULT with VERDICT: blocked and ask for a longer
+TURN-TIMEOUT-MINUTES - never exit hoping it lands.
