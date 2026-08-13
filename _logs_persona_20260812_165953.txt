@@ -1,9 +1,0 @@
- * Serving Flask app 'api'
- * Debug mode: off
-2026-08-12 16:59:54.530 INFO api: REQ GET /api/business-types -> 200 157ms draft=-
-2026-08-12 17:00:18.106 INFO api: TURN_BEGIN draft=probe2ec713ce96604be5bb8008d62ca turn=93 starting=False focus=done msg_chars=69
-2026-08-12 17:00:18.693 INFO api: TURN_INTENT draft=probe2ec713ce96604be5bb8008d62ca action=edit_patch patch={'ops.unit_price': 1400, 'ops.lob_models': [{'lob_name': 'Primary line of business', 'products': [{'product_name': 'Average bike sale', 'unit_name': 'Average bike sale', 'unit_description': 'A complete mid-range hybrid or gravel bike sale to a walk-in customer, including any standard accessories or setup typically bundled at purchase.', 'unit_cadence': 'weekly', 'units_per_week_capacity': 10, 'units_per_period_capacity': 10, 'operating_periods_per_year': 52, 'utilization_rate': 0.72, 'unit_price': 1400}, {'product_name': 'Average repair/tune-up job', 'unit_name': 'Average repair/tune-up job', 'unit_description': 'An average repair or tune-up service on a customer’s bike, including typical parts and labor for the kind of jobs you most often do.', 'unit_cadence': 'weekly', 'units_per_week_capacity': 50, 'units_per_period_capacity': 50, 'operating_periods_per_year': 52, 'utilization_rate': 0.85, 'unit_price': 95}]}]}
-2026-08-12 17:00:36.711 INFO api: REQ POST /api/intake-consult -> 200 19219ms draft=probe2ec713ce96604be5bb8008d62ca
-2026-08-12 17:00:36.760 INFO api: TURN_BEGIN draft=probe2ec713ce96604be5bb8008d62ca turn=95 starting=False focus=done msg_chars=51
-2026-08-12 17:00:37.268 INFO api: TURN_INTENT draft=probe2ec713ce96604be5bb8008d62ca action=answer_readonly patch=None
-2026-08-12 17:00:37.678 INFO api: REQ POST /api/intake-consult -> 200 953ms draft=probe2ec713ce96604be5bb8008d62ca

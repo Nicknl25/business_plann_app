@@ -1,9 +1,0 @@
-
-> business-plan-frontend@0.0.1 dev
-> vite --strictPort
-
-
-  VITE v5.4.21  ready in 505 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
