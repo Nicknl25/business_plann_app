@@ -3,6 +3,32 @@
 STATUS: APPROVED by Nick 2026-08-12, with the §9 rulings and one
 addition below. Build follows §8 rollout.
 
+## §0.1 THE INTERFACE CONSTRAINT (Nick, 2026-08-12, non-negotiable)
+
+**Nick's only interface is PLAIN LANGUAGE IN, PING OUT.** He says what
+he wants in normal words; he reads the ping when the loop stops. He
+NEVER edits HANDOFF.md, never flips a STATUS, never touches config,
+scripts, or any machinery. Every mechanical action — seeding the task,
+flipping status, re-arming, un-pausing, git — belongs to VS or the
+watcher. A design that makes him toggle a STATUS line has only moved
+his fiddling from copy-paste to status-editing; that is a design bug,
+not a workflow.
+
+**Rule for every future change:** if ANY step in the flow requires Nick
+to touch HANDOFF/STATUS/config/scripts directly, that step is a bug
+and gets closed.
+
+### Gap audit against the constraint (all closed in this build)
+
+| # | Gap (v1 design assumed "Nick edits the file")        | Closure |
+|---|-------------------------------------------------------|---------|
+| 1 | `awaiting-Nick` idled until Nick flipped STATUS (the "only Nick re-arms" comment) | **INBOX** (`replay_gate/HANDOFF_INBOX.md`): a plain-English line is read by the watcher, which seeds the TASK, resets TURN, flips STATUS, clears the inbox, commits and pushes. Consumed exactly once. Nick may also just say it in chat and VS does the same — shape 1 and shape 2 both live. |
+| 2 | §2 transition table said "NICK-ONLY, by editing the file" | Rewritten: **Nick's WORDS** drive the transition; the watcher (inbox) or VS (chat) performs it. |
+| 3 | PAUSE required Nick to create/delete a sentinel file | An inbox instruction **lifts PAUSE automatically** (his words are the un-pause) and VS sets/clears the sentinel on his say-so. A stale line cannot resume a paused loop later — the inbox is cleared in the same commit that consumes it. |
+| 4 | §9.2 "cap tunable in config" implied Nick editing JSON | Config is VS-owned; Nick asks for a different ceiling in words. |
+| 5 | Stop pings said what happened but not how to continue | Every ping now appends: *say what you want in plain English; VS or the watcher does every mechanical step.* |
+| 6 | Agent binary was assumed on PATH (`claude`) — a missing CLI would have made Nick fix machinery | `resolve_agent_binary`: explicit config → PATH → newest VS Code extension native binary. Self-healing across extension updates. |
+
 ## §9 RULINGS (Nick, 2026-08-12)
 
 1. **DRIFT force-stops, HARDER than green.** DRIFT means a
@@ -117,8 +143,11 @@ Transitions:
   to awaiting-Nick — green never self-continues).
 - `any -> stopped-stuck / stopped-cap / stopped-fault` — watcher-only.
 - `awaiting-Nick / stopped-* -> awaiting-VS | awaiting-mini` —
-  NICK-ONLY, by editing the file (his edit + commit re-arms the
-  loop and resets TURN to 1 if he writes `TURN: reset`).
+  driven by NICK'S WORDS, performed by the machinery (§0.1): the
+  watcher consumes a plain-English line from
+  `replay_gate/HANDOFF_INBOX.md` (seeds TASK, resets TURN, flips
+  STATUS, clears the inbox, commits+pushes), or VS performs the
+  same flip when Nick says it in chat. Nick never edits the file.
 
 Only agents and Nick flip between awaiting-VS/awaiting-mini. Only
 the watcher writes stopped-*. Only Nick leaves awaiting-Nick.

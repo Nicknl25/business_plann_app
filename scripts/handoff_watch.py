@@ -29,6 +29,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 HANDOFF = REPO / "replay_gate" / "HANDOFF.md"
+INBOX = REPO / "replay_gate" / "HANDOFF_INBOX.md"
 PAUSE_SENTINEL = REPO / "replay_gate" / "HANDOFF_PAUSE"
 CONFIG_PATH = REPO / "replay_gate" / "handoff_config.json"
 STATE_DIR = REPO / "_handoff"
@@ -119,8 +120,34 @@ def push_with_retries(branch: str, retries: int = 3) -> str:
 
 
 # ----------------------------------------------------------- handoff
+_DRIFT_TOKEN = re.compile(r"(?<![A-Za-z])drift(?![A-Za-z])", re.I)
+# Zero-counts are benign: an honest "0 DRIFT" summary line must not stop the
+# loop every turn. Everything else that says DRIFT is treated as DRIFT.
+_DRIFT_BENIGN = re.compile(
+    r"(?:(?:^|[^\w])(?:0|no|zero|none|without)\s+drift)"
+    r"|(?:drift\s*[:=]\s*0(?!\d))"
+    r"|(?:drift-free)",
+    re.I,
+)
+
+
+def result_mentions_drift(block: str) -> bool:
+    """F2 backstop (mini's audit): a DRIFT row anywhere in the RESULT block
+    outranks the VERDICT line — the same defense-in-depth as stop-on-green's
+    two layers. A self-mislabelled table (DRIFT rows, VERDICT: progress) must
+    not launch the next turn."""
+    if not _DRIFT_TOKEN.search(block):
+        return False
+    return bool(_DRIFT_TOKEN.search(_DRIFT_BENIGN.sub(" ", block)))
+
+
 def parse_handoff() -> dict:
-    """Strict parse; raises ValueError on malformed (watcher never guesses)."""
+    """Strict parse; raises ValueError on malformed (watcher never guesses).
+
+    FAILS CLOSED on an unknown VERDICT (F1, mini's blocker): a typo'd
+    'gren'/'drifted' used to fall past every stop branch and behave like
+    progress — a one-character slip would run unattended past a clean table.
+    An unrecognized verdict is now a stopped-fault, never a continue."""
     text = HANDOFF.read_text(encoding="utf-8")
     lines = text.splitlines()
     if not lines or not lines[0].startswith("STATUS:"):
@@ -138,16 +165,99 @@ def parse_handoff() -> dict:
         return matches[-1].strip() if matches else ""
 
     timeout_line = _field("TURN-TIMEOUT-MINUTES")
+    verdict = _field("VERDICT").strip().lower()
+    if verdict and verdict not in VALID_VERDICTS:
+        # F1 FAIL CLOSED: an unrecognized verdict is a fault, never a
+        # continue. 'gren' must not behave like progress.
+        raise ValueError(
+            f"unknown VERDICT {verdict!r} (valid: {sorted(VALID_VERDICTS)}) — "
+            "failing closed rather than continuing"
+        )
+    effective = verdict
+    if verdict != "drift" and result_mentions_drift(result_block(text)):
+        effective = "drift"  # F2 backstop: the table outranks the label
     return {
         "status": status,
         "turn": turn,
         "cap": cap,
         "agent": _field("AGENT"),
-        "verdict": _field("VERDICT").lower(),
+        "verdict": effective,
+        "declared_verdict": verdict,
         "signature": _field("ERROR-SIGNATURE"),
         "turn_timeout_minutes": int(timeout_line) if timeout_line.isdigit() else None,
         "raw": text,
     }
+
+
+INBOX_TEMPLATE = """# HANDOFF INBOX — plain English only.
+# Nick writes what he wants in normal words (e.g. "go", "run the R32 cycle",
+# "re-run the prove and have mini audit it"). The WATCHER seeds the task and
+# flips STATUS itself. Nick never edits HANDOFF.md, STATUS, config, or code.
+# Prefix a line with "mini:" to address mini instead of VS.
+"""
+
+
+def read_inbox() -> str:
+    """Nick's plain-English instruction, if any. Comments and blanks ignored."""
+    if not INBOX.exists():
+        return ""
+    body = [
+        line for line in INBOX.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    return "\n".join(body).strip()
+
+
+def consume_inbox(text: str, branch: str) -> None:
+    """THE RE-ARM PATH THAT NEVER TOUCHES NICK: an English line becomes the
+    TASK block, the TURN counter resets, PAUSE lifts, STATUS flips — all
+    watcher-side. Consumed exactly once (the inbox is cleared in the same
+    commit), so a stale line can never silently resume a paused loop later."""
+    target = "awaiting-mini" if text.lower().startswith("mini:") else "awaiting-VS"
+    task = text.split(":", 1)[1].strip() if text.lower().startswith("mini:") else text
+    raw = HANDOFF.read_text(encoding="utf-8")
+    seeded = re.sub(
+        r"(?ms)^TASK:\n.*?(?=^RESULT:)",
+        "TASK:\n" + "\n".join(f"  {ln}" for ln in task.splitlines()) + "\n",
+        raw, count=1,
+    )
+    lines = seeded.splitlines()
+    lines[0] = f"STATUS: {target}"
+    seeded = re.sub(r"^TURN:\s*\d+\s*/", "TURN: 0/", "\n".join(lines), count=1, flags=re.M) + "\n"
+    HANDOFF.write_text(seeded, encoding="utf-8")
+    INBOX.write_text(INBOX_TEMPLATE, encoding="utf-8")
+    if PAUSE_SENTINEL.exists():
+        PAUSE_SENTINEL.unlink()
+        log("PAUSE lifted by an inbox instruction (Nick's words are the un-pause)")
+    git("add", "-A", "--", str(HANDOFF.relative_to(REPO)), str(INBOX.relative_to(REPO)),
+        str(PAUSE_SENTINEL.relative_to(REPO)))
+    got = git("commit", "-m", f"[handoff-watcher] seed from inbox -> {target}", check=False)
+    if got.returncode != 0 and "nothing to commit" not in (got.stdout + got.stderr):
+        raise RuntimeError(f"inbox seed commit failed: {got.stderr[:300]}")
+    fault = push_with_retries(branch)
+    if fault:
+        raise RuntimeError(f"inbox seed push failed: {fault}")
+    log(f"inbox consumed -> {target}: {task[:120]}")
+
+
+def resolve_agent_binary(cfg: dict) -> str:
+    """Find the claude CLI without Nick ever configuring anything: explicit
+    config path -> PATH -> the VS Code extension's native binary (newest
+    version dir, so an extension update cannot break the loop)."""
+    explicit = str(cfg.get("agent_binary") or "").strip()
+    if explicit and explicit.lower() != "auto" and Path(explicit).exists():
+        return explicit
+    from shutil import which
+    found = which("claude")
+    if found:
+        return found
+    ext_root = Path(os.environ.get("USERPROFILE", "")) / ".vscode" / "extensions"
+    cands = sorted(ext_root.glob("anthropic.claude-code-*/resources/native-binary/claude.exe"))
+    if cands:
+        return str(cands[-1])
+    raise RuntimeError(
+        "cannot resolve the claude CLI — set agent_binary in replay_gate/handoff_config.json"
+    )
 
 
 def write_status(new_status: str, *, reason: str, branch: str, bump_turn: int | None = None) -> None:
@@ -170,6 +280,14 @@ def write_status(new_status: str, *, reason: str, branch: str, bump_turn: int | 
 
 # -------------------------------------------------------------- ping
 def ping(subject: str, body: str, state: dict) -> None:
+    # Nick's interface is English in / ping out — so the ping itself says how
+    # to continue, and it is never "edit this file".
+    body = body.rstrip() + (
+        "\n\n---\nTo continue: just say what you want in plain English "
+        "('go', 're-run it', 'have mini audit that'). VS or the watcher does "
+        "every mechanical step — you never edit HANDOFF.md, STATUS, config, "
+        "or code."
+    )
     key = f"{subject}|{git('rev-parse', 'HEAD').stdout.strip()}"
     if state.get("last_ping") == key:
         return  # one ping per stop per ref — never loop-ping
@@ -203,19 +321,29 @@ def result_block(raw: str) -> str:
 
 # ------------------------------------------------------------- agent
 def pid_alive(pid_file: Path) -> bool:
+    """FAIL CLOSED (mini's latent finding): if we cannot tell whether the
+    process is alive, assume it IS. An unknown-state agent must never be
+    raced by a second launch, and an unknown-state watcher must never be
+    duplicated. The old catch-all returned False, so a broken process table
+    would have opened BOTH guards at once."""
     if not pid_file.exists():
         return False
     try:
         pid = int(pid_file.read_text().strip())
-    except Exception:
-        return False
+    except Exception as exc:
+        log(f"pid file {pid_file.name} unreadable ({exc}) — assuming ALIVE "
+            "(fail closed); delete it if you know the process is gone")
+        return True
     try:
         out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True,
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True, text=True, timeout=30,
         ).stdout
         return str(pid) in out
-    except Exception:
-        return False
+    except Exception as exc:
+        log(f"cannot query the process table ({type(exc).__name__}: {exc}) — "
+            f"assuming pid {pid} ALIVE (fail closed)")
+        return True
 
 
 def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path]:
@@ -225,8 +353,9 @@ def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logfile = LOG_DIR / f"{stamp}-{agent}.txt"
-    template = cfg.get("agent_command", ["claude", "-p", "{prompt}", "--dangerously-skip-permissions"])
-    cmd = [part.replace("{prompt}", prompt) for part in template]
+    template = cfg.get("agent_command", ["{binary}", "-p", "{prompt}", "--dangerously-skip-permissions"])
+    binary = resolve_agent_binary(cfg) if any("{binary}" in part for part in template) else ""
+    cmd = [part.replace("{binary}", binary).replace("{prompt}", prompt) for part in template]
     log(f"LAUNCH {agent} (timeout {timeout_minutes}m) -> {logfile.name}")
     with open(logfile, "w", encoding="utf-8") as out:
         child = subprocess.Popen(cmd, cwd=str(REPO), stdout=out, stderr=subprocess.STDOUT, shell=False)
@@ -254,15 +383,22 @@ def stop(new_status: str, reason: str, subject: str, body: str, cfg: dict, state
 def one_cycle(cfg: dict, state: dict) -> bool:
     """Returns True to keep looping, False when idling on a stop state."""
     branch = cfg["branch"]
+    inbox = read_inbox()
+    # F3 (mini's audit): the PAUSE brake is checked BEFORE any git action. A
+    # paused watcher with a diverged HEAD used to still commit and push a
+    # stopped-fault — pause must halt everything, not just launches. An
+    # inbox instruction outranks pause: Nick's words ARE the un-pause.
+    if PAUSE_SENTINEL.exists() and not inbox:
+        log("PAUSED (sentinel present) — idling at turn boundary, no git action")
+        return False
+    if inbox:
+        consume_inbox(inbox, branch)
+        return True
     fault = git_sync(branch)
     if fault:
         h = parse_handoff()
         stop("stopped-fault", f"git fault: {fault}",
              f"git fault ({fault})", f"git_sync fault: {fault}\n\n{result_block(h['raw'])}", cfg, state)
-        return False
-    # PAUSE brake — Nick's manual emergency brake, checked before EVERY launch.
-    if PAUSE_SENTINEL.exists():
-        log("PAUSED (sentinel present) — idling at turn boundary")
         return False
     try:
         h = parse_handoff()

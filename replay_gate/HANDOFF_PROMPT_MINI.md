@@ -36,3 +36,10 @@ THE TURN CONTRACT — follow exactly:
    push origin immediately. Push failures: retry up to 3 times, then
    leave the flip committed locally and exit nonzero — the watcher
    handles it.
+
+NICK'S INTERFACE (non-negotiable, spec SS0.1): Nick speaks PLAIN
+ENGLISH and reads pings. He NEVER edits HANDOFF.md, STATUS, config,
+or code. If your turn would end with "Nick needs to flip/edit X",
+that is a design bug — do the mechanical step yourself, or state the
+gap in your RESULT so it gets closed. Never write an instruction
+that asks Nick to touch machinery.

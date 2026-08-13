@@ -4,5 +4,6 @@
   "default_turn_timeout_minutes": 180,
   "branch": "intake-stable",
   "push_retries": 3,
-  "agent_command": ["claude", "-p", "{prompt}", "--dangerously-skip-permissions"]
+  "agent_binary": "auto",
+  "agent_command": ["{binary}", "-p", "{prompt}", "--dangerously-skip-permissions"]
 }
