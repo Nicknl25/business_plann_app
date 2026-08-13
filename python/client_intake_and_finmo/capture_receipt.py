@@ -87,6 +87,37 @@ def _numeric_leaves(obj: Any, prefix: str) -> Dict[str, float]:
   return out
 
 
+_NAME_KEYS = ("product_name", "lob_name", "role", "title", "name")
+
+
+def _names_by_prefix(obj: Any, prefix: str) -> Dict[str, str]:
+  """Every named node in a JSON-ish structure, keyed by its dotted path.
+
+  CW-031 item 6/7: a multi-line business writes the SAME leaf on several
+  product rows in one turn, and the receipt rendered each of them with the
+  same words - "weekly capacity -> 420; weekly capacity -> 420; weekly
+  capacity -> 420 (and 1 more)". The paths differed all along; only the
+  rendering collapsed them. This map is what lets a repeated label say which
+  line it belongs to.
+  """
+  out: Dict[str, str] = {}
+  if isinstance(obj, dict):
+    for key in _NAME_KEYS:
+      value = obj.get(key)
+      if isinstance(value, str) and value.strip():
+        out[prefix] = value.strip()
+        break
+    for key, value in obj.items():
+      name = str(key)
+      if name.startswith("_"):
+        continue
+      out.update(_names_by_prefix(value, f"{prefix}.{name}" if prefix else name))
+  elif isinstance(obj, list):
+    for index, item in enumerate(obj):
+      out.update(_names_by_prefix(item, f"{prefix}[{index}]"))
+  return out
+
+
 def numeric_receipt(
   *,
   before: Dict[str, Any],
@@ -148,11 +179,17 @@ def numeric_receipt(
     for path, value in after_leaves.items()
     if path.rsplit(".", 1)[-1] == "operating_periods_per_year"
   }
+  names_by_prefix: Dict[str, str] = {}
+  for domain in after:
+    names_by_prefix.update(
+      _names_by_prefix((after or {}).get(domain) or {}, domain)
+    )
   return {
     "written": written,
     "dropped": dropped,
     "clarify": clarify_pending or None,
     "periods_by_prefix": periods_by_prefix,
+    "names_by_prefix": names_by_prefix,
   }
 
 
@@ -201,10 +238,17 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
   # just corrected. Label from periods; static label only when the
   # cadence is not in this receipt.
   _leaf_raw = path.rsplit(".", 1)[-1]
-  if _leaf_raw in ("units_per_week_capacity", "units_per_period_capacity") and periods_by_prefix:
-    _cadence = _CADENCE_LABELS.get(periods_by_prefix.get(path.rsplit(".", 1)[0]) or 0.0)
+  if _leaf_raw in ("units_per_week_capacity", "units_per_period_capacity"):
+    _cadence = _CADENCE_LABELS.get(
+      (periods_by_prefix or {}).get(path.rsplit(".", 1)[0]) or 0.0
+    )
     if _cadence:
       label = f"{_cadence} capacity"
+    elif _leaf_raw == "units_per_period_capacity":
+      # CW-031 item 8: units_per_period_capacity is per WHATEVER period this
+      # product runs on. With no cadence in the receipt, the static label
+      # asserted "weekly" over a monthly unit. Say what is known instead.
+      label = "capacity"
   leaf_name = base.rsplit(".", 1)[-1]
   if 0 < abs(value) < 1 and ("rate" in base or "percent" in base or "share" in base):
     rendered = f"{value * 100:.1f}%"
@@ -237,9 +281,39 @@ def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:
   for w in written:
     if w[0].rsplit(".", 1)[-1] == "operating_periods_per_year":
       periods_by_prefix[w[0].rsplit(".", 1)[0]] = float(w[2])
-  parts = [_fmt(path, new, periods_by_prefix) for path, _old, new in show[:limit]]
-  extra = len(show) - limit
-  text = "; ".join(parts)
+  names_by_prefix = dict((receipt or {}).get("names_by_prefix") or {})
+
+  # CW-031 items 6 and 7. Rendering ran per path and never looked across the
+  # line, so one turn touching four product rows produced four identical
+  # phrases ("weekly capacity -> 420" x4, "utilization -> 62.0%" x3) and a
+  # single row written twice produced the doubled line ("weekly capacity ->
+  # 180; weekly capacity -> 180"). Both are rendering faults, not write
+  # faults: identical phrasing collapses distinct rows, so name the row when
+  # its phrase would otherwise repeat, and say a thing once when it is the
+  # same thing.
+  rendered = [
+    (path, _fmt(path, new, periods_by_prefix)) for path, _old, new in show
+  ]
+  # Keyed on the LABEL, not the whole phrase: four lines reporting four
+  # different capacities still read as one anonymous list of numbers unless
+  # each says whose capacity it is.
+  counts: Dict[str, int] = {}
+  for _path, text_part in rendered:
+    label_only = text_part.split(" → ")[0]
+    counts[label_only] = counts.get(label_only, 0) + 1
+  qualified: List[str] = []
+  seen: set = set()
+  for path, text_part in rendered:
+    if counts.get(text_part.split(" → ")[0], 0) > 1:
+      owner = names_by_prefix.get(path.rsplit(".", 1)[0])
+      if owner:
+        text_part = f"{owner}: {text_part}"
+    if text_part in seen:
+      continue
+    seen.add(text_part)
+    qualified.append(text_part)
+  text = "; ".join(qualified[:limit])
+  extra = len(qualified) - limit
   if extra > 0:
     text += f" (and {extra} more)"
   return text

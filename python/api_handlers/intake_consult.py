@@ -3272,8 +3272,13 @@ def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
       f"{lines_block}\n"
       f"Together that blends to about {_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of total revenue, "
       f"around {_format_currency(cogs_baseline.get('baseline_cogs'))} a year.\n\n"
-      "Do those match your actual costs per line? Correct either one on its own - or if the costs "
-      "really run about the same across lines, say so and I'll treat them as one."
+      # CW-031 item 9 (same asymmetry, the COGS surface's own copy): the old
+      # wording said "correct either one" on a business with four lines and
+      # offered only the collapse. Both directions are the client's to choose,
+      # and they are the authority on how many distinct rates exist.
+      "Do those match your actual costs per line? Correct any of them on their own, "
+      "tell me if some of those lines share one cost structure, or say if a line needs "
+      "splitting further - you know how many genuinely different cost rates you have."
     )
   # Nick-ruled #2: the proposal speaks in the fitted RANGE when one
   # exists - a range invites correction; a flat fact invites silent
