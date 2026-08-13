@@ -434,6 +434,17 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     if inbox:
         consume_inbox(inbox, branch)
         return True
+    # HANDS OFF WHILE AN AGENT OWNS THE TREE: if a child is alive (this
+    # watcher's or one inherited from a previous watcher process), do NO git
+    # work at all. The blocking child.wait() used to guarantee this
+    # implicitly; the polling loop must guarantee it explicitly.
+    if pid_alive(AGENT_PID):
+        try:
+            pid_txt = AGENT_PID.read_text(encoding="utf-8").strip()
+        except Exception:
+            pid_txt = "?"
+        log(f"... agent turn in flight (pid {pid_txt}) — watcher hands off the tree")
+        return False
     fault = git_sync(branch)
     if fault:
         h = parse_handoff()
