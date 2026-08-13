@@ -1,0 +1,88 @@
+
+=== Scenario: Brewery_CedarHops (baseline=blank_business) ===
+  Applied 82 row(s) from sheet (79 edits vs baseline).
+    - draft.business_name: 'New Business' -> 'Cedar & Hops Brewing Co.'
+    - draft.business_address: '100 Main St, Springfield, IL 62701, USA' -> '820 Alder St, Portland, OR 97205, USA'
+    - draft.address_street: '100 Main St' -> '820 Alder St'
+    - draft.address_city: 'Springfield' -> 'Portland'
+    - draft.address_state: 'IL' -> 'OR'
+    - draft.address_zip: '62701' -> '97205'
+    - draft.business_start_date: '01/01/2024' -> '05/01/2023'
+    - operating_model_json.business_naics_6: '000000' -> '312120'
+    - operating_model_json.business_type: '<your business type>' -> 'Craft brewery and taproom'
+    - operating_model_json.business_description_summary: '<one-line description of what you sell>' -> 'Craft brewery selling taproom pints, packaged six-packs, and merch.'
+    - operating_model_json.competitive_advantage: '<why you win>' -> 'Award-winning hazy IPAs and a destination taproom.'
+    - operating_model_json.geographic_coverage: '<your market area>' -> 'Portland metro'
+    - operating_model_json.primary_growth_lever: '<main growth lever>' -> 'distribution_expansion'
+    - operating_model_json.capacity_driver: 'labor' -> 'facility'
+    - operating_model_json.lob_models[0].lob_name: 'Line of business A' -> 'Taproom'
+    - operating_model_json.lob_models[0].products[0].product_name: 'Product / service A' -> 'Taproom pint'
+    - operating_model_json.lob_models[0].products[0].units_per_week_capacity: 200.0 -> 2100.0
+    - operating_model_json.lob_models[0].products[0].units_per_period_capacity: 2400.0 -> 9000.0
+    - operating_model_json.lob_models[0].products[0].utilization_rate: 0.6 -> 0.65
+    - operating_model_json.lob_models[0].products[0].unit_price: 100.0 -> 7.0
+    - operating_model_json.lob_models[1].lob_name: None -> 'Packaged Beer'
+    - operating_model_json.lob_models[1].products[0].product_name: None -> 'Six-pack'
+    - operating_model_json.lob_models[1].products[0].unit_cadence: None -> 'monthly'
+    - operating_model_json.lob_models[1].products[0].units_per_week_capacity: None -> 810.0
+    - operating_model_json.lob_models[1].products[0].units_per_period_capacity: None -> 3500.0
+    - operating_model_json.lob_models[1].products[0].operating_periods_per_year: None -> 12.0
+    - operating_model_json.lob_models[1].products[0].utilization_rate: None -> 0.6
+    - operating_model_json.lob_models[1].products[0].unit_price: None -> 12.0
+    - operating_model_json.lob_models[2].lob_name: None -> 'Merchandise'
+    - operating_model_json.lob_models[2].products[0].product_name: None -> 'Merch item'
+    - operating_model_json.lob_models[2].products[0].unit_cadence: None -> 'monthly'
+    - operating_model_json.lob_models[2].products[0].units_per_week_capacity: None -> 95.0
+    - operating_model_json.lob_models[2].products[0].units_per_period_capacity: None -> 400.0
+    - operating_model_json.lob_models[2].products[0].operating_periods_per_year: None -> 12.0
+    - operating_model_json.lob_models[2].products[0].utilization_rate: None -> 0.5
+    - operating_model_json.lob_models[2].products[0].unit_price: None -> 22.0
+    - people_json.people[0].full_name: '<founder name>' -> 'Casey Rivera'
+    - people_json.people[0].role_title: 'Owner / Operator' -> 'Owner / Head Brewer'
+    - people_json.people[0].primary_responsibilities: '<what they do day to day>' -> 'Brewing, recipe design, and overall operations.'
+    - people_json.people[0].relevant_background: '<relevant experience>' -> '11 years brewing at two regional craft breweries.'
+    - people_json.people[0].experience_years: '5' -> '11'
+    - people_json.people[0].why_strengthens_business: '<why they make this business work>' -> 'Award-winning brewer who defines the product.'
+    - people_json.people[0].paragraph: '<short bio>' -> 'Casey leads brewing and the business.'
+    - people_json.people[0].annual_wage: 60000.0 -> 78000.0
+    - people_json.people[1].full_name: None -> 'Jordan Lee'
+    - people_json.people[1].role_title: None -> 'Taproom Manager'
+    - people_json.people[1].primary_responsibilities: None -> 'Runs the taproom, events, and front-of-house.'
+    - people_json.people[1].relevant_background: None -> '7 years hospitality management.'
+    - people_json.people[1].experience_years: None -> 7.0
+    - people_json.people[1].why_strengthens_business: None -> 'Drives the taproom experience and repeat visits.'
+    - people_json.people[1].paragraph: None -> 'Jordan Lee supports the team.'
+    - people_json.people[1].annual_wage: None -> 52000.0
+    - people_json.people[1].wage_source: None -> 'client_override'
+    - people_json.people[1].months_until_hire: None -> 0.0
+    - people_json.people[2].full_name: None -> 'Alex Kim'
+    - people_json.people[2].role_title: None -> 'Brewer'
+    - people_json.people[2].primary_responsibilities: None -> 'Assists brewing, packaging, and QA.'
+    - people_json.people[2].relevant_background: None -> '4 years production brewing.'
+    - people_json.people[2].experience_years: None -> 4.0
+    - people_json.people[2].why_strengthens_business: None -> 'Keeps production consistent and scaling.'
+    - people_json.people[2].paragraph: None -> 'Alex Kim supports the team.'
+    - people_json.people[2].annual_wage: None -> 46000.0
+    - people_json.people[2].wage_source: None -> 'client_override'
+    - people_json.people[2].months_until_hire: None -> 2.0
+    - people_json.people[3].full_name: None -> 'Sam Diaz'
+    - people_json.people[3].role_title: None -> 'Taproom Associate'
+    - people_json.people[3].primary_responsibilities: None -> 'Pours, sales, and customer service.'
+    - people_json.people[3].relevant_background: None -> '3 years service industry.'
+    - people_json.people[3].experience_years: None -> 3.0
+    - people_json.people[3].why_strengthens_business: None -> 'Front-line of the customer experience.'
+    - people_json.people[3].paragraph: None -> 'Sam Diaz supports the team.'
+    - people_json.people[3].annual_wage: None -> 34000.0
+    - people_json.people[3].wage_source: None -> 'client_override'
+    - people_json.people[3].months_until_hire: None -> 0.0
+    - financials_json.cogs_percent_of_revenue: 0.3 -> 0.38
+    - financials_json.payroll_total_year1: 60000 -> 180000
+    - financials_json.current_revenue: 300000 -> 846000
+    - financials_json.cash_on_hand: 50000 -> 120000
+    - target_market_json.marketing_plan_summary: '<how you reach customers>' -> 'Local taproom traffic + regional distribution to bottle shops and restaurants.'
+  SCENARIO INVALID -- 1 problem(s); NOT written to SQL:
+    - contract check could not run: ModuleNotFoundError: No module named 'client_intake_and_finmo'
+  ERROR in scenario 'Brewery_CedarHops': Scenario 'Brewery_CedarHops' failed harness validation (1 problem(s)); fix the sheet and re-run.
+
+=== Summary ===
+  Brewery_CedarHops            error

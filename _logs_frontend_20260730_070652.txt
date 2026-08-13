@@ -1,0 +1,10 @@
+
+> business-plan-frontend@0.0.1 dev
+> vite
+
+Port 5173 is in use, trying another one...
+
+  VITE v5.4.21  ready in 511 ms
+
+  ➜  Local:   http://localhost:5174/
+  ➜  Network: use --host to expose

@@ -1,0 +1,90 @@
+
+=== Scenario: Blueprint_Ledger_Advisory (baseline=blank_business) ===
+  Applied 95 row(s) from sheet (79 edits vs baseline).
+    - draft.business_name: 'New Business' -> 'Blueprint & Ledger Advisory, LLC'
+    - draft.business_address: '100 Main St, Springfield, IL 62701, USA' -> '915 Congress Ave, Suite 200, Austin, TX 78701, USA'
+    - draft.address_street: '100 Main St' -> '915 Congress Ave, Suite 200'
+    - draft.address_city: 'Springfield' -> 'Austin'
+    - draft.address_state: 'IL' -> 'TX'
+    - draft.address_zip: '62701' -> '78701'
+    - draft.business_start_date: '01/01/2024' -> '09/01/2024'
+    - operating_model_json.consumer_type: 'b2c' -> 'b2b'
+    - operating_model_json.business_type: '<your business type>' -> 'Business plan writing and financial modeling consultancy'
+    - operating_model_json.business_description_summary: '<one-line description of what you sell>' -> 'Early-stage consultancy that produces investor- and lender-ready business plans for entrepreneurs and small businesses. Proprietary software drafts each plan; both the owner and the analyst review every draft before it is delivered, with a guaranteed 3-day turnaround. Two products: a written business plan document at $999, and the same plan paired with a built-out Excel financial model at $1,500. Delivered digitally, nationwide.'
+    - operating_model_json.competitive_advantage: '<why you win>' -> 'Proprietary plan-generation software does the heavy drafting, so a two-person team delivers a consistent, professional, investor-ready product in 3 days at a fraction of the cost and turnaround of traditional consultants. Human review by both team members on every plan keeps quality high while software keeps throughput and margin high.'
+    - operating_model_json.geographic_scope: 'local' -> 'national'
+    - operating_model_json.geographic_coverage: '<your market area>' -> 'United States, delivered remotely'
+    - operating_model_json.primary_growth_lever: '<main growth lever>' -> 'plan_throughput'
+    - operating_model_json.business_naics_6: '000000' -> '541611'
+    - operating_model_json.unit_name: None -> 'business plan document'
+    - operating_model_json.unit_price: None -> 999.0
+    - operating_model_json.units_per_week_capacity: None -> 4.6
+    - operating_model_json.units_per_period_capacity: None -> 20.0
+    - operating_model_json.utilization_rate: None -> 0.4
+    - operating_model_json.initial_assets: 100000 -> 40000
+    - operating_model_json.initial_equity: 80000 -> 40000
+    - operating_model_json.initial_lease: 0 -> '0,none'
+    - operating_model_json.lob_models[0].lob_name: 'Line of business A' -> 'Business Plan Services'
+    - operating_model_json.lob_models[0].products[0].product_name: 'Product / service A' -> 'Business Plan Document'
+    - operating_model_json.lob_models[0].products[0].unit_name: 'Product / service A' -> 'business plan document'
+    - operating_model_json.lob_models[0].products[0].unit_description: 'Product / service A' -> 'one professionally written, software-drafted business plan document, reviewed by both team members before delivery'
+    - operating_model_json.lob_models[0].products[0].units_per_week_capacity: 200.0 -> 4.6
+    - operating_model_json.lob_models[0].products[0].units_per_period_capacity: 2400.0 -> 20.0
+    - operating_model_json.lob_models[0].products[0].utilization_rate: 0.6 -> 0.4
+    - operating_model_json.lob_models[0].products[0].unit_price: 100.0 -> 999.0
+    - operating_model_json.lob_models[0].products[1].product_name: None -> 'Business Plan + Financial Model'
+    - operating_model_json.lob_models[0].products[1].unit_name: None -> 'business plan with Excel financial model'
+    - operating_model_json.lob_models[0].products[1].unit_description: None -> 'one business plan document paired with a built-out Excel financial model (projections, assumptions, and statements), reviewed by both team members before delivery'
+    - operating_model_json.lob_models[0].products[1].unit_cadence: None -> 'monthly'
+    - operating_model_json.lob_models[0].products[1].units_per_week_capacity: None -> 3.5
+    - operating_model_json.lob_models[0].products[1].units_per_period_capacity: None -> 15.0
+    - operating_model_json.lob_models[0].products[1].operating_periods_per_year: None -> 12.0
+    - operating_model_json.lob_models[0].products[1].utilization_rate: None -> 0.4
+    - operating_model_json.lob_models[0].products[1].unit_price: None -> 1500.0
+    - operating_model_json.shipping_method: 'none' -> 'none - delivered digitally as PDF and Excel files'
+    - operating_model_json.sales_modality: 'in_person' -> 'online'
+    - operating_model_json.confidence: 0.7 -> 0.8
+    - target_market_json.consumer_type: 'b2c' -> 'b2b'
+    - target_market_json.marketing_plan_summary: '<how you reach customers>' -> 'Reaches early-stage founders and small-business owners who need an investor- or lender-ready plan fast. Acquisition via Google Search (SBA loan / business plan intent keywords), partnerships with SBDCs, SCORE chapters, business bankers and incubators who refer clients, and content marketing on fundraising and SBA loan readiness. The $1,500 plan-plus-model tier is positioned to clients raising capital or applying for financing.'
+    - target_market_json.confidence: 0.7 -> 0.72
+    - people_json.business_naics_6: '000000' -> '541611'
+    - people_json.confidence: 0.7 -> 0.85
+    - people_json.inferred_roles_summary: '' -> 'Two-person startup: the founder runs the software and gives final review and sales; the analyst reviews drafts and builds the Excel financial models. Both review every plan before it ships.'
+    - people_json.people[0].full_name: '<founder name>' -> 'Nathan Cole'
+    - people_json.people[0].role_title: 'Owner / Operator' -> 'Owner / Founder'
+    - people_json.people[0].primary_responsibilities: '<what they do day to day>' -> 'Runs the proprietary plan-generation software, gives final review on every plan, handles sales and client intake, and sets pricing and product direction.'
+    - people_json.people[0].relevant_background: '<relevant experience>' -> '10 years in small-business consulting and SBA lending; built the plan-generation software.'
+    - people_json.people[0].experience_years: '5' -> '10'
+    - people_json.people[0].why_strengthens_business: '<why they make this business work>' -> 'Founder who built the software and reviews every deliverable, keeping quality and turnaround under his control.'
+    - people_json.people[0].paragraph: '<short bio>' -> 'Nathan runs the software, closes the sales, and signs off on every plan before it goes out.'
+    - people_json.people[0].annual_wage: 60000.0 -> 70000.0
+    - people_json.people[1].full_name: None -> 'Sofia Marin'
+    - people_json.people[1].role_title: None -> 'Business Plan Analyst'
+    - people_json.people[1].primary_responsibilities: None -> 'Reviews software-drafted plans for accuracy and tone and builds and stress-tests the Excel financial models for the premium tier.'
+    - people_json.people[1].relevant_background: None -> '5 years in financial analysis and FP&A.'
+    - people_json.people[1].experience_years: None -> 5.0
+    - people_json.people[1].why_strengthens_business: None -> 'Owns the financial model that defines the premium product and gives every plan a second expert review.'
+    - people_json.people[1].paragraph: None -> 'Sofia builds the financial models and gives every plan its second review.'
+    - people_json.people[1].annual_wage: None -> 55000.0
+    - people_json.people[1].wage_source: None -> 'client_override'
+    - people_json.people[1].months_until_hire: None -> 0.0
+    - financials_json.cogs_percent_of_revenue: 0.3 -> 0.55
+    - financials_json.payroll_total_year1: 60000 -> 125000
+    - financials_json.current_revenue: 300000 -> 203904
+    - financials_json.cash_on_hand: 50000 -> 25000
+    - financials_json.initial_assets: 100000 -> 40000
+    - financials_json.initial_equity: 80000 -> 40000
+    - financials_json.other_operating_expense: 24000 -> 18000
+    - financials_json.monthly_rent_expense: 2000 -> 0
+    - financials_json.current_capex: 5000 -> 8000
+    - financials_json.current_cogs: 90000 -> 112147
+    - financials_json.current_payroll: 60000 -> 125000
+    - financials_json.current_num_employees: 3 -> 2
+  Draft 1d515b3c743749aeb8eda83eb0f907ab written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  System run complete.
+  Duration: 478547 ms
+  Workbook: C:\dev\Cilient Plans\Blueprint Ledger Advisory LLC -- 07-21-2026 18-24-02.xlsx
+
+=== Summary ===
+  Blueprint_Ledger_Advisory    system_run_complete draft=1d515b3c743749aeb8eda83eb0f907ab workbook=C:\dev\Cilient Plans\Blueprint Ledger Advisory LLC -- 07-21-2026 18-24-02.xlsx

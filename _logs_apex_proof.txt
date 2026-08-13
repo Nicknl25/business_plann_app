@@ -1,0 +1,9 @@
+
+=== Scenario: Apex_Climbing (baseline=apex_climbing) ===
+  Applied 105 row(s) from sheet (0 edits vs baseline).
+  Draft bd4fad7b548f44dc82a18720329df856 written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  ERROR in scenario 'Apex_Climbing': POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': "INTAKE->POST_INTAKE: field 'operating_model_json.lob_models.0.products.0.units_per_week_capacity' expected Input should be a valid number (and 32 more error(s)), got None", 'error': 'system_run_failed', 'failure_email': {'attached': [], 'recipient': 'ignatius.henry@tithefinancial.com', 'sent': True, 'skipped': [], 'subject': 'POST-INTAKE FAILURE: Apex Indoor Climbing Gym - ContractViolation'}}
+
+=== Summary ===
+  Apex_Climbing                error

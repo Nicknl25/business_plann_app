@@ -1,0 +1,22 @@
+﻿ * Serving Flask app 'api'
+ * Debug mode: off
+python.exe : business_type_reduced_candidates=['Bespoke Software Solutions', 'App Publisher', 'Biomedical R&D', 
+'Business Consulting Firm', 'Business Strategy Consulting', 'Change Management Consulting', 'Custom App Development', 
+'Digital Information Service', 'Distribution Process Consulting', 'Electronic Trading Platform', 'Financial 
+Consulting', 'Engineering Consulting Firm', 'HR Consulting Firm', 'HR Outsourcing Firm', 'Full-Service Ad Agency', 'IT 
+Consulting Firm', 'IT Infrastructure Management', 'IT Support Services', 'Market Entry Advisory', 'Marketing Strategy 
+Consulting', 'Mechanical Engineering Services', 'Online Content Platform', 'Operations Consulting', 'Operations 
+Improvement Consulting', 'Research Consulting', 'Scientific Consulting Firm', 'Satellite Communications Company', 
+'Software Development Company', 'Software Publisher', 'Streaming Service Provider', 'Technology Consulting', 'Systems 
+Integration Services', 'Technical Advisory Services', 'Web Application Programming', 'Web Hosting Service', 'Web 
+Search Engine']
+At line:1 char:342
++ ... _plann_app; & "C:\dev\business_plann_app\.venv\Scripts\python.exe" "C ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (business_type_r...Search Engine']:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+business_type_final_pick index=29 value='Software Publisher'
+BUSINESS TYPE CANDIDATES (ranked):
+1. Software Publisher
+business_type_persisted business_type='Software Publisher' business_naics_6='513210'

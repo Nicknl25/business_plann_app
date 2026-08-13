@@ -1,0 +1,11 @@
+
+=== Scenario: Sunny_Glaze_Donuts (baseline=sunny_glaze_donuts) ===
+  Applied 242 row(s) from sheet (0 edits vs baseline).
+  Draft bee6cb71b5f44fcfa1b5302f982373cc written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  System run complete.
+  Duration: 1450123 ms
+  Workbook: C:\dev\Cilient Plans\Sunny Glaze Donuts -- 07-21-2026 18-16-00.xlsx
+
+=== Summary ===
+  Sunny_Glaze_Donuts           system_run_complete draft=bee6cb71b5f44fcfa1b5302f982373cc workbook=C:\dev\Cilient Plans\Sunny Glaze Donuts -- 07-21-2026 18-16-00.xlsx

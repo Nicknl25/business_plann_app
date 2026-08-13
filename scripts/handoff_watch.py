@@ -47,10 +47,22 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def ensure_state_dir() -> None:
+    """The watcher's own scratch (pids, logs, state) must be INVISIBLE to git.
+    If it is ever tracked — a fresh clone, or an agent's `git add -A` sweeping
+    it in — the watcher's next log write dirties the tree and the loop dies on
+    a confusing 'dirty tree' fault. A self-ignoring state dir makes that
+    unrepresentable."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    marker = STATE_DIR / ".gitignore"
+    if not marker.exists():
+        marker.write_text("*\n", encoding="utf-8")
+
+
 def log(msg: str) -> None:
     line = f"{_now()} {msg}"
     print(line, flush=True)
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir()
     with open(LOG_DIR / "watcher.log", "a", encoding="utf-8") as fh:
         fh.write(line + "\n")
 
@@ -75,7 +87,7 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir()
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
@@ -445,6 +457,7 @@ def stop(new_status: str, reason: str, subject: str, body: str, cfg: dict, state
 def one_cycle(cfg: dict, state: dict) -> bool:
     """Returns True to keep looping, False when idling on a stop state."""
     branch = cfg["branch"]
+    ensure_state_dir()
     inbox = read_inbox()
     # F3 (mini's audit): the PAUSE brake is checked BEFORE any git action. A
     # paused watcher with a diverged HEAD used to still commit and push a
