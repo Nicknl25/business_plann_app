@@ -120,25 +120,27 @@ def push_with_retries(branch: str, retries: int = 3) -> str:
 
 
 # ----------------------------------------------------------- handoff
-_DRIFT_TOKEN = re.compile(r"(?<![A-Za-z])drift(?![A-Za-z])", re.I)
-# Zero-counts are benign: an honest "0 DRIFT" summary line must not stop the
-# loop every turn. Everything else that says DRIFT is treated as DRIFT.
-_DRIFT_BENIGN = re.compile(
-    r"(?:(?:^|[^\w])(?:0|no|zero|none|without)\s+drift)"
-    r"|(?:drift\s*[:=]\s*0(?!\d))"
-    r"|(?:drift-free)",
-    re.I,
+# DATA, NOT PROSE. The first cut scanned for the word "drift" and exempted
+# zero-counts — which fired URGENT on mini's own sentences ("would have fired
+# a FALSE DRIFT", "surfaces as a named DRIFT") and cried wolf over a clean
+# table. False urgency erodes the one alarm that must never be ignored, so the
+# backstop now matches only DRIFT in a COUNTED or ROW shape.
+_DRIFT_REAL = (
+    re.compile(r"(?<!\d)[1-9]\d*\s+drift\b", re.I),            # "1 DRIFT"
+    re.compile(r"\bdrift\b\s*[:=]\s*[1-9]\d*", re.I),          # "DRIFT: 2"
+    re.compile(r"^.*\b[RI]\d{1,3}\b.*\bdrift\b.*$", re.I | re.M),  # a leg row
 )
 
 
 def result_mentions_drift(block: str) -> bool:
-    """F2 backstop (mini's audit): a DRIFT row anywhere in the RESULT block
-    outranks the VERDICT line — the same defense-in-depth as stop-on-green's
-    two layers. A self-mislabelled table (DRIFT rows, VERDICT: progress) must
-    not launch the next turn."""
-    if not _DRIFT_TOKEN.search(block):
-        return False
-    return bool(_DRIFT_TOKEN.search(_DRIFT_BENIGN.sub(" ", block)))
+    """F2 backstop (mini's audit): a DRIFT ROW or NONZERO DRIFT COUNT in the
+    RESULT outranks the VERDICT line — defense in depth against a
+    self-mislabelled table (DRIFT rows carrying VERDICT: progress).
+
+    Narrative prose about drift is NOT a trigger. A mislabelled table always
+    carries the count or the leg row; an agent describing the concept does
+    not. The VERDICT field remains the primary channel — this is the belt."""
+    return any(pattern.search(block) for pattern in _DRIFT_REAL)
 
 
 def parse_handoff() -> dict:
