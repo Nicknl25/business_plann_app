@@ -182,7 +182,7 @@ def build():
     # build_python_model_input_json SELECTs industry baselines, cohort bands,
     # the driver-target mapping and five more, and the digest goes back to
     # being a function of database state.
-    patched = FX.prime_frozen_lookups()
+    patched, restore = FX.prime_frozen_lookups()
     if not patched:
         raise RuntimeError("primed ZERO lookup bindings - the frozen "
                            "reference data is not in the path")
@@ -190,15 +190,22 @@ def build():
     ctx = Surface.__new__(Surface)   # no conn, no read_conn, no DB handle
     ctx.conn = None
     ctx.read_conn = None
-    mij, finmo, note = ctx._frozen_build(
-        facts=DRAFT["facts"], ops=DRAFT["ops"], people=DRAFT["people"],
-        fin=DRAFT["fin"], year1=DRAFT["year1"], marketing=DRAFT["marketing"])
-    if mij is None or finmo is None:
-        raise RuntimeError(f"frozen build refused: {note}")
-    grid = ctx.workbook_formula_grid(
-        builder=workbook_builder.build_client_financial_model_workbook,
-        from_row=wbdata.draft_data_from_row,
-        draft={"draft": DRAFT, "mij": mij, "finmo": finmo})
+    try:
+        mij, finmo, note = ctx._frozen_build(
+            facts=DRAFT["facts"], ops=DRAFT["ops"], people=DRAFT["people"],
+            fin=DRAFT["fin"], year1=DRAFT["year1"],
+            marketing=DRAFT["marketing"])
+        if mij is None or finmo is None:
+            raise RuntimeError(f"frozen build refused: {note}")
+        grid = ctx.workbook_formula_grid(
+            builder=workbook_builder.build_client_financial_model_workbook,
+            from_row=wbdata.draft_data_from_row,
+            draft={"draft": DRAFT, "mij": mij, "finmo": finmo})
+    finally:
+        # The patch is process-wide; leaving it installed would make any
+        # later build in this process ask the frozen loaders questions
+        # nobody recorded. Restoring here also proves restore() works.
+        restore()
     if not grid:
         raise RuntimeError(f"no formula grid: {getattr(ctx, 'grid_gap', '')}")
     cells = sum(len(v) for rows in grid.values() for v in rows.values())
@@ -242,7 +249,9 @@ if moved:
                  f"the freeze picked a different draft than the live ladder")
 else:
     NOTES.append("the freeze preserved the input EXACTLY: every digest carries "
-                 "forward from round 7, so rounds 4-7 remain comparable")
+                 "forward from round 7. Rounds 4-6 are still NOT comparable - "
+                 "mini's round-7 pick-ordering fix moved them, and freezing "
+                 "did not move them back")
 
 print("\n" + "=" * 70)
 for n in NOTES:

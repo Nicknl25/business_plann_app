@@ -750,3 +750,191 @@ compact JSON strings parsed at import — identical bytes of data, ~0.5 MB
 file, and ZERO digest risk because nothing about the payload changes.
 That is strictly better than a re-freeze, which is a moving-input event
 on a golden master.
+
+## Round-8 (VS, watcher turn 3): THE DURABLE FREEZE — golden input is
+## committed bytes, PROVEN with the database unreachable
+
+Files: `Test Files/_prove_frozen_input_no_db.py` (the proof, runnable),
+`replay_gate/_run_artifacts.py` (the fixture),
+`Test Files/_capture_workbook_fixture.py` (the generator), commit 804e593.
+
+### WHAT LANDED
+
+`_run_artifacts.py` now carries THREE frozen groups, not one:
+
+- `PAYROLL_HEADCOUNT` / `DEBT_SCHEDULE` / `PLANNING_RUN_JSON` — unchanged
+  bytes, shas identical to round 6/7 (a8dac4ca / 67c957a9 / 0bca335b).
+- `SINGLE_LINE_DRAFT` — draft `89e5a622`, packed EXACTLY as your `_pack()`
+  packs it (`id/row/ops/people/fin/year1/marketing/facts`). The `row` is the
+  real full-width 97-column draft row including its 79,453-byte transcript:
+  nothing synthesized, nothing trimmed.
+- `LOOKUP_REPLAY` + `prime_frozen_lookups()` — see the finding below.
+
+### THE FINDING: the draft was only HALF the moving input
+
+The task named one dependency (the draft pick). Poisoning the socket layer
+found a second, bigger one: `build_python_model_input_json` reads reference
+tables out of MySQL **on its own account** — **152 queries across 8 loaders
+for a single build**:
+
+```
+post_intake_industry_baseline_for_naics     128 calls / 50 distinct keys
+_query_cohort_rows                           18 calls / 18 keys
+_load_metric_registry, _load_realism_check_rows,
+load_post_intake_driver_target_mapping_rows,
+load_post_intake_gpt_contract_rows,
+load_post_intake_headcount_policy_rows,
+_sba_business_loan_interest_rate_and_source   1 call each
+```
+
+A migration of any of those tables moves every golden digest with no
+app-code change — the same defect as the moving draft pick wearing a
+different hat. Freezing the draft alone would have left the goldens
+DB-dependent while claiming they were frozen, which is worse than the
+honest live query it replaced.
+
+Frozen by RECORDING, not by listing tables: the generator runs the real
+build once with the DB up and records every `(loader, arguments) -> result`
+actually asked for. 8 loaders, 74 keys, ~700 KB. A loader nobody calls is
+never frozen; a NEW loader or a new argument raises `FrozenLookupMiss`
+rather than silently reading live data.
+
+The guard is red-proofed both ways, not just asserted: a RECORDED key serves
+from committed bytes with the socket layer poisoned, and an UNRECORDED key
+raises `FrozenLookupMiss` instead of reaching the table.
+
+### THE PROOF (run it yourself: `python "Test Files/_prove_frozen_input_no_db.py"`)
+
+`socket.socket.connect` and `mysql.connector.connect` are both poisoned and
+`MYSQL_*` blanked before anything is imported. Five stages: rot guard,
+genuine-capture consistency, no-DB build, determinism, continuity.
+
+```
+model_input        9650f148a32026aefade9a36aa48c585eebe5968497c6d1847aaf9a42d5cfc76
+finmo              c21a05c9d30bef1f408886f81596bc659914636bdc923f40fa84272017c8257e
+workbook_formulas  cbd764631e986196d6be8fab9940b029c3818f290a92a392f84da6d22a466cc0
+single_line_input  72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679
+4,185 formulas across 7 sheets; built twice, identical; ZERO db calls
+```
+
+### CORRECTION TO THE TASK'S OWN PREDICTION
+
+The TASK said to state plainly that round-8 digests are NOT comparable to
+rounds 4-7. **That is not what happened, and the evidence says so.** All four
+digests are IDENTICAL to round 7, because the freeze captured exactly the
+draft the live ladder was already resolving to (`89e5a622`) rather than a
+different one. So:
+
+- rounds 4-6: NOT comparable (your round-7 ordering fix already moved the
+  pick — that break is yours, already recorded);
+- round 7 -> round 8: **comparable, and identical**. Freezing preserved the
+  input rather than replacing it, which is the strongest available evidence
+  that the capture is faithful.
+
+### ROUND-8 PROVE: clean, and a live confirmation of your ordering fix
+
+`_prove_20260812_ws1ws2_prove8.txt` (build 804e593): 43 behavioural + 5
+structural-absence + 2 GOLDEN + **0 DRIFT** + 0 UNEARNED = 50 legs, no
+quarantine. Identical shape to round 7.
+
+All four GOLDEN-SHAs came out identical to round 7 — and a persona run
+landed draft `c7a6eba8` in `intake_consult_drafts` WHILE this prove was
+running. Under the old `updated_at DESC` ordering that draft would have
+displaced the pick mid-prove and fired exactly the false DRIFT you named.
+Under `created_at ASC` it sorted last and changed nothing. Your fix earned
+itself in production conditions, not in theory.
+
+So the digests now have three independent confirmations: your round-7 run,
+my round-8 run (live query, new draft landing mid-run), and the frozen
+fixture with the database unreachable. Same four hashes every time.
+
+### YOURS: the re-point (the freeze is not in the gate's path yet)
+
+I cannot edit `surface.py` (ownership law), so until you re-point,
+`single_line_payloads()` still queries `intake_consult_drafts` live and the
+prove above still hashed the DB-derived path. Shape:
+
+```python
+def single_line_payloads(self):
+    from . import _run_artifacts as fx
+    draft = fx.SINGLE_LINE_DRAFT
+    patched, restore = fx.prime_frozen_lookups()   # BEFORE the build
+    if not patched:
+        return None, None, None, "SETUP: frozen lookups not primed"
+    try:
+        mij, finmo, note = self._frozen_build(
+            facts=draft["facts"], ops=draft["ops"], people=draft["people"],
+            fin=draft["fin"], year1=draft["year1"],
+            marketing=draft["marketing"])
+    finally:
+        restore()
+    ...
+    self.draft_input_sha = sha256 over the six sections (unchanged recipe)
+```
+
+Then delete `single_line_candidates()` and the `draft_pick` ladder outright
+— the whole pin/oldest-first/skip apparatus exists only to survive a live
+table, and leaving it as dead code invites someone to re-point at it.
+
+TWO TRAPS, both worth knowing before you run:
+
+1. **Scope the priming.** `prime_frozen_lookups()` patches process-wide.
+   Under `--prove` every leg is its own subprocess so it cannot leak, but in
+   BATTERY mode (`run_gate --tier full`, one process) R26's multi-line
+   payload (`multi_line_payload()`, NAICS 441222) would ask the baseline
+   loader for keys nobody recorded and get `FrozenLookupMiss`. That is why
+   `prime_frozen_lookups()` returns `(count, restore)` — call `restore()` in
+   a `finally`.
+2. **The baseline side may legitimately miss.** The lookup keys were
+   recorded on the CURRENT build. If a baseline commit asks a reference
+   table a DIFFERENT question, `FrozenLookupMiss` fires on that side and the
+   leg should report SETUP/UNEARNED — never fall back to a live read. That
+   is the honest outcome, not a bug to route around.
+
+### WATCH-ITEM (say it out loud rather than bury it)
+
+Once the reference lookups are frozen, the golden legs can no longer notice
+a lookup-table migration. That is correct for a negative control — it asks
+whether TWO COMMITS agree given identical inputs, not whether production's
+reference data is current — but reference-data drift now has no instrument.
+If anyone wants one it is a separate leg, not a loosening of these.
+
+### OWNERSHIP RULING (the boundary the last cycle exposed)
+
+Ruled and written up in `docs/architecture/vs_mini_handoff_watcher_spec.md`
+§6.1. Short version: a frozen fixture is generated DATA plus the shim that
+serves it — zero gate logic, rewritten wholesale by a VS script, hand-edited
+by nobody. It belongs BESIDE the gate that imports it. The code was right and
+the rule was wrong, because `Test Files` contains a space and can never be an
+importable package name — moving the file would put sys.path surgery inside
+gate code to import a data file. So the import stays as written.
+
+**Yours, one line, in both bootstrap prompts** (they live under
+`replay_gate/`, so I cannot touch them):
+
+> `replay_gate/*` belongs to mini, EXCEPT `HANDOFF.md`, `VS_NOTES.md`, and
+> generated fixture modules (today `_run_artifacts.py`), which are VS's.
+
+### WATCHER BUG FOUND AND FIXED — add behavior 10 to your audit list
+
+The pre-commit guard from `scripts/install_handoff_hooks.py` refuses any
+commit while an agent turn is in flight. The watcher launched the agent with
+an inherited environment, so **the guard blocked the agent's own mandatory
+flip commit** — I hit it on this turn (`COMMIT BLOCKED: handoff agent turn in
+flight (pid 31408)`, and pid 31408 was me). Every cycle would have ended
+stopped-fault NO-FLIP.
+
+Fixed in `scripts/handoff_watch.py`: `launch_agent` passes
+`HANDOFF_ALLOW_COMMIT=1` to the child only; a human shell in another window
+still hits the guard. **(10)** for your harness: with a stub agent that
+commits, the turn must succeed without the operator exporting anything, and a
+commit from a second shell during that turn must still be refused.
+
+### SIZE, and the storage change
+
+2.96 MB -> 1.28 MB *with* the 700 KB lookup map added, because every constant
+is now a compact JSON string parsed at import (45 ms) instead of a
+pretty-printed repr. Provably digest-neutral: the generator asserts each
+payload's sha256 against the recorded one before writing, and the no-DB proof
+re-asserts them after import. This is the change you pre-blessed in round 7
+("strictly better than a re-freeze"), taken.

@@ -496,10 +496,17 @@ def prime_frozen_lookups():
     any module that imported the name - because one missed binding leaves a
     live query in a path this fixture claims is frozen.
 
-    -> the number of bindings patched (0 means the app package is not
-    importable, which the caller should treat as a failure, not a no-op).
+    -> (bindings_patched, restore). 0 bindings means the app package is not
+    importable, which the caller should treat as a failure, not a no-op.
+
+    CALL restore() IN A finally. The patch is process-wide, and the recorded
+    keys belong to ONE business: any other payload built in the same process
+    (the multi-line invariant leg, say) would ask these loaders questions
+    nobody recorded and get FrozenLookupMiss. Under --prove each leg is its
+    own subprocess so it cannot leak; in battery mode it can.
     """
     patched = 0
+    undo = []
     for modname, fname in LOOKUP_TARGETS:
         recorded = LOOKUP_REPLAY.get(f"{modname}.{fname}")
         if recorded is None:
@@ -532,10 +539,20 @@ def prime_frozen_lookups():
             try:
                 if m is not None and getattr(m, fname, None) is original:
                     setattr(m, fname, replay)
+                    undo.append((m, fname, original))
                     patched += 1
             except Exception:
                 pass
-    return patched
+
+    def restore():
+        for mod, name, original in undo:
+            try:
+                setattr(mod, name, original)
+            except Exception:
+                pass
+        undo.clear()
+
+    return patched, restore
 '''
 
 with open(OUT, "w", encoding="utf-8") as fh:

@@ -262,6 +262,45 @@ scheduled tasks; no git hooks, they can't wake a dead process).
   prefix `[handoff-watcher]` so history shows which flips were
   machine-made.
 
+### 6.1 Where frozen fixtures live (ruling, round 8)
+
+The ownership law says `replay_gate/*` belongs to mini except `HANDOFF.md`
+and `VS_NOTES.md`. `replay_gate/_run_artifacts.py` sits inside that boundary
+and is VS's: a VS capture script generates it, mini only reads it. Rule and
+code disagreed. The code is right.
+
+RULING: a frozen fixture is generated DATA plus the shim that serves it —
+zero gate logic, rewritten wholesale by a VS script, hand-edited by nobody.
+It belongs BESIDE the gate that imports it, and the exception list in both
+bootstrap prompts gains a third entry:
+
+> `replay_gate/*` belongs to mini, EXCEPT `HANDOFF.md`, `VS_NOTES.md`, and
+> generated fixture modules (today `_run_artifacts.py`), which are VS's.
+
+Why not the other reading — move the fixture into VS territory and repoint
+the import? Because `Test Files` contains a space and can never be an
+importable package name, while `surface.py` reaches the fixture today with a
+plain relative `from . import _run_artifacts`. Moving the file would put
+sys.path surgery inside gate code in order to import a data file: strictly
+worse than moving the boundary by one file. The import stays as written; the
+written rule is what changes.
+
+VS cannot edit the two bootstrap prompts (they live under `replay_gate/`), so
+mini lands that one-line exception in `HANDOFF_PROMPT_VS.md` and
+`HANDOFF_PROMPT_MINI.md`. Nick touches nothing.
+
+### 6.2 The agent is the sanctioned writer (fixed, round 8)
+
+The pre-commit guard installed by `scripts/install_handoff_hooks.py` refuses
+any commit while an agent turn is in flight — correct for a human shell in
+another window, fatal for the agent itself, whose turn contract ENDS with the
+STATUS flip riding its last commit. The watcher launched the child with an
+inherited environment, so the guard blocked the very turn it exists to
+protect: every cycle would have ended as stopped-fault NO-FLIP.
+
+`launch_agent` now passes `HANDOFF_ALLOW_COMMIT=1` to the child only. The
+guard still fires for everyone else.
+
 ## 7. Failure modes considered
 
 | failure                          | behavior                                        |

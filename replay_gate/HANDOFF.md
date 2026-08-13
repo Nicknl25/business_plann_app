@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -75,3 +75,73 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: golden-input:frozen-not-yet-repointed
+  EVIDENCE: Test Files/_prove_frozen_input_no_db.py (run it);
+    _prove_20260812_ws1ws2_prove8.txt; replay_gate/_run_artifacts.py;
+    VS_NOTES round-8 section; docs/architecture/vs_mini_handoff_watcher_spec.md
+    SS6.1 + SS6.2
+  SUMMARY: The golden input is frozen as committed bytes and the property
+  is PROVEN, not asserted: with the socket layer and mysql.connector
+  poisoned, all four digests reproduce twice - model_input 9650f148,
+  finmo c21a05c9, workbook_formulas cbd76463, single_line_input 72dfcb81.
+  The task predicted round 8 would not be comparable to rounds 4-7. It is
+  not so: the freeze captured exactly the draft the ladder was already
+  resolving to, so round 7 -> 8 is IDENTICAL. Rounds 4-6 stay incomparable
+  (mini's pick-ordering fix moved those, not this freeze).
+  The draft was only half the moving input. Poisoning the socket found a
+  second dependency: build_python_model_input_json reads 8 reference
+  tables live, 152 queries per build. Frozen by recording arguments to
+  results through the real build - 74 keys - with FrozenLookupMiss on any
+  unrecorded key, never a live fallback. Red-proofed both directions.
+  Round-8 prove is CLEAN: 43 behavioural + 5 structural-absence + 2 GOLDEN
+  + 0 DRIFT + 0 UNEARNED = 50. Not green: the gate still QUERIES for its
+  input, because re-pointing single_line_payloads is surface.py and that
+  is mini's file. The freeze exists and is proven; it is not yet in the
+  hashing path.
+  Also fixed a loop-stopping bug: the pre-commit guard blocked the agent's
+  own mandatory flip commit (I hit it - the in-flight pid was me). The
+  watcher now passes HANDOFF_ALLOW_COMMIT=1 to the child only.
+  No app code touched, so no restart or canary was owed.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: land the re-point and re-audit the freeze. Three things.
+
+  1) RE-POINT single_line_payloads at the fixture and DELETE the ladder.
+     from . import _run_artifacts as fx; draft = fx.SINGLE_LINE_DRAFT;
+     patched, restore = fx.prime_frozen_lookups() BEFORE the build, with
+     restore() in a finally. Then remove single_line_candidates() and the
+     draft_pick apparatus outright - it exists only to survive a live
+     table, and dead code invites a future re-point back onto it. Full
+     shape plus TWO TRAPS (scope the priming; the baseline side may
+     legitimately raise FrozenLookupMiss) in the VS_NOTES round-8 section.
+     Expect the four digests to be UNCHANGED - that is the pass. If any
+     of them moves, the fixture and the live path disagree and that is a
+     finding, not a nuisance.
+
+  2) AUDIT THE FREEZE the way you audited the last one - verify, do not
+     take my word. No DB call in the hashing path; the fixture matches the
+     checkpoint it claims (the capture re-read 6feac758 from the live DB
+     this turn and the rot guard did not fire, so it still matches); the
+     goldens still earn their rows. Worth a skeptical look: I froze the
+     REFERENCE LOOKUPS as well as the draft, which means the goldens can
+     no longer notice a lookup-table migration. I think that is right for
+     a negative control and wrong to leave unsaid - tell me if you
+     disagree.
+
+  3) ONE LINE IN BOTH BOOTSTRAP PROMPTS, which live in your territory:
+     replay_gate/* belongs to mini, EXCEPT HANDOFF.md, VS_NOTES.md, and
+     generated fixture modules (today _run_artifacts.py), which are VS's.
+     Ruling and the reasoning are in the spec SS6.1 - short version, the
+     code was right and the rule was wrong, because Test Files contains a
+     space and can never be an importable package name.
+
+  Then re-run:
+    python -m replay_gate.run_gate --prove --tier full --verbose > _prove_<date>.txt 2>&1
+  Post the file and write your RESULT. Add watcher behavior 10 to your
+  audit list: an agent turn must be able to commit without an operator
+  exporting anything, while a second shell during that turn is still
+  refused.

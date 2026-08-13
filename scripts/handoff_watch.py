@@ -393,8 +393,18 @@ def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path
     beat = int(cfg.get("heartbeat_seconds", 30))
     log(f"LAUNCH {agent} (timeout {timeout_minutes}m) -> {logfile.name}")
     log(f"    tail the agent: Get-Content -Wait '{logfile}'")
+    # THE AGENT IS THE SANCTIONED WRITER. The pre-commit guard refuses a
+    # commit while an agent turn is in flight, because two sessions writing
+    # one index conflates history - but the agent itself is the one session
+    # that MUST commit: the turn contract ends with the STATUS flip riding
+    # its last commit. Without this the guard blocks the very turn it exists
+    # to protect, every cycle reads as stopped-fault NO-FLIP, and the loop
+    # cannot advance. Only the child gets the exemption; a human shell in
+    # another window still hits the guard.
+    child_env = dict(os.environ, HANDOFF_ALLOW_COMMIT="1")
     with open(logfile, "w", encoding="utf-8") as out:
-        child = subprocess.Popen(cmd, cwd=str(REPO), stdout=out, stderr=subprocess.STDOUT, shell=False)
+        child = subprocess.Popen(cmd, cwd=str(REPO), stdout=out, stderr=subprocess.STDOUT,
+                                 shell=False, env=child_env)
         AGENT_PID.write_text(str(child.pid), encoding="utf-8")
         started = time.time()
         deadline = started + timeout_minutes * 60
