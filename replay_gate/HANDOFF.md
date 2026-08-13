@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 7/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -611,3 +611,104 @@ TASK:
   the half I can fix in code; it does nothing about the naturalizer adding a
   clause the write does not support. Every naturalized reply I saw this round
   was write-accurate -- which, as you said, is exactly what makes it hard.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: cogs_door:all-lines-group-minted-from-value-equality
+  EVIDENCE: _mini_cw031_r7_audit_20260813.txt (all five items);
+    _mini_cw031_r7_unit_U.txt / _unit_B.txt / _unit_C.txt (12 live figures);
+    _mini_cw031_r7_collapse_group.txt; _mini_cw031_r7_blend_unit.txt;
+    _prove_20260813_mini_round7.txt (54 legs, R35+R36 proven);
+    Test Files/_mini_cw031_r7_*.py (four probes)
+  SUMMARY: The unit contract is the real thing. Twelve figures through the live
+  router across nine turns -- a bare "1", "point five", "a tenth", a unit stated
+  only in the previous turn, and one message carrying a percent and a ratio at
+  once -- and all twelve stored the number the client meant. Zero wrong numbers,
+  zero wrong lines, zero refusals; clear-wording refusal rate 0/4, so refusal is
+  not becoming the norm. Item 3 is clean on all three questions, measured on real
+  driver rows: 22 real weightless rows exist, 0 of them hide a weight the function
+  cannot see, and the plain average names the right line and averages what it
+  claims. Not green for three. Your 1b fix is the right rule at the wrong layer --
+  the transport keys still PERSIST into financials_json on 12 of 12 live turns,
+  and U5 stored 48 and 0.19 in one array under one field name. The all-lines group
+  is minted from value equality, so two lines that merely coincide mint a collapse
+  the client never declared AND the artifact assertion then passes it, while the
+  same declaration split over two messages mints none and files a RECURRENCE.
+  R35/R36 are in the gate, both proven behavioural; full prove 54 legs, 0 DRIFT,
+  0 UNEARNED, registry byte-identical.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: three fixes. Reproduction, line numbers and measured numbers for every one
+  of them are in _mini_cw031_r7_audit_20260813.txt.
+
+  1. CONSUME THE TRANSPORT KEYS AT THE DOOR, don't just silence them at the
+     renderer. financials.cogs_per_line_overrides is a scoped patch key, so
+     _apply_scoped_patch (intake_consult.py:11858) persists it verbatim into
+     financials_json after the door has already consumed it. Measured on all
+     twelve of my live turns; U5 stored [{"cogs_percent": 48, unit "percent"},
+     {"cogs_percent": 0.19, unit "ratio"}] -- one array, one field name, two
+     units, which is the defect you just fixed preserved in the artifact instead
+     of in the sentence. No reader consumes it today (repo-wide grep) and 0 of
+     3,051 real drafts carry it, so this is a shape ruling made at the cheap
+     moment. The shape already exists three times in the same function:
+     people.owner_pay_monthly / total_team_payroll / remove_role /
+     phase_planned_hires are consumed and then `continue`, and your OWN stage
+     door strips them at intake_consult.py:8645. Make the correction path agree.
+     KEEP the denylist -- R36 pins the receipt rule and passes either way.
+  2. THE ALL-LINES GROUP MUST COME FROM A DECLARATION, NOT FROM EQUAL NUMBERS.
+     (a) Two lines both stated at 55% in one message, no collapse said, mints
+         'shared:hard goods sale+plant sale', the receipt tells the client "all 2
+         lines sharing one direct-cost rate", and _assert_ops_per_line_cogs then
+         PASSES it citing "the client's own recorded collapse". That is a false
+         PASS inside the gate tier 1 exists to close, on the exact class it
+         closes. Excluding N=2 is the floor (0 real drafts today have two lines
+         sharing a rate, so it costs nothing), but it is not the fix: the same
+         accident happens at N=3 and N=4. Have the router emit
+         cogs_shared_structure_groups when the client says "everything runs at
+         about 55" -- it is a collapse and you already have the door for it --
+         and mint the all-lines group from THAT. If you keep the value-equality
+         net, make it N>=3 and have the receipt say "you told me all N lines run
+         the same rate" so a client who did not can correct it.
+     (b) The same declaration split over TWO messages mints nothing (the
+         condition is one patch writing every line), so four rows at 0.55 are
+         filed as a RECURRENCE of #138 against a model that is exactly what the
+         client asked for -- your item 4's mirror image, still open for the way
+         clients actually talk. Read the POST-WRITE state instead: do all N rows
+         now carry one rate, and did this patch touch the last of them.
+  3. _normalize_ratio_like IS THE DELETED RULE, STILL ALIVE. intake_consult.py
+     :1475, called at :7890 for cogs_percent_of_revenue and
+     marketing_percent_of_revenue -- divides by 100 only above 1.0, so "COGS is
+     1% of revenue" stores 100% on the BLENDED rate the engine consumes when
+     cogs_basis is ratio. The correction path is worse: :11858 stores that field
+     with no conversion at all (unlike its marketing twin, which is dropped as
+     recalc-derived). HONEST LIMIT: I drove it live twice and could not reach it
+     -- the router converted both percents into dollars and landed them
+     correctly -- so it is latent, not urgent. Fix it anyway or delete the
+     helper; leaving round 7's deleted rule alive in a second place is how it
+     comes back.
+
+  NOT YOURS: R35 (the unit contract) and R36 (a transport figure never speaks)
+  are in the gate, both RED at a38a584 for their own reasons with positive
+  controls inside them, and the full prove is 54 legs / 0 DRIFT / 0 UNEARNED.
+  R36 asserts on receipt_summary directly, so fix 1 will not turn it red. I did
+  NOT pin the persistence invariant because it is red today; land fix 1 and I
+  will pin it next turn. Housekeeping done: _mini_cw031_t23_collapse_probe.py is
+  retired (deleted, not routed around) and _mini_cw031_t23_uniform_rate.py's
+  reading is re-pointed at the new behaviour.
+
+  ONE THING I WOULD NOT CALL A DEFECT BUT YOU SHOULD KNOW: the door's refusal
+  branch never fired on any of my twelve live figures, and it cannot on these
+  wordings -- intent_router.py:1835 gives the model a default for a bare figure
+  ("runs at 4" -> percent) and asks it to omit the unit only when the wording
+  genuinely does not say. So the live rule for a BARE figure is integer ->
+  percent, sub-1 decimal -> ratio, which is numerically the old clamp's boundary
+  decided where the client's words are visible. That relocation is the fix and
+  it earns its keep exactly where words exist ("half a point" -> 0.005). Do NOT
+  widen the router; the unit was emitted 12/12. Just know the refusal is proven
+  offline only, which is why R35 exists.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a deterministic
+  receipt at all. Nothing this round moves it either way -- every naturalized
+  reply I read was write-accurate again, which is the same evidence that makes
+  it hard.

@@ -1,0 +1,45 @@
+==============================================================================
+B1 [B]  a bare sub-1 decimal with no unit word
+  clone minide78532ff9b6
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Design consult is 0.5 on direct costs.
+  < [200] Got it, so you’ve set the garden design consultations / design consult line to use 50.0% of its revenue as direct costs.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': 0.5}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Garden design consultations", "cogs_percent": 0.5, "cogs_percent_unit": "ratio"}]}
+  wrote={'Design consult': 0.5}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+==============================================================================
+B2 [B]  a bare integer with no unit word -- the instruction's own example
+  clone minib5e77c300a83
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Design consult sits at 4 for materials.
+  < [200] Got it, we’ll keep your garden design consultations / design consult COGS set at 4.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That'
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': 0.04}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Garden design consultations", "cogs_percent": 4, "cogs_percent_unit": "percent"}]}
+  wrote={'Design consult': 0.04}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+==============================================================================
+B3 [B]  a word-fraction: 'a half' is 50% to one ear and half a percent to another
+  clone mini136caf5e1b39
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > On hard goods sale, make the direct costs a half.
+  < [200] Got it—so for hard goods sales, you want the direct costs set to exactly 50.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a str
+  after : {'Plant sale': None, 'Hard goods sale': 0.5, 'Install project': None, 'Design consult': None}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Hard goods & materials", "cogs_percent": 0.5, "cogs_percent_unit": "ratio"}]}
+  wrote={'Hard goods sale': 0.5}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+  (3 clone(s) removed)
+==============================================================================
+  B1 [B]: LANDED         wrote={'Design consult': 0.5} residue=True
+  B2 [B]: LANDED         wrote={'Design consult': 0.04} residue=True
+  B3 [B]: LANDED         wrote={'Hard goods sale': 0.5} residue=True
+  No wording wrote a wrong number or a wrong line.

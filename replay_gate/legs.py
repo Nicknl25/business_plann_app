@@ -2271,6 +2271,134 @@ def _r_metadata_probe_never_ticks(ctx):
         + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _r_cogs_unit_declared(ctx):
+    """R35 - the per-line COGS unit is DECLARED, never inferred from size.
+
+    THE BUG (CW-031 round 7 item 1). The door divided by 100 only when the
+    figure exceeded 1.0, so a client whose design line runs 1% got a line
+    costing 100% of its own revenue and "half a point" became 50%. Every
+    artifact assertion passes that number - it is non-null, it is distinct,
+    and the workbook is internally consistent about it - so nothing
+    downstream can catch it. No threshold separates the readings either:
+    0.71 and 71 are both real client inputs, and so are 1 and 0.5.
+
+    Pinned here because a unit contract is exactly the kind of rule that
+    rots silently: it costs nothing to "simplify" back into a clamp, and
+    the failure is a plausible number rather than a crash. The leg carries
+    its own positive control - the large-percent and ratio readings, which
+    the clamp got RIGHT - so it cannot be satisfied by a door that simply
+    stopped writing.
+    """
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+    say = ctx.ic._build_per_line_cogs_receipt_text
+
+    def _ops():
+        return {"lob_models": [{"lob_name": "Garden", "products": [
+            {"product_name": "Design consult", "unit_price": 950,
+             "units_per_period_capacity": 4, "utilization_rate": 0.55,
+             "operating_periods_per_year": 52},
+            {"product_name": "Plant sale", "unit_price": 38,
+             "units_per_period_capacity": 420, "utilization_rate": 0.62,
+             "operating_periods_per_year": 52},
+        ]}]}
+
+    def _write(item):
+        ops = _ops()
+        receipt = door({"financials.cogs_per_line_overrides": [
+            dict(item, line_name="Design consult")]}, ops_json=ops)
+        row = ops["lob_models"][0]["products"][0]
+        return row.get("cogs_percent_of_line_revenue"), receipt, say(receipt)
+
+    fails, seen = [], {}
+    # THE READINGS THE CLAMP GOT BACKWARDS, and the two it got right.
+    for label, item, want in (
+        ("1 percent", {"cogs_percent": 1, "cogs_percent_unit": "percent"}, 0.01),
+        ("half a point", {"cogs_percent": 0.5, "cogs_percent_unit": "percent"}, 0.005),
+        ("71 percent", {"cogs_percent": 71, "cogs_percent_unit": "percent"}, 0.71),
+        ("ratio 0.71", {"cogs_percent": 0.71, "cogs_percent_unit": "ratio"}, 0.71),
+    ):
+        got, _receipt, _text = _write(item)
+        seen[label] = got
+        if got != want:
+            fails.append(f"{label} stored {got!r}, client meant {want!r}")
+
+    # NO UNIT: refuse and ASK. A silent write here is the whole defect.
+    got, receipt, text = _write({"cogs_percent": 1})
+    seen["no unit"] = got
+    if got is not None:
+        fails.append(f"a bare figure with no declared unit was WRITTEN as {got!r} "
+                     "instead of refused")
+    if not (receipt.get("unit_unclear") and "percent or a fraction" in text):
+        fails.append("a refused figure produced no question for the client "
+                     f"(unit_unclear={receipt.get('unit_unclear')!r})")
+
+    # A UNIT THAT CANNOT DESCRIBE ITS OWN FIGURE is incoherent, not a hint.
+    got, _receipt, _text = _write({"cogs_percent": 71, "cogs_percent_unit": "ratio"})
+    seen["ratio of 71"] = got
+    if got is not None:
+        fails.append(f"a 'ratio' of 71 was rescaled and written as {got!r} "
+                     "instead of refused")
+
+    return not fails, (
+        "; ".join(f"{k} -> {v!r}" for k, v in seen.items())
+        + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_transport_figure_never_speaks(ctx):
+    """R36 - a transport figure never speaks for the write.
+
+    THE BUG (CW-031 round 7 item 1b). cogs_percent is the door's TRANSPORT
+    key - the client's figure in the CLIENT'S unit, on its way to being
+    converted. The acknowledgment renderer walks the write-set, so it
+    rendered that raw figure beside the converted one: row 0.005 spoken as
+    "COGS to 50.0%", row 0.01 spoken as "$1". Latent while 71 and 0.71
+    agreed to the eye; the unit contract made them stop agreeing.
+
+    The rule this pins is the durable half: the renderer may never speak a
+    figure in the client's unit as if it were the write. It holds whatever
+    else changes upstream - if the transport keys are later consumed at the
+    door and never reach a receipt at all, filtering them here still costs
+    nothing and this leg still passes.
+    """
+    from client_intake_and_finmo.capture_receipt import receipt_summary  # type: ignore
+
+    # "half a point": the client said 0.5 (percent), the row holds 0.005.
+    receipt = {
+        "written": [
+            ("financials.cogs_per_line_overrides[0].cogs_percent", None, 0.5),
+            ("ops.lob_models[0].products[0].cogs_percent_of_line_revenue", None, 0.005),
+        ],
+        "dropped": [], "clarify": None,
+        "periods_by_prefix": {}, "names_by_prefix": {},
+    }
+    said = receipt_summary(receipt)
+
+    fails = []
+    if "50.0%" in said:
+        fails.append("the receipt spoke the client's raw 0.5 as '50.0%' while "
+                     "the row holds 0.005 - the transport figure spoke for the write")
+    if "0.5%" not in said:
+        fails.append(f"the WRITTEN rate is missing from the receipt: {said!r} "
+                     "- filtering must not silence the write itself")
+
+    # The same shape as a money-hinted leaf: "cogs" dollars a bare percent.
+    dollared = receipt_summary({
+        "written": [
+            ("financials.cogs_per_line_overrides[0].cogs_percent", None, 1.0),
+            ("ops.lob_models[0].products[0].cogs_percent_of_line_revenue", None, 0.01),
+        ],
+        "dropped": [], "clarify": None,
+        "periods_by_prefix": {}, "names_by_prefix": {},
+    })
+    if "$1" in dollared:
+        fails.append("the receipt dollared the client's raw 1 ('$1') for a rate "
+                     f"stored as 0.01: {dollared!r}")
+
+    return not fails, (
+        f"half-a-point receipt: {said!r}; one-percent receipt: {dollared!r}"
+        + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -2488,6 +2616,23 @@ REGRESSIONS = [
         "a probe stating no retest condition earns no clean-run credit",
         "4dc2c33", "2f5940b", _r_metadata_probe_never_ticks, issue="CW-031 tier 1",
         surface="issue registry"),
+    Leg("R35", "REGRESSION", "cogs-unit-declared-not-inferred",
+        "a per-line direct-cost figure converts by its DECLARED unit",
+        "53daa0b", "a38a584", _r_cogs_unit_declared, issue="CW-031 round 7 item 1",
+        surface="per-line COGS write door",
+        proof_note=("Carries its own positive control: 71 percent and ratio "
+                    "0.71 - the two readings the old clamp got RIGHT - must "
+                    "still land, so a door that stopped writing fails this leg "
+                    "as loudly as a door that guesses.")),
+    Leg("R36", "REGRESSION", "transport-figure-never-speaks",
+        "the client's raw figure never speaks for the converted write",
+        "53daa0b", "a38a584", _r_transport_figure_never_speaks,
+        issue="CW-031 round 7 item 1b", surface="capture receipt",
+        proof_note=("Asserts on receipt_summary directly rather than through a "
+                    "live turn, so it pins the RULE (a figure in the client's "
+                    "unit is never spoken as the write) rather than one route "
+                    "to it. Its positive control is the written rate, which "
+                    "must still appear.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

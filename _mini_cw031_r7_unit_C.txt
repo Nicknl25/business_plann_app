@@ -1,0 +1,60 @@
+==============================================================================
+C1 [C]  percent sign, in the same sentence
+  clone mini8d483466c317
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Hard goods sale runs 71% of that line's revenue in direct costs.
+  < [200] Got it, I’ve updated that line so the cost of goods is now set to 71.0% of the hard goods revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress 
+  after : {'Plant sale': None, 'Hard goods sale': 0.71, 'Install project': None, 'Design consult': None}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Hard goods sale", "cogs_percent": 71, "cogs_percent_unit": "percent"}]}
+  wrote={'Hard goods sale': 0.71}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+==============================================================================
+C2 [C]  the word percent, in the same sentence
+  clone mini9334f3608364
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Direct costs on the install project are about 38 percent of that line.
+  < [200] Got it, I’ve updated your plan so the landscaping & installation / install project shows direct costs at 38.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': 0.38, 'Design consult': None}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Landscaping & installation", "cogs_percent": 38, "cogs_percent_unit": "percent"}]}
+  wrote={'Install project': 0.38}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+==============================================================================
+C3 [C]  a small percent -- the reading the old clamp got backwards
+  clone mini31fcf2dbe06b
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > For design consult, materials and subs come to 6% of that line's revenue.
+  < [200] Got it, we’ll lock in your update that materials and subs for design consults are 6.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': 0.06}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Garden design consultations", "cogs_percent": 6, "cogs_percent_unit": "percent"}]}
+  wrote={'Design consult': 0.06}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+==============================================================================
+C4 [C]  the word ratio with a sub-1 figure
+  clone minid51f216658fe
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Plant sale: the direct-cost ratio is 0.55 of that line's revenue.
+  < [200] Got it, you’ve updated the plant/nursery sales line so the COGS are now set at 55.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's
+  after : {'Plant sale': 0.55, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  FINANCIALS DOOR-KEY RESIDUE: {"cogs_per_line_overrides": [{"line_name": "Plant sale", "cogs_percent": 0.55, "cogs_percent_unit": "ratio"}]}
+  wrote={'Plant sale': 0.55}  wrong_line=[]  wrong_number=[]
+  VERDICT: LANDED
+
+  (4 clone(s) removed)
+==============================================================================
+  C1 [C]: LANDED         wrote={'Hard goods sale': 0.71} residue=True
+  C2 [C]: LANDED         wrote={'Install project': 0.38} residue=True
+  C3 [C]: LANDED         wrote={'Design consult': 0.06} residue=True
+  C4 [C]: LANDED         wrote={'Plant sale': 0.55} residue=True
+  CLEAR-WORDING REFUSAL RATE: 0/4
+  No wording wrote a wrong number or a wrong line.

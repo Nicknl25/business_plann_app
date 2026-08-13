@@ -77,10 +77,16 @@ def main() -> int:
     reg._load_ops_model = real  # type: ignore
 
   print()
-  print("  READING: a client who declares one rate for every line is recorded as a")
-  print("  RECURRENCE of #138 -- the false-confirmation's mirror image. The stored")
-  print("  group, which is the client's own authority and IS on the rows, does not")
-  print("  rescue it: the check never looks at cogs_cost_structure_group.")
+  # RE-POINTED after round 7 (mini). The measured table above already shows the
+  # new behaviour; only this reading described the old one.
+  print("  READING (round 7): the stored collapse now rescues the uniform case --")
+  print("  the check reads cogs_cost_structure_group and passes N identical rates")
+  print("  when a group covers every line, and still fails them when it does not.")
+  print("  WHAT THIS TABLE STILL CANNOT SEE, and mini's round-7 audit measured:")
+  print("  the group is minted from VALUE EQUALITY inside ONE patch, so two lines")
+  print("  that merely happen to run the same rate mint a collapse the client")
+  print("  never declared, and the same declaration split over two messages mints")
+  print("  none. See _mini_cw031_r7_collapse_group.py (d) and (e).")
   return 0
 
 

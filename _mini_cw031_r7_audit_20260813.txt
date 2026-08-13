@@ -1,0 +1,292 @@
+CW-031 ROUND 7 -- MINI'S ARTIFACT AUDIT
+================================================================================
+Session: fresh, headless. Backend: PID 4864, started 14:45:57; latest app-code
+mtime intake_consult.py 14:45:28 / capture_receipt.py 14:45:27, so the live
+server postdates every round-7 edit. ONE :5050 listener throughout. Working
+tree byte-identical to HEAD for python/, client_statements_output_excel/ and
+frontend/ before and after; my only app-adjacent change is replay_gate/legs.py.
+
+VERDICT SUMMARY
+  1  the unit contract, LIVE          CLEAN   12 figures, 12 correct, 0 refusals
+  1b the transport-key fix's SHAPE    FINDING the keys still land in the artifact
+  2  other members of the class       FINDING one sibling site, code-confirmed
+  3  the collapse basis on real rows   CLEAN   all three of your questions
+  4  the all-lines group              FINDING both attacks succeed
+  5  legs                             DONE    R35 + R36 proven behavioural
+  housekeeping                        DONE    probe retired, reading re-pointed
+  full prove                          GREEN   54 legs, 0 DRIFT, 0 UNEARNED
+
+================================================================================
+ITEM 1 -- THE UNIT CONTRACT THROUGH THE LIVE ROUTER
+================================================================================
+Instrument: Test Files/_mini_cw031_r7_unit_wording.py. Every case is a FRESH
+clone of the real Ravenwood draft (four lines, all four fully weighted), one
+live POST to :5050, artifact read back with commit() first.
+Transcripts: _mini_cw031_r7_unit_U.txt, _mini_cw031_r7_unit_B.txt,
+             _mini_cw031_r7_unit_C.txt
+
+  id  wording                                      unit emitted  stored  verdict
+  U1  "the design consult line runs at 1"          percent 1     0.01    LANDED
+  U2  "materials ... are point five on that line"  ratio 0.5     0.5     LANDED
+  U3  "direct costs are call it a tenth"           percent 10    0.1     LANDED
+  U4  unit stated ONE TURN EARLIER, then "71."     percent 71    0.71    LANDED
+  U5  "plants 48 percent and install is 0.19"      percent 48 /  0.48 /  LANDED
+                                                   ratio 0.19    0.19
+  B1  "design consult is 0.5 on direct costs"      ratio 0.5     0.5     LANDED
+  B2  "design consult sits at 4 for materials"     percent 4     0.04    LANDED
+  B3  "make the direct costs a half"               ratio 0.5     0.5     LANDED
+  C1  "runs 71% of that line's revenue"            percent 71    0.71    LANDED
+  C2  "about 38 percent of that line"              percent 38    0.38    LANDED
+  C3  "come to 6% of that line's revenue"          percent 6     0.06    LANDED
+  C4  "the direct-cost ratio is 0.55"              ratio 0.55    0.55    LANDED
+
+  12 figures across 9 turns. ZERO wrong numbers. ZERO wrong lines. ZERO
+  refusals. CLEAR-WORDING REFUSAL RATE: 0/4 -- refusal is not becoming the
+  norm; the opposite. U5 is the strongest single result: two units in ONE
+  message, each attached to its own line, both right.
+
+  U4 matters as much: the unit was stated in a previous turn and the figure
+  arrived bare ("Hard goods sale, 71."). The router carried the earlier
+  declaration forward. That is the shape a real client uses.
+
+  WHAT THE MEASUREMENT ALSO SHOWS, and you should have it stated plainly
+  rather than as a defect: the door's refusal branch never fired, on any of
+  the twelve. It cannot fire on these wordings, because intent_router.py:1835
+  gives the model a DEFAULT for a bare figure ("runs at 4" -> percent) and
+  asks it to omit the unit only when the wording "genuinely does not say
+  which". So the live rule for a bare figure is:
+
+      bare integer   -> percent   (4 -> 0.04, 1 -> 0.01)
+      bare sub-1 dec -> ratio     (0.5 -> 0.5, 0.19 -> 0.19)
+
+  which is, numerically, the OLD clamp's boundary -- now decided where the
+  client's words are visible instead of by arithmetic. That relocation is the
+  whole fix, and it earns its keep exactly where the words exist: "half a
+  point" -> 0.005 and "1 percent" -> 0.01 both invert what the clamp did.
+  I am NOT asking you to widen the router: it never omitted the unit, so
+  widening would only remove the refusal's last reason to exist. What I am
+  saying is that the refusal branch is now UNEXERCISED on live paths, so its
+  behaviour is proven only offline. R35 pins it (below) so it cannot rot
+  while nothing calls it.
+
+================================================================================
+ITEM 2 -- THE TRANSPORT-KEY CLASS: YOUR FIX IS THE RIGHT RULE AT THE WRONG LAYER
+================================================================================
+You asked to be told now rather than to find the next instance live. Here it
+is, and it is inside the same door.
+
+FINDING 2a -- THE TRANSPORT KEYS STILL LAND IN THE CLIENT'S STORED ARTIFACT.
+capture_receipt._INTERNAL_FIELDS stops the raw figure being SPOKEN. It does
+not stop it being WRITTEN. financials.cogs_per_line_overrides is a scoped
+patch key, and _apply_scoped_patch (intake_consult.py:11858,
+`elif group == "financials": next_financials[field] = value`) persists any
+financials.<field> verbatim. Measured on EVERY ONE of my twelve live turns --
+this is read back off the draft, not inferred:
+
+  U1  {"cogs_per_line_overrides": [{"line_name": "Garden design consultations",
+                                    "cogs_percent": 1, "cogs_percent_unit": "percent"}]}
+  U5  {"cogs_per_line_overrides": [{"line_name": "Plant/nursery sales",
+                                    "cogs_percent": 48, "cogs_percent_unit": "percent"},
+                                   {"line_name": "Landscaping & installation",
+                                    "cogs_percent": 0.19, "cogs_percent_unit": "ratio"}]}
+
+  Read U5 again: ONE stored array, one field name, TWO different units. Any
+  future reader of financials.cogs_per_line_overrides that does what every
+  reader in this codebase does -- take the number -- gets 48 and 0.19 as
+  though they were the same kind of thing. That is the defect you just fixed,
+  preserved in the artifact rather than in the sentence.
+
+  Blast radius TODAY is zero and I checked rather than assumed: a repo-wide
+  grep finds no reader of financials.cogs_per_line_overrides or
+  financials.cogs_shared_structure_groups outside the door and the router, and
+  a census of all 3,051 drafts carrying an ops model finds 0 with either key
+  stored (the only writes are through the new door, and my clones are deleted).
+  So this is a shape ruling, not a live wrong number -- which is exactly the
+  moment to fix it.
+
+  THE SHAPE. A leaf-name denylist on the renderer answers "who may SPEAK this
+  number". The question underneath is "who may STORE it", and this codebase
+  already has the right answer for it, three times over, in the same function:
+  people.owner_pay_monthly, people.total_team_payroll, people.remove_role and
+  people.phase_planned_hires are all pseudo-fields that are CONSUMED and then
+  `continue` -- they never reach next_<domain>[field] = value. Your own stage
+  door does the same thing at intake_consult.py:8645
+  (`patch = {k: v for k, v in patch.items() if k not in _cogs_keys}`). The
+  correction path is the one door that consumes the key and then persists it
+  anyway. Make the two doors agree and the denylist becomes belt-and-braces
+  rather than the only guard. (Keep the denylist -- see R36.)
+
+FINDING 2b -- THE SIBLING SITE, one field family over, code-confirmed and
+NOT reached by my live wordings. financials.cogs_percent_of_revenue is the
+BLENDED direct-cost rate the engine consumes when cogs_basis is "ratio" --
+Ravenwood's own basis, and a far bigger number than any one line. Its unit is
+never declared:
+
+  stage door       intake_consult.py:7890-7893 -> _normalize_ratio_like
+                   (intake_consult.py:1475), which divides by 100 only when
+                   the figure exceeds 1.0. That is the exact rule round 7
+                   deleted from the per-line door, still live here. "COGS is
+                   1% of revenue" -> 1.0 -> 100%.
+  correction path  intake_consult.py:11858 stores the value with NO conversion
+                   at all (cogs_percent_of_revenue is not in
+                   _RECALC_DERIVED_FINANCIALS_FIELDS, unlike its marketing
+                   twin, which is dropped there).
+
+  HONEST LIMIT ON THIS ONE: I drove it twice, live, and could not reach it.
+  Both wordings ("direct costs come to about 1 percent of revenue",
+  "company-wide, direct costs are about 71 percent of revenue") were converted
+  by the router into DOLLARS and landed as current_cogs / cogs_total_year1
+  ($15,530 and $1,102,620 against $1,553,000 of revenue -- both correct), so
+  cogs_percent_of_revenue was written by the deriver, not by the patch.
+  Evidence: _mini_cw031_r7_blend_unit.txt (the "WRONG-NUMBER" line in that
+  file is my probe's strict equality against a derived 0.7099935, not a
+  defect -- the write was dollars-primary and correct). So: reachable in code,
+  unreached in two live attempts. Treat it as latent, not urgent, but do not
+  leave the deleted rule alive in a second place.
+
+================================================================================
+ITEM 3 -- THE COLLAPSE BASIS ON REAL DRIVER ROWS: CLEAN, ALL THREE
+================================================================================
+Instrument: Test Files/_mini_cw031_r7_collapse_group.py, run against the real
+product rows of all 3,051 drafts that carry an ops model (4,620 rows).
+Output: _mini_cw031_r7_collapse_group.txt
+
+  (c) DOES THE FALLBACK FIRE WHERE A WEIGHT EXISTS UNDER ANOTHER NAME? No.
+      22 real rows return None from _cogs_line_revenue_weight, and 0 of the 22
+      carry any other positive revenue driver (I looked for
+      units_per_month_capacity, avg_units_per_week_year1,
+      avg_units_per_period_year1, units_per_year_capacity, monthly/annual
+      revenue, price, unit_revenue, capacity_allocation_share). They are
+      weightless because unit_price is null or 0 -- Northwind's professional
+      services, OptiShip's warehousing at price 0 -- not because the weight is
+      hiding. 4,603 of 4,620 rows are fully weight-visible. The 430 rows that
+      carry units_per_month_capacity all carry units_per_period_capacity too,
+      so the field the function does not read is never the only one present.
+      A plain average is never announced where a weighted one was owed.
+
+  (a) DOES THE SENTENCE NAME THE RIGHT LINES? Yes, on a real row. Driving the
+      collapse on draft 016c82b7d90c's real weightless row paired with a real
+      weighted row:
+        basis='plain average' shared=0.595 unweighted=['Professional services
+        engagement']
+        "...sharing one direct-cost rate of 60% (a plain average of the rates
+         you gave - I don't have the sales volume for Professional services
+         engagement to weight them)"
+      The unweighted member named is the one that is actually weightless.
+
+  (b) IS THE AVERAGE OVER THE MEMBERS IT CLAIMS? Yes: 0.595 == (0.71+0.48)/2,
+      and both rows read back 0.595. The rate the old code discarded is in it.
+
+  One note, not a defect: a line with a real capacity and a price of ZERO
+  (OptiShip) is treated as weightless, and it should be -- zero price is zero
+  revenue is zero weight -- and the receipt then says so out loud. Correct.
+
+================================================================================
+ITEM 4 -- THE ALL-LINES GROUP: BOTH ATTACKS SUCCEED
+================================================================================
+Same instrument and output file. The group is minted from VALUE EQUALITY
+inside one patch (intake_consult.py:3012-3028), and value equality is not
+authority.
+
+FINDING 4d -- IT FIRES WHEN THE CLIENT DECLARED NOTHING. Two lines, both
+stated at 55% in one ordinary message, no collapse said anywhere:
+    stored group = 'shared:hard goods sale+plant sale'
+    receipt      = "...; all 2 lines sharing one direct-cost rate of 55%."
+Two things are wrong with that, and the second is worse than the first.
+  (i)  The app TELLS the client it collapsed their lines when the client never
+       asked. It is write-accurate -- the group really is on the rows -- and it
+       is still the app inventing the client's authority, which is the CW-031
+       receipt class arriving from the other direction.
+  (ii) The ARTIFACT ASSERTION then PASSES it. I ran the production evaluator:
+         (d) N=2 coincidence          -> pass  "under the client's own
+                                                recorded collapse"
+       So a genuine one-rate blend on a two-line business now satisfies #138's
+       artifact check, citing a collapse the client never declared. That is a
+       false PASS inside the gate tier 1 exists to close.
+
+  YOUR QUESTION, "should N=2 be excluded": excluding N=2 is the floor, not the
+  fix. It is worth doing -- at N=2 one coincidence is enough, and my census
+  finds no real draft where two lines share a rate today (N=2: 0 uniform, 2
+  mixed), so excluding it costs nothing real. But the same accident happens at
+  N=3 or N=4 for a business whose lines genuinely run the same rate, and then
+  the receipt lies about the client's instruction again. THE HONEST SHAPE is
+  the one you already built for the explicit case: the collapse is a CLIENT
+  STATEMENT, so let the client state it. The router already has
+  cogs_shared_structure_groups; "everything runs at about 55 percent" should
+  emit that group ALONGSIDE the N overrides, and the door should store an
+  all-lines group only when a declaration says so. Keep the value-equality
+  path if you want a safety net, but N>=3 only, and say "you told me all N
+  lines run the same rate" in the receipt so a client who did not can correct
+  it.
+
+FINDING 4e -- IT MISSES A REAL DECLARATION SPLIT OVER TWO MESSAGES.
+"Everything runs at 55" said as two messages (A and B, then C and D):
+    rates  = all four 0.55
+    groups = {A: None, B: None, C: None, D: None}
+    assertion -> fail "all 4 rows share one rate {0.55} - a blend wearing
+                       per-line clothing"
+The client declared the collapse, the model is exactly what they asked for,
+and it is filed as a RECURRENCE of #138. That is the mirror-image defect your
+item 4 was written to kill, still open for the multi-message case -- and
+multi-message is how clients actually talk. The single-patch condition
+(len(written) == len(directory)) is the whole cause; reading the POST-WRITE
+state instead ("do all N rows now carry one rate, and did this patch touch
+the last of them") closes it without loosening anything else.
+
+================================================================================
+ITEM 5 -- LEGS: YES, BOTH. R35 AND R36 ARE IN THE GATE.
+================================================================================
+Both are the shape you named -- rules that rot silently, whose failure is a
+plausible number rather than a crash -- so they belong in the gate rather than
+in a red-proof only you run.
+
+  R35 cogs-unit-declared-not-inferred   fix 53daa0b, baseline a38a584
+      1 percent -> 0.01, half a point -> 0.005, 71 percent -> 0.71,
+      ratio 0.71 -> 0.71, no unit -> refused WITH the question,
+      "ratio" of 71 -> refused.
+      RED at a38a584 for the right reason, and only for its own reasons:
+        1 percent stored 1.0; half a point stored 0.5; a bare figure with no
+        declared unit was WRITTEN as 1.0 instead of refused; a refused figure
+        produced no question (unit_unclear=None); a "ratio" of 71 was
+        rescaled and written as 0.71.
+      Positive control inside the leg: 71 percent and ratio 0.71 -- the two
+      readings the clamp got RIGHT -- still land at the baseline, so the leg
+      cannot be satisfied by a door that simply stopped writing.
+
+  R36 transport-figure-never-speaks     fix 53daa0b, baseline a38a584
+      Asserts on receipt_summary directly, so it pins the RULE rather than one
+      route to it: if you consume the transport keys at the door (item 2a) the
+      leg still passes, because filtering a leaf that never arrives costs
+      nothing. Positive control: the WRITTEN rate must still be spoken.
+      RED at a38a584: 'cogs percent -> 50.0%; cogs percent of line revenue ->
+      0.5%' and 'cogs percent -> $1; cogs percent of line revenue -> 1.0%' --
+      the exact two sentences you found live.
+
+  I did NOT pin the persistence half (item 2a), because it is RED today and a
+  leg must be green on the current build. Fix it and I will pin it next turn.
+
+  FULL PROVE, this build, after the legs landed:
+    _prove_20260813_mini_round7.txt
+    54 legs: 47 proven BEHAVIOURALLY, 5 STRUCTURAL-ABSENCE (declared),
+    2 GOLDEN-MASTER, 0 DRIFT, 0 UNEARNED, 0 other failures. Gate GREEN.
+  Registry afterwards: 129 issues, 0 replay-gate seed rows left behind, 0 mini
+  clones left behind.
+
+================================================================================
+HOUSEKEEPING (mine, as you asked)
+================================================================================
+  _mini_cw031_t23_collapse_probe.py  RETIRED (deleted). It asserted the old
+    numerics and crashed at (d) on the fix working, and its (a2) note was
+    hardcoded False so it could never go green. Everything it proved is now
+    either in git history, in _mini_cw031_tier23_audit_20260813.txt, or pinned
+    permanently by R35 / your round-7 red-proof. Routing around a dead
+    instrument is worse than removing it.
+  _mini_cw031_t23_uniform_rate.py    RE-POINTED. Its measured table was already
+    current; only the trailing READING described the old state. It now states
+    the new behaviour and points at the two ways the group is still wrong.
+
+INSTRUMENTS ADDED THIS TURN
+  Test Files/_mini_cw031_r7_census.py           artifact census (3,051 drafts)
+  Test Files/_mini_cw031_r7_unit_wording.py     item 1, live, 12 figures
+  Test Files/_mini_cw031_r7_blend_unit.py       item 2b, live, the blend door
+  Test Files/_mini_cw031_r7_collapse_group.py   items 3 and 4, real rows

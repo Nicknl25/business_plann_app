@@ -1,0 +1,47 @@
+==============================================================================
+ITEM 3 -- THE COLLAPSE BASIS ON REAL DRIVER ROWS
+==============================================================================
+  real product rows whose weight the function returns None for: 22
+  [CLEAN] 3c invisible-weight rows: 0 of 22 weightless rows carry a revenue driver under a name _cogs_line_revenue_weight does not read
+    016c82b7d90c Northwind Systems, Inc Professional services  price=None cap=100/100 alt={}
+    1ab8a99a5201 Sunrise Home Health Ca visit of care          price=None cap=100/100 alt={}
+    2050260f0ddf Precision Aesthetics L unit                   price=None cap=55/55 alt={}
+    2e8e4bc45f70 OptiShip Logistics Inc Warehousing            price=0 cap=1500/1500 alt={}
+    2e8e4bc45f70 OptiShip Logistics Inc Logistics management   price=0 cap=0/0 alt={}
+    33bfee9df51e Northwind Systems, Inc Self-serve subscriptio price=None cap=60000/60000 alt={}
+    33bfee9df51e Northwind Systems, Inc Enterprise contract    price=None cap=None/None alt={}
+    33bfee9df51e Northwind Systems, Inc Services project       price=None cap=None/None alt={}
+
+  real weightless row: 016c82b7d90c / 'Professional services engagement' (weight=None)
+  paired with        : 'Self-serve SaaS subscription' (weight=42840000.0)
+  basis='plain average' shared=0.595 unweighted=['Garden / Professional services engagement']
+  receipt: Recorded: Garden / Professional services engagement and Garden / Self-serve SaaS subscription sharing one direct-cost rate of 60% (a plain average of the rates you gave - I don't have the sales volume for Garden / Professional services engagement to weight them).
+  [CLEAN] 3a names the right unweighted line: unweighted_lines=['Garden / Professional services engagement']
+  [CLEAN] 3b average is over the members it claims: shared=0.595 plain-average=0.595 landed=(0.595, 0.595)
+
+==============================================================================
+ITEM 4 -- THE ALL-LINES GROUP, ADVERSARIALLY
+==============================================================================
+  (d) N=2 both stated at 55%, no collapse said: group='shared:hard goods sale+plant sale'
+      receipt: Recorded: Garden / Plant sale at 55% of that line's revenue; Garden / Hard goods sale at 55% of that line's revenue; all 2 lines sharing one direct-cost rate of 55%.
+  [FINDING] 4d N=2 coincidence mints a collapse the client never declared: stored group='shared:hard goods sale+plant sale' from two independent rates that happen to match
+  [CONTEXT] 4d2 same at N=4: group='shared:a+b+c+d' (four independent rates coinciding is a far less likely accident)
+
+  (e) 'everything runs at 55' said over TWO messages: rates={'A': 0.55, 'B': 0.55, 'C': 0.55, 'D': 0.55}
+      groups={'A': None, 'B': None, 'C': None, 'D': None}
+  [FINDING] 4e a real declaration split over two messages mints no group: groups={'A': None, 'B': None, 'C': None, 'D': None} -- the artifact assertion reads four identical rates with no recorded collapse
+  assertion on (d) N=2 coincidence         : pass           all 2 product rows carry cogs_percent_of_line_revenue; all 2 rows share one rate {0.55} un
+  assertion on (e) two-message declaration : fail           all 4 rows share one rate {0.55} - a blend wearing per-line clothing
+  assertion on (d2) N=4 one message        : pass           all 4 product rows carry cogs_percent_of_line_revenue; all 4 rows share one rate {0.55} un
+
+==============================================================================
+  CLEAN          3c invisible-weight rows
+  CLEAN          3a names the right unweighted line
+  CLEAN          3b average is over the members it claims
+  FINDING        4d N=2 coincidence mints a collapse the client never declared
+  CONTEXT        4d2 same at N=4
+  FINDING        4e a real declaration split over two messages mints no group
+  pass           4f assertion (d) N=2 coincidence
+  fail           4f assertion (e) two-message declaration
+  pass           4f assertion (d2) N=4 one message
+  2 finding(s)

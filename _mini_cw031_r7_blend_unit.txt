@@ -1,0 +1,24 @@
+==============================================================================
+L1  the small-percent reading the magnitude rule gets backwards
+  clone minid48eb33803e3   before: {'cogs_percent_of_revenue': 0.47, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995}
+  > Across the whole business, our direct costs come to about 1 percent of revenue.
+  < [200] Got it, I’ve updated your current COGS to $15,530 and your total COGS for year 1 to $15,530 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One mo
+  after : {'cogs_percent_of_revenue': 0.010000000000000005, 'cogs_basis': 'dollars', 'current_cogs': 15530.0, 'cogs_total_year1': 15530.0}
+  VERDICT: CORRECT
+
+==============================================================================
+L2  a large percent -- the reading the magnitude rule gets right
+  clone mini62b36dec6b91   before: {'cogs_percent_of_revenue': 0.47, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995}
+  > Company-wide, direct costs are about 71 percent of revenue.
+  < [200] Got it, I’ve updated your numbers so current COGS are $1,102,620 and COGS for year 1 are $1,102,620 for the year.
+
+Before we wrap up, I put your numbers together the way a lender will read them - your business once it's up and running, a few years in, on the strongest realistic growth path for it. E
+  after : {'cogs_percent_of_revenue': 0.7099935608499682, 'cogs_basis': 'dollars', 'current_cogs': 1102620.0, 'cogs_total_year1': 1102620.0}
+  VERDICT: WRONG-NUMBER (meant 0.71, stored 0.7099935608499682)
+
+  (2 clone(s) removed)
+==============================================================================
+  L1: CORRECT                                  0.47 -> 0.010000000000000005
+  L2: WRONG-NUMBER (meant 0.71, stored 0.7099935608499682) 0.47 -> 0.7099935608499682

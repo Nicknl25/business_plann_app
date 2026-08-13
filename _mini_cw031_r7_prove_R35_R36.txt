@@ -1,0 +1,54 @@
+Proving 1 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R35   cogs-unit-declared-not-inferred  a38a584   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\a38a584 @ a38a584
+         | ==============================================================================
+         | [ FAIL ] R35 REGRESSION cogs-unit-declared-not-inferred [CW-031 round 7 item 1]
+         |           a per-line direct-cost figure converts by its DECLARED unit
+         |           REGRESSED: 1 percent -> 1.0; half a point -> 0.5; 71 percent -> 0.71; ratio 0.71 -> 0.71; no unit -> 1.0; ratio of 71 -> 0.71; FAILED: 1 percent stored 1.0, client meant 0.01; half a point stored 0.5, client meant 0.005; a bare figure with no declared unit was WRITTEN as 1.0 instead of refused; a refused figure produced no question for the client (unit_unclear=None); a 'ratio' of 71 was rescaled and written as 0.71 instead of refused
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: cogs-unit-declared-not-inferred [CW-031 round 7 item 1]  (R35)
+         |         a per-line direct-cost figure converts by its DECLARED unit
+         |         1 percent -> 1.0; half a point -> 0.5; 71 percent -> 0.71; ratio 0.71 -> 0.71; no unit -> 1.0; ratio of 71 -> 0.71; FAILED: 1 percent stored 1.0, client meant 0.01; half a point stored 0.5, client meant 0.005; a bare figure with no declared unit was WRITTEN as 1.0 instead of refused; a refused figure produced no question for the client (unit_unclear=None); a 'ratio' of 71 was rescaled and written as 0.71 instead of refused
+         |         fixed at 53daa0b, was live at a38a584
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 6b67e71
+         | ==============================================================================
+         | [  ok  ] R35 REGRESSION cogs-unit-declared-not-inferred [CW-031 round 7 item 1]
+         |           a per-line direct-cost figure converts by its DECLARED unit
+         |           HOLDS: 1 percent -> 0.01; half a point -> 0.005; 71 percent -> 0.71; ratio 0.71 -> 0.71; no unit -> None; ratio of 71 -> None
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+------------------------------------------------------------------------------
+COUNT   1 proven BEHAVIOURALLY (red shows the bug behaving)
+        0 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        1 legs total
+
+  ALL LEGS PROVEN BEHAVIOURALLY - every red shows the bug behaving on
+  the commit where it was live, and green on the fix. No crash-reds.
