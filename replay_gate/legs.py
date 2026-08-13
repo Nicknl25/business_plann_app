@@ -2399,6 +2399,69 @@ def _r_transport_figure_never_speaks(ctx):
         + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _r_transport_keys_never_persist(ctx):
+    """R37 - a transport key is consumed at its door, never stored.
+
+    THE BUG (CW-031 round 7 -> 8, fix 1). cogs_per_line_overrides and
+    cogs_shared_structure_groups are pseudo-fields: the client's statement
+    in flight, in the CLIENT'S OWN units, on its way to rows that store
+    something else. The correction path consumed them and then persisted
+    them verbatim into financials_json anyway - measured 12 of 12 live
+    turns, one array carrying a 48 and a 0.19 under one field name. That
+    is round 7's wrong-unit defect preserved in the ARTIFACT instead of
+    in the sentence, waiting for the first reader that just takes the
+    number. R36 pins the sentence half; this pins the storage half.
+
+    Positive control: the rows must actually be written (the door still
+    works), so a patch path that stopped consuming the keys entirely
+    fails this leg as loudly as one that stores them.
+    """
+    ops = {"lob_models": [{"lob_name": "Garden", "products": [
+        {"product_name": "Plant sale", "unit_price": 38,
+         "units_per_period_capacity": 420},
+        {"product_name": "Install project", "unit_price": 4200,
+         "units_per_period_capacity": 2},
+    ]}]}
+    patch = {
+        "financials.cogs_per_line_overrides": [
+            {"line_name": "Plant sale", "cogs_percent": 48,
+             "cogs_percent_unit": "percent"},
+            {"line_name": "Install project", "cogs_percent": 0.19,
+             "cogs_percent_unit": "ratio"},
+        ],
+        "financials.cogs_shared_structure_groups": [
+            ["Plant sale", "Install project"]],
+    }
+    _bf, ops_out, _mk, _pp, fin_out, _ff = ctx.ic._apply_scoped_patch(
+        patch,
+        business_facts={}, ops_json=ops, market_json={}, people_json={},
+        financials_json={"cogs_percent_of_revenue": 0.47},
+        fulfillment_json={})
+
+    rows = [p for lob in ops_out.get("lob_models") or []
+            for p in lob.get("products") or []]
+    rates = {p.get("product_name"): p.get("cogs_percent_of_line_revenue")
+             for p in rows}
+
+    fails = []
+    # Positive control first: the door must have written the rows.
+    if any(v is None for v in rates.values()):
+        fails.append(f"the door did not write the rows: {rates!r} - a leg "
+                     "green because nothing was consumed proves nothing")
+    # THE RULE: neither transport key, bare or dotted, reaches the artifact.
+    for key in ("cogs_per_line_overrides", "cogs_shared_structure_groups",
+                "financials.cogs_per_line_overrides",
+                "financials.cogs_shared_structure_groups"):
+        if fin_out.get(key) is not None:
+            fails.append(f"transport key {key!r} STORED in financials_json: "
+                         f"{fin_out.get(key)!r}")
+
+    return not fails, (
+        f"rows {rates!r}; stored transport keys: "
+        f"{[k for k in fin_out if 'cogs_per_line' in k or 'shared_structure' in k]!r}"
+        + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -2633,6 +2696,17 @@ REGRESSIONS = [
                     "unit is never spoken as the write) rather than one route "
                     "to it. Its positive control is the written rate, which "
                     "must still appear.")),
+    Leg("R37", "REGRESSION", "transport-keys-never-persist",
+        "a transport key is consumed at its door, never stored",
+        "858987b", "53daa0b", _r_transport_keys_never_persist,
+        issue="CW-031 round 8 fix 1", surface="scoped correction path",
+        proof_note=("Baseline red is BEHAVIOURAL: at 53daa0b the correction "
+                    "path persisted both keys verbatim (measured 12/12 on "
+                    "live turns in the round-7 audit) while the door still "
+                    "wrote the rows, so the leg reds on the stored key with "
+                    "its positive control green. Its positive control is the "
+                    "written rows, so a path that stopped consuming the keys "
+                    "fails as loudly as one that stores them.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

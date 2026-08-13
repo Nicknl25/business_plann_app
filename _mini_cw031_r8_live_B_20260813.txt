@@ -1,0 +1,46 @@
+==============================================================================
+B-U1  clone m8d26da42ce2e240
+  > Our overall direct costs run around 40 percent of revenue.
+  < [200] Sorry—I don’t think I caught that clearly; in your own words, what should we use as the unit for COGS as a percent of revenue?
+  ROUTER: action=confirm_clarify patch=None
+  rows : [('Plant sale', None, None), ('Hard goods sale', None, None), ('Install project', None, None), ('Design consult', None, None)]
+  fin  : {'cogs_percent_of_revenue': 0.47, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no key stored; asked-about-unit=True; blend UNCHANGED (refused or landed nowhere)
+
+==============================================================================
+B-U2  clone m89c5a669161c649
+  > Direct costs are just 1 percent of revenue for us.
+  < [200] Sorry—I don’t think I caught that clearly; in your own words, what should we use as the unit for COGS as a percent of revenue?
+  ROUTER: action=confirm_clarify patch=None
+  rows : [('Plant sale', None, None), ('Hard goods sale', None, None), ('Install project', None, None), ('Design consult', None, None)]
+  fin  : {'cogs_percent_of_revenue': 0.47, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no key stored; asked-about-unit=True; blend UNCHANGED (refused or landed nowhere)
+
+==============================================================================
+B-U3  clone m8f96eca13e2ee48
+  > For the install side, materials run 22 percent of that line.
+  < [200] Got it, we’ll set the landscaping & installation / install project COGS to 22.0% of that line’s revenue to match what you just shared.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we
+  ROUTER: action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Landscaping & installation', 'cogs_percent': 22, 'cogs_percent_unit': 'percent'}]}
+  rows : [('Plant sale', None, None), ('Hard goods sale', None, None), ('Install project', 0.22, None), ('Design consult', None, None)]
+  fin  : {'cogs_percent_of_revenue': 0.47, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no key stored; asked-about-unit=False
+
+==============================================================================
+B-U4  clone m8d4ede58684c24f
+  > Plants and hard goods basically share one cost structure - same rate for both.
+  < [200] Got it, you’ve got plants/nursery sales and hard goods & materials sales both running under one shared direct-cost rate.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right
+  ROUTER: action=edit_patch patch={'financials.cogs_shared_structure_groups': [['Plant/nursery sales', 'Hard goods & materials']]}
+  rows : [('Plant sale', None, 'declared'), ('Hard goods sale', None, 'declared'), ('Install project', None, None), ('Design consult', None, None)]
+  fin  : {'cogs_percent_of_revenue': 0.47, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_total_year1': 729909.9999999995, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no key stored; asked-about-unit=False
+
+  (4 clone(s) removed)
+==============================================================================
+  B-U1: no key stored; asked-about-unit=True; blend UNCHANGED (refused or landed nowhere)
+  B-U2: no key stored; asked-about-unit=True; blend UNCHANGED (refused or landed nowhere)
+  B-U3: no key stored; asked-about-unit=False
+  B-U4: no key stored; asked-about-unit=False

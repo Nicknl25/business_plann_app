@@ -1,0 +1,176 @@
+================================================================================
+CW-031 ROUND-8 MINI AUDIT -- 2026-08-13, turn 9
+Auditor: mini (fresh session). Server states used:
+  PID 31948 (16:22:37, HEAD code)     -- phase A live turns, item-4 offline probes
+  PID 18288 (16:41:27, unit-key EXPERIMENT code) -- phase B only
+  PID  3288 (16:43:19, HEAD code, experiment reverted byte-identical) -- item-1
+    separation turns, final state. ONE :5050 listener verified at each step.
+Probes: Test Files/_mini_cw031_r8_net_attack.py, _mini_cw031_r8_blend_census.py,
+  _mini_cw031_r8_live_probe.py (phases a/b), _mini_cw031_r8_separate_door.py.
+Live transcripts: _mini_cw031_r8_live_A_20260813.txt, _mini_cw031_r8_live_B_20260813.txt,
+  _mini_cw031_r8_separate_20260813.txt. Prove: _prove_20260813_mini_round8.txt.
+================================================================================
+
+ITEM 2 FIRST (the verified fact the others lean on): THE UNIT KEY'S DEATH IS
+REAL. I re-added financials.cogs_percent_of_revenue_unit to the two router
+lists myself (schema entry + financials allowed list, nothing else -- the
+shipped instruction untouched), restarted, and drove MY OWN wordings:
+  B-U1 "Our overall direct costs run around 40 percent of revenue."
+       -> confirm_clarify: "what should we use as the unit for COGS as a
+          percent of revenue?"  (the shipped code lands this SAME wording
+          perfectly as $590,140/dollars -- see A-B1)
+  B-U2 "Direct costs are just 1 percent of revenue for us." -> same ask
+  B-U3 per-line rate message -> routed normally (0.22 written)
+  B-U4 collapse declaration -> routed normally (declared group stored)
+2 of 4 wordings die into the jargon ask (VS measured 3 of 4; the trap is the
+same, the blast varies). The ask is a DUMB ask under Nick's bar on wording the
+live code already understands, and its phrasing violates the no-jargon law.
+VS's conclusion is CONFIRMED: the field's existence is the trap; the revert
+was right. Experiment reverted byte-identical (git checkout; git status clean
+on python/), backend restarted, ONE listener.
+  THE OBJECT-SHAPED CARRIER: do not build it. The router provably converts
+blend percents to dollars correctly on the live path (A-B1: 38% -> $590,140,
+ratio derived 0.3800; A-B4: 2% -> $31,060 -> 0.0200), so the latent
+1-stores-1.0 path stays theoretical, and a value-type change on a numeric
+field every consumer reads is real risk for a latent payoff. The blend's real
+live gap is F1 below, and it is not a unit problem.
+
+ITEM 3 -- THE REFUSAL'S BLAST RADIUS: EFFECTIVELY ZERO, AND THE CENSUS SAYS
+THE FIELD IS CLEAN. Census over 4,391 drafts with financials_json: 3,721
+carry cogs_percent_of_revenue, 2,882 carry marketing_percent_of_revenue.
+OUT OF [0,1]: 7 field-instances, ALL 'Precision Aesthetics Lab', ALL
+2026-04-02..04-09 (cogs 22.0 x4, marketing 2.56 x1, marketing -4.5e-07 x2)
+-- damage stored by the old rules four months before this batch; nothing
+recent. In-range distributions are healthy (cogs p50 0.2617 max 0.87).
+LIVE: the refusal log line fired 0 times across every turn I drove
+(grep BLEND_RATE_NOT_A_FRACTION = 0). No live wording I found reaches the
+refusal, because the router either converts percents to dollars (correct)
+or does not patch at all -- which is F1:
+
+F1 (NEW DEFECT, live, shipped code): THE ROUTER SWALLOWS AN IN-DOMAIN BLEND
+STATEMENT AND THE REPLY CLAIMS RECEIPT. Two of my four phase-A wordings:
+  A-B2 "Our blended direct-cost ratio is 0.44."  (0.44 IS a fraction --
+       in-domain by the router's own instruction)
+       -> patch: {cogs_per_line_overrides: [], cogs_shared_structure_groups: []}
+          (nothing patched), stored blend UNCHANGED at 0.47, reply:
+          "Got it, thank you for sharing that your blended direct-cost
+          ratio is 0.44." then "You're all set..."
+  A-B3 "Please set cogs percent of revenue to 38."
+       -> same empty patch, nothing stored, reply: "Got it, you'd like the
+          COGS percent of revenue field updated to 38%."
+The client's number is acknowledged, nothing is written, and no say-do
+accounting fires because the statement never reached a door -- the router
+swallowed it upstream of every receipt. Re-run with the FULL reply captured
+(_mini_cw031_r8_fullreply_20260813.txt): no disclosure anywhere in it, and it
+ends "every number you just set is yours" -- after setting nothing. This is the receipt-without-a-write
+class (tier-2 item 2's law: the app must not say it did something it did not
+do) re-entering at the ROUTER layer, where the say-do machinery cannot see
+it. Under Nick's naturalization ruling the spoken claim ("updated to 38%")
+must provably equal the write (nothing) -- it does not. Note the router
+emits empty transport arrays on nearly every financials turn (harmless --
+consumed, len<2 skipped -- but it is the router reaching for the only
+COGS-shaped fields it has).
+
+ITEM 4 -- THE POST-WRITE NET, ATTACKED (_mini_cw031_r8_net_attack.py):
+  A1 baseline: multi-message uniform at N=3 mints the inferred group. As built.
+  A2 FAIL -- THE NET CLOBBERS A DECLARED GROUP. Rows: plants+hard goods in a
+     client-DECLARED partial group at 0.55 (the exact Ravenwood shape),
+     install coinciding at 0.55; patch writes design at 55%. The net
+     overwrites ALL FOUR rows' cogs_cost_structure_group with the all-lines
+     label and stamps every basis "inferred from identical stated rates" --
+     the client's declaration is DESTROYED by an app inference, and
+     _assert_ops_per_line_cogs then PASSES the result citing the recorded
+     collapse. The app must not invent what the client declares; here it
+     OVERWRITES what the client declared.
+  A3 unset: a null/empty figure is refused, nothing written, no mint. And
+     statically: cogs_cost_structure_group has exactly TWO writers (declared
+     door, inferred net) and ZERO removers -- no path in the codebase can
+     ever remove a group from a row. See item 1, turn 3, for what that does.
+  A4 a patch with no transport keys cannot mint (receipt['written'] guards
+     it) -- a lob restatement / coherence lever / passing read is safe. HELD.
+  A5 an ECHO mints: re-stating ONE line's existing rate verbatim (all rows
+     already coinciding) mints the inferred all-lines group. "written" is
+     true for a write that changed nothing.
+  Deliberate mid-collapse unset: unreachable -- the door refuses null, and
+  no other path writes cogs_percent_of_line_revenue to None. The client who
+  wants OUT of a collapse must use words -- and words have no door (item 1).
+
+ITEM 1 -- THE RULING, WITH ITS DECISIVE ARTIFACT.
+Live sequence on shipped code (_mini_cw031_r8_separate_20260813.txt):
+  Turn 1: two lines rated 55% -> written, no group. Correct.
+  Turn 2: other two rated 55% -> inferred all-lines group minted on all four
+          rows, receipt speaks the invitation. As designed.
+  Turn 3: the client TAKES THE INVITATION UP: "design consults should stay
+          separate with their own rate". Reply: "Got it -- so we'll keep
+          design consults separate..." ARTIFACT: design consult STILL
+          carries 'shared:design consult+hard goods sale+install project+
+          plant sale' basis inferred -- the all-lines group naming it as
+          shared with everything, forever, because no remover exists. The
+          residual three-line group is stamped basis "declared" from a
+          sentence that declared no such group (the client said "keep design
+          separate", not "the other three share one structure" -- defensible
+          as a reading of the exchange, but the stamp is doing work).
+  So "spoken and uncorrected" fails even MECHANICALLY: the correction the
+  invitation invites cannot be fully honored -- the separated row keeps the
+  stale group and the reply says otherwise (words != state, the batch's own
+  law). An authority that cannot be revoked is not an authority the client
+  holds.
+
+THE RULING (mini, under Nick's blessed corollary 2 and section F):
+  AN INFERRED GROUP MUST NOT PASS THE GATE. "Spoken and uncorrected" is
+  silence-as-agreement, which Nick's own text forbids ("SILENCE MUST NEVER
+  READ AS AGREEMENT"). The opt-out the assertion honours must carry the
+  client's authority, and only basis=declared carries it.
+  THE FIX SHAPE (stronger than flipping the verdict -- the verdict flip
+  alone leaves A2/A5 and the stale-group corruption in place):
+  1. THE NET STORES NOTHING. Uniform post-write rates at N>=3 -> the receipt
+     ASKS ("that's the same rate on all 4 lines -- should I treat them as
+     one shared cost structure, or keep them separate?"). A yes is a
+     DECLARATION; the router already emits the group for it (round 8 proved
+     the declared path live). Kills the A2 clobber, the A5 echo-mint, and
+     the false PASS in one move, and removes the inferred basis value
+     entirely. The assertion needs no inferred branch: identical rates with
+     no declared group = fail (blend wearing per-line clothing) -- honest,
+     because the app has ASKED and the client has not yet said. A run that
+     ends inside that one-turn window holds on an unanswered material
+     question, which is the recovery design's own vocabulary, not a false
+     recurrence.
+  2. BUILD THE SEPARATION HALF OF THE DOOR. "Keep X separate" must clear
+     X's cogs_cost_structure_group(+basis), and any group write must clear
+     the old label from rows leaving the group. Today the words land and
+     the state stays; that is the words-match-state law broken in the
+     artifact.
+  3. STATE THE OVERWRITE RULE: an inference never overwrites a declared
+     stamp. (With fix 1 the inferred writer disappears; write the rule
+     down anyway so it survives the next net someone builds.)
+
+ITEM 5 -- THE PROBE SHAPE (ruled): exclude drafts with no client messages.
+  A draft with messages_json empty/'[]' has no turn in flight and no client
+  waiting; killing the backend between its non-existent turns harms nobody.
+  Gate seeds never gain messages, so the --prove false positive dies. And
+  the CW-024 phantom page-load mechanism mints zero-message drafts on every
+  vite reload, so today's guard can be blocked by a PHANTOM as well as a
+  seed -- the exclusion fixes both. Concrete: add
+    AND d.messages_json IS NOT NULL AND d.messages_json <> ''
+    AND d.messages_json <> '[]'
+  to scripts/_active_intake_probe.py's WHERE. A real client who has typed
+  even once is still protected by the 10-minute window. VS builds it
+  (scripts/ is VS's).
+
+R37 PINNED (replay_gate/legs.py): "a transport key is consumed at its door,
+never stored" -- fix 858987b, baseline 53daa0b (where the round-7 audit
+measured 12/12 live persistence). Positive control: the rows must be written,
+so a door that stopped consuming fails as loudly as one that stores. Green
+standalone under --only R37; prove in _prove_20260813_mini_round8.txt.
+I did NOT pin a collapse-basis leg: the ruling above changes that behaviour,
+and pinning today's shape would pin the wrong thing. After VS lands the
+ruling, the leg to pin is "an inference is never stored as structure" +
+"separation clears the group".
+
+OBSERVATION, no action asked: _per_line_cogs_receipt persists in
+financials_json by design (the caller speaks from it). Its unit_unclear
+entries carry raw client-unit figures. It is underscore-prefixed and
+receipt-labelled, so it does not wear a field name promising stored units --
+outside R37's class as pinned -- but if a reader ever starts consuming it,
+that is the same trap one layer down.
+================================================================================

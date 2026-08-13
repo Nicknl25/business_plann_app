@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 9/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -806,3 +806,122 @@ TASK:
   now carries a sentence whose whole job is to be correctable ("say so if any
   of them should be separate"), and a naturalizer that rephrases it can soften
   exactly the part that gives the client the opening.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: cogs_group:inference-stored-as-structure
+  EVIDENCE: _mini_cw031_r8_audit_20260813.txt (all five items);
+    _mini_cw031_r8_live_A_20260813.txt / _live_B / _separate / _fullreply
+    (the live transcripts); _prove_20260813_mini_round8.txt (55 legs, R37
+    PROVEN); Test Files/_mini_cw031_r8_*.py (four probes)
+  SUMMARY: Item 2 first: THE UNIT KEY'S DEATH IS CONFIRMED with my own
+  wordings -- I re-added the two hunks myself, and "around 40 percent of
+  revenue", which the shipped code lands perfectly as dollars, died into the
+  jargon unit ask (2 of 4 wordings; your 3 of 4 varies, the trap is the same).
+  Reverted byte-identical, one listener verified at every restart. Do NOT
+  build the object carrier: the live router converts blend percents to
+  dollars correctly, so the latent path stays latent, and F1 below is the
+  field's real live gap. Item 3: blast radius ~zero (7 stored instances in
+  4,391 drafts, all one April business; the refusal fired 0 times across
+  every live turn I drove). Not green for three, all one law. (1) The net
+  CLOBBERS a declared partial group -- the exact Ravenwood shape -- and
+  restates every basis as inferred, then the assertion passes it; an echo of
+  one existing rate also mints. (2) The invitation has no door: live, "design
+  consults should stay separate" got "Got it -- we'll keep design consults
+  separate" while the row STILL carries the stale inferred all-lines group
+  (zero removers exist in the codebase). (3) NEW, shipped code: the router
+  SWALLOWS in-domain blend statements ("ratio is 0.44"; "set cogs percent of
+  revenue to 38") -- empty patch, nothing stored, and the reply claims
+  receipt, ending "every number you just set is yours". RULED per Nick's
+  corollary 2 + silence-never-agreement: an INFERRED group must not pass the
+  gate; the net must ASK, not store. R37 pinned and proven behavioural
+  (red at 53daa0b on exactly the stored keys); 55 legs, 0 DRIFT, 0 UNEARNED,
+  registry checksums byte-identical across the prove.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: the ruling and three fixes, then the tier-3 canary debt is finally
+  clear -- this round's is a fresh one on whatever you change here.
+  Reproduction, line numbers and live transcripts for every item are in
+  _mini_cw031_r8_audit_20260813.txt.
+
+  1. LAND THE RULING (it answers your item 1, and it is stronger than a
+     verdict flip). THE NET STORES NOTHING. Uniform post-write rates at
+     N>=3 -> the receipt ASKS ("that's the same rate on all 4 lines --
+     should I treat them as one shared cost structure, or keep them
+     separate?"); a yes is a DECLARATION and the router already emits the
+     group for it (your own round-8 live proof). This kills, in one move:
+     the A2 clobber (my probe: a client-DECLARED plants+hard-goods group at
+     0.55 plus coinciding rates on the rest -> the net OVERWRITES all four
+     rows' group and stamps every basis inferred -- the app overwriting what
+     the client declared), the A5 echo-mint (re-stating one existing rate
+     mints), and the false PASS. _assert_ops_per_line_cogs then needs no
+     inferred branch: identical rates with no declared group = fail, honest
+     because the app has asked and the client has not yet said; a run ending
+     inside that one-turn window holds on an unanswered material question,
+     which is the recovery design's own vocabulary, not a false recurrence.
+     Also write down the rule the clobber violated: AN INFERENCE NEVER
+     OVERWRITES A DECLARED STAMP -- it survives the next net someone builds.
+
+  2. BUILD THE SEPARATION HALF OF THE DOOR. "Keep X separate" must clear
+     X's cogs_cost_structure_group and basis, and any group write must
+     clear the old label from rows leaving the group. Live proof
+     (_mini_cw031_r8_separate_20260813.txt): after the client took your own
+     invitation up, Design consult still carries
+     'shared:design consult+hard goods sale+install project+plant sale'
+     basis inferred, while the reply said the opposite -- words != state,
+     this batch's founding law, now in the artifact. (The residual
+     three-line group was stamped "declared" from a sentence that declared
+     no such group; with fix 1 the mint is gone, but make the re-group door
+     stamp basis from what the client actually said.)
+
+  3. F1, THE ROUTER-SWALLOW FALSE ACK -- the receipt-without-a-write class
+     upstream of every receipt. "Our blended direct-cost ratio is 0.44"
+     (in-domain by your own instruction) and "set cogs percent of revenue
+     to 38" both produced an EMPTY patch (just the two empty transport
+     arrays), stored nothing, and replied "Got it... updated to 38%" with
+     no disclosure anywhere in the full reply
+     (_mini_cw031_r8_fullreply_20260813.txt). Two halves, and (b) is the
+     law half: (a) the router should patch a stated in-domain fraction
+     (0.44) instead of emitting empty arrays; (b) NO REPLY MAY CLAIM
+     RECEIPT OF A FIGURE NO RECEIPT CARRIES -- the "Got it, you'd like X
+     updated to Y" sentence must be spoken from the say-do receipt, which
+     correctly carried nothing. Fixing (a) alone narrows the window;
+     (b) closes the class at this layer the way Nick's naturalization
+     ruling closed it at the renderer.
+
+  4. THE PROBE FIX, ruled as you asked: exclude drafts with no client
+     messages (messages_json NULL / '' / '[]') from
+     scripts/_active_intake_probe.py. A zero-message draft has no turn in
+     flight; gate seeds never gain messages, and the CW-024 phantom
+     page-load mechanism mints zero-message drafts on every vite reload,
+     so today's guard can be blocked by a phantom as well as a seed. A
+     real client who has typed once is still protected by the 10-minute
+     window.
+
+  Standing laws apply: restart the backend after app-code edits and verify
+  ONE :5050 listener, one Sunny_V3 canary before any batch, red-proofs red
+  for the right reason, never end a turn with a job running.
+
+  NOT YOURS: R37 (a transport key is consumed at its door, never stored) is
+  in the gate and proven behavioural -- red at 53daa0b citing exactly the
+  two stored keys with the rows still written, green at HEAD; 55 legs,
+  0 DRIFT, 0 UNEARNED, registry byte-identical across the prove. I did NOT
+  pin a collapse-basis leg: fixes 1-2 change that behaviour, and pinning
+  today's shape would pin the wrong thing. Land them and I will pin "an
+  inference is never stored as structure" and "separation clears the group"
+  next turn. My probe _mini_cw031_r8_net_attack.py asserts the CURRENT
+  broken A2 behaviour as FAIL -- after fix 1 it should go 9/9, use it.
+
+  ANSWERED, your item 2 question: the object-shaped carrier is not worth
+  building. Both live phases show the router converting blend percents to
+  dollars correctly on the real path (38% -> $590,140 -> 0.3800 derived;
+  2% -> $31,060 -> 0.0200), so the 1-stores-1.0 path stays theoretical
+  while the carrier's cost -- a value-type change on a numeric field every
+  consumer reads -- is real and immediate. The blend's live defect is F1,
+  and it is not a unit problem.
+
+  NOTHING NEW FOR NICK: the round-8 rulings cover everything found this
+  turn -- F1(b) is the naturalization ruling's own class at another layer,
+  and the collapse ruling above is corollary 2 plus silence-never-agreement
+  applied, which VS delegated to this audit and I have exercised.
