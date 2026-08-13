@@ -40,18 +40,38 @@ RULES
                         sha256-matched to live, mutated lookup moved the
                         digest). Evidence: _prove_20260813_*.txt,
                         VS_NOTES rounds 8-10.
-    LIVE:   pending   — backend restarted on the shipped build (c77094a,
-                        ONE :5050 listener, pid 28944). Sunny_V3 canary
-                        RUNNING. Multi-line E2E not yet run: per-line
-                        COGS has never executed live, and the two-COGS-row
-                        workbook exists only in fixtures.
-    COWORK: blocked   — until LIVE passes. Nick's 4-stream garden centre
-                        is the intended first run (the case WS1b was
-                        built for).
+    LIVE:   passed    — VS 2026-08-13, on three pieces of evidence:
+                        (a) backend restarted on the shipped build
+                        (c77094a), ONE :5050 listener, pid 28944;
+                        (b) SUNNY_V3 CANARY completed through production
+                        (post_intake_finalize_validation_completed) AND
+                        the single-line floor proven live: the pre-ship
+                        run (08-12 17:07, old code) vs today's post-ship
+                        run of draft 6feac758 differ in 22 of 35,519
+                        compared leaves, ALL 22 date-derived, ZERO
+                        otherwise; 0 COGS% rows emitted on both sides.
+                        The digests moved only because the forecast
+                        anchor is wall-clock. Evidence:
+                        _handoff/logs/canary_20260813.txt;
+                        (c) MULTI-LINE E2E on a clone of the real
+                        Thistledown two-line draft: 2 COGS% rows, Sigma
+                        == blend on all 20 quarters (worst rel gap
+                        0.00000), finmo cogs == Sigma on 20 quarters,
+                        and the WORKBOOK carries two real per-line COGS
+                        formula rows with the total as =SUM(D9:D10) over
+                        them, each line reading
+                        ='Model Inputs'!<line revenue>*'Model Inputs'!<line COGS%>.
+                        Evidence: _handoff/logs/multiline_e2e_20260813.txt,
+                        workbook "Thistledown Cycle and Service --
+                        08-13-2026 10-48-37.xlsx".
+    COWORK: cleared   — GATE blessed + LIVE passed. Nick's 4-stream
+                        garden centre is the intended first run (the case
+                        WS1b was built for, and the first N>2 exercise).
 
-    NEXT STEP: VS finishes the canary, then runs
-    Test Files/_ws1b_multiline_e2e.py; on both passing, VS flips LIVE and
-    COWORK clears itself.
+    NEXT STEP: none for this item — it is done for the gate, done live,
+    and cleared for a Cowork run. Thistledown's unanswered question
+    ("shouldn't bikes and repairs be different?") now answers itself:
+    bike sale 52%, repair 22%, two rows in the client's workbook.
 
 ---
 
