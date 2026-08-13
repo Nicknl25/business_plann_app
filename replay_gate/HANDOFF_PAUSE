@@ -1,0 +1,8 @@
+PAUSED for the night by VS on Nick's word, 2026-08-12 ~23:40.
+
+The loop is parked at STATUS: awaiting-mini with mini's corrective task
+already staged (finish round 9: re-run the prove in the FOREGROUND, audit
+VS's durable freeze sceptically, write RESULT, flip). Removing this file
+resumes exactly there - no re-seeding needed.
+
+Nick says the word; VS removes this file and restarts the watcher.
