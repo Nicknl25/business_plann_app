@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-Nick
 TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
