@@ -122,8 +122,14 @@ lesson shape; this closes the seam.
 12 / 52 / 4 period conversions (everywhere; excluded by definition); k=1,000
 / m=1,000,000 shorthand; founder-shorthand ×1000 ("twelve" → $12,000 — a
 speech convention the fingerprint check anchors to the client's own words);
-percent-points ÷100 ladders (`_coerce_ratio_units`, `_safe_ratio`,
-`_normalize_ratio_like` — the CW-013 one-ladder-one-seam); ZIP=5 digits;
+percent-points ÷100 ladders (`_coerce_ratio_units`, `_safe_ratio` — the
+CW-013 one-ladder-one-seam, and both are MACHINE-source normalizers: cohort
+table seeds and GPT-authored bands, where no client words exist to declare a
+unit). `_normalize_ratio_like` was the same ladder on a CLIENT statement and
+is DELETED (CW-031 round 8): a client saying "COGS is 1% of revenue" stored
+100%. Client-stated rates now carry a unit declared by the router and are
+converted unconditionally by `_declared_percent_rate`, which refuses rather
+than guesses. No threshold may separate 71 from 0.71. ZIP=5 digits;
 NAICS=6 digits (+5,4,3,2 prefix cascade); 365-day stage inference; 0-12
 months-until-hire proration; 90 days-in-quarter (convention shared with the
 engine's day-count basis — flag only if the engine's basis ever changes).

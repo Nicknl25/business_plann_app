@@ -1797,6 +1797,22 @@ def route_intent(
       + "- shared_context.financials_controller.current_stage.basis declares the stored basis for each patch target (monthly, annual, count, ratio, amount). Normalize the client's STATED basis to the field's declared basis - convert, never copy. Example: field basis monthly + client says a yearly figure -> divide by 12; field basis annual + client says a monthly figure -> multiply by 12; same basis -> patch as-is.\n"
       + "- If the client states no basis, assume they answered in the basis the question asked in, then still convert to the field's declared basis if those differ.\n"
       + "- If the client states BOTH a monthly and an annual figure for the same fact (e.g. \"$10,000 a month - the $120k salary\"), patch the value expressed in the field's declared basis; never patch the other one.\n"
+      # THE BLEND'S UNIT, and why there is no unit KEY here. The apply layer
+      # used to divide by 100 only when the figure exceeded 1.0, so "COGS is
+      # 1% of revenue" stored 100% of revenue and re-derived the dollar twin
+      # to match. No threshold separates 0.71 from 71 or 1 from 0.5. Round 8 tried
+      # exposing financials.cogs_percent_of_revenue_unit as a patch field so
+      # the applier could convert unconditionally. Live, on four wordings, the
+      # router stopped patching at all and returned confirm_clarify asking the
+      # client "what should we use as the unit for COGS as a percent of
+      # revenue?" - on three of four, including a per-line collapse message
+      # that has nothing to do with the blend. That is the documented trap one
+      # comment down: a statically allowed structural field is a field the
+      # router will ask about or invent from an ordinary answer. So the unit
+      # stays where every other field's basis lives - in the DECLARED BASIS
+      # the router normalizes to - and the applier refuses anything that is
+      # not a fraction rather than rescaling it (rescaling was the bug).
+      + "- financials.cogs_percent_of_revenue and financials.marketing_percent_of_revenue store a FRACTION of revenue, so convert the client's words before patching: \"38 percent of revenue\" / \"38%\" -> 0.38, \"1 percent of revenue\" -> 0.01, \"a ratio of 0.38\" -> 0.38. A client saying direct costs are 1 percent means 1 percent, so 0.01 - never 1. The app REFUSES a figure that is not already a fraction rather than rescaling it, so a patch of 38 here records nothing.\n"
       + "Financials pending basis clarify (takes precedence over the active stage):\n"
       + "- If shared_context.financials_controller.pending_basis_clarify is present, the app just asked the client whether a specific figure was per week, per month, or per year (the question text is in pending_basis_clarify.question). The client's reply answers THAT question, in whatever words they use.\n"
       + "- Map the reply to edit_patch with basis_clarify_resolution = {basis, amount}: basis is one of pending_basis_clarify.allowed_bases (weekly/monthly/annual, or as_stated when the client confirms the figure exactly as originally given - e.g. 'no, that's right', 'per week is correct', 'as I said'). Phrases like 'a month', 'monthly', 'that's the monthly number' -> monthly; 'for the year', 'annually', 'a year' -> annual; 'a week', 'weekly' -> weekly.\n"

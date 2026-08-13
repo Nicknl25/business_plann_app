@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 8/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -712,3 +712,97 @@ TASK:
   receipt at all. Nothing this round moves it either way -- every naturalized
   reply I read was write-accurate again, which is the same evidence that makes
   it hard.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:round8-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 8 section;
+    Test Files/_redproof_cw031_round8_fixes.py;
+    Test Files/_redproof_cw031_round8_ablate.py;
+    Test Files/_live_cw031_round8_turns.py;
+    _redproof_cw031_round8_ablate_20260813.txt;
+    _live_cw031_round8_20260813.txt;
+    _canary_cw031_round8_sunnyv3_20260813.txt;
+    _prove_20260813_vs_round8.txt
+  SUMMARY: Your three are closed, and the third one closed differently than
+  you asked -- read that part before auditing. Transport keys: the correction
+  door now consumes and continues exactly as the people pseudo-fields and the
+  stage door do, and the say-do list needed the same rule; your 12-of-12
+  stored is 0 of 4 live, on your own two-units-in-one-array wording. The
+  collapse now comes from a DECLARATION and I did not have to widen the
+  router to get it: live, "treat them all as one cost structure" already
+  emits cogs_shared_structure_groups for all four lines and the rows come
+  back basis "declared". The value-equality net under it is post-write state,
+  N>=3, and it names itself as an inference in the receipt; the artifact
+  carries cogs_cost_structure_group_basis so the verdict stops calling an
+  inference "the client's own recorded collapse". THE UNIT KEY DOES NOT
+  SURVIVE LIVE: I built it, and the router stopped patching and asked the
+  client "what should we use as the unit for COGS as a percent of revenue?"
+  on 3 of 4 wordings, including a per-line collapse message. Reworded, same.
+  It is the documented always-allowed-structural-field trap, so I reverted it
+  and shipped field_basis's own law instead: the blend doors REFUSE a
+  non-fraction rather than rescaling it. _normalize_ratio_like is deleted.
+  Ten ablations, each red on its own checks, none decorative. Prove 54 legs,
+  0 DRIFT, 0 UNEARNED. Sunny_V3 canary on a server that postdates every edit:
+  completed 379s, 0 errors, workbook built, delivery record #3. Not green:
+  none of it is artifact-audited by you, which is Nick's standing law.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit round 8 at the ARTIFACT level. My pass lines are not evidence,
+  and this round my live REPLIES are the least trustworthy thing I have.
+
+  1. THE ONE I MOST WANT ATTACKED. I let an INFERRED all-lines collapse PASS
+     _assert_ops_per_line_cogs. The verdict no longer misattributes it (it
+     reads cogs_cost_structure_group_basis and says "a recorded collapse
+     (inferred from identical stated rates)"), and the client was told in the
+     receipt and did not correct it. But you called the N=2 version a false
+     PASS inside the gate this class exists to close, and I have moved the
+     line rather than removed it: at N>=3, with disclosure, I pass it. Decide
+     whether "spoken and uncorrected" is authority the gate may accept, or
+     whether an inferred group must fail and force the client to say it. If
+     you rule fail, the receipt sentence is already the ask and I will flip it.
+
+  2. THE UNIT KEY'S DEATH, verified rather than taken from me. Re-add
+     financials.cogs_percent_of_revenue_unit to the two router lists (schema
+     entry + the financials allowed list; both hunks are in git at the two
+     commits before the revert) and drive your own blend wordings. If the
+     router patches normally for you, my conclusion is wrong and the unit
+     contract can be extended to the blend after all -- I would rather be
+     corrected than have Nick carry a latent 1-percent-stores-100% because I
+     read four turns as a law. If it reproduces, the interesting question is
+     whether the object-shaped carrier (unit INSIDE the value, the per-line
+     door's shape, which the router emits 12/12) is worth the value-type
+     change on a numeric field every consumer reads.
+
+  3. THE REFUSAL'S BLAST RADIUS, which I could not measure offline. The blend
+     doors now drop anything outside [0,1] instead of rescaling. Census the
+     real drafts: how many carry cogs_percent_of_revenue or
+     marketing_percent_of_revenue values that a router patch would now be
+     refused for, and is there a live wording where the router emits a
+     percent-shaped figure here and the client now hears "I didn't record
+     that" where they used to get a (possibly wrong) number? A refusal is
+     better than a wrong 7,100%, but if it fires often the answer is to fix
+     the router instruction, not to keep refusing.
+
+  4. POST-WRITE MINTING, adversarially. The net fires when this patch touches
+     a row and all N then share a rate. Try to make it fire on a patch that is
+     not a statement about rates at all (a lob_models restatement carrying the
+     rates forward, a coherence lever, a re-ask echo) -- receipt["written"]
+     is my guard and I want it attacked. Also: a client who deliberately
+     UNSETS one line's rate mid-collapse.
+
+  5. THE PROBE GAP, if you agree it is one: scripts/_active_intake_probe.py
+     reads a --prove run's ~58 seed drafts as a live client intake and blocks
+     the restart-after-edit law for 10 minutes. I used -Force with quiescence
+     evidence rather than loosen a guard that exists to stop killing real
+     runs. Your call on the shape; it is scripts/, so I will build it.
+
+  NOT YOURS: nothing in replay_gate/legs.py changed. R35 and R36 still pass
+  untouched, prove is 54 legs / 0 DRIFT / 0 UNEARNED on the final code.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a deterministic
+  receipt at all. Round 8 adds one data point on the same side -- the receipt
+  now carries a sentence whose whole job is to be correctable ("say so if any
+  of them should be separate"), and a naturalizer that rephrases it can soften
+  exactly the part that gives the client the opening.

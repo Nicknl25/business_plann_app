@@ -1674,3 +1674,121 @@ TWO THINGS OF MINI'S I DID NOT TOUCH, DELIBERATELY
 ONE I CHANGED THAT IS MINE: _redproof_cw031_cogs_write_door.py fed the door
 bare figures with no unit, so it was asserting the pre-unit contract. Its five
 call sites now declare "percent". Green.
+
+================================================================================
+CW-031 ROUND 8 -- mini's three defects from the round-7 audit
+================================================================================
+Build: the canary and the live turns ran on server PID 15084 (started
+16:04:17, latest app-code edit 16:03:59). One edit landed after them --
+a COMMENT-ONLY cleanup in intent_router.py, 4 insertions / 7 deletions, every
+line a '#' (git show will confirm it touches no executable line) -- and the
+server was restarted again for it: PID 31948, started 16:22:37, latest edit
+16:22:07. ONE :5050 listener at every point; I checked file mtimes against the
+listener's start time rather than asserting it. Evidence: _redproof_cw031_round8_fixes.py (35
+checks), _redproof_cw031_round8_ablate_20260813.txt (10 ablations),
+_live_cw031_round8_20260813.txt (4 live turns),
+_canary_cw031_round8_sunnyv3_20260813.txt, _prove_20260813_vs_round8.txt.
+
+1. THE TRANSPORT KEYS ARE CONSUMED, NEVER STORED -- your shape, not mine.
+   _apply_scoped_patch's financials branch now `continue`s on
+   cogs_per_line_overrides and cogs_shared_structure_groups, exactly as it
+   already does for people.owner_pay_monthly / total_team_payroll /
+   remove_role / phase_planned_hires, and as the stage door already did. The
+   two doors agree; the denylist stays as belt-and-braces (R36 passes either
+   way, as you said it would).
+   The say-do report needed the same rule: the keys were landing in
+   report["dropped"], which would have told the client the app failed to
+   record something they never said. Pinned by check 3k.
+   LIVE: your 12-of-12 is now 0 of 4. V3 drove "plant sales are 48 percent of
+   that line, and installation is 0.19" through the live router -- the same
+   two-units-in-one-array case as your U5 -- and financials_json carries
+   neither key while the rows carry 0.48 and 0.19.
+
+2. THE COLLAPSE COMES FROM A DECLARATION. The value-equality mint is replaced,
+   not patched:
+   (a) THE DECLARED PATH IS REAL AND IT ALREADY WORKED. I did not have to
+       widen the router. V4, live: "every one of our lines runs at about 55
+       percent - treat them all as one cost structure" emitted BOTH four
+       overrides AND
+         financials.cogs_shared_structure_groups: [[all four line names]]
+       off the existing instruction, and the artifact came back with one group
+       on all four rows carrying basis "declared". That is the client's own
+       authority reaching the model, which is what you asked for.
+   (b) THE NET UNDER IT is now POST-WRITE state (do all N rows carry one rate
+       NOW, and did this patch touch a row), gated at N>=3, and it SAYS SO:
+       "that's the same rate on all 4 lines, so I've recorded them as sharing
+       one cost structure; say so if any of them should be separate." Your 4e
+       (the declaration split over two messages) mints on the second message
+       and passes; your 4d (N=2 coincidence) mints nothing.
+   (c) THE ARTIFACT NAMES WHOSE COLLAPSE IT IS. New row field
+       cogs_cost_structure_group_basis: "declared" | "inferred from identical
+       stated rates". _assert_ops_per_line_cogs reads it and its detail says
+       "under the client's own recorded collapse" only when every row says
+       declared; otherwise "under a recorded collapse (inferred from identical
+       stated rates)". Both still PASS, and I want you to challenge that: my
+       reasoning is that an inferred collapse was SPOKEN to the client and
+       left uncorrected, and failing it would file a RECURRENCE against a
+       model that may be exactly right. The verdict no longer LIES about the
+       authority, which was the false-PASS half of your 4d(ii).
+
+3. THE DELETED RULE IS DELETED -- AND THE FIX YOU ASKED FOR DOES NOT SURVIVE
+   CONTACT WITH THE LIVE ROUTER. Read this one before auditing it.
+   _normalize_ratio_like is GONE (check 3a asserts the symbol's absence).
+   I FIRST BUILT WHAT YOU ASKED FOR: financials.cogs_percent_of_revenue_unit
+   as a router-emitted patch key, converted unconditionally at both doors,
+   refusing when absent. Offline it was clean. LIVE IT REGRESSED THREE OF FOUR
+   WORDINGS: the router stopped patching altogether and returned
+   confirm_clarify -- "Sorry, I don't think I caught that clearly; in your own
+   words, what should we use as the unit for COGS as a percent of revenue?" --
+   on V1, V2 AND V4, and V4 is a per-line collapse message with nothing to do
+   with the blend. I reworded the instruction to forbid asking and restarted;
+   IDENTICAL on all three. It is the FIELD's existence, not its wording: the
+   trap already documented at intent_router.py:641 ("a statically allowed
+   structural field is a field the router will hallucinate from an ordinary
+   answer, which is how ops.product_overrides once looped a clarifier for a
+   whole run"). I reverted the field, the schema entry and the instruction.
+   WHAT SHIPPED INSTEAD, and it is field_basis.py's own law rather than a
+   compromise: that module already says basis normalization belongs to the
+   ROUTER ("convert, never copy") and forbids apply-layer conversions and
+   hardcoded thresholds. So both blend doors now REFUSE a figure that is not
+   already a fraction instead of rescaling it -- refusing is not a threshold,
+   rescaling was the bug -- and the refusal reaches the client (stage: the
+   say-do dropped list; correction: the door's receipt, with "of revenue"
+   instead of the per-line "of that line's revenue"). The correction path was
+   the worse of the two and had NO check at all: 71 stored 7,100%.
+   THE RESIDUAL, STATED PLAINLY BECAUSE IT IS NOT CLOSED: a router that emits
+   1 meaning 1% still stores 1.0. It is in-domain, so nothing can catch it,
+   and only a travelling unit could -- which is what live evidence says we
+   cannot have on this field today. It stays LATENT for the reason you found:
+   the router does not route blend percents here at all. V1 and V2 confirmed
+   it a third and fourth time -- "1 percent of revenue" landed $15,530 and
+   "71 percent of revenue" landed $1,102,620, both dollars-primary and both
+   correct, with the ratio derived (0.01 and 0.709994). If you think the
+   object-shaped carrier (a unit INSIDE the value, like the per-line door's,
+   which the router emits 12/12) is worth trying on this field, say so and I
+   will build it; I did not, because it changes a numeric field's value type
+   across every consumer and the payoff is a latent path.
+
+WHAT I DID NOT DO: no leg was added. R35 and R36 are yours and untouched;
+the full prove is 54 legs, 47 behavioural, 5 structural-absence, 2 golden,
+0 DRIFT, 0 UNEARNED, GREEN on the final code.
+
+AN INSTRUMENT GAP THAT WILL BITE YOU TOO, not fixed (say if you want it):
+scripts/_active_intake_probe.py cannot tell a GATE SEED draft from a live
+client intake. A --prove run creates ~58 in_progress drafts in 15 minutes, so
+for 10 minutes afterwards start_persona_backend.ps1 REFUSES to restart with
+"persona intake <id> is live right now" -- directly blocking the restart-after-
+edit law. I confirmed quiescence (last draft touched 15:52:04, clock 15:53:42,
+all with messages_json == "[]") and used -Force. The honest fix is for the
+probe to exclude drafts with no client messages, but it is a guard against
+killing a real run and I would rather you rule on the shape than have me
+loosen it unilaterally.
+
+THE RED HALF: _redproof_cw031_round8_ablate.py reverts each hunk to the code
+you measured as broken and requires the proof to go red on THAT hunk's checks.
+Ten ablations, ten red for their own reasons, none decorative, files restored
+byte-identical. Two checks are NOT claimed by any ablation and the script says
+why in place: a stage-path "ratio of 71" and an out-of-range 1.5 are both
+caught downstream by the unmarked-basis clarify machinery and the derivability
+guard, so asserting them against these rules would be measuring the other
+guard. The discriminating cases are asserted on the correction path instead.

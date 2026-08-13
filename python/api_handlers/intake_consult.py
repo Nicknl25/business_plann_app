@@ -1472,13 +1472,52 @@ def _extract_first_number_from_text(value: Any) -> Optional[float]:
     return None
 
 
-def _normalize_ratio_like(value: Any) -> Optional[float]:
+# THE UNIT VOCABULARY, one place. The client's own words for "this figure is
+# a percent" and "this figure is already a fraction", as the router declares
+# them alongside the figure.
+_PERCENT_UNIT_WORDS = frozenset({"percent", "percentage", "pct", "%", "points", "point"})
+_RATIO_UNIT_WORDS = frozenset({"ratio", "fraction", "decimal", "share", "proportion"})
+
+
+def _declared_percent_rate(value: Any, unit: Any) -> Tuple[Optional[float], str]:
+  """THE UNIT IS DECLARED, NEVER INFERRED - wherever a unit can travel.
+
+  Round 7 deleted _normalize_ratio_like's rule - divide by 100 only above
+  1.0 - from the per-line COGS door, because "1 percent" stored 100% and
+  "half a point" stored 50%. Round 8 deleted the HELPER, so that rule is
+  gone from the blended rates too. This is the per-line door's converter,
+  now the only one: a unit rides inside cogs_per_line_overrides' own object
+  and is obeyed unconditionally.
+
+  No threshold can separate the two readings: 0.71 and 71 are both real
+  client inputs, and so are 1 and 0.5. field_basis.py already forbids
+  exactly this shape ("There must be NO other basis logic anywhere: no
+  apply-layer conversions, no hardcoded thresholds") - and a conversion
+  driven by a unit the ROUTER declared, where the client's own words are
+  still visible, is not that heuristic: it is the declaration being obeyed.
+  Where no unit can travel (the blended rates - a unit KEY there made the
+  live router stop patching and ask the client about it instead), the
+  applier refuses a non-fraction rather than picking a rescaling.
+
+  Returns (ratio, "ok") or (None, why) with why in no_value / no_unit /
+  contradiction. A refusal is a RESULT: callers drop the write and the
+  say-do accounting tells the client it did not land, which is recoverable.
+  A silent 100% is not. Callers round to their own field's precision.
+  """
   numeric = _safe_float(value)
   if numeric is None:
-    return None
-  if numeric > 1.0:
-    return float(numeric) / 100.0
-  return float(numeric)
+    return None, "no_value"
+  numeric = float(numeric)
+  declared = str(unit or "").strip().lower()
+  if declared in _PERCENT_UNIT_WORDS:
+    if numeric < 0.0 or numeric > 100.0:
+      return None, "contradiction"
+    return numeric / 100.0, "ok"
+  if declared in _RATIO_UNIT_WORDS:
+    if numeric < 0.0 or numeric > 1.0:
+      return None, "contradiction"
+    return numeric, "ok"
+  return None, "no_unit"
 
 
 def _safe_int(value: Any) -> Optional[int]:
@@ -2878,6 +2917,24 @@ def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
   return weight if weight > 0 else None
 
 
+# THE TRANSPORT KEYS OF THE COGS DOORS. These are pseudo-fields: the client's
+# statement in flight, in the client's OWN units, on its way to a row that
+# stores something else. They are CONSUMED by their door and must never reach
+# next_financials[field] -- one stored array under one field name carrying a 48
+# and a 0.19 is the wrong-unit defect preserved in the artifact instead of in
+# the sentence, waiting for the first reader that just takes the number.
+#
+# The codebase already answers "who may STORE this" the same way three times
+# over in _apply_scoped_patch (people.owner_pay_monthly, total_team_payroll,
+# remove_role, phase_planned_hires are consumed and then `continue`), and the
+# stage door strips these two already. The correction path was the one door
+# that consumed the key and persisted it anyway; both doors now agree.
+_PER_LINE_COGS_TRANSPORT_FIELDS = frozenset({
+  "cogs_per_line_overrides",
+  "cogs_shared_structure_groups",
+})
+
+
 def _apply_per_line_cogs_patch_keys(
   patch: Dict[str, Any],
   *,
@@ -2913,9 +2970,6 @@ def _apply_per_line_cogs_patch_keys(
   if not directory:
     return receipt
 
-  _PERCENT_WORDS = {"percent", "percentage", "pct", "%", "points", "point"}
-  _RATIO_WORDS = {"ratio", "fraction", "decimal", "share", "proportion"}
-
   def _declared_rate(item: Dict[str, Any]) -> Tuple[Optional[float], str]:
     """THE UNIT IS DECLARED, NEVER INFERRED.
 
@@ -2935,20 +2989,11 @@ def _apply_per_line_cogs_patch_keys(
     raw = item.get("cogs_percent")
     if raw is None:
       raw = item.get("cogs_percent_of_line_revenue")
-    value = _safe_float(raw)
-    if value is None:
-      return None, "no_value"
-    value = float(value)
-    unit = str(item.get("cogs_percent_unit") or item.get("unit") or "").strip().lower()
-    if unit in _PERCENT_WORDS:
-      if value < 0.0 or value > 100.0:
-        return None, "contradiction"
-      return round(value / 100.0, 4), "ok"
-    if unit in _RATIO_WORDS:
-      if value < 0.0 or value > 1.0:
-        return None, "contradiction"
-      return round(value, 4), "ok"
-    return None, "no_unit"
+    rate, why = _declared_percent_rate(
+      raw, item.get("cogs_percent_unit") or item.get("unit"))
+    if rate is None:
+      return None, why
+    return round(rate, 4), "ok"
 
   overrides = patch.get("financials.cogs_per_line_overrides")
   if overrides is None:
@@ -2998,35 +3043,6 @@ def _apply_per_line_cogs_patch_keys(
     receipt["consumed_figures"].extend([float(pct), round(float(pct) * 100.0, 4)])
     receipt["wrote"] = True
 
-  # ONE RATE FOR EVERY LINE IS A DECLARED COLLAPSE, and it must be RECORDED as
-  # one. "Everything runs at about 55 percent" is a client exercising the same
-  # authority as "treat those two as sharing one cost structure" -- but it
-  # arrives as N overrides with no group, and the artifact assertion then reads
-  # N identical rates as a blend wearing per-line clothing and files a
-  # RECURRENCE against a model that is exactly what the client asked for. The
-  # opt-out has to come from the client's own recorded authority, so the door
-  # writes the group here rather than leaving a probe-spec flag nobody sets.
-  # Deliberately narrow: only when ONE patch sets EVERY line in the directory
-  # to the SAME rate. Three of four lines, or rates that merely happen to
-  # coincide across turns, are not a declaration and get no group.
-  if len(directory) >= 2 and len(receipt["written"]) == len(directory):
-    _written_rates = {round(float(w["cogs_percent"]), 4) for w in receipt["written"]}
-    _written_lines = {w["line_name"] for w in receipt["written"]}
-    if len(_written_rates) == 1 and len(_written_lines) == len(directory):
-      _all_label = "shared:" + "+".join(
-        sorted(str(e["product_name"] or e["line_name"]).strip().lower() for e in directory)
-      )
-      for entry in directory:
-        entry["row"]["cogs_cost_structure_group"] = _all_label
-      receipt["grouped"].append({
-        "line_names": [e["line_name"] for e in directory],
-        "group": _all_label,
-        "cogs_percent": next(iter(_written_rates)),
-        "basis": "declared for every line",
-        "unweighted_lines": [],
-        "all_lines": True,
-      })
-
   groups = patch.get("financials.cogs_shared_structure_groups")
   if groups is None:
     groups = patch.get("cogs_shared_structure_groups")
@@ -3073,6 +3089,12 @@ def _apply_per_line_cogs_patch_keys(
         basis = "revenue weighted"
     for member in members:
       member["row"]["cogs_cost_structure_group"] = label
+      # WHOSE COLLAPSE IS THIS? Stored beside the group, because the artifact
+      # otherwise cannot tell a grouping the CLIENT declared from one the app
+      # inferred - and an assertion that reads a group as "the client's own
+      # recorded collapse" when nobody declared it is a false PASS inside the
+      # gate this class exists to close.
+      member["row"]["cogs_cost_structure_group_basis"] = "declared"
       if shared_pct is not None:
         member["row"]["cogs_percent_of_line_revenue"] = shared_pct
       receipt["wrote"] = True
@@ -3082,7 +3104,55 @@ def _apply_per_line_cogs_patch_keys(
       "cogs_percent": shared_pct,
       "basis": basis,
       "unweighted_lines": unweighted,
+      "all_lines": len(members) == len(directory),
+      "declared": True,
     })
+
+  # ONE RATE ON EVERY LINE IS A COLLAPSE -- BUT WHOSE?
+  #
+  # The old rule minted an all-lines group whenever ONE patch set EVERY line to
+  # the SAME rate, and value equality is not authority. It failed in both
+  # directions at once: two lines that merely coincided at 55% minted a group
+  # the client never declared (and the receipt then TOLD them their lines were
+  # collapsed), while "everything runs at 55" said across two messages minted
+  # nothing and was filed as a RECURRENCE against a model that is exactly what
+  # the client asked for.
+  #
+  # The authority path is the DECLARATION, above: the router now emits
+  # cogs_shared_structure_groups for "everything runs at about 55 percent", and
+  # a declared group carries basis "declared". This is the safety net under it,
+  # and it is deliberately weaker than the declaration in three ways:
+  #   - POST-WRITE STATE, not one-patch state: all N rows carrying one rate now
+  #     is the fact that matters, whichever turns wrote them (the multi-message
+  #     case). This patch must still have touched a row, so the net fires on a
+  #     statement and never on a passing read.
+  #   - N >= 3: at N=2 one coincidence is enough, and a coincidence is all it
+  #     would take. (Measured: 0 real drafts have two lines sharing a rate.)
+  #   - It SAYS SO. The receipt names the inference as an inference, so a client
+  #     who did not mean it can correct it in the next sentence. An inferred
+  #     collapse the client is never told about is the receipt-without-a-write
+  #     class arriving from the other direction.
+  if (len(directory) >= 3 and receipt["written"]
+      and not any(g.get("all_lines") for g in receipt["grouped"])):
+    _rates = [_safe_float(e["row"].get("cogs_percent_of_line_revenue")) for e in directory]
+    _distinct = {round(float(r), 4) for r in _rates if r is not None}
+    if len(_rates) == len(directory) and None not in _rates and len(_distinct) == 1:
+      _all_label = "shared:" + "+".join(
+        sorted(str(e["product_name"] or e["line_name"]).strip().lower() for e in directory)
+      )
+      for entry in directory:
+        entry["row"]["cogs_cost_structure_group"] = _all_label
+        entry["row"]["cogs_cost_structure_group_basis"] = "inferred from identical stated rates"
+      receipt["grouped"].append({
+        "line_names": [e["line_name"] for e in directory],
+        "group": _all_label,
+        "cogs_percent": next(iter(_distinct)),
+        "basis": "uniform rates stated",
+        "unweighted_lines": [],
+        "all_lines": True,
+        "declared": False,
+      })
+      receipt["wrote"] = True
   return receipt
 
 
@@ -3110,6 +3180,18 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
     # basis is what makes the fallback a stated approximation the client can
     # object to instead of a rate that quietly replaced one they gave.
     unweighted = [u for u in (group.get("unweighted_lines") or []) if u]
+    # AN INFERRED COLLAPSE MUST NAME ITSELF AS ONE. The client declared N
+    # rates that happen to be identical; nobody said "treat these as one".
+    # Recording the group is right (it is what the model now says) and telling
+    # them it was the app's reading, not their instruction, is what makes it
+    # correctable in the next sentence instead of a collapse they never asked
+    # for and were told they had asked for.
+    if group.get("basis") == "uniform rates stated":
+      said_group += (f" - that's the same rate on all {len(line_names)} lines, so I've"
+                     " recorded them as sharing one cost structure; say so if any of"
+                     " them should be separate")
+      parts.append(said_group)
+      continue
     if group.get("basis") == "plain average":
       said_group += " (a plain average of the rates you gave"
       if unweighted:
@@ -3123,10 +3205,15 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
   unclear = [u for u in (receipt.get("unit_unclear") or []) if u]
   if unclear:
     first = unclear[0]
+    # The blended rate is not one line's revenue, so it does not borrow the
+    # per-line wording; everything else about the refusal is identical.
+    _of_what = ("revenue" if str(first.get("scope") or "") == "blend"
+                else "that line's revenue")
     said = (said + " I didn't record a rate for "
             + " or ".join(str(u.get("line_name") or "") for u in unclear[:3])
-            + f": {first.get('value')!r} could be a percent or a fraction of that "
-              "line's revenue, and I won't guess between them - say it as a "
+            + f": {first.get('value')!r} could be a percent or a fraction of "
+            + _of_what
+            + ", and I won't guess between them - say it as a "
               "percent, for example 4%, and I'll set it.").strip()
   unmatched = [u for u in (receipt.get("unmatched") or []) if u]
   if unmatched:
@@ -7889,8 +7976,24 @@ def _normalize_financials_router_patch(
       touched.add(field_name)
       continue
     if field_name in {"cogs_percent_of_revenue", "marketing_percent_of_revenue"}:
-      numeric = _normalize_ratio_like(raw_value)
+      # NO APPLY-LAYER RESCALING. _normalize_ratio_like used to divide by 100
+      # only above 1.0 - the exact rule round 7 deleted from the per-line door,
+      # left alive here on the BLENDED rate, where "COGS is 1% of revenue"
+      # became 100% of revenue and re-derived current_cogs to match it.
+      #
+      # field_basis.py declares this field a RATIO and puts basis normalization
+      # in the router ("convert, never copy"), so a figure outside [0,1] is not
+      # a fraction of revenue at all: it is a contract violation, and the honest
+      # answer is to REFUSE it, not to guess which rescaling the client meant.
+      # The refusal reaches the client through the say-do accounting below.
+      numeric = _safe_float(raw_value)
       if numeric is None:
+        continue
+      if float(numeric) < 0.0 or float(numeric) > 1.0:
+        logger.info(
+          "BLEND_RATE_NOT_A_FRACTION path=stage field=%s value=%r - refused, never rescaled",
+          field_name, raw_value,
+        )
         continue
       next_financials[field_name] = float(numeric)
       touched.add(field_name)
@@ -7956,7 +8059,13 @@ def _normalize_financials_router_patch(
       if _f:
         _requested.add(_f)
     report["applied"] = sorted(touched)
-    report["dropped"] = sorted((_requested - touched) - {"basis_clarify_resolution"})
+    # A TRANSPORT KEY IS NOT A FIELD THE CLIENT ASKED FOR. The per-line COGS
+    # keys are consumed by their own door before this loop; reporting them as
+    # unapplied would tell the client the app failed to record something they
+    # never said.
+    report["dropped"] = sorted(
+      (_requested - touched) - {"basis_clarify_resolution"}
+      - _PER_LINE_COGS_TRANSPORT_FIELDS)
   if not touched and not _resolution_landed:
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
@@ -8624,7 +8733,7 @@ def _apply_stage_cogs_door_keys(
     return patch, stage_shared_context, _ack
   _cogs_keys = {
     k: v for k, v in patch.items()
-    if str(k).split(".")[-1] in ("cogs_per_line_overrides", "cogs_shared_structure_groups")
+    if str(k).split(".")[-1] in _PER_LINE_COGS_TRANSPORT_FIELDS
   }
   if not _cogs_keys:
     return patch, stage_shared_context, _ack
@@ -11855,6 +11964,34 @@ def _apply_scoped_patch(
         # model): patch writes to derived fields are dropped - the one
         # deriver recomputes them from their sources every pass.
         continue
+      if field in _PER_LINE_COGS_TRANSPORT_FIELDS:
+        # CONSUMED ABOVE, NEVER STORED. The per-line door already read these
+        # off this same patch; persisting them afterwards leaves the client's
+        # figure in the client's own units sitting in the artifact under a
+        # field name that promises the stored unit.
+        continue
+      if field == "cogs_percent_of_revenue":
+        # THE BLEND IS A FRACTION, and this path applied NO conversion at all -
+        # worse than the stage door, since "71 percent of revenue" arriving as
+        # 71 stored 7,100% and re-derived the dollar twin to match. Same rule as
+        # the stage door: refuse what is not a fraction, never rescale it, and
+        # say so through the door's receipt so the client is asked something
+        # they can answer.
+        _blend = _safe_float(value)
+        if _blend is None or float(_blend) < 0.0 or float(_blend) > 1.0:
+          logger.info(
+            "BLEND_RATE_NOT_A_FRACTION path=scoped_apply value=%r - refused, never rescaled",
+            value,
+          )
+          _cogs_receipt.setdefault("unit_unclear", []).append({
+            "line_name": "your overall direct-cost rate",
+            "value": value,
+            "reason": "not_a_fraction",
+            "scope": "blend",
+          })
+          next_financials["_per_line_cogs_receipt"] = _cogs_receipt
+          continue
+        value = float(_blend)
       next_financials[field] = value
       # BASIS-TAGGED COGS at EVERY capture door (Nick's ruling; the
       # keystone F&F rerun proved the stage applier was the only door

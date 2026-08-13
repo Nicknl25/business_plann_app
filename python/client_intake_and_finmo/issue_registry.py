@@ -750,10 +750,22 @@ def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[
                  if str(p.get("cogs_cost_structure_group") or "").strip()]
       labels = {str(p.get("cogs_cost_structure_group") or "").strip() for p in grouped}
       if len(grouped) == len(products) and len(labels) == 1:
+        # WHOSE COLLAPSE, IN THE VERDICT'S OWN WORDS. A group the app inferred
+        # from N identical stated rates is weaker evidence than one the client
+        # declared, and this used to cite both as "the client's own recorded
+        # collapse" -- so a two-line coincidence PASSED as a declaration. The
+        # door now stamps the basis on the rows and the verdict repeats it, so
+        # a human reading the table can see which authority it rested on. It
+        # still passes: an inferred collapse was SPOKEN to the client and left
+        # uncorrected, and no artifact can tell a true one-rate business from
+        # the bug - failing it would file a RECURRENCE against a correct model.
+        _bases = {str(p.get("cogs_cost_structure_group_basis") or "declared").strip()
+                  for p in grouped}
+        _whose = ("the client's own recorded collapse" if _bases == {"declared"}
+                  else "a recorded collapse (" + "; ".join(sorted(_bases)) + ")")
         return {"verdict": "pass",
                 "detail": (f"{detail}; all {len(products)} rows share one rate {rates} "
-                           f"under the client's own recorded collapse "
-                           f"{next(iter(labels))!r}")}
+                           f"under {_whose} {next(iter(labels))!r}")}
       return {"verdict": "fail",
               "detail": f"all {len(products)} rows share one rate {rates} - "
                         "a blend wearing per-line clothing"}
