@@ -1,0 +1,14 @@
+[RED-FOR-THE-RIGHT-REASON] R9A1 the net stores nothing (restore the mint): ['1a uniform write stores NO group', '1b receipt carries the ask', '1e declared partial group SURVIVES a coinciding write']
+[RED-FOR-THE-RIGHT-REASON] R9A2 the ask fires once (drop the entry snapshot): ['1d echo of uniform state: no store, no re-ask']
+[RED-FOR-THE-RIGHT-REASON] R9A3 the N>=3 floor: ['1f N=2 uniform: no ask, no store']
+[RED-FOR-THE-RIGHT-REASON] R9A4 the separation door's clear: ["3a separation clears the named row's group AND basis"]
+[RED-FOR-THE-RIGHT-REASON] R9A5 the group-coherence pass: ['3b the stale label is retired from the rows left behind', '3e a regroup clears the stale label from the row it leaves out']
+[RED-FOR-THE-RIGHT-REASON] R9A6 the gate's declared-only rule: ['2b inferred-basis group FAILS the gate']
+[RED-FOR-THE-RIGHT-REASON] R9A7 the F1 predicate's figure scan: ["4a mini's A-B2 reply is caught", "4b mini's A-B3 reply is caught", '4e a unit-scaled echo is caught (38 <-> 0.38)']
+[RED-FOR-THE-RIGHT-REASON] R9A8 the F1 predicate's unit doubling: ['4e a unit-scaled echo is caught (38 <-> 0.38)']
+[RED-FOR-THE-RIGHT-REASON] R9A9 the probe's zero-message exclusion: ['6a a zero-message draft does NOT block the restart']
+
+restore check: re-running the proof on restored files...
+restored: proof green again.
+
+all 9 ablations red on their own checks; none decorative.

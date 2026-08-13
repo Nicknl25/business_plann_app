@@ -1,0 +1,48 @@
+==============================================================================
+L1 separation clears the group (round 8's live gap)
+  < [200] Got it—so you’ve now set Plant sale, Hard goods sale, Install project, and Design consult each to 55.0% COGS, so all four lines share the same 55% direct-cost structure.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One thing worth sitting with together before you lean on t
+  rows: [('Plant sale', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Hard goods sale', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Install project', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Design consult', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared')]
+  fin : {'cogs_percent_of_revenue': 0.5500000000000004, 'cogs_basis': 'ratio', 'current_cogs': 854150.0000000001}
+  < [200] Got it, we’ve kept Garden design consultations / Design consult at its own 12% cost rate, with Plant/nursery sales, Hard goods & materials, and Landscaping & installation each still using their own separate rates unless you tell me any of them should share one.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annua
+  rows: [('Plant sale', 0.55, None, None), ('Hard goods sale', 0.55, None, None), ('Install project', 0.55, None, None), ('Design consult', 0.12, None, None)]
+  fin : {'cogs_percent_of_revenue': 0.5199048952994209, 'cogs_basis': 'ratio', 'current_cogs': 807412.3024000002}
+==============================================================================
+L2 uniform rates ask, never store; a yes is the declaration
+  < [200] Got it, I’ve updated both plant sales and hard goods so their cost of goods sold are set to 55.0% of each line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stre
+  rows: [('Plant sale', 0.55, None, None), ('Hard goods sale', 0.55, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  fin : {'cogs_percent_of_revenue': 0.47, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995}
+  < [200] Got it, I’ve updated both Install project and Design consult COGS to 55.0% of their line revenue just like you specified. That's the same rate on all 4 lines - should I treat them as one shared cost structure, or keep them separate?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated
+  rows: [('Plant sale', 0.55, None, None), ('Hard goods sale', 0.55, None, None), ('Install project', 0.55, None, None), ('Design consult', 0.55, None, None)]
+  fin : {'cogs_percent_of_revenue': 0.5500000000000004, 'cogs_basis': 'ratio', 'current_cogs': 854150.0000000001}
+  < [200] Got it, we’ll record all 4 lines together using one direct-cost rate of 55%.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One thing worth sitting with together before you lean on this: at the strongest realistic version of your business, the structure can work - a mature q
+  rows: [('Plant sale', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Hard goods sale', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Install project', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared'), ('Design consult', 0.55, 'shared:design consult+hard goods sale+install project+plant sale', 'declared')]
+  fin : {'cogs_percent_of_revenue': 0.5500000000000004, 'cogs_basis': 'ratio', 'current_cogs': 854150.0000000001}
+==============================================================================
+L3 F1: a figure no receipt carries may not be acknowledged
+  < [200] I wasn't able to apply that change just now - could you tell me exactly which field to change and the value it should be?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stre
+  rows: [('Plant sale', None, None, None), ('Hard goods sale', None, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  fin : {'cogs_percent_of_revenue': 0.47, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995}
+  VERDICT: honest no-record (acceptable; router did not patch)
+==============================================================================
+L4 F1: a figure no receipt carries may not be acknowledged
+  < [200] Got it, we’ll update your current COGS to $590,139 and set your Year 1 total COGS to $590,139 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a for
+  rows: [('Plant sale', None, None, None), ('Hard goods sale', None, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  fin : {'cogs_percent_of_revenue': 0.379999356084997, 'cogs_basis': 'dollars', 'current_cogs': 590139.0}
+  VERDICT: stated fraction LANDED (0.379999356084997)
+  (4 clone(s) removed)
+==============================================================================
+LIVE RESULT: CLEAN (L1 separation, L2 ask->declaration, L3/L4 honest)

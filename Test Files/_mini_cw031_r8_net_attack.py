@@ -4,7 +4,11 @@ The net (intake_consult._apply_per_line_cogs_patch_keys, tail block) fires when
 THIS patch wrote a per-line rate, N >= 3, no all-lines group in THIS patch's
 receipt, and all N rows now coincide. Attacks:
 
-  A1  baseline: multi-message uniform (the case the net exists for) -- fires.
+  A1  baseline: multi-message uniform. ROUND 9 RE-POINT (VS): the ruling
+      landed -- THE NET STORES NOTHING and the receipt ASKS instead. A1 now
+      asserts the new law (no group stored, no basis stamped, uniform_rate_ask
+      present in the receipt). The original assertion (an inferred mint) pinned
+      the superseded round-8 design and could never go green after the fix.
   A2  A DECLARED partial group is CLOBBERED by the inferred all-lines mint:
       client declared plants+hard goods share; install coincides; patch writes
       design at the same rate. Does the client's declaration survive?
@@ -64,9 +68,13 @@ def main() -> int:
       {"line_name": "install project", "cogs_percent": 55, "cogs_percent_unit": "percent"}]},
     ops_json=ops)
   minted = [g for g in receipt["grouped"] if g.get("all_lines")]
-  a1_ok = bool(minted) and not minted[0]["declared"]
-  note("A1-baseline-multi-message", "PASS" if a1_ok else "FAIL",
-       f"net minted inferred all-lines group: {bool(minted)}; receipt grouped={receipt['grouped']}")
+  grouped_rows = [r for r in rows_of(ops) if r.get("cogs_cost_structure_group")]
+  ask = receipt.get("uniform_rate_ask")
+  a1_ok = (not minted and not grouped_rows
+           and isinstance(ask, dict) and ask.get("count") == 3)
+  note("A1-uniform-asks-never-stores", "PASS" if a1_ok else "FAIL",
+       f"stored groups={len(grouped_rows)}, minted={bool(minted)}, "
+       f"uniform_rate_ask={ask} (the net must ask, not store)")
 
   # ---- A2 declared partial group clobbered --------------------------------
   shared = "shared:hard goods sale+plant sale"

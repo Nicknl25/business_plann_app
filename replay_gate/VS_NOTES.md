@@ -2015,3 +2015,123 @@ the client per figure".
 And when the app DOES ask, it asks in plain English ("just to confirm -
 is that 71 percent, or 0.71?"), never "specify the unit". (The
 no-jargon law applies to clarifying questions too.)
+
+## CW-031 ROUND 9 -- the ruling landed, the separation door built, F1 closed
+(VS, 2026-08-13, turn 10. Evidence: Test Files/_redproof_cw031_round9_fixes.py
+green 27/27; _redproof_cw031_round9_ablate_20260813.txt 9/9 red-for-the-right-
+reason; _live_cw031_round9_20260813.txt CLEAN; mini's own
+_mini_cw031_r8_net_attack.py 9/9; _canary_cw031_round9_sunnyv3_20260813.txt;
+_prove_20260813_vs_round9.txt 55 legs 0 DRIFT 0 UNEARNED.)
+
+FIX 1 -- THE NET STORES NOTHING (mini's ruling, Nick's corollary 2 +
+silence-never-agreement, applied verbatim). The value-equality net no
+longer writes cogs_cost_structure_group at all. Uniform post-write rates
+at N>=3 put uniform_rate_ask on the receipt and the receipt asks the
+client ("that's the same rate on all N lines - should I treat them as
+one shared cost structure, or keep them separate?"). A yes arrives
+through the router as cogs_shared_structure_groups covering all lines
+(live-proven L2: the two-message uniform completion stored NOTHING,
+the ask survived naturalization, and the yes landed basis=declared).
+The ask fires ONCE - only when this patch's write CREATES the
+uniformity (entry snapshot _uniform_before); an echo of an
+already-uniform state neither stores nor re-asks. The A2 clobber and
+A5 echo-mint die with the writer. THE RULE, written at the door so it
+survives the next net someone builds: AN INFERENCE NEVER OVERWRITES A
+DECLARED STAMP.
+  _assert_ops_per_line_cogs has no inferred branch left: identical
+rates pass ONLY under one group label with basis declared on every row;
+an inferred-basis group fails citing "an inference is not authority";
+identical rates with no group fail with the ask vocabulary (the app has
+asked, the client has not yet said - the recovery design's own
+unanswered-material-question shape, not a false recurrence).
+  THE ASK RIDES AFTER NATURALIZATION on the re-close path, same law as
+the WS2 retention question - a question whose job is to collect a
+declaration must not be paraphrasable away. (Stage path ships the ack
+verbatim; only re-close naturalizes.)
+
+FIX 2 -- THE SEPARATION DOOR. New transport key
+financials.cogs_separate_lines (router schema + _PER_LINE_COGS_FIELDS +
+_PER_LINE_COGS_TRANSPORT_FIELDS - consumed at the door, never stored,
+gated to multi-line drafts like its two siblings). "Keep design
+consults separate" clears the named row's group AND basis. Then the
+GROUP-COHERENCE PASS: a label encodes its own membership
+(shared:a+b+c); after any group write or separation, rows wearing a
+label whose carrying set no longer matches its encoded membership are
+cleared too, and the receipt NAMES them ("the earlier shared grouping
+no longer covers X or Y, so each keeps its own rate - say so if any of
+them should still share one"). Deliberate consequence: separating one
+line from an all-lines group retires the whole group - re-stamping the
+survivors as "declared" would put the app's words in the client's
+mouth (mini's round-8 finding). Live L1: declared 4-line collapse,
+then "design consults should stay separate with their own rate - about
+12 percent" -> design group cleared, rate 0.12, stale label retired
+from all three others, reply says exactly that. Round 8's
+words-vs-state gap is closed in the artifact.
+
+FIX 3 -- F1, BOTH HALVES.
+  (a) Router: never emit an empty transport array (omit the keys); a
+stated OVERALL blended figure is an edit_patch on
+financials.cogs_percent_of_revenue as a FRACTION when the lines are
+not fully rated; when every line carries its own rate (blend is
+derived, a direct write would be silently re-derived away - a receipt
+outrunning its write), the instruction is confirm_clarify asking which
+line moved. New helper _draft_all_lines_carry_cogs_rates picks the
+variant.
+  (b) The reply layer, the law half, at BOTH no-write ship gates:
+_prose_acks_unwritten_figure - prose pairing an acknowledgment marker
+with an echo of a figure the client stated this turn (matched in both
+units, 38 <-> 0.38) may not ship from a branch where no receipt
+carries it. A sentence that ASKS about the figure survives; a
+question-turn's answer may quote numbers back. Blocked prose is
+replaced by the deterministic honest non-apply - NOT naturalized,
+because the naturalizer was the second mechanism: the re-close path
+wrapped the honest fallback in "acknowledge exactly this change the
+client just made" and the model, seeing the figure in user_message,
+manufactured the receipt ("Got it, you'd like the COGS percent of
+revenue field updated to 38%"). A no-write turn now ships its
+deterministic sentence verbatim - there IS no change to acknowledge.
+  Live: L3 ("blended direct-cost ratio is 0.44") -> honest no-record
+reply, nothing stored, no figure claim. The router did NOT patch 0.44
+on this wording despite the new instruction (one wording, one turn -
+rate stated honestly; the reply-layer law held, which is the half mini
+called class-closing). L4 ("set cogs percent of revenue to 38") ->
+router converted to dollars as it always has ($590,139, basis dollars,
+derived ratio 0.379999) - landed, correct, receipt-spoken.
+
+FIX 4 -- THE PROBE. scripts/_active_intake_probe.py excludes drafts
+with messages_json NULL/''/'[]' (mini's ruling): gate seeds and CW-024
+phantom page-load drafts can no longer block the restart law; a client
+who has typed once is still protected. Proven on the real DB both ways
+(6a/6b in the fixes proof: temp zero-message draft ignored, one
+message restores protection).
+
+HOUSEKEEPING, MINI SHOULD KNOW:
+  - Test Files/_mini_cw031_r8_net_attack.py A1 RE-POINTED (your probe,
+    my edit, per your "use it, should go 9/9"): A1 asserted the round-8
+    mint and could never go green after the ruling; it now asserts
+    no-store + ask-present. A5/A6 stayed yours verbatim (they print
+    INFO). 9/9 on current code.
+  - Test Files/_redproof_cw031_round8_ablate.py: ablations B6/B7 (the
+    inferred stamp and its receipt sentence) now have no needle - the
+    code they ablate is deleted. Superseded by R9A1 in the round-9
+    ablation set; not rewritten because it is the round-8 record.
+  - The round-8 receipt sentence "say so if any of them should be
+    separate" is gone with the mint; its replacement is the ask, which
+    is a question rather than a disclosure.
+
+CANARY (tier-3 debt from round 8 was already paid; this is round 9's
+own): Sunny_V3 on PID 34352 (started 17:17:58, last app edit 17:17:0x,
+ONE listener verified) - system_run_complete, 267s, 18 GPT calls 0
+errors, workbook built, delivery record #4 written and bound to the
+canary draft (verified in workbook_deliveries by draft_id, not
+filename). Prove: 55 legs, 48 behavioural, 5 structural-absence, 2
+golden, 0 DRIFT, 0 UNEARNED, verdict GREEN.
+
+STILL NICK'S, UNCHANGED: whether naturalization may touch a
+deterministic receipt at all. Round 9 adds the sharpest data point
+yet ON THE RESTRICTIVE SIDE: the naturalizer did not merely soften a
+receipt, it MANUFACTURED one from the user's message when handed a
+no-write turn (the F1 mechanism). My fix removes the naturalizer only
+from no-write turns, which is defensible without the ruling; turns
+WITH writes are still naturalized, and the live L1-t1 reply shows it
+paraphrasing accurately. The ruling still governs that half.

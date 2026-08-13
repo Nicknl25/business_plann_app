@@ -25,6 +25,16 @@ try:
     WHERE d.status = 'in_progress'
       AND d.updated_at > NOW() - INTERVAL 10 MINUTE
       AND (r.planning_run_id IS NULL OR r.run_status = 'running')
+      -- CW-031 round 9 (mini-ruled): a draft with NO client messages has no
+      -- turn in flight and no client waiting, so it must not block a restart.
+      -- Gate seeds (--prove writes ~58 of them) never gain messages, and the
+      -- CW-024 phantom page-load mechanism mints zero-message drafts on every
+      -- vite reload - both were able to hold the restart-after-edit law
+      -- hostage for 10 minutes. A real client who has typed even once is
+      -- still protected by the window above.
+      AND d.messages_json IS NOT NULL
+      AND d.messages_json <> ''
+      AND d.messages_json <> '[]'
     LIMIT 1
     """
   )

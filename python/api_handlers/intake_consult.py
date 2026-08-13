@@ -2932,6 +2932,7 @@ def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
 _PER_LINE_COGS_TRANSPORT_FIELDS = frozenset({
   "cogs_per_line_overrides",
   "cogs_shared_structure_groups",
+  "cogs_separate_lines",
 })
 
 
@@ -2965,10 +2966,20 @@ def _apply_per_line_cogs_patch_keys(
   """
   receipt: Dict[str, Any] = {"written": [], "unmatched": [], "grouped": [],
                              "wrote": False, "consumed_figures": [],
-                             "unit_unclear": []}
+                             "unit_unclear": [], "separated": [],
+                             "ungrouped": [], "uniform_rate_ask": None}
   directory = _cogs_line_directory(ops_json)
   if not directory:
     return receipt
+  # Snapshot for the uniform-rate ASK below: the question fires only when this
+  # patch's own write turns the rates identical, never on an echo of a state
+  # that was already uniform when the turn began.
+  _rates_before = [_safe_float(e["row"].get("cogs_percent_of_line_revenue"))
+                   for e in directory]
+  _uniform_before = (
+    len(directory) >= 3 and None not in _rates_before
+    and len({round(float(r), 4) for r in _rates_before}) == 1
+  )
 
   def _declared_rate(item: Dict[str, Any]) -> Tuple[Optional[float], str]:
     """THE UNIT IS DECLARED, NEVER INFERRED.
@@ -3108,51 +3119,93 @@ def _apply_per_line_cogs_patch_keys(
       "declared": True,
     })
 
-  # ONE RATE ON EVERY LINE IS A COLLAPSE -- BUT WHOSE?
+  # THE SEPARATION HALF OF THE DOOR (round 9; mini's round-8 live proof).
+  # "Keep design consults separate" used to get "Got it -- we'll keep design
+  # consults separate" while the row STILL carried the stale all-lines label:
+  # the group field had two writers and ZERO removers, so an authority that
+  # could not be revoked was not an authority the client held. This is the
+  # remover. Separation is a DECLARATION like the collapse is -- it clears the
+  # named row's group and basis, and the coherence pass below retires whatever
+  # is left of the group it walked out of.
+  separates = patch.get("financials.cogs_separate_lines")
+  if separates is None:
+    separates = patch.get("cogs_separate_lines")
+  for name in separates if isinstance(separates, list) else []:
+    entry = _resolve_cogs_line(name, directory)
+    if entry is None:
+      receipt["unmatched"].append(str(name or "").strip() or "(unnamed line)")
+      continue
+    if str(entry["row"].get("cogs_cost_structure_group") or "").strip():
+      entry["row"].pop("cogs_cost_structure_group", None)
+      entry["row"].pop("cogs_cost_structure_group_basis", None)
+      receipt["wrote"] = True
+    receipt["separated"].append(entry["line_name"])
+
+  # A GROUP LABEL IS A CLAIM ABOUT A SET OF ROWS, and it must stay TRUE. The
+  # label encodes its own membership (shared:a+b+c); after any group write or
+  # separation, a row still wearing a label whose carrying set no longer
+  # matches that membership is wearing a claim the client's latest statement
+  # just falsified. Clearing it is the honest move -- the declared group no
+  # longer exists as declared, and re-stamping the survivors as a smaller
+  # "declared" group would put the app's words in the client's mouth (mini's
+  # round-8 finding: a three-line group stamped "declared" from a sentence
+  # that declared no such group). The receipt names every row this retires so
+  # the client can re-declare in one sentence.
+  if receipt["separated"] or receipt["grouped"]:
+    _by_label: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in directory:
+      _lbl = str(entry["row"].get("cogs_cost_structure_group") or "").strip()
+      if _lbl.startswith("shared:"):
+        _by_label.setdefault(_lbl, []).append(entry)
+    for _lbl, _carrying in _by_label.items():
+      _encoded = {t for t in _lbl[len("shared:"):].split("+") if t}
+      _names = {str(e["product_name"] or e["line_name"]).strip().lower()
+                for e in _carrying}
+      if _names != _encoded:
+        for entry in _carrying:
+          entry["row"].pop("cogs_cost_structure_group", None)
+          entry["row"].pop("cogs_cost_structure_group_basis", None)
+          receipt["ungrouped"].append(entry["line_name"])
+          receipt["wrote"] = True
+
+  # ONE RATE ON EVERY LINE IS A COLLAPSE -- BUT ONLY THE CLIENT CAN SAY SO.
   #
-  # The old rule minted an all-lines group whenever ONE patch set EVERY line to
-  # the SAME rate, and value equality is not authority. It failed in both
-  # directions at once: two lines that merely coincided at 55% minted a group
-  # the client never declared (and the receipt then TOLD them their lines were
-  # collapsed), while "everything runs at 55" said across two messages minted
-  # nothing and was filed as a RECURRENCE against a model that is exactly what
-  # the client asked for.
+  # Round 8's net STORED an inferred all-lines group here whenever the
+  # post-write state was uniform at N>=3. Mini's round-8 audit killed it three
+  # ways at once: it CLOBBERED a client-declared partial group (the exact
+  # Ravenwood shape) and restamped every basis as inferred, an echo of one
+  # existing rate minted a collapse nobody declared, and the artifact assertion
+  # then PASSED the result -- a false PASS inside the gate this class exists to
+  # close. Ruled (mini, under Nick's corollary 2 + silence-never-agreement):
+  # an inferred group must not pass the gate, so there is nothing an inferred
+  # group is FOR -- THE NET STORES NOTHING. Uniform post-write rates earn a
+  # QUESTION in the receipt; a yes is a DECLARATION, and the router already
+  # emits the all-lines group for it (round-8 live proof). Until the client
+  # says it, the rows stay ungrouped and the assertion honestly fails them as
+  # a blend wearing per-line clothing -- an unanswered material question, the
+  # recovery design's own vocabulary, never a stored guess.
   #
-  # The authority path is the DECLARATION, above: the router now emits
-  # cogs_shared_structure_groups for "everything runs at about 55 percent", and
-  # a declared group carries basis "declared". This is the safety net under it,
-  # and it is deliberately weaker than the declaration in three ways:
-  #   - POST-WRITE STATE, not one-patch state: all N rows carrying one rate now
-  #     is the fact that matters, whichever turns wrote them (the multi-message
-  #     case). This patch must still have touched a row, so the net fires on a
-  #     statement and never on a passing read.
-  #   - N >= 3: at N=2 one coincidence is enough, and a coincidence is all it
-  #     would take. (Measured: 0 real drafts have two lines sharing a rate.)
-  #   - It SAYS SO. The receipt names the inference as an inference, so a client
-  #     who did not mean it can correct it in the next sentence. An inferred
-  #     collapse the client is never told about is the receipt-without-a-write
-  #     class arriving from the other direction.
-  if (len(directory) >= 3 and receipt["written"]
+  # THE RULE THE OLD NET BROKE, written down so it survives the next net
+  # someone builds: AN INFERENCE NEVER OVERWRITES A DECLARED STAMP. Anything
+  # basis=declared came from the client's own words; no computed reading of
+  # the numbers may replace, relabel, or extend it.
+  #
+  # The ask fires only when THIS patch's write CREATED the uniformity
+  # (_uniform_before, snapshotted at entry): the app asks once, at the moment
+  # the rates become identical, and an echo of an already-uniform state
+  # neither mints nor re-asks.
+  if (len(directory) >= 3 and receipt["written"] and not _uniform_before
       and not any(g.get("all_lines") for g in receipt["grouped"])):
     _rates = [_safe_float(e["row"].get("cogs_percent_of_line_revenue")) for e in directory]
     _distinct = {round(float(r), 4) for r in _rates if r is not None}
     if len(_rates) == len(directory) and None not in _rates and len(_distinct) == 1:
-      _all_label = "shared:" + "+".join(
-        sorted(str(e["product_name"] or e["line_name"]).strip().lower() for e in directory)
-      )
-      for entry in directory:
-        entry["row"]["cogs_cost_structure_group"] = _all_label
-        entry["row"]["cogs_cost_structure_group_basis"] = "inferred from identical stated rates"
-      receipt["grouped"].append({
-        "line_names": [e["line_name"] for e in directory],
-        "group": _all_label,
-        "cogs_percent": next(iter(_distinct)),
-        "basis": "uniform rates stated",
-        "unweighted_lines": [],
-        "all_lines": True,
-        "declared": False,
-      })
-      receipt["wrote"] = True
+      _labels_now = {str(e["row"].get("cogs_cost_structure_group") or "").strip()
+                     for e in directory}
+      if not (len(_labels_now) == 1 and next(iter(_labels_now))):
+        receipt["uniform_rate_ask"] = {
+          "count": len(directory),
+          "rate": next(iter(_distinct)),
+        }
   return receipt
 
 
@@ -3180,18 +3233,6 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
     # basis is what makes the fallback a stated approximation the client can
     # object to instead of a rate that quietly replaced one they gave.
     unweighted = [u for u in (group.get("unweighted_lines") or []) if u]
-    # AN INFERRED COLLAPSE MUST NAME ITSELF AS ONE. The client declared N
-    # rates that happen to be identical; nobody said "treat these as one".
-    # Recording the group is right (it is what the model now says) and telling
-    # them it was the app's reading, not their instruction, is what makes it
-    # correctable in the next sentence instead of a collapse they never asked
-    # for and were told they had asked for.
-    if group.get("basis") == "uniform rates stated":
-      said_group += (f" - that's the same rate on all {len(line_names)} lines, so I've"
-                     " recorded them as sharing one cost structure; say so if any of"
-                     " them should be separate")
-      parts.append(said_group)
-      continue
     if group.get("basis") == "plain average":
       said_group += " (a plain average of the rates you gave"
       if unweighted:
@@ -3199,9 +3240,34 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
                        + " or ".join(unweighted[:3]) + " to weight them")
       said_group += ")"
     parts.append(said_group)
+  # SEPARATION SPEAKS, and so does what it retired. The cleared rows are
+  # named so a client who still wants the survivors sharing one rate can
+  # re-declare it in one sentence -- silence here would be the app quietly
+  # un-deciding something the client was told was decided.
+  separated = [s for s in (receipt.get("separated") or []) if s]
+  if separated:
+    parts.append(" and ".join(separated[:3])
+                 + (" now carry their own separate cost structures"
+                    if len(separated) > 1
+                    else " now has its own separate cost structure"))
+  ungrouped = [u for u in (receipt.get("ungrouped") or []) if u]
+  if ungrouped:
+    parts.append("the earlier shared grouping no longer covers "
+                 + " or ".join(ungrouped[:4])
+                 + ", so each keeps its own rate - say so if any of them "
+                 "should still share one")
   said = ""
   if parts:
     said = "Recorded: " + "; ".join(parts) + "."
+  # THE NET ASKS, NEVER STORES (round 9). Identical rates on every line is a
+  # question for the client, not a fact about them: a yes is a declaration
+  # the router lands through the group door, a no costs nothing, and until
+  # one arrives the model records exactly what was said and nothing more.
+  ask = receipt.get("uniform_rate_ask")
+  if isinstance(ask, dict) and ask.get("count"):
+    said = (said + f" That's the same rate on all {ask['count']} lines - "
+            "should I treat them as one shared cost structure, or keep "
+            "them separate?").strip()
   unclear = [u for u in (receipt.get("unit_unclear") or []) if u]
   if unclear:
     first = unclear[0]
@@ -6967,6 +7033,55 @@ def _prose_claims_unrequested_change(prose: str) -> bool:
   return bool(_PROSE_CHANGE_CLAIM_RE.search(text))
 
 
+_PROSE_ACK_MARKER_RE = re.compile(
+  r"\b(?:got it|thank(?:s| you)|noted|perfect|great|all set|you'?d like"
+  r"|updated?|record(?:ed|ing)?|we'?ll (?:use|keep|set|record)"
+  r"|i'?(?:ve|ll)|keep(?:ing)? (?:that|it|this))\b",
+  re.I,
+)
+
+
+def _prose_acks_unwritten_figure(*, prose: str, user_message: str) -> bool:
+  """F1 (CW-031 round 9): NO REPLY MAY CLAIM RECEIPT OF A FIGURE NO RECEIPT
+  CARRIES. The router swallowed "our blended direct-cost ratio is 0.44"
+  (empty patch, nothing stored) and the reply still said "Got it, thank you
+  for sharing that your blended direct-cost ratio is 0.44" -- an
+  acknowledgment whose whole content is a figure that landed nowhere. The
+  change-claim regex above cannot see it (no change verb), so this is the
+  figure half of the same law: on a no-write branch, prose that pairs an
+  acknowledgment marker with an echo of a figure the client STATED this turn
+  is claiming receipt, and it may not ship.
+
+  A sentence that ASKS about the figure ("was that 0.44 a percent or a
+  ratio?") is an ask, not a claim, and survives; so does a reply to a turn
+  that was itself a question (the client asked about numbers, the answer may
+  quote them). Echoes match in both units (38 <-> 0.38) so a converted
+  restatement cannot slip through."""
+  text = str(prose or "")
+  if not text:
+    return False
+  message = str(user_message or "")
+  if "?" in message:
+    return False
+  stated = [f for f in _message_figures(message) if f > 0]
+  if not stated:
+    return False
+  targets: List[float] = []
+  for f in stated:
+    targets.extend((f, f * 100.0, f / 100.0))
+  for sentence in re.split(r"(?<=[.!])\s+", text):
+    if "?" in sentence:
+      continue
+    if not _PROSE_ACK_MARKER_RE.search(sentence):
+      continue
+    for f in _message_figures(sentence):
+      if f > 0 and any(
+        abs(f - t) <= max(0.0005, 0.005 * abs(t)) for t in targets
+      ):
+        return True
+  return False
+
+
 def _driver_correction_disposition(
   *, pre_implied: float, post_implied: float, stated: float
 ) -> str:
@@ -9962,19 +10077,36 @@ def _run_financials_turn_and_sync(
   # a write ("I'll use $0 for monthly lease") cannot ship from a branch
   # where no write landed - the false claim is unrepresentable at the
   # shipping boundary, whatever the router labeled the turn.
+  # F1 (CW-031 round 9), the figure half of the same law: prose that
+  # ACKNOWLEDGES a figure the client stated this turn ("thank you for
+  # sharing that your blended ratio is 0.44") claims receipt without a
+  # change verb, and no receipt carries that figure on this branch.
   _prose_claims_write = bool(
     assistant_message and _WRITE_CLAIM_RE.search(assistant_message)
   )
+  _prose_claims_figure = _prose_acks_unwritten_figure(
+    prose=str(assistant_message or ""), user_message=str(user_message or ""),
+  )
   if action in ("answer_readonly", "confirm_clarify") and assistant_message \
-     and not _prose_claims_write:
+     and not _prose_claims_write and not _prose_claims_figure:
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
-  _tail_msg = _natural_recovery(
-    _build_financials_stage_clarifier(active_stage),
-    user_message=str(user_message or ""),
-    fallback=_build_financials_stage_clarifier(active_stage),
-  )
+  if _prose_claims_figure:
+    # Deterministic on purpose: the naturalizer sees the user message, and
+    # handing it a turn whose defect is a manufactured acknowledgment is how
+    # the claim comes back in warmer words.
+    _tail_msg = (
+      "I haven't recorded that figure - tell me exactly which field it "
+      "should update and I'll set it. "
+      + _build_financials_stage_clarifier(active_stage)
+    ).strip()
+  else:
+    _tail_msg = _natural_recovery(
+      _build_financials_stage_clarifier(active_stage),
+      user_message=str(user_message or ""),
+      fallback=_build_financials_stage_clarifier(active_stage),
+    )
   if _door_ack:
     _tail_msg = f"{_door_ack} {_tail_msg}".strip()
   return {
@@ -11808,13 +11940,17 @@ def _apply_scoped_patch(
   # or the client's statement is dropped in silence -- which is the same class
   # of defect as writing the wrong number, minus the number.
   if (_cogs_receipt.get("wrote") or _cogs_receipt.get("unmatched")
-      or _cogs_receipt.get("unit_unclear")):
+      or _cogs_receipt.get("unit_unclear") or _cogs_receipt.get("separated")):
     next_financials["_per_line_cogs_receipt"] = _cogs_receipt
     logger.info(
-      "PER_LINE_COGS_DOOR wrote=%s lines=%s grouped=%s unmatched=%s unit_unclear=%s",
+      "PER_LINE_COGS_DOOR wrote=%s lines=%s grouped=%s separated=%s "
+      "ungrouped=%s ask=%s unmatched=%s unit_unclear=%s",
       _cogs_receipt.get("wrote"),
       [w["line_name"] for w in _cogs_receipt.get("written") or []],
       [g["group"] for g in _cogs_receipt.get("grouped") or []],
+      _cogs_receipt.get("separated"),
+      _cogs_receipt.get("ungrouped"),
+      bool(_cogs_receipt.get("uniform_rate_ask")),
       _cogs_receipt.get("unmatched"),
       [u.get("line_name") for u in _cogs_receipt.get("unit_unclear") or []],
     )
@@ -16066,10 +16202,25 @@ def post_intake_consult_handler(*, app, request):
       # Ravenwood collapse arrived after the intake had closed), and carry
       # the receipt TEXT so the acknowledgment is spoken from the write.
       _cogs_receipt_text = ""
+      _cogs_ask_text = ""
       _cogs_consumed: List[float] = []
       _cogs_receipt = (financials_json or {}).pop("_per_line_cogs_receipt", None)
       if isinstance(_cogs_receipt, dict):
-        _cogs_receipt_text = _build_per_line_cogs_receipt_text(_cogs_receipt)
+        # THE UNIFORM-RATE ASK RIDES AFTER NATURALIZATION (same law as the
+        # WS2 retention question): a question whose whole job is to collect
+        # the client's declaration must never be paraphrased away by the
+        # one-sentence acknowledgment pass. Split it out here; it is
+        # re-appended verbatim after the naturalizer runs.
+        _ask = _cogs_receipt.get("uniform_rate_ask")
+        if isinstance(_ask, dict) and _ask.get("count"):
+          _cogs_ask_text = (
+            f" That's the same rate on all {_ask['count']} lines - should I "
+            "treat them as one shared cost structure, or keep them separate?"
+          )
+          _cogs_receipt_text = _build_per_line_cogs_receipt_text(
+            {**_cogs_receipt, "uniform_rate_ask": None})
+        else:
+          _cogs_receipt_text = _build_per_line_cogs_receipt_text(_cogs_receipt)
         _cogs_consumed = [
           float(f) for f in (_cogs_receipt.get("consumed_figures") or [])
           if isinstance(f, (int, float))
@@ -16803,7 +16954,18 @@ def post_intake_consult_handler(*, app, request):
             _driver_landed = isinstance(_driver_note, dict) and bool(
               _driver_note.get("confirm") or _driver_note.get("stream_note")
             )
-            if _prose and not _driver_landed and _prose_claims_unrequested_change(_prose):
+            # F1 (CW-031 round 9): the figure half of the change-claim rule.
+            # "Thank you for sharing that your blended ratio is 0.44" claims
+            # receipt of a stated figure with no change verb, so the regex
+            # guard below never fired and the prose shipped over an empty
+            # write set. An acknowledged figure no receipt carries may not
+            # ship from this branch either.
+            _prose_figure_claim = _prose_acks_unwritten_figure(
+              prose=_prose, user_message=str(message or ""),
+            )
+            if _prose and not _driver_landed and (
+              _prose_claims_unrequested_change(_prose) or _prose_figure_claim
+            ):
               # (h) CW-016: empty-request turn + change-claiming prose.
               # Nothing was written and nothing was even asked - the
               # claim is manufactured. Say so and get the field named,
@@ -16831,21 +16993,41 @@ def post_intake_consult_handler(*, app, request):
               ack_fallback = (ack_fallback + str(_driver_note["confirm"])).strip()
             elif _driver_note.get("stream_note"):
               ack_fallback = (ack_fallback + str(_driver_note["stream_note"])).strip()
-          try:
-            from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
-
-            ack_text = naturalize_recovery(
-              closed_question=(
-                "Acknowledge, in ONE warm specific sentence, exactly this change "
-                f"the client just made (keep the numbers): {ack_fallback}"
-              ),
-              user_message=message,
-              fallback=ack_fallback,
-            )
-          except Exception:
+          # F1 (CW-031 round 9): A NO-WRITE TURN HAS NO CHANGE TO ACKNOWLEDGE.
+          # This naturalize call is worded "acknowledge exactly this change
+          # the client just made" - handed an honest non-apply on a no-write
+          # turn, the model saw the client's figure in user_message and
+          # manufactured the acknowledgment ("Got it, you'd like the COGS
+          # percent of revenue field updated to 38%" over an empty write
+          # set). When nothing landed this turn, the deterministic sentence
+          # ships verbatim; the acknowledge-a-change wrapper is only sound
+          # when a change exists.
+          _landed_this_turn = bool(
+            _cogs_receipt_text or _edit_receipt_text
+            or (isinstance(_driver_note, dict) and (
+              _driver_note.get("confirm") or _driver_note.get("stream_note")))
+          )
+          if not _landed_this_turn:
             ack_text = ack_fallback
+          else:
+            try:
+              from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
+
+              ack_text = naturalize_recovery(
+                closed_question=(
+                  "Acknowledge, in ONE warm specific sentence, exactly this change "
+                  f"the client just made (keep the numbers): {ack_fallback}"
+                ),
+                user_message=message,
+                fallback=ack_fallback,
+              )
+            except Exception:
+              ack_text = ack_fallback
           # WS2: the retention question rides AFTER naturalization so the
-          # one-sentence paraphrase can never drop it.
+          # one-sentence paraphrase can never drop it. The uniform-rate ask
+          # (round 9) is the same class of question and rides the same way.
+          if _cogs_ask_text:
+            ack_text = f"{ack_text}{_cogs_ask_text}".strip()
           if _ws2_retention_ask:
             ack_text = f"{ack_text}{_ws2_retention_ask}".strip()
           shared_live = dict(shared_context or {})

@@ -122,7 +122,11 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
 # only on a draft that actually has two or more revenue lines. On a
 # single-line business there is no such statement to make, and an always-on
 # structural field is one the router invents from an ordinary answer.
-_PER_LINE_COGS_FIELDS = ("cogs_per_line_overrides", "cogs_shared_structure_groups")
+_PER_LINE_COGS_FIELDS = (
+  "cogs_per_line_overrides",
+  "cogs_shared_structure_groups",
+  "cogs_separate_lines",
+)
 
 
 def _draft_has_multiple_revenue_lines(shared_context: Any) -> bool:
@@ -131,6 +135,26 @@ def _draft_has_multiple_revenue_lines(shared_context: Any) -> bool:
     if isinstance(lob, dict):
       lines += len([p for p in (lob.get("products") or []) if isinstance(p, dict)])
   return lines >= 2
+
+
+def _draft_all_lines_carry_cogs_rates(shared_context: Any) -> bool:
+  """True when EVERY product row of a multi-line draft carries a per-line
+  COGS rate -- the state in which the financials blend is DERIVED from the
+  rows (unpatchable) and a stated overall figure is a question about which
+  line moved, never a direct blend write."""
+  rows = []
+  for lob in ((shared_context or {}).get("operating_model") or {}).get("lob_models") or []:
+    if isinstance(lob, dict):
+      rows.extend(p for p in (lob.get("products") or []) if isinstance(p, dict))
+  if len(rows) < 2:
+    return False
+  def _num(v: Any) -> bool:
+    try:
+      float(v)
+      return True
+    except (TypeError, ValueError):
+      return False
+  return all(_num(p.get("cogs_percent_of_line_revenue")) for p in rows)
 
 
 def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
@@ -646,6 +670,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "cogs_per_line_overrides": {"type": "array"},
 
       "cogs_shared_structure_groups": {"type": "array"},
+
+      "cogs_separate_lines": {"type": "array"},
 
       "marketing_total_year1": {"type": "number"},
 
@@ -1852,9 +1878,28 @@ def route_intent(
       + "- Use the line names as the last assistant message listed them where you can; the app matches on the full line name, the product name, or the line of business.\n"
       + "- A stated per-line rate NEVER goes into financials.current_cogs or financials.cogs_percent_of_revenue. Those hold the blended total, which the app re-derives from the per-line rates itself. Putting one line's rate into the blend is a wrong number, not an approximation.\n"
       + "- When the client says two or more lines SHARE one cost structure (\"plants and hard goods are both bought-in retail goods, treat those two as sharing one cost structure\", \"those two run about the same\"), emit edit_patch with financials.cogs_shared_structure_groups = [[<line A>, <line B>]] - one inner list per group that shares a rate. Lines they keep separate simply do not appear in any group.\n"
-      + "- The client is the authority on how many DISTINCT direct-cost rates exist. One message can carry both keys at once (some lines corrected, some collapsed); emit both.\n"
+      + "- When the client says a line should stay SEPARATE or have its OWN rate (\"keep design consults separate\", \"design has its own cost structure\", \"don't lump install in with the others\"), emit edit_patch with financials.cogs_separate_lines = [<each line they named>]. This is how a client takes a line OUT of a shared grouping; it can ride the same patch as the other two keys.\n"
+      + "- If the app's last message asked whether ALL lines share one cost structure (\"should I treat them as one shared cost structure, or keep them separate?\") and the client agrees in any wording (\"yes\", \"treat them as one\", \"one rate is fine\"), emit financials.cogs_shared_structure_groups with ALL the line names in ONE inner list. If they decline (\"keep them separate\", \"no, they're different\"), emit financials.cogs_separate_lines with all the line names.\n"
+      + "- The client is the authority on how many DISTINCT direct-cost rates exist. One message can carry several of these keys at once (some lines corrected, some collapsed, some separated); emit them together.\n"
+      + "- NEVER emit one of these three keys with an empty array. A message that makes no per-line statement simply omits the keys - an empty array is not a patch, and acknowledging a figure the patch does not carry is forbidden.\n"
       + "- These statements land at any point in the conversation, including after the intake is complete. A late correction to direct costs is a patch, never continue_chat and never answer_readonly.\n"
     )
+    # F1 (round 9): the router SWALLOWED an in-domain blended statement --
+    # "our blended direct-cost ratio is 0.44" produced an empty patch and the
+    # reply claimed receipt. A stated blend must either patch (rows not yet
+    # rated -- the blend field is live) or earn an honest clarify (rows fully
+    # rated -- the blend is derived and a direct write would be silently
+    # re-derived away next pass, a receipt outrunning its write).
+    if _draft_all_lines_carry_cogs_rates(shared_context):
+      extra_instructions = (
+        extra_instructions
+        + "- BLENDED direct-cost statements on THIS business: every line already carries its own direct-cost rate, so the OVERALL blended rate is derived from the lines and cannot be set directly. When the client states a new overall/blended figure (\"our blended ratio is 0.44\", \"set cogs percent of revenue to 38\"), do NOT patch financials.cogs_percent_of_revenue and do not just acknowledge it - return confirm_clarify asking which line's direct-cost rate should change, since the overall rate follows from the per-line rates.\n"
+      )
+    else:
+      extra_instructions = (
+        extra_instructions
+        + "- BLENDED direct-cost statements: when the client states the OVERALL blended direct-cost figure rather than one line's (\"our blended direct-cost ratio is 0.44\", \"set cogs percent of revenue to 38\"), that is edit_patch on financials.cogs_percent_of_revenue as a FRACTION (0.44 stays 0.44; \"38 percent\" or a bare \"38\" of revenue -> 0.38). It is never cogs_per_line_overrides and never an acknowledgment without a patch.\n"
+      )
 
   if consult_type_norm == "people" or (
     consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "people"
