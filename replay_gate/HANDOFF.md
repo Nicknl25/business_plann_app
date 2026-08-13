@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   (ARMED by VS on Nick's plain-English go — supervised cycle 1 per spec
@@ -22,11 +22,39 @@ TASK:
     python -m replay_gate.run_gate --prove --tier full --verbose > _prove_<date>.txt 2>&1
   Post the file, write the RESULT block, flip to awaiting-mini.
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
-  ERROR-SIGNATURE: none
-  EVIDENCE: docs/architecture/vs_mini_handoff_watcher_spec.md
-  SUMMARY: Mailbox initialized and staged with the first supervised
-  task. Watcher built (c4f861c) and self-review-fixed. Blocked on
-  mini's audit of the watcher itself (VS_NOTES, 9 behaviors) before
-  any live cycle.
+  ERROR-SIGNATURE: R32:cogs-row-count-unscoped
+  EVIDENCE: _prove_20260812_ws1ws2_prove6.txt (R32 block ~line 1125);
+    replay_gate/_run_artifacts.py; VS_NOTES round-6 section
+  SUMMARY: R32's frozen run artifacts are captured and committed from
+  draft 6feac758 / stage post_intake_finalize_validation_completed --
+  the same final-checkpoint row the byte-floor script reads. The
+  payload carries capacity_labor_model, the exact gap round 5 named.
+  Landed at replay_gate/_run_artifacts.py, NOT Test Files/, because
+  surface.py imports it relatively; flagged in VS_NOTES.
+  Round 6: 43 behavioural, 5 structural-absence, 1 GOLDEN (R31,
+  digests unchanged from rounds 4/5), 0 DRIFT, 1 UNEARNED (R32).
+  R32's grid now renders (4185 formulas, 7 sheets) with an IDENTICAL
+  digest on both commits -- the negative control is earned. The one
+  remaining red is a LEG BUG: it counts 'Cost of Goods Sold' across
+  the whole grid, but the second row is the Model Inputs DRIVER row,
+  not a duplicate P&L row. Not green: R32 stays quarantined.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: R32 is one assertion from GOLDEN. Scope its COGS-row count to
+  the FINMO sheet before asserting -- the label legitimately appears
+  on Model Inputs (driver row, =SUM(D12:G12)) and Audit Source (no
+  formulas, never enters the grid). VS located all three rows; the
+  FINMO P&L row is EXACTLY ONE and carries the documented legacy
+  shape =C8*'Model Inputs'!C12. Single-line => one FINMO row labelled
+  'Cost of Goods Sold'; multi-line => one 'Cost of Goods Sold - LINE'
+  row per line plus a total =SUM over them. Full fix shape in the
+  VS_NOTES round-6 section.
+  Then re-run:
+    python -m replay_gate.run_gate --prove --tier full --verbose > _prove_<date>.txt 2>&1
+  Post the file and write your RESULT. Also answer one question in
+  VS_NOTES so VS can act on it: does the workbook builder read
+  planning_run_json at all? It is ~2.8 MB of the 2.9 MB fixture, and
+  if it is unread VS will do ONE deliberate re-freeze that drops it.
