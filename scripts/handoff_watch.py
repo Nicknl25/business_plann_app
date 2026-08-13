@@ -313,6 +313,32 @@ def write_status(new_status: str, *, reason: str, branch: str, bump_turn: int | 
 
 
 # -------------------------------------------------------------- ping
+def desktop_alert(subject: str) -> None:
+    """SECOND CHANNEL. Email can sit unread in a tab nobody is looking at —
+    which is exactly what happened: eight pings sent, none seen. A desktop
+    alert lands on the machine the loop is running on. Fire and forget; a
+    failure here must never stall the watcher."""
+    text = subject[:180].replace('"', "'")
+    try:
+        subprocess.Popen(["msg", "*", "/TIME:0", text],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    except Exception:
+        pass
+    try:  # fallback: non-blocking balloon, never a modal that could hang us
+        script = (
+            "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');"
+            "$n=New-Object System.Windows.Forms.NotifyIcon;"
+            "$n.Icon=[System.Drawing.SystemIcons]::Warning;$n.Visible=$true;"
+            f"$n.ShowBalloonTip(20000,'HANDOFF WATCHER',\"{text}\",'Warning');"
+            "Start-Sleep -Seconds 20"
+        )
+        subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        log(f"desktop alert failed ({type(exc).__name__}) — email is the only channel")
+
+
 def ping(subject: str, body: str, state: dict) -> None:
     # Nick's interface is English in / ping out — so the ping itself says how
     # to continue, and it is never "edit this file".
@@ -325,6 +351,7 @@ def ping(subject: str, body: str, state: dict) -> None:
     key = f"{subject}|{git('rev-parse', 'HEAD').stdout.strip()}"
     if state.get("last_ping") == key:
         return  # one ping per stop per ref — never loop-ping
+    desktop_alert(subject)
     try:
         from dotenv import load_dotenv
         load_dotenv(REPO / ".env")
