@@ -40,36 +40,39 @@ RULES
                         sha256-matched to live, mutated lookup moved the
                         digest). Evidence: _prove_20260813_*.txt,
                         VS_NOTES rounds 8-10.
-    LIVE:   passed    — VS 2026-08-13, on three pieces of evidence:
-                        (a) backend restarted on the shipped build
-                        (c77094a), ONE :5050 listener, pid 28944;
-                        (b) SUNNY_V3 CANARY completed through production
-                        (post_intake_finalize_validation_completed) AND
-                        the single-line floor proven live: the pre-ship
-                        run (08-12 17:07, old code) vs today's post-ship
-                        run of draft 6feac758 differ in 22 of 35,519
-                        compared leaves, ALL 22 date-derived, ZERO
-                        otherwise; 0 COGS% rows emitted on both sides.
-                        The digests moved only because the forecast
-                        anchor is wall-clock. Evidence:
-                        _handoff/logs/canary_20260813.txt;
-                        (c) MULTI-LINE E2E on a clone of the real
-                        Thistledown two-line draft: 2 COGS% rows, Sigma
-                        == blend on all 20 quarters (worst rel gap
-                        0.00000), finmo cogs == Sigma on 20 quarters,
-                        and the WORKBOOK carries two real per-line COGS
-                        formula rows with the total as =SUM(D9:D10) over
-                        them, each line reading
-                        ='Model Inputs'!<line revenue>*'Model Inputs'!<line COGS%>.
-                        Evidence: _handoff/logs/multiline_e2e_20260813.txt,
-                        workbook "Thistledown Cycle and Service --
-                        08-13-2026 10-48-37.xlsx".
-    COWORK: cleared   — GATE blessed + LIVE passed. Nick's 4-stream
+    LIVE:   FAILING  — VS 2026-08-13, RETRACTED on live evidence from
+                        CW-031 Ravenwood (draft 1070c6a5). The engine
+                        half IS proven (canary: 22/35,519 leaves, all
+                        date-derived; workbook: 2 real per-line rows,
+                        total =SUM over them). The INTAKE half was
+                        NEVER exercised: _ws1b_multiline_e2e.py STAMPS
+                        cogs_percent_of_line_revenue onto the rows and
+                        then runs the system-run, so it proves
+                        rows->engine->workbook and never
+                        conversation->rows.
+                        LIVE DEFECT: the four per-line percents were
+                        PROPOSED to the client in prose (plant 55, hard
+                        goods 60, install 38, design 6) but NONE landed
+                        on the product rows; only the blended 47%
+                        persisted. Per-line is therefore INACTIVE by
+                        the all-or-nothing rule and the workbook will
+                        carry ONE blended row - contradicting what the
+                        client was told in writing.
+                        SUSPECTED CAUSE: the message and the write each
+                        resolve the COGS baseline independently (two
+                        judge calls); the write's call failed the
+                        all-or-nothing line-name match and degraded to
+                        blend-only SILENTLY.
+    COWORK: blocked   — auto-reblocked: LIVE is failing. Nick's 4-stream
                         garden centre is the intended first run (the case
                         WS1b was built for, and the first N>2 exercise).
 
-    NEXT STEP: none for this item — it is done for the gate, done live,
-    and cleared for a Cowork run. Thistledown's unanswered question
+    NEXT STEP: (1) fix the write so the SHOWN proposal is the WRITTEN
+    one (resolve once, or make the degradation loud, never silent);
+    (2) re-fixture the multi-line E2E to drive the COGS stage through
+    the conversation instead of stamping rows; (3) mini re-fixtures
+    R29 to assert survival into persisted ops json. Only then does
+    LIVE flip again. Thistledown's unanswered question
     ("shouldn't bikes and repairs be different?") now answers itself:
     bike sale 52%, repair 22%, two rows in the client's workbook.
 
