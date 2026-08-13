@@ -1100,3 +1100,42 @@ NOT. The finmo digest is less sensitive to its own inputs than the
 model_input digest is. Probably benign — finmo is a projection over fields
 those baselines do not touch — but it means the two GOLDEN-SHAs are not
 equally sharp instruments, and it is worth one look sometime.
+
+## LIVE FINDING (CW-031 Ravenwood, draft 1070c6a5): the WS1a gate stamp
+## is dropped by a SECOND ops allowlist — and R29 passes over the hole
+
+Observed live at turn 5+ of the first N=4 run: four LOBs captured
+correctly and the restatement names/justifies all four (behaviour is
+RIGHT), but `line_split_confidence` and `split_rationale` are ABSENT
+from the persisted operating_model_json — absent, not null.
+
+ROOT CAUSE (confirmed by source, not inference):
+`_apply_model_ops_patch` at api_handlers/intake_consult.py:937 carries
+its OWN `allowed_keys` set, and neither field is in it:
+
+    for k, v in patch_obj.items():
+        if key not in allowed_keys or v is None:
+            continue            # <- the gate stamp dies here, every turn
+
+That is the allowlist on the LIVE ops turn path (:14156). The list VS
+edited during the WS1a build was a DIFFERENT one —
+`_normalize_unscoped_patch`'s field_sets["ops"] at :9804. Both schemas
+(_final_schema :157, consultant_chat_turn :488) correctly REQUIRE the
+field, and _apply_scoped_patch's ops branch would have merged it
+(plain next_ops[field] = value, no filter). Only this one path drops it.
+
+FIX: add "line_split_confidence" and "split_rationale" to the :937
+allowed_keys. One line. NOT to be applied mid-run (app-code edit ->
+backend restart -> canary law).
+
+THE LEG GAP (mini): R29 line-split-confidence-gate is GREEN and should
+not be. It checks the chat-turn SCHEMA and the source vocabulary —
+both of which are correct — and never exercises the merge path where
+the value actually dies. Same shape as the vacuous workbook leg: a leg
+proving the half that works. R29 must be re-fixtured to assert the
+field SURVIVES INTO the persisted ops json through the real turn path,
+not that it exists in a schema. Until then its green is unearned.
+
+CLIENT IMPACT: none. Ravenwood is being served correctly — four
+streams, split, named, justified. What is lost is the structured
+record of WHY the split happened (the audit/consumer surface).
