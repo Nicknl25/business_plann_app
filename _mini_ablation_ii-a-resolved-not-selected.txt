@@ -1,0 +1,41 @@
+STEP 0 - restore the documented false state so this proof repeats
+  #138 restored to status=resolved basis=retested_clean confidence=confirmed
+  [PASS] false state restored: the run that disproves #138 is the run that resolved it
+
+STEP 1 - the artifacts, read directly (this is the ground truth)
+  ops product rows: 4; null per-line COGS on: ['Plant sale', 'Hard goods sale', 'Install project', 'Design consult']
+  workbook: fail - Ravenwood Garden Company -- 08-13-2026 12-14-03.xlsx [FINMO] carries 0 per-line 'Cost of Goods Sold' row(s) (1 labelled total), expected >= 2
+  [PASS] ground truth is a genuine defect: 4 lines, 4 null, workbook fail
+
+STEP 2 - attach the artifact assertions (audited setter)
+  probe set: two_line_business_gets_one_blended_cogs_and_the_question_goe
+  probe set: per_line_cogs_is_proposed_but_cannot_be_written_by_the_clien
+  probe set: workbook_carries_one_blended_cogs_row_at_n_equals_four
+
+STEP 3 - run the PRODUCTION detector on the real failing draft
+  {"draft_id": "1070c6a560a04f3d971019a3787180bf", "evaluated": 66, "recurred": 4, "exercised_clean": 0, "not_exercised": 62, "artifact_verified": 0, "artifact_failed": 0}
+  resolved_confirmed: []
+
+STEP 4 - the verdicts
+  [FAIL] the artifact assertion fired and failed: artifact_failed=0
+  [PASS] no false 'artifact verified' on a broken run: artifact_verified=0
+  [FAIL] two_line_business_gets_one_blended_cogs_and_the_ques is not resolved: resolved -> resolved
+  [FAIL] two_line_business_gets_one_blended_cogs_and_the_ques carries no 'confirmed' verdict: confidence=confirmed
+  [PASS] per_line_cogs_is_proposed_but_cannot_be_written_by_t is not resolved: open -> open
+  [PASS] per_line_cogs_is_proposed_but_cannot_be_written_by_t carries no 'confirmed' verdict: confidence=None
+  [PASS] workbook_carries_one_blended_cogs_row_at_n_equals_fo is not resolved: open -> open
+  [PASS] workbook_carries_one_blended_cogs_row_at_n_equals_fo carries no 'confirmed' verdict: confidence=None
+  [PASS] nothing resolved confirmed on this run: 0 confirmed
+
+STEP 5 - the recurrence names the ARTIFACT, not the prose
+  [FAIL] an artifact_check occurrence was written: 0 occurrence(s)
+  [FAIL] evidence cites the persisted rows: observed text names the ops field
+  [FAIL] the reopened issue is #138 itself: signature matches the falsely-resolved issue
+
+STEP 6 - the FALSE-CONFIRM path is closed for good
+  [PASS] an opportunity-only probe carries no artifact: present=False verdict=absent
+  legacy 'confirmed' rows resting on retested_clean: 1
+  [PASS] no NEW confirmed verdict was minted on this broken run: resolved_confirmed is empty
+
+========================================================================
+RED - 6 check(s) failed: ['the artifact assertion fired and failed', 'two_line_business_gets_one_blended_cogs_and_the_ques is not resolved', "two_line_business_gets_one_blended_cogs_and_the_ques carries no 'confirmed' verdict", 'an artifact_check occurrence was written', 'evidence cites the persisted rows', 'the reopened issue is #138 itself']

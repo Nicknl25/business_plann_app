@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 3/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -224,3 +224,88 @@ TASK:
   A-110: _apply_per_line_cogs_to_ops exists and is called, but only
   from the cogs stage default patch, so no client correction can reach
   the per-line fields.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: workbook_cogs_rows:draft-unbound-newest-mtime
+  EVIDENCE: _mini_cw031_tier1_audit_20260813.txt (mechanisms + A1 + P1);
+    _mini_ablation_*.txt (six red-proof runs, one per neutering);
+    Test Files/_mini_cw031_gate_ablation.py, _mini_cw031_mechanism_probe.py,
+    _mini_cw031_registry_audit.py, _mini_planning_run_json_reader_probe.py
+  SUMMARY: Tier 1 holds where it counts -- all three mechanisms are LIVE,
+  the registry census answer is right, the demotion did not rewrite
+  history, and 'confirmed' is still earnable. Not green for two reasons.
+  The red-proof exercises only ONE of the three (the resolved re-audit);
+  the artifact_backed rule and the no-retest guard can both be deleted
+  with it still green, because exercised_clean=0 on 1070c6a5 so the
+  resolve path is never entered. And workbook_cogs_rows has a live
+  false-PASS door: it globs business_name + newest mtime with no binding
+  to the draft, so the REAL Thistledown draft (ops 0/2 written) scored
+  PASS on a workbook another draft produced. Registry verified
+  uncontaminated afterwards; app code byte-identical to HEAD.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: four fixes, then tiers 2-3. Detail and reproduction in
+  _mini_cw031_tier1_audit_20260813.txt.
+
+  1. BIND workbook_cogs_rows TO THE DRAFT. This is the same class tier 1
+     exists to close, still open inside the fix. Proof: draft
+     be84629ada44 (the real CW-030 Thistledown client run, ops product
+     rows 0/2 carrying cogs_percent_of_line_revenue) returns PASS,
+     because the reader globbed 'Thistledown Cycle and Service*.xlsx'
+     and took the newest by mtime -- a file produced by plcogsd6e3ed0b,
+     a different draft. #141's probe carries workbook_cogs_rows ALONE,
+     so the next run of any repeat business name mints a confirmed on
+     someone else's workbook. Bind it to the delivery record / the run's
+     own window, and return not_applicable when no workbook can be
+     attributed to THIS draft rather than falling back to newest.
+  2. FINISH THE WORKBOOK ASSERTION against Nick's verification law. It
+     currently only COUNTS per-line labelled rows. The law also requires
+     the total row to be =SUM over exactly those rows (law bullet 2) and
+     Sigma(line revenue x line pct) == blend == finmo COGS per quarter
+     (bullet 3). Thistledown shows the shape to assert: FINMO rows 9/10
+     per-line, row 11 '=SUM(D9:D10)'. As written, N per-line rows with a
+     total summing the wrong range passes.
+  3. require_distinct_rates ON BY DEFAULT for the COGS class -- yes, your
+     candidate is real: 4 rows all at 0.42 PASS without it, fail with it
+     ("a blend wearing per-line clothing"). Safe to default on, because
+     the implemented semantics are "at least TWO distinct rates", not
+     "all pairwise distinct" -- Ravenwood's own collapse (plants+hard
+     goods shared, install and design separate) still passes. The single
+     case it would false-fail is a client declaring ALL lines share one
+     structure, which no artifact can distinguish from the bug; make
+     that an explicit opt-out fed by the tier-2 item 4 grouping, not the
+     default.
+  4. The red-proof needs the two uncovered gates. I have the cases
+     already, as synthetic issues run through the production evaluator
+     (M1/M2/M3 in _mini_cw031_mechanism_probe.py): opportunity-only hard
+     issue must not confirm; artifact-backed must confirm; metadata-only
+     must not tick. Leave this one to me -- I will land them as gate legs
+     next turn so the coverage is permanent rather than a script. Do not
+     duplicate it.
+
+  ANSWERED, your owed question: the workbook builder DOES read
+  planning_run_json, and both halves of your premise are off.
+  SIZE: PLANNING_RUN_JSON is 360 KB of the 1.28 MB module (28%), not
+  2.8 MB of 2.9 MB. The bulk is LOOKUP_REPLAY at 703 KB (55%); if size
+  is the goal that is the payload to go after.
+  READ: client_statements_output_excel/data.py:180-199 reads
+  planning_run_json.unified_convergence_context.business_world_contract.
+  stage_ramp_contract, and your fixture carries it populated (20
+  quarter_ramp_grid rows). It renders the Stage Ramp Contract rows on
+  Revenue Drivers and RAISES when planning_run_json is populated but the
+  canonical path is missing.
+  BUT R32 cannot see it: I built the grid both ways and got an identical
+  digest (4185 formulas, 7 sheets, d35defeef33c9c70 with it and without),
+  because R32 hashes formula strings and the stage ramp lands as values.
+  So dropping it would not move the master -- it would silently flip
+  data.py to its "convergence did not run" branch and disarm the
+  fail-loud guard. If you re-freeze, keep that canonical subtree.
+
+  ONE MORE, for A-110 before you wire it: no live client run has ever
+  written per-line COGS to ops. The real Thistledown draft be84629ada44
+  has cogs_percent_of_line_revenue null on both product rows; the rates
+  (0.5405 / 0.2287) live on plcogs433a848c, a draft you seeded. The
+  engine-consumes-them proof is real but it is a hand-seeded draft, so
+  treat the ops -> workbook leg as unproven on a client path.

@@ -1,0 +1,144 @@
+== M1/M2/M3 - baseline (gate intact) ==
+  {
+  "summary": {
+    "draft_id": "1070c6a560a04f3d971019a3787180bf",
+    "evaluated": 132,
+    "recurred": 5,
+    "exercised_clean": 2,
+    "not_exercised": 75,
+    "artifact_verified": 1,
+    "artifact_failed": 0
+  },
+  "M1": {
+    "status": "resolved",
+    "basis": "retested_clean",
+    "confidence": "observational",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M2": {
+    "status": "resolved",
+    "basis": "artifact_verified",
+    "confidence": "confirmed",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M3": {
+    "status": "open",
+    "basis": null,
+    "confidence": null,
+    "clean": 0,
+    "quiet": 4
+  }
+}
+
+== ablated (i) ==
+  {
+  "summary": {
+    "draft_id": "1070c6a560a04f3d971019a3787180bf",
+    "evaluated": 132,
+    "recurred": 5,
+    "exercised_clean": 2,
+    "not_exercised": 75,
+    "artifact_verified": 1,
+    "artifact_failed": 0
+  },
+  "M1": {
+    "status": "resolved",
+    "basis": "artifact_verified",
+    "confidence": "confirmed",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M2": {
+    "status": "resolved",
+    "basis": "artifact_verified",
+    "confidence": "confirmed",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M3": {
+    "status": "open",
+    "basis": null,
+    "confidence": null,
+    "clean": 0,
+    "quiet": 4
+  }
+}
+
+== ablated (iii) ==
+  {
+  "summary": {
+    "draft_id": "1070c6a560a04f3d971019a3787180bf",
+    "evaluated": 132,
+    "recurred": 5,
+    "exercised_clean": 3,
+    "not_exercised": 64,
+    "artifact_verified": 1,
+    "artifact_failed": 0
+  },
+  "M1": {
+    "status": "resolved",
+    "basis": "retested_clean",
+    "confidence": "observational",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M2": {
+    "status": "resolved",
+    "basis": "artifact_verified",
+    "confidence": "confirmed",
+    "clean": 1,
+    "quiet": 5
+  },
+  "M3": {
+    "status": "resolved",
+    "basis": "retested_clean",
+    "confidence": "observational",
+    "clean": 1,
+    "quiet": 5
+  }
+}
+
+== VERDICTS ==
+  M1 gate (i): opportunity-only must not confirm
+      intact  : {'status': 'resolved', 'basis': 'retested_clean', 'confidence': 'observational', 'clean': 1, 'quiet': 5}
+      ablated : {'status': 'resolved', 'basis': 'artifact_verified', 'confidence': 'confirmed', 'clean': 1, 'quiet': 5}
+      -> LIVE (removal changes the verdict)
+  M2 gate (i) positive: artifact-backed CAN confirm
+      intact  : {'status': 'resolved', 'basis': 'artifact_verified', 'confidence': 'confirmed', 'clean': 1, 'quiet': 5}
+      ablated : {'status': 'resolved', 'basis': 'artifact_verified', 'confidence': 'confirmed', 'clean': 1, 'quiet': 5}
+      -> DECORATIVE (no behavioural difference)
+  M3 gate (iii): metadata-only must not tick
+      intact  : {'status': 'open', 'basis': None, 'confidence': None, 'clean': 0, 'quiet': 4}
+      ablated : {'status': 'resolved', 'basis': 'retested_clean', 'confidence': 'observational', 'clean': 1, 'quiet': 5}
+      -> LIVE (removal changes the verdict)
+
+== A1 - the blend wearing per-line clothing ==
+  without require_distinct_rates: pass - all 4 product rows carry cogs_percent_of_line_revenue
+  with    require_distinct_rates: fail - all 4 rows share one rate {0.42} - a blend wearing per-line clothing
+
+== P1 - workbook_cogs_rows scoping + the Thistledown positive control ==
+  candidate draft be84629ada44 'Thistledown Cycle and Service'
+  candidate draft plcogs433a84 'Thistledown Cycle and Service'
+  candidate draft plcogsd6e3ed 'Thistledown Cycle and Service'
+  candidate draft probe2ec713c 'Thistledown Cycle and Service'
+  candidate draft probea139cae 'Thistledown Cycle and Service'
+    -> 'Thistledown Cycle and Service' [be84629ada44]: pass - Thistledown Cycle and Service -- 08-13-2026 10-48-37.xlsx [FINMO] carries 2 per-line 'Cost of Goods Sold' rows
+       ops_per_line_cogs: fail - 0/2 product rows carry cogs_percent_of_line_revenue; null on ['Average bike sale', 'Average repair/tune-up job']
+       + require_distinct_rates: fail - 0/2 product rows carry cogs_percent_of_line_revenue; null on ['Average bike sale', 'Average repair/tune-up job']
+    -> 'Thistledown Cycle and Service' [plcogs433a84]: pass - Thistledown Cycle and Service -- 08-13-2026 10-48-37.xlsx [FINMO] carries 2 per-line 'Cost of Goods Sold' rows
+       ops_per_line_cogs: pass - all 2 product rows carry cogs_percent_of_line_revenue
+       + require_distinct_rates: pass - all 2 product rows carry cogs_percent_of_line_revenue; 2 distinct rate(s)
+
+  per-sheet 'Cost of Goods Sold' label census (is FINMO the right scope?)
+    Ravenwood Garden Company -- 08-13-2026 12-14-03.xlsx
+      [Model Inputs] row 24: 'Cost of Goods Sold' D=0.47
+      [FINMO] row 9: 'Cost of Goods Sold' D="=D8*'Model Inputs'!D24"
+      [Audit Source] row 8: 'Cost of Goods Sold' D=182477.500328
+    Thistledown Cycle and Service -- 08-13-2026 10-48-37.xlsx
+      [Model Inputs] row 18: 'Cost of Goods Sold' D=0.443952802359882
+      [FINMO] row 9: 'Cost of Goods Sold - Primary line of business / Average bike sale' D="='Model Inputs'!D11*'Model Inputs'!D10"
+      [FINMO] row 10: 'Cost of Goods Sold - Primary line of business / Average repair/tune-up job' D="='Model Inputs'!D16*'Model Inputs'!D15"
+      [FINMO] row 11: 'Cost of Goods Sold' D='=SUM(D9:D10)'
+      [Audit Source] row 8: 'Cost of Goods Sold' D=75250.063216
