@@ -2135,3 +2135,85 @@ no-write turn (the F1 mechanism). My fix removes the naturalizer only
 from no-write turns, which is defensible without the ruling; turns
 WITH writes are still naturalized, and the live L1-t1 reply shows it
 paraphrasing accurately. The ruling still governs that half.
+
+
+## CW-031 ROUND 10 -- membership is data, the match speaks, every line named
+(VS, 2026-08-13, turn 12. Evidence: Test Files/_redproof_cw031_round10_fixes.py
+(pre-fix RED on all three checks for the documented reasons, post-fix GREEN;
+green run saved as _redproof_cw031_round10_20260813.txt); mini's own
+instruments re-run green: _mini_cw031_r9_coherence_attack.py O1-O4 CLEAN (O2
+was RED), _mini_cw031_r9_f1_residue.py CLEAN with B1 speaking the match
+(_rerun_mini_r9_f1_residue_20260813.txt), _mini_cw031_r8_net_attack.py 9/9;
+_canary_cw031_round10_sunnyv3_20260813.txt; _prove_20260813_vs_round10.txt
+57 legs 0 DRIFT 0 UNEARNED GREEN.)
+
+FIX 1 -- MEMBERSHIP IS DATA, NOT A LABEL PARSE (mini's O2). The group
+door now stores the normalized member list beside the label
+(cogs_cost_structure_group_members, written wherever the label is
+written, popped wherever the label is popped - separation and retire
+both). The coherence pass reads MEMBERSHIP FROM THE STORED LIST and
+compares it to the carrying set directly; the label is display only.
+'Design + Build'+'Plant sale' now survives its own declaring call
+(pre-fix it retired itself in the same call) and still retires
+correctly when a member genuinely walks out (redproof C1b). Two edges
+handled explicitly:
+  - LEGACY FALLBACK: rows stamped label-only (R39's cursor-stub rows,
+    any group stored before this round) have no member list; for those
+    the pass still parses the label with split('+') - identical to
+    round-9 behaviour, proven by redproof C1c and by R39 passing the
+    full prove unchanged. The fallback is only reachable by rows the
+    new door did not write.
+  - DISAGREEING CLAIMS RETIRE: rows carrying one label with different
+    stored member lists are an incoherent claim and retire as a set.
+mini: this unblocks the '+'-tooth you planned for R39 (your round-9
+TASK said you would add it after my fix; the door now emits the member
+list your tooth can bite on).
+
+FIX 2 -- A MATCHING RESTATEMENT GETS A MATCH-ON-FILE SENTENCE (mini's
+B1). On the no-write claim branch (the one that shipped the
+failed-change sentence), when EVERY figure the client stated matches a
+stored numeric leaf, the deterministic ack is now "That matches what I
+have - current revenue is $1,553,000." - field named from the stored
+leaf, value from the stored row, state untouched. No naturalizer
+involved; the sentence ships verbatim on the no-write tail exactly as
+round 9 ruled. TWO STATED LIMITS, deliberately chosen, mini should
+judge both:
+  - _MATCH_ON_FILE_FLOOR = 1000: figures below 1000 never earn the
+    match sentence, because 45 can be a percent, a price, a capacity
+    or a headcount, and matching it to an unrelated stored leaf would
+    CLAIM a confirmation the client never made - the round-8 lesson
+    (value equality is not declaration) applied to the match sentence.
+    A small-figure restatement keeps the failed-change register:
+    imperfect wording, never a false claim. If you judge the floor
+    wrong-shaped, say what should replace it.
+  - The scan covers financials_json + ops_json (the same state dict
+    the dropped-request branch reads). A client restating a
+    people_json figure (owner pay) still gets the failed-change
+    sentence today; flagged rather than silently widened.
+Live green on the real path: B1 clone speaks the match, stored figure
+byte-unchanged (float dust and all); A1-A4 blend wordings unchanged
+(3 landed / 1 honest floor), B2 question turn still quotes back.
+
+FIX 3 -- EVERY SEPARATED LINE IS NAMED (polish). The renderer's
+separated[:3] slice is gone: all separated lines are named with an
+Oxford join ('a, b, c, and d'); the list is bounded by the product
+directory so there is no cap to hide behind. Redproof C3.
+
+CANARY (round 10's own, on the post-fix server): backend restarted via
+start_persona_backend.ps1 - old listener 34352 killed, PID 30228, ONE
+listener verified by the script's own fatal check. Sunny_V3
+system_run_complete, 430s, workbook built, delivery record #5 written
+and bound by draft_id; resolve_workbook_for_draft returns basis
+delivery record for the canary draft. Zero tracebacks in the server
+log; one known-class WARNING (workbook_model_status_check_skipped,
+excel_com_failure Call was rejected by callee) - the same intermittent
+Excel COM transient appears in 24 prior persona logs back to 07-30,
+including green-canary days, and is not new to this change. Prove:
+57 legs, 50 behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
+0 UNEARNED, verdict GREEN - R38/R39 untouched and passing.
+
+STILL NICK'S, UNCHANGED: whether naturalization may touch a
+deterministic receipt. Nothing this round moves it - both new
+sentences (the match ack and the full separation list) are
+deterministic and ship verbatim on the no-write tail; write-carrying
+turns are still naturalized, still governed by the open ruling.

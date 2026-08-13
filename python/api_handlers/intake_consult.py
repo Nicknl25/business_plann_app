@@ -3070,9 +3070,9 @@ def _apply_per_line_cogs_patch_keys(
     receipt["unmatched"].extend(m for m in missed if m)
     if len(members) < 2:
       continue
-    label = "shared:" + "+".join(
-      sorted(str(m["product_name"] or m["line_name"]).strip().lower() for m in members)
-    )
+    member_names = sorted(
+      str(m["product_name"] or m["line_name"]).strip().lower() for m in members)
+    label = "shared:" + "+".join(member_names)
     rated = [m for m in members
              if _safe_float(m["row"].get("cogs_percent_of_line_revenue")) is not None]
     shared_pct = None
@@ -3100,6 +3100,12 @@ def _apply_per_line_cogs_patch_keys(
         basis = "revenue weighted"
     for member in members:
       member["row"]["cogs_cost_structure_group"] = label
+      # MEMBERSHIP IS DATA, NOT A LABEL PARSE (round 10, mini's O2). Product
+      # names legitimately contain '+' (7 real drafts: 'Business Plan +
+      # Financial Model', 'IV services (visits + memberships)'), so a label
+      # that encodes membership with '+' cannot be parsed back. The member
+      # list is stored beside the label; the label stays display.
+      member["row"]["cogs_cost_structure_group_members"] = list(member_names)
       # WHOSE COLLAPSE IS THIS? Stored beside the group, because the artifact
       # otherwise cannot tell a grouping the CLIENT declared from one the app
       # inferred - and an assertion that reads a group as "the client's own
@@ -3138,6 +3144,7 @@ def _apply_per_line_cogs_patch_keys(
     if str(entry["row"].get("cogs_cost_structure_group") or "").strip():
       entry["row"].pop("cogs_cost_structure_group", None)
       entry["row"].pop("cogs_cost_structure_group_basis", None)
+      entry["row"].pop("cogs_cost_structure_group_members", None)
       receipt["wrote"] = True
     receipt["separated"].append(entry["line_name"])
 
@@ -3158,13 +3165,30 @@ def _apply_per_line_cogs_patch_keys(
       if _lbl.startswith("shared:"):
         _by_label.setdefault(_lbl, []).append(entry)
     for _lbl, _carrying in _by_label.items():
-      _encoded = {t for t in _lbl[len("shared:"):].split("+") if t}
+      # MEMBERSHIP IS DATA, NOT A LABEL PARSE (round 10, mini's O2 finding).
+      # The claimed membership is read from the stored member list; parsing
+      # it out of the label with split('+') broke on '+'-named products
+      # ('Design + Build' -> {'design ', ' build'}), retiring a group in the
+      # same call that declared it. The label parse survives ONLY as the
+      # fallback for legacy rows stamped before the member list existed
+      # (R39's cursor-stub rows among them). Rows carrying one label with
+      # DISAGREEING member lists are an incoherent claim and retire too.
+      _member_sets = []
+      for e in _carrying:
+        _m = e["row"].get("cogs_cost_structure_group_members")
+        if isinstance(_m, list) and _m:
+          _member_sets.append(frozenset(str(t).strip().lower() for t in _m))
+      if _member_sets:
+        _claimed = set(_member_sets[0]) if len(set(_member_sets)) == 1 else None
+      else:
+        _claimed = {t for t in _lbl[len("shared:"):].split("+") if t}
       _names = {str(e["product_name"] or e["line_name"]).strip().lower()
                 for e in _carrying}
-      if _names != _encoded:
+      if _claimed is None or _names != _claimed:
         for entry in _carrying:
           entry["row"].pop("cogs_cost_structure_group", None)
           entry["row"].pop("cogs_cost_structure_group_basis", None)
+          entry["row"].pop("cogs_cost_structure_group_members", None)
           receipt["ungrouped"].append(entry["line_name"])
           receipt["wrote"] = True
 
@@ -3246,7 +3270,15 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
   # un-deciding something the client was told was decided.
   separated = [s for s in (receipt.get("separated") or []) if s]
   if separated:
-    parts.append(" and ".join(separated[:3])
+    # EVERY SEPARATED LINE IS NAMED (round 10 polish). "Keep every one of
+    # them separate" on four lines used to ack three by name - the artifact
+    # was right and the sentence under-counted. The list is bounded by the
+    # product directory, so naming all of them is always cheap.
+    if len(separated) <= 2:
+      _sep_spoken = " and ".join(separated)
+    else:
+      _sep_spoken = ", ".join(separated[:-1]) + ", and " + separated[-1]
+    parts.append(_sep_spoken
                  + (" now carry their own separate cost structures"
                     if len(separated) > 1
                     else " now has its own separate cost structure"))
@@ -7080,6 +7112,73 @@ def _prose_acks_unwritten_figure(*, prose: str, user_message: str) -> bool:
       ):
         return True
   return False
+
+
+# A figure below this is too cheap to prove identity by equality alone: 45
+# can be a percent, a price, a capacity, or a headcount, and matching it to
+# an unrelated stored leaf would CLAIM a confirmation the client never made
+# (the round-8 lesson - value equality is not declaration - applied to the
+# match sentence). Comma-class figures (revenue, payroll, rent) are the ones
+# a client restates to confirm, and at that size a stored equal is evidence.
+_MATCH_ON_FILE_FLOOR = 1000.0
+
+
+def _figures_all_on_file(
+  state: Dict[str, Any], figures: List[float]
+) -> List[Tuple[str, float]]:
+  """CW-031 round 10 (mini's B1): a no-write turn whose stated figures ALL
+  sit on file already is a CONFIRMATION, not a failed change - "just to
+  confirm, our annual revenue is 1,553,000" deserves "that matches what I
+  have", never "I wasn't able to apply that change".
+
+  Returns one (leaf_name, stored_value) match per stated figure when EVERY
+  figure clears _MATCH_ON_FILE_FLOOR and matches a stored numeric leaf; []
+  otherwise (any unmatched or small figure -> the caller keeps its honest
+  failed-change register, which is imperfect wording but never a claim)."""
+  if not figures or any(f < _MATCH_ON_FILE_FLOOR for f in figures):
+    return []
+  leaves: List[Tuple[str, float]] = []
+
+  def _walk(obj: Any) -> None:
+    if isinstance(obj, dict):
+      for k, v in obj.items():
+        if isinstance(v, bool):
+          continue
+        if isinstance(v, (int, float)):
+          leaves.append((str(k), float(v)))
+        else:
+          _walk(v)
+    elif isinstance(obj, list):
+      for item in obj:
+        _walk(item)
+
+  _walk(state)
+  matches: List[Tuple[str, float]] = []
+  for f in figures:
+    found = None
+    for leaf, value in leaves:
+      if abs(f - value) <= max(0.5, 0.005 * abs(value)):
+        found = (leaf, value)
+        break
+    if found is None:
+      return []
+    if found not in matches:
+      matches.append(found)
+  return matches
+
+
+def _spoken_on_file_match(leaf: str, value: float) -> str:
+  """One matched figure, spoken from the stored leaf: humanized field name
+  plus the stored value in the register the leaf's name implies."""
+  name = str(leaf).replace("_", " ").strip()
+  amount = f"{int(round(value)):,}" if abs(value - round(value)) < 0.005 \
+    else f"{value:,.2f}"
+  if any(t in str(leaf).lower() for t in (
+      "revenue", "cogs", "cost", "price", "pay", "rent", "expense", "salary",
+      "wage", "cash", "funding", "loan", "budget", "draw", "debt", "capital",
+      "marketing", "sales")):
+    amount = "$" + amount
+  return f"{name} is {amount}"
 
 
 def _driver_correction_disposition(
@@ -16966,15 +17065,35 @@ def post_intake_consult_handler(*, app, request):
             if _prose and not _driver_landed and (
               _prose_claims_unrequested_change(_prose) or _prose_figure_claim
             ):
-              # (h) CW-016: empty-request turn + change-claiming prose.
-              # Nothing was written and nothing was even asked - the
-              # claim is manufactured. Say so and get the field named,
-              # which is exactly what unblocked the live client.
-              ack_fallback = (
-                "I wasn't able to apply that change just now - could you "
-                "tell me exactly which field to change and the value it "
-                "should be?"
-              )
+              # A RESTATEMENT OF WHAT IS ON FILE IS A CONFIRMATION, NOT A
+              # FAILED CHANGE (round 10, mini's B1). "Just to confirm, our
+              # annual revenue is 1,553,000" with 1,553,000 on file used to
+              # get the failed-change sentence below - honest about the
+              # write, wrong about the client's intent. When every sizable
+              # figure the client stated matches a stored value, say the
+              # match; the state is untouched either way.
+              _stated_figs = [
+                f for f in _message_figures(str(message or "")) if f > 0]
+              _on_file_matches = _figures_all_on_file(
+                {"financials": financials_json or {}, "ops": ops_json or {}},
+                _stated_figs)
+              if _on_file_matches:
+                ack_fallback = (
+                  "That matches what I have - "
+                  + " and ".join(_spoken_on_file_match(l, v)
+                                 for l, v in _on_file_matches[:3])
+                  + "."
+                )
+              else:
+                # (h) CW-016: empty-request turn + change-claiming prose.
+                # Nothing was written and nothing was even asked - the
+                # claim is manufactured. Say so and get the field named,
+                # which is exactly what unblocked the live client.
+                ack_fallback = (
+                  "I wasn't able to apply that change just now - could you "
+                  "tell me exactly which field to change and the value it "
+                  "should be?"
+                )
             elif _prose and _driver_landed and _prose_claims_unrequested_change(_prose):
               # CW-022 #1 (prose-guard bypass CLOSED): a driver landing
               # used to vouch for the whole turn, so router prose could

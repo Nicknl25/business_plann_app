@@ -1,0 +1,11 @@
+﻿C1a declare w/ '+' name: [('Design + Build', 'shared:design + build+plant sale'), ('Plant sale', 'shared:design + build+plant sale'), ('Hard goods', None)] | ungrouped: []
+C1b after separation  : [('Design + Build', None), ('Plant sale', None), ('Hard goods', None)] | ungrouped: ['Main / Design + Build']
+C1c legacy stale label: [('Alpha', None), ('Beta', None), ('Gamma', None)] | ungrouped: ['Main / Alpha']
+C3 sentence: Recorded: Main / Plant sale, Main / Hard goods sale, Main / Install project, and Main / Design consult now carry their own separate cost structures.
+C2 on file current_revenue: 1552999.999999999
+C2 < [200] That matches what I have - current revenue is $1,553,000.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear e
+C2 (1 clone(s) removed)
+==============================================================================
+ROUND-10 REDPROOF: GREEN (all three round-10 fixes hold)
