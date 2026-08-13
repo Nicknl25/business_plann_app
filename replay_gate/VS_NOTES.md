@@ -474,3 +474,34 @@ remaining errors are now exact:
   there (maintenance_rate=0.05 + the consistent PPE pair above,
   with the multi-line ops carrying cogs_percent_of_line_revenue on
   every product row).
+
+## Round-4 audit (_prove_20260812_ws1ws2_prove4.txt, build 9b954ef)
+
+**R31 GOLDEN** - the gate's own byte-floor is live: identical digests
+on both commits, pure functions of frozen inputs:
+  GOLDEN-SHA model_input 7965ad961c089f652ffc0174bee86c3426687d7bc39c82f2358f50de250564e4
+  GOLDEN-SHA finmo       55e8fa5a648ce1e8e8301031a17ea0db7a805717e8d955f6280a27fb1efc7c9e
+**R26 PROVEN** behaviourally (the _frozen_build extraction worked;
+no fourth guard rung fired on the multi-line payload). Tally: 43
+behavioural + 1 GOLDEN + 0 DRIFT + 1 UNEARNED. Quarantine = R32 only.
+
+**R32 ("SETUP: no formula grid - the builder rendered nothing")** -
+the named-gap guard fired instead of a crash, as designed. Two
+candidate causes, in likelihood order; first split them by asserting
+wb.sheetnames non-empty before extraction:
+1. EXTRACTION, not build: in openpyxl WRITE mode a formula is just
+   cell.value as a str starting "=" - there is no .formula
+   attribute, and cell.data_type is unreliable pre-save. If the leg
+   round-trips through save+load_workbook(data_only=True), every
+   formula reads as None. Extract directly off the built Workbook:
+   for ws in wb.worksheets / ws.iter_rows() / isinstance(c.value,
+   str) and c.value.startswith("=") -> (sheet, row-label from col A,
+   c.coordinate) -> formula string. The FINMO sheet alone carries
+   hundreds of "=..." cells; an empty grid from a real build is
+   impossible.
+2. If sheetnames IS empty/default-only: the build swallowed a
+   failure - draft_data_from_row needs the draft-shaped row to carry
+   the JSON columns the sheet builders read (model_input_json AND
+   finmo_json at minimum; payroll/debt/capex sheets read their
+   sections out of model_input_json). Feed it the _frozen_build
+   outputs for BOTH json columns, not just model_input.
