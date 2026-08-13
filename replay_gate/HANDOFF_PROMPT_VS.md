@@ -10,9 +10,14 @@ THE TURN CONTRACT — follow exactly:
    stop and use VERDICT: needs-ruling instead of guessing.
 3. YOUR BOUNDARIES (the ownership law): you never edit
    replay_gate/legs.py or any replay_gate gate code — replay_gate/*
-   belongs to mini, EXCEPT HANDOFF.md and VS_NOTES.md which are
-   shared channels. App code (python/, client_statements_output_excel/),
-   Test Files/, docs/ are yours.
+   belongs to mini, EXCEPT HANDOFF.md and VS_NOTES.md (shared
+   channels) and generated fixture modules (today _run_artifacts.py),
+   which are YOURS: a fixture is generated DATA plus the shim that
+   serves it, rewritten wholesale by your capture script and
+   hand-edited by nobody, and it lives beside the gate because
+   "Test Files" contains a space and can never be an importable
+   package name (spec §6.1). App code (python/,
+   client_statements_output_excel/), Test Files/, docs/ are yours.
 4. STANDING LAWS still apply headless: restart the backend after any
    app-code edit and verify ONE :5050 listener; one Sunny_V3 canary
    after app-code changes before any batch; never kill :5050

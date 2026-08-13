@@ -1736,9 +1736,10 @@ def _r_single_line_unchanged(ctx):
     # last error.
     draft, mij, finmo, ppe_src = ctx.single_line_payloads()
     if not draft:
-        return False, ("SETUP: no clean SINGLE-line draft found in the DB to "
-                       "hash - the floor needs a real one-line business, not a "
-                       "synthetic fixture")
+        # The input is a committed fixture now, so "no draft" no longer means
+        # an empty table - it means the fixture would not serve, and the note
+        # names which way (unimportable app package, renamed loader).
+        return False, f"SETUP: {ppe_src}"
     if mij is None or finmo is None:
         # ANCHOR-UNFROZEN / ANCHOR-LEAK / NONDETERMINISTIC. Deliberately NOT
         # hashed: a digest that is not a pure function of its inputs would
@@ -1890,7 +1891,7 @@ def _r_workbook_formula_grid(ctx):
         f"{digest[:12]}; run artifacts frozen from draft "
         f"{str(prov.get('draft_id') or '?')[:8]} stage "
         f"{prov.get('stage') or '?'}; model inputs from "
-        f"{getattr(ctx, 'draft_pick', '') or 'an unnamed draft'}"
+        f"{getattr(ctx, 'draft_source', '') or 'an unnamed draft'}"
         if not fails else "; ".join(fails))
 
 

@@ -312,107 +312,7 @@ class Surface(object):
             financials_year1_json={"company_revenue_total_year1": float(revenue)},
         )
 
-    def single_line_candidates(self, prefix="6feac758", limit=6):
-        """Clean SINGLE-line drafts for the byte floor - PIN FIRST, then
-        OLDEST FIRST. Also records WHY in `self.draft_pick`.
-
-        WHY NOT `updated_at DESC` (the shape this replaced, mini round 7).
-        That ordering made the golden legs hash WHATEVER DRAFT WAS WRITTEN
-        LAST - which on this machine means a fixture draft one of the gate's
-        own legs just seeded, or a persona run live in another window. Two
-        costs, both fatal to a negative control:
-          - the input moved between prove rounds for no app reason. Round 6
-            hashed Fernhill `5ce9bba8`; minutes later the same call resolved
-            to Sumac `8e84ba9d` and every digest changed. Round-over-round
-            digest stability was reading the DB's churn, not the build's.
-          - a draft landing BETWEEN the baseline child and the current child
-            of ONE prove moves the input under the comparison and fires a
-            FALSE DRIFT - the single false alarm this gate cannot afford.
-        `created_at ASC` is immune both ways: a new draft always sorts last,
-        so the pick changes only if the chosen row is deleted.
-
-        THE PIN IS CURRENTLY DEAD AND SAYS SO. `6feac758` (Sunny Glaze) is
-        the draft the frozen run artifacts came from, but it carries TWO
-        product lines, so it can never satisfy the single-line filter - the
-        old code fell through to the newest draft silently. The miss is now
-        named in every evidence line. The real fix is VS's: freeze ONE
-        single-line draft's sections beside its run artifacts so the floor
-        stops reading this table at all.
-        """
-        def _lines(ops):
-            return sum(len((lob or {}).get("products") or [])
-                       for lob in ((ops or {}).get("lob_models") or []))
-
-        def _j(row, key):
-            v = row.get(key)
-            if isinstance(v, str):
-                try:
-                    return json.loads(v or "{}")
-                except Exception:
-                    return {}
-            return dict(v or {})
-
-        def _pack(row):
-            ops = _j(row, "operating_model_json")
-            if _lines(ops) != 1:
-                return None
-            return {"id": str(row.get("draft_id") or ""), "row": dict(row),
-                    "ops": ops,
-                    "people": _j(row, "people_json"),
-                    "fin": _j(row, "financials_json"),
-                    "year1": _j(row, "financials_year1_json"),
-                    "marketing": _j(row, "marketing_model_json"),
-                    "facts": _j(row, "business_facts_json") or
-                             {"business_name": row.get("business_name")}}
-
-        picks, why = [], []
-        cur = self.read_conn.cursor(dictionary=True)
-        try:
-            cur.execute(
-                "SELECT * FROM intake_consult_drafts WHERE draft_id LIKE %s "
-                "LIMIT 1", (prefix + "%",))
-            hit = cur.fetchone()
-            if not hit:
-                why.append(f"pin {prefix} is not in this DB")
-            else:
-                packed = _pack(hit)
-                if packed:
-                    picks.append(packed)
-                    why.append(f"PINNED draft {prefix}")
-                else:
-                    why.append(
-                        f"pin {prefix} carries "
-                        f"{_lines(_j(hit, 'operating_model_json'))} product "
-                        f"lines - ineligible for a SINGLE-line control")
-            # Two-step on purpose: the full row carries multi-MB JSON columns,
-            # so the ordering scan reads only the ops model.
-            cur.execute(
-                "SELECT draft_id, operating_model_json FROM "
-                "intake_consult_drafts WHERE operating_model_json IS NOT NULL "
-                "ORDER BY created_at ASC, draft_id ASC LIMIT 500")
-            ids = [str(r["draft_id"]) for r in (cur.fetchall() or [])
-                   if _lines(_j(r, "operating_model_json")) == 1]
-            for draft_id in ids:
-                if len(picks) >= limit:
-                    break
-                if any(p["id"] == draft_id for p in picks):
-                    continue
-                cur.execute("SELECT * FROM intake_consult_drafts WHERE "
-                            "draft_id = %s LIMIT 1", (draft_id,))
-                row = cur.fetchone()
-                packed = _pack(row) if row else None
-                if packed:
-                    picks.append(packed)
-        except Exception as exc:
-            self.draft_pick = (f"draft lookup failed: {type(exc).__name__}: "
-                               f"{exc}"[:200])
-            return []
-        finally:
-            cur.close()
-        self.draft_pick = "; ".join(why) if why else ""
-        return picks
-
-    draft_pick = ""
+    draft_source = ""
     draft_input_sha = ""
 
     # A golden digest must be a function of its INPUTS ONLY. The construction
@@ -530,48 +430,87 @@ class Surface(object):
 
         Shared by R31 and R32 so each proves ALONE - legs run one at a time
         under --only, so R32 cannot rely on R31 having populated anything.
+
+        THE INPUT IS COMMITTED BYTES, NOT A QUERY (round 9). This used to
+        pick a draft off `intake_consult_drafts` by a pin/oldest-first
+        ladder. Every ordering fix made the pick more stable without making
+        it FROZEN: a prune, a restore, or a delete of the chosen row still
+        moved the golden input, and a golden master over a moving input
+        produces DRIFT that names nothing. The ladder is deleted rather than
+        kept as a fallback - a fallback to the live table is exactly the
+        silent path back to DB-derived digests, and dead code invites a
+        future re-point onto it.
+
+        BOTH HALVES OF THE INPUT ARE FROZEN. The draft is one half;
+        `build_python_model_input_json` reads eight reference-table loaders
+        on its own account, which is the other. `prime_frozen_lookups()`
+        must wrap the build or the digest is still a function of database
+        state. It patches process-wide, so restore() goes in a `finally`:
+        under --prove each leg is its own subprocess, but in battery mode
+        R26's multi-line payload shares this process and would ask those
+        loaders questions nobody recorded.
+
+        A MISS IS AN HONEST SETUP, NEVER A LIVE READ. If a build asks a
+        reference table something the capture never recorded - most likely
+        on the BASELINE side, whose app code is older - FrozenLookupMiss
+        fires. That is reported as a gap and the leg goes UNEARNED. Falling
+        back to a live query would restore the exact defect this removed,
+        and would do it invisibly.
         """
-        picks = self.single_line_candidates()
-        if not picks:
-            return None, None, None, self.draft_pick
-        pick_note, tried, last = self.draft_pick, [], None
-        for draft in picks:
-            last = draft
+        from . import _run_artifacts as fx
+
+        draft = copy.deepcopy(fx.SINGLE_LINE_DRAFT)
+        source = (f"FROZEN draft {str(draft.get('id') or '')[:8]} "
+                  f"({(draft.get('facts') or {}).get('business_name') or '?'})"
+                  f" - committed fixture, no DB query in this path")
+        patched, restore = fx.prime_frozen_lookups()
+        if not patched:
+            self.draft_source = "frozen lookups not primed"
+            return None, None, None, (
+                "SETUP: prime_frozen_lookups() patched ZERO bindings, so the "
+                "reference tables would be read LIVE and the digest would "
+                "stop being a function of committed bytes - refusing to "
+                "hash. The app package is probably not importable at this "
+                "root, or the loaders were renamed")
+        try:
             mij, finmo, note = self._frozen_build(
                 facts=draft["facts"], ops=draft["ops"], people=draft["people"],
                 fin=draft["fin"], year1=draft["year1"],
                 marketing=draft["marketing"])
-            if mij is None or finmo is None:
-                # Refuse and MOVE ON, in a fixed order: a candidate that
-                # cannot be hashed honestly is skipped, never hashed anyway,
-                # and the skip is reported so the ladder is visible.
-                tried.append(f"{draft['id'][:8]} skipped ({note.split(':')[0]})")
-                continue
-            rows = ((mij.get("sections") or {}).get("revenue") or []
-                    if isinstance(mij, dict) else [])
-            if len(rows) < 3:
-                tried.append(f"{draft['id'][:8]} skipped (only {len(rows)} "
-                             f"revenue rows - too thin to pin)")
-                continue
-            # INPUT IDENTITY, hashed and printed beside the outputs. The
-            # ladder above is deterministic, but it runs SEPARATELY in the
-            # baseline child and the current child - so if a candidate were
-            # ever hashable on one side and not the other, the two sides
-            # would silently compare DIFFERENT businesses. Hashing the input
-            # makes that case surface as a DRIFT that NAMES single_line_input,
-            # instead of an unexplained move in the outputs.
-            self.draft_input_sha = hashlib.sha256(json.dumps(
-                {k: draft[k] for k in
-                 ("facts", "ops", "people", "fin", "year1", "marketing")},
-                sort_keys=True, separators=(",", ":"), default=str
-            ).encode("utf-8")).hexdigest()
-            self.draft_pick = "; ".join(
-                [f"draft {draft['id'][:8]}", pick_note] + tried)
-            return draft, mij, finmo, f"{note}; {self.draft_pick}"
-        self.draft_pick = "; ".join([pick_note] + tried)
-        return last, None, None, (
-            f"no hashable single-line draft among {len(picks)} candidates - "
-            f"{self.draft_pick}")
+        except fx.FrozenLookupMiss as exc:
+            self.draft_source = source
+            return None, None, None, (
+                f"SETUP: FrozenLookupMiss - this build asked a reference "
+                f"table something the fixture never recorded, so the digest "
+                f"could not be a function of committed bytes. Reported, NOT "
+                f"routed around with a live read: {exc}"[:400])
+        finally:
+            restore()
+        if mij is None or finmo is None:
+            # ANCHOR-UNFROZEN / ANCHOR-LEAK / NONDETERMINISTIC. Refused, not
+            # hashed: a digest that is not a pure function of its inputs
+            # would pass for months and then fire a false DRIFT.
+            self.draft_source = source
+            return None, None, None, f"{note}; {source}"
+        rows = ((mij.get("sections") or {}).get("revenue") or []
+                if isinstance(mij, dict) else [])
+        if len(rows) < 3:
+            self.draft_source = source
+            return draft, None, None, (
+                f"only {len(rows)} revenue rows from the frozen input - too "
+                f"thin to pin; a hash over a stub matches itself and proves "
+                f"nothing; {source}")
+        # INPUT IDENTITY, hashed and printed beside the outputs. Recipe
+        # UNCHANGED from the live-query era on purpose: it is what makes
+        # round 8 and round 9 comparable at all, and it is the digest the
+        # fixture's own PROVENANCE records.
+        self.draft_input_sha = hashlib.sha256(json.dumps(
+            {k: draft[k] for k in
+             ("facts", "ops", "people", "fin", "year1", "marketing")},
+            sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")).hexdigest()
+        self.draft_source = source
+        return draft, mij, finmo, f"{note}; {source}"
 
     def multi_line_payload(self):
         """(model_input_json, finmo_json, note) for a TWO-LINE business.

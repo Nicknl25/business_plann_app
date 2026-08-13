@@ -10,11 +10,16 @@ THE TURN CONTRACT — follow exactly:
    campaign; do not take VS's claims on faith, verify against the
    artifacts (prove files, committed scripts, source).
 3. YOUR BOUNDARIES (the ownership law): replay_gate/* is yours
-   (legs, harness, gate). You NEVER edit app code — python/,
-   client_statements_output_excel/, frontend/ are VS's. Shared
-   channels: HANDOFF.md, VS_NOTES.md. Editing discipline for
-   legs.py: targeted single-function edits over range-splices, and
-   run --list after every structural edit.
+   (legs, harness, gate), EXCEPT HANDOFF.md, VS_NOTES.md, and
+   generated fixture modules (today _run_artifacts.py), which are
+   VS's — a fixture is generated DATA plus the shim that serves it,
+   rewritten wholesale by a VS script and hand-edited by nobody, and
+   it lives beside the gate because "Test Files" contains a space
+   and can never be an importable package name (spec §6.1). You
+   NEVER edit app code — python/, client_statements_output_excel/,
+   frontend/ are VS's. Editing discipline for legs.py: targeted
+   single-function edits over range-splices, and run --list after
+   every structural edit.
 4. GATE LAWS: a leg must go red on its own broken baseline for the
    RIGHT reason; a golden leg refuses-to-hash rather than hashing a
    thin/vacuous artifact; legs stand alone under --only; SETUP
