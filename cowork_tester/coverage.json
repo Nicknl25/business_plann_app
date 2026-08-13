@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-07-31T00:20:00Z",
+ "updated": "2026-08-12T11:30:00Z",
  "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible.",
  "business_types": {
   "professional_services": {
@@ -10,7 +10,8 @@
     "consulting"
    ],
    "runs": [
-    "CW-001"
+    "CW-001",
+    "CW-005"
    ]
   },
   "food_service": {
@@ -19,7 +20,9 @@
     "food truck",
     "bakery"
    ],
-   "runs": []
+   "runs": [
+    "CW-004"
+   ]
   },
   "retail": {
    "examples": [
@@ -36,7 +39,21 @@
     "cleaning"
    ],
    "runs": [
-    "CW-002"
+    "CW-002",
+    "CW-006",
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-019",
+    "CW-020",
+    "CW-021",
+    "CW-024",
+    "CW-026"
    ]
   },
   "health_wellness": {
@@ -70,7 +87,76 @@
     "small-batch maker",
     "workshop"
    ],
-   "runs": []
+   "runs": [
+    "CW-004"
+   ]
+  },
+  "wholesale_distribution": {
+   "examples": [
+    "food distribution",
+    "wholesale supply",
+    "building products"
+   ],
+   "runs": [
+    "CW-015",
+    "CW-017"
+   ]
+  },
+  "construction_contracting": {
+   "examples": [
+    "general contractor",
+    "commercial construction",
+    "specialty trades"
+   ],
+   "runs": [
+    "CW-016",
+    "CW-018"
+   ]
+  },
+  "personal_services": {
+   "examples": [
+    "mobile grooming",
+    "cleaning",
+    "personal training"
+   ],
+   "runs": [
+    "CW-022",
+    "CW-023",
+    "CW-025"
+   ]
+  },
+  "appliance_repair_field_service": {
+   "examples": [
+    "mobile appliance repair",
+    "mobile electronics repair",
+    "small-engine repair"
+   ],
+   "runs": [
+    "CW-027"
+   ],
+   "note": "first PARTS-CARRYING service business in the programme - real COGS rather than labor-only"
+  },
+  "professional_services_consulting": {
+   "examples": [
+    "operations consulting",
+    "management consulting",
+    "engineering advisory"
+   ],
+   "runs": [
+    "CW-028"
+   ],
+   "note": "first PEOPLE-BASED professional services firm - labour sits in payroll, COGS near zero"
+  },
+  "retail_service_hybrid": {
+   "examples": [
+    "bike shop",
+    "salon with retail",
+    "garden centre with landscaping"
+   ],
+   "runs": [
+    "CW-029"
+   ],
+   "note": "first TWO-LINE business - a product line with real goods COGS alongside a service line whose labour sits in payroll"
   }
  },
  "friction_conditions": {
@@ -80,7 +166,24 @@
   },
   "ambiguous_basis": {
    "persona": "P2",
-   "runs": []
+   "runs": [
+    "CW-004",
+    "CW-005",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ]
   },
   "defensive_resists_lever": {
    "persona": "P3",
@@ -92,7 +195,9 @@
   },
   "unviable_business_roadmap": {
    "persona": "P5",
-   "runs": []
+   "runs": [
+    "CW-022"
+   ]
   },
   "clean_baseline": {
    "persona": "P6",
@@ -109,13 +214,85 @@
   "terse_minimal_answers": {
    "persona": "P8",
    "runs": []
+  },
+  "realistic_founder_opinionated": {
+   "persona": "ad-hoc",
+   "runs": [
+    "CW-006",
+    "CW-007"
+   ]
+  },
+  "post_pass_correction_unattended": {
+   "persona": "ad-hoc",
+   "runs": [
+    "CW-007"
+   ],
+   "note": "correct then stay silent - tests whether the app completes itself"
+  },
+  "narrative_correction_pushback": {
+   "persona": "ad-hoc",
+   "runs": [
+    "CW-008"
+   ],
+   "note": "reject a proposed qualitative framing and supply a specific replacement"
+  },
+  "cooperative_underpriced_founder": {
+   "persona": "NEW",
+   "runs": [
+    "CW-022",
+    "CW-023",
+    "CW-024",
+    "CW-025",
+    "CW-026"
+   ],
+   "note": "earnest, trusting, non-fighting founder whose price is too low to sustain the business - the most common real-world failure. CW-022 exposed the arc; CW-023 confirmed the CW-022 fixes landed at the chat layer and found the failure had moved one layer down into the plan build."
+  },
+  "accepting_client_takes_proposals": {
+   "persona": "NEW variant",
+   "runs": [
+    "CW-024",
+    "CW-025",
+    "CW-026",
+    "CW-027"
+   ],
+   "note": "cooperative founder who ACCEPTS app-proposed numbers rather than supplying his own - the accept-trap test. CW-024: accepted a 42 percent COGS proposal and a 9 percent marketing proposal, both far off, and could not correct the one figure he knew was wrong."
+  },
+  "healthy_correctly_priced_founder": {
+   "persona": "NEW",
+   "runs": [
+    "CW-028",
+    "CW-029"
+   ],
+   "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
  },
  "structural_conditions": {
   "existing_business_with_history": {
    "runs": [
     "CW-001",
-    "CW-003"
+    "CW-003",
+    "CW-004",
+    "CW-005",
+    "CW-006",
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021",
+    "CW-022",
+    "CW-027",
+    "CW-028",
+    "CW-029"
    ]
   },
   "pre_revenue_startup": {
@@ -124,24 +301,342 @@
    ]
   },
   "seasonal_revenue": {
-   "runs": []
+   "runs": [
+    "CW-006",
+    "CW-010",
+    "CW-011",
+    "CW-015",
+    "CW-018",
+    "CW-019"
+   ]
   },
   "multiple_revenue_streams": {
    "runs": [
     "CW-001",
     "CW-002",
-    "CW-003"
+    "CW-003",
+    "CW-004",
+    "CW-005",
+    "CW-006",
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
    ]
   },
   "lease_heavy_cost_structure": {
-   "runs": []
+   "runs": [
+    "CW-018"
+   ]
   },
   "payroll_heavy_cost_structure": {
    "runs": [
     "CW-001",
     "CW-002",
-    "CW-003"
+    "CW-003",
+    "CW-005",
+    "CW-006",
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021",
+    "CW-024",
+    "CW-025",
+    "CW-026"
    ]
+  },
+  "subscription_recurring_revenue": {
+   "runs": [
+    "CW-004",
+    "CW-007",
+    "CW-008",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ]
+  },
+  "fleet_vehicle_capex": {
+   "runs": [
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ]
+  },
+  "ar_heavy_b2b_receivables": {
+   "runs": [
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014",
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ],
+   "note": "$146k receivable on $1.05m revenue - net-30 on paper, 50-60 days in practice"
+  },
+  "concurrency_limited_per_engagement_product": {
+   "runs": [
+    "CW-009",
+    "CW-010",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-014"
+   ],
+   "note": "capacity expressed as simultaneous slots rather than units per period"
+  },
+  "post_convergence_structural_correction": {
+   "runs": [
+    "CW-011",
+    "CW-012",
+    "CW-013"
+   ],
+   "note": "correct a mis-captured throughput driver AFTER the pass banner, then wait - the F1 HOLD test"
+  },
+  "conflicting_client_figures": {
+   "runs": [
+    "CW-012",
+    "CW-013"
+   ],
+   "note": "client supplies a count, a price and a total that do not multiply out - tests disclose-and-confirm"
+  },
+  "regulated_compliance_moat": {
+   "runs": [
+    "CW-012",
+    "CW-013",
+    "CW-014"
+   ],
+   "note": "capability the competition legally cannot offer (reclaim/runoff capture)"
+  },
+  "fractional_derived_capacity": {
+   "runs": [
+    "CW-013"
+   ],
+   "note": "a correction whose derived capacity per period is fractional (2.5, 3.333) - the blocker retest"
+  },
+  "thin_margin_under_5pct_net": {
+   "runs": [
+    "CW-015"
+   ]
+  },
+  "inventory_carrying_business": {
+   "runs": [
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-029"
+   ]
+  },
+  "mixed_period_cadence_lobs": {
+   "runs": [
+    "CW-015",
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ],
+   "note": "one LOB monthly, another annual - tests period-basis handling per product"
+  },
+  "large_revenue_over_10m": {
+   "runs": [
+    "CW-016",
+    "CW-017",
+    "CW-018"
+   ],
+   "note": "tests whether absolute-value floors and anchors behave at scale"
+  },
+  "zero_valued_field_answer": {
+   "runs": [
+    "CW-016",
+    "CW-017",
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021",
+    "CW-022"
+   ],
+   "note": "client legitimately answers zero to a financial stage question"
+  },
+  "debt_free_balance_sheet": {
+   "runs": [
+    "CW-017",
+    "CW-018",
+    "CW-020",
+    "CW-021"
+   ],
+   "note": "zero debt - exercises the zero path across dependent fields"
+  },
+  "three_revenue_streams": {
+   "runs": [
+    "CW-018",
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ],
+   "note": "three products - stresses per-product isolation of capacity, utilization and cadence"
+  },
+  "high_cogs_over_75pct": {
+   "runs": [
+    "CW-018"
+   ],
+   "note": "direct costs above 75% of revenue - the shape that hit the cohort ceiling veto"
+  },
+  "three_distinct_pricing_units": {
+   "runs": [
+    "CW-019",
+    "CW-020",
+    "CW-021"
+   ],
+   "note": "per-account-per-month, per-project and per-job in one model - stresses positioning rendering"
+  },
+  "low_cogs_labor_in_payroll": {
+   "runs": [
+    "CW-021",
+    "CW-024",
+    "CW-025",
+    "CW-026"
+   ],
+   "note": "materials COGS under 10% with labor carried in payroll - the basis-reconciliation shape"
+  },
+  "single_product_solo_operator": {
+   "runs": [
+    "CW-022"
+   ],
+   "note": "one product, one person - no cross-product surface"
+  },
+  "unviable_at_stated_price": {
+   "runs": [
+    "CW-022",
+    "CW-023",
+    "CW-024",
+    "CW-025",
+    "CW-026"
+   ],
+   "note": "business cannot cover costs at the price the founder set - tests whether the app names price"
+  },
+  "mid_intake_owner_pay_correction": {
+   "runs": [
+    "CW-023"
+   ],
+   "note": "owner pay captured then corrected inside the people section - tests whether the correction propagates to payroll totals and to the plan build. CW-023: it does not."
+  },
+  "price_increase_during_intake": {
+   "runs": [
+    "CW-023"
+   ],
+   "note": "founder raises unit price mid-intake by a material margin - tests whether demand retention is asked about or silently assumed"
+  },
+  "app_proposed_cogs_accepted": {
+   "runs": [
+    "CW-024",
+    "CW-025",
+    "CW-026",
+    "CW-027",
+    "CW-028",
+    "CW-029"
+   ],
+   "note": "client accepts the app's own COGS proposal rather than stating materials - tests the fitted-COGS band and the accept-trap softener"
+  },
+  "duplicate_payroll_capture": {
+   "runs": [
+    "CW-024",
+    "CW-025",
+    "CW-026"
+   ],
+   "note": "client states a crew total twice (once listing people, once at the rest-of-team question) - tests reconcile-vs-add"
+  },
+  "payroll_share_wall_reached": {
+   "runs": [
+    "CW-025",
+    "CW-026",
+    "CW-027"
+   ],
+   "note": "team costs above the labor-intensive financing ceiling (70 percent) - tests whether the app cuts staff pay, and how it delivers the news. CW-025: it refused to cut pay, unprompted, and framed a distance to close."
+  },
+  "correction_issued_at_the_wall": {
+   "runs": [
+    "CW-026"
+   ],
+   "note": "the designed core test: correct a captured figure AFTER the coherence gate has raised a wall. CW-026: lands in the moment with a receipt and a fresh verdict, reverts one turn later."
+  },
+  "parts_carrying_service_real_cogs": {
+   "runs": [
+    "CW-027"
+   ],
+   "note": "a service business whose COGS is genuine parts (32 percent), not supplies - tests whether the fitted band differentiates by business type"
+  },
+  "fixed_cost_burden_wall_reached": {
+   "runs": [
+    "CW-027"
+   ],
+   "note": "fixed running costs above the burden ceiling (70.1 vs 50 percent) rather than a payroll-share wall - routes to pricing rather than to a draw lever"
+  },
+  "revenue_vs_capacity_reconciliation_fired": {
+   "runs": [
+    "CW-028"
+   ],
+   "note": "stated revenue exceeds what stored drivers can produce - tests whether the check uses the client's number and whether the answer is consumed"
+  },
+  "zero_inventory_services_firm": {
+   "runs": [
+    "CW-028"
+   ],
+   "note": "a firm that genuinely holds nothing"
+  },
+  "two_revenue_lines_different_cogs": {
+   "runs": [
+    "CW-029"
+   ],
+   "note": "product line ~58 percent goods COGS alongside a service line ~14 percent parts - tests whether one business can carry two cost structures"
+  },
+  "capacity_corrected_then_verified_to_the_build": {
+   "runs": [
+    "CW-029"
+   ],
+   "note": "capacity stated 40, corrected to 50 mid-flow, then traced through convergence, submit and into the workbook"
   }
  },
  "verdict_classes_reached": {
@@ -197,12 +692,508 @@
     "gross_vs_net_basis",
     "full_submit"
    ]
+  },
+  "CW-004": {
+   "persona": "P2",
+   "business": "Bridgeburn Coffee Roasters",
+   "type": "food_service/manufacturing",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established",
+    "two_revenue_streams",
+    "b2b_b2c_mix",
+    "inventory_and_ap",
+    "equipment_debt",
+    "full_submit"
+   ],
+   "caveat": "plan data carries 2 uncorrected basis errors (wholesale weekly, marketing annual)"
+  },
+  "CW-005": {
+   "persona": "P2",
+   "business": "Brightwater Employment Law",
+   "type": "professional_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b_b2c_mix",
+    "hourly_plus_recurring",
+    "debt_free",
+    "full_submit"
+   ],
+   "note": "stored model verified correct after in-run correction; only pass banner stale"
+  },
+  "CW-006": {
+   "persona": "realistic_founder_hvac",
+   "business": "Ironwood Air Conditioning & Heating",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "seasonal_revenue",
+    "established_profitable",
+    "three_products",
+    "b2c",
+    "inventory_prebuy",
+    "equipment_debt",
+    "post_convergence_correction",
+    "full_submit"
+   ],
+   "note": "primary probes: post-convergence panel FROZEN (data updated); submit banner+ref code rendered but no planning run started"
+  },
+  "CW-007": {
+   "persona": "realistic_founder_cleaning",
+   "business": "Bluebird Home Cleaning Co.",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "realistic_founder_opinionated",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2c",
+    "subscription_recurring_revenue",
+    "vehicle_debt",
+    "post_pass_correction_unattended",
+    "full_submit"
+   ],
+   "note": "PRIMARY: self-close-after-correction CONFIRMED FIXED (no nudge); submit blocker #27 RESOLVED (planning run actually running). Pass banner still frozen (x3). New major: marketing_percent_of_revenue 12x too small."
+  },
+  "CW-008": {
+   "persona": "P2",
+   "business": "Roving Paws Mobile Grooming",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2c",
+    "subscription_recurring_revenue",
+    "fleet_vehicle_capex",
+    "narrative_correction_pushback",
+    "post_pass_correction_unattended",
+    "full_submit"
+   ],
+   "note": "PRIMARY: pass banner stale defect RESOLVED - banner recomputed, revenue change narrated ($654,722), numbers verified consistent. Converged on first pass, no coherence walk. New majors: bare-number check skipped at marketing; correction verbally confirmed but not persisted."
+  },
+  "CW-009": {
+   "persona": "P2",
+   "business": "Ironclad Facility Services",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "concurrency_limited_per_engagement_product",
+    "fleet_vehicle_capex",
+    "post_pass_correction_unattended",
+    "full_submit"
+   ],
+   "note": "CHECKPOINT (a) FAIL - clarifier still absent at marketing. CHECKPOINT (b) PASS - ack matched backend. Four new majors incl. an 87% direct-cost anchor and a stale scaling factor that inflated revenue 16% after the founder corrected a modelling error."
+  },
+  "CW-010": {
+   "persona": "P2",
+   "business": "Harpeth Green Grounds Co.",
+   "type": "trades_field_services",
+   "outcome": "INCOMPLETE - blocked at convergence",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "seasonal_revenue",
+    "ar_heavy_b2b_receivables",
+    "concurrency_limited_per_engagement_product",
+    "fleet_vehicle_capex",
+    "vague_then_corrected_differentiator"
+   ],
+   "note": "Judgment engine unreachable at the final financials step - no convergence, no submit. Probe 4 (marketing clarifier) FAILED and is now shown non-deterministic. Probe 1 (structural correction) never ran; its setup is preserved in the draft. Mojibake and currency-formatter defects retested CLEAN."
+  },
+  "CW-011": {
+   "persona": "P2",
+   "business": "Harpeth Green Grounds Co.",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "seasonal_revenue",
+    "ar_heavy_b2b_receivables",
+    "concurrency_limited_per_engagement_product",
+    "post_convergence_structural_correction",
+    "full_submit"
+   ],
+   "note": "THE RE-RUN. F1 HOLD PASS - revenue held at $1,060,000 (bug would have given $1,295,810). F1 PROPAGATE full PASS - revenue moved to $1,121,348 with 'I have carried that through'. Marketing clarifier PASS (first in four). Judgment engine PASS. New majors: the structural-correction ack omits any reconciliation, and the correction over-applied utilization by 26%."
+  },
+  "CW-012": {
+   "persona": "P2",
+   "business": "Riverbend Exterior Services",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "conflicting_client_figures",
+    "regulated_compliance_moat",
+    "concurrency_limited_per_engagement_product",
+    "post_convergence_structural_correction",
+    "full_submit"
+   ],
+   "note": "BLOCKER FOUND: operating-model parameter corrections acknowledged in full detail and never written - 4 attempts, 0 writes, submitted wrong. Probe A1 narrated stream dollars (good) but moved an unnamed lever and asked a question it should not have. Probe A2 disclosed with arithmetic (good) but against a baseline that dropped one of the client's figures. Probe B PASSED first try. Annual-price-as-monthly recurred for the first time since CW-006 (12x)."
+  },
+  "CW-013": {
+   "persona": "P2",
+   "business": "Stonewater Exterior Group",
+   "type": "trades_field_services",
+   "outcome": "converged_submitted then planning run FAILED",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "fractional_derived_capacity",
+    "conflicting_client_figures",
+    "regulated_compliance_moat",
+    "post_convergence_structural_correction",
+    "full_submit"
+   ],
+   "note": "BLOCKER FIXED: fractional capacity 2.5 stores as 2.5, first attempt. Probe 1 full pass (one lever, dollars, no question). SIX clean retests. But TWO new blockers: the planning run failed at validation on a G&A percent_of_revenue outside [0,1], and marketing was silently rewritten $12,000 -> $13,700 by band-fitting then attributed to the client."
+  },
+  "CW-014": {
+   "persona": "P2",
+   "business": "Bluff City Facility Services",
+   "type": "trades_field_services",
+   "outcome": "INCOMPLETE - blocked at convergence",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "regulated_compliance_moat",
+    "ar_heavy_b2b_receivables"
+   ],
+   "note": "Judgment engine recurred (was resolved) - 4 attempts over 7 min, no self-recovery, three probes unrunnable. Band-fitting now fires at ENTRY: 'about twelve' recorded as $15,800 at exactly 2% of revenue, clarifier bypassed. 87% janitorial direct-cost anchor reproduced EXACTLY - deterministic. New: annual-to-monthly restatement divides by 10 not 12."
+  },
+  "CW-015": {
+   "persona": "P2",
+   "business": "Delta Provision Co.",
+   "type": "wholesale_distribution",
+   "outcome": "COMPLETE - converged, submitted, plan run finished clean",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "regulated_compliance_moat",
+    "ar_heavy_b2b_receivables",
+    "thin_margin_under_5pct_net",
+    "inventory_carrying_business",
+    "mixed_period_cadence_lobs"
+   ],
+   "note": "First distribution vertical and first thin-margin business. Band judged correctly (3-7% EBITDA, thin-margin B2B distribution named explicitly); built plan landed 5.8% EBITDA / 2.6% net. Client-stated revenue held exactly end to end (6,480,000 in intake, in financials_year1, and as q1 run-rate). Marketing bare-number bug fired again - 'about twelve' stored as 12% = $777,600. New structural finding: an LOB the client and the app both agreed was ANNUAL was stored at 52 periods/year, and the client's correction of it was consumed as the answer to the next question (direct costs = $0). Both only fixed by an explicit post-pass correction, which then propagated cleanly. Judgment-engine hold gone."
+  },
+  "CW-016": {
+   "persona": "P2",
+   "business": "Ironbridge Commercial Construction",
+   "type": "construction_contracting",
+   "outcome": "SUBMITTED but PLAN RUN FAILED (capital lease validation)",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "large_revenue_over_10m",
+    "zero_valued_field_answer"
+   ],
+   "note": "First construction vertical and first $11M business. All three CW-015 headline fixes hold: the marketing clarifier now asks with both readings, an agreed annual cadence stores as annual, and a correction sent mid-stage is routed as a correction rather than eaten. New blocker chain instead: a financial stage cannot persist ZERO, so it re-asked seven times; the $1 placeholder used to escape then failed capital-lease validation and killed the plan run; the page still says the plan is being built. Also: stated revenue was silently rescaled to a number never said when a price correction landed, and narrated back as the client's."
+  },
+  "CW-017": {
+   "persona": "P2",
+   "business": "Vanguard Electrical & Industrial Supply",
+   "type": "wholesale_distribution",
+   "outcome": "SUBMITTED but PLAN RUN FAILED (planner ramp above its own band)",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "two_revenue_streams",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "large_revenue_over_10m",
+    "inventory_carrying_business",
+    "zero_valued_field_answer",
+    "debt_free_balance_sheet"
+   ],
+   "note": "CW-016 package verified: zeros land first try (two phrasings, no repeats, dependent debt fields correctly skipped), the marketing clarifier asks with both readings and nothing lands first, and stated revenue held exactly through a two-driver reconciling correction. Two new problems: a derived figure from product one was written into product two as its capacity and then back-rationalised to the client, and corrections to operations drivers are refused during the financials stage with the client told a human must edit an underlying model he cannot reach. Plan run then failed at round one because the planner generated a cost ramp 0.4-1.4pp above its own band ceiling and fail-fast killed it - second consecutive run to submit cleanly and produce no plan."
+  },
+  "CW-018": {
+   "persona": "P2",
+   "business": "Falls City Mechanical",
+   "type": "construction_contracting",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT TO WORKBOOK",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "three_revenue_streams",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "large_revenue_over_10m",
+    "high_cogs_over_75pct",
+    "lease_heavy_cost_structure",
+    "zero_valued_field_answer",
+    "debt_free_balance_sheet"
+   ],
+   "note": "First completed plan run since CW-015 and the first end-to-end arc in four runs. Both recent blockers exercised deliberately and both held: 78% direct costs built without a ceiling veto, and a real two-part lease with stated terms finalized clean. Zeros cascade to three dependent debt fields; marketing clarifier clean; revenue held exactly through a two-driver reconcile; band did not re-roll. Remaining: a product-one capacity still leaked into product three (cleared on first request, no back-rationalisation), and cross-section corrections still cannot be written during financials though the 'ask a human' language is gone. Positioning splice did not fire - first clean run in 17."
+  },
+  "CW-019": {
+   "persona": "P2",
+   "business": "Catawba Grounds Co.",
+   "type": "trades_field_services",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT TO WORKBOOK",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "three_revenue_streams",
+    "three_distinct_pricing_units",
+    "b2b",
+    "seasonal_revenue",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "zero_valued_field_answer"
+   ],
+   "note": "Pass-1 confirmation: marked-price conversion FIXED ($14,400/yr on a monthly product stored as $1,200/mo), promise wording FIXED (above-ceiling stress figure disclosed as above the range, ceiling named honestly), reference code FIXED (first clean code in 12 submissions). The splice did NOT hold - with three distinct pricing units it produced its worst rendering in 17 occurrences: snake_case slugs printed as English, two prices welded into a range across three unit labels, the third price omitted. New defect: a price correction overwrote capacity with the utilized volume, applying utilization twice, and rewrote stated revenue downward at the same time. Second consecutive plan build to a workbook."
+  },
+  "CW-020": {
+   "persona": "P2",
+   "business": "Oak City Facility Partners",
+   "type": "trades_field_services",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT TO WORKBOOK",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "three_revenue_streams",
+    "three_distinct_pricing_units",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "zero_valued_field_answer",
+    "debt_free_balance_sheet",
+    "payroll_heavy_cost_structure"
+   ],
+   "note": "CAPACITY CROSS-CHECK CONFIRMED on both halves, first attempt: a triplet stated the way an owner speaks it ('capacity about 1,400, we do around 1,120 at 80%, at $1,450 each') landed capacity on 1,400 not 1,120, and stated revenue held at 7,294,000 with no rewrite. Model totalled the stated revenue exactly. Clean sweep on client financials - not one figure moved across convergence, a correction and a full build. Third consecutive plan build to a workbook, this time labor-heavy (payroll 2.76m on 7.29m). New finding: the believable band re-rolled from 7-14% to 8-16% on an unrelated price correction while the stress figure stayed identical - behaviour last seen in CW-017."
+  },
+  "CW-021": {
+   "persona": "P2",
+   "business": "Peachtree Post Security Group",
+   "type": "trades_field_services",
+   "outcome": "SUBMITTED but PLAN RUN FAILED (planner ramp 9pp above its own band)",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "ambiguous_basis",
+    "established_profitable",
+    "three_revenue_streams",
+    "three_distinct_pricing_units",
+    "b2b",
+    "ar_heavy_b2b_receivables",
+    "mixed_period_cadence_lobs",
+    "zero_valued_field_answer",
+    "debt_free_balance_sheet",
+    "payroll_heavy_cost_structure",
+    "low_cogs_labor_in_payroll"
+   ],
+   "note": "Pass-2: pricing summary FIXED (clean pairing, first clean render in 18 occurrences, no correction needed), OEWS seniority by narrative FIXED (senior director $133,750 vs junior dispatcher $39,440), band roll-in FIXED (identical 6-12% range and stress figure across a price correction). Labor-heavy basis accepted at INTAKE without a fight (7% materials against 65% payroll). Then the PLANNER failed on that same shape: proposed cogs_max 0.20 against band_max 0.1098, ~9pp overshoot on every quarter from the second, fail-fast with no clamp or retry. That is the CW-017 blocker back from resolved, an order of magnitude worse. Also: the product-capacity leak recurred and degraded into a 119.999984 floating-point residue."
+  },
+  "CW-022": {
+   "persona": "NEW Cooperative Underpriced Founder",
+   "business": "Fetch & Fluff Mobile Grooming",
+   "type": "personal_services",
+   "outcome": "SUBMITTED + PLAN BUILT - but only after the founder diagnosed the failure herself and repaired a corrupted record",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "cooperative_underpriced_founder",
+    "unviable_at_stated_price",
+    "single_product_solo_operator",
+    "existing_business_with_history",
+    "zero_valued_field_answer",
+    "b2c"
+   ],
+   "note": "FIRST UNVIABLE-BUSINESS RUN IN 22. At $45/groom the business is -$2,280/yr before principal and -$12,680 after; the app declared it 'clears every structural test' by stress-testing quarterly revenue of $24,098 (~$96k/yr) - double the stated $49k and above the physical capacity ceiling at that price. It NEVER named price on its own and its positioning statement praised the flat $45 as a brand asset. The founder computed the shortfall herself and challenged it; the app's diagnosis was then excellent and honest, named price first among four levers, and produced legitimate market numbers ($80, then $112 against a real range topping $144) with no fantasy volume. But its first remedy ($60) contradicted its own $82-87k cost load; and a three-instruction message corrupted the record - monthly pay written into annual revenue, capacity written as 2 - triggering a doom panel and proposals to cut the founder's insurance and fuel line. Recovered only via explicit single-field repair. Landed viable at $112 with a clean workbook."
+  },
+  "CW-023": {
+   "persona": "Cooperative Underpriced Founder (2nd pass)",
+   "business": "Sparrow Home Cleaning",
+   "type": "personal_services",
+   "outcome": "CONVERGED + SUBMITTED + PLAN BUILT clean in 3m37s, 0 detected issues - but built on a stale payroll total",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "cooperative_underpriced_founder",
+    "unviable_at_stated_price",
+    "single_product_solo_operator",
+    "existing_business_with_history",
+    "payroll_heavy_cost_structure",
+    "low_cogs_labor_in_payroll",
+    "mid_intake_owner_pay_correction",
+    "price_increase_during_intake",
+    "b2c"
+   ],
+   "note": "Every CW-022 headline failure is fixed: it named the shortfall honestly at today's scale, refused to cut liability/bond/workers-comp/mileage, offered a realistic $100-110 price with no fantasy volume, and asked a clarifying question instead of guessing on a mixed instruction. Owner pay was asked once, in the people section only. Plan margins sat inside the planner's own band at q11 (0.1411 in [0.10,0.20]) and q20 (0.1521 in [0.13,0.23]). The new failure is deeper: the owner-pay correction to $50,400 updated people_json and the chat layer's arithmetic but never recomputed year1_payroll_amount, so current_payroll stayed at the stale 123,000 and the plan build seeded from it. _coherence.eval judged the run at 35,850/qtr payroll while the delivered plan uses 30,750 - converged on one number, built on another, year-1 net income overstated by 20,400. Also: an explicit offer to model post-price-rise churn was abandoned after the founder supplied the number, and the built plan assumes a 29% price rise costs zero demand."
+  },
+  "CW-024": {
+   "persona": "Cooperative ACCEPTING underpriced founder (labor-heavy)",
+   "business": "Cedar Ridge Grounds Care",
+   "type": "trades_field_services",
+   "outcome": "BLOCKED - never converged, never submitted, no plan built. Stopped by operator inside an unterminable remediation loop.",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "cooperative_underpriced_founder",
+    "accepting_client_takes_proposals",
+    "unviable_at_stated_price",
+    "payroll_heavy_cost_structure",
+    "low_cogs_labor_in_payroll",
+    "app_proposed_cogs_accepted",
+    "duplicate_payroll_capture",
+    "existing_business_with_history",
+    "b2b"
+   ],
+   "note": "The fitted-COGS confirmation run, deliberately on 561730 landscaping rather than the 561720 janitorial case the commit reports as proven. It did not generalise: 42 percent proposed against about 6 percent of real materials, no range spoken, no reconciliation, and cogs_basis stamped dollars in violation of Ruling 3. Worse, the crew was counted twice at the rest-of-team question, putting payroll at 361,000 against a true 225,000, and seven corrections in five phrasings never moved it - one of them was consumed as the pending capex answer and stored as $0. With roughly 230,000 of phantom cost in a 265,000 business the remediation could not close, so the price band ratcheted 910 -> 1183 -> 1597 as the client accepted each ceiling. The demand judge is a real pass, no option cut staff pay, and the honest read never faltered - it was honest about numbers that were wrong."
+  },
+  "CW-025": {
+   "persona": "Cooperative ACCEPTING underpriced founder (janitorial)",
+   "business": "Brightline Office Care",
+   "type": "personal_services",
+   "outcome": "BLOCKED - never converged, never submitted, no plan built. Stopped after the app repeated a byte-identical wall message and disabled every control.",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "cooperative_underpriced_founder",
+    "accepting_client_takes_proposals",
+    "unviable_at_stated_price",
+    "payroll_heavy_cost_structure",
+    "low_cogs_labor_in_payroll",
+    "app_proposed_cogs_accepted",
+    "duplicate_payroll_capture",
+    "payroll_share_wall_reached",
+    "existing_business_with_history",
+    "b2b"
+   ],
+   "note": "The CW-024 confirmation run, deliberately on 561720 janitorial - the NAICS the fitted-COGS commit reports as proven. The fit LANDS here: 7-11 percent band, 9 percent anchor, labor exclusion named, correction invited, against a true 6 percent. CW-024's 561730 landscaping got 42 percent flat. So the fit is fixture-shaped, not broken. Also fixed: the marketing mismatch signal now converts into a correction, the crew person-row synthesis is gone, and the hard-news posture is the best the programme has seen - it refuses to cut staff pay unprompted and gives a concrete distance to close with the team intact. What did not move is the listening layer: a named cleaner is still double-counted inside the crew total a founder naturally gives (201,000 vs 166,000, and the wall then showed 95 percent where truth is 78), four payroll corrections all failed including the one the wall explicitly invited, and the run ended with the app emitting the same message byte-for-byte to two different inputs and disabling Send and Submit. P7 price ratchet untested - never reached a price lever."
+  },
+  "CW-026": {
+   "persona": "Cooperative ACCEPTING underpriced founder (landscaping)",
+   "business": "Sumac Ridge Grounds",
+   "type": "trades_field_services",
+   "outcome": "BLOCKED - no convergence, no submit, no build. Stopped when the price lever the wall names proved unwritable from the wall state.",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "cooperative_underpriced_founder",
+    "accepting_client_takes_proposals",
+    "unviable_at_stated_price",
+    "payroll_heavy_cost_structure",
+    "low_cogs_labor_in_payroll",
+    "app_proposed_cogs_accepted",
+    "duplicate_payroll_capture",
+    "payroll_share_wall_reached",
+    "correction_issued_at_the_wall",
+    "existing_business_with_history",
+    "b2b"
+   ],
+   "note": "The correction-at-the-wall confirmation. It PASSES in the moment and FAILS on durability. The three CW-025 rank-1 symptoms are gone: the wall did not repeat verbatim (checked programmatically), a receipt shipped first, the unplaced remainder was disclosed, and nothing froze - Send is only disabled on empty input, which also corrects my CW-025 'trapped' claim. current_payroll moved to the client's exact 133,000 and the wall re-issued fresh at 76 percent. One neutral turn later it was back at 141,999.96 with the 81 percent wording, reproduced twice. The rank-2 inclusion tripwire also detects the named-person-inside-a-crew-total shape and asks before writing - then stores 37,000 instead of the 62,000 it proposed. Fitted COGS now bands 561730 (12-18, anchor 15), closing the CW-024 gap. New underneath: an OEWS benchmark owner row co-existing with the client's own, which makes the wall diagnose the wrong cause and offer a draw ceiling that is actually the whole-team payroll ceiling."
+  },
+  "CW-027": {
+   "persona": "Cooperative ACCEPTING founder, underprices a bit (appliance repair)",
+   "business": "Wren Hollow Appliance Repair",
+   "type": "appliance_repair_field_service",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT TO WORKBOOK in 7m16s, 0 resolved issues, accounting OK on all 21 quarters",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "accepting_client_takes_proposals",
+    "existing_business_with_history",
+    "parts_carrying_service_real_cogs",
+    "app_proposed_cogs_accepted",
+    "fixed_cost_burden_wall_reached",
+    "b2c_with_b2b_mix"
+   ],
+   "note": "FIRST COMPLETED BUILD IN EIGHT RUNS, and the first time contract section 6 has ever been exercised: all ten client-captured fields match the workbook exactly. Owner pay stayed one row (ruling #1), the inclusion tripwire both detected the shape and wrote the right number (the CW-026 write bug is fixed), no draw was offered where a draw could not fix it (ruling #2 substance), nothing froze or repeated, and the price ceiling did not ratchet on acceptance - A-088 not reproduced. Fitted COGS gave appliance repair 16-22 percent against cleaning's 7-11 and landscaping's 12-18, which is real differentiation. The blocker: 'Nowhere near 28,000', said while REJECTING the marketing proposal, was captured as a direct-costs value and overwrote the client-stated 99,840. Also: the 90 percent retention it asked for and confirmed was never applied, and the built q11 margin of 18.99 percent exceeds the 18.0 percent ceiling the completion copy had just promised to temper back to."
+  },
+  "CW-028": {
+   "persona": "Healthy correctly-priced founder (B2B consulting)",
+   "business": "Fernhill Advisory",
+   "type": "professional_services_consulting",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT, accounting OK on all 21 quarters - but only via the app's alternative escape after four failed capacity corrections",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "healthy_correctly_priced_founder",
+    "professional_services_consulting",
+    "existing_business_with_history",
+    "app_proposed_cogs_accepted",
+    "revenue_vs_capacity_reconciliation_fired",
+    "zero_inventory_services_firm",
+    "b2b"
+   ],
+   "note": "FIRST HEALTHY BUSINESS AND FIRST PASSING PATH. A good business is allowed to simply pass - no manufactured wall - and the good news is delivered without overselling, naming its own honest ceiling and a today's-scale figure. Section 6 field check 10/10 for a second consecutive build, and the band promise held (q11 0.2765 against a 0.32 ceiling). Fitted COGS gave consulting 0-3 percent, a fourth correctly-ordered vertical. Rejection-capture, owner-one-row, owner-not-a-third-party and word-numbers all passed. THE NEAR-LOSS: 'invoices go out net 45' overwrote a confirmed capacity of 80 four stages later, and the reconciliation loop that fired could not be exited on capacity - four attempts, receipts claiming 80 then payroll then 20, stored value never moving. The run escaped only by correcting revenue down to match the corrupt capacity, so the shipped plan is coherent but built on 45 days rather than 80."
+  },
+  "CW-029": {
+   "persona": "Healthy correctly-priced owner (bike shop, two lines)",
+   "business": "Thistledown Cycle and Service",
+   "type": "retail_service_hybrid",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT, accounting OK on all 21 quarters, no wall and no lever needed",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "healthy_correctly_priced_founder",
+    "retail_service_hybrid",
+    "two_revenue_lines_different_cogs",
+    "capacity_corrected_then_verified_to_the_build",
+    "existing_business_with_history",
+    "inventory_carrying_business",
+    "b2c"
+   ],
+   "note": "THE CLEANEST RUN OF THE CAMPAIGN, and both foundations confirmed live on a fresh shape. The capacity correction (40 -> 50 repairs a week) landed first time, held across nine subsequent turns and four checkpoints, survived submit and reached the WORKBOOK at 650.05 per quarter - 50 x 13. The Fernhill capitulation class is fixed. The goal anchor fired and stored the client's own objective as a structured milestone with timing: 'Have the Williamson shop running smoothly with minimal owner involvement in daily bench work to enable scouting a second storefront', within 12 months. A healthy business passed clean, section 6 came in 10/10 for a third consecutive build, and the band promise held. No freeze, no loop, no sibling leak despite two messages carrying four figures each. ONE REAL FINDING: the app proposed the two-product split itself, then gave the whole business a single blended COGS and did not answer a direct question about holding the lines separately - filed as a design gap for a ruling, since the contract documents one cogs stage."
   }
  },
  "verdict_classes": {
   "converged": {
    "runs": [
-    "CW-003"
+    "CW-003",
+    "CW-004",
+    "CW-005",
+    "CW-006",
+    "CW-007",
+    "CW-008",
+    "CW-009",
+    "CW-011",
+    "CW-012",
+    "CW-013",
+    "CW-023",
+    "CW-027",
+    "CW-028",
+    "CW-029"
    ]
   },
   "parked": {
@@ -214,6 +1205,22 @@
   },
   "roadmap": {
    "runs": []
+  },
+  "blocked": {
+   "runs": [
+    "CW-010",
+    "CW-014",
+    "CW-024",
+    "CW-025",
+    "CW-026"
+   ],
+   "note": "run could not reach a verdict"
+  },
+  "plan_run_failed": {
+   "runs": [
+    "CW-013"
+   ],
+   "note": "converged and submitted but the planning run died"
   }
  }
 }

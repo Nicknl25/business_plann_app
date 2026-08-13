@@ -1,35 +1,69 @@
 {
- "version": 1,
- "updated": "2026-07-31T00:20:00Z",
- "notes": "CW-003 (P6 Copperline interior design, Charlotte) CONVERGED and SUBMITTED - first full end-to-end completion. Verdict correct; procurement gross-vs-net basis handled well; resolved clarifier blocker exercised clean. Persistent template-layer issues all recurred a 3rd time (invented competitive advantage, implausible wage defaults, firmographic re-ask loops). New minors: firm-size 3x loop, pass-banner corner-test framing.",
+ "version": 16,
+ "updated": "2026-08-12T11:30:00Z",
+ "notes": "CW-029 (Thistledown Cycle and Service, Madison - a healthy bike shop selling bikes and doing repairs) is the cleanest run the campaign has produced, and it confirms both foundations live on a shape neither was built against.\n\nThe engine holds. Service capacity was stated at 40 repairs a week, then corrected mid-flow to 50. It landed first time, the acknowledgement named the reason back, and the pending question was answered in the same turn. I then checked it at four separate points - after target market, after human resources, after the balance block, and at submit - and it held every time. It reached the workbook as a capacity of 650.05 per quarter, which is 50 times 13 weeks; the original 40 would have been 520. No stale value returned and there was no capitulation. That is the Fernhill class closed.\n\nThe goal anchor fires, and it is structured rather than decorative. The stated goal - open a second location on the east side, with the twelve-month step being to get the Williamson shop running without the owner on the bench - came back in operating_model_json as a milestone object: 'Have the Williamson shop running smoothly with minimal owner involvement in daily bench work to enable scouting a second storefront', timed within 12 months. The client's own framing, with timing attached, and correctly the twelve-month step rather than the two-year headline because that is what was asked.\n\nA healthy business passed clean for the second consecutive run, section 6 came in 10/10 for a third consecutive build, the band promise held, and nothing froze, looped or leaked - including on two messages that each carried four separate figures, which is exactly the shape that produced the CW-028 'net 45' capture.\n\nOne real finding, and it is structural rather than broken. The app proposed the two-product split itself - an average bike sale and an average repair - and modelled both with independent price, capacity and utilization. Then it gave the whole business a single blended COGS band, and when the client asked in plain words whether the two could be held separately, it did not answer. The contract documents one cogs stage writing one cogs_percent_of_revenue, so this looks like intended design and is filed for a ruling rather than as a defect. It matters because the built plan applies 44.4 percent to both lines when the true rates are about 58 on bikes and 14 on repairs, and every product-plus-service business has this shape.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "A-006",
-   "persona": "P6",
-   "business": "retest a Bluestem-shaped business (thin-margin, pre-launch)",
-   "why": "CW-003 proves the walk CAN pass a comfortably profitable firm. The open question from CW-002 is the thin-margin/pre-launch shape: gap asserted while its own panel showed a pass, and the options loop (#9, recurring) ignored corrections. Retest that shape after the next fix lands.",
+   "id": "A-108",
+   "persona": "any",
+   "business": "any business with both a product line and a service line",
+   "why": "DESIGN RULING NEEDED, and it is the only substantive finding left. The app is already good enough to propose the two-product split unprompted and model each line's price, capacity and utilization independently - then it collapses cost to one blended COGS for the whole business. On this shop that means 44.4 percent applied to both lines when bikes really run about 58 and repairs about 14, so any shift in mix across the ramp moves margin the wrong way. Two decisions: whether per-line COGS is worth carrying in the model, and - regardless of that answer - that a client asking 'can you hold them separately?' should get a reply. Right now the question is silently skipped, which is the part that is filable on its own terms. Bike shops, salons, garden centres, repair-plus-retail of every kind land here.",
    "retests": [
-    "flow:coherence:options_not_recomputed_after_user_correction",
-    "verdict:bluestem_grounds:converged-vs-parked",
-    "flow:coherence:gap_contradicts_displayed_margin_floor"
+    "flow:financials:two_line_business_gets_one_blended_cogs_and_the_question_goes_unanswered"
    ]
   },
   {
    "rank": 2,
-   "id": "A-002",
-   "persona": "P2",
-   "business": "bakery with a wholesale side",
-   "why": "Basis Mixer remains the highest-value untested friction trait; CW-003 showed the app handles an honest gross-vs-net split well - P2 tests whether it catches a DISHONEST/confused one.",
-   "retests": []
+   "id": "A-106",
+   "persona": "any",
+   "business": "any business that takes a price or rate lever and then builds",
+   "why": "PROBE STILL NEVER REACHED, and now the last one outstanding. Retention-applied has not been exercised end to end in three attempts: CW-027 asked and did not apply the answer, CW-028 was never asked because the business passed, and CW-029 was never asked for the same reason. It needs a business priced below its market that clears its wall on a price lever and reaches a build - the CW-027 shape but carried all the way through. Worth designing a run specifically around it rather than hoping it turns up.",
+   "retests": [
+    "verdict:plan_build:stated_retention_acknowledged_then_not_applied"
+   ]
   },
   {
    "rank": 3,
-   "id": "A-003",
-   "persona": "P5",
-   "business": "board-game cafe (genuinely unviable)",
-   "why": "Roadmap path still unexercised; now that a pass (CW-003) and false-fails (CW-001/002) are on record, a true-fail calibrates the walk from the other side.",
+   "id": "A-103",
+   "persona": "any",
+   "business": "any with a completed build",
+   "why": "CARRIED FORWARD, and the cheapest thing on the board. Section 6's field check has now passed 10/10 on three consecutive builds, so that limb is thoroughly evidenced. The other two have never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Three clean built drafts now exist to test against - Wren Hollow, Fernhill and Thistledown - so this needs no new intake at all.",
    "retests": []
+  },
+  {
+   "rank": 4,
+   "id": "A-079",
+   "persona": "any",
+   "business": "any business that cannot cover its costs at its stated price",
+   "why": "CARRIED FORWARD, untested for seven runs. Two healthy businesses have now passed cleanly and honestly, which is real counter-evidence on the honesty half - given a good business the app passes it and then argues its own pass figure down to a named ceiling. What has still never been exercised is an underpriced business that reaches a verdict without correcting itself first. Pair it with A-106 and one run could settle both.",
+   "retests": [
+    "verdict:convergence:unviable_business_passes_on_volume_above_stated_capacity"
+   ]
+  },
+  {
+   "rank": 5,
+   "id": "A-109",
+   "persona": "any",
+   "business": "any",
+   "why": "MINOR COPY, one occurrence. The state note declared cogs percent of revenue unrecorded in the same sentence that quoted it as 44 percent of revenue. This is the inverse of the note item retracted after the contract review - that one correctly flagged a later-stage field, this one denies a value it has just used. Harmless to the data; it reads as the tool losing track at the moment it is being most precise.",
+   "retests": [
+    "experience:financials:state_note_claims_a_field_is_unrecorded_in_the_turn_that_records_it"
+   ]
+  }
+ ],
+ "closed_this_cycle": [
+  {
+   "id": "A-104",
+   "reason": "Not reproduced. No reconciliation loop fired at all, and every correction in the run landed first time with a truthful receipt. The capacity correction specifically landed, stuck across nine turns and reached the workbook."
+  },
+  {
+   "id": "A-105",
+   "reason": "Not reproduced. Two messages each carrying four separate figures - the balance block and the debt block - landed every figure on its own field with nothing leaking to capacity. The CW-028 'net 45' class did not fire."
+  },
+  {
+   "id": "A-107",
+   "reason": "Not reproduced as a blocker to flow. Inventory was answered with a bare 0 this run so the natural-language-zero path was not re-exercised; leaving it closed rather than carrying it as unverified, and it will resurface on the next services intake if still live."
   }
  ]
 }

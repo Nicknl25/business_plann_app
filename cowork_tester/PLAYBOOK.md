@@ -117,3 +117,71 @@ issue is friction-dependent; then re-create the original friction.
    validation without polluting the registry.
 4. GET open issues; reconcile with runlog/coverage; refresh agenda.
 5. Report status to operator in a few lines; await command or `run yours`.
+
+---
+
+# FLOW CONTRACT — my written model (added 2026-08-11)
+
+CANONICAL SOURCE: `docs/INTAKE_FLOW_CONTRACT.md` in the app repo. Read it at the
+start of every session. This section is NOT a copy — it is only the rules I test
+against, so it cannot drift into a competing spec. If it disagrees with the file,
+the file wins. If the FILE disagrees with observed code, that is doc drift and I
+file it as such.
+
+## The pre-filing gate — run this before every issue
+
+1. Is the field a LATER STAGE than the one active? -> not a bug. Don't file.
+2. Is it a PROPOSAL (stages 1-4: revenue, cogs, payroll, marketing)? -> the anchor
+   differing from the client's actuals IS the design. File ONLY if: a promised band
+   is missing (COGS), acceptance records something other than what was shown, or a
+   correction is refused.
+3. Is it a DERIVED TWIN (current_payroll, payroll_total_year1, owner_compensation,
+   cogs twin family, year1 rollups)? -> a direct write evaporating is BY DESIGN.
+   Never file "the write didn't stick" against a derived field. File the DOOR
+   instead (see below).
+4. Is it on the do-not-refile list? -> don't file.
+5. Only then: does it STRAND THE CLIENT or CORRUPT THE BUILT PLAN?
+
+## The one-door payroll law
+
+`current_payroll` is derived from PEOPLE. Correction doors are
+`people.total_team_payroll`, `people.rest_of_team_payroll_year1`,
+`people.owner_pay_monthly`, `people.remove_role`. So "payroll is uncorrectable"
+is the WRONG finding. The right findings, per contract section 4, are:
+  - a correction produced no "Recorded:" receipt
+  - a figure that landed nowhere was not DISCLOSED
+  - prose claimed a write ("I'll use $X") that did not land
+  - the same gate/wall message repeated verbatim after a correction
+Those four are named "file immediately" in the contract. Use those words.
+
+## Built-plan verification rule (contract section 6)
+
+At run entry the SAME Recalc re-runs and persists before the grid reads anything.
+Therefore:
+  - stored-vs-workbook difference on a DERIVED field = design, the workbook is truth.
+    NEVER file this.
+  - stored-vs-workbook difference on a CLIENT-CAPTURED field = bug. File it.
+  - a coherent draft rerun must produce a BYTE-EQUAL workbook. A diff is a finding.
+
+## Testable invariants worth probing
+
+  - "acceptance of an option NEVER moves the ceiling" (section 5) -> the CW-024
+    price ratchet is a genuine contract violation. Retest and record the ceiling
+    at every offer.
+  - the two-beat rule: receipt ALWAYS precedes any gate verdict.
+  - a mid-walk collapse triggers hold-and-confirm, never an abrupt verdict flip.
+  - an empty/contentless turn re-shows the gate's standing message.
+  - volunteer clusters (debt 13-16, balance 17-20): naming several siblings in one
+    message must land them all; skipped questions there are CORRECT.
+
+## Do-not-refile (contract section 7)
+
+marketing proposal has no band; owner wage cents artifact (38,000.04); headcount in
+financials while payroll dollars live in people; people-section rest-of-team
+enumeration (CW-025 rank-2, in progress); cogs_basis re-tag after ratio-stamped
+acceptance (in progress); baseline_marketing contamination (in progress).
+
+## Language discipline (standing)
+
+"the ack said X" and "the stored field is X" are DIFFERENT SENTENCES. Never write a
+storage claim without having read the field. Close non-reproductions in the same pass.

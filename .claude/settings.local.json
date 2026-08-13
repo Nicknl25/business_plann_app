@@ -1,18 +1,4 @@
 {
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"STANDING INSTRUCTION from Nick: FIRST action of every session - arm the persona-run watcher as a persistent background Monitor with command: ./.venv/Scripts/python.exe -u scripts/persona_session_watch.py (persistent=true; each stdout line is a run event). Then confirm to Nick with exactly one line: watcher armed. If a watcher Monitor is already live in this session (resume/compact), just re-confirm the line. Do this before any other work - Nick should never have to ask.\"}}'",
-            "shell": "bash",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "PowerShell(.\\context\\ensure_5050_backend.ps1*)",
@@ -29,7 +15,23 @@
       "Bash(git status*)",
       "Bash(grep*)",
       "Bash(./.venv/Scripts/python.exe scripts/post_intake_golden_preflight.py*)",
-      "Bash(./.venv/Scripts/python.exe scripts/freeze_post_intake_golden_baseline.py*)"
+      "Bash(./.venv/Scripts/python.exe scripts/freeze_post_intake_golden_baseline.py*)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 5050 -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Id 31500 -Force -Confirm:$false)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"STANDING INSTRUCTION from Nick: FIRST action of every session - arm the persona-run watcher as a persistent background Monitor with command: ./.venv/Scripts/python.exe -u scripts/persona_session_watch.py (persistent=true; each stdout line is a run event). Then confirm to Nick with exactly one line: watcher armed. If a watcher Monitor is already live in this session (resume/compact), just re-confirm the line. Do this before any other work - Nick should never have to ask.\"}}'",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
