@@ -569,6 +569,14 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     return True
 
 
+def source_fingerprint() -> str:
+    try:
+        import hashlib
+        return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+    except Exception:
+        return "?"
+
+
 def main() -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     if pid_alive(WATCHER_PID):
@@ -577,8 +585,11 @@ def main() -> int:
     WATCHER_PID.write_text(str(os.getpid()), encoding="utf-8")
     cfg = load_config()
     state = load_state()
+    booted_src = source_fingerprint()
+    booted_head = git("rev-parse", "--short", "HEAD", check=False).stdout.strip()
     log(f"watcher up (cap={cfg['cap_round_trips']} rt, poll={cfg['poll_seconds']}s, "
-        f"timeout={cfg['default_turn_timeout_minutes']}m, branch={cfg['branch']})")
+        f"timeout={cfg['default_turn_timeout_minutes']}m, branch={cfg['branch']}, "
+        f"code={booted_src} @ {booted_head})")
     try:
         while True:
             try:
@@ -593,6 +604,12 @@ def main() -> int:
                 return 1
             idle_sleep(cfg, int(cfg["poll_seconds"]))
             cfg = load_config()  # config is live-tunable (SS9 ruling 2)
+            # STALENESS IS INVISIBLE OTHERWISE: config reloads every poll but
+            # CODE does not. A watcher running a fixed-on-disk bug looks
+            # perfectly healthy right up until it hits it (it did, once).
+            if source_fingerprint() != booted_src:
+                log("!! watcher SOURCE CHANGED on disk since boot — this process "
+                    "is running OLD code; restart it to pick up the fix")
     finally:
         WATCHER_PID.unlink(missing_ok=True)
 
