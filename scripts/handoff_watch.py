@@ -272,6 +272,21 @@ def one_cycle(cfg: dict, state: dict) -> bool:
         return False
     status = h["status"]
     if status in STOP_STATUSES:
+        # An AGENT that follows its contract flips to awaiting-Nick ITSELF on
+        # green / drift / needs-ruling. The watcher still owes Nick the ping -
+        # otherwise the CORRECT agent behavior is the one path that stays
+        # silent. The last_ping latch keeps it to one per stop.
+        if status == "awaiting-Nick":
+            verdict = h["verdict"]
+            body = result_block(h["raw"])
+            if verdict == "drift":
+                ping("URGENT HANDOFF STOPPED: DRIFT — look now",
+                     f"A negative control MOVED. Never auto-continue past this.\n\n{body}", state)
+            elif verdict == "green":
+                ping("HANDOFF STOPPED: green — confirm",
+                     f"A clean/green result is waiting for your look.\n\n{body}", state)
+            else:
+                ping("HANDOFF STOPPED: ruling needed", body, state)
         return False  # idle; only Nick re-arms
 
     # GREEN / DRIFT force-override: even if the agent flipped to the other

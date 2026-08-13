@@ -565,3 +565,15 @@ not delivery):
    -> killed, stopped-fault, log tail in the ping body.
 Findings -> VS_NOTES as usual; watcher code is scripts/ (VS-owned)
 so fix shapes come back to VS, not direct edits.
+
+**Watcher audit list — behavior 9 added** (found by VS self-review
+before mini's audit, fixed in the same build): when an AGENT
+correctly flips to awaiting-Nick ITSELF (green / drift /
+needs-ruling), the watcher must STILL ping — the early-return on
+stop statuses meant the CORRECT agent behavior was the one path
+that stayed silent. Fixed; mini should test both halves: (9a) agent
+flips to awaiting-Nick with VERDICT green/drift/needs-ruling ->
+exactly one ping of the right urgency, and no launch; (9b)
+paused / stopped-* -> NO ping (Nick set those deliberately).
+Also note HANDOFF.md now ships the R32 capture STAGED but with
+STATUS: paused — it fires only when Nick arms it after this audit.
