@@ -421,3 +421,31 @@ for the four quarantined:
   feed it a draft-shaped dict carrying model_input_json /
   finmo_json / payroll etc. Then hash (sheet, row-label, column) ->
   formula string, sorted.
+
+## Round-2 audit (_prove_20260812_ws1ws2_prove2.txt, build a67fa1e)
+
+42 behavioural (R29 joined R28/R30 as PROVEN - the re-point worked),
+5 structural-absence, 0 DRIFT, quarantine 4 -> 3. ALL THREE remaining
+(R26/R31/R32) die on ONE error at ONE place - the shared
+single_line_payloads() surface omits maintenance_rate:
+
+  ValueError: capex_depreciation_maintenance_rate_invalid:
+  Python-derived annual maintenance_rate is required and must
+  satisfy 0.02 <= rate <= 0.15.
+
+THE FIX (one kwarg, unblocks all three): pass
+maintenance_rate=0.05 to build_python_model_input_json in the
+shared surface. To END the serial-discovery ladder, lift the full
+proven kwargs verbatim from the committed reference payload at
+Test Files/_ws1b_intake_smoke.py (T7/T9 blocks, lines ~98-107 and
+~135-144): business_facts (must carry start_date), ops_json,
+people_json (may be {}), financials_json, financials_year1_json,
+marketing_model_json (may be {}), forecast_starting_ppe=<float>,
+maintenance_rate=0.05. That exact shape passes the producer AND the
+consumer-side contract on the current build; the signature is the
+same at 9d2c41c (the param predates WS1b), so both sides should
+hash on the next pass. Production derives the rate via
+_derive_maintenance_capex_percent_from_naics (conservative default
+0.05) - a fixed 0.05 in the fixture is checker-vs-production-safe
+here because both commits receive the SAME value (golden legs
+compare across commits, not against production's derivation).
