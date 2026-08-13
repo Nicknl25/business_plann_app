@@ -356,18 +356,58 @@ def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path
     template = cfg.get("agent_command", ["{binary}", "-p", "{prompt}", "--dangerously-skip-permissions"])
     binary = resolve_agent_binary(cfg) if any("{binary}" in part for part in template) else ""
     cmd = [part.replace("{binary}", binary).replace("{prompt}", prompt) for part in template]
+    beat = int(cfg.get("heartbeat_seconds", 30))
     log(f"LAUNCH {agent} (timeout {timeout_minutes}m) -> {logfile.name}")
+    log(f"    tail the agent: Get-Content -Wait '{logfile}'")
     with open(logfile, "w", encoding="utf-8") as out:
         child = subprocess.Popen(cmd, cwd=str(REPO), stdout=out, stderr=subprocess.STDOUT, shell=False)
         AGENT_PID.write_text(str(child.pid), encoding="utf-8")
-        try:
-            child.wait(timeout=timeout_minutes * 60)
-            code = child.returncode
-        except subprocess.TimeoutExpired:
-            child.kill()
-            code = -9
+        started = time.time()
+        deadline = started + timeout_minutes * 60
+        last_beat = started
+        # HEARTBEAT WHILE WORKING: the old child.wait() blocked silently for
+        # the whole turn, so a healthy 10-minute turn and a dead watcher
+        # looked identical. Never block without a pulse.
+        while True:
+            code = child.poll()
+            if code is not None:
+                break
+            now = time.time()
+            if now >= deadline:
+                child.kill()
+                code = -9
+                break
+            if now - last_beat >= beat:
+                last_beat = now
+                elapsed = int(now - started)
+                size = logfile.stat().st_size if logfile.exists() else 0
+                log(f"... working: {agent} pid={child.pid} "
+                    f"{elapsed // 60}m{elapsed % 60:02d}s elapsed, "
+                    f"agent log {size:,}B, timeout in {int((deadline - now) / 60)}m")
+            time.sleep(2)
     AGENT_PID.unlink(missing_ok=True)
+    elapsed = int(time.time() - started)
+    log(f"    {agent} exited code={code} after {elapsed // 60}m{elapsed % 60:02d}s")
     return code, logfile
+
+
+def idle_sleep(cfg: dict, seconds: int) -> None:
+    """HEARTBEAT WHILE IDLE: a pulse every heartbeat_seconds so silence in
+    the log always means something is genuinely wrong."""
+    beat = max(5, int(cfg.get("heartbeat_seconds", 30)))
+    end = time.time() + seconds
+    while time.time() < end:
+        time.sleep(min(beat, max(1.0, end - time.time())))
+        try:
+            status = parse_handoff()["status"]
+        except Exception as exc:
+            status = f"UNPARSEABLE ({type(exc).__name__})"
+        waiting_for = {
+            "awaiting-Nick": " — waiting on your word (say it in plain English)",
+            "paused": " — PAUSED",
+        }.get(status, "")
+        remaining = max(0, int(end - time.time()))
+        log(f"... idle: STATUS={status}, no child, next poll in {remaining}s{waiting_for}")
 
 
 # -------------------------------------------------------------- loop
@@ -533,7 +573,7 @@ def main() -> int:
                 except Exception:
                     pass
                 return 1
-            time.sleep(cfg["poll_seconds"])
+            idle_sleep(cfg, int(cfg["poll_seconds"]))
             cfg = load_config()  # config is live-tunable (SS9 ruling 2)
     finally:
         WATCHER_PID.unlink(missing_ok=True)

@@ -637,3 +637,116 @@ exactly one ping of the right urgency, and no launch; (9b)
 paused / stopped-* -> NO ping (Nick set those deliberately).
 Also note HANDOFF.md now ships the R32 capture STAGED but with
 STATUS: paused — it fires only when Nick arms it after this audit.
+
+## Round-7 audit (mini, watcher turn 2) — R32 GOLDEN, table CLEAN 50/50
+## files: _prove_20260812_ws1ws2_prove7.txt (full)
+##        _prove_20260812_ws1ws2_prove7b_goldens.txt (R31+R32 re-prove)
+
+Tally: 43 behavioural + 5 structural-absence + 2 GOLDEN + 0 DRIFT +
+0 UNEARNED + 0 other = 50 legs. NO quarantine section. R32 is GOLDEN
+on both commits (9d2c41c / 7d908a7):
+  GOLDEN-SHA workbook_formulas cbd764631e98...
+  GOLDEN-SHA single_line_input 72dfcb81f6f3...   (new, see below)
+
+**Your round-6 diagnosis was right and I verified it rather than took
+it.** Independent checks, all confirming:
+- the label really does sit on three sheets; [Model Inputs] row 12 is
+  the driver row (=SUM(D12:G12) per year) and [Audit Source] carries no
+  formulas at all, so it never enters the grid;
+- the FINMO P&L row is EXACTLY ONE, 21 per-period cells of the legacy
+  =<revenue cell>*'Model Inputs'!<cell> shape, all reading the SAME
+  driver row 12, plus 5 annual =SUM rollups;
+- the frozen fixture is genuine: PLANNING_RUN_JSON digest-matches the
+  `post_intake_finalize_validation_completed` checkpoint of run
+  ddb61397 exactly. One wording correction for the record —
+  payroll_headcount and debt_schedule are NOT checkpoint columns (that
+  table has no such columns); they are columns on the DRAFT row, and
+  both match draft 6feac758 byte-for-byte. Same run, same draft, so the
+  provenance stands; the sentence "the same checkpoint row" does not.
+
+R32's assertion is now scoped to FINMO and pins the SHAPE, not a count:
+one row, >=8 per-period legacy-shape cells, ONE driver row, zero
+per-line rows. The multi-line half of your fix shape is NOT written -
+single_line_payloads() cannot produce a two-line workbook, so that
+branch would have shipped unexercised. It wants its own leg over
+multi_line_payload(); flagged, not built.
+
+### FINDING 1 (mine, fixed here): the golden legs were hashing a
+### MOVING INPUT — round-over-round digest stability was reading the
+### DB's churn, not the build.
+
+`single_line_draft` pinned `6feac758` and fell through to
+`ORDER BY updated_at DESC` when the pin missed. The pin ALWAYS missed:
+6feac758 (Sunny Glaze) carries TWO product lines, so it can never
+satisfy the single-line filter — silently, with no evidence line ever
+saying so. What the golden legs actually hashed was *the most recently
+written draft*: the fixture drafts the gate's own legs seed, or a live
+persona run in another window. Round 6 hashed Fernhill `5ce9bba8`;
+minutes later the identical call resolved to Sumac `8e84ba9d` and every
+digest changed (model_input 7965ad96 -> 02172fd3). The "digests
+unchanged from rounds 4/5" line in your round-6 note was reading DB
+ordering, not construction determinism.
+
+The sharper edge: a draft landing BETWEEN the baseline child and the
+current child of ONE prove would have moved the input under the
+comparison and fired a FALSE DRIFT — the single false alarm this gate
+cannot afford, and a persona run was live while I ran this.
+
+Fixed in surface.py (gate-side, mine): pin first, then OLDEST first
+(`created_at ASC` — a newcomer can never displace the pick), skip
+candidates that cannot be hashed honestly and REPORT the skip, and name
+the dead pin in every evidence line. Both golden legs now also print
+`GOLDEN-SHA single_line_input` — the identity of the draft they hashed
+— so if the two sides ever diverge it surfaces as a DRIFT that NAMES
+the input instead of an unexplained move in the outputs.
+
+Digests changed with the pick and are NOT comparable to rounds 4/5/6.
+Round 7 is the new baseline: model_input 9650f148, finmo c21a05c9,
+workbook_formulas cbd76463, single_line_input 72dfcb81.
+
+**YOURS, and it is the durable fix**: freeze ONE single-line draft's
+persisted sections (facts/ops/people/fin/year1/marketing) beside the
+run artifacts in `_run_artifacts.py`, captured from a draft that
+COMPLETED a run, so the floor stops reading `intake_consult_drafts` at
+all. My ordering fix removes the false-DRIFT window; it does not make
+the input frozen — a DB prune still moves it. Capture is your script.
+When that lands I will re-point single_line_payloads at the fixture and
+delete the candidate ladder.
+
+### FINDING 2 (mine, fixed here): the gate ENGINE was not in git.
+
+`replay_gate/legs.py`, `surface.py`, `prove.py`, `runner.py`,
+`verdict.py`, `context.py`, `_bootstrap.py`, `battery.py`,
+`invariants.py`, `known_breaks.py`, `run_gate.py`, `__init__.py`,
+`README.md`, `gate.bat` were UNTRACKED — not ignored, just never added.
+Only the markdown, handoff_config.json and _run_artifacts.py were ever
+committed, and the _prove_*.txt artifacts are tracked, so this was an
+oversight rather than policy. Consequences while it lasted: no leg
+change was revertible or bisectable, "verify against the committed
+scripts" was impossible for the instrument itself, and the watcher's
+refuse-on-dirty check could not see a single leg edit. Committed with
+this turn.
+
+### YOUR QUESTION: does the workbook builder read planning_run_json?
+### YES, in two places — do NOT drop it. And the size premise is off.
+
+1. `workbook_builder.py:54-55` feeds it to the CONSUMER-side boundary
+   validator whenever it is truthy.
+2. `data.stage_ramp_contract` (data.py:157-195) reads
+   `unified_convergence_context.business_world_contract.
+   stage_ramp_contract`, which `schedule_sheets.py:99` consumes as
+   `quarter_ramp_grid`. It RESOLVES in your fixture: 20 rows.
+
+It writes ramp VALUES, not formulas — which is exactly why dropping it
+leaves R32's grid byte-identical (I tested it: same digest, zero rows
+added, removed, or moved). So it is invisible to R32 and load-bearing
+for the workbook. Trimming it would make the fixture unfaithful to a
+real row for every future value-level leg, for no gain here.
+
+On size: the PAYLOAD is 0.38 MB, not 2.8 MB (payroll_headcount 0.06,
+debt_schedule 0.016). The 2.96 MB file is pretty-printed `repr`
+inflation, ~6x. If the file size matters, store the three constants as
+compact JSON strings parsed at import — identical bytes of data, ~0.5 MB
+file, and ZERO digest risk because nothing about the payload changes.
+That is strictly better than a re-freeze, which is a moving-input event
+on a golden master.

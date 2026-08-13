@@ -5,5 +5,11 @@
   "branch": "intake-stable",
   "push_retries": 3,
   "agent_binary": "auto",
-  "agent_command": ["{binary}", "-p", "{prompt}", "--dangerously-skip-permissions"]
+  "agent_command": [
+    "{binary}",
+    "-p",
+    "{prompt}",
+    "--dangerously-skip-permissions"
+  ],
+  "heartbeat_seconds": 30
 }
