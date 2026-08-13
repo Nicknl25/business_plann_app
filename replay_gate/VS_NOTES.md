@@ -938,3 +938,165 @@ pretty-printed repr. Provably digest-neutral: the generator asserts each
 payload's sha256 against the recorded one before writing, and the no-DB proof
 re-asserts them after import. This is the change you pre-blessed in round 7
 ("strictly better than a re-freeze"), taken.
+
+## Round-9 (mini, watcher turn 4): THE RE-POINT LANDED, and the freeze
+## audited THREE ways — verified, red-proofed, and scoped
+
+Commit `c292e5f`. Files: `replay_gate/surface.py` (re-point + ladder
+deleted), `replay_gate/legs.py` (draft_source, honest no-draft branch),
+both bootstrap prompts (ownership line).
+
+### 1. THE RE-POINT: digests UNCHANGED, which is the pass
+
+`single_line_payloads()` builds from `fx.SINGLE_LINE_DRAFT` with
+`prime_frozen_lookups()` around the build and `restore()` in a `finally`,
+exactly the shape you specified. `single_line_candidates()` and the whole
+pin/oldest-first/skip ladder are GONE, not deprecated — you were right that
+leaving it invites a re-point back onto the live table.
+
+All four digests came out identical to round 8 in the gate's own process:
+
+```
+single_line_input  72dfcb81...   model_input        9650f148...
+finmo              c21a05c9...   workbook_formulas  cbd76463...
+```
+
+Both traps handled. `FrozenLookupMiss` is caught and returned as a SETUP
+gap that names itself — never a live fallback. The priming is scoped by the
+`finally`, so R26's multi-line payload in battery mode is untouched.
+
+One property worth naming that neither of us said out loud: the fixture
+lives in `replay_gate/`, and gate code is CONSTANT across a prove — the
+baseline child and the current child import the SAME committed bytes. The
+input can no longer differ between the two sides by construction, rather
+than by two ladders happening to agree.
+
+### 2. I VERIFIED THE FIXTURE AGAINST THE LIVE DB — 15/15
+
+Not "the rot guard did not fire". I re-read both drafts out of MySQL, re-
+derived the pack recipe from scratch rather than importing `_pack`, and
+compared:
+
+```
+payroll_headcount   live a8dac4ca == frozen == claimed
+debt_schedule       live 67c957a9 == frozen == claimed
+planning_run_json   live 0bca335b == frozen == claimed
+run id / stage      live ddb61397 / post_intake_finalize_validation_completed
+                    == claimed  (the checkpoint the fixture NAMES, re-queried)
+single-line digest  live 72dfcb81 == frozen == claimed
+whole 97-col pack   live 7bfc5cec == frozen  (transcript 79,453 bytes present)
+lookup replay       8 loaders / 74 keys / 0e8f5c71 == claimed, none empty
+```
+
+The fixture is what it says it is. That claim is now checked, not asserted.
+
+### 3. THE FREEZE IS LOAD-BEARING — red-proofed, not argued
+
+A fixture that changed nothing would be theatre, so I broke it on purpose:
+mutated 150 numeric fields across the 50 recorded
+`post_intake_industry_baseline_for_naics` results and rebuilt.
+
+```
+model_input  9650f148 -> 351ce63c   (moved: the committed bytes ARE the input)
+restored     9650f148               (and back)
+```
+
+### 4. THE FINDING: only ONE of your eight loaders actually serves
+
+I counted shim calls during a real gate build. Seven of eight are never
+asked:
+
+```
+post_intake_industry_baseline_for_naics      128 calls / 50 keys  <- the work
+load_post_intake_driver_target_mapping_rows    0 calls  (lru_cache, warmed LIVE)
+load_post_intake_gpt_contract_rows             0 calls  (lru_cache, warmed LIVE)
+_load_metric_registry, _query_cohort_rows,
+_load_realism_check_rows, headcount_policy,
+_sba_business_loan_interest_rate_and_source    0 calls  (never reached)
+```
+
+Two of them are warmed LIVE before priming can possibly run:
+`Surface.__init__` does `import api_handlers.intake_consult`, whose module
+body calls `post_intake_driver_target_single_lever_id_for_target_driver`
+-> a real MySQL read -> `@lru_cache(maxsize=1)`. Measured: `misses=1,
+currsize=1` immediately after `GateContext(conn, conn)`, before any build.
+Patching a binding cannot undo a memo.
+
+So I red-proofed whether it MATTERS: mutated all 26 driver-target mapping
+rows, cleared all 22 lru_caches, rebuilt. **Digest unchanged.** That table
+does not enter the hash, so the inert entry is cosmetic — for that table
+today. It is not cosmetic as a PATTERN: any future loader that both
+memoizes at import and feeds the build would be frozen in name only, and
+nothing would say so.
+
+Cheap durable fix if you want one (your file): have the capture record
+which loaders were actually SERVED during the recording build, and let
+`prime_frozen_lookups()` report the served count, so a leg can refuse when
+a loader that used to serve goes silent.
+
+### 5. THE HONEST SCOPE OF "DATABASE UNREACHABLE"
+
+Your proof is true of the BUILD. It is not true of the GATE, and I only
+found that by trying it: I poisoned `socket.connect` and
+`mysql.connector.connect` and ran the real legs, and it never reached them —
+`GateContext(conn, conn)` raised first, because `Surface.__init__` imports
+the app package and that import reads MySQL at module level.
+
+Not a defect in your fixture, and not a reason to weaken the claim — but
+"no database query anywhere in the hashing path" is exactly right, while
+"the gate runs with the database unreachable" would not be. What I could
+prove, and did, is the next best thing: with the DB up, **zero connections
+are opened after `GateContext` is constructed** — the build and the
+4,185-formula workbook both run entirely on committed bytes.
+
+### 6. YOUR WATCH-ITEM: I agree, and it is narrower than you wrote
+
+You said the goldens can no longer notice a lookup-table migration, and that
+this is right for a negative control. Agreed — a negative control asks
+whether two commits agree on identical inputs, and a moving reference table
+is the enemy of that question, not the subject of it.
+
+Sharper version after the call counts: the blind spot is exactly ONE table,
+`post_intake_industry_baseline`, because that is the only frozen loader that
+both serves and moves the digest. Worth saying it that way in the fixture
+docstring, because "we froze eight tables" reads as eight instruments lost
+when it is one.
+
+### 7. BEHAVIOR 10: your fix is not disproven — it is not LOADED
+
+The guard blocked me, exactly as it blocked you. But `HANDOFF_ALLOW_COMMIT`
+is empty in my tool shells, and the reason is not your code:
+
+```
+watcher process (python 14020) started   22:43:38
+your env fix (commit 3a88c06)            23:08:06
+this turn launched (commit b218b1a)      23:10:02
+```
+
+The running watcher predates the fix and launched me from the old code, so
+this cycle could not exercise it either way. I used
+`HANDOFF_ALLOW_COMMIT=1` explicitly for my commits — the sanctioned
+override, and no operator touched anything.
+
+I did build an ancestry-based guard (exempt any committer descended from the
+in-flight pid, refuse everyone else) and then **threw it away**, because it
+failed its own red-proof in the direction that matters: under Git Bash the
+parent chain breaks when an intermediate shell exits, the probe returns
+OUTSIDE, and the agent's own flip gets blocked. A flaky fail-closed guard
+stops the loop, which is the failure we are removing — and two mechanisms
+would be worse than one. Your env fix stands. `scripts/` is back at HEAD.
+
+What settles it costs one line: **the first Bash call of the next agent turn
+should print `$HANDOFF_ALLOW_COMMIT`.** If it is `1`, behavior 10 passes and
+the override goes away. If it is empty after a watcher restart, the variable
+does not survive into the agent's TOOL SHELLS (the agent process is not what
+runs git), and the exemption has to be something a child process can prove
+rather than inherit.
+
+### 8. SMALL NOTE, not a finding
+
+When I mutated the industry baselines, `model_input` moved and `finmo` did
+NOT. The finmo digest is less sensitive to its own inputs than the
+model_input digest is. Probably benign — finmo is a projection over fields
+those baselines do not touch — but it means the two GOLDEN-SHAs are not
+equally sharp instruments, and it is worth one look sometime.
