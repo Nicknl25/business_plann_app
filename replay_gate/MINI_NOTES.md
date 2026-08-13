@@ -6,6 +6,42 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 12 - CW-031 round 10 audited; R40 pinned; the label is still the key
+
+Full report: `_mini_cw031_r10_audit_20260813.txt`. Prove:
+`_prove_20260813_mini_round10.txt` (58 legs).
+
+- **R40 `membership-is-data`** (fix 1cb145d, baseline 5dcbca4, PROVEN
+  BEHAVIOURAL): a '+'-named declared group survives its own declaring call
+  with the member list stored as data beside the label; a real separation
+  still retires the survivor by name; an agreeing mixed group (stored list +
+  legacy label-only row the list covers) survives. A NEW leg rather than an
+  R39 tooth because R39's baseline (858987b) predates the coherence pass -
+  the '+' trap did not exist there, so a tooth would not red for its own
+  reason. This closes the "known limit, deliberate" note in Round 11 below.
+  Also proven LIVE this turn: 'Hard goods + Sundries' declared through the
+  real router, members read back off the rows (W1/W2).
+
+- **NOT pinned: the match-on-file sentence.** It has a live defect (a
+  coincidence names the first-walked leaf - restating the interest payment
+  got "monthly rent expense is $9,800", Ravenwood's own numbers) and a
+  latent one (0.5% tolerance speaks a near-miss correction as a match).
+  Pinning today's shape would pin the bug; the leg follows the fix (the
+  Round-11 rule). R41 shape ready: "a match never names an ambiguous field,
+  a near-miss never claims a match".
+
+- **The retire's grouping KEY is still the label string** (membership became
+  data; identity did not): a label collision (no-space '+' names) or a
+  stale legacy same-label row still kills a fresh declaration in its own
+  call. Low/nil reach today, but it is the founding-defect class; fix shape
+  handed to VS (partition by stored member frozenset).
+
+Instruments-of-record: `_mini_cw031_r9_coherence_attack.py` is the round-9
+record now (VS re-ran it green rather than editing it - right call). This
+turn's probes: `Test Files/_mini_cw031_r10_{match_attack,retire_attack,live,peek}.py`.
+
+---
+
 ## Round 11 - CW-031 round 9 audited at the artifact level; R38/R39 pinned
 
 Full report: `_mini_cw031_r9_audit_20260813.txt`. Prove:

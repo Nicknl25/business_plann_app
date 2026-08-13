@@ -2699,6 +2699,111 @@ def _r_separation_clears_group(ctx):
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _r_membership_is_data(ctx):
+    """R40 - group membership is data beside the label, not a label parse.
+
+    THE BUG (CW-031 round 9 -> 10, fix 1). The group label encoded its own
+    membership ("shared:" + "+".join(names)) and the coherence pass parsed
+    it back with split('+'); product names legitimately contain '+' (7 real
+    drafts: 'Business Plan + Financial Model', 'IV services (visits +
+    memberships)'), so declaring a group containing such a line stored it
+    and RETIRED it in the same call - the client's declaration evaporated
+    with a receipt that said both "sharing one rate" and "no longer covers"
+    in one breath. Round 10 stores the normalized member list beside the
+    label (cogs_cost_structure_group_members); the pass compares stored
+    membership to the carrying set directly and the label is display only.
+
+    Teeth: the '+'-named declared group SURVIVES its own declaring call,
+    and the member list is STORED AS DATA beside the label on every member
+    row. Positive controls: a genuine separation still retires the
+    abandoned survivor by name (a pass that never retires fails as loudly
+    as one that retires everything), and an AGREEING mixed group (one row
+    carrying the list, one legacy label-only row whose name the list
+    covers) survives untouched - the legacy fallback must not false-retire
+    a members-carrying group. Proven live 2026-08-13: 'Hard goods +
+    Sundries' declared through the real router landed with members
+    ['hard goods + sundries', 'plant sale'], basis declared, and survived
+    (_mini_cw031_r10_live_20260813.txt W1/W2).
+    """
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+
+    plus_name = "Design + Build"
+    ops = {"lob_models": [{"lob_name": "Main", "products": [
+        {"product_name": plus_name, "cogs_percent_of_line_revenue": 0.30,
+         "unit_price": 100.0, "units_per_period_capacity": 10.0},
+        {"product_name": "Plant sale", "cogs_percent_of_line_revenue": 0.30,
+         "unit_price": 80.0, "units_per_period_capacity": 12.0},
+        {"product_name": "Hard goods", "cogs_percent_of_line_revenue": 0.60,
+         "unit_price": 60.0, "units_per_period_capacity": 15.0},
+    ]}]}
+    rows = ops["lob_models"][0]["products"]
+    receipt = door(
+        {"financials.cogs_shared_structure_groups": [[plus_name, "Plant sale"]]},
+        ops_json=ops)
+
+    fails, seen = [], []
+    seen.append(f"declare: groups={[r.get('cogs_cost_structure_group') for r in rows]!r}, "
+                f"ungrouped={receipt.get('ungrouped')!r}")
+    if not (rows[0].get("cogs_cost_structure_group")
+            and rows[0].get("cogs_cost_structure_group")
+            == rows[1].get("cogs_cost_structure_group")):
+        fails.append("the '+'-named declared group did not survive its own "
+                     "declaring call (the round-9 split('+') trap)")
+    for r in rows[:2]:
+        members = r.get("cogs_cost_structure_group_members")
+        if not (isinstance(members, list)
+                and sorted(str(m).strip().lower() for m in members)
+                == sorted([plus_name.lower(), "plant sale"])):
+            fails.append(f"membership is not stored as data beside the label "
+                         f"on {r.get('product_name')!r} "
+                         f"(members={members!r})")
+            break
+    if rows[2].get("cogs_cost_structure_group") is not None:
+        fails.append("a line outside the declaration was grouped")
+
+    # Positive control 1: a genuine separation still retires the survivor.
+    if not fails:
+        receipt2 = door({"financials.cogs_separate_lines": ["Plant sale"]},
+                        ops_json=ops)
+        seen.append(f"separation: groups={[r.get('cogs_cost_structure_group') for r in rows]!r}, "
+                    f"ungrouped={receipt2.get('ungrouped')!r}")
+        if any(r.get("cogs_cost_structure_group") for r in rows):
+            fails.append("a real separation left a group standing - the pass "
+                         "lost its teeth")
+        if any(r.get("cogs_cost_structure_group_members") for r in rows):
+            fails.append("a cleared row still carries a stored member list")
+        if plus_name.lower() not in " ".join(
+                str(u).lower() for u in (receipt2.get("ungrouped") or [])):
+            fails.append(f"the retired '+'-named survivor is not named "
+                         f"(ungrouped={receipt2.get('ungrouped')!r})")
+
+    # Positive control 2: an AGREEING mixed group (one row with the stored
+    # list, one legacy label-only row the list covers) must survive.
+    ops3 = {"lob_models": [{"lob_name": "Main", "products": [
+        {"product_name": "Plum", "cogs_percent_of_line_revenue": 0.30,
+         "cogs_cost_structure_group": "shared:pear+plum",
+         "cogs_cost_structure_group_basis": "declared",
+         "cogs_cost_structure_group_members": ["pear", "plum"],
+         "unit_price": 50.0, "units_per_period_capacity": 20.0},
+        {"product_name": "Pear", "cogs_percent_of_line_revenue": 0.30,
+         "cogs_cost_structure_group": "shared:pear+plum",
+         "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 55.0, "units_per_period_capacity": 18.0},
+    ]}]}
+    rows3 = ops3["lob_models"][0]["products"]
+    door({"financials.cogs_per_line": [
+        {"line_name": "Plum", "cogs_percent": 0.31, "unit": "ratio"}]},
+        ops_json=ops3)
+    seen.append(f"agreeing-mixed: groups={[r.get('cogs_cost_structure_group') for r in rows3]!r}")
+    if not (rows3[0].get("cogs_cost_structure_group")
+            and rows3[1].get("cogs_cost_structure_group")):
+        fails.append("an AGREEING mixed group (stored list + legacy row the "
+                     "list covers) was false-retired")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -2969,6 +3074,20 @@ REGRESSIONS = [
                     "DISJOINT declared group must survive byte-identical, so "
                     "a pass that clears everything fails as loudly as one "
                     "that clears nothing.")),
+    Leg("R40", "REGRESSION", "membership-is-data",
+        "group membership is stored data beside the label, not a label parse",
+        "1cb145d", "5dcbca4", _r_membership_is_data,
+        issue="CW-031 round 10 fix 1",
+        surface="per-line COGS write door + group coherence pass",
+        proof_note=("At 5dcbca4 (round-9 code) the coherence pass rebuilt "
+                    "membership by splitting the label on '+', so a group "
+                    "containing a '+'-named product retired itself in the "
+                    "declaring call and no member list was stored - red "
+                    "behaviourally on both teeth. Positive controls: a real "
+                    "separation still retires the survivor by name and an "
+                    "agreeing mixed (list + legacy label-only) group "
+                    "survives, so a pass that retires everything or one "
+                    "that never retires both fail.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),
