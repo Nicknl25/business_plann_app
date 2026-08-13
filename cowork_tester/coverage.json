@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-08-12T11:30:00Z",
+ "updated": "2026-08-13T13:30:00Z",
  "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible.",
  "business_types": {
   "professional_services": {
@@ -157,6 +157,16 @@
     "CW-029"
    ],
    "note": "first TWO-LINE business - a product line with real goods COGS alongside a service line whose labour sits in payroll"
+  },
+  "garden_centre_multi_line": {
+   "examples": [
+    "garden centre with landscaping",
+    "nursery with install crews"
+   ],
+   "runs": [
+    "CW-030"
+   ],
+   "note": "FOUR revenue lines spanning the full COGS range - the first N>2 shape in the campaign"
   }
  },
  "friction_conditions": {
@@ -261,7 +271,8 @@
    "persona": "NEW",
    "runs": [
     "CW-028",
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -292,7 +303,8 @@
     "CW-022",
     "CW-027",
     "CW-028",
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ]
   },
   "pre_revenue_startup": {
@@ -465,7 +477,8 @@
     "CW-016",
     "CW-017",
     "CW-018",
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ]
   },
   "mixed_period_cadence_lobs": {
@@ -576,7 +589,8 @@
     "CW-026",
     "CW-027",
     "CW-028",
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ],
    "note": "client accepts the app's own COGS proposal rather than stating materials - tests the fitted-COGS band and the accept-trap softener"
   },
@@ -634,9 +648,22 @@
   },
   "capacity_corrected_then_verified_to_the_build": {
    "runs": [
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ],
    "note": "capacity stated 40, corrected to 50 mid-flow, then traced through convergence, submit and into the workbook"
+  },
+  "four_revenue_lines_four_cogs_structures": {
+   "runs": [
+    "CW-030"
+   ],
+   "note": "plants 48 / hard goods 71 / install 19 / design 4 percent - spans the full range so the judge must produce four different bands"
+  },
+  "cogs_shared_collapse_requested": {
+   "runs": [
+    "CW-030"
+   ],
+   "note": "client asks two of four lines to share one cost rate while the others stay distinct - tests client control of the distinct-COGS count"
   }
  },
  "verdict_classes_reached": {
@@ -1175,6 +1202,25 @@
     "b2c"
    ],
    "note": "THE CLEANEST RUN OF THE CAMPAIGN, and both foundations confirmed live on a fresh shape. The capacity correction (40 -> 50 repairs a week) landed first time, held across nine subsequent turns and four checkpoints, survived submit and reached the WORKBOOK at 650.05 per quarter - 50 x 13. The Fernhill capitulation class is fixed. The goal anchor fired and stored the client's own objective as a structured milestone with timing: 'Have the Williamson shop running smoothly with minimal owner involvement in daily bench work to enable scouting a second storefront', within 12 months. A healthy business passed clean, section 6 came in 10/10 for a third consecutive build, and the band promise held. No freeze, no loop, no sibling leak despite two messages carrying four figures each. ONE REAL FINDING: the app proposed the two-product split itself, then gave the whole business a single blended COGS and did not answer a direct question about holding the lines separately - filed as a design gap for a ruling, since the contract documents one cogs stage."
+  },
+  "CW-030": {
+   "persona": "Healthy correctly-priced owner (garden centre, four lines)",
+   "business": "Ravenwood Garden Company",
+   "type": "garden_centre_multi_line",
+   "outcome": "FULL ARC COMPLETE - converged, submitted, PLAN BUILT, accounting OK on all 21 quarters, no wall",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "healthy_correctly_priced_founder",
+    "garden_centre_multi_line",
+    "four_revenue_lines_four_cogs_structures",
+    "cogs_shared_collapse_requested",
+    "capacity_corrected_then_verified_to_the_build",
+    "existing_business_with_history",
+    "inventory_carrying_business",
+    "app_proposed_cogs_accepted",
+    "b2c"
+   ],
+   "note": "FIRST N=4 RUN, and the answer splits cleanly. REVENUE reaches the model per line - twelve driver rows across four lines, every value the client's own, and the install capacity correction 6 -> 8 reached the workbook at 104.01/qtr. COST does not. The judge proposed four distinct correctly-ordered bands (design 6 < install 38 < plants 55 < hard goods 60), each with its own range - genuinely the best moment of the run - and then six correction attempts across three phrasings left all four cogs_percent_of_line_revenue fields NULL, the cogs_shared collapse was acknowledged in words but stored nowhere, and the workbook carries ONE flat 0.47 row rather than four summing to the total. The proposal is real; nothing below it is wired. Everything else passed: confidence gate named all four streams, goal anchor fired verbatim as a structured milestone, owner one row with no phantom, healthy business passed clean, section 6 10/10 on a fourth consecutive build."
   }
  },
  "verdict_classes": {
@@ -1193,7 +1239,8 @@
     "CW-023",
     "CW-027",
     "CW-028",
-    "CW-029"
+    "CW-029",
+    "CW-030"
    ]
   },
   "parked": {

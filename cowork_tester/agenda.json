@@ -1,69 +1,76 @@
 {
- "version": 16,
- "updated": "2026-08-12T11:30:00Z",
- "notes": "CW-029 (Thistledown Cycle and Service, Madison - a healthy bike shop selling bikes and doing repairs) is the cleanest run the campaign has produced, and it confirms both foundations live on a shape neither was built against.\n\nThe engine holds. Service capacity was stated at 40 repairs a week, then corrected mid-flow to 50. It landed first time, the acknowledgement named the reason back, and the pending question was answered in the same turn. I then checked it at four separate points - after target market, after human resources, after the balance block, and at submit - and it held every time. It reached the workbook as a capacity of 650.05 per quarter, which is 50 times 13 weeks; the original 40 would have been 520. No stale value returned and there was no capitulation. That is the Fernhill class closed.\n\nThe goal anchor fires, and it is structured rather than decorative. The stated goal - open a second location on the east side, with the twelve-month step being to get the Williamson shop running without the owner on the bench - came back in operating_model_json as a milestone object: 'Have the Williamson shop running smoothly with minimal owner involvement in daily bench work to enable scouting a second storefront', timed within 12 months. The client's own framing, with timing attached, and correctly the twelve-month step rather than the two-year headline because that is what was asked.\n\nA healthy business passed clean for the second consecutive run, section 6 came in 10/10 for a third consecutive build, the band promise held, and nothing froze, looped or leaked - including on two messages that each carried four separate figures, which is exactly the shape that produced the CW-028 'net 45' capture.\n\nOne real finding, and it is structural rather than broken. The app proposed the two-product split itself - an average bike sale and an average repair - and modelled both with independent price, capacity and utilization. Then it gave the whole business a single blended COGS band, and when the client asked in plain words whether the two could be held separately, it did not answer. The contract documents one cogs stage writing one cogs_percent_of_revenue, so this looks like intended design and is filed for a ruling rather than as a defect. It matters because the built plan applies 44.4 percent to both lines when the true rates are about 58 on bikes and 14 on repairs, and every product-plus-service business has this shape.",
+ "version": 17,
+ "updated": "2026-08-13T13:30:00Z",
+ "notes": "CW-030 (Ravenwood Garden Company, Madison - a healthy garden centre selling plants, hard goods, install work and design) is the first N=4 run, and it splits the per-line COGS question cleanly down the middle.\n\nThe proposal half works, and it is the best single moment the campaign has produced. From one plain description the confidence gate named all four streams back, and at the COGS stage it opened with 'Your lines of business earn differently, so I am setting up direct costs separately for each' and then gave four distinct bands correctly ordered across the entire range - Design consult 6 percent on a 3-9 band, Install project 38 on 30-45, Plant sale 55 on 50-60, Hard goods sale 60 on 55-65 - plus the blend, the dollar total, and an explicit invitation to correct any one alone or collapse those that match.\n\nNothing below the proposal accepts a client value. The client corrected all four in one message, then one line alone mid-stage, then one line alone using the app's own line name and a bare percent. Six attempts, three phrasings, and cogs_percent_of_line_revenue read null on all four rows after every one. The cogs_shared collapse was acknowledged in precisely the right words - 'I will keep one shared direct-cost rate for Plant sale and Hard goods sale, with separate rates for Install project and Design consult' - and stored nothing. And the workbook carries a single flat 0.47 cost-of-goods row against total revenue rather than four rows summing to a total, which the grid confirms exactly.\n\nThe contrast within the same build is the useful part. sections.revenue has twelve driver rows - capacity, price and utilisation for each of the four lines, every value the client's own - and the mid-flow install capacity correction from 6 to 8 reached the workbook at 104.01 per quarter. Revenue is fully per-line at N=4. Cost is not per-line at all below the sentence that proposes it.\n\nEverything else held. The goal anchor fired verbatim as a structured milestone. The owner was captured as one row with no phantom, cleaner than CW-029. A healthy business passed clean for the third run running, and section 6 came in 10/10 on a fourth consecutive build. Four candidate findings were dropped against the contract before filing - including the driver broadcast to not-yet-asked lines, which earlier runs would have filed as a bug and which the contract classes as an intermediate state.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "A-108",
+   "id": "A-110",
    "persona": "any",
-   "business": "any business with both a product line and a service line",
-   "why": "DESIGN RULING NEEDED, and it is the only substantive finding left. The app is already good enough to propose the two-product split unprompted and model each line's price, capacity and utilization independently - then it collapses cost to one blended COGS for the whole business. On this shop that means 44.4 percent applied to both lines when bikes really run about 58 and repairs about 14, so any shift in mix across the ramp moves margin the wrong way. Two decisions: whether per-line COGS is worth carrying in the model, and - regardless of that answer - that a client asking 'can you hold them separately?' should get a reply. Right now the question is silently skipped, which is the part that is filable on its own terms. Bike shops, salons, garden centres, repair-plus-retail of every kind land here.",
+   "business": "any business with more than one revenue line",
+   "why": "BLOCKER, and it is one cause with two faces. The per-line COGS proposal is excellent and the schema field exists - cogs_percent_of_line_revenue is present on every product row - but no client correction reaches it. Six attempts across three phrasings, including the app's own suggested form, all left it null, so an accepting client ships the app's blended guess: 0.47 here against the 0.406 the client's four figures actually imply, about 98,700 a year of cost they corrected away from. The second face is the workbook, which carries one flat cost-of-goods row against total revenue rather than four rows summing to a total. Revenue is fully per-line in the same build, so the shape to copy already exists one section over. Fix the write door and the model row together - separately they each leave the feature unusable.",
    "retests": [
-    "flow:financials:two_line_business_gets_one_blended_cogs_and_the_question_goes_unanswered"
+    "hard_break:financials:per_line_cogs_is_proposed_but_cannot_be_written_by_the_client",
+    "hard_break:plan_build:workbook_carries_one_blended_cogs_row_at_n_equals_four"
    ]
   },
   {
    "rank": 2,
+   "id": "A-111",
+   "persona": "any",
+   "business": "any multi-line business where two lines share economics",
+   "why": "MAJOR. The COGS proposal invites the collapse in as many words - 'if the costs really run about the same across lines, say so and I will treat them as one' - and the collapse is where client control over the distinct-COGS count lives. Asked for it, the first attempt was not understood and the second was acknowledged perfectly and stored nothing: no sharing flag anywhere in the operating model. Depends on A-110, since there is nowhere to write a shared rate until per-line rates exist. Worth noting the first refusal ASKED rather than guessing, which is the right failure.",
+   "retests": [
+    "flow:financials:cogs_shared_collapse_acknowledged_but_not_stored"
+   ]
+  },
+  {
+   "rank": 3,
+   "id": "A-112",
+   "persona": "any",
+   "business": "any",
+   "why": "MAJOR, and a clean instance of the rule the contract already states. One turn produced two receipts for values that were never stored: 'I will use a marketing budget of 0 a year (0 percent of revenue). Also recorded: cogs percent of revenue 0.' marketing_total_year1 read undefined rather than 0, and cogs_percent_of_revenue stayed 0.47, so nothing was corrupted - but a client reading that turn believes their marketing budget is now zero, and the zero was never theirs. Same family as the CW-028 receipts; worth checking whether they share a code path.",
+   "retests": [
+    "flow:financials:two_false_receipts_in_one_turn_on_the_cogs_and_marketing_fields"
+   ]
+  },
+  {
+   "rank": 4,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
-   "why": "PROBE STILL NEVER REACHED, and now the last one outstanding. Retention-applied has not been exercised end to end in three attempts: CW-027 asked and did not apply the answer, CW-028 was never asked because the business passed, and CW-029 was never asked for the same reason. It needs a business priced below its market that clears its wall on a price lever and reaches a build - the CW-027 shape but carried all the way through. Worth designing a run specifically around it rather than hoping it turns up.",
+   "why": "PROBE STILL NEVER REACHED, four attempts running. Retention-applied has not been exercised end to end: CW-027 asked and did not apply the answer, and CW-028, CW-029 and CW-030 were never asked because each business passed without needing a lever. Three consecutive healthy shapes have now made it unreachable by accident. It needs a business priced below its market that clears its wall on a price lever and goes on to build - design the run around that single requirement.",
    "retests": [
     "verdict:plan_build:stated_retention_acknowledged_then_not_applied"
    ]
   },
   {
-   "rank": 3,
+   "rank": 5,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
-   "why": "CARRIED FORWARD, and the cheapest thing on the board. Section 6's field check has now passed 10/10 on three consecutive builds, so that limb is thoroughly evidenced. The other two have never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Three clean built drafts now exist to test against - Wren Hollow, Fernhill and Thistledown - so this needs no new intake at all.",
+   "why": "CARRIED FORWARD, and now the cheapest thing on the board by a wide margin. Section 6's field check has passed 10/10 on four consecutive builds, so that limb needs no further evidence. The other two have still never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Four clean built drafts now exist to test against and no new intake is required for either.",
    "retests": []
   },
   {
-   "rank": 4,
+   "rank": 6,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
-   "why": "CARRIED FORWARD, untested for seven runs. Two healthy businesses have now passed cleanly and honestly, which is real counter-evidence on the honesty half - given a good business the app passes it and then argues its own pass figure down to a named ceiling. What has still never been exercised is an underpriced business that reaches a verdict without correcting itself first. Pair it with A-106 and one run could settle both.",
+   "why": "CARRIED FORWARD, untested for eight runs. Three healthy businesses have now passed cleanly and honestly, each time arguing its own pass figure down to a named ceiling, which is strong counter-evidence on the honesty half. The unexercised half is still an underpriced business that reaches a verdict without correcting itself first. Pairs naturally with A-106 - one well-designed underpriced run could settle both.",
    "retests": [
     "verdict:convergence:unviable_business_passes_on_volume_above_stated_capacity"
-   ]
-  },
-  {
-   "rank": 5,
-   "id": "A-109",
-   "persona": "any",
-   "business": "any",
-   "why": "MINOR COPY, one occurrence. The state note declared cogs percent of revenue unrecorded in the same sentence that quoted it as 44 percent of revenue. This is the inverse of the note item retracted after the contract review - that one correctly flagged a later-stage field, this one denies a value it has just used. Harmless to the data; it reads as the tool losing track at the moment it is being most precise.",
-   "retests": [
-    "experience:financials:state_note_claims_a_field_is_unrecorded_in_the_turn_that_records_it"
    ]
   }
  ],
  "closed_this_cycle": [
   {
-   "id": "A-104",
-   "reason": "Not reproduced. No reconciliation loop fired at all, and every correction in the run landed first time with a truthful receipt. The capacity correction specifically landed, stuck across nine turns and reached the workbook."
+   "id": "A-108",
+   "reason": "Superseded and answered. The design ruling CW-029 asked for has shipped: the app now proposes per-line COGS with distinct bands and invites both correction and collapse. What remains is that none of it can be written or modelled, which is A-110 and A-111 rather than an open design question."
   },
   {
-   "id": "A-105",
-   "reason": "Not reproduced. Two messages each carrying four separate figures - the balance block and the debt block - landed every figure on its own field with nothing leaking to capacity. The CW-028 'net 45' class did not fire."
-  },
-  {
-   "id": "A-107",
-   "reason": "Not reproduced as a blocker to flow. Inventory was answered with a bare 0 this run so the natural-language-zero path was not re-exercised; leaving it closed rather than carrying it as unverified, and it will resurface on the next services intake if still live."
+   "id": "A-109",
+   "reason": "Not reproduced. No state note contradicted a value it had just quoted in this run."
   }
  ]
 }

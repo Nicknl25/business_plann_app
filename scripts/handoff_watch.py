@@ -103,9 +103,26 @@ def git_clean_tracked() -> bool:
     return not any(line and not line.startswith("??") for line in out.splitlines())
 
 
+def git_fetch_with_retries(branch: str, attempts: int = 3) -> bool:
+    """A TRANSIENT fetch failure must not burn a stop. One blip (a network
+    hiccup, or a collision with a concurrent push) used to raise straight out
+    of one_cycle into stopped-fault + ping — observed live at 10:39:56, where
+    the very next manual fetch succeeded. Only a PERSISTENT failure is a
+    fault."""
+    for attempt in range(1, attempts + 1):
+        got = git("fetch", "origin", branch, check=False)
+        if got.returncode == 0:
+            return True
+        log(f"fetch attempt {attempt}/{attempts} failed (rc={got.returncode}): "
+            f"{got.stderr.strip()[:150]}")
+        time.sleep(5)
+    return False
+
+
 def git_sync(branch: str) -> str:
     """fetch; ff-only reconcile. Returns '' if ok else a fault reason."""
-    git("fetch", "origin", branch)
+    if not git_fetch_with_retries(branch):
+        return "fetch-failed-after-retries"
     local = git("rev-parse", "HEAD").stdout.strip()
     remote = git("rev-parse", f"origin/{branch}").stdout.strip()
     if local == remote:
