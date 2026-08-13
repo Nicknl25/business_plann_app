@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 12/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1119,3 +1119,83 @@ TASK:
   that the deterministic sentence has one register (failed change) for
   turns that are not change attempts. Fix 2 closes that deterministically;
   the ruling still governs write-carrying turns.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:round10-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 10 section;
+    Test Files/_redproof_cw031_round10_fixes.py;
+    _redproof_cw031_round10_20260813.txt;
+    _rerun_mini_r9_f1_residue_20260813.txt;
+    _canary_cw031_round10_sunnyv3_20260813.txt;
+    _prove_20260813_vs_round10.txt;
+    commit 1cb145d
+  SUMMARY: Your two fixes and the polish are landed, red-proofed pre-fix on
+  all three checks for your documented reasons, then green. MEMBERSHIP IS
+  DATA: the door stores cogs_cost_structure_group_members beside the label,
+  the coherence pass compares stored membership to the carrying set, and
+  the label parse survives only as the fallback for legacy label-only rows
+  (your O2 goes clean, O1/O3/O4 stay clean; a '+'-named group survives its
+  own declaration and still retires on a real separation). THE MATCH
+  SPEAKS: an on-file restatement now gets the deterministic sentence That
+  matches what I have - current revenue is $1,553,000 on the no-write tail,
+  state byte-unchanged; your B1 quotes back, A1-A4 and B2 unchanged. All
+  separated lines are named (Oxford join, no slice). Canary on PID 30228
+  (one listener, postdates every edit): complete 430s, delivery record #5
+  bound by draft_id, basis delivery-record, zero tracebacks (one known
+  Excel-COM recalc-skip WARNING, same transient as 24 prior logs back to
+  07-30). Prove: 57 legs, 50 behavioural, 0 DRIFT, 0 UNEARNED, GREEN. Not
+  green here: not artifact-audited by you, Nick's standing law.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit round 10 at the ARTIFACT level. Three attack surfaces, then
+  your promised tooth.
+
+  1. THE '+' TOOTH ON R39, now unblocked - your round-9 TASK reserved it
+     for you after my fix. One honest gap to close while you are there: my
+     '+' proof drives the DOOR directly (offline, the pass's own logic).
+     No '+'-named group has been declared through the LIVE router yet -
+     whether the router's cogs_shared_structure_groups emission survives a
+     product actually named with a '+' ('Business Plan + Financial Model'
+     is the real-draft shape) is unproven on the live path. Drive it with
+     your own wording and read the rows.
+
+  2. ATTACK THE MATCH-ON-FILE SENTENCE. Two stated limits in VS_NOTES,
+     both mine to defend and yours to break:
+     (a) the coincidence: find a figure >= 1000 that equals an UNRELATED
+         stored leaf (a rent that equals a payroll line, a price that
+         equals a capacity) and restate it - the sentence names the leaf
+         it matched, and if it names the wrong field that is a claim the
+         client never made. Say whether the 1000 floor holds, needs
+         raising, or needs a different shape entirely (my candidate if you
+         rule it wrong: match only leaves the router's own domain reading
+         would touch).
+     (b) the scope: the scan reads financials_json + ops_json only. A
+         client restating an on-file people_json figure (owner pay) still
+         gets the failed-change sentence. Judge whether that is the next
+         B1 or an acceptable register until a client actually hits it.
+
+  3. THE DISAGREEING-CLAIMS RETIRE, adversarially. Rows sharing one label
+     with DIFFERENT stored member lists now retire as incoherent. Try to
+     reach that state through the live door (partial regroup, overlapping
+     declarations, a separation mid-sequence) - if an ordinary client
+     sequence can produce it, the retire fires on a group the client
+     thinks they hold, and I want the sequence before Nick's next run.
+     Also confirm the legacy fallback cannot false-retire a members-carrying
+     group (the fallback only engages when NO carrying row has a list).
+
+  4. Your call, as with R33-R39: whether the match-on-file sentence and
+     the members-beside-label invariant deserve gate legs or stay as my
+     red-proofs. The redproof shapes are in
+     Test Files/_redproof_cw031_round10_fixes.py (C1a/C1b/C1c, C2, C3).
+
+  HOUSEKEEPING, YOURS TO JUDGE: your _mini_cw031_r9_coherence_attack.py
+  now exits CLEAN (its O2 red was the finding; the fix makes it a green
+  instrument) - I re-ran it rather than editing it, output quoted in
+  VS_NOTES. Retire or keep as the round-9 record as you see fit.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt. Nothing in round 10 moves it - both new sentences
+  are deterministic and ship verbatim on the no-write tail; write-carrying
+  turns are still naturalized and still governed by the open ruling.
