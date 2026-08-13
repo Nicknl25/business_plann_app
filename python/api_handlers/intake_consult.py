@@ -12703,6 +12703,9 @@ def post_intake_consult_system_run_handler(*, app, request):
     _p3_9_trace("entered_post_acceptance_block")
     diagnostic_payload: Dict[str, Any] = {}
     diagnostic_persisted: bool = False
+    # Declared out here so the workbook delivery record can still name its run
+    # when the diagnostics block below fails before resolving it.
+    resolved_planning_run_id: str = ""
     client_workbook_path: str = ""
     workbook_export_error: Optional[str] = None
     email_outcome: Dict[str, Any] = {"sent": False, "reason": "not_attempted"}
@@ -12935,6 +12938,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         _primary_workbook_path = _rs_attempt_workbook_path
     except Exception:
       _primary_workbook_path = client_workbook_path
+    _delivered_workbook_dest = ""
     if _primary_workbook_path:
       try:
         import os as _delivery_os
@@ -12946,6 +12950,7 @@ def post_intake_consult_system_run_handler(*, app, request):
             _delivery_dir, _delivery_os.path.basename(_primary_workbook_path)
           )
           _delivery_shutil.copy2(_primary_workbook_path, _delivery_dest)
+          _delivered_workbook_dest = _delivery_dest
           app.logger.info(
             "finmo model workbook delivered to %s for draft %s",
             _delivery_dest, result_draft_id,
@@ -12955,6 +12960,31 @@ def post_intake_consult_system_run_handler(*, app, request):
           "finmo model workbook delivery to FINMO_MODEL_DELIVERY_DIR failed "
           "for draft %s: %s: %s",
           result_draft_id, type(_delivery_exc).__name__, str(_delivery_exc)[:300],
+        )
+
+    # WHICH WORKBOOK BELONGS TO THIS DRAFT (CW-031). Run diagnostics are built
+    # and INSERTed before the workbook exists, so their workbook_path is null
+    # on every run to date and anything reading the delivered file downstream
+    # was left guessing by filename. It guessed wrong: five drafts share the
+    # name 'Thistledown Cycle and Service', and the artifact detector scored
+    # one draft PASS on another draft's workbook. One INSERT-only row per run
+    # makes the binding a fact instead of an inference.
+    if _primary_workbook_path:
+      try:
+        from client_intake_and_finmo.workbook_delivery_record import (  # type: ignore
+          record_workbook_delivery,
+        )
+        record_workbook_delivery(
+          conn,
+          draft_id=result_draft_id,
+          planning_run_id=str(resolved_planning_run_id or ""),
+          source_path=_primary_workbook_path,
+          delivered_path=_delivered_workbook_dest,
+        )
+      except Exception as _record_exc:
+        app.logger.warning(
+          "workbook delivery record failed for draft %s: %s: %s",
+          result_draft_id, type(_record_exc).__name__, str(_record_exc)[:300],
         )
 
     # Auto-email the workbook (if export succeeded). Never block the

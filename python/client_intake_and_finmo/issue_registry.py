@@ -78,6 +78,7 @@ immediately, not create a phantom taxonomy.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -700,6 +701,12 @@ def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[
   """THE artifact for the per-line COGS class: every product row on a
   multi-line business must carry a non-null cogs_percent_of_line_revenue.
   A proposal in chat is not this; only the written ops row is."""
+  if "require_distinct_rates" in spec:
+    raise ValueError(
+      "require_distinct_rates is retired: distinct rates are now the DEFAULT "
+      "for ops_per_line_cogs. Use allow_shared_rates=true to opt out, so an "
+      "opt-out is always a stated decision rather than an absent flag."
+    )
   min_lines = int(spec.get("min_lines") or 2)
   ops = _load_ops_model(cur, draft_id)
   if ops is None:
@@ -717,7 +724,16 @@ def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[
             "detail": (f"{len(written)}/{len(products)} product rows carry "
                        f"cogs_percent_of_line_revenue; null on {missing}")}
   detail = f"all {len(products)} product rows carry cogs_percent_of_line_revenue"
-  if spec.get("require_distinct_rates"):
+  # DISTINCT RATES ARE THE DEFAULT for this class. N rows all carrying the
+  # same rate is a blend wearing per-line clothing: it satisfies the field
+  # check while the model is exactly as wrong as before. The implemented
+  # semantics are "at least TWO distinct rates", not "all pairwise distinct",
+  # so a client-declared collapse (plants and hard goods share a structure,
+  # install and design do not) still passes. The one shape this would
+  # false-fail is a client declaring that ALL lines share one structure, which
+  # no artifact can tell apart from the bug — that case must opt out
+  # EXPLICITLY, from the recorded grouping, never by the check being absent.
+  if not spec.get("allow_shared_rates", False):
     rates = {round(float(p["cogs_percent_of_line_revenue"]), 4) for p in products}
     if len(rates) < 2:
       return {"verdict": "fail",
@@ -756,34 +772,202 @@ def _assert_ops_field_non_null(cur, draft_id: str, spec: Dict[str, Any]) -> Dict
   return {"verdict": "pass", "detail": f"path {path!r} non-null"}
 
 
+_SUM_FORMULA_RE = re.compile(
+  r"^=\s*SUM\(\s*\$?([A-Z]{1,3})\$?(\d+)\s*:\s*\$?([A-Z]{1,3})\$?(\d+)\s*\)$",
+  re.IGNORECASE,
+)
+
+# Reconciliation tolerance: the three routes to a quarter's COGS are computed
+# from rates rounded at different places (the stub column stores 0.5405 where
+# Q1 stores 0.540515), so they agree to a fraction of a percent, not to the
+# cent. 0.5% with a $1 floor is far tighter than any real defect.
+_RECONCILE_REL_TOL = 0.005
+_RECONCILE_ABS_TOL = 1.0
+
+
+def _numeric(value: Any) -> Optional[float]:
+  if isinstance(value, bool) or value is None:
+    return None
+  if isinstance(value, (int, float)):
+    return float(value)
+  return None
+
+
+_PERIOD_HEADER_RE = re.compile(r"^(stub|q\d+)$", re.IGNORECASE)
+
+
+def _period_columns(ws) -> Dict[str, int]:
+  """{'Q1': 4, ...} for the PERIOD columns only, by header label.
+
+  The sheets carry annual roll-up columns (Y1..Y5) after the quarters, and
+  those sum HORIZONTALLY across their own row (``=SUM(D11:G11)``). Treating
+  one as a quarter turns a correct workbook into a failure — and multiplying
+  a year's summed capacity by a year's summed unit price into nonsense — so
+  every column-wise check below runs over these and nothing else.
+  """
+  for header_row in range(1, min(ws.max_row, 8) + 1):
+    found = {}
+    for col in range(1, ws.max_column + 1):
+      value = ws.cell(row=header_row, column=col).value
+      if value is not None and _PERIOD_HEADER_RE.match(str(value).strip()):
+        found[str(value).strip()] = col
+    if found:
+      return found
+  return {}
+
+
+def _sheet_rows_by_label(ws) -> List[Any]:
+  """[(row_index, column_A_text)] for every row carrying a label."""
+  out = []
+  for (cell,) in ws.iter_rows(min_col=1, max_col=1):
+    if cell.value is not None and str(cell.value).strip():
+      out.append((cell.row, str(cell.value).strip()))
+  return out
+
+
+def _assert_total_sums_over_lines(ws, per_line_rows, total_row, label):
+  """Law bullet 2: the total row must be =SUM over EXACTLY the per-line rows.
+
+  N per-line rows above a total that sums the wrong range is the same wrong
+  number with better manners, so the range is checked span-for-span in every
+  quarter column that carries the formula.
+  """
+  first, last = min(per_line_rows), max(per_line_rows)
+  if last - first + 1 != len(per_line_rows):
+    return (f"the {len(per_line_rows)} per-line {label!r} rows are not contiguous "
+            f"(rows {sorted(per_line_rows)})")
+  if first <= total_row <= last:
+    return f"the total row {total_row} sits inside the per-line block {first}-{last}"
+  checked = 0
+  periods = _period_columns(ws)
+  if not periods:
+    return f"no period columns found on the sheet, cannot check the {label!r} total"
+  for col in sorted(periods.values()):
+    raw = ws.cell(row=total_row, column=col).value
+    if not isinstance(raw, str) or not raw.strip().startswith("="):
+      continue
+    match = _SUM_FORMULA_RE.match(raw.strip())
+    letter = ws.cell(row=total_row, column=col).column_letter
+    if not match:
+      return (f"total row {total_row} column {letter} is {raw.strip()[:60]!r}, "
+              "not a SUM over the per-line rows")
+    lcol, lrow, rcol, rrow = match.group(1).upper(), int(match.group(2)), \
+        match.group(3).upper(), int(match.group(4))
+    if lcol != letter or rcol != letter or lrow != first or rrow != last:
+      return (f"total row {total_row} column {letter} sums {raw.strip()} but the "
+              f"per-line rows are {letter}{first}:{letter}{last}")
+    checked += 1
+  if not checked:
+    return f"total row {total_row} carries no SUM formula in any quarter column"
+  return None
+
+
+def _reconcile_workbook_cogs(wb, label):
+  """Law bullet 3: Sigma(line revenue x line pct) == blend == finmo COGS, per quarter.
+
+  All three routes are readable as LITERALS: Revenue Drivers stores capacity,
+  unit price, utilization and COGS % per line; Model Inputs stores the blended
+  COGS rate; Audit Source stores the engine's own persisted COGS. (The formula
+  cells themselves cannot be used — openpyxl writes the workbook and nothing
+  recalculates it in place, so every formula cell's cached value is None.)
+
+  Returns (verdict, detail).
+  """
+  for needed in ("Revenue Drivers", "Model Inputs", "Audit Source"):
+    if needed not in wb.sheetnames:
+      return ("not_applicable", f"sheet {needed!r} absent, cannot reconcile")
+  rd, mi, aud = wb["Revenue Drivers"], wb["Model Inputs"], wb["Audit Source"]
+
+  lines: Dict[str, Dict[str, int]] = {}
+  for row, text in _sheet_rows_by_label(rd):
+    if " - " not in text:
+      continue
+    name, _, field = text.rpartition(" - ")
+    key = field.strip().lower()
+    if key in ("capacity", "unit price", "utilization", "cogs %"):
+      lines.setdefault(name.strip(), {})[key] = row
+  usable = {n: f for n, f in lines.items()
+            if {"capacity", "unit price", "utilization", "cogs %"} <= set(f)}
+  if len(usable) < 2:
+    return ("not_applicable",
+            f"Revenue Drivers carries {len(usable)} line(s) with a per-line COGS rate")
+
+  blend_row = next((r for r, t in _sheet_rows_by_label(mi) if t == label), None)
+  audit_row = next((r for r, t in _sheet_rows_by_label(aud) if t == label), None)
+  if blend_row is None or audit_row is None:
+    return ("not_applicable",
+            f"{label!r} absent on Model Inputs or Audit Source, cannot reconcile")
+
+  # Columns are matched BY PERIOD LABEL across the three sheets, not by index:
+  # each sheet lays its own rows out independently and only the header label
+  # says which quarter a column is.
+  rd_periods, mi_periods, aud_periods = (
+    _period_columns(rd), _period_columns(mi), _period_columns(aud))
+  shared = [p for p in rd_periods if p in mi_periods and p in aud_periods]
+  if not shared:
+    return ("not_applicable", "the three sheets share no period column")
+
+  compared, failures = 0, []
+  for period in shared:
+    col = rd_periods[period]
+    sigma, total_rev, complete = 0.0, 0.0, True
+    for fields in usable.values():
+      cap = _numeric(rd.cell(row=fields["capacity"], column=col).value)
+      price = _numeric(rd.cell(row=fields["unit price"], column=col).value)
+      util = _numeric(rd.cell(row=fields["utilization"], column=col).value)
+      pct = _numeric(rd.cell(row=fields["cogs %"], column=col).value)
+      if None in (cap, price, util, pct):
+        complete = False
+        break
+      line_rev = cap * price * util
+      total_rev += line_rev
+      sigma += line_rev * pct
+    if not complete or total_rev <= 0:
+      continue
+    blend_pct = _numeric(mi.cell(row=blend_row, column=mi_periods[period]).value)
+    engine = _numeric(aud.cell(row=audit_row, column=aud_periods[period]).value)
+    if blend_pct is None or engine is None:
+      continue
+    blend = blend_pct * total_rev
+    compared += 1
+    for other_name, other in (("blend", blend), ("finmo COGS", engine)):
+      tol = max(_RECONCILE_ABS_TOL, abs(sigma) * _RECONCILE_REL_TOL)
+      if abs(sigma - other) > tol:
+        failures.append(f"{period}: Sigma(line rev x line pct)={sigma:,.2f} vs "
+                        f"{other_name}={other:,.2f}")
+  if not compared:
+    return ("not_applicable", "no quarter column carried all three COGS routes")
+  if failures:
+    return ("fail", "; ".join(failures[:3]) + f" ({len(failures)} mismatch(es))")
+  return ("pass", f"Sigma(line rev x line pct) == blend == finmo COGS on "
+                  f"{compared} quarter column(s)")
+
+
 def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
-  """The DELIVERED workbook must carry one COGS row per line plus a total
-  that sums over exactly those rows. Scoped to the P&L sheet on purpose: the
-  same label legitimately appears on Model Inputs (the driver row) and Audit
-  Source (persisted values, no formulas), and counting those inflates the
-  count into a false pass."""
-  import glob
+  """The DELIVERED workbook must carry one COGS row per line, a total that
+  sums over EXACTLY those rows, and three routes to the quarter's COGS that
+  agree — Nick's verification law for this batch, bullets 2 and 3.
+
+  Scoped to the P&L sheet on purpose: the same label legitimately appears on
+  Model Inputs (the driver row) and Audit Source (persisted values, no
+  formulas), and counting those inflates the count into a false pass.
+
+  The workbook is resolved by BINDING, never by newest-mtime: see
+  workbook_delivery_record. An unattributable file is not evidence about this
+  draft, so it returns not_applicable rather than judging someone else's run.
+  """
   import os
+  from client_intake_and_finmo.workbook_delivery_record import (  # type: ignore
+    resolve_workbook_for_draft,
+  )
   sheet_name = str(spec.get("sheet") or "FINMO")
   label = str(spec.get("label_prefix") or "Cost of Goods Sold")
   min_rows = int(spec.get("min_rows") or 2)
-  cur.execute(
-    "SELECT business_name FROM intake_consult_drafts WHERE draft_id = %s",
-    (draft_id,),
-  )
-  row = cur.fetchone()
-  business = str((row[0] if row else "") or "").strip()
   delivery_dir = (os.getenv("FINMO_MODEL_DELIVERY_DIR") or "").strip()
-  if not business or not delivery_dir or not os.path.isdir(delivery_dir):
-    return {"verdict": "not_applicable", "detail": "no delivered-workbook directory to read"}
-  matches = sorted(
-    glob.glob(os.path.join(delivery_dir, f"{business}*.xlsx")),
-    key=os.path.getmtime,
-  )
-  if not matches:
-    return {"verdict": "not_applicable",
-            "detail": f"no delivered workbook for {business!r}"}
-  path = matches[-1]
+  resolved = resolve_workbook_for_draft(cur, draft_id, delivery_dir=delivery_dir)
+  path = resolved.get("path")
+  if not path:
+    return {"verdict": "not_applicable", "detail": str(resolved.get("detail") or "")}
   try:
     import openpyxl
     wb = openpyxl.load_workbook(path)
@@ -791,25 +975,38 @@ def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict
     return {"verdict": "not_applicable", "detail": f"workbook unreadable: {exc}"}
   try:
     if sheet_name not in wb.sheetnames:
-      return {"verdict": "not_applicable",
-              "detail": f"sheet {sheet_name!r} absent"}
+      return {"verdict": "not_applicable", "detail": f"sheet {sheet_name!r} absent"}
     ws = wb[sheet_name]
-    labelled = [(c.row, str(c.value)) for (c,) in ws.iter_rows(min_col=1, max_col=1)
-                if c.value is not None and str(c.value).strip().startswith(label)]
+    labelled = [(r, t) for r, t in _sheet_rows_by_label(ws) if t.startswith(label)]
+    per_line = [r for r, t in labelled if t != label]
+    totals = [r for r, t in labelled if t == label]
+    where = f"{os.path.basename(path)} [{sheet_name}]"
+    if len(per_line) < min_rows:
+      return {"verdict": "fail",
+              "detail": (f"{where} carries {len(per_line)} per-line {label!r} row(s) "
+                         f"({len(labelled)} labelled total), expected >= {min_rows}")}
+    if spec.get("check_total_sum", True):
+      if len(totals) != 1:
+        return {"verdict": "fail",
+                "detail": (f"{where} carries {len(totals)} total {label!r} rows "
+                           f"above {len(per_line)} per-line rows, expected exactly 1")}
+      problem = _assert_total_sums_over_lines(ws, per_line, totals[0], label)
+      if problem:
+        return {"verdict": "fail", "detail": f"{where}: {problem}"}
+    detail = f"{where} carries {len(per_line)} per-line {label!r} rows"
+    if spec.get("check_total_sum", True):
+      detail += f" totalled by =SUM over exactly those rows"
+    if spec.get("check_reconciliation", True):
+      verdict, recon_detail = _reconcile_workbook_cogs(wb, label)
+      if verdict != "pass":
+        return {"verdict": verdict, "detail": f"{where}: {recon_detail}"}
+      detail += f"; {recon_detail}"
+    return {"verdict": "pass", "detail": f"{detail} [{resolved.get('basis')}]"}
   finally:
     try:
       wb.close()
     except Exception:
       pass
-  per_line = [(r, v) for r, v in labelled if v.strip() != label]
-  if len(labelled) < min_rows or len(per_line) < min_rows:
-    return {"verdict": "fail",
-            "detail": (f"{os.path.basename(path)} [{sheet_name}] carries "
-                       f"{len(per_line)} per-line {label!r} row(s) "
-                       f"({len(labelled)} labelled total), expected >= {min_rows}")}
-  return {"verdict": "pass",
-          "detail": (f"{os.path.basename(path)} [{sheet_name}] carries "
-                     f"{len(per_line)} per-line {label!r} rows")}
 
 
 _ARTIFACT_DISPATCH = {
