@@ -1,30 +1,100 @@
-STATUS: stopped-fault
-TURN: 1/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  FINISH THE ROUND-9 TURN. Your last turn did the work — you re-pointed the
-  golden legs at the frozen fixture and deleted the draft ladder (c292e5f) —
-  but you launched the prove and then ENDED YOUR TURN while it was still
-  running. Your session's children die with it, so the prove produced a 0-byte
-  file and the watcher faulted on "exited without flipping STATUS". That
-  0-byte artifact has been deleted.
-  Do this now:
-  - Re-run the full prove IN THE FOREGROUND and WAIT for it to finish. Never
-    end a turn with a job in flight; if it would outlast your turn, return
-    VERDICT: blocked and ask for a longer TURN-TIMEOUT-MINUTES instead.
-      python -m replay_gate.run_gate --prove --tier full --verbose > _prove_<date>.txt 2>&1
-  - Audit the durable freeze VS delivered in round 8, sceptically: that no DB
-    call remains anywhere in the hashing path (VS poisoned the socket layer and
-    mysql.connector and reports all four digests reproducing twice — verify
-    that yourself rather than taking it), that the frozen constants are the
-    REAL captured payloads with their provenance recorded, and that VS's second
-    find is properly frozen too — build_python_model_input_json was reading 8
-    reference tables live, 152 queries per build, now recorded as 74 keys with
-    FrozenLookupMiss on anything unrecorded. Confirm a miss actually raises.
-  - Confirm or refute VS's claim that round 7 -> 8 digests are IDENTICAL because
-    the freeze captured exactly the draft the ladder already resolved to.
-  - Then write the RESULT block and flip STATUS as your final act, in the same
-    commit. Stage explicit paths only — never a bare index-wide add.
+  CW-031 RAVENWOOD BATCH — nine items, three tiers, worked in order. Nick
+  runs no further Cowork until all nine land AND mini confirms them at the
+  ARTIFACT level. Evidence for the whole batch:
+  replay_gate/VS_NOTES.md CW-031 sections, draft 1070c6a5, run ad8627f3,
+  workbook "Ravenwood Garden Company -- 08-13-2026 12-14-03.xlsx".
+  THE VERIFICATION LAW FOR THIS BATCH (Nick, non-negotiable). Every COGS
+  item is verified by reading the ARTIFACT, never the proposal prose:
+    - cogs_percent_of_line_revenue is NON-NULL on all N product rows in
+      persisted ops json after the stage completes;
+    - the BUILT WORKBOOK carries N per-line COGS formula rows and the
+      total row is =SUM over exactly those rows;
+    - Sigma(line revenue x line pct) == blend == finmo COGS per quarter;
+    - for the collapse: lines sharing a rate carry the SAME stored
+      percentage while the others differ.
+  An assistant message proposing a split is NOT evidence for any of the
+  above. The false resolution in item 1 happened precisely because a
+  detector read the proposal instead of the artifact - do not reproduce
+  that inside the loop.
+  KNOWN INSTRUMENT GAP, read before planning: the frozen golden legs
+  (R26/R27/R31/R32) build from committed bytes with no DB, so they start
+  DOWNSTREAM of the write. They will pass forever while nothing writes the
+  rows - that is exactly how VS's stamped E2E passed while the intake half
+  was dead. This batch needs a leg that starts UPSTREAM: drive a COGS
+  stage acceptance through the real handler path, then assert the artifact.
+  If mini's harness for these can only reach the proposal, fixing the
+  harness is the first sub-task of that item.
+  TIER 1 - META-FIX, DO THIS FIRST, NON-NEGOTIABLE:
+  1. The issue registry marked #138
+     (flow:financials:two_line_business_gets_one_blended_cogs_and_the_
+     question_goes_unanswered) RESOLVED CONFIRMED on the very run that
+     disproves it - Ravenwood is a FOUR-line business whose delivered
+     workbook has ONE blended COGS row (row 9, =D8*'Model Inputs'!D24).
+     The detector checked whether the app PROPOSES a per-line split
+     (prose) instead of whether the split REACHES THE MODEL. Fix the
+     detector to verify the artifact (per-line rows in the workbook /
+     cogs_percent_of_line_revenue written). THEN AUDIT EVERY OTHER
+     RESOLUTION THE REGISTRY REPORTS - if this one checked the wrong
+     thing, others may too. Report which detectors verify artifacts and
+     which verify intentions. Nick does not trust the registry until this
+     is answered.
+  TIER 2 - THE CORE INTAKE GAP (why the next Cowork run matters):
+  2. RECEIPT-WITHOUT-A-WRITE IS ITSELF THE DEFECT. The app said "Got it -
+     I'll keep one shared direct-cost rate for Plant sale and Hard goods
+     sale, with separate rates for Install project and Design consult"
+     and stored NOTHING (token scan: zero cogs_shared /
+     shares_cost_structure / cogs_group records anywhere in the draft).
+     Same shape as the doubled "marketing $0 / cogs 0" receipts. Make a
+     confirmation STRUCTURALLY DEPENDENT on the write succeeding: the app
+     must not be able to say it did something it did not do. This
+     outranks the routing gap - a silent wrong number is bad, a wrong
+     number plus explicit assurance is worse.
+  3. WIRE THE COGS WRITE DOOR (A-110: the write door and the model row
+     are ONE fix - separately each leaves it unusable). The judge proposes
+     four rates correctly (55/60/38/6 with bands and right economics) and
+     cogs_percent_of_line_revenue reads null after six correction
+     attempts across three phrasings. The field exists in the schema and
+     _apply_per_line_cogs_to_ops exists and is called - it is an UNWIRED
+     DOOR. Route proposal -> written per-line percentages. The engine
+     already consumes them (Thistledown-proven, workbook carried two real
+     rows with =SUM over them). The shape to copy is one section over:
+     revenue is fully per-line at N=4, COGS needs the same wiring.
+  4. ROUTE THE COLLAPSE INSTRUCTION. "Plants and hard goods are both
+     bought-in retail goods, treat those two as sharing one cost
+     structure, keep install and design separate" needs an intent, a
+     door, and a consumer. The judge schema already carries
+     shares_cost_structure_with and nothing in the conversation can set
+     it. The client is the authority on how many DISTINCT COGS exist.
+  5. SHOWN PROPOSAL == WRITTEN PROPOSAL. The message and the write each
+     resolve the COGS baseline independently (two judge calls); the
+     write's call can fail the all-or-nothing line-name match and degrade
+     to blend-only SILENTLY. Resolve once, and make degradation LOUD -
+     never ship a silent blend after promising a split.
+  TIER 3 - DISPLAY / COPY (same batch, small, Nick wants the next run clean):
+  6. The capacity note repeats a placeholder ("weekly capacity -> 420" x4,
+     "and 1 more"). The underlying 420 broadcast is BENIGN (a transient
+     seed every line overwrites - verified live), but the note still
+     displays the repeated seed. Show distinct per-line values or do not
+     surface the transient seed. Say plainly whether it is cosmetic or the
+     note-builder reading the wrong field.
+  7. The doubled receipt line ("weekly capacity -> 180; weekly capacity ->
+     180" in one acknowledgment).
+  8. The weekly/monthly label mismatch the issue checker flagged
+     observationally (capacity acknowledgement uses a weekly label for a
+     monthly unit).
+  9. Confidence-gate copy asymmetry: the collapse invitation only offers
+     going DOWN ("one or two lines instead of three") and never up, though
+     a client can go to four. Say both directions.
+  VS: work tier 1 first and hand to mini before starting tier 2 - Nick
+  wants the registry answer early. Then tiers 2 and 3. Keep the standing
+  laws: restart the backend after app-code edits and verify ONE :5050
+  listener, one Sunny_V3 canary before any batch of runs, never kill :5050
+  mid-canary, red-proofs red for the right reason, and never end a turn
+  with a job still running.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -77,69 +147,9 @@ RESULT:
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
 RESULT:
-  AGENT: mini
-  VERDICT: green
+  AGENT: none
+  VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: _prove_20260813.txt (counts at ~line 1990; R32 block ~1125,
-    R31 ~1201); replay_gate/MINI_NOTES.md round-10 section
-  SUMMARY: The prove ran to completion in the foreground this time and
-  the table is clean: 43 proven behaviourally, 5 declared
-  structural-absence, 2 GOLDEN, 0 DRIFT, 0 UNEARNED, 50 legs. R32 is
-  out of quarantine — it asserts a real shape (one FINMO COGS row, 21
-  period cells of the legacy driver formula, 5 SUM rollups, zero
-  per-line rows) over 4,185 formulas.
-  I did not take the round-8 freeze on VS's word. I made a database
-  touch impossible rather than counting it — connect, socket, and
-  cursor on both gate connections all raise — and the golden paths
-  still produced all four digests byte-identical to the prove. The
-  frozen payloads were re-queried live and match by sha256, all 97
-  columns of the input draft included. Mutating the recorded lookups
-  moves the digest and restoring returns it exactly, so the fixture is
-  load-bearing, not decoration. FrozenLookupMiss fires on an
-  unrecorded key, and both golden legs refuse to hash a hollow
-  artifact instead of hashing it.
-  Round 7 -> 8 digests are IDENTICAL: confirmed, three prove runs plus
-  one out-of-band reproduction.
-  Answering VS's open question: the workbook does NOT read
-  planning_run_json — the grid digest is unchanged with it emptied.
-  It is 28% of the fixture, not the 97% the round-6 task guessed;
-  LOOKUP_REPLAY is the big one at 55%.
-  Behaviour 10 is settled and passing: HANDOFF_ALLOW_COMMIT was 1 in
-  my first tool shell, so the watcher's env fix does reach the agent
-  and the explicit override can go away.
-  For Nick, in plain English: the gate is clean and the golden legs
-  now build from committed bytes, so they can no longer cry wolf when
-  the database moves underneath them. It is safe to spend a Cowork
-  run. Nothing needs flipping or editing by you.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  VS: nothing is blocking. Three follow-ups, in order, and read
-  replay_gate/MINI_NOTES.md first — that is mini's side of the notes
-  channel, the mirror of VS_NOTES.md, and it carries the evidence for
-  everything below.
-
-  1. ONE deliberate re-freeze that drops PLANNING_RUN_JSON. Proven
-     unread by the grid path (ok=True, sha cbd76463 unchanged with it
-     set to {}); it is 359,636 bytes, 28% of the fixture file. Re-run
-     --prove --tier full afterwards: "no digest moves" is the claim,
-     so it has to be shown, not assumed.
-  2. Close the lru_cache blind spot with the cheap durable fix mini
-     proposed and you have not built yet: have the capture record
-     which loaders were actually SERVED during the recording build,
-     and have prime_frozen_lookups() report the served count, so a leg
-     can refuse when a loader that used to serve goes silent. Two of
-     the eight are warmed by a live read at import and patching cannot
-     undo a memo — inert today, a silent trap tomorrow.
-  3. Take one look at the finmo GOLDEN-SHA. Mutating the industry
-     baselines moves model_input and leaves finmo unmoved. Probably
-     benign, but a negative control nobody has seen move is not yet a
-     control. If it is genuinely insensitive by construction, say so
-     in the docstring and stop calling it a second instrument.
-
-  Also fix two lines in VS_NOTES.md that are slightly wrong (neither
-  is a defect, both will mislead the next reader): 6 of the 18
-  recorded _query_cohort_rows results ARE empty — legitimately, they
-  are the narrow revenue windows of the band-widening ladder — so the
-  claim to make is "no loader recorded nothing", not "no key". And
-  behaviour 10 now passes; the note still calls it unexercised.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
