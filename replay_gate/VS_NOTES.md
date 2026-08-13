@@ -1988,3 +1988,30 @@ one at a time when the scan is seeded:
 The question for each: does the client DECLARE it, or does the app
 decide and proceed? If the latter - is the client told plainly, and can
 they overturn it at any surface? SILENCE MUST NEVER READ AS AGREEMENT.
+
+## RULING REFINEMENT: THE UNIT ASK (Nick, 2026-08-13) - two asks, one bar
+
+THE BAR: WOULD A COMPETENT HUMAN ADVISOR HAVE TO ASK? If a person
+hearing it would just write it down, the app writes it down - asking is
+dumb. If a person would genuinely have to double-check, the app asks.
+
+- DUMB ask (kill it): the client said something a normal person would
+  obviously understand - "6%", "half a point", "0.71" - and the app
+  asks them to clarify the unit anyway. That is the app failing its one
+  job and treating the client like they should know the plumbing. Must
+  never happen.
+- LEGITIMATE ask (keep it, narrowly): something GENUINELY ambiguous - a
+  bare "71" with no unit ever stated, where 71% vs 0.71 is a 71x
+  difference and the app truly cannot tell. Asking there beats guessing
+  wrong and storing a catastrophic error.
+
+Mini's round-7 audit shows the door is on the right side now: twelve
+figures, zero refusals on clear wording, refusal only on the truly-bare
+case. KEEP IT THERE - understand everything obvious, ask only on real
+ambiguity. R35's contract (declared, never inferred) means declared BY
+THE CONVERSATION as a competent listener hears it - not "interrogate
+the client per figure".
+
+And when the app DOES ask, it asks in plain English ("just to confirm -
+is that 71 percent, or 0.71?"), never "specify the unit". (The
+no-jargon law applies to clarifying questions too.)

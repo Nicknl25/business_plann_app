@@ -556,6 +556,24 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     """Returns True to keep looping, False when idling on a stop state."""
     branch = cfg["branch"]
     ensure_state_dir()
+    # A LIVE TURN OUTRANKS EVERYTHING - including Nick's inbox. The inbox
+    # used to be consumed FIRST, so a plain-English line dropped mid-turn
+    # would flip STATUS and reset TURN underneath a live agent, whose own
+    # final flip would then collide. Nick's words must never interrupt a
+    # live turn; they are consumed at the next boundary, seconds later.
+    # (Also: no git work at all while a child owns the tree - the blocking
+    # child.wait() used to guarantee that implicitly.)
+    if pid_alive(AGENT_PID):
+        try:
+            pid_txt = AGENT_PID.read_text(encoding="utf-8").strip()
+        except Exception:
+            pid_txt = "?"
+        if read_inbox():
+            log(f"... agent turn in flight (pid {pid_txt}) — inbox instruction "
+                "waits for the boundary (a live turn outranks the inbox)")
+        else:
+            log(f"... agent turn in flight (pid {pid_txt}) — watcher hands off the tree")
+        return False
     inbox = read_inbox()
     # F3 (mini's audit): the PAUSE brake is checked BEFORE any git action. A
     # paused watcher with a diverged HEAD used to still commit and push a
@@ -567,17 +585,6 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     if inbox:
         consume_inbox(inbox, branch)
         return True
-    # HANDS OFF WHILE AN AGENT OWNS THE TREE: if a child is alive (this
-    # watcher's or one inherited from a previous watcher process), do NO git
-    # work at all. The blocking child.wait() used to guarantee this
-    # implicitly; the polling loop must guarantee it explicitly.
-    if pid_alive(AGENT_PID):
-        try:
-            pid_txt = AGENT_PID.read_text(encoding="utf-8").strip()
-        except Exception:
-            pid_txt = "?"
-        log(f"... agent turn in flight (pid {pid_txt}) — watcher hands off the tree")
-        return False
     fault = git_sync(branch)
     if fault:
         h = parse_handoff()
