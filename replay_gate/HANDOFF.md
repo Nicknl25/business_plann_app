@@ -1,9 +1,9 @@
-STATUS: paused
+STATUS: awaiting-VS
 TURN: 0/16
 TASK:
-  (STAGED, NOT ARMED — this is the first supervised task per spec SS8.4.
-  It fires only when Nick sets STATUS: awaiting-VS, commits, and starts
-  the watcher. Do not hand-run it.)
+  (ARMED by VS on Nick's plain-English go — supervised cycle 1 per spec
+  SS8.4. Nick never edits this file; VS or the watcher performs every
+  mechanical step.)
 
   TURN-TIMEOUT-MINUTES: 240
 
