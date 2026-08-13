@@ -449,3 +449,28 @@ _derive_maintenance_capex_percent_from_naics (conservative default
 0.05) - a fixed 0.05 in the fixture is checker-vs-production-safe
 here because both commits receive the SAME value (golden legs
 compare across commits, not against production's derivation).
+
+## Round-3 audit (_prove_20260812_ws1ws2_prove3.txt, build 74dfccf)
+
+Tally unchanged (42 behavioural, 0 DRIFT, R26/R31/R32 out) but both
+remaining errors are now exact:
+
+- **R31/R32 (same new error, one rung further)**:
+  `forecast_starting_ppe_must_equal_authoritative_balance_sheet:
+  forecast_ppe_seed=0.0 client_ppe_seed=40000.0`. The surface now
+  carries initial_assets=40000 (good) but still passes
+  forecast_starting_ppe=0.0. That guard is REAL production law
+  (engine-landing fidelity: the forecast PPE seed must equal the
+  authoritative client balance sheet). The two values are a
+  CONSISTENT PAIR: set forecast_starting_ppe =
+  float(financials_json["initial_assets"]) -> 40000.0. (VS's
+  reference smoke passed 0.0 with NO initial_assets - also a
+  consistent pair; mixing halves of the two pairs is what trips the
+  guard.) One line; both sides should then hash.
+- **R26 (the maintenance_rate fix did not reach it)**: R26 still
+  raises capex_depreciation_maintenance_rate_invalid - its
+  MULTI-line payload is built outside single_line_payloads(), so
+  the round-2 fix never touched it. Apply the same full kwargs
+  there (maintenance_rate=0.05 + the consistent PPE pair above,
+  with the multi-line ops carrying cogs_percent_of_line_revenue on
+  every product row).
