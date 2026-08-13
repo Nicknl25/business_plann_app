@@ -1211,3 +1211,47 @@ This is not polish on a working feature - the intake half is
 substantially non-functional live, and only a real multi-line
 conversation could have shown it. Neither the gate nor the stamped
 E2E could: both start downstream of the write.
+
+## CW-031 FINDING #2 ESCALATED: it is a FALSE RECEIPT, not just a
+## missing path (acknowledged-then-ignored, the worst class we have)
+
+After the confused re-ask, the client rephrased explicitly:
+
+  "Plant sale and Hard goods sale should share one direct-cost rate.
+   Install project keeps its own. Design consult keeps its own."
+
+The app ANSWERED WITH A CONFIRMATION:
+
+  "Got it - I'll keep one shared direct-cost rate for Plant sale and
+   Hard goods sale, with separate rates for Install project and Design
+   consult."
+
+AND WROTE NOTHING. Verified by token scan of the whole persisted draft
+(ops + financials + year1): cogs_shared, shares_cost_structure,
+shared_cost, cost_structure, cogs_group, cogs_per_line - ZERO
+occurrences. All four rows still cogs_percent_of_line_revenue=None.
+
+This is R07 / the CW-029 four-receipts-no-write class: the client is
+TOLD their instruction was recorded, and cannot detect otherwise.
+
+WHAT RAVENWOOD BELIEVES vs WHAT THE MODEL HOLDS
+  believes: 4 lines, 3 distinct rates; plants+hard goods shared ~57%,
+            install 38%, design 6%
+  holds   : ONE blended 47% for all four lines
+  worst   : design consult (nearly pure labour) carries 47% materials
+            - roughly $58k/yr of costs that do not exist on a $122k line
+
+SEVERITY REFRAME: the WS1b intake half is not merely incomplete, it is
+ACTIVELY MISLEADING - it promises a split in prose, confirms a
+regrouping on request, and persists neither. A silent wrong number is
+bad; a wrong number plus explicit assurance is worse.
+
+FIX ORDER (revised):
+  1. NEVER acknowledge a COGS grouping/rate change without the write.
+     A receipt with no write is the defect, independent of the router
+     gap. (Same law as the no-op-write receipt rules already in force.)
+  2. Route the collapse instruction: a client statement about which
+     lines SHARE a cost structure needs an intent, a door, and a
+     consumer that sets the per-line percents accordingly.
+  3. Make the shown per-line proposal the WRITTEN one (resolve once;
+     loud degradation, never silent blend-only).
