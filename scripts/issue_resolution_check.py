@@ -28,6 +28,14 @@ def main(argv) -> int:
                       help="Evaluate the latest N completed planning runs instead.")
   parser.add_argument("--hard-clean-threshold", type=int, default=None)
   parser.add_argument("--soft-runs-threshold", type=int, default=None)
+  parser.add_argument("--probe-audit", action="store_true",
+                      help="Report what each issue's detector actually verifies "
+                           "(artifact vs opportunity vs nothing) and exit.")
+  parser.add_argument("--reclassify-unearned", action="store_true",
+                      help="Demote 'confirmed' verdicts that rest on opportunity "
+                           "plus reporter silence to 'observational'. Audited, "
+                           "idempotent; combine with --dry-run to preview.")
+  parser.add_argument("--dry-run", action="store_true")
   args = parser.parse_args(argv)
 
   load_dotenv(REPO_ROOT / ".env", override=False)
@@ -45,6 +53,30 @@ def main(argv) -> int:
   draft_ids = []
   conn = get_mysql_connection()
   try:
+    if args.probe_audit:
+      audit = issue_registry.probe_audit(conn)
+      print("WHAT EACH DETECTOR ACTUALLY VERIFIES")
+      print(f"  total issues: {audit['total']}")
+      for name, count in audit["counts"].items():
+        print(f"  {name:12s} {count:4d}")
+      print(f"  -> can ever earn 'confirmed': {audit['can_earn_confirmed']}")
+      for name, entries in audit["buckets"].items():
+        if name == "artifact" and entries:
+          print(f"\n  artifact-verified detectors ({len(entries)}):")
+          for e in entries:
+            print(f"    {e}")
+      return 0
+
+    if args.reclassify_unearned:
+      result = issue_registry.reclassify_unearned_confirmations(
+        conn, dry_run=bool(args.dry_run)
+      )
+      print(json.dumps({k: v for k, v in result.items() if k != "signatures"},
+                       ensure_ascii=False))
+      for sig in result["signatures"]:
+        print(f"  demoted: {sig}")
+      return 0
+
     if args.draft_id.strip():
       draft_ids = [args.draft_id.strip()]
     elif args.latest > 0:

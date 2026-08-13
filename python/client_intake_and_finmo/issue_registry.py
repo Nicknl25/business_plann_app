@@ -42,6 +42,31 @@ Resolution-sensing honesty (resolution_class)
   exercised runs without a recurrence. The schema forbids 'confirmed' on a
   soft issue by construction (only the hard path writes it).
 
+Artifacts, not intentions (the CW-031 law)
+------------------------------------------
+The probe clauses ``section``/``stage_like``/``business_like``/``min_turns``
+answer only "did this run go DOWN the issue's path" — OPPORTUNITY. They cannot
+see whether the path produced the right number, because they never read a
+persisted value. For a long time that was the whole detector, so
+'resolved confirmed' actually meant no more than "a run finished, visited the
+same section, and the reporter did not re-file the signature". #138 was
+resolved-confirmed by that rule on the very run whose workbook disproves it:
+the app PROPOSED a per-line COGS split (prose), the reporter saw the proposal
+and stayed quiet, and the four product rows were written null anyway.
+
+So: an issue may only reach resolution_confidence='confirmed' when its probe
+carries an ``artifact`` assertion and that assertion was READ on the run and
+HELD. Everything else — opportunity clauses, reporter silence, metadata-only
+probes — is capped at 'observational' and must clear the soft threshold. An
+artifact assertion that FAILS is a recurrence, not a quiet run: the registry
+reopens the issue on its own evidence without waiting to be told.
+
+  "artifact": [{"kind": "ops_per_line_cogs", "min_lines": 2}]
+
+An assertion whose precondition is absent on this run (e.g. a multi-line
+assertion on a single-line business) returns not_applicable, which counts as
+NOT EXERCISED — absence of opportunity is never evidence.
+
 Any recurrence resets both counters; a recurrence after resolution flips the
 issue to status='recurring' and increments reopened_count.
 
@@ -64,8 +89,26 @@ CATEGORIES = ("hard_break", "flow", "verdict", "experience")
 SEVERITIES = ("blocker", "major", "minor", "note")
 STATUSES = ("open", "resolved", "recurring")
 RESOLUTION_CLASSES = ("hard", "soft")
-RESOLUTION_BASES = ("retested_clean", "not_seen_n_runs", "manual")
+RESOLUTION_BASES = ("artifact_verified", "retested_clean", "not_seen_n_runs",
+                    "manual")
 RESOLUTION_CONFIDENCES = ("confirmed", "observational")
+
+# --- Probe vocabulary -------------------------------------------------------
+# OPPORTUNITY clauses answer "did this run go down the issue's path?". They are
+# necessary and NEVER sufficient: a run can walk the path and still produce the
+# broken artifact. On their own they only ever earn 'observational'.
+PROBE_OPPORTUNITY_KEYS = {
+  "require_completed", "sections", "section", "call_label_like", "stage_like",
+  "business_like", "min_turns", "manual_only", "auto_recur",
+}
+# METADATA carries no predicate at all. A probe made only of metadata is a
+# probe with NO retest condition — it must never tick anything.
+PROBE_METADATA_KEYS = {"note", "regression_pin", "title"}
+# The ARTIFACT clause is the only evidence that can earn 'confirmed'.
+PROBE_ARTIFACT_KEYS = {"artifact"}
+PROBE_KEYS = PROBE_OPPORTUNITY_KEYS | PROBE_METADATA_KEYS | PROBE_ARTIFACT_KEYS
+
+ARTIFACT_KINDS = ("ops_per_line_cogs", "ops_field_non_null", "workbook_cogs_rows")
 
 # Category -> default resolution class. flow defaults to hard (loops /
 # dead-ends are routing logic, deterministically re-testable); the reporter
@@ -182,6 +225,53 @@ def _json_or_none(value: Any) -> Optional[str]:
   return json.dumps(value, ensure_ascii=False, default=str)
 
 
+def _normalize_probe(probe: Any) -> Any:
+  """Validate a probe on the way in.
+
+  A probe written as prose ("observe the banner across a price change") is a
+  NOTE, not a predicate — 95 of the registry's first 129 probes were prose,
+  each one silently discarded at read time and replaced by a derived
+  section-only guess. Prose is kept as ``note`` so the intent survives, but it
+  is never mistaken for a retest condition. A probe written as an object with
+  an UNKNOWN key is a typo, and typos fail loudly here rather than quietly
+  widening the probe to "any completed run".
+  """
+  if probe is None:
+    return None
+  if isinstance(probe, (str, bytes)):
+    text = probe.decode() if isinstance(probe, bytes) else probe
+    text = text.strip()
+    if not text:
+      return None
+    try:
+      parsed = json.loads(text)
+    except Exception:
+      return {"note": text}
+    return _normalize_probe(parsed) if isinstance(parsed, (dict, list)) else {"note": text}
+  if not isinstance(probe, dict):
+    raise ValueError(f"probe must be an object or a note string, got {type(probe).__name__}")
+  unknown = sorted(set(probe) - PROBE_KEYS)
+  if unknown:
+    raise ValueError(
+      f"unknown probe key(s) {unknown}; allowed: {sorted(PROBE_KEYS)}. "
+      "An unrecognized key is silently ignored by the checker, which widens "
+      "the probe to 'any completed run' - author it correctly or put it in 'note'."
+    )
+  specs = probe.get("artifact")
+  if specs is not None:
+    if isinstance(specs, dict):
+      specs = [specs]
+    if not isinstance(specs, list) or not specs:
+      raise ValueError("probe 'artifact' must be a non-empty object or list of objects")
+    for spec in specs:
+      if not isinstance(spec, dict):
+        raise ValueError(f"artifact assertion must be an object, got {spec!r}")
+      kind = str(spec.get("kind") or "").strip()
+      if kind not in ARTIFACT_KINDS:
+        raise ValueError(f"artifact kind must be one of {ARTIFACT_KINDS}, got {kind!r}")
+  return probe
+
+
 def _insert_resolution_event(
   cur, *, issue_id: int, signature: str, draft_id: str,
   event_type: str, detail: Any = None,
@@ -250,6 +340,7 @@ def report_issue(
   if not observed or not expected:
     raise ValueError("observed and expected are both required (what the app "
                      "did vs what should have happened)")
+  probe = _normalize_probe(probe)
 
   ensure_tables(conn)
   cur = conn.cursor()
@@ -337,6 +428,39 @@ def get_issue(conn, *, signature: str) -> Dict[str, Any]:
   return row
 
 
+def set_probe(conn, *, signature: str, probe: Any, note: str = "") -> Dict[str, Any]:
+  """Attach/replace an issue's retest condition, audited.
+
+  Probes are registry STATE, so upgrading one (typically: giving an issue a
+  real ``artifact`` assertion in place of an opportunity-only guess) goes
+  through here and leaves an INSERT-only audit row, rather than a hand-edited
+  UPDATE. Validation is the same fail-loud path the write contract uses.
+  Attaching a probe does NOT change status or counters; the next evaluation
+  re-judges the issue on the new condition.
+  """
+  ensure_tables(conn)
+  probe = _normalize_probe(probe)
+  cur = conn.cursor()
+  try:
+    issue = _fetch_issue(cur, signature)
+    if issue is None:
+      raise KeyError(f"no issue with signature {signature!r}")
+    cur.execute(
+      f"UPDATE {ISSUES_TABLE} SET probe_json = %s WHERE issue_id = %s",
+      (_json_or_none(probe), int(issue["issue_id"])),
+    )
+    _insert_resolution_event(
+      cur, issue_id=int(issue["issue_id"]), signature=signature, draft_id="",
+      event_type="probe_updated",
+      detail={"previous": issue.get("probe_json"),
+              "next": _json_or_none(probe), "note": note},
+    )
+    conn.commit()
+  finally:
+    cur.close()
+  return get_issue(conn, signature=signature)
+
+
 def resolve_manually(conn, *, signature: str, note: str = "") -> Dict[str, Any]:
   """Human override: mark resolved with basis 'manual'. Confidence follows
   the class honesty rule (hard -> confirmed, soft -> observational)."""
@@ -414,6 +538,14 @@ def _run_exercised(cur, draft_id: str, probe: Dict[str, Any]) -> Dict[str, Any]:
   # a future probe upgrade.
   if probe.get("manual_only"):
     return {"exercised": False, "reason": "manual-retest-only (vitals cannot sense this condition)"}
+  # require_completed is a GUARD, not a retest condition, and metadata is not a
+  # predicate at all. A probe carrying only those says "any finished run
+  # retests this", which is how nine regression_pin-only issues were resolving
+  # on runs that never went near them. No condition => nothing to tick.
+  conditions = (set(probe) & (PROBE_OPPORTUNITY_KEYS | PROBE_ARTIFACT_KEYS)) - {"require_completed"}
+  if not conditions:
+    return {"exercised": False,
+            "reason": "probe states no retest condition (metadata/notes only)"}
   checks: List[str] = []
 
   if probe.get("require_completed", True):
@@ -538,6 +670,186 @@ def _auto_recurrence(cur, draft_id: str, probe: Dict[str, Any]) -> Optional[str]
   return None
 
 
+def _load_ops_model(cur, draft_id: str) -> Optional[Dict[str, Any]]:
+  cur.execute(
+    "SELECT operating_model_json FROM intake_consult_drafts WHERE draft_id = %s",
+    (draft_id,),
+  )
+  row = cur.fetchone()
+  if not row or not row[0]:
+    return None
+  try:
+    parsed = json.loads(row[0]) if isinstance(row[0], (str, bytes)) else row[0]
+  except Exception:
+    return None
+  return parsed if isinstance(parsed, dict) else None
+
+
+def _ops_product_rows(ops: Dict[str, Any]) -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  for lob in (ops or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for product in lob.get("products") or []:
+      if isinstance(product, dict):
+        rows.append(product)
+  return rows
+
+
+def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+  """THE artifact for the per-line COGS class: every product row on a
+  multi-line business must carry a non-null cogs_percent_of_line_revenue.
+  A proposal in chat is not this; only the written ops row is."""
+  min_lines = int(spec.get("min_lines") or 2)
+  ops = _load_ops_model(cur, draft_id)
+  if ops is None:
+    return {"verdict": "not_applicable", "detail": "no operating_model_json on this draft"}
+  products = _ops_product_rows(ops)
+  if len(products) < min_lines:
+    return {"verdict": "not_applicable",
+            "detail": f"{len(products)} product row(s) < min_lines={min_lines}"}
+  written = [p for p in products
+             if p.get("cogs_percent_of_line_revenue") is not None]
+  if len(written) < len(products):
+    missing = [str(p.get("product_name") or p.get("name") or "?")
+               for p in products if p.get("cogs_percent_of_line_revenue") is None]
+    return {"verdict": "fail",
+            "detail": (f"{len(written)}/{len(products)} product rows carry "
+                       f"cogs_percent_of_line_revenue; null on {missing}")}
+  detail = f"all {len(products)} product rows carry cogs_percent_of_line_revenue"
+  if spec.get("require_distinct_rates"):
+    rates = {round(float(p["cogs_percent_of_line_revenue"]), 4) for p in products}
+    if len(rates) < 2:
+      return {"verdict": "fail",
+              "detail": f"all {len(products)} rows share one rate {rates} - "
+                        "a blend wearing per-line clothing"}
+    detail += f"; {len(rates)} distinct rate(s)"
+  return {"verdict": "pass", "detail": detail}
+
+
+def _assert_ops_field_non_null(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+  """Generic: a dotted path into operating_model_json must be non-null.
+  ``products[]`` walks every product row and requires ALL of them."""
+  path = str(spec.get("path") or "").strip()
+  if not path:
+    raise ValueError("artifact ops_field_non_null requires 'path'")
+  ops = _load_ops_model(cur, draft_id)
+  if ops is None:
+    return {"verdict": "not_applicable", "detail": "no operating_model_json on this draft"}
+  if path.startswith("products[]."):
+    field = path.split(".", 1)[1]
+    products = _ops_product_rows(ops)
+    if not products:
+      return {"verdict": "not_applicable", "detail": "no product rows"}
+    missing = [str(p.get("product_name") or "?") for p in products
+               if p.get(field) is None]
+    if missing:
+      return {"verdict": "fail", "detail": f"{field} null on {missing}"}
+    return {"verdict": "pass", "detail": f"{field} non-null on all {len(products)} rows"}
+  node: Any = ops
+  for part in path.split("."):
+    if not isinstance(node, dict) or part not in node:
+      return {"verdict": "fail", "detail": f"path {path!r} absent at {part!r}"}
+    node = node[part]
+  if node is None:
+    return {"verdict": "fail", "detail": f"path {path!r} is null"}
+  return {"verdict": "pass", "detail": f"path {path!r} non-null"}
+
+
+def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+  """The DELIVERED workbook must carry one COGS row per line plus a total
+  that sums over exactly those rows. Scoped to the P&L sheet on purpose: the
+  same label legitimately appears on Model Inputs (the driver row) and Audit
+  Source (persisted values, no formulas), and counting those inflates the
+  count into a false pass."""
+  import glob
+  import os
+  sheet_name = str(spec.get("sheet") or "FINMO")
+  label = str(spec.get("label_prefix") or "Cost of Goods Sold")
+  min_rows = int(spec.get("min_rows") or 2)
+  cur.execute(
+    "SELECT business_name FROM intake_consult_drafts WHERE draft_id = %s",
+    (draft_id,),
+  )
+  row = cur.fetchone()
+  business = str((row[0] if row else "") or "").strip()
+  delivery_dir = (os.getenv("FINMO_MODEL_DELIVERY_DIR") or "").strip()
+  if not business or not delivery_dir or not os.path.isdir(delivery_dir):
+    return {"verdict": "not_applicable", "detail": "no delivered-workbook directory to read"}
+  matches = sorted(
+    glob.glob(os.path.join(delivery_dir, f"{business}*.xlsx")),
+    key=os.path.getmtime,
+  )
+  if not matches:
+    return {"verdict": "not_applicable",
+            "detail": f"no delivered workbook for {business!r}"}
+  path = matches[-1]
+  try:
+    import openpyxl
+    wb = openpyxl.load_workbook(path)
+  except Exception as exc:
+    return {"verdict": "not_applicable", "detail": f"workbook unreadable: {exc}"}
+  try:
+    if sheet_name not in wb.sheetnames:
+      return {"verdict": "not_applicable",
+              "detail": f"sheet {sheet_name!r} absent"}
+    ws = wb[sheet_name]
+    labelled = [(c.row, str(c.value)) for (c,) in ws.iter_rows(min_col=1, max_col=1)
+                if c.value is not None and str(c.value).strip().startswith(label)]
+  finally:
+    try:
+      wb.close()
+    except Exception:
+      pass
+  per_line = [(r, v) for r, v in labelled if v.strip() != label]
+  if len(labelled) < min_rows or len(per_line) < min_rows:
+    return {"verdict": "fail",
+            "detail": (f"{os.path.basename(path)} [{sheet_name}] carries "
+                       f"{len(per_line)} per-line {label!r} row(s) "
+                       f"({len(labelled)} labelled total), expected >= {min_rows}")}
+  return {"verdict": "pass",
+          "detail": (f"{os.path.basename(path)} [{sheet_name}] carries "
+                     f"{len(per_line)} per-line {label!r} rows")}
+
+
+_ARTIFACT_DISPATCH = {
+  "ops_per_line_cogs": _assert_ops_per_line_cogs,
+  "ops_field_non_null": _assert_ops_field_non_null,
+  "workbook_cogs_rows": _assert_workbook_cogs_rows,
+}
+
+
+def _assert_artifacts(cur, draft_id: str, probe: Dict[str, Any]) -> Dict[str, Any]:
+  """Read the run's PERSISTED artifacts and judge them.
+
+  Returns present/verdict/details. ``present=False`` means the issue carries
+  no artifact assertion at all — the caller must then cap the resolution at
+  'observational'. A single failing assertion fails the whole set (a defect
+  anywhere in the artifact is the defect); a single not_applicable with no
+  failure makes the whole set not_applicable (we did not get to look).
+  """
+  specs = probe.get("artifact") if isinstance(probe, dict) else None
+  if isinstance(specs, dict):
+    specs = [specs]
+  if not isinstance(specs, list) or not specs:
+    return {"present": False, "verdict": "absent", "details": []}
+  details: List[str] = []
+  verdict = "pass"
+  for spec in specs:
+    if not isinstance(spec, dict):
+      raise ValueError(f"artifact assertion must be an object, got {spec!r}")
+    kind = str(spec.get("kind") or "").strip()
+    if kind not in _ARTIFACT_DISPATCH:
+      raise ValueError(f"artifact kind must be one of {ARTIFACT_KINDS}, got {kind!r}")
+    outcome = _ARTIFACT_DISPATCH[kind](cur, draft_id, spec)
+    details.append(f"{kind}: {outcome['verdict']} - {outcome['detail']}")
+    if outcome["verdict"] == "fail":
+      verdict = "fail"
+    elif outcome["verdict"] == "not_applicable" and verdict != "fail":
+      verdict = "not_applicable"
+  return {"present": True, "verdict": verdict, "details": details}
+
+
 def evaluate_run_for_resolution(
   conn,
   *,
@@ -561,12 +873,17 @@ def evaluate_run_for_resolution(
   summary = {
     "draft_id": draft_id, "evaluated": 0, "recurred": 0,
     "exercised_clean": 0, "not_exercised": 0,
+    "artifact_verified": 0, "artifact_failed": 0,
     "resolved_confirmed": [], "resolved_observational": [],
   }
   cur = conn.cursor()
   try:
+    # 'resolved' is included on purpose: an issue whose probe can READ an
+    # artifact stays under audit forever, so a verdict reached in error (or a
+    # genuine regression after a real fix) is caught on the next run instead
+    # of being frozen by its own resolution.
     cur.execute(
-      f"SELECT * FROM {ISSUES_TABLE} WHERE status IN ('open', 'recurring')"
+      f"SELECT * FROM {ISSUES_TABLE} WHERE status IN ('open', 'recurring', 'resolved')"
     )
     cols = [d[0] for d in cur.description]
     issues = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -609,17 +926,82 @@ def evaluate_run_for_resolution(
         summary["not_exercised"] += 1
         continue
 
+      # The artifact is the authority. Reporter silence on an exercised run is
+      # only the ABSENCE of a complaint; a read artifact is EVIDENCE.
+      artifact = _assert_artifacts(cur, draft_id, probe)
+
+      if str(issue["status"]) == "resolved":
+        # A RESOLVED issue is re-audited, never re-resolved. Resolution used
+        # to be terminal, so a verdict reached on weak evidence could never
+        # be revisited and #138 stayed 'confirmed' on the very run that
+        # disproves it. Now: if the artifact can be read and it is wrong, the
+        # issue reopens on its own evidence. If there is no artifact to read,
+        # nothing happens -- re-auditing on silence is what got us here.
+        if artifact["verdict"] == "fail":
+          summary["recurred"] += 1
+          summary["artifact_failed"] += 1
+          report_issue(
+            conn,
+            signature=signature,
+            category=str(issue["category"]),
+            severity=str(issue["severity"]),
+            observed=("resolution contradicted by the artifact: "
+                      + "; ".join(artifact["details"])),
+            expected="a resolved issue's artifact still carries the fix",
+            draft_id=draft_id,
+            source="artifact_check",
+          )
+        elif artifact["verdict"] == "pass":
+          summary["artifact_verified"] += 1
+          _insert_resolution_event(
+            cur, issue_id=issue_id, signature=signature, draft_id=draft_id,
+            event_type="resolution_reaudited",
+            detail={"artifact_verified": artifact["details"]},
+          )
+        continue
+      if artifact["verdict"] == "fail":
+        # The registry catches its own issue red-handed: the run walked the
+        # path and the persisted artifact is still wrong. That is a
+        # recurrence, whatever the reporter did or did not say.
+        summary["recurred"] += 1
+        summary["artifact_failed"] += 1
+        report_issue(
+          conn,
+          signature=signature,
+          category=str(issue["category"]),
+          severity=str(issue["severity"]),
+          observed="artifact assertion failed: " + "; ".join(artifact["details"]),
+          expected="the persisted artifact carries the fix, not just a proposal of it",
+          draft_id=draft_id,
+          source="artifact_check",
+        )
+        continue
+      if artifact["verdict"] == "not_applicable":
+        # We never got to look. Absence of opportunity is not evidence.
+        summary["not_exercised"] += 1
+        continue
+
       summary["exercised_clean"] += 1
+      if artifact["present"]:
+        summary["artifact_verified"] += 1
       clean = int(issue["clean_exercise_count"] or 0) + 1
       quiet = int(issue["runs_since_last_seen"] or 0) + 1
       rclass = str(issue["resolution_class"])
+      # 'confirmed' is reserved for a READ artifact that HELD. A hard issue
+      # with no artifact assertion has only opportunity + silence behind it,
+      # so it is treated exactly like a soft one: observational, and only
+      # after the soft threshold of quiet exercised runs.
+      artifact_backed = rclass == "hard" and artifact["present"]
       resolve_now = (
-        clean >= hard_clean_threshold if rclass == "hard"
+        clean >= hard_clean_threshold if artifact_backed
         else quiet >= soft_runs_threshold
       )
       if resolve_now:
-        basis = "retested_clean" if rclass == "hard" else "not_seen_n_runs"
-        confidence = "confirmed" if rclass == "hard" else "observational"
+        if artifact_backed:
+          basis, confidence = "artifact_verified", "confirmed"
+        else:
+          basis = "retested_clean" if rclass == "hard" else "not_seen_n_runs"
+          confidence = "observational"
         cur.execute(
           f"""
           UPDATE {ISSUES_TABLE}
@@ -630,14 +1012,18 @@ def evaluate_run_for_resolution(
           """,
           (clean, quiet, basis, confidence, issue_id),
         )
-        event = ("resolved_confirmed" if rclass == "hard"
+        # The event type follows the CONFIDENCE, not the class: a hard issue
+        # resolved on silence alone must not leave a 'resolved_confirmed'
+        # row in the audit trail.
+        event = ("resolved_confirmed" if confidence == "confirmed"
                  else "resolved_observational")
         _insert_resolution_event(
           cur, issue_id=issue_id, signature=signature, draft_id=draft_id,
           event_type=event,
           detail={"basis": basis, "confidence": confidence,
                   "clean_exercise_count": clean, "runs_since_last_seen": quiet,
-                  "exercised_via": verdict["reason"]},
+                  "exercised_via": verdict["reason"],
+                  "artifact_verified": artifact["details"] or None},
         )
         summary[f"resolved_{confidence}"].append(signature)
       else:
@@ -653,7 +1039,8 @@ def evaluate_run_for_resolution(
           cur, issue_id=issue_id, signature=signature, draft_id=draft_id,
           event_type="exercised_clean",
           detail={"clean_exercise_count": clean, "runs_since_last_seen": quiet,
-                  "exercised_via": verdict["reason"]},
+                  "exercised_via": verdict["reason"],
+                  "artifact_verified": artifact["details"] or None},
         )
     conn.commit()
   finally:
@@ -662,6 +1049,121 @@ def evaluate_run_for_resolution(
     except Exception:
       pass
   return summary
+
+
+def reclassify_unearned_confirmations(conn, *, dry_run: bool = False) -> Dict[str, Any]:
+  """Retire the 'confirmed' verdicts that were never earned.
+
+  Before the artifact gate, EVERY hard resolution was stamped 'confirmed' on
+  basis='retested_clean', which meant only "a run finished, visited the same
+  section, and nobody re-filed the signature". That is opportunity plus
+  silence, not verification. This demotes those verdicts to 'observational'
+  and leaves an INSERT-only audit row for each.
+
+  Deliberately NOT touched: status stays 'resolved' (the agenda is not
+  flooded with issues nobody has evidence against), basis stays
+  'retested_clean' (the history is not rewritten), and basis='manual'
+  verdicts stay 'confirmed' (a human looked). Any of these re-earns
+  'confirmed' the moment it is given an artifact assertion that passes.
+
+  Idempotent: a second call finds nothing to do.
+  """
+  ensure_tables(conn)
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"""
+      SELECT issue_id, signature, category, severity FROM {ISSUES_TABLE}
+      WHERE resolution_confidence = 'confirmed'
+        AND resolution_basis = 'retested_clean'
+      ORDER BY issue_id
+      """
+    )
+    targets = [
+      {"issue_id": int(r[0]), "signature": str(r[1]),
+       "category": str(r[2]), "severity": str(r[3])}
+      for r in cur.fetchall()
+    ]
+    if not dry_run:
+      for t in targets:
+        cur.execute(
+          f"""
+          UPDATE {ISSUES_TABLE} SET resolution_confidence = 'observational'
+          WHERE issue_id = %s
+          """,
+          (t["issue_id"],),
+        )
+        _insert_resolution_event(
+          cur, issue_id=t["issue_id"], signature=t["signature"], draft_id="",
+          event_type="confidence_demoted",
+          detail={
+            "from": "confirmed", "to": "observational",
+            "reason": ("resolved before the artifact gate: evidence was "
+                       "opportunity (run completed / section visited) plus "
+                       "reporter silence, with no artifact read"),
+            "re_earn": ("attach an 'artifact' assertion via set_probe(); the "
+                        "next exercised run re-judges it"),
+          },
+        )
+      conn.commit()
+  finally:
+    cur.close()
+  return {
+    "dry_run": dry_run,
+    "demoted": len(targets),
+    "signatures": [t["signature"] for t in targets],
+  }
+
+
+def probe_audit(conn) -> Dict[str, Any]:
+  """What does each issue's detector actually verify? (CW-031 tier 1)
+
+  Buckets every issue by the STRONGEST evidence its probe can produce:
+    artifact     - reads a persisted artifact; can earn 'confirmed'
+    opportunity  - only proves the run walked the path; 'observational' cap
+    metadata     - notes/pins only: states no retest condition, ticks nothing
+    manual       - explicitly human-retest-only
+    derived      - no probe at all; a section guess is derived from the first
+                   occurrence, which is opportunity at its weakest
+  """
+  ensure_tables(conn)
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"""SELECT issue_id, signature, status, resolution_class,
+                 resolution_confidence, probe_json
+          FROM {ISSUES_TABLE} ORDER BY issue_id"""
+    )
+    rows = cur.fetchall()
+  finally:
+    cur.close()
+  buckets: Dict[str, List[str]] = {
+    "artifact": [], "opportunity": [], "metadata": [], "manual": [], "derived": [],
+  }
+  for issue_id, signature, status, rclass, confidence, raw in rows:
+    probe: Any = None
+    if raw:
+      try:
+        probe = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+      except Exception:
+        probe = None
+    if not isinstance(probe, dict) or not probe:
+      bucket = "derived"
+    elif probe.get("manual_only"):
+      bucket = "manual"
+    elif probe.get("artifact"):
+      bucket = "artifact"
+    elif (set(probe) & PROBE_OPPORTUNITY_KEYS) - {"require_completed"}:
+      bucket = "opportunity"
+    else:
+      bucket = "metadata"
+    buckets[bucket].append(f"#{issue_id} {signature}")
+  return {
+    "total": len(rows),
+    "counts": {k: len(v) for k, v in buckets.items()},
+    "can_earn_confirmed": len(buckets["artifact"]),
+    "buckets": buckets,
+  }
 
 
 # ----------------------------------------------------------------------------

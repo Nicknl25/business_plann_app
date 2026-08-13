@@ -1255,3 +1255,145 @@ FIX ORDER (revised):
      consumer that sets the per-line percents accordingly.
   3. Make the shown per-line proposal the WRITTEN one (resolve once;
      loud degradation, never silent blend-only).
+
+================================================================================
+CW-031 TIER 1 (META-FIX) -- LANDED. THE REGISTRY ANSWER NICK ASKED FOR.
+================================================================================
+
+THE QUESTION: "which detectors verify artifacts and which verify
+intentions?" Nick does not trust the registry until this is answered.
+
+THE ANSWER, before this change: NONE OF THEM VERIFIED ARTIFACTS. Not
+one of 129. The whole probe vocabulary -- section, stage_like,
+business_like, min_turns, require_completed -- answers only "did this
+run go DOWN the path". It never reads a persisted value. So
+'resolved confirmed' meant no more than:
+
+    a run finished, it visited the same section, and the reporter did
+    not re-file the signature.
+
+That is opportunity plus silence. It is not verification, and it is
+exactly how #138 was resolved-confirmed by the very run whose workbook
+disproves it: the app PROPOSED a per-line split in prose, the reporter
+read the proposal and stayed quiet, and all four product rows were
+written null anyway.
+
+CENSUS OF THE 129 PROBES AS FOUND (scripts/issue_resolution_check.py
+--probe-audit reproduces this):
+  93  derived     - probe_json held PROSE ("positioning splice",
+                    "backend field audit after convergence"), which
+                    json.loads rejects; the checker silently swallowed
+                    the exception and substituted a section guess from
+                    the first occurrence. 93 authored retest conditions
+                    were being thrown away without a word.
+  20  opportunity - real clauses, all of them opportunity-only.
+  10  metadata    - regression_pin/note ONLY. No clause the checker
+                    recognises, so it matched nothing, fell through to
+                    the require_completed default, and returned
+                    exercised=True. ANY completed run resolved these.
+                    8 of the 59 resolutions rest on run_completed
+                    alone; one rests on business alone.
+   3  manual      - honest: explicitly human-retest-only.
+   0  artifact.
+
+THE FIX IS ONE STRUCTURAL RULE, not a patch to #138's detector:
+
+  resolution_confidence='confirmed' requires an artifact assertion
+  that was READ on the run and HELD. Everything else is capped at
+  'observational' and must clear the soft threshold (5 quiet exercised
+  runs) instead of the hard one (1).
+
+One rule closes all four classes at once -- prose probes, metadata-only
+probes, opportunity probes, and honest-but-weak probes all stop minting
+'confirmed'. Three supporting changes:
+
+  (a) A FAILING artifact assertion is a RECURRENCE, not a quiet run.
+      The registry now reopens an issue on its own evidence without
+      waiting to be told.
+  (b) 'resolved' is no longer terminal. evaluate_run_for_resolution
+      now also selects resolved issues and RE-AUDITS (never
+      re-resolves) any that carry a readable artifact. This was found
+      by the red-proof: with only (a) in place #138 stayed frozen at
+      'confirmed' forever, because the checker had never once looked
+      at a resolved issue again. A false verdict was previously
+      unreachable by any amount of later evidence.
+  (c) Probes fail loud on write. A prose probe becomes a note field
+      (intent survives, is never mistaken for a predicate); an object
+      with an unknown key RAISES rather than silently widening to "any
+      completed run". A probe stating no retest condition at all now
+      ticks nothing.
+
+ARTIFACT ASSERTION VOCABULARY (small and deterministic on purpose):
+  ops_per_line_cogs    - every product row on a multi-line business
+                         carries a non-null cogs_percent_of_line_revenue;
+                         require_distinct_rates catches a blend wearing
+                         per-line clothing.
+  ops_field_non_null   - generic dotted path into operating_model_json;
+                         products[].<field> requires ALL rows.
+  workbook_cogs_rows   - the DELIVERED workbook carries N per-line COGS
+                         rows. SCOPED TO THE FINMO SHEET on purpose --
+                         "Cost of Goods Sold" legitimately also appears
+                         on Model Inputs (driver row) and Audit Source
+                         (persisted values, no formulas). This is the
+                         same scoping trap as R32; counting the whole
+                         grid inflates the count into a false pass.
+  not_applicable (e.g. a multi-line assertion on a single-line
+  business) counts as NOT EXERCISED. Absence of opportunity is never
+  evidence.
+
+RED-PROOF: Test Files/_redproof_cw031_artifact_detector.py
+  evidence: _redproof_cw031_artifact_detector_20260813.txt
+  Production chain under test, named first and hit exactly:
+    scripts/persona_run_vitals_finalize.py:387
+      -> issue_registry.evaluate_run_for_resolution(conn, draft_id=...)
+  No fixtures, no stubs: real MySQL rows, the real operating_model_json
+  for draft 1070c6a5, and the real delivered workbook on disk. STEP 0
+  restores #138 to the exact false state the registry recorded at
+  2026-08-13 12:14:22 so the proof repeats.
+  RED on the bug (first run, before (b) existed): 5 checks failed,
+  #138 resolved -> resolved, confidence stayed 'confirmed'.
+  GREEN now: #138 resolved -> RECURRING, confidence confirmed -> None,
+  and the occurrence text names the artifact, not the prose:
+    "0/4 product rows carry cogs_percent_of_line_revenue; null on
+     [Plant sale, Hard goods sale, Install project, Design consult]"
+  Workbook side, read live: FINMO carries 0 per-line COGS rows (1
+  labelled total, the blended single formula row A9).
+
+THE LEGACY VERDICTS: 51 issues still displayed 'confirmed' on
+retested_clean -- opportunity plus silence. Demoted to 'observational'
+by scripts/issue_resolution_check.py --reclassify-unearned (audited,
+INSERT-only confidence_demoted rows, idempotent, --dry-run available).
+Deliberately NOT done: status stays 'resolved' so the agenda is not
+flooded with issues nobody has evidence against, basis stays
+retested_clean so history is not rewritten, and the one basis='manual'
+verdict stays 'confirmed' because a human actually looked. Any of the
+51 re-earns 'confirmed' the moment it is given an artifact assertion
+that passes -- nothing is lost, only the unearned label.
+
+REGISTRY STATE AFTER (was: 46 confirmed, 45 of them unearned):
+    66 open / confidence None
+    51 resolved / observational / retested_clean   (demoted)
+    10 resolved / observational / not_seen_n_runs
+     1 resolved / CONFIRMED / manual               (the human override)
+     1 recurring                                   (#138, reopened)
+
+NEW OPERATOR SURFACE (no hand-edited SQL anywhere):
+  issue_resolution_check.py --probe-audit          what each detector verifies
+  issue_resolution_check.py --reclassify-unearned  demote unearned confirms
+  issue_registry.set_probe(...)                    audited probe upgrade
+
+HONEST GAP, stated rather than faked: #142 (the shared-cost-structure
+collapse acknowledged but not stored) has NO artifact assertion,
+because the artifact does not exist yet -- nothing in the schema can
+record which lines share a cost structure. It becomes assertable the
+moment tier-2 item 4 ships a stored collapse; the assertion is
+ops_per_line_cogs with require_distinct_rates plus an equality check
+on the shared pair. Until then #142 is opportunity-only and correctly
+capped at 'observational'.
+
+WHAT THIS DOES NOT DO: it does not fix the COGS write door. 126 of 129
+issues still have opportunity-only detectors and can no longer reach
+'confirmed' at all -- which is the honest state, not a regression, but
+it does mean the registry will report far fewer resolutions until
+probes are upgraded issue by issue. Upgrading them is cheap
+(set_probe) and should happen as each class is actually fixed.
