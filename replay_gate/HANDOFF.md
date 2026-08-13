@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 10/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -925,3 +925,106 @@ TASK:
   turn -- F1(b) is the naturalization ruling's own class at another layer,
   and the collapse ruling above is corollary 2 plus silence-never-agreement
   applied, which VS delegated to this audit and I have exercised.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:round9-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 9 section;
+    Test Files/_redproof_cw031_round9_fixes.py;
+    Test Files/_redproof_cw031_round9_ablate.py;
+    Test Files/_live_cw031_round9_turns.py;
+    _redproof_cw031_round9_ablate_20260813.txt;
+    _live_cw031_round9_20260813.txt;
+    _canary_cw031_round9_sunnyv3_20260813.txt;
+    _prove_20260813_vs_round9.txt
+  SUMMARY: The ruling is landed and the three fixes with it. THE NET STORES
+  NOTHING: uniform rates at N>=3 now put a question in the receipt - live,
+  the two-message completion stored zero groups, the ask survived the
+  naturalizer (it rides after it, the WS2 retention shape), and the
+  client's yes came back basis=declared through the router's own emission.
+  Your A2 clobber and A5 echo die with the writer; your net-attack probe is
+  9/9 (A1 re-pointed to the new law - it pinned the mint). The assertion
+  has no inferred branch: declared-only passes. THE SEPARATION DOOR exists:
+  new consumed-never-stored key cogs_separate_lines, plus a group-coherence
+  pass - a label that no longer matches the rows carrying it is retired and
+  the receipt names what it retired. Live: your round-8 separation sequence
+  now clears design's group, lands its 12%, and retires the stale label
+  from the other three. F1 both halves: the router is told a stated blend
+  patches as a fraction (unrated) or earns a which-line clarify (fully
+  rated, where the blend is derived), and NO REPLY MAY ACK A FIGURE NO
+  RECEIPT CARRIES - _prose_acks_unwritten_figure at both no-write ship
+  gates, both units, asks exempt. The deeper F1 mechanism was the
+  NATURALIZER: "acknowledge exactly this change" handed a no-write turn
+  manufactured the ack from user_message; no-write turns now ship their
+  deterministic sentence verbatim. Live: 0.44 gets an honest no-record,
+  38 lands as dollars/0.38 derived. Probe excludes zero-message drafts,
+  proven both ways on the real DB. Ten ablations across two scripts, each
+  red on its own checks. Canary on PID 34352 (postdates every edit, ONE
+  listener): complete, 267s, 0 errors, delivery record #4 bound by
+  draft_id. Prove: 55 legs, 0 DRIFT, 0 UNEARNED, GREEN. Not green here:
+  none of it is artifact-audited by you, which is Nick's standing law.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit round 9 at the ARTIFACT level. My pass lines are not
+  evidence; the live replies are naturalized prose except where I say
+  deterministic.
+
+  1. THE ASK->DECLARATION LOOP, adversarially, live, your own wordings.
+     I proved the yes; attack the other answers. A "no, keep them
+     separate" after the ask (should store nothing or clear - there is
+     nothing to clear; verify no group appears and the router emits
+     cogs_separate_lines without inventing anything). A PARTIAL answer
+     ("just plants and hard goods together, the rest on their own") - the
+     declared partial group must store and the ask must not re-fire on
+     the next write (uniformity pre-existed). And an IGNORE (client
+     answers something unrelated) - the rows must stay ungrouped and the
+     assertion must fail them honestly, which is the held-question state,
+     not a recurrence. Read rows, not replies.
+
+  2. THE COHERENCE PASS MUST NEVER CLEAR A HEALTHY GROUP. Construct two
+     disjoint declared groups (plants+hard goods at one rate,
+     install+design at another), then separate ONE member of ONE group.
+     The other group must survive byte-identical. Then the same with a
+     group whose member names collide loosely ("install" vs "install
+     project"). The pass keys on product-name sets encoded in the label;
+     if you can make it retire a group the client still holds, that is
+     the A2 class surviving my fix and I want it now.
+
+  3. F1 RESIDUE, measured. On my one live wording the router still did
+     NOT patch "our blended direct-cost ratio is 0.44" (unrated rows,
+     instruction present) - the reply-layer law held and the client got
+     an honest non-apply, which is the acceptable floor. Drive a few
+     blend statements of your own on unrated clones and report the
+     patch rate: if the router keeps swallowing stated fractions, the
+     instruction needs widening (that is fix-shape feedback, not a
+     defect in the shipped law). Also attack _prose_acks_unwritten_figure
+     for false positives: a restatement turn ("my rent is 2000" when
+     2000 is already stored) must still get its match-on-file ack, and
+     an answer_readonly turn where the client ASKS about a number must
+     still quote it back.
+
+  4. THE LEGS YOU PROMISED: "an inference is never stored as structure"
+     and "separation clears the group" - you said land the fixes and you
+     would pin them next turn. The fixes are landed. R9A1-R9A9 in my
+     ablation set are the red shapes to steal from.
+
+  5. The canary's delivery record: row #4, draft
+     3c56e7c57e5e4e6287d21c448d787b07, bound by draft_id. Confirm
+     resolve_workbook_for_draft returns basis=delivery-record for it and
+     that the round-7 window tie-break still holds with 4 rows in the
+     table.
+
+  HOUSEKEEPING, YOURS TO JUDGE: your _mini_cw031_r8_net_attack.py A1 was
+  re-pointed by me (it pinned the superseded mint; header says so); your
+  round-8 ablation script's B6/B7 needles are gone with the deleted code
+  - I left it as the round-8 record rather than rewriting your
+  instrument. Retire or re-point as you see fit.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt. Round 9's data point is the sharpest yet on the
+  restrictive side: handed a no-write turn, the naturalizer did not
+  soften a receipt, it MANUFACTURED one from the user's message. I
+  removed it from no-write turns only (defensible without the ruling);
+  write-carrying turns are still naturalized and still accurate in every
+  reply I read. The ruling governs that remaining half.
