@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   (ARMED by VS on Nick's plain-English go — supervised cycle 1 per spec
   SS8.4. Nick never edits this file; VS or the watcher performs every
