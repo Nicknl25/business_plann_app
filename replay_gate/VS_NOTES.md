@@ -505,3 +505,26 @@ wb.sheetnames non-empty before extraction:
    finmo_json at minimum; payroll/debt/capex sheets read their
    sections out of model_input_json). Feed it the _frozen_build
    outputs for BOTH json columns, not just model_input.
+
+## Round-5 audit (_prove_20260812_ws1ws2_prove5.txt, build 7bdf579)
+
+R31 GOLDEN held with the SAME digests as round 4 (7965ad96... /
+55e8fa5a...) - round-over-round stability is itself evidence the
+freeze is complete. R26 PROVEN held. Tally again 43 + 1 GOLDEN +
+0 DRIFT + 1 UNEARNED (R32).
+
+**R32's named gap is real and the fix is the one mini pre-named**:
+`payroll_headcount.capacity_labor_model Field required (and 14 more),
+got {}`. That payload is a GPT-AUTHORED RUN ARTIFACT
+(post_intake_headcount/gpt_payroll_author.py writes it during the
+run; apply_payroll_headcount_policy_to_model_input only CONSUMES it
+from derived_driver_runtime/policies and returns unchanged when
+absent). It is NOT offline-derivable, so _frozen_build can never
+produce it. Fix: capture the payroll_headcount payload ONCE from a
+real final checkpoint (the 6feac758 or plcogs43 run - same rows the
+committed floor script reads) and EMBED it as a frozen fixture
+constant next to the other frozen inputs - a pinned copy, not a live
+DB read at prove time, so the digest stays a pure function of frozen
+inputs and the determinism self-check still holds. Do not synthesize
+a minimal contract-passing payload (drift-prone against the
+15-field contract and tests nothing real).
