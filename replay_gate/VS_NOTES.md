@@ -1170,3 +1170,44 @@ STILL CONFIRMED AND SERIOUS: the per-line COGS write. At intake close
 all four rows carry cogs_percent_of_line_revenue=None while the client
 was shown 55/60/38/6 in prose and the blend persisted at 0.47. That
 one is real and is FIX 1.
+
+## CW-031 FINDING #2 (SEVERE): the cogs_shared collapse has NO
+## conversational path - the client asked for it perfectly and was stranded
+
+At the done-surface wall, immediately before submit, the Ravenwood
+client said, unambiguously:
+
+  "On direct costs - plants and hard goods are both bought-in retail
+   goods, so treat those two as sharing one cost structure. But keep
+   install and design separate from them and from each other, they're
+   nothing alike. So four lines but three different cost rates."
+
+The app replied:
+
+  "Sorry, I don't think I caught that - could you tell me, in your own
+   words, what you'd like us to record for lob models?"
+
+THREE failures in one exchange:
+1. A well-formed instruction was not understood.
+2. MISROUTED OBJECT: the client was regrouping COST STRUCTURE, the app
+   reached for lob_models (the line structure). Different object.
+3. It happened AT THE WALL, the client-stranded surface.
+
+This is the capability Nick specified explicitly: "cogs_shared stays
+per-group: if 2 of 3 streams share a cost structure they collapse to
+one COGS while the third stays separate - client is authority on how
+many DISTINCT COGS exist." The judge schema carries
+shares_cost_structure_with, and NOTHING in the conversation can set
+it: there is no router intent, no door, no consumer.
+
+COMBINED LIVE VERDICT on the WS1b INTAKE half:
+  - four lines proposed with distinct rates in prose      WORKS
+  - those rates written to the product rows               NEVER
+  - client's collapse instruction understood/routed       NEVER
+  - engine rows -> Sigma -> workbook per-line rows        PROVEN (starved)
+
+The engine is ready and correct; the conversation cannot feed it.
+This is not polish on a working feature - the intake half is
+substantially non-functional live, and only a real multi-line
+conversation could have shown it. Neither the gate nor the stamped
+E2E could: both start downstream of the write.
