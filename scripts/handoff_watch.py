@@ -313,6 +313,46 @@ def write_status(new_status: str, *, reason: str, branch: str, bump_turn: int | 
 
 
 # -------------------------------------------------------------- ping
+STAGES = REPO / "replay_gate" / "STAGES.md"
+_STAGE_ITEM = re.compile(r"^##\s+([A-Za-z0-9][A-Za-z0-9\-]*)")
+_STAGE_FIELD = re.compile(r"^\s*(GATE|LIVE|COWORK):\s*([a-z][a-z/\-]*)", re.I)
+
+
+def stage_items() -> list[dict]:
+    """Parse replay_gate/STAGES.md — the ONE place that answers 'is it done?'
+    per work item, in stages, because a bare green/red made Nick adjudicate
+    two agents' different meanings of 'done'."""
+    if not STAGES.exists():
+        return []
+    items: list[dict] = []
+    current: dict | None = None
+    for line in STAGES.read_text(encoding="utf-8").splitlines():
+        head = _STAGE_ITEM.match(line)
+        if head:
+            current = {"name": head.group(1), "GATE": "?", "LIVE": "?", "COWORK": "?"}
+            items.append(current)
+            continue
+        if current:
+            field = _STAGE_FIELD.match(line)
+            if field and current[field.group(1).upper()] == "?":
+                current[field.group(1).upper()] = field.group(2).lower()
+    return items
+
+
+def stage_summary(*, only_open: bool = True) -> str:
+    """One line per work item. `only_open` keeps the heartbeat short by
+    showing just the items that still need something."""
+    rows = []
+    for item in stage_items():
+        open_item = item["LIVE"] in {"pending", "failing"} or item["COWORK"] == "blocked"
+        if only_open and not open_item:
+            continue
+        rows.append(
+            f"{item['name']}: GATE={item['GATE']} LIVE={item['LIVE']} COWORK={item['COWORK']}"
+        )
+    return " | ".join(rows)
+
+
 def desktop_alert(subject: str) -> None:
     """SECOND CHANNEL. Email can sit unread in a tab nobody is looking at —
     which is exactly what happened: eight pings sent, none seen. A desktop
@@ -342,6 +382,10 @@ def desktop_alert(subject: str) -> None:
 def ping(subject: str, body: str, state: dict) -> None:
     # Nick's interface is English in / ping out — so the ping itself says how
     # to continue, and it is never "edit this file".
+    stages = stage_summary(only_open=False)
+    if stages:
+        # Every ping answers "where is everything?" without Nick asking.
+        body = body.rstrip() + "\n\n--- WORK ITEM STAGES ---\n" + stages.replace(" | ", "\n")
     body = body.rstrip() + (
         "\n\n---\nTo continue: just say what you want in plain English "
         "('go', 're-run it', 'have mini audit that'). VS or the watcher does "
