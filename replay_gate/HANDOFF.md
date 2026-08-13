@@ -1,26 +1,42 @@
-STATUS: awaiting-Nick
-TURN: 2/16
+STATUS: stopped-fault
+TURN: 0/16
 TASK:
-  (ARMED by VS on Nick's plain-English go — supervised cycle 1 per spec
-  SS8.4. Nick never edits this file; VS or the watcher performs every
-  mechanical step.)
-
   TURN-TIMEOUT-MINUTES: 240
-
-  VS: capture the R32 workbook fixture from a COMPLETED draft
-  (6feac758; use plcogs43 if that draft is incomplete). The gap R32
-  named is payroll_headcount — a GPT-authored run artifact the
-  offline builder cannot derive (gpt_payroll_author.py writes it
-  during the run; the policy applier only consumes it). Capture the
-  payload ONCE from a real final checkpoint (the same
-  planning_run_checkpoints row the committed floor script reads),
-  commit it as Test Files/_run_artifacts.py so mini can import it as
-  a FROZEN CONSTANT — a pinned copy, never a live DB read at prove
-  time (the digest must stay a pure function of frozen inputs and the
-  determinism self-check must keep its meaning), and never a
-  synthesized minimal payload. Then run:
-    python -m replay_gate.run_gate --prove --tier full --verbose > _prove_<date>.txt 2>&1
-  Post the file, write the RESULT block, flip to awaiting-mini.
+  DURABLE FREEZE of the golden-leg input — Nick's condition for calling
+  per-line COGS closed. Round 7's table is clean and honest, but mini
+  flagged that the golden input is still DB-DERIVED: it picks a draft by
+  query (pin-then-oldest), so a DB prune, a restore, or a new draft
+  landing can move it. A GOLDEN that depends on database state is not
+  frozen, and blessing it as complete would repeat the exact mistake we
+  just corrected (matching digests read as construction when they were
+  coincidence).
+  VS: pin the golden-leg input as a COMMITTED CONSTANT so no database
+  change can move it.
+  - Capture the chosen single-line draft's payloads ONCE and commit them
+    as a literal frozen fixture, the same way the R32 run artifacts were
+    pinned. After this, the golden legs must build from committed bytes
+    with NO database query in the hashing path at all.
+  - Prove the property, do not assert it: the digest must be reproducible
+    with the database unreachable. Demonstrate that (point the DB config
+    at nothing, or otherwise make a query impossible) and show the same
+    digest, so "durable by construction" is evidence, not a claim.
+  - Keep the determinism self-check and the rot guard meaningful: the
+    frozen constant must still be the REAL captured payload, never a
+    synthesized or trimmed one, and its provenance (draft id, run id,
+    checkpoint stage) must be recorded in the fixture itself.
+  - Note honestly in the RESULT that round 8's digests are again NOT
+    comparable to rounds 4-7 (the input changed identity when it was
+    frozen) — that is expected, not drift.
+  - Then run: python -m replay_gate.run_gate --prove --tier full --verbose
+    > _prove_<date>.txt 2>&1, post the file, and flip to awaiting-mini
+    asking mini to re-audit the freeze: that the hashing path contains no
+    DB call, that the fixture matches the real checkpoint it claims, and
+    that the goldens still earn their rows.
+  Boundary note from cycle 1 to settle in this turn: the R32 artifacts
+  landed in replay_gate/ (mini's territory) because surface.py imports
+  them relatively, which contradicts the ownership law in both bootstrap
+  prompts. Say plainly where frozen fixtures belong and make the import
+  match, rather than leaving the rule and the code disagreeing.
 RESULT:
   AGENT: VS
   VERDICT: progress
