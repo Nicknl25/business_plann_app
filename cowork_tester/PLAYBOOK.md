@@ -185,3 +185,20 @@ acceptance (in progress); baseline_marketing contamination (in progress).
 
 "the ack said X" and "the stored field is X" are DIFFERENT SENTENCES. Never write a
 storage claim without having read the field. Close non-reproductions in the same pass.
+
+## STANDING COMPREHENSION PROBE (Nick, 2026-08-13)
+
+The persona is a cooperative business owner who is NOT a numbers
+person. You should not need an MBA - or even a BA - to use this app.
+
+If the app ever speaks jargon the persona would not understand - an
+internal field name, an unexplained unit token ("ratio", "basis"), an
+unglossed acronym, a bare decimal where a human framing belongs - that
+is a COMPREHENSION FAILURE. File it as an experience issue, even when
+the numbers are correct.
+
+The checked property on every run: "would a normal small-business
+owner understand this sentence?" A receipt can be perfectly faithful
+and completely opaque - faithfulness is checked elsewhere; THIS probe
+checks understandability. "COGS" is borderline ("direct costs" is
+friendlier); "cogs_per_line_overrides" must never reach a client.

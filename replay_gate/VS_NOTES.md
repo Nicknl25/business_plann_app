@@ -1792,3 +1792,199 @@ why in place: a stage-path "ratio of 71" and an out-of-range 1.5 are both
 caught downstream by the unmarked-basis clarify machinery and the derivability
 guard, so asserting them against these rules would be measuring the other
 guard. The discriminating cases are asserted on the correction path instead.
+
+# ============================================================
+# NICK'S RULINGS AT THE ROUND-8 BOUNDARY (seeded by VS, 2026-08-13)
+# ============================================================
+## THE PARENT LAW (Nick, blessed 2026-08-13)
+##
+##    THE APP MUST NOT INVENT WHAT THE CLIENT IS THE AUTHORITY TO
+##    DECLARE.
+##
+## Three corollaries, each discovered separately and each an instance
+## of the one law:
+##   1. THE UNIT IS DECLARED, NEVER INFERRED       (R35, round 7)
+##   2. THE COLLAPSE IS DECLARED, NEVER INFERRED   (mini, round 7 -
+##      minting a shared group from VALUE EQUALITY is the app deciding
+##      something only the client can say)
+##   3. THE NUMBER IS READ, NEVER RE-DERIVED       (the naturalization
+##      ruling below)
+##
+## The law governs NEW work from here. A class-wide scan for other
+## surfaces is a SEPARATE POST-BATCH TASK (see section F) - it is
+## explicitly NOT part of CW-031 and must not widen this batch.
+
+## DESIGN LAW: PROSE IS A VIEW OF THE RECEIPT, NEVER A COMPUTATION
+   (Nick's ruling, 2026-08-13 - settles the question sharpened over
+   three rounds; corollary 3 of the parent law above)
+
+Naturalization may NOT touch the underlying numbers. It renders the
+frozen receipt into prose; it never re-sources, recomputes, or
+reformats a value from anything but what the receipt already froze.
+
+WHY, in Nick's words: this bug has appeared THREE times - 0.005 spoken
+as "50%", "$47 a year against the $48 you reported" on a $514k line,
+and the marketing-$0 false receipt. Each is a new disguise of the SAME
+thing: prose diverging from the write. Guarding each instance is the
+CATCH model and it keeps leaking. Make it UNREPRESENTABLE: the prose
+layer gets access ONLY to the frozen receipt, so it CANNOT say a number
+other than what was written. Prevent, do not catch. Distortion dies at
+its source.
+
+A prose layer that can alter numbers is a SECOND SOURCE OF TRUTH - the
+mirror pattern already killed everywhere else in this codebase.
+
+IMPLEMENTATION: naturalization takes the frozen receipt as its ONLY
+numeric source. It may rephrase (0.005 -> "half a percent") but the
+number it speaks is provably the number that was written - same value,
+different words, never a re-derivation. IF NATURALIZATION NEEDS A
+NUMBER THE RECEIPT DOES NOT CARRY, THAT IS A GAP IN THE RECEIPT TO FIX,
+NOT LICENSE FOR PROSE TO SOURCE IT ELSEWHERE.
+
+ACCEPTED COST, stated so nobody optimises it back: prose gets less
+clever (no re-sourcing). That is exactly right - the whole bug class is
+prose being clever and wrong. Faithful, not smart.
+
+WHAT MINI VERIFIES: does the spoken number PROVABLY EQUAL the written
+number? Not "is the prose plausible" - provably equal, checked against
+the frozen receipt.
+
+COMPLEMENT: this is the twin of "a receipt without a write is a
+defect". The app must not CLAIM a write that did not happen, AND must
+not DESCRIBE a write as other than what it was. Both are one property:
+THE APP'S WORDS MATCH THE APP'S STATE.
+
+SIBLING FINDING (mini, round 7): the all-lines collapse group is minted
+from VALUE EQUALITY rather than declaration - two coinciding rates mint
+a collapse the client never declared. Same principle in another
+disguise: THE APP MUST NOT INFER WHAT THE CLIENT IS THE AUTHORITY TO
+DECLARE. Unit declared not inferred (R35), collapse declared not
+inferred, number spoken not re-derived.
+
+## DESIGN LAW: NO TECHNICAL JARGON REACHES THE CLIENT
+   (Nick, 2026-08-13 - assumed until now, stated and verified from here)
+
+You should not need an MBA - or even a BA - to use this app. The client
+is a normal business owner, not a financial analyst.
+
+THIS IS SEPARATE FROM FIDELITY. Fidelity says the spoken number equals
+the written number. This says the spoken WORDS are understandable to a
+non-financial person. A receipt can be perfectly faithful AND completely
+opaque: "COGS basis: ratio, per-line override 0.38" matches the write
+exactly and means nothing to a normal owner. Both properties matter;
+only fidelity is enforced today.
+
+THE RULES:
+- Client-facing prose uses plain business English. Never internal field
+  names, never unit tokens as jargon (ratio / percent as vocabulary),
+  never system words. "COGS" is borderline - "direct costs" is
+  friendlier; "cogs_per_line_overrides" NEVER reaches a client.
+- Numbers get human framing: "about 38% - so for every $100 of install
+  work, roughly $38 goes to materials" beats a bare "0.38 ratio".
+- The client never sees the plumbing. Field names, unit declarations,
+  basis flags, transport keys - internal only, always.
+
+EVIDENCE THE APP ALREADY SPLITS BOTH WAYS: the COGS proposal is good
+plain English ("For direct costs - materials, supplies, and other
+non-labor costs tied to delivering the work..."), while round 7's
+receipts spoke "COGS to 50.0%" and mini found transport keys the
+denylist stopped from being SPOKEN but not from being STORED. Hand-
+written prose respects this; mechanically generated prose leaks. That
+is where the law bites.
+
+
+STANDING COMPREHENSION PROBE: the persona is a cooperative business
+owner who is NOT a numbers person. If the app speaks jargon the persona
+would not understand - a field name, an unexplained unit token, an
+unglossed acronym, a bare ratio - that is a COMPREHENSION FAILURE,
+filed as an experience issue.
+
+The checked property: "would a normal small-business owner understand
+this sentence?" - a checked property, not a hope.
+
+================================================================
+C. VS RESIDUALS FROM WATCHING CW-031 (not yet in the batch)
+================================================================
+
+1. WS2 RETENTION MISFIRE (VS's own defect from the WS2 build). On the
+   loop's own test clone the reply ended "Quick check on the new price
+   before we lean on it: do you expect your current customers to stay at
+   that level?" - NO PRICE CHANGED. The COGS percents changed. The
+   retention frame stamps at the forward-move door on a unit_price
+   landing; something stamps it on a COGS write too. A price-retention
+   question after a cost-structure edit is a non-sequitur to the client
+   AND consumes a frame the walk relies on. Nothing in the CW-031 batch
+   touches it - every retention mention in VS_NOTES is yesterday's R30.
+
+2. GARBLED SCALE FIGURE IN AN ACK: "...brings your Plant sale side to
+   about $19 per unit, or roughly $47 a year against the $48 you
+   reported." The $19/unit is right (48% of the $38 price). "$47 a year
+   against the $48" is meaningless on a line doing ~$514k/yr - a scale
+   error (thousands dropped) or a percent rendered as dollars. The
+   round-7 receipt work targeted label repetition; this may be
+   uncovered. NOTE: under the naturalization ruling above this class
+   becomes unrepresentable, so verify it is dead rather than fixing it
+   again.
+
+================================================================
+D. INSTRUMENT NOISE (watcher / vitals, low priority)
+================================================================
+
+- The 300s stall threshold fires on EVERY healthy run: finalize
+  validation legitimately takes ~312s with no intermediate checkpoint.
+  A false stall on every run trains everyone to ignore the real one.
+  Raise the threshold above that stage, or have the stage heartbeat.
+- exit=stall with run_status=completed appeared in one vitals line.
+  The finalizer should prefer the terminal run status over the
+  watch-exit reason - they should never contradict each other.
+- Cowork's tester writes TRACKED files (runlog, coverage, console,
+  agenda) as it runs, so every Cowork run dirties the tree and blocks
+  the watcher's next launch until someone commits them. Gitignore them
+  or have the tester commit its own state.
+
+================================================================
+E. VS's OWN WATCHER BUG TO FIX IN THE SAME BOUNDARY ACTION
+================================================================
+
+one_cycle() consumes the INBOX before it checks pid_alive(AGENT_PID),
+so a plain-English line dropped by Nick mid-turn would flip STATUS and
+reset TURN underneath a live agent, and the agent's own final flip
+would then conflict. Nick's words must never be able to interrupt a
+live turn. Move the inbox check AFTER the agent-alive check, re-run
+Test Files/_e2e_handoff_loop.py and _audit_handoff_watcher.py.
+
+================================================================
+F. POST-BATCH TASK (Nick, 2026-08-13) - DO NOT START DURING CW-031
+================================================================
+
+THE INFERENCE SCAN. The parent law is a CLASS, not three fixes: where
+ELSE does the app infer something the client is the authority to state?
+This is its own dedicated pass, seeded AFTER the CW-031 batch converges
+(all nine items + the rulings, mini artifact-confirmed). Do not fold it
+into round 8 or any later CW-031 round - a batch that keeps widening
+never converges, and this one is close.
+
+Candidate surfaces observed during this campaign, to confirm or clear
+one at a time when the scan is seeded:
+  - the capacity/utilization SEED broadcast across lines (420 and 0.62
+    sat on all four Ravenwood rows before each line was asked; benign
+    because every line overwrote it, but it is inference occupying a
+    field the client never stated - and the acknowledgment surfaced the
+    placeholder to the client)
+  - cogs_basis ratio-vs-dollars, inferred from the SHAPE of the answer
+    rather than declared
+  - the LINE SPLIT itself (confident_multi): WS1a names the client as
+    final authority - verify that holds at N>2, and that a client who
+    says nothing is never treated as having agreed
+  - retention's retained_used=1.0 default: assuming 100% retention
+    unless told otherwise is an inference with a real dollar
+    consequence
+  - inferred_roles / rest-of-team payroll: roles and wages the client
+    never stated
+  - milestone TIMING when the client gave a goal without a date
+  - marketing baseline and every other fitted proposal that becomes the
+    stored value if the client simply does not object
+
+The question for each: does the client DECLARE it, or does the app
+decide and proceed? If the latter - is the client told plainly, and can
+they overturn it at any surface? SILENCE MUST NEVER READ AS AGREEMENT.
