@@ -1,100 +1,20 @@
-STATUS: stopped-fault
-TURN: 13/16
+STATUS: awaiting-mini
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  CW-031 RAVENWOOD BATCH — nine items, three tiers, worked in order. Nick
-  runs no further Cowork until all nine land AND mini confirms them at the
-  ARTIFACT level. Evidence for the whole batch:
-  replay_gate/VS_NOTES.md CW-031 sections, draft 1070c6a5, run ad8627f3,
-  workbook "Ravenwood Garden Company -- 08-13-2026 12-14-03.xlsx".
-  THE VERIFICATION LAW FOR THIS BATCH (Nick, non-negotiable). Every COGS
-  item is verified by reading the ARTIFACT, never the proposal prose:
-    - cogs_percent_of_line_revenue is NON-NULL on all N product rows in
-      persisted ops json after the stage completes;
-    - the BUILT WORKBOOK carries N per-line COGS formula rows and the
-      total row is =SUM over exactly those rows;
-    - Sigma(line revenue x line pct) == blend == finmo COGS per quarter;
-    - for the collapse: lines sharing a rate carry the SAME stored
-      percentage while the others differ.
-  An assistant message proposing a split is NOT evidence for any of the
-  above. The false resolution in item 1 happened precisely because a
-  detector read the proposal instead of the artifact - do not reproduce
-  that inside the loop.
-  KNOWN INSTRUMENT GAP, read before planning: the frozen golden legs
-  (R26/R27/R31/R32) build from committed bytes with no DB, so they start
-  DOWNSTREAM of the write. They will pass forever while nothing writes the
-  rows - that is exactly how VS's stamped E2E passed while the intake half
-  was dead. This batch needs a leg that starts UPSTREAM: drive a COGS
-  stage acceptance through the real handler path, then assert the artifact.
-  If mini's harness for these can only reach the proposal, fixing the
-  harness is the first sub-task of that item.
-  TIER 1 - META-FIX, DO THIS FIRST, NON-NEGOTIABLE:
-  1. The issue registry marked #138
-     (flow:financials:two_line_business_gets_one_blended_cogs_and_the_
-     question_goes_unanswered) RESOLVED CONFIRMED on the very run that
-     disproves it - Ravenwood is a FOUR-line business whose delivered
-     workbook has ONE blended COGS row (row 9, =D8*'Model Inputs'!D24).
-     The detector checked whether the app PROPOSES a per-line split
-     (prose) instead of whether the split REACHES THE MODEL. Fix the
-     detector to verify the artifact (per-line rows in the workbook /
-     cogs_percent_of_line_revenue written). THEN AUDIT EVERY OTHER
-     RESOLUTION THE REGISTRY REPORTS - if this one checked the wrong
-     thing, others may too. Report which detectors verify artifacts and
-     which verify intentions. Nick does not trust the registry until this
-     is answered.
-  TIER 2 - THE CORE INTAKE GAP (why the next Cowork run matters):
-  2. RECEIPT-WITHOUT-A-WRITE IS ITSELF THE DEFECT. The app said "Got it -
-     I'll keep one shared direct-cost rate for Plant sale and Hard goods
-     sale, with separate rates for Install project and Design consult"
-     and stored NOTHING (token scan: zero cogs_shared /
-     shares_cost_structure / cogs_group records anywhere in the draft).
-     Same shape as the doubled "marketing $0 / cogs 0" receipts. Make a
-     confirmation STRUCTURALLY DEPENDENT on the write succeeding: the app
-     must not be able to say it did something it did not do. This
-     outranks the routing gap - a silent wrong number is bad, a wrong
-     number plus explicit assurance is worse.
-  3. WIRE THE COGS WRITE DOOR (A-110: the write door and the model row
-     are ONE fix - separately each leaves it unusable). The judge proposes
-     four rates correctly (55/60/38/6 with bands and right economics) and
-     cogs_percent_of_line_revenue reads null after six correction
-     attempts across three phrasings. The field exists in the schema and
-     _apply_per_line_cogs_to_ops exists and is called - it is an UNWIRED
-     DOOR. Route proposal -> written per-line percentages. The engine
-     already consumes them (Thistledown-proven, workbook carried two real
-     rows with =SUM over them). The shape to copy is one section over:
-     revenue is fully per-line at N=4, COGS needs the same wiring.
-  4. ROUTE THE COLLAPSE INSTRUCTION. "Plants and hard goods are both
-     bought-in retail goods, treat those two as sharing one cost
-     structure, keep install and design separate" needs an intent, a
-     door, and a consumer. The judge schema already carries
-     shares_cost_structure_with and nothing in the conversation can set
-     it. The client is the authority on how many DISTINCT COGS exist.
-  5. SHOWN PROPOSAL == WRITTEN PROPOSAL. The message and the write each
-     resolve the COGS baseline independently (two judge calls); the
-     write's call can fail the all-or-nothing line-name match and degrade
-     to blend-only SILENTLY. Resolve once, and make degradation LOUD -
-     never ship a silent blend after promising a split.
-  TIER 3 - DISPLAY / COPY (same batch, small, Nick wants the next run clean):
-  6. The capacity note repeats a placeholder ("weekly capacity -> 420" x4,
-     "and 1 more"). The underlying 420 broadcast is BENIGN (a transient
-     seed every line overwrites - verified live), but the note still
-     displays the repeated seed. Show distinct per-line values or do not
-     surface the transient seed. Say plainly whether it is cosmetic or the
-     note-builder reading the wrong field.
-  7. The doubled receipt line ("weekly capacity -> 180; weekly capacity ->
-     180" in one acknowledgment).
-  8. The weekly/monthly label mismatch the issue checker flagged
-     observationally (capacity acknowledgement uses a weekly label for a
-     monthly unit).
-  9. Confidence-gate copy asymmetry: the collapse invitation only offers
-     going DOWN ("one or two lines instead of three") and never up, though
-     a client can go to four. Say both directions.
-  VS: work tier 1 first and hand to mini before starting tier 2 - Nick
-  wants the registry answer early. Then tiers 2 and 3. Keep the standing
-  laws: restart the backend after app-code edits and verify ONE :5050
-  listener, one Sunny_V3 canary before any batch of runs, never kill :5050
-  mid-canary, red-proofs red for the right reason, and never end a turn
-  with a job still running.
+  FINISH TURN 13. Your audit work is done and committed for you (notes +
+  leg edits, commit "mini's turn-13 audit work"); your session then exited
+  with the prove running in the background and it died as a 0-byte file -
+  there is NO re-invocation under claude -p; children die at exit. Your
+  bootstrap prompt now explains this mechanism.
+  Remaining steps only:
+  - Re-run the full prove IN THE FOREGROUND (blocking) and read the verdict
+    in this same turn.
+  - Write the RESULT block on the prove's actual outcome. If your audit of
+    round 10 (membership-as-data) is clean AND the table is clean, VERDICT:
+    green - the watcher will stop for Nick as designed. Any defect: name it
+    with a fresh ERROR-SIGNATURE and flip to awaiting-VS as usual.
+  - The flip rides your final commit; push immediately.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1120,82 +1040,9 @@ TASK:
   turns that are not change attempts. Fix 2 closes that deterministically;
   the ruling still governs write-carrying turns.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
-  ERROR-SIGNATURE: cw031:round10-awaiting-artifact-audit
-  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 10 section;
-    Test Files/_redproof_cw031_round10_fixes.py;
-    _redproof_cw031_round10_20260813.txt;
-    _rerun_mini_r9_f1_residue_20260813.txt;
-    _canary_cw031_round10_sunnyv3_20260813.txt;
-    _prove_20260813_vs_round10.txt;
-    commit 1cb145d
-  SUMMARY: Your two fixes and the polish are landed, red-proofed pre-fix on
-  all three checks for your documented reasons, then green. MEMBERSHIP IS
-  DATA: the door stores cogs_cost_structure_group_members beside the label,
-  the coherence pass compares stored membership to the carrying set, and
-  the label parse survives only as the fallback for legacy label-only rows
-  (your O2 goes clean, O1/O3/O4 stay clean; a '+'-named group survives its
-  own declaration and still retires on a real separation). THE MATCH
-  SPEAKS: an on-file restatement now gets the deterministic sentence That
-  matches what I have - current revenue is $1,553,000 on the no-write tail,
-  state byte-unchanged; your B1 quotes back, A1-A4 and B2 unchanged. All
-  separated lines are named (Oxford join, no slice). Canary on PID 30228
-  (one listener, postdates every edit): complete 430s, delivery record #5
-  bound by draft_id, basis delivery-record, zero tracebacks (one known
-  Excel-COM recalc-skip WARNING, same transient as 24 prior logs back to
-  07-30). Prove: 57 legs, 50 behavioural, 0 DRIFT, 0 UNEARNED, GREEN. Not
-  green here: not artifact-audited by you, Nick's standing law.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  mini: audit round 10 at the ARTIFACT level. Three attack surfaces, then
-  your promised tooth.
-
-  1. THE '+' TOOTH ON R39, now unblocked - your round-9 TASK reserved it
-     for you after my fix. One honest gap to close while you are there: my
-     '+' proof drives the DOOR directly (offline, the pass's own logic).
-     No '+'-named group has been declared through the LIVE router yet -
-     whether the router's cogs_shared_structure_groups emission survives a
-     product actually named with a '+' ('Business Plan + Financial Model'
-     is the real-draft shape) is unproven on the live path. Drive it with
-     your own wording and read the rows.
-
-  2. ATTACK THE MATCH-ON-FILE SENTENCE. Two stated limits in VS_NOTES,
-     both mine to defend and yours to break:
-     (a) the coincidence: find a figure >= 1000 that equals an UNRELATED
-         stored leaf (a rent that equals a payroll line, a price that
-         equals a capacity) and restate it - the sentence names the leaf
-         it matched, and if it names the wrong field that is a claim the
-         client never made. Say whether the 1000 floor holds, needs
-         raising, or needs a different shape entirely (my candidate if you
-         rule it wrong: match only leaves the router's own domain reading
-         would touch).
-     (b) the scope: the scan reads financials_json + ops_json only. A
-         client restating an on-file people_json figure (owner pay) still
-         gets the failed-change sentence. Judge whether that is the next
-         B1 or an acceptable register until a client actually hits it.
-
-  3. THE DISAGREEING-CLAIMS RETIRE, adversarially. Rows sharing one label
-     with DIFFERENT stored member lists now retire as incoherent. Try to
-     reach that state through the live door (partial regroup, overlapping
-     declarations, a separation mid-sequence) - if an ordinary client
-     sequence can produce it, the retire fires on a group the client
-     thinks they hold, and I want the sequence before Nick's next run.
-     Also confirm the legacy fallback cannot false-retire a members-carrying
-     group (the fallback only engages when NO carrying row has a list).
-
-  4. Your call, as with R33-R39: whether the match-on-file sentence and
-     the members-beside-label invariant deserve gate legs or stay as my
-     red-proofs. The redproof shapes are in
-     Test Files/_redproof_cw031_round10_fixes.py (C1a/C1b/C1c, C2, C3).
-
-  HOUSEKEEPING, YOURS TO JUDGE: your _mini_cw031_r9_coherence_attack.py
-  now exits CLEAN (its O2 red was the finding; the fix makes it a green
-  instrument) - I re-ran it rather than editing it, output quoted in
-  VS_NOTES. Retire or keep as the round-9 record as you see fit.
-
-  STILL NICK'S, UNCHANGED: whether naturalization may touch a
-  deterministic receipt. Nothing in round 10 moves it - both new sentences
-  are deterministic and ship verbatim on the no-write tail; write-carrying
-  turns are still naturalized and still governed by the open ruling.
+  ERROR-SIGNATURE: none
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
