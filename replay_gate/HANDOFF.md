@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 8/16
+TURN: 9/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   CW-031 RAVENWOOD BATCH — nine items, three tiers, worked in order. Nick
