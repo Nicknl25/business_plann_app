@@ -529,6 +529,66 @@ inputs and the determinism self-check still holds. Do not synthesize
 a minimal contract-passing payload (drift-prone against the
 15-field contract and tests nothing real).
 
+## Round-6 audit (_prove_20260812_ws1ws2_prove6.txt, build 3234e75)
+
+FIRST WATCHER-DRIVEN TURN. R32's frozen run artifacts are CAPTURED and
+COMMITTED. Tally: 43 behavioural + 5 structural-absence + 1 GOLDEN
+(R31, digests unchanged from rounds 4/5) + 0 DRIFT + 1 UNEARNED (R32).
+
+**PATH DEVIATION, deliberate**: the HANDOFF TASK said
+`Test Files/_run_artifacts.py`, but your `surface.py` does
+`from . import _run_artifacts` and your own gap message names
+`replay_gate/_run_artifacts.py`. Your import is the authority, so the
+fixture landed at **`replay_gate/_run_artifacts.py`** (generator:
+`Test Files/_capture_workbook_fixture.py`, VS-owned). It is a
+generated data fixture, not gate code — the ownership law is intact.
+
+Provenance (stamped in the module docstring + `PROVENANCE`):
+  draft 6feac7580c3948339fd850468af50282
+  run   ddb613978f894b63b22ffac68e1b03fd
+  stage post_intake_finalize_validation_completed
+i.e. the SAME final-checkpoint row the committed byte-floor script
+reads. `PAYROLL_HEADCOUNT` carries `capacity_labor_model` and all 15+
+contract fields — the exact gap round 5 named. Nothing synthesized,
+no live DB read at prove time.
+
+**R32 is now ONE assertion from GOLDEN — and the remaining red is a
+LEG BUG, not an app regression.** The builder rendered
+**4185 formulas across 7 sheets** and the negative control EARNED
+itself: identical digest on both commits —
+  GOLDEN-SHA workbook_formulas
+  4764783fdbde86b2606992489e17b829c4e70897d6d4da2c2944dee5f37d537e
+What still fails, identically on 9d2c41c and 3234e75 (which is itself
+the tell — a real regression cannot be red on the fixed side too):
+  'Cost of Goods Sold' rows = 2 (a single-line workbook keeps
+   exactly ONE, legacy formula shape)
+
+VS located both rows. They are on DIFFERENT SHEETS:
+  [Model Inputs] row 12  label 'Cost of Goods Sold'  =SUM(D12:G12)
+  [FINMO]        row  9  label 'Cost of Goods Sold'  =C8*'Model Inputs'!C12
+  [Audit Source] row  8  label only, ZERO formulas (never enters the grid)
+The Model Inputs row is the DRIVER INPUT row and has existed on every
+commit; the FINMO row is the P&L row, and there is EXACTLY ONE of it,
+carrying precisely the legacy shape this file already documents
+(`=<revenue cell>*<Model Inputs cogs cell>`). The app is correct.
+
+FIX SHAPE (yours): scope the count to the FINMO sheet before
+asserting. Single-line => exactly one FINMO row labelled
+`Cost of Goods Sold` whose formula matches
+`=<rev cell>*'Model Inputs'!<cell>`; multi-line => one
+`Cost of Goods Sold - <line>` row per line plus a total `=SUM` over
+them. Never count the label across the whole grid — Model Inputs and
+Audit Source both legitimately carry it. With that scoped, R32 should
+land GOLDEN on the next pass (the digest half already holds).
+
+SIZE NOTE (your call, not a blocker): the fixture is 2.9 MB, and
+~2.8 MB of that is `PLANNING_RUN_JSON`; payroll_headcount is 59.7 KB
+and debt_schedule 16.0 KB. `surface.py` feeds all three to
+`draft_data_from_row`. If the builder never reads planning_run_json,
+say so and VS will do ONE deliberate re-freeze that drops it (a trim
+changes the grid digest only if the builder actually reads it — which
+is exactly the question). Do not "refresh" it for any other reason.
+
 ## Handoff watcher BUILT (spec approved w/ SS9 rulings) — mini's audit task
 
 Built per docs/architecture/vs_mini_handoff_watcher_spec.md:
