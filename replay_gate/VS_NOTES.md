@@ -1397,3 +1397,144 @@ issues still have opportunity-only detectors and can no longer reach
 it does mean the registry will report far fewer resolutions until
 probes are upgraded issue by issue. Upgrading them is cheap
 (set_probe) and should happen as each class is actually fixed.
+
+
+================================================================================
+CW-031 TIERS 2 AND 3 -- VS, turn 5 (commits 66894f6, f7a9167, 51d0810, + this)
+================================================================================
+
+MINI'S FOUR FIXES, all landed (66894f6).
+
+1. workbook_cogs_rows IS BOUND TO THE DRAFT. Two tiers, neither of them
+   "newest file wins", in python/client_intake_and_finmo/
+   workbook_delivery_record.py:
+     - THE DELIVERY RECORD (authoritative): every run that exports a workbook
+       writes one INSERT-only row naming draft, planning run and file. Written
+       at the delivery point in intake_consult.py.
+     - THE RUN'S OWN WINDOW (legacy runs): a file goes to the draft whose OWN
+       run stamp is NEAREST across all drafts sharing the business name, inside
+       300s. That is what kills your false PASS: the 08-13 10-48-37 file sits
+       0s from plcogsd6e3ed0b's run, so be84629ada44 can never claim it.
+     - Unattributable now returns not_applicable with the reason, never a guess.
+   Why the diagnostics row could not carry it: run diagnostics are built and
+   INSERTed BEFORE the workbook is exported, and that table is INSERT-only, so
+   workbook_path is null on every run to date. I checked all four drafts.
+   PROVEN ON A REAL RUN, not just in the proof: the Sunny_V3 canary wrote the
+   first workbook_deliveries row, and that draft now resolves by "delivery
+   record" rather than by the window fallback.
+
+2. THE ASSERTION COVERS THE WHOLE LAW NOW. Law bullet 2: exactly one total row,
+   the per-line rows contiguous, and =SUM over exactly that span in every
+   period column. Law bullet 3: Sigma(line revenue x line pct) == blend ==
+   finmo COGS per quarter, computed from the workbook's own LITERALS (Revenue
+   Drivers capacity/price/utilization/COGS%, Model Inputs blend, Audit Source
+   engine value). Formula cells cannot be used at all -- openpyxl writes the
+   file and nothing recalculates it in place, so every formula cell's cached
+   value is None. I checked.
+   ONE TRAP WORTH YOUR TIME: both checks are scoped to PERIOD columns (header
+   Stub/Q1..Q20). The Y1..Y5 roll-ups sum HORIZONTALLY (=SUM(D11:G11)), so an
+   unscoped check fails a CORRECT workbook, and multiplying a year's summed
+   capacity by a year's summed price is nonsense. Same shape as the R32 trap.
+
+3. require_distinct_rates IS THE DEFAULT, as you ruled. The opt-out is
+   allow_shared_rates and it must be stated; the retired flag now RAISES rather
+   than silently inverting an operator's intent. 0 persisted probes carried it.
+
+4. Left to you as you asked. Not duplicated.
+
+ALSO, and it is the same class you were auditing: the draft-to-run lookup was
+swallowing its own exception. The JOIN raised "Illegal mix of collations"
+(intake_consult_drafts.draft_id is utf8mb4_unicode_ci,
+post_intake_run_diagnostics.draft_id is utf8mb4_0900_ai_ci) and the except
+turned it into an empty answer -- so "no stamps" and "the query is broken" both
+read as "not attributable". Two queries now, and nothing is caught.
+
+--------------------------------------------------------------------------------
+TIER 2 (f7a9167): A-110, THE COGS WRITE DOOR
+--------------------------------------------------------------------------------
+
+The route, end to end:
+  intent   financials.cogs_per_line_overrides / cogs_shared_structure_groups,
+           exposed to the router ONLY when the draft has >= 2 revenue lines
+           (the ops.product_overrides lesson: an always-on structural field is
+           one the router invents from an ordinary answer).
+  door     _apply_per_line_cogs_patch_keys, called from _apply_scoped_patch so
+           no surface bypasses it, PLUS the stage flow's own call -- that flow
+           only reaches the scoped apply for people keys.
+  collapse the group is STORED on the row (cogs_cost_structure_group), so a
+           grouping declared before the rates exist still binds them later;
+           members that already carry rates collapse to one revenue-weighted
+           shared rate.
+  receipt  built FROM the written rows. An unmatched or ambiguous line name
+           produces a QUESTION, never a confirmation.
+  once     the shown proposal and the written one are now ONE resolution,
+           cached on the revenue-driver signature -- which is what the
+           previously-unused _build_cogs_baseline_signature was written for.
+           Every silent degradation in _attach_per_line_cogs now stamps its
+           reason and logs PER_LINE_COGS_DEGRADED_TO_BLEND.
+
+THE LIVE PROOF EARNED ITS KEEP. Offline, the door worked first try. Against the
+live router it did not, and no offline test would have found why: the client
+says "Install is only 19% in materials", the driver-correction contract read 19
+as a lever target, the reply came back "about $19 per unit", and the ops write
+reverted as an underivable second lever. The door now declares the figures it
+consumed in BOTH forms (0.19 and 19) under the existing one-figure-one-home
+rule. Test Files/_live_cw031_cogs_door_turn.py -- real clone, real router, the
+client's own two sentences: rows read back 0.48/0.71/0.19/0.04, then 0.5793
+shared on exactly the two lines named, install and design untouched.
+
+A HARNESS TRAP THAT COST ME TWO LIVE RUNS, worth knowing before you write yours:
+the proof read the draft back on a long-lived connection and saw null every
+time while the app was writing correctly. REPEATABLE READ -- the snapshot is
+taken at the connection's first read. commit() before every read-back. The tell
+was that the SECOND live turn computed 0.5793 from rates the first turn had
+supposedly never written.
+
+--------------------------------------------------------------------------------
+TIER 3 (51d0810): items 6, 7, 8 are ONE renderer; item 9 is copy
+--------------------------------------------------------------------------------
+
+ITEM 6, ANSWERED PLAINLY AS ASKED: cosmetic, and specifically the note-builder.
+The paths differed all along and the per-row values were distinct; only the
+rendering collapsed four rows into identical words. The 420 broadcast
+underneath was already verified benign. receipt_summary now names the row
+whenever a label would otherwise repeat (numeric_receipt stamps names_by_prefix
+for every named node, so people roles get this too), drops an exact duplicate
+phrase (item 7), and says "capacity" rather than asserting a cadence it does
+not know (item 8). Item 9 fixed in BOTH places it appears -- the
+confident_multi invitation and the COGS proposal's own "correct either one",
+which said "either" to a four-line business.
+
+--------------------------------------------------------------------------------
+#142 IS NOW ASSERTABLE -- the gap I flagged last round is closed
+--------------------------------------------------------------------------------
+
+Last round I wrote that #142 had no artifact because nothing in the schema could
+record which lines share a cost structure. Tier 2 shipped that field, so there
+is now an artifact kind for it: ops_cogs_shared_group. It verifies that every
+member of a STORED group carries the same rate and that the group has not
+swallowed every line. Exercised on the real Ravenwood ops: ungrouped ->
+not_applicable, collapsed -> pass, one member's rate moved -> fail.
+
+WHAT IT STILL CANNOT SEE, and I am not going to pretend otherwise: whether a
+client ASKED for a collapse that was never stored. The absence of a group is
+indistinguishable from a client who never asked. That half is covered by the
+live proof, not by an artifact, and #142's probe should say so.
+
+--------------------------------------------------------------------------------
+FOR YOUR AUDIT
+--------------------------------------------------------------------------------
+The three red-proofs and the live one:
+  Test Files/_redproof_cw031_workbook_binding.py    (mini's items 1-3)
+  Test Files/_redproof_cw031_cogs_write_door.py     (tier 2, offline)
+  Test Files/_live_cw031_cogs_door_turn.py          (tier 2, live router)
+  Test Files/_redproof_cw031_receipt_copy.py        (tier 3)
+Plus: CW-024's 13/13 slate re-run green (RP10 is the cadence receipt), and the
+Sunny_V3 canary completed at 394s with 0 errors and 0 holds.
+
+ONE OBSERVATION I AM NOT FIXING, because it would widen scope past this batch:
+the deterministic receipt is passed through message naturalization before it
+reaches the client, so my "Recorded: X at 48% of that line's revenue" came back
+as "Got it - so you have updated your numbers so COGS is now 48.0% for plants
+... (plus four more you will share)". The NUMBERS are write-derived and
+correct; the trailing clause is naturalizer invention. Worth its own item.

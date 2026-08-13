@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 4/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -309,3 +309,95 @@ TASK:
   (0.5405 / 0.2287) live on plcogs433a848c, a draft you seeded. The
   engine-consumes-them proof is real but it is a hand-seeded draft, so
   treat the ops -> workbook leg as unproven on a client path.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:tier2-tier3-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 TIERS 2 AND 3 section;
+    Test Files/_redproof_cw031_workbook_binding.py;
+    Test Files/_redproof_cw031_cogs_write_door.py;
+    Test Files/_live_cw031_cogs_door_turn.py;
+    Test Files/_redproof_cw031_receipt_copy.py;
+    commits 66894f6, f7a9167, 51d0810
+  SUMMARY: All nine CW-031 items are built. Your four fixes landed: the
+  workbook assertion binds to THIS draft (a new INSERT-only delivery
+  record, plus a run-window fallback for legacy runs -- your false PASS
+  is dead because the 10-48-37 file sits 0s from the OTHER draft's run),
+  it asserts the whole law (total =SUM span + Sigma == blend == finmo
+  COGS per quarter, both scoped to period columns because the Y1-Y5
+  roll-ups sum horizontally), and distinct rates are the default with a
+  stated opt-out. A-110 is open end to end and LIVE-PROVEN: a clone of
+  the real Ravenwood draft, the real router, the client's own two
+  sentences -- rows read back 0.48/0.71/0.19/0.04, then 0.5793 shared on
+  exactly the two lines named. The live run found what offline could
+  not: "Install is only 19%" was being read as a $19 unit price and the
+  write reverted as a second lever. Tier 3 items 6/7/8 were one renderer
+  (item 6 is cosmetic and specifically the note-builder -- the per-row
+  values were distinct all along). #142 is now assertable via a new
+  ops_cogs_shared_group artifact kind, closing the gap I flagged last
+  round. Sunny_V3 canary: complete, 394s, 0 errors, 0 holds, workbook
+  built -- and it wrote the first delivery record on a real run. Not
+  green: none of this is artifact-audited by you yet, which is Nick's
+  standing law for this batch.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit tiers 2 and 3 at the ARTIFACT level. Do not trust my prose
+  or my proofs' pass lines; the point is whether the MODEL changed.
+
+  1. THE ONE THAT MATTERS. Drive a per-line COGS correction and a
+     collapse through the live path yourself and read the artifact, not
+     the reply. Test Files/_live_cw031_cogs_door_turn.py is my version;
+     write your own client wording rather than reusing mine, because
+     the door's weakest point is line-name resolution and my sentences
+     name the lines the way the app does. Try wording that does NOT:
+     "the pavers side", "the two retail ones", "everything except
+     design". Report which of those land, which return the honest
+     "I couldn't tell which line you meant" question, and whether any
+     of them write the WRONG line -- that last one is the only
+     unacceptable outcome, and _resolve_cogs_line is meant to refuse
+     rather than guess. READ-BACK MUST commit() FIRST: a long-lived
+     connection under REPEATABLE READ shows null while the app is
+     writing correctly. That cost me two live runs.
+
+  2. Adversarial pass on the collapse arithmetic. The shared rate is
+     revenue-weighted from each line's OWN driver row (price x capacity
+     x utilization x periods). Find the case where that weight is
+     absent or zero on one member -- it falls back to a plain average,
+     and I want to know whether the fallback is defensible or should
+     refuse. Also: a group whose members' weights are wildly unequal
+     puts the shared rate almost on top of the bigger line. Is that
+     right for a client who said "treat these two as one"?
+
+  3. workbook_deliveries binding, on artifacts. Confirm the canary row
+     (draft e7da60e6, run b0622f56) and that
+     resolve_workbook_for_draft returns basis="delivery record" for it.
+     Then try to BREAK the window fallback: two runs of the same
+     business name inside 300s of each other. My rule awards the file
+     to the nearest run and rejects it if another draft's run is
+     nearer, but I have no real two-runs-in-five-minutes case. If you
+     can construct one where a file is awarded to the wrong draft, that
+     is the same class as the bug you found and I want it before Nick
+     spends a run.
+
+  4. Law bullet 3 on a genuine multi-line workbook you did not build.
+     My reconciliation passes on 21 quarter columns of the seeded
+     Thistledown workbook. Check it against a workbook whose per-line
+     rates are NOT round numbers and whose stub column rounds
+     differently (that is where my 0.5% tolerance is doing work), and
+     say whether 0.5% is too loose to catch a real defect.
+
+  5. Tier 3: verify the receipt change did not quietly break an
+     existing acknowledgment shape. CW-024's slate is green (13/13,
+     RP10 included) but that is my run of it. The renderer now names
+     rows when a label repeats -- confirm a single-line business's
+     receipts are byte-identical to before.
+
+  ALSO OWED, and it is a real gap rather than a nicety: the
+  deterministic receipt is naturalized before the client sees it, so
+  "Recorded: Plant sale at 48% of that line's revenue" reached the
+  client as "...(plus four more you will share)". The numbers are
+  write-derived and correct; the trailing clause is invention. That is
+  the receipt-without-a-write class re-entering through the naturalizer
+  and it needs its own ruling from Nick about whether naturalization
+  may touch a deterministic receipt at all.

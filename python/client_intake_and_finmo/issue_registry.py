@@ -109,7 +109,8 @@ PROBE_METADATA_KEYS = {"note", "regression_pin", "title"}
 PROBE_ARTIFACT_KEYS = {"artifact"}
 PROBE_KEYS = PROBE_OPPORTUNITY_KEYS | PROBE_METADATA_KEYS | PROBE_ARTIFACT_KEYS
 
-ARTIFACT_KINDS = ("ops_per_line_cogs", "ops_field_non_null", "workbook_cogs_rows")
+ARTIFACT_KINDS = ("ops_per_line_cogs", "ops_field_non_null", "workbook_cogs_rows",
+                  "ops_cogs_shared_group")
 
 # Category -> default resolution class. flow defaults to hard (loops /
 # dead-ends are routing logic, deterministically re-testable); the reporter
@@ -743,6 +744,55 @@ def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[
   return {"verdict": "pass", "detail": detail}
 
 
+def _assert_ops_cogs_shared_group(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+  """A STORED cost-structure collapse must be coherent (#142).
+
+  The client declaring "plants and hard goods share one cost structure" now
+  writes cogs_cost_structure_group on the rows, so it is finally assertable:
+  every member of a stored group carries the SAME rate, and a line outside it
+  differs. Before tier 2 there was no field to read and this issue was
+  correctly capped at observational.
+
+  WHAT IT STILL CANNOT SEE, stated rather than papered over: whether the
+  client asked for a collapse that was never stored. No artifact can - the
+  absence of a group is indistinguishable from a client who never asked. That
+  half is covered by Test Files/_live_cw031_cogs_door_turn.py, which says the
+  sentence to the live router and reads the rows back.
+  """
+  ops = _load_ops_model(cur, draft_id)
+  if ops is None:
+    return {"verdict": "not_applicable", "detail": "no operating_model_json on this draft"}
+  products = _ops_product_rows(ops)
+  groups: Dict[str, List[Dict[str, Any]]] = {}
+  for product in products:
+    label = str(product.get("cogs_cost_structure_group") or "").strip()
+    if label:
+      groups.setdefault(label, []).append(product)
+  if not groups:
+    return {"verdict": "not_applicable",
+            "detail": "no cost-structure collapse is stored on this draft"}
+  details = []
+  for label, members in groups.items():
+    if len(members) < int(spec.get("min_group") or 2):
+      return {"verdict": "fail",
+              "detail": f"group {label!r} has {len(members)} member(s), expected >= 2"}
+    rates = {round(float(m["cogs_percent_of_line_revenue"]), 4) for m in members
+             if m.get("cogs_percent_of_line_revenue") is not None}
+    if len(rates) > 1:
+      return {"verdict": "fail",
+              "detail": f"group {label!r} members carry {len(rates)} different rates {rates}"}
+    outside = [p for p in products if p not in members
+               and p.get("cogs_percent_of_line_revenue") is not None]
+    if rates and outside and all(
+      round(float(p["cogs_percent_of_line_revenue"]), 4) in rates for p in outside
+    ):
+      return {"verdict": "fail",
+              "detail": (f"group {label!r} shares its rate with every line outside it - "
+                         "a collapse that collapsed everything")}
+    details.append(f"{label} ({len(members)} lines, rate {rates or 'unset'})")
+  return {"verdict": "pass", "detail": "; ".join(details)}
+
+
 def _assert_ops_field_non_null(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
   """Generic: a dotted path into operating_model_json must be non-null.
   ``products[]`` walks every product row and requires ALL of them."""
@@ -1013,6 +1063,7 @@ _ARTIFACT_DISPATCH = {
   "ops_per_line_cogs": _assert_ops_per_line_cogs,
   "ops_field_non_null": _assert_ops_field_non_null,
   "workbook_cogs_rows": _assert_workbook_cogs_rows,
+  "ops_cogs_shared_group": _assert_ops_cogs_shared_group,
 }
 
 
