@@ -226,6 +226,21 @@ def consume_inbox(text: str, branch: str) -> None:
     lines = seeded.splitlines()
     lines[0] = f"STATUS: {target}"
     seeded = re.sub(r"^TURN:\s*\d+\s*/", "TURN: 0/", "\n".join(lines), count=1, flags=re.M) + "\n"
+    # THE PRIOR RESULT MUST NOT OUTLIVE ITS TASK. Without this, a new
+    # instruction seeded after a GREEN stop was force-stopped again on the
+    # stale VERDICT: green the moment it flipped — re-arming after the most
+    # common stop could never work. The old RESULT stays in git history.
+    idx = seeded.rfind("RESULT:")
+    if idx >= 0:
+        seeded = seeded[:idx] + (
+            "RESULT:\n"
+            "  AGENT: none\n"
+            "  VERDICT: progress\n"
+            "  ERROR-SIGNATURE: none\n"
+            "  EVIDENCE: (superseded — new instruction seeded)\n"
+            "  SUMMARY: The previous turn's RESULT was superseded by a new\n"
+            "  instruction; it remains in git history.\n"
+        )
     HANDOFF.write_text(seeded, encoding="utf-8")
     INBOX.write_text(INBOX_TEMPLATE, encoding="utf-8")
     pause_lifted = False
