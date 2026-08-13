@@ -1,5 +1,5 @@
-STATUS: awaiting-VS
-TURN: 1/16
+STATUS: awaiting-mini
+TURN: 2/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   CW-031 RAVENWOOD BATCH — nine items, three tiers, worked in order. Nick
@@ -153,3 +153,74 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: A-110:cogs-write-door-unwired
+  EVIDENCE: _redproof_cw031_artifact_detector_20260813.txt;
+    Test Files/_redproof_cw031_artifact_detector.py;
+    replay_gate/VS_NOTES.md CW-031 TIER 1 section;
+    scripts/issue_resolution_check.py --probe-audit
+  SUMMARY: Tier 1 landed and handed over early as instructed; tiers 2-3
+  not started. THE REGISTRY ANSWER: zero of 129 detectors verified an
+  artifact. The probe vocabulary only ever asked whether a run walked
+  the path, so resolved-confirmed meant "a run finished, visited the
+  section, and nobody re-filed it" -- opportunity plus silence. Census:
+  93 probes were PROSE silently discarded by a swallowed json.loads,
+  10 were metadata-only and therefore resolved on ANY completed run,
+  20 were opportunity-only, 3 manual, 0 artifact. Fixed with one
+  structural rule (confirmed requires a READ artifact that HELD),
+  plus: failing assertion = recurrence, resolved is no longer terminal
+  (the red-proof forced this -- #138 was otherwise frozen forever),
+  and probes fail loud on write. Red-proofed on the real chain
+  (persona_run_vitals_finalize.py:387) against real draft 1070c6a5:
+  #138 resolved -> RECURRING citing 0/4 rows carrying
+  cogs_percent_of_line_revenue, and FINMO carrying 0 per-line COGS
+  rows. 51 unearned confirmations demoted to observational, audited
+  and idempotent. Backend restarted twice, ONE :5050 listener each
+  time, /admin/issues 200. No persona runs were spent, so no canary
+  was owed; the detector was exercised against real drafts instead,
+  which is the stronger check for this change.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit tier 1 at the ARTIFACT level, per Nick's verification law
+  for this batch. Four things to check, none of which trust my prose:
+
+  1. Re-run the red-proof yourself and confirm it is red for the RIGHT
+     reason when the gate is removed:
+       .venv\Scripts\python.exe "Test Files\_redproof_cw031_artifact_detector.py"
+     Then neuter ONE thing at a time in issue_registry.py -- (i) the
+     artifact_backed condition, (ii) the resolved-issue re-audit branch,
+     (iii) the no-retest-condition guard in _run_exercised -- and
+     confirm each neutering turns it red on a DIFFERENT check. If any
+     one of them can be removed with the proof still green, that part
+     of the gate is decorative and I want to know.
+  2. Confirm the demotion did not rewrite history: 51 confidence_demoted
+     rows in issue_resolution_events, status and resolution_basis
+     unchanged on all 51, and the pre-existing resolved_confirmed audit
+     rows still present and readable.
+  3. Adversarial check on the artifact assertions themselves: construct
+     a case where ops_per_line_cogs PASSES but the model is still wrong
+     (my candidate: all N rows written with the SAME rate, which is a
+     blend wearing per-line clothing -- require_distinct_rates is meant
+     to catch it but is NOT enabled on any probe I authored). Say
+     whether it should be on by default for the COGS class.
+  4. workbook_cogs_rows scoping: I scoped it to the FINMO sheet because
+     the label also sits on Model Inputs (driver) and Audit Source (no
+     formulas) -- the same trap as R32. Verify the scoping is right and
+     that a genuine multi-line workbook (Thistledown, which carried two
+     real rows with =SUM over them) PASSES the assertion. That is the
+     positive control I did not have a workbook for.
+
+  Also still owed to me from last round, unanswered: does the workbook
+  builder read planning_run_json at all? It is ~2.8 MB of the 2.9 MB
+  R32 fixture, and if it is unread I will do ONE deliberate re-freeze
+  that drops it.
+
+  NOT for mini: tiers 2 and 3 (the COGS write door, the receipt-without-
+  a-write rule, the collapse routing, and the four display items) are
+  mine and are next on my turn. The blocker they all sit behind is
+  A-110: _apply_per_line_cogs_to_ops exists and is called, but only
+  from the cogs stage default patch, so no client correction can reach
+  the per-line fields.
