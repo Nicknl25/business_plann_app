@@ -117,6 +117,22 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
 
 
 
+# A-110: the per-line COGS door's fields. They describe a STRUCTURE (which
+# lines exist and which share a cost rate), so they are exposed to the router
+# only on a draft that actually has two or more revenue lines. On a
+# single-line business there is no such statement to make, and an always-on
+# structural field is one the router invents from an ordinary answer.
+_PER_LINE_COGS_FIELDS = ("cogs_per_line_overrides", "cogs_shared_structure_groups")
+
+
+def _draft_has_multiple_revenue_lines(shared_context: Any) -> bool:
+  lines = 0
+  for lob in ((shared_context or {}).get("operating_model") or {}).get("lob_models") or []:
+    if isinstance(lob, dict):
+      lines += len([p for p in (lob.get("products") or []) if isinstance(p, dict)])
+  return lines >= 2
+
+
 def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
   consult_type_norm = str(consult_type or "").strip().lower()
@@ -621,6 +637,15 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "current_revenue": {"type": "number"},
 
       "current_cogs": {"type": "number"},
+
+      # A-110, the per-line COGS door. Exposed ONLY when the draft has two or
+      # more revenue lines (see _PER_LINE_COGS_FIELDS below) -- a statically
+      # allowed structural field is a field the router will hallucinate from
+      # an ordinary answer, which is how ops.product_overrides once looped a
+      # clarifier for a whole run.
+      "cogs_per_line_overrides": {"type": "array"},
+
+      "cogs_shared_structure_groups": {"type": "array"},
 
       "marketing_total_year1": {"type": "number"},
 
@@ -1725,6 +1750,12 @@ def route_intent(
 
 
 
+  # A-110 gate: drop the per-line COGS fields unless this draft has the
+  # lines to talk about. Same discipline as the coherence lever fields above.
+  if not _draft_has_multiple_revenue_lines(shared_context):
+    _blocked = set(_PER_LINE_COGS_FIELDS) | {f"financials.{f}" for f in _PER_LINE_COGS_FIELDS}
+    allowed_fields = [f for f in allowed_fields if f not in _blocked]
+
   recent_messages_list = list(recent_messages or [])
 
   last_assistant = _last_assistant_message(recent_messages_list)
@@ -1782,6 +1813,23 @@ def route_intent(
       + "Financials funding handling:\n"
       + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"
       + "- If current_stage.name is funding_split_debt_share, map answers like mostly debt, mainly loans, 70/30, or 70 percent debt to funding_split_debt_share = 0.7; even, half and half, or 50/50 to 0.5; and mostly equity, mainly investors, or 30/70 to 0.3. Interpret X/Y style answers as debt share first (X is debt). Return edit_patch with the closest allowed value.\n"
+    )
+
+  # A-110: the per-line direct-cost door. Only offered when the draft has the
+  # lines, and it applies at EVERY stage and after the intake has closed --
+  # Ravenwood stated four rates mid-financials and the collapse after the
+  # intake was already complete, and both were lost for want of a field to
+  # land in.
+  if _draft_has_multiple_revenue_lines(shared_context):
+    extra_instructions = (
+      extra_instructions
+      + "Per-line direct costs (COGS) handling:\n"
+      + "- This business has SEVERAL revenue lines, each with its own direct-cost rate. When the client states or corrects the direct-cost/materials percent FOR A NAMED LINE, emit edit_patch with financials.cogs_per_line_overrides = [{\"line_name\": <the line as the app named it>, \"cogs_percent\": <the rate>}]. One entry per line the client named, all in ONE patch - a message giving four lines' rates emits four entries, never one blended number.\n"
+      + "- Use the line names as the last assistant message listed them where you can; the app matches on the full line name, the product name, or the line of business.\n"
+      + "- A stated per-line rate NEVER goes into financials.current_cogs or financials.cogs_percent_of_revenue. Those hold the blended total, which the app re-derives from the per-line rates itself. Putting one line's rate into the blend is a wrong number, not an approximation.\n"
+      + "- When the client says two or more lines SHARE one cost structure (\"plants and hard goods are both bought-in retail goods, treat those two as sharing one cost structure\", \"those two run about the same\"), emit edit_patch with financials.cogs_shared_structure_groups = [[<line A>, <line B>]] - one inner list per group that shares a rate. Lines they keep separate simply do not appear in any group.\n"
+      + "- The client is the authority on how many DISTINCT direct-cost rates exist. One message can carry both keys at once (some lines corrected, some collapsed); emit both.\n"
+      + "- These statements land at any point in the conversation, including after the intake is complete. A late correction to direct costs is a patch, never continue_chat and never answer_readonly.\n"
     )
 
   if consult_type_norm == "people" or (

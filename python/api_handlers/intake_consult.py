@@ -1,4 +1,5 @@
 ﻿import copy
+import copy
 import hashlib
 import json
 import math
@@ -1166,19 +1167,34 @@ def _attach_per_line_cogs(
   never a half-split model). On success the blend RE-DERIVES in Python
   as the revenue-share-weighted average of the line percents (Python
   proposes structure; the judge's own blend is advisory)."""
+  # DEGRADATION IS LOUD (CW-031 item 5). Every route out of this function
+  # without a split used to be a bare `return baseline` -- the model quietly
+  # became blend-only while the message the client had just agreed to
+  # promised N separate rates. The reason is now stamped on the baseline so
+  # the message builder can refuse to promise a split it did not get, and
+  # logged so the run says out loud that it degraded.
+  def _degrade(reason: str) -> Dict[str, Any]:
+    baseline["per_line_status"] = {"per_line": False, "reason": reason}
+    logger.warning("PER_LINE_COGS_DEGRADED_TO_BLEND reason=%s", reason)
+    return baseline
+
   proposals = fitted.get("per_line_proposals") if isinstance(fitted, dict) else None
   if not isinstance(proposals, list) or not proposals:
-    return baseline
+    return _degrade("the judge returned no per-line proposals")
   lines = _cogs_revenue_lines(
     ops_json=ops_json, financials_year1_json=financials_year1_json,
   )
-  if len(lines) < 2 or len(proposals) != len(lines):
-    return baseline
+  if len(lines) < 2:
+    return _degrade("fewer than two revenue lines")
+  if len(proposals) != len(lines):
+    return _degrade(
+      f"the judge proposed {len(proposals)} rate(s) for {len(lines)} lines"
+    )
   def _norm(value: Any) -> str:
     return str(value or "").strip().lower()
   by_name = {_norm(item.get("line_name")): item for item in proposals if isinstance(item, dict)}
   if len(by_name) != len(lines):
-    return baseline
+    return _degrade("the judge's line names are not one-to-one with the lines")
   matched: List[Dict[str, Any]] = []
   for line in lines:
     proposal = (
@@ -1186,10 +1202,10 @@ def _attach_per_line_cogs(
       or by_name.get(_norm(line.get("product_name")))
     )
     if proposal is None:
-      return baseline
+      return _degrade(f"no proposal matched the line {line.get('line_name')!r}")
     pct = _safe_float(proposal.get("proposed_cogs_percent"))
     if pct is None:
-      return baseline
+      return _degrade(f"the proposal for {line.get('line_name')!r} carries no rate")
     matched.append({
       "lob_name": line.get("lob_name"),
       "product_name": line.get("product_name"),
@@ -1211,6 +1227,7 @@ def _attach_per_line_cogs(
     baseline["baseline_cogs"] = float(revenue_year1 * blend)
     baseline["cogs_total_year1"] = float(revenue_year1 * blend)
   baseline["cogs_per_line"] = matched
+  baseline["per_line_status"] = {"per_line": True, "lines": len(matched)}
   return baseline
 
 
@@ -1220,7 +1237,39 @@ def _resolve_cogs_baseline_or_raise(
   ops_json: Dict[str, Any],
   shared_context: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  """SHOWN PROPOSAL == WRITTEN PROPOSAL (CW-031 item 5).
+
+  The message the client reads and the patch that lands used to resolve this
+  baseline INDEPENDENTLY -- two judge calls on the same drivers. The judge is
+  free to name its lines slightly differently the second time, the write's
+  call then fails _attach_per_line_cogs's all-or-nothing name match, and the
+  model silently degrades to blend-only AFTER the client has been shown a
+  four-way split and agreed to it.
+
+  So the resolution is now made ONCE and reused while the drivers that
+  produced it are unchanged: the signature is the revenue-driver signature
+  plus the NAICS, which is exactly what the (previously unused) signature
+  builder above was written for. Change a driver and the signature changes,
+  which re-resolves -- a stale proposal can never outlive its inputs.
+  """
+  signature = ""
+  try:
+    signature = _build_cogs_baseline_signature(
+      financials_year1_json or {}, ops_json or {},
+    )
+  except Exception:
+    signature = ""
+  cached = (financials_json or {}).get("_cogs_baseline_resolution")
+  if (
+    signature
+    and isinstance(cached, dict)
+    and str(cached.get("signature") or "") == signature
+    and isinstance(cached.get("baseline"), dict)
+    and cached["baseline"]
+  ):
+    return copy.deepcopy(cached["baseline"])
   baseline = _compute_cogs_baseline(
     conn=conn,
     ops_json=ops_json,
@@ -1228,6 +1277,11 @@ def _resolve_cogs_baseline_or_raise(
     financials_year1_json=financials_year1_json,
   )
   if isinstance(baseline, dict):
+    if signature and isinstance(financials_json, dict):
+      financials_json["_cogs_baseline_resolution"] = {
+        "signature": signature,
+        "baseline": copy.deepcopy(baseline),
+      }
     return baseline
   raise RuntimeError(
     "Unable to resolve a Year-1 COGS baseline from exact industry data or GPT estimation."
@@ -2605,11 +2659,15 @@ def _build_financials_stage_message(
       financials_year1_json=financials_year1_json,
     )
   if stage == "cogs":
+    # The SHOWN proposal and the WRITTEN one are the same resolution: this
+    # call caches it on financials_json and the stage's default patch reads
+    # that cache back. See _resolve_cogs_baseline_or_raise.
     baseline = _resolve_cogs_baseline_or_raise(
       conn=conn,
       ops_json=dict((shared_context or {}).get("operating_model") or {}),
       shared_context=shared_context,
       financials_year1_json=financials_year1_json,
+      financials_json=financials_json,
     )
     return _build_cogs_baseline_message(baseline)
   if stage == "current_payroll":
@@ -2747,6 +2805,212 @@ def _apply_per_line_cogs_to_ops(
   return wrote
 
 
+def _cogs_line_directory(ops_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """Every product row a per-line COGS statement can name, with the handles
+  a client actually uses: the full line name, the product name, the LOB."""
+  directory: List[Dict[str, Any]] = []
+  for lob in (ops_json or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip()
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      product_name = str(product.get("product_name") or product.get("name") or "").strip()
+      directory.append({
+        "lob_name": lob_name,
+        "product_name": product_name,
+        "line_name": f"{lob_name} / {product_name}".strip(" /"),
+        "row": product,
+      })
+  return directory
+
+
+def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+  """Match ONE client-named line to ONE product row, or nothing.
+
+  Deliberately refuses ambiguity: a name that fits two rows returns None so
+  the caller can say it could not tell which line was meant. Guessing here
+  writes a real cost rate onto the wrong line, which is worse than asking.
+  """
+  target = str(name or "").strip().lower()
+  if not target or not directory:
+    return None
+  for field in ("line_name", "product_name", "lob_name"):
+    exact = [entry for entry in directory if str(entry.get(field) or "").strip().lower() == target]
+    if len(exact) == 1:
+      return exact[0]
+    if len(exact) > 1:
+      return None
+  loose = [
+    entry for entry in directory
+    if target in str(entry.get("line_name") or "").strip().lower()
+    or str(entry.get("product_name") or "").strip().lower() in target
+  ]
+  return loose[0] if len(loose) == 1 else None
+
+
+def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
+  """A line's revenue proxy from its OWN driver row (price x capacity x
+  utilization). Used to weight a declared cost-structure collapse, so the
+  shared rate a group lands on is the revenue-weighted one rather than a
+  plain average that would over-weight a tiny line."""
+  price = _safe_float(row.get("unit_price"))
+  capacity = _safe_float(row.get("units_per_period_capacity"))
+  if capacity is None:
+    capacity = _safe_float(row.get("units_per_week_capacity"))
+  if price is None or capacity is None:
+    return None
+  utilization = _safe_float(row.get("utilization_rate"))
+  periods = _safe_float(row.get("operating_periods_per_year"))
+  weight = float(price) * float(capacity)
+  if utilization is not None and utilization > 0:
+    weight *= float(utilization)
+  if periods is not None and periods > 0:
+    weight *= float(periods)
+  return weight if weight > 0 else None
+
+
+def _apply_per_line_cogs_patch_keys(
+  patch: Dict[str, Any],
+  *,
+  ops_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  """A-110, THE COGS WRITE DOOR. Turn a client's per-line direct-cost
+  statement into WRITTEN percentages on the ops product rows.
+
+  The judge already proposed four correct rates for Ravenwood and the client
+  corrected them six times across three phrasings; every one of those
+  corrections died because the only caller of the per-line write was the
+  cogs stage's own default patch. The field existed, the writer existed, and
+  nothing the client could say reached either. This is the missing route.
+
+  Two statements land here, both authored by the client:
+    cogs_per_line_overrides       - "hard goods is 71% of that line"
+    cogs_shared_structure_groups  - "plants and hard goods share one rate"
+
+  The collapse is the CLIENT'S authority on how many distinct COGS exist, so
+  it is stored on the rows (cogs_cost_structure_group) whether or not rates
+  are known yet: a grouping declared before the rates arrive still binds the
+  rates when they do. When the group's members already carry rates, they
+  collapse NOW to one revenue-weighted shared rate.
+
+  Returns a receipt naming exactly what was written and what was not. The
+  caller must speak from this receipt and never from router prose -- a
+  confirmation that outruns its write is the defect this batch is named for.
+  """
+  receipt: Dict[str, Any] = {"written": [], "unmatched": [], "grouped": [],
+                             "wrote": False, "consumed_figures": []}
+  directory = _cogs_line_directory(ops_json)
+  if not directory:
+    return receipt
+
+  def _clamp(value: Any) -> Optional[float]:
+    pct = _safe_float(value)
+    if pct is None:
+      return None
+    pct = float(pct)
+    # A client saying "71 percent" is a percent; 0.71 is the same rate.
+    if pct > 1.0:
+      pct = pct / 100.0
+    return round(max(0.0, min(1.0, pct)), 4)
+
+  overrides = patch.get("financials.cogs_per_line_overrides")
+  if overrides is None:
+    overrides = patch.get("cogs_per_line_overrides")
+  if isinstance(overrides, dict):
+    overrides = [{"line_name": k, "cogs_percent": v} for k, v in overrides.items()]
+  for item in overrides if isinstance(overrides, list) else []:
+    if not isinstance(item, dict):
+      continue
+    name = item.get("line_name") or item.get("product_name") or item.get("name")
+    pct = _clamp(item.get("cogs_percent") if item.get("cogs_percent") is not None
+                 else item.get("cogs_percent_of_line_revenue"))
+    entry = _resolve_cogs_line(name, directory)
+    if entry is None or pct is None:
+      receipt["unmatched"].append(str(name or "").strip() or "(unnamed line)")
+      continue
+    entry["row"]["cogs_percent_of_line_revenue"] = pct
+    receipt["written"].append({"line_name": entry["line_name"], "cogs_percent": pct})
+    # ONE FIGURE ONE HOME. A rate consumed here must be declared in BOTH the
+    # forms it can appear in - the stored ratio (0.19) and the client's own
+    # percent (19) - or the driver-correction contract reads it as a lever
+    # target. It did exactly that on the live proof: "Install is only 19% in
+    # materials" came back as "about $19 per unit" and the ops write was
+    # reverted as an underivable second lever.
+    receipt["consumed_figures"].extend([float(pct), round(float(pct) * 100.0, 4)])
+    receipt["wrote"] = True
+
+  groups = patch.get("financials.cogs_shared_structure_groups")
+  if groups is None:
+    groups = patch.get("cogs_shared_structure_groups")
+  for group in groups if isinstance(groups, list) else []:
+    names = group if isinstance(group, list) else (group or {}).get("line_names") \
+      if isinstance(group, dict) else None
+    if not isinstance(names, list) or len(names) < 2:
+      continue
+    members, missed = [], []
+    for name in names:
+      entry = _resolve_cogs_line(name, directory)
+      (members if entry is not None else missed).append(entry if entry is not None
+                                                        else str(name or "").strip())
+    receipt["unmatched"].extend(m for m in missed if m)
+    if len(members) < 2:
+      continue
+    label = "shared:" + "+".join(
+      sorted(str(m["product_name"] or m["line_name"]).strip().lower() for m in members)
+    )
+    rated = [m for m in members
+             if _safe_float(m["row"].get("cogs_percent_of_line_revenue")) is not None]
+    shared_pct = None
+    if len(rated) >= 1:
+      weights = [(_cogs_line_revenue_weight(m["row"]) or 0.0) for m in rated]
+      rates = [float(_safe_float(m["row"].get("cogs_percent_of_line_revenue"))) for m in rated]
+      total_weight = sum(weights)
+      shared_pct = round(
+        (sum(r * w for r, w in zip(rates, weights)) / total_weight) if total_weight > 0
+        else (sum(rates) / len(rates)), 4,
+      )
+    for member in members:
+      member["row"]["cogs_cost_structure_group"] = label
+      if shared_pct is not None:
+        member["row"]["cogs_percent_of_line_revenue"] = shared_pct
+      receipt["wrote"] = True
+    receipt["grouped"].append({
+      "line_names": [m["line_name"] for m in members],
+      "group": label,
+      "cogs_percent": shared_pct,
+    })
+  return receipt
+
+
+def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
+  """The receipt IS the sentence. Built from the written rows, so the app
+  cannot say it kept one shared rate for two lines unless two rows now
+  carry one shared rate."""
+  if not isinstance(receipt, dict):
+    return ""
+  parts: List[str] = []
+  for item in receipt.get("written") or []:
+    parts.append(f"{item['line_name']} at {round(float(item['cogs_percent']) * 100):g}% of that line's revenue")
+  for group in receipt.get("grouped") or []:
+    names = " and ".join(group.get("line_names") or [])
+    pct = group.get("cogs_percent")
+    if pct is None:
+      parts.append(f"{names} sharing one direct-cost rate")
+    else:
+      parts.append(f"{names} sharing one direct-cost rate of {round(float(pct) * 100):g}%")
+  said = ""
+  if parts:
+    said = "Recorded: " + "; ".join(parts) + "."
+  unmatched = [u for u in (receipt.get("unmatched") or []) if u]
+  if unmatched:
+    said = (said + " I couldn't tell which line you meant by "
+            + " or ".join(f"'{u}'" for u in unmatched[:3])
+            + " - which one should I change?").strip()
+  return said
+
+
 def _financials_stage_default_patch(
   *,
   stage_name: str,
@@ -2755,6 +3019,7 @@ def _financials_stage_default_patch(
   business_facts: Dict[str, Any],
   conn,
   draft_id: str = "",
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   stage = str(stage_name or "").strip()
   estimate_marketing_baseline_from_context = _financials_baseline_estimators()
@@ -2771,6 +3036,7 @@ def _financials_stage_default_patch(
       ops_json=dict((shared_context or {}).get("operating_model") or {}),
       shared_context=shared_context,
       financials_year1_json=financials_year1_json,
+      financials_json=financials_json,
     )
     # WS1(b): on a multi-line business the accepted proposal lands the
     # line percents on their ops product rows (the one home); the
@@ -8203,6 +8469,53 @@ _WRITE_CLAIM_RE = re.compile(
 )
 
 
+def _apply_stage_cogs_door_keys(
+  *,
+  patch: Optional[Dict[str, Any]],
+  stage_shared_context: Dict[str, Any],
+  conn,
+  intake_context: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
+  """A-110 inside the financials stage flow.
+
+  The general correction path applies these keys through _apply_scoped_patch,
+  but the stage flow never calls it for anything but people keys -- every
+  other key goes through the stage whitelist, which per-line COGS is not in
+  and must not be in (it writes ops rows, not financials fields). So the
+  stage flow opens the same door explicitly, exactly as it does for people.
+
+  The ops write persists here and now: this flow's own persists carry
+  financials only, so a per-line rate written and not persisted here would
+  be gone by the next turn -- indistinguishable, from the client's side,
+  from never having been written at all.
+  """
+  _ack = ""
+  if not (isinstance(patch, dict) and patch):
+    return patch, stage_shared_context, _ack
+  _cogs_keys = {
+    k: v for k, v in patch.items()
+    if str(k).split(".")[-1] in ("cogs_per_line_overrides", "cogs_shared_structure_groups")
+  }
+  if not _cogs_keys:
+    return patch, stage_shared_context, _ack
+  _stage_ops = dict((stage_shared_context or {}).get("operating_model") or {})
+  receipt = _apply_per_line_cogs_patch_keys(_cogs_keys, ops_json=_stage_ops)
+  stage_shared_context = dict(stage_shared_context or {})
+  stage_shared_context["operating_model"] = _stage_ops
+  if receipt.get("wrote"):
+    try:
+      append_messages(
+        conn,
+        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+        new_messages=[], operating_model_json=_stage_ops,
+      )
+    except Exception:
+      logger.exception("STAGE_COGS_DOOR_PERSIST_FAILED")
+  _ack = _build_per_line_cogs_receipt_text(receipt)
+  patch = {k: v for k, v in patch.items() if k not in _cogs_keys}
+  return patch, stage_shared_context, _ack
+
+
 def _apply_stage_people_door_keys(
   *,
   patch: Optional[Dict[str, Any]],
@@ -9113,6 +9426,7 @@ def _run_financials_turn_and_sync(
       business_facts=business_facts,
       conn=conn,
       draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      financials_json=next_financials,
     )
     if isinstance(default_patch, dict) and default_patch:
       patch = {f"financials.{k}": v for k, v in default_patch.items()}
@@ -9132,6 +9446,19 @@ def _run_financials_turn_and_sync(
         patch=patch, stage_shared_context=stage_shared_context,
         next_financials=next_financials, conn=conn, intake_context=intake_context,
       )
+
+  # A-110: the COGS door, on ANY router action and at ANY stage - Ravenwood
+  # stated four per-line rates while the COGS question was live and the
+  # correction had nowhere to land, exactly as the payroll correction did
+  # before the people door existed. The receipt below is built from the
+  # write, so it leads whatever else this turn says.
+  if isinstance(patch, dict) and patch:
+    patch, stage_shared_context, _cogs_ack = _apply_stage_cogs_door_keys(
+      patch=patch, stage_shared_context=stage_shared_context,
+      conn=conn, intake_context=intake_context,
+    )
+    if _cogs_ack:
+      _door_ack = f"{_door_ack} {_cogs_ack}".strip() if _door_ack else _cogs_ack
 
   if action == "edit_patch" and isinstance(patch, dict) and patch:
     _patch_report: Dict[str, Any] = {}
@@ -11227,6 +11554,24 @@ def _apply_scoped_patch(
   next_people = dict(people_json)
   next_financials = dict(financials_json)
   next_fulfillment = dict(fulfillment_json)
+
+  # A-110, THE COGS WRITE DOOR, applied at the ONE door every surface passes
+  # through -- the financials stage flow and the post-completion correction
+  # path both land here, so a per-line direct-cost statement cannot be
+  # section-dependent the way it was for Ravenwood (four rates stated mid-
+  # financials, the collapse stated after the intake had closed, both lost).
+  # The receipt rides on next_financials so the caller can speak from the
+  # write instead of from prose.
+  _cogs_receipt = _apply_per_line_cogs_patch_keys(patch or {}, ops_json=next_ops)
+  if _cogs_receipt.get("wrote") or _cogs_receipt.get("unmatched"):
+    next_financials["_per_line_cogs_receipt"] = _cogs_receipt
+    logger.info(
+      "PER_LINE_COGS_DOOR wrote=%s lines=%s grouped=%s unmatched=%s",
+      _cogs_receipt.get("wrote"),
+      [w["line_name"] for w in _cogs_receipt.get("written") or []],
+      [g["group"] for g in _cogs_receipt.get("grouped") or []],
+      _cogs_receipt.get("unmatched"),
+    )
 
   for raw_key, value in (patch or {}).items():
     key = str(raw_key or "").strip()
@@ -15071,6 +15416,7 @@ def post_intake_consult_handler(*, app, request):
             business_facts=business_facts,
             conn=conn,
             draft_id=str(draft_id or "").strip(),
+            financials_json=financials_json,
           )
           if isinstance(default_patch, dict) and default_patch:
             action = "edit_patch"
@@ -15440,6 +15786,28 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      # A-110 / RECEIPT-WITHOUT-A-WRITE. The scoped apply wrote any per-line
+      # COGS statement onto the ops rows and left its receipt here. Persist
+      # the ops model NOW rather than relying on this turn's focus (the
+      # Ravenwood collapse arrived after the intake had closed), and carry
+      # the receipt TEXT so the acknowledgment is spoken from the write.
+      _cogs_receipt_text = ""
+      _cogs_consumed: List[float] = []
+      _cogs_receipt = (financials_json or {}).pop("_per_line_cogs_receipt", None)
+      if isinstance(_cogs_receipt, dict):
+        _cogs_receipt_text = _build_per_line_cogs_receipt_text(_cogs_receipt)
+        _cogs_consumed = [
+          float(f) for f in (_cogs_receipt.get("consumed_figures") or [])
+          if isinstance(f, (int, float))
+        ]
+        if _cogs_receipt.get("wrote"):
+          try:
+            append_messages(
+              conn, draft_id=str(draft_id or "").strip(),
+              new_messages=[], operating_model_json=ops_json,
+            )
+          except Exception:
+            logger.exception("PER_LINE_COGS_DOOR_PERSIST_FAILED")
       # CW-011 consequence contract: enforce BEFORE the receipt is built,
       # so the receipt and every ack downstream describe the kept truth -
       # an underivable second-lever move never survives long enough to
@@ -15452,8 +15820,12 @@ def post_intake_consult_handler(*, app, request):
           user_message=str(message or ""),
           # CW-022 #1: figures this turn's patch already consumed outside
           # ops (owner pay, marketing $, ...) have a home - they may not
-          # also be read as driver targets/counts.
-          consumed_figures=_patch_numeric_values_outside_ops(patch),
+          # also be read as driver targets/counts. The per-line COGS rates
+          # this turn wrote are the same rule: they have a home on the
+          # product row and are not prices, capacities, or targets.
+          consumed_figures=(
+            _patch_numeric_values_outside_ops(patch) + _cogs_consumed
+          ),
         )
         if isinstance(_driver_note, dict) and _driver_note.get("pending_frame"):
           financials_json = dict(financials_json or {})
@@ -16112,7 +16484,18 @@ def post_intake_consult_handler(*, app, request):
             and not (_edit_receipt.get("written") or [])
             and (_edit_receipt.get("dropped") or [])
           )
-          if _edit_receipt_text:
+          # RECEIPT-WITHOUT-A-WRITE (CW-031 item 2). A per-line COGS
+          # statement writes ops rows, not financials numerics, so the
+          # numeric receipt above cannot see it and the turn fell through to
+          # router prose - which is how "I'll keep one shared direct-cost
+          # rate for Plant sale and Hard goods sale" shipped with nothing
+          # stored anywhere. This receipt is BUILT FROM the written rows, so
+          # it can only say what the rows now hold, and it leads.
+          if _cogs_receipt_text:
+            ack_fallback = _cogs_receipt_text
+            if _edit_receipt_text:
+              ack_fallback = f"{ack_fallback} Updated: {_edit_receipt_text}."
+          elif _edit_receipt_text:
             ack_fallback = f"Updated: {_edit_receipt_text}."
           elif _requested_but_empty:
             # A dropped request whose STORED value already equals what
