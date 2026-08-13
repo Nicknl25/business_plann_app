@@ -1139,3 +1139,34 @@ not that it exists in a schema. Until then its green is unearned.
 CLIENT IMPACT: none. Ravenwood is being served correctly — four
 streams, split, named, justified. What is lost is the structured
 record of WHY the split happened (the audit/consumer surface).
+
+## CORRECTION to the CW-031 finding above (VS, at intake close)
+
+The WS1a gate stamp is NOT dead. At ops FINALIZE both fields persisted
+correctly on Ravenwood:
+
+    line_split_confidence: confident_multi
+    split_rationale: "Client explicitly defined four distinct lines of
+    business (plant/nursery sales, hard goods & materials, landscaping
+    & installation, and garden design consultations) with different..."
+
+What is true: the PER-TURN path drops them (_apply_model_ops_patch:937
+allowlist), so the field is absent mid-conversation and only appears
+once ops finalizes via _final_schema. What is FALSE in my note above:
+"the gate stamp dies here, every turn" - it dies per-turn, then
+finalize writes it. End state is correct.
+
+Consequence for R29: its green is defensible on OUTCOME (the field
+does reach persisted ops json) but it still does not exercise the
+merge path, so it would not catch a finalize-side regression either.
+Re-fixturing it to assert survival into persisted ops json is still
+the right move - it just is not fixing a live bug, it is closing a
+blind spot. Priority accordingly: LOW, not the blocker I implied.
+
+The per-turn allowlist gap is worth closing anyway (a mid-conversation
+consumer cannot see the field), but it is a hardening, not a defect.
+
+STILL CONFIRMED AND SERIOUS: the per-line COGS write. At intake close
+all four rows carry cogs_percent_of_line_revenue=None while the client
+was shown 55/60/38/6 in prose and the blend persisted at 0.47. That
+one is real and is FIX 1.
