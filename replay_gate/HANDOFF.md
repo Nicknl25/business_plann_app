@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   DURABLE FREEZE of the golden-leg input — Nick's one condition before he calls
