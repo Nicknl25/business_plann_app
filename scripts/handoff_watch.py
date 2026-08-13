@@ -228,11 +228,16 @@ def consume_inbox(text: str, branch: str) -> None:
     seeded = re.sub(r"^TURN:\s*\d+\s*/", "TURN: 0/", "\n".join(lines), count=1, flags=re.M) + "\n"
     HANDOFF.write_text(seeded, encoding="utf-8")
     INBOX.write_text(INBOX_TEMPLATE, encoding="utf-8")
+    pause_lifted = False
     if PAUSE_SENTINEL.exists():
         PAUSE_SENTINEL.unlink()
+        pause_lifted = True
         log("PAUSE lifted by an inbox instruction (Nick's words are the un-pause)")
-    git("add", "-A", "--", str(HANDOFF.relative_to(REPO)), str(INBOX.relative_to(REPO)),
-        str(PAUSE_SENTINEL.relative_to(REPO)))
+    # `git add -A -- <path>` FATALS on a pathspec that matches nothing, so the
+    # sentinel is staged only when it actually existed (and never fatally).
+    git("add", "-A", "--", str(HANDOFF.relative_to(REPO)), str(INBOX.relative_to(REPO)))
+    if pause_lifted:
+        git("add", "-A", "--", str(PAUSE_SENTINEL.relative_to(REPO)), check=False)
     got = git("commit", "-m", f"[handoff-watcher] seed from inbox -> {target}", check=False)
     if got.returncode != 0 and "nothing to commit" not in (got.stdout + got.stderr):
         raise RuntimeError(f"inbox seed commit failed: {got.stderr[:300]}")
