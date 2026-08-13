@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 11/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1028,3 +1028,94 @@ TASK:
   removed it from no-write turns only (defensible without the ruling);
   write-carrying turns are still naturalized and still accurate in every
   reply I read. The ruling governs that remaining half.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: cogs_group:label-membership-split-on-plus
+  EVIDENCE: _mini_cw031_r9_audit_20260813.txt (all five items);
+    _mini_cw031_r9_ask_loop_20260813.txt / _coherence_live / _coherence_attack
+    / _f1_residue / _delivery_check / _window_recheck / _plus_census (probes'
+    outputs); _prove_20260813_mini_round9.txt (57 legs, R38+R39 PROVEN);
+    Test Files/_mini_cw031_r9_*.py (five probes); replay_gate/MINI_NOTES.md
+    round-11 section
+  SUMMARY: Round 9 holds where VS proved it and on the answers VS did not:
+  the NO stored nothing and invented nothing, the PARTIAL stored exactly the
+  declared two-line group and the next write did not re-ask, the IGNORE held
+  as the ask vocabulary at the gate. Live disjoint groups survive a
+  separation byte-identical. F1: 3 of 4 of my own blend wordings LANDED
+  (dollars basis, derived ratios exact), 1 honest floor, 0 wrong numbers, 0
+  false acks -- refusal is not the norm, no router widening needed. Delivery
+  record #4 binds by draft_id, basis=delivery record, window tie-break still
+  clean with 4 rows. R38 (inference never stored; the net asks) and R39
+  (separation clears the group) are IN THE GATE, both PROVEN BEHAVIOURAL at
+  858987b; full prove 57 legs, 50 behavioural, 5 structural-absence, 2
+  golden, 0 DRIFT, 0 UNEARNED, fast gate GREEN. Not green for one real
+  defect + one owed shape: the group label encodes membership with '+' and
+  the coherence pass parses it back with split('+'), so a product named like
+  'Business Plan + Financial Model' (7 real drafts carry '+' names) makes a
+  just-declared group RETIRE ITSELF in the same call, with a receipt that
+  contradicts itself. And a no-write restatement of an on-file figure now
+  gets "I wasn't able to apply that change" (the naturalizer removal's
+  knock-on) instead of a match-on-file sentence.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: two fixes and one polish. Reproduction and numbers in
+  _mini_cw031_r9_audit_20260813.txt.
+
+  1. MEMBERSHIP IS DATA, NOT A LABEL PARSE. The coherence pass rebuilds a
+     group's membership by splitting the label on '+', and product names
+     containing '+' are real (census: 7 of 3,164 drafts with lob_models --
+     'Business Plan + Financial Model' x6, 'IV services (visits +
+     memberships)'). Declaring a group containing such a line stores it and
+     retires it IN THE SAME CALL: the client's declaration evaporates and
+     the receipt says both "sharing one rate" and "no longer covers" in one
+     breath. Store the member list beside the label (or escape the
+     separator); the label stays display, membership becomes data the pass
+     compares directly. Re-run Test Files/_mini_cw031_r9_coherence_attack.py:
+     O2 must go clean, O1/O3/O4 must stay clean. R39 pins the '+'-free
+     behaviour and will not red on your fix; after you land it I will add
+     the '+'-named tooth to R39 so the trap cannot return.
+
+  2. A MATCHING RESTATEMENT DESERVES A MATCH-ON-FILE SENTENCE. "Just to
+     confirm, our annual revenue is 1,553,000" (on file: 1,553,000) got
+     "I wasn't able to apply that change just now - could you tell me
+     exactly which field to change..." The figure gate itself behaved (its
+     "I haven't recorded that figure" text never fired -- correct, the
+     figure IS recorded), and this is honest about the write -- but it is
+     wrong about the client's intent, and the next Cowork client who
+     confirms a number meets it. Deterministic fix, no naturalizer needed:
+     on the no-write tail, when every figure the client stated matches a
+     stored value, say the match ("That matches what I have - annual
+     revenue is $1,553,000") instead of the failed-change sentence. My
+     probe Test Files/_mini_cw031_r9_f1_residue.py B1 is the check; B2 and
+     the four A-cases must stay clean.
+
+  3. POLISH, cosmetic: the separation acknowledgment names only the first
+     three lines (separated[:3] slice) -- "keep every one of them separate"
+     on four lines acked three by name. Say all of them or say "and N
+     more"; the artifact is right, only the sentence under-counts.
+
+  Standing laws apply: restart the backend after app-code edits and verify
+  ONE :5050 listener, one Sunny_V3 canary before any batch, red-proofs red
+  for the right reason, never end a turn with a job running.
+
+  ANSWERED from your round-9 TASK, so you do not re-derive: (item 3) the
+  blend patch rate is 3/4 on plain wordings, the floor fires on hedged
+  forms ("about 45 percent") -- do NOT widen the router instruction on this
+  evidence; (item 1) refusal rate on clear wordings 0/3 across my live
+  cases; (housekeeping) your A1 re-point stands as written, verified 9/9 on
+  current code, and with R38/R39 in the gate both round-8 instruments are
+  records now, not instruments.
+
+  NOT YOURS: R38 and R39 (fix 56717dd, baseline 858987b) are mine and
+  proven; the '+'-tooth extension of R39 after your fix 1 is also mine.
+  MINI_NOTES.md round-11 section documents both legs and the deliberate
+  '+' limit.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a deterministic
+  receipt. This turn's B1 finding is the same ruling's shadow: removing the
+  naturalizer from no-write turns fixed the manufactured ack and exposed
+  that the deterministic sentence has one register (failed change) for
+  turns that are not change attempts. Fix 2 closes that deterministically;
+  the ruling still governs write-carrying turns.

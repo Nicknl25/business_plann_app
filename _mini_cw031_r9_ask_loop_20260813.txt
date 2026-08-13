@@ -1,0 +1,50 @@
+==============================================================================
+A: 'no' after the ask stores nothing and invents nothing
+  t1 < [200] Got it, I’ve updated your numbers so that plant sales have COGS at 52.0% of that line’s revenue and hard goods sales also have COGS at 52.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  t2 < [200] Got it, you’ve set both Install projects and Design consults to a COGS of 52.0% of their respective line revenues. That's the same rate on all 4 lines - should I treat them as one shared cost structure, or keep them separate?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+  A-t3 < [200] Got it, we’ll keep them all separate so Plant/nursery sales / Plant sale, Hard goods & materials / Hard goods sale, and Landscaping & installation / Install project each have their own distinct cost structure.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+==============================================================================
+B: a partial answer stores the declared partial group; the next write does not re-ask
+  t1 < [200] Got it, I’ve updated your numbers so that plant sales have COGS at 52.0% of that line’s revenue and hard goods sales also have COGS at 52.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  t2 < [200] Got it, you’ve set both Install projects and Design consults to a COGS of 52.0% of their respective line revenues. That's the same rate on all 4 lines - should I treat them as one shared cost structure, or keep them separate?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+  B-t3 < [200] Got it—so Plant/nursery sales / Plant sale and Hard goods & materials / Hard goods sale will share a single 52% direct-cost rate, while Landscaping & installation / Install project and Garden design consultations / Design consult each keep their own separate cost structures.
+
+You're all set - the intake is complete again and you can submit whenever you're re
+  rows: [('Plant sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Hard goods sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+  B-t4 < [200] Got it, we’ll keep landscaping & installation / install project work at 52% of that line’s revenue just as you’ve set it.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers cle
+  rows: [('Plant sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Hard goods sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+==============================================================================
+C: an unrelated answer leaves rows ungrouped; the assertion fails them with the ask vocabulary
+  t1 < [200] Got it, I’ve updated your numbers so that plant sales have COGS at 52.0% of that line’s revenue and hard goods sales also have COGS at 52.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', None, None, None), ('Design consult', None, None, None)]
+  t2 < [200] Got it, you’ve set both Install projects and Design consults to a COGS of 52.0% of their respective line revenues. That's the same rate on all 4 lines - should I treat them as one shared cost structure, or keep them separate?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+  C-t3 < [200] Final review is complete and the facts line up well enough to proceed.
+
+Click "Submit intake" to finish.
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.52, None, None), ('Design consult', 0.52, None, None)]
+  assertion: {'verdict': 'fail', 'detail': 'all 4 rows share one rate {0.52} with no client-declared collapse - a blend wearing per-line clothing (the app asks; a declared yes stores the group)'}
+  (3 clone(s) removed)
+==============================================================================
+ASK-LOOP RESULT: CLEAN (no stores nothing, partial stores the declared two and never re-asks, ignore holds honestly)

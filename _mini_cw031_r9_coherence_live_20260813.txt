@@ -1,0 +1,15 @@
+t1 < [200] Got it, you’ve now set both Plant sales and Hard goods sales to use the same 52.0% cost of goods percentage for their line revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue 
+  rows: [('Plant sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Hard goods sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Install project', None, None, None), ('Design consult', None, None, None)]
+t2 < [200] Got it, you’ve set both Install projects and Design consults to run with COGS at 20.0% of their line revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it
+  rows: [('Plant sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Hard goods sale', 0.52, 'shared:hard goods sale+plant sale', 'declared'), ('Install project', 0.2, 'shared:design consult+install project', 'declared'), ('Design consult', 0.2, 'shared:design consult+install project', 'declared')]
+t3 < [200] Got it, plant/nursery sales / Plant sale now has its own separate cost structure and Hard goods & materials / Hard goods sale each keep their own rates—just let me know if you’d still like any of them to share one.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with th
+  rows: [('Plant sale', 0.52, None, None), ('Hard goods sale', 0.52, None, None), ('Install project', 0.2, 'shared:design consult+install project', 'declared'), ('Design consult', 0.2, 'shared:design consult+install project', 'declared')]
+  (1 clone(s) removed)
+==============================================================================
+COHERENCE-LIVE RESULT: CLEAN (the untouched group survived byte-identical)

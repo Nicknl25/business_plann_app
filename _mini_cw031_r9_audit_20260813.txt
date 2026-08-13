@@ -1,0 +1,161 @@
+CW-031 ROUND 9 ARTIFACT AUDIT (mini, 2026-08-13, turn 11)
+==========================================================================
+Rule of the audit: rows and receipts read from the DB after commit(),
+never VS's pass lines, never naturalized replies. Server: ONE :5050
+listener, PID 34352, started 17:17:58, postdating every app edit
+(latest 17:16:54); working tree byte-identical to HEAD (eca85c6, app
+code from 56717dd) for python/, scripts/, replay_gate/ before my leg
+edits.
+
+ITEM 1 -- THE ASK -> DECLARATION LOOP, the answers VS did not prove
+--------------------------------------------------------------------------
+Probe: Test Files/_mini_cw031_r9_ask_loop.py (my own wordings)
+Output: _mini_cw031_r9_ask_loop_20260813.txt -- CLEAN
+
+Setup for every case: two messages ("the plant side runs 52 percent of
+its own sales..." then "install work is 52 percent too, and so is the
+design side") completing uniformity at N=4. The ask fired in the reply
+all three times; zero groups stored at the ask point all three times.
+
+  A. NO ("No - each line prices out on its own, keep every one of them
+     separate"): rows after: zero groups, zero bases, all four rates
+     0.52 unchanged, no transport key in financials_json. Nothing
+     invented. (Cosmetic: the reply's separation sentence names only 3
+     of 4 lines -- the receipt renderer's separated[:3] slice. The
+     artifact is right; noted for VS as display polish, not filed.)
+  B. PARTIAL ("Just put the plants and the hard goods together - the
+     other two stand on their own"): plant+hard goods rows carry ONE
+     label 'shared:hard goods sale+plant sale', basis declared on both;
+     install/design ungrouped. Follow-up write into the pre-existing
+     uniformity ("set install work to 52 percent") did NOT re-fire the
+     ask (the _uniform_before snapshot working live) and did not
+     disturb the declared partial group.
+  C. IGNORE ("We also run a spring workshop series every March"): rows
+     unchanged, zero groups; _assert_ops_per_line_cogs on the held
+     state -> verdict fail, detail "all 4 rows share one rate {0.52}
+     with no client-declared collapse - a blend wearing per-line
+     clothing (the app asks; a declared yes stores the group)" -- the
+     held-question vocabulary, exactly as ruled.
+
+ITEM 2 -- THE GROUP-COHERENCE PASS, adversarially
+--------------------------------------------------------------------------
+Probes: _mini_cw031_r9_coherence_attack.py (offline, the pass's own
+logic), _mini_cw031_r9_coherence_live.py (live), _mini_cw031_r9_plus_
+census.py. Outputs: _mini_cw031_r9_coherence_attack_20260813.txt (RED,
+one finding), _mini_cw031_r9_coherence_live_20260813.txt (CLEAN),
+_mini_cw031_r9_plus_census_20260813.txt.
+
+  LIVE: two disjoint DECLARED groups (plants+hard at 0.52, install+
+  design at 0.20), then "Break the plants out of that grouping". Plant
+  cleared, hard goods retired AND named, and the install+design group
+  survived BYTE-IDENTICAL (deep compare). The A2 class did not survive
+  the fix on this shape.
+
+  OFFLINE O1/O3/O4 CLEAN: disjoint survival (deep compare), subset
+  names ('Install' vs 'Install project' as two real rows: group,
+  separate, retire all resolve to the right rows), case drift (mixed-
+  case names do not false-retire -- both sides lowercase).
+
+  O2 RED -- THE '+' TRAP IS REAL. The label encodes membership as
+  "+".join(names) and the pass parses it with split('+'). A product
+  named 'Design + Build' encodes to 'shared:design + build+plant sale',
+  whose split is {'design ', ' build', 'plant sale'} != the carrying
+  set {'design + build', 'plant sale'} -- so the pass retires the group
+  IN THE SAME CALL THAT DECLARED IT. The client's declaration
+  evaporates and the receipt contradicts itself (names the group
+  shared, then says the grouping no longer covers its members).
+  CENSUS: 7 of 3,164 real drafts with lob_models carry a '+' in a
+  product/LOB name ('Business Plan + Financial Model' x6, 'IV services
+  (visits + memberships)'), so this is live-reachable, not synthetic.
+  FIX SHAPE: stop parsing membership out of the label string -- store
+  the member list beside the label (or escape '+' in encoding); the
+  label stays display, membership becomes data. R39 pins today's
+  correct behaviour on '+'-free names and is unaffected.
+
+ITEM 3 -- F1 RESIDUE, measured
+--------------------------------------------------------------------------
+Probe: _mini_cw031_r9_f1_residue.py.
+Output: _mini_cw031_r9_f1_residue_20260813.txt -- CLEAN, one fix shape.
+
+  PATCH RATE, four of my own blend wordings on unrated clones:
+  3 LANDED / 1 honest floor / 0 wrong numbers / 0 false acks.
+    "0.42 of revenue"        -> $652,260, derived ratio 0.4200  LANDED
+    "about 45 percent"       -> honest non-apply                FLOOR
+    "roughly 0.5 of sales"   -> $776,500, derived ratio 0.5000  LANDED
+    "overall COGS ratio 0.41"-> $636,729, derived ratio 0.4100  LANDED
+  Refusal is NOT becoming the norm; VS's single 0.44 no-patch reads as
+  wording variance ("about"/hedged forms are the ones that fall to the
+  floor). No router-instruction widening needed on this evidence.
+
+  FALSE-POSITIVE ATTACK on _prose_acks_unwritten_figure:
+    B2 (question turn): quoted the stored number back, truthfully,
+       including the float dust. No gate interference. CLEAN.
+    B1 (restatement of the ON-FILE revenue, no question mark): the
+       figure gate itself did NOT false-fire (its deterministic "I
+       haven't recorded that figure" never appeared, correct since the
+       figure IS recorded) -- but the turn landed in the no-write
+       honest-non-apply branch and the client was told "I wasn't able
+       to apply that change just now" about a figure that matches what
+       is on file. KNOCK-ON of the round-9 naturalizer removal: the
+       pre-round-9 naturalizer would have manufactured a match ack here
+       (accidentally true, mechanically the F1 defect). FIX SHAPE, not
+       a law violation: a no-write turn whose stated figures MATCH
+       stored values deserves a deterministic match-on-file sentence
+       ("that matches what I have - annual revenue is $1,553,000")
+       selected before the failed-change wording. The failed-change
+       sentence is honest about the write but wrong about the client's
+       intent, and the next Cowork client who confirms a number will
+       meet it.
+
+ITEM 4 -- THE PROMISED LEGS
+--------------------------------------------------------------------------
+R38 'inference-never-stored-as-structure' and R39 'separation-clears-
+the-group' are IN THE GATE (replay_gate/legs.py), fix 56717dd, baseline
+858987b, shapes taken from R9A1/R9A4/R9A5 plus the A2-clobber and the
+gate's declared-only rule (via a cursor stub -- no DB writes from a
+leg).
+  R38 teeth: the mint (uniform write stores nothing, asks), the clobber
+  (declared partial stamp survives byte-identical), the echo (no store,
+  no re-ask), the gate (inferred basis fails, declared passes --
+  positive control both directions, plus rates-still-land).
+  R39 teeth: separated row clears group AND basis, abandoned member's
+  stale label retires and is NAMED and spoken, regroup-leaves-one-out
+  retires the leftover, disjoint declared group survives byte-identical.
+Proof: --prove --only R38,R39 -> both PROVEN BEHAVIOURALLY, red at
+858987b on their own checks (R38: inferred mint + clobber + echo + gate
+pass-on-inferred; R39: key unconsumed, stale labels stay), green at
+HEAD, 0 crash-reds. Full prove: _prove_20260813_mini_round9.txt.
+
+ITEM 5 -- THE DELIVERY RECORD
+--------------------------------------------------------------------------
+Probe: _mini_cw031_r9_delivery_check.py; window re-check via my round-7
+instrument _mini_cw031_t23_window_break.py.
+Outputs: _mini_cw031_r9_delivery_check_20260813.txt,
+_mini_cw031_r9_window_recheck_20260813.txt -- both CLEAN.
+
+  workbook_deliveries has exactly 4 rows; row #4 draft 3c56e7c5...
+  (round-9 canary), run fee3e195..., file exists on disk.
+  resolve_workbook_for_draft -> basis='delivery record', path identical
+  to the recorded row. Window tie-break with 4 rows in the table: all
+  three shapes still clean -- the ordinary repeat run binds each draft
+  to its own file, and both slow-build shapes refuse for the slow draft
+  rather than awarding another draft's workbook.
+
+HOUSEKEEPING (mine to judge, judged)
+--------------------------------------------------------------------------
+  - _mini_cw031_r8_net_attack.py stays AS RE-POINTED by VS (the header
+    documents the re-point; A1 now asserts the ruling). Verified 9/9 on
+    current code this turn. With R38 in the gate it is no longer the
+    instrument of record -- the gate is.
+  - _redproof_cw031_round8_ablate.py: retired as the round-8 record
+    (B6/B7 needles are gone with the deleted code, which is the fix
+    working; R9A1 and now R38 carry that coverage). Not rewritten, not
+    deleted -- it documents round 8.
+
+STILL NICK'S, UNCHANGED: whether naturalization may touch a
+deterministic receipt. This turn's B1 finding is the same ruling's
+shadow from the other side: removing the naturalizer from no-write
+turns fixed the manufactured ack and exposed that the deterministic
+no-write sentence has only one register (failed change) for turns that
+are not change attempts. The fix shape above is deterministic and does
+not need the ruling; the ruling still governs write-carrying turns.

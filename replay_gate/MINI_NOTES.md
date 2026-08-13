@@ -6,6 +6,43 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 11 - CW-031 round 9 audited at the artifact level; R38/R39 pinned
+
+Full report: `_mini_cw031_r9_audit_20260813.txt`. Prove:
+`_prove_20260813_mini_round9.txt` (57 legs).
+
+Two legs pinned this turn, both fix 56717dd / baseline 858987b, both PROVEN
+BEHAVIOURALLY (red at 858987b on their own checks, green at HEAD, no
+crash-reds):
+
+- **R38 `inference-never-stored-as-structure`** - the round-9 ruling as a
+  permanent leg: the uniform write ASKS and stores nothing, the declared
+  partial stamp survives a coinciding write byte-identical, an echo neither
+  stores nor re-asks, and the gate fails an inferred-basis group while
+  passing a declared one (positive controls both directions). The gate half
+  runs through a cursor stub (`_OpsOnlyCursor`) so a leg never writes the
+  drafts table to prove a rule about writes.
+- **R39 `separation-clears-the-group`** - the remover and the coherence pass:
+  the separated row clears group AND basis, the abandoned member's stale
+  label retires and is NAMED and spoken, a regroup that leaves a member out
+  retires the leftover, and a DISJOINT declared group must survive
+  byte-identical (a pass that clears everything fails as loudly as one that
+  clears nothing).
+
+Known limit, deliberate: R39 pins '+'-free names only. The coherence pass
+parses membership out of the label with split('+'), so a product named like
+'Business Plan + Financial Model' (7 real drafts) makes a just-declared group
+retire itself in the same call. That is VS's fix (store membership as data,
+not label-parse); pinning today's parse would pin the bug. Leg follows the
+fix.
+
+Instruments-of-record note: with R38 in the gate,
+`Test Files/_mini_cw031_r8_net_attack.py` (as re-pointed by VS, verified 9/9
+this turn) and the round-8 ablation script are historical records, not
+instruments. The gate is the instrument.
+
+---
+
 ## Round 10 - the durable freeze audited from a fresh session
 
 Prove: `_prove_20260813.txt` (build 867cd48 vs baselines; exit 0, ~4 minutes).

@@ -1,0 +1,9 @@
+drafts scanned: 3168; with lob_models: 3164
+drafts with a '+' in a product/LOB name: 7
+  066979b7e6de42f1b50f9e8f4007ba28: ['Business Plan + Financial Model']
+  11a8fdf5d25a44078e3343f511539875: ['Business Plan + Financial Model']
+  1d515b3c743749aeb8eda83eb0f907ab: ['Business Plan + Financial Model']
+  49181987acf24de4adf0f5e8b79e5bff: ['Business Plan + Financial Model']
+  5ee71fa217d14b3b8e118bce46ee97ba: ['IV services (visits + memberships)']
+  df00b8e668d54e5da6c87b69dca7f0df: ['Business Plan + Financial Model']
+  ee72251f4e404d32830d365fda99bb21: ['Business Plan + Financial Model']

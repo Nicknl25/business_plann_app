@@ -1,0 +1,29 @@
+==============================================================================
+TWO RUNS OF ONE BUSINESS NAME, MINUTES APART -- three shapes
+==============================================================================
+
+SHAPE 1 (the ordinary repeat run): both builds fast, runs 150s apart.
+  draft A run 09:00:00  ->  its workbook stamped 09:00:20  (+20s, 9-00-20)
+  draft B run 09:02:30  ->  its workbook stamped 09:02:50  (+20s, 9-02-50)
+    draftAAAA: basis=run window   -> Larkspur Repeat Runs -- 08-13-2026 09-00-20.xlsx
+    draftBBBB: basis=run window   -> Larkspur Repeat Runs -- 08-13-2026 09-02-50.xlsx
+  [PASS] each draft gets its own workbook: nearest-run does the disambiguation it claims
+
+SHAPE 2 (A builds slowly, B runs while A is still building): A's file lands
+         nearer B's run than its own, and B's own file is EARLIER.
+  draft A run 09:00:00  ->  its workbook stamped 09:03:20  (+200s, 9-03-20)
+  draft B run 09:02:30  ->  its workbook stamped 09:02:40  (+10s, 9-02-40)
+    draftAAAA: basis=none         -> NOT ATTRIBUTED
+    draftBBBB: basis=run window   -> Larkspur Repeat Runs -- 08-13-2026 09-02-40.xlsx
+  [PASS] no draft is awarded another draft's workbook: both refuse or both bind correctly
+
+SHAPE 3 (the same, tightened): A slow at +140s, B runs at +100s and builds
+         in 10s. A's file is 40s from B's run and 140s from A's own.
+  draft A run 09:00:00  ->  its workbook stamped 09:02:20  (+140s, 9-02-20)
+  draft B run 09:01:40  ->  its workbook stamped 09:01:50  (+10s, 9-01-50)
+    draftAAAA: basis=none         -> NOT ATTRIBUTED
+    draftBBBB: basis=run window   -> Larkspur Repeat Runs -- 08-13-2026 09-01-50.xlsx
+  [PASS] no draft is awarded another draft's workbook: both refuse or both bind correctly
+
+==============================================================================
+NO BREAK - the window fallback never awarded a file to the wrong draft.

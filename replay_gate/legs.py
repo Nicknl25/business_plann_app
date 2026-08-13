@@ -2462,6 +2462,243 @@ def _r_transport_keys_never_persist(ctx):
         + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+class _OpsOnlyCursor(object):
+    """A cursor stub for issue-registry assertions that only ever read
+    operating_model_json for one draft (_load_ops_model's exact surface).
+    Keeps gate legs out of the drafts table entirely: the assertion under
+    test is pure given its ops JSON, and a leg must not write rows to
+    prove a rule about writes."""
+
+    def __init__(self, ops_json):
+        import json as _json
+        self._payload = _json.dumps(ops_json)
+
+    def execute(self, *_a, **_k):
+        return None
+
+    def fetchone(self):
+        return (self._payload,)
+
+
+def _r_inference_never_stored(ctx):
+    """R38 - an inference is never stored as structure; the net ASKS.
+
+    THE BUG (CW-031 round 8 -> 9, fix 1). Round 8's value-equality net
+    stored an inferred all-lines group whenever a write left every line
+    on one rate. The round-8 audit killed it three ways at once: it
+    CLOBBERED a client-declared partial group and restamped every basis
+    as inferred (the app overwriting what the client declared), an echo
+    of one existing rate minted a collapse nobody declared, and the
+    artifact assertion then PASSED the result - a false PASS inside the
+    gate this class exists to close. Ruled under Nick's corollary 2 +
+    silence-never-agreement: uniform post-write rates at N>=3 put a
+    QUESTION in the receipt; only the client's own declaration stores a
+    group. THE RULE: AN INFERENCE NEVER OVERWRITES A DECLARED STAMP -
+    and an inference is never authority at the gate either.
+
+    Four teeth, each red on the round-8 baseline for its own reason:
+    the mint, the clobber, the echo, and the gate's declared-only rule.
+    Positive controls: the rates themselves still land, and a declared
+    all-lines group still PASSES the assertion - a door that stopped
+    writing or a gate that fails everything cannot satisfy this leg.
+    """
+    from client_intake_and_finmo import issue_registry as ir  # type: ignore
+
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+    say = ctx.ic._build_per_line_cogs_receipt_text
+
+    def _rows(**named):
+        products = []
+        for name, (rate, group, basis) in named.items():
+            row = {"product_name": name.replace("_", " "), "unit_price": 100.0,
+                   "units_per_period_capacity": 10.0,
+                   "operating_periods_per_year": 12.0}
+            if rate is not None:
+                row["cogs_percent_of_line_revenue"] = rate
+            if group:
+                row["cogs_cost_structure_group"] = group
+                row["cogs_cost_structure_group_basis"] = basis
+            products.append(row)
+        return {"lob_models": [{"lob_name": "Main", "products": products}]}
+
+    fails, seen = [], []
+
+    # S1 THE MINT: this write CREATES uniformity at N=4 -> ask, never store.
+    ops = _rows(plant=(0.55, None, None), hard=(0.55, None, None),
+                install=(None, None, None), design=(None, None, None))
+    receipt = door({"financials.cogs_per_line_overrides": [
+        {"line_name": "install", "cogs_percent": 55, "cogs_percent_unit": "percent"},
+        {"line_name": "design", "cogs_percent": 55, "cogs_percent_unit": "percent"},
+    ]}, ops_json=ops)
+    rows = ops["lob_models"][0]["products"]
+    stored = [(r["product_name"], r.get("cogs_cost_structure_group"),
+               r.get("cogs_cost_structure_group_basis"))
+              for r in rows if r.get("cogs_cost_structure_group")]
+    seen.append(f"mint: stored={stored!r}, ask={receipt.get('uniform_rate_ask')!r}")
+    if stored:
+        fails.append(f"uniform write STORED a group nobody declared: {stored!r}")
+    if not receipt.get("uniform_rate_ask"):
+        fails.append("uniform write raised no ask in the receipt")
+    elif "one shared cost structure" not in say(receipt):
+        fails.append("the ask is in the receipt but not in the sentence")
+    if any(r.get("cogs_percent_of_line_revenue") != 0.55 for r in rows):
+        fails.append("positive control: the rates themselves did not land")
+
+    # S2 THE CLOBBER: a client-DECLARED partial group survives a coinciding
+    # write byte-identical.
+    label = "shared:hard+plant"
+    ops = _rows(plant=(0.55, label, "declared"), hard=(0.55, label, "declared"),
+                install=(None, None, None), design=(None, None, None))
+    door({"financials.cogs_per_line_overrides": [
+        {"line_name": "install", "cogs_percent": 55, "cogs_percent_unit": "percent"},
+        {"line_name": "design", "cogs_percent": 55, "cogs_percent_unit": "percent"},
+    ]}, ops_json=ops)
+    rows = ops["lob_models"][0]["products"]
+    declared = [(r["product_name"], r.get("cogs_cost_structure_group"),
+                 r.get("cogs_cost_structure_group_basis")) for r in rows[:2]]
+    newcomers = [(r["product_name"], r.get("cogs_cost_structure_group"))
+                 for r in rows[2:] if r.get("cogs_cost_structure_group")]
+    seen.append(f"clobber: declared={declared!r}, newcomers={newcomers!r}")
+    if declared != [("plant", label, "declared"), ("hard", label, "declared")]:
+        fails.append(f"a coinciding write TOUCHED the declared stamp: {declared!r}")
+    if newcomers:
+        fails.append(f"the net grouped rows the client never grouped: {newcomers!r}")
+
+    # S3 THE ECHO: restating one rate of an already-uniform state neither
+    # stores nor re-asks.
+    ops = _rows(plant=(0.55, None, None), hard=(0.55, None, None),
+                install=(0.55, None, None), design=(0.55, None, None))
+    receipt = door({"financials.cogs_per_line_overrides": [
+        {"line_name": "hard", "cogs_percent": 55, "cogs_percent_unit": "percent"},
+    ]}, ops_json=ops)
+    rows = ops["lob_models"][0]["products"]
+    echo_stored = [r["product_name"] for r in rows if r.get("cogs_cost_structure_group")]
+    seen.append(f"echo: stored={echo_stored!r}, ask={receipt.get('uniform_rate_ask')!r}")
+    if echo_stored:
+        fails.append(f"an echo of an already-uniform state minted a group: {echo_stored!r}")
+    if receipt.get("uniform_rate_ask"):
+        fails.append("an echo of an already-uniform state re-raised the ask")
+
+    # S4 THE GATE: an inferred-basis group is not authority; a declared one is.
+    inferred_ops = _rows(
+        a=(0.55, "shared:a+b+c", "inferred from identical stated rates"),
+        b=(0.55, "shared:a+b+c", "inferred from identical stated rates"),
+        c=(0.55, "shared:a+b+c", "inferred from identical stated rates"))
+    verdict = ir._assert_ops_per_line_cogs(_OpsOnlyCursor(inferred_ops), "r38", {})
+    seen.append(f"gate(inferred)={verdict.get('verdict')!r}")
+    if verdict.get("verdict") != "fail":
+        fails.append(f"an INFERRED all-lines group passed the gate: {verdict!r}")
+    declared_ops = _rows(a=(0.55, "shared:a+b+c", "declared"),
+                         b=(0.55, "shared:a+b+c", "declared"),
+                         c=(0.55, "shared:a+b+c", "declared"))
+    verdict = ir._assert_ops_per_line_cogs(_OpsOnlyCursor(declared_ops), "r38", {})
+    seen.append(f"gate(declared)={verdict.get('verdict')!r}")
+    if verdict.get("verdict") != "pass":
+        fails.append("positive control: a DECLARED all-lines group must pass "
+                     f"the gate, got {verdict!r}")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_separation_clears_group(ctx):
+    """R39 - separation clears the group, and the stale label retires.
+
+    THE BUG (CW-031 round 8 -> 9, fix 2). "Keep design consults separate"
+    got "Got it - we'll keep design consults separate" while the row STILL
+    carried the all-lines label: the group field had two writers and ZERO
+    removers, so an authority the client could not revoke was not an
+    authority the client held. Words != state, this batch's founding law,
+    in the artifact. Round 9 built the remover (cogs_separate_lines,
+    consumed never stored) and the group-coherence pass: a label encodes
+    its own membership, and rows wearing a label whose carrying set no
+    longer matches it are cleared too, BY NAME, in the receipt.
+
+    Teeth: the named row's group AND basis clear; the abandoned member's
+    stale label retires and is named; a regroup that leaves a member out
+    retires that member's label. Positive control: a DISJOINT declared
+    group survives the separation byte-identical - a pass that clears
+    everything fails this leg as loudly as one that clears nothing.
+    """
+    import copy as _copy
+
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+    say = ctx.ic._build_per_line_cogs_receipt_text
+
+    g1, g2 = "shared:hard+plant", "shared:design+install"
+    ops = {"lob_models": [{"lob_name": "Main", "products": [
+        {"product_name": "plant", "cogs_percent_of_line_revenue": 0.52,
+         "cogs_cost_structure_group": g1, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 100.0, "units_per_period_capacity": 10.0},
+        {"product_name": "hard", "cogs_percent_of_line_revenue": 0.52,
+         "cogs_cost_structure_group": g1, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 80.0, "units_per_period_capacity": 12.0},
+        {"product_name": "install", "cogs_percent_of_line_revenue": 0.20,
+         "cogs_cost_structure_group": g2, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 4200.0, "units_per_period_capacity": 2.0},
+        {"product_name": "design", "cogs_percent_of_line_revenue": 0.20,
+         "cogs_cost_structure_group": g2, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 950.0, "units_per_period_capacity": 4.0},
+    ]}]}
+    other_before = _copy.deepcopy(ops["lob_models"][0]["products"][2:])
+
+    receipt = door({"financials.cogs_separate_lines": ["plant"]}, ops_json=ops)
+    text = say(receipt)
+    rows = ops["lob_models"][0]["products"]
+    fails, seen = [], []
+    seen.append(f"separated={receipt.get('separated')!r}, "
+                f"ungrouped={receipt.get('ungrouped')!r}")
+    if rows[0].get("cogs_cost_structure_group") is not None \
+       or rows[0].get("cogs_cost_structure_group_basis") is not None:
+        fails.append(f"the separated row still carries "
+                     f"{rows[0].get('cogs_cost_structure_group')!r} / "
+                     f"{rows[0].get('cogs_cost_structure_group_basis')!r}")
+    if not receipt.get("separated"):
+        fails.append("the separation left no receipt entry - the door did not "
+                     "consume the key")
+    if rows[1].get("cogs_cost_structure_group") is not None:
+        fails.append("the abandoned member still wears a label whose "
+                     "membership is gone")
+    if "hard" not in " ".join(str(u) for u in (receipt.get("ungrouped") or [])):
+        fails.append(f"the retired row is not NAMED in the receipt "
+                     f"(ungrouped={receipt.get('ungrouped')!r})")
+    elif "no longer covers" not in text:
+        fails.append("the retirement is recorded but never spoken")
+    if rows[2:] != other_before:
+        fails.append(f"THE DISJOINT GROUP CHANGED: {other_before!r} -> {rows[2:]!r}")
+
+    # A regroup that leaves a member out retires that member's stale label.
+    g_all = "shared:alpha+beta+gamma"
+    ops2 = {"lob_models": [{"lob_name": "Main", "products": [
+        {"product_name": "alpha", "cogs_percent_of_line_revenue": 0.30,
+         "cogs_cost_structure_group": g_all, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 50.0, "units_per_period_capacity": 20.0},
+        {"product_name": "beta", "cogs_percent_of_line_revenue": 0.30,
+         "cogs_cost_structure_group": g_all, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 60.0, "units_per_period_capacity": 15.0},
+        {"product_name": "gamma", "cogs_percent_of_line_revenue": 0.30,
+         "cogs_cost_structure_group": g_all, "cogs_cost_structure_group_basis": "declared",
+         "unit_price": 70.0, "units_per_period_capacity": 10.0},
+        {"product_name": "delta", "cogs_percent_of_line_revenue": 0.10,
+         "unit_price": 90.0, "units_per_period_capacity": 5.0},
+    ]}]}
+    receipt2 = door({"financials.cogs_shared_structure_groups": [["alpha", "beta"]]},
+                    ops_json=ops2)
+    rows2 = ops2["lob_models"][0]["products"]
+    seen.append(f"regroup: gamma={rows2[2].get('cogs_cost_structure_group')!r}, "
+                f"ungrouped={receipt2.get('ungrouped')!r}")
+    if rows2[2].get("cogs_cost_structure_group") is not None:
+        fails.append("the member the regroup left out still wears the old "
+                     f"label {rows2[2].get('cogs_cost_structure_group')!r}")
+    if not (rows2[0].get("cogs_cost_structure_group")
+            and rows2[0].get("cogs_cost_structure_group")
+            == rows2[1].get("cogs_cost_structure_group")):
+        fails.append("positive control: the regroup itself did not land")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -2707,6 +2944,31 @@ REGRESSIONS = [
                     "its positive control green. Its positive control is the "
                     "written rows, so a path that stopped consuming the keys "
                     "fails as loudly as one that stores them.")),
+    Leg("R38", "REGRESSION", "inference-never-stored-as-structure",
+        "an inference is never stored as structure; the net asks",
+        "56717dd", "858987b", _r_inference_never_stored,
+        issue="CW-031 round 9 fix 1",
+        surface="per-line COGS write door + issue registry",
+        proof_note=("Four teeth, each red at 858987b for its own reason: the "
+                    "round-8 net minted an inferred all-lines group on the "
+                    "uniform write, clobbered the declared partial stamp, "
+                    "minted on an echo, and the gate passed the inferred "
+                    "result. Positive controls: the rates still land and a "
+                    "DECLARED all-lines group still passes the gate, so a "
+                    "door that stopped writing or a gate that fails "
+                    "everything cannot satisfy this leg.")),
+    Leg("R39", "REGRESSION", "separation-clears-the-group",
+        "separation clears the group and retires the stale label by name",
+        "56717dd", "858987b", _r_separation_clears_group,
+        issue="CW-031 round 9 fix 2",
+        surface="per-line COGS write door",
+        proof_note=("At 858987b cogs_separate_lines is not consumed and no "
+                    "coherence pass exists, so the separated row keeps its "
+                    "group and the abandoned member keeps the stale label - "
+                    "red behaviourally, no crash. Positive control: a "
+                    "DISJOINT declared group must survive byte-identical, so "
+                    "a pass that clears everything fails as loudly as one "
+                    "that clears nothing.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

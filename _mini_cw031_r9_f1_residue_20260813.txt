@@ -1,0 +1,42 @@
+==============================================================================
+A1: 'Across the whole business our direct costs come to 0.42 of revenue.'
+  < [200] Got it, I’ve updated your current COGS to $652,260 and your total Year 1 COGS to $652,260 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear
+  stored ratio: 0.47 -> 0.42000000000000004; dollars: 729909.9999999995 -> 652259.9999999997; basis: dollars
+  CLASS: LANDED (0.42000000000000004)
+==============================================================================
+A2: 'Blended COGS runs about 45 percent of total revenue.'
+  < [200] I wasn't able to apply that change just now - could you tell me exactly which field to change and the value it should be?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowi
+  stored ratio: 0.47 -> 0.47; dollars: 729909.9999999995 -> 729909.9999999995; basis: ratio
+  CLASS: HONEST no-record
+==============================================================================
+A3: 'Cost of goods overall is roughly 0.5 of sales.'
+  < [200] Got it, I’ll update your plan so current COGS are $776,500 and total Year 1 COGS are $776,500 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers c
+  stored ratio: 0.47 -> 0.5000000000000003; dollars: 729909.9999999995 -> 776500.0; basis: dollars
+  CLASS: LANDED (0.5000000000000003)
+==============================================================================
+A4: 'Set the overall COGS ratio to 0.41.'
+  < [200] Got it, we’ll reflect that by setting your current COGS to $636,729 and your total Year 1 COGS to $636,729 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: y
+  stored ratio: 0.47 -> 0.40999935608499705; dollars: 729909.9999999995 -> 636729.0; basis: dollars
+  CLASS: LANDED (0.40999935608499705)
+==============================================================================
+B1: restatement of the on-file annual revenue (no question mark)
+  on file current_revenue: 1552999.999999999
+  < [200] I wasn't able to apply that change just now - could you tell me exactly which field to change and the value it should be?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowi
+  quoted-back: True
+==============================================================================
+B2: question turn - must still quote the number back
+  < [200] Right now the model is carrying annual revenue of $1,553,000 (technically 1,552,999.999999999 in the file), so yes, it’s still essentially $1,553,000.
+  (6 clone(s) removed)
+==============================================================================
+BLEND PATCH RATE: 3 landed / 1 honest floor of 4 clean outcomes (4 wordings)
+F1-RESIDUE RESULT: CLEAN (no wrong number, no false ack, no false positive)

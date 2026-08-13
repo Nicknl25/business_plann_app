@@ -1,0 +1,15 @@
+workbook_deliveries rows: 4
+  #1 draft=e7da60e627a748a4950f06283fd2217b run=b0622f5612904dfa97a373dc43ca3641 delivered=2026-08-13 13:57:59.449799
+      path=C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-13-2026 13-57-51.xlsx
+  #2 draft=0ef7833e4bc34be79744a8ab084cb7ff run=f56d126625004ea9863ab7711f098dcf delivered=2026-08-13 14:54:29.221558
+      path=C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-13-2026 14-54-20.xlsx
+  #3 draft=daf07d1f38a64642a6fe94a31eb01ea8 run=b0507ea4963345f283ed13f31032b0b7 delivered=2026-08-13 16:19:37.767110
+      path=C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-13-2026 16-19-30.xlsx
+  #4 draft=3c56e7c57e5e4e6287d21c448d787b07 run=fee3e1950f754381be08672aa1e283b8 delivered=2026-08-13 17:25:52.603486
+      path=C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-13-2026 17-25-47.xlsx
+canary row: #4, file exists on disk: True
+resolve_workbook_for_draft(3c56e7c5...): basis='delivery record'
+  path=C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-13-2026 17-25-47.xlsx
+  detail=Sunny Glaze Donuts -- 08-13-2026 17-25-47.xlsx (delivery record for this draft)
+==============================================================================
+DELIVERY-CHECK RESULT: CLEAN

@@ -1,0 +1,9 @@
+O1 after two groups : [('Plant sale', 0.55, 'shared:hard goods sale+plant sale', 'declared'), ('Hard goods sale', 0.55, 'shared:hard goods sale+plant sale', 'declared'), ('Install project', 0.2, 'shared:design consult+install project', 'declared'), ('Design consult', 0.2, 'shared:design consult+install project', 'declared')]
+O1 after separation : [('Plant sale', 0.55, None, None), ('Hard goods sale', 0.55, None, None), ('Install project', 0.2, 'shared:design consult+install project', 'declared'), ('Design consult', 0.2, 'shared:design consult+install project', 'declared')] | ungrouped: ['Main / Hard goods sale']
+O2 after declaring  : [('Design + Build', 0.3, None, None), ('Plant sale', 0.3, None, None), ('Hard goods', 0.6, None, None)] | ungrouped: ['Main / Design + Build', 'Main / Plant sale'] | grouped: ['shared:design + build+plant sale']
+O3 after group      : [('Install', 0.4, 'shared:install+install project', 'declared'), ('Install project', 0.4, 'shared:install+install project', 'declared'), ('Design consult', 0.1, None, None)]
+O3 after separation : [('Install', 0.4, None, None), ('Install project', 0.4, None, None), ('Design consult', 0.1, None, None)] | separated: ['Main / Install'] | ungrouped: ['Main / Install project']
+O4 after group      : [('PLANT Sale', 0.55, 'shared:hard goods sale+plant sale', 'declared'), ('hard GOODS sale', 0.55, 'shared:hard goods sale+plant sale', 'declared'), ('Design consult', 0.1, None, None)] | ungrouped: []
+==============================================================================
+COHERENCE-ATTACK RESULT: RED
+  - O2 REAL: the '+'-named group was retired in the same call that declared it (ungrouped=['Main / Design + Build', 'Main / Plant sale'])
