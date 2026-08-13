@@ -56,3 +56,4 @@ tmp_workbook_viewfix*/
 *.swp
 *.swo
 nohup.out
+_handoff/

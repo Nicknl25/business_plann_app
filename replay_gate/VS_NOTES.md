@@ -528,3 +528,40 @@ DB read at prove time, so the digest stays a pure function of frozen
 inputs and the determinism self-check still holds. Do not synthesize
 a minimal contract-passing payload (drift-prone against the
 15-field contract and tests nothing real).
+
+## Handoff watcher BUILT (spec approved w/ SS9 rulings) — mini's audit task
+
+Built per docs/architecture/vs_mini_handoff_watcher_spec.md:
+scripts/handoff_watch.py + replay_gate/HANDOFF.md (STATUS: paused,
+unarmed) + HANDOFF_PROMPT_VS.md / HANDOFF_PROMPT_MINI.md +
+handoff_config.json (cap/timeout/poll/branch/agent_command all
+live-tunable). _handoff/ (pids, state, logs) is gitignored.
+
+Mini: audit the WATCHER ITSELF before any live cycle (rollout SS8.3).
+This is a MANUAL mini session (the loop cannot audit itself). Each
+behavior is individually testable — suggested harness shape: a temp
+git repo pair (local + bare origin) with a fabricated HANDOFF.md, a
+stub agent_command (e.g. a python one-liner) via handoff_config.json,
+and EMAIL_* pointed at nothing (assert the ping ATTEMPT via log line,
+not delivery):
+1. STOP-ON-GREEN force-override: fabricate a flip to awaiting-VS
+   whose RESULT has VERDICT: green -> watcher must rewrite STATUS to
+   awaiting-Nick, commit with [handoff-watcher] prefix, push, ping
+   once (and NOT ping again next poll — the last_ping latch).
+2. DRIFT: same, but VERDICT: drift -> awaiting-Nick + URGENT ping.
+3. SAME-SIGNATURE-TWICE per direction: two successive mini RESULTs
+   carrying the same ERROR-SIGNATURE -> stopped-stuck; and the
+   NON-trip: VS sig X then mini sig X (once each side) must NOT trip.
+4. REFUSE-ON-DIRTY / DIVERGED / LIVE-PID: dirty tracked file ->
+   stopped-fault; diverged local/origin -> stopped-fault (and
+   verify it never merges); agent.pid alive -> no launch.
+5. PAUSE brake: create replay_gate/HANDOFF_PAUSE -> no launch at the
+   next boundary, no status write; remove -> resumes. Also
+   STATUS: paused behaves identically.
+6. CAP: TURN at 16/16 with cap_round_trips=8 -> stopped-cap.
+7. NO-FLIP: stub agent exits without flipping -> stopped-fault
+   naming the agent and exit code.
+8. TIMEOUT: stub agent sleeps past a 1-minute TURN-TIMEOUT-MINUTES
+   -> killed, stopped-fault, log tail in the ping body.
+Findings -> VS_NOTES as usual; watcher code is scripts/ (VS-owned)
+so fix shapes come back to VS, not direct edits.

@@ -1,7 +1,33 @@
-# VS <-> mini Handoff Watcher — SPEC (v1, for Nick's review before any code)
+# VS <-> mini Handoff Watcher — SPEC (v1)
 
-STATUS: PROPOSED — no code exists. Nick reviews; the stop conditions
-and the collision-serialization rule are the load-bearing sections.
+STATUS: APPROVED by Nick 2026-08-12, with the §9 rulings and one
+addition below. Build follows §8 rollout.
+
+## §9 RULINGS (Nick, 2026-08-12)
+
+1. **DRIFT force-stops, HARDER than green.** DRIFT means a
+   previously-passing business moved — the loudest alarm in the
+   gate, never auto-continue past it. Priority ping (URGENT
+   subject); green's ping stays "success, confirm".
+2. **Cap: default 8, as CONFIG** (replay_gate/handoff_config.json),
+   tunable without a code change.
+3. **Timeouts catch HANGS, not SLOWNESS.** 90 min is too tight for a
+   prove+canary turn. Generous global default (180 min) + an
+   optional per-task `TURN-TIMEOUT-MINUTES:` line in the TASK block
+   for known-long turns. A false timeout killing a valid prove is
+   worse than waiting out a hang — err generous.
+4. **Push IMMEDIATELY after every commit** — the ff-only launch
+   precondition (HEAD==origin) depends on origin being current.
+   Never batch. Applies to agent turns and watcher STATUS writes.
+
+**ADDITION — PAUSE brake (Nick's manual emergency brake):** before
+every launch decision the watcher checks (a) a sentinel file
+`replay_gate/HANDOFF_PAUSE` (committed — pushable from anywhere; the
+watcher fetches each poll so a remote push pauses it) and (b)
+`STATUS: paused`. If either is set, the watcher stops cleanly at the
+turn boundary (never mid-turn kill) and idles until the sentinel is
+removed / STATUS re-armed. The stopped-* states are the automatic
+brakes; PAUSE is the manual one.
 
 ## 0. Problem and non-goals
 
