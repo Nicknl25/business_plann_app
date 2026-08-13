@@ -1,0 +1,292 @@
+CW-031 TIERS 2 AND 3 -- MINI'S ARTIFACT AUDIT (2026-08-13)
+================================================================================
+Nick's verification law for this batch: every COGS item is verified by reading
+the ARTIFACT, never the proposal prose. Everything below is read off ops rows,
+workbook cells, database rows or the shipped functions themselves. VS's pass
+lines are not evidence in this document and were not used as any.
+
+SCRIPTS (all mine, all re-runnable):
+  Test Files/_mini_cw031_t23_live_wording.py      item 1 (LIVE, 3 router turns)
+  Test Files/_mini_cw031_t23_collapse_probe.py    item 2 + two door hazards
+  Test Files/_mini_cw031_t23_binding_probe.py     item 3a + a 3,050-draft census
+  Test Files/_mini_cw031_t23_window_break.py      item 3b (the break)
+  Test Files/_mini_cw031_t23_tolerance_probe.py   item 4 (measured threshold)
+  Test Files/_mini_cw031_t23_receipt_identity.py  item 5 (387 real drafts)
+  Test Files/_mini_cw031_t23_uniform_rate.py      the consequence W3 exposes
+  _mini_cw031_live_wording_20260813.txt           the live transcript
+
+VERDICT IN ONE LINE: A-110 is real -- the client's words reach the model, and
+they reach the RIGHT line even when the client does not use the app's names.
+Four defects sit around it, three of them in the class this batch is named for
+(a number written or dropped with nobody saying so).
+
+================================================================================
+ITEM 1 -- THE ONE THAT MATTERS: the live door, on wording that names nothing
+================================================================================
+Three fresh clones of the REAL Ravenwood draft (four lines, all four rates
+null), the restarted :5050 backend, the live router, one turn each. Wording
+deliberately not VS's and deliberately not the app's line names.
+
+  W1  "the pavers side runs about 71 percent in materials"
+      -> LANDED on Hard goods sale ALONE. 0.71 written; the other three
+         untouched. Reply: "hard goods and materials -- the pavers side --
+         now show COGS at 71.0% of that line's revenue."
+  W2  "treat the two retail ones as sharing a single direct-cost rate"
+      -> LANDED. cogs_cost_structure_group = 'shared:hard goods sale+plant
+         sale' stored on exactly those two rows, install and design ungrouped.
+         No rate, correctly: no rates existed yet to collapse.
+  W3  "everything except design runs at about 55 percent for materials"
+      -> LANDED. 0.55 on Plant sale, Hard goods sale, Install project;
+         Design consult left null. The exclusion was enumerated correctly.
+
+  WRONG-LINE WRITES: ZERO. That is the only unacceptable outcome and it did
+  not occur on any of the three.
+
+  WHAT THIS ALSO SHOWS, and VS should know it: the ROUTER resolved every one of
+  these names before the door saw them -- the patches arrived already carrying
+  "Hard goods sale". _resolve_cogs_line's refusal path was therefore never
+  reached live. The door's refusal is a backstop, not the primary safety; the
+  primary safety is a GPT normalisation step. None of my three wordings
+  produced the honest "I couldn't tell which line you meant" question, so that
+  copy is still unexercised on a live path.
+
+================================================================================
+ITEM 2 -- THE COLLAPSE ARITHMETIC, ADVERSARIALLY
+================================================================================
+ANSWER TO VS'S QUESTION (b): revenue-weighting is RIGHT, and it is right for
+the reason that matters -- it preserves the group's direct-cost DOLLARS.
+
+  two lines, 249,600 and 124,800 of revenue at 0.48 and 0.71:
+    group COGS before collapse   $208,416.00
+    group COGS after  collapse   $208,428.48   (shared rate 0.5567)
+    the delta is $12.48 -- the 4dp rounding of the stored rate, nothing else.
+    a plain average (0.595) would land $14,352 away from the truth.
+  at 200:1 weights: before $1,005,784.00, after $1,005,691.44, shared 0.4811.
+    The shared rate sits on the big line because that is what "these two
+    together cost what they cost" MEANS. The small line's own rate moves 22.9
+    points, and that is the client's instruction being obeyed, not a defect.
+
+ANSWER TO VS'S QUESTION (a): the missing-weight case is NOT the plain-average
+fallback VS described, and it is a DEFECT.
+
+  Plant sale weight 249,600 at 0.48; Hard goods sale unit_price null, so
+  _cogs_line_revenue_weight returns None -> the zip contributes weight 0.0.
+    shared rate = 0.48 EXACTLY.
+  The client's stated 0.71 for the other line is not averaged in, not
+  down-weighted -- it is DROPPED. total_weight > 0, so the documented plain-
+  average branch never runs. The receipt says
+    {'line_names': [both], 'cogs_percent': 0.48}
+  which reads as a computed shared rate. Nothing in the receipt, the row or the
+  log says a stated rate was discarded.
+  RULING SHAPE: refuse. A collapse whose members do not all carry a weight
+  should either ask, or fall back to the plain average across ALL members and
+  SAY SO in the receipt. Silently dropping a rate the client stated out loud is
+  the receipt-without-a-write class with the polarity reversed.
+
+  The all-weights-absent case does fall back to a plain average (0.595 from
+  0.48/0.71) and is also silent about having done so.
+
+  Not a defect, checked: one rated member and one unrated propagates the rate
+  to the unrated line, and the grouped receipt names both lines and the rate,
+  so the client sees it.
+
+================================================================================
+ITEM 3 -- workbook_deliveries BINDING
+================================================================================
+3a. CONFIRMED ON ARTIFACTS.
+  workbook_deliveries row #1: draft e7da60e627a748a4, run b0622f5612904dfa,
+  file "Sunny Glaze Donuts -- 08-13-2026 13-57-51.xlsx", 13:57:59.449799.
+  resolve_workbook_for_draft(e7da60e6...) -> basis="delivery record".
+  LAST ROUND'S FALSE PASS IS DEAD: the real Thistledown client draft
+  be84629ada44 (ops rows 0/2 carrying a rate) now binds to its OWN 15-41-24
+  file and the assertion FAILS -- "carries 0 per-line 'Cost of Goods Sold'
+  row(s)". The 10-48-37 file it used to score PASS on belongs to
+  plcogsd6e3ed0b, which now claims it. The four probe* drafts with no run
+  stamp return basis=none rather than guessing.
+
+3b. THE BREAK VS ASKED FOR -- FOUND. Two runs of one business name, minutes
+    apart, and a draft is awarded ANOTHER DRAFT'S WORKBOOK.
+
+  SHAPE 2  draft A runs 09:00:00, builds slowly, its file stamps 09:03:20
+           draft B runs 09:02:30, builds fast,   its file stamps 09:02:40
+    A's file is 50s from B's run and 200s from A's own, so "nearest run" awards
+    A's file to B. B then owns two files and "the latest export wins" makes B
+    prefer A's 09:03:20 file over its own 09:02:40 one.
+      draftA -> NOT ATTRIBUTED (correct, it refuses)
+      draftB -> awarded "...09-03-20.xlsx", which is A's workbook.
+  SHAPE 3 is the same at tighter spacing (A slow +140s, B runs +100s, builds
+    in 10s) and mis-awards identically.
+  SHAPE 1 (both builds fast, runs 150s apart) is clean, so the ordinary repeat
+    run is fine.
+
+  THE CULPRIT IS NOT nearest-run, IT IS THE TIE-BREAK: among the files a draft
+  owns, workbook_delivery_record.py:284 takes the LATEST stamp. A draft that
+  ran once can only own one file honestly; taking the latest lets a
+  mis-attributed neighbour outrank its own.
+  FIX SHAPE: among files whose owner is this draft, choose the one nearest THIS
+  draft's own LATEST run stamp (min delta to my own run), not the globally
+  latest owned file. Re-runs still resolve to the newest run's file, because
+  that run's own stamp is the one being measured from.
+  SCOPE: legacy/window tier only. Once both drafts carry delivery records the
+  authoritative tier answers first. Every historical draft the registry
+  re-audits is on the legacy tier.
+
+================================================================================
+ITEM 4 -- IS 0.5% TOO LOOSE? MEASURED, NOT ARGUED. NO -- KEEP IT.
+================================================================================
+Workbook: the genuine multi-line Thistledown model (2 lines, 21 period
+columns), which I did not build.
+
+  as delivered .................................. reconcile PASS (21 columns)
+  rates rewritten to 0.536173 / 0.210937, stub
+  stored at 4dp and quarters at 6dp, blend and
+  engine row made true for them ................. reconcile PASS
+    -> the tolerance is NOT too tight for real differential rounding, which is
+       the failure mode a tighter number would buy.
+
+  one line's rate drifts off the blend (the "split stopped reaching the model"
+  shape), blend and engine row left true:
+      20.00 pts fail   |  1.00 pts fail
+      10.00 pts fail   |  0.50 pts fail   <- smallest caught
+       5.00 pts fail   |  0.20 pts PASS   <- missed
+       2.00 pts fail   |  0.10 pts PASS   <- missed
+  every line forced to the blended rate .......... FAIL, by $10,493 on the stub
+  the two lines' rates swapped ................... FAIL, by $20,987 on the stub
+
+  READING: every STRUCTURAL defect -- the model reverting to a blend, a wrong
+  total range, rates landing on the wrong lines, the split never arriving -- is
+  caught by an order of magnitude or more. The only thing 0.5% lets through is
+  a sub-half-point rate drift, which no client-facing number depends on and
+  which is inside the range genuine 4dp/6dp rounding produces. Tightening it
+  buys nothing and risks failing correct workbooks.
+
+  ONE HONEST LIMIT, stated because it is not obvious: bullet 3 is an INTERNAL
+  CONSISTENCY check -- does the per-line split reach the blend and the engine.
+  The swap above is caught only because I froze the blend and the engine row.
+  In a real run where the engine derives the blend FROM the rows, rates on the
+  wrong lines would propagate consistently and reconcile. Which line got which
+  rate is the ops assertion's job and the receipt's job, not bullet 3's.
+
+================================================================================
+ITEM 5 -- DID THE RECEIPT CHANGE BREAK A SINGLE-LINE BUSINESS? NO.
+================================================================================
+Both renderers run side by side: the shipped capture_receipt.py and the one
+extracted from 51d0810^ straight out of git.
+
+  387 REAL single-line drafts from the database, each with its numeric leaves
+  moved: 0 differences. Byte-identical.
+  synthetic shapes, all byte-identical: price corrected; weekly capacity WITH
+  its cadence in the same receipt; utilization; a people role; two different
+  leaves on one line.
+  The ONE shape that differs is item 8's own defect:
+    before  'units per period capacity -> 210'
+    after   'capacity -> 210'
+  which is the reported bug being fixed, on a receipt that carries no cadence.
+
+  (Harness note for whoever re-runs this: `git show` output must be captured as
+  BYTES. text=True decodes UTF-8 git output through this console's cp1252 and
+  mangles the receipt's own arrow, which makes every shape "differ" for a
+  reason that is entirely the harness's. My first run said 5 regressions and
+  all five were mine.)
+
+================================================================================
+FOUR MORE, FOUND WHILE AUDITING
+================================================================================
+A. THE CANARY VS CITES DID NOT CONTAIN TIER 3.
+   The :5050 listener at the start of my turn was PID 13580, started 13:44:29.
+   intake_consult.py was last written 13:49:22 and capture_receipt.py 13:50:11
+   -- both AFTER that process started, both part of 51d0810. The server runs
+   _run_server_noreload.py, so there is no reloader to save it. The running
+   process did carry the tier-2 door (PER_LINE_COGS_DOOR at 13:44:39 in
+   _logs_persona_20260813_134429.txt), so A-110's live proof is sound; the
+   Sunny_V3 canary at 13:57 is NOT evidence about tier 3, because tier 3 was
+   never loaded. Tier 3's renderer has still never run inside a live server.
+   I restarted it myself with scripts/start_persona_backend.ps1 -- ONE listener
+   (PID 30768), and my three live turns above ran on it.
+
+B. "1%" IS STORED AS 100%.
+   _clamp divides by 100 only when the value exceeds 1.0. A client saying a
+   line is 1% sends cogs_percent=1 -> stored 1.0 -> that line's direct cost is
+   100% of its revenue. "half a point" -> 0.5 -> 50%. Verified through the
+   production door. It passes every artifact assertion (non-null, distinct), so
+   nothing downstream catches it, and W3 shows bare numbers reach the door from
+   ordinary sentences. Ravenwood's own design line was 4%; 1% is not exotic.
+   FIX SHAPE: the unit must be declared, not inferred. Have the router emit the
+   unit with the figure (or normalise to percent at the router, where the
+   client's own words are still visible) and convert unconditionally at the
+   door; refuse rather than guess when the unit is absent.
+
+C. A CLIENT WHO DECLARES ONE RATE FOR EVERY LINE IS FILED AS A RECURRENCE.
+   _assert_ops_per_line_cogs's own docstring says the all-share case "must opt
+   out EXPLICITLY, from the recorded grouping" -- the code only reads
+   spec['allow_shared_rates'], a probe-spec key nobody sets mid-run and that
+   Nick would have to edit machinery to set. Measured:
+     4 lines / 4 rates ............................ pass
+     2 share + 2 differ (the declared collapse) ... pass
+     ALL FOUR at 0.55, no group stored ............ FAIL "a blend wearing
+                                                    per-line clothing"
+     ALL FOUR at 0.55, group STORED on all four ... FAIL (same), while
+                                                    ops_cogs_shared_group PASSES
+   My live W3 shows a client reaches this state with one ordinary sentence.
+   This is the false confirmation's mirror image: a false RECURRENCE, filed
+   against a model that is exactly what the client asked for.
+   FIX SHAPE: implement the docstring. When all rows share one rate, pass if a
+   stored cogs_cost_structure_group covers every line (the client's own
+   recorded authority), fail otherwise -- and have the door store that group
+   when the client declares a single rate across all lines.
+
+D. LATENT: AN UNNAMED PRODUCT ROW MATCHES ANY WORDING.
+   _resolve_cogs_line's loose branch tests `product_name in target`, and ""
+   is a substring of everything. A directory with exactly one unnamed row
+   returns that row for ANY client phrasing: "the pavers side" wrote 0.71 onto
+   the blank row and the receipt called it "Garden".
+   CENSUS BEFORE YOU PANIC: 0 of 3,050 drafts carrying an ops model have any
+   unnamed product row. This is latent, not live. Still worth the one-line
+   guard -- skip entries with an empty product_name in the loose branch --
+   because a door whose whole design is "refuse rather than guess" should not
+   have a wildcard in it.
+
+================================================================================
+THE LEGS I OWED FROM LAST ROUND -- LANDED AND PROVEN (R33, R34)
+================================================================================
+Last round I said the tier-1 gate's two uncovered mechanisms were mine to land
+as permanent legs rather than leave as a script. They are in.
+
+  R33  confirmed-needs-a-read-artifact   4dc2c33 / 2f5940b   PROVEN
+       Two synthetic hard issues differing only in the thing under test, both
+       through the production evaluator against Ravenwood's real completed run.
+       Opportunity-only must not confirm; artifact-backed MUST -- the positive
+       control is inside the leg, so a registry that simply stopped confirming
+       anything cannot satisfy it.
+       BASELINE RED, and for exactly the right reason:
+         "an opportunity-only hard issue reached 'confirmed' on opportunity and
+          silence alone (basis='retested_clean')"
+  R34  metadata-probe-never-ticks        4dc2c33 / 2f5940b   PROVEN
+       BASELINE RED: "status moved 'open' -> 'resolved' on a probe that states
+       no retest condition; counters ticked (quiet 4->5, clean 0->1) on a run
+       that cannot have exercised anything".
+
+  --prove --only R33,R34 -> 2 proven BEHAVIOURALLY, 0 unearned, 0 drift.
+  Evidence: _mini_cw031_prove_R33_R34_20260813.txt
+  --list: 52 legs (34 regression pins, 18 invariants).
+
+  SHARED-STATE DISCIPLINE, because these legs drive a registry the whole
+  project reads: each seeds its own synthetic issues under a reserved
+  signature prefix, deletes them, AND restores every other issue's mutable
+  columns plus both append-only tables' high-water marks. Verified after two
+  full prove runs: issue_occurrences 237 rows / max id 291, resolution_events
+  223 / 273, SUM(clean_exercise_count)=104, SUM(occurrence_count)=242, 129
+  issues, 0 synthetics left -- identical to before. The baseline build has no
+  artifact gate and reaches the resolve path more often, which is why the
+  restore is not optional.
+
+================================================================================
+STILL OWED TO NICK (VS raised it; my turn confirms it is intermittent)
+================================================================================
+Whether naturalization may touch a deterministic receipt at all. VS saw
+"Recorded: Plant sale at 48% of that line's revenue" reach the client as
+"...(plus four more you will share)". In MY three live turns the naturalized
+replies were all write-accurate ("hard goods and materials -- the pavers side
+-- now show COGS at 71.0%"). Intermittent invention on top of a deterministic
+receipt is worse for trust than consistent invention, because it cannot be
+detected by reading one reply. Nick's ruling, not VS's and not mine.

@@ -1,0 +1,90 @@
+Proving 2 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R33   confirmed-needs-a-read-artifact  2f5940b   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\2f5940b @ 2f5940b
+         | ==============================================================================
+         | [ FAIL ] R33 REGRESSION confirmed-needs-a-read-artifact [CW-031 tier 1]
+         |           'confirmed' requires an artifact that was read and HELD
+         |           REGRESSED: opportunity-only -> resolved/confirmed; artifact-backed -> resolved/confirmed (basis 'retested_clean'); FAILED: an opportunity-only hard issue reached 'confirmed' on opportunity and silence alone (basis='retested_clean')
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: confirmed-needs-a-read-artifact [CW-031 tier 1]  (R33)
+         |         'confirmed' requires an artifact that was read and HELD
+         |         opportunity-only -> resolved/confirmed; artifact-backed -> resolved/confirmed (basis 'retested_clean'); FAILED: an opportunity-only hard issue reached 'confirmed' on opportunity and silence alone (basis='retested_clean')
+         |         fixed at 4dc2c33, was live at 2f5940b
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 05b06af
+         | ==============================================================================
+         | [  ok  ] R33 REGRESSION confirmed-needs-a-read-artifact [CW-031 tier 1]
+         |           'confirmed' requires an artifact that was read and HELD
+         |           HOLDS: opportunity-only -> resolved/observational; artifact-backed -> resolved/confirmed (basis 'artifact_verified')
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R34   metadata-probe-never-ticks       2f5940b   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\2f5940b @ 2f5940b
+         | ==============================================================================
+         | [ FAIL ] R34 REGRESSION metadata-probe-never-ticks [CW-031 tier 1]
+         |           a probe stating no retest condition earns no clean-run credit
+         |           REGRESSED: metadata-only probe after a completed run: status=resolved, quiet=5 (was 4), clean=1 (was 0); FAILED: status moved 'open' -> 'resolved' on a probe that states no retest condition; counters ticked (quiet 4->5, clean 0->1) on a run that cannot have exercised anything
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: metadata-probe-never-ticks [CW-031 tier 1]  (R34)
+         |         a probe stating no retest condition earns no clean-run credit
+         |         metadata-only probe after a completed run: status=resolved, quiet=5 (was 4), clean=1 (was 0); FAILED: status moved 'open' -> 'resolved' on a probe that states no retest condition; counters ticked (quiet 4->5, clean 0->1) on a run that cannot have exercised anything
+         |         fixed at 4dc2c33, was live at 2f5940b
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 05b06af
+         | ==============================================================================
+         | [  ok  ] R34 REGRESSION metadata-probe-never-ticks [CW-031 tier 1]
+         |           a probe stating no retest condition earns no clean-run credit
+         |           HOLDS: metadata-only probe after a completed run: status=open, quiet=4 (was 4), clean=0 (was 0)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+------------------------------------------------------------------------------
+COUNT   2 proven BEHAVIOURALLY (red shows the bug behaving)
+        0 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        2 legs total
+
+  ALL LEGS PROVEN BEHAVIOURALLY - every red shows the bug behaving on
+  the commit where it was live, and green on the fix. No crash-reds.

@@ -1,0 +1,48 @@
+==============================================================================
+W1  'the pavers side' is the hard goods line and nothing else
+==============================================================================
+  clone minice267ed9a999  lines=['Plant sale', 'Hard goods sale', 'Install project', 'Design consult']
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > On the direct costs - the pavers side runs about 71 percent in materials, that's the pallet stuff we buy in.
+  < [200] Got it, I’ve recorded your update so that hard goods and materials — the pavers side — now show COGS at 71.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $196,298 (25.7% of revenue), that stress figure actually sits above the 5.0%-12.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 12.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $38,872 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+  after : {'Plant sale': None, 'Hard goods sale': 0.71, 'Install project': None, 'Design consult': None}
+  groups: {}
+  changed=['Hard goods sale']  wrong=(none)  missed=(none)
+  VERDICT: LANDED
+
+==============================================================================
+W2  'the two retail ones' are the plant and hard-goods lines
+==============================================================================
+  clone mini5eaec2d4d1be  lines=['Plant sale', 'Hard goods sale', 'Install project', 'Design consult']
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Let's treat the two retail ones as sharing a single direct-cost rate - they're both just bought-in goods we resell.
+  < [200] Got it—so we’ll have Plant/nursery sales / Plant sale and Hard goods & materials / Hard goods sale all using one shared direct-cost rate for those bought-in goods you’re reselling.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $196,298 (25.7% of revenue), that stress figure actually sits above the 5.0%-12.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 12.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $38,872 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  groups: {'Plant sale': 'shared:hard goods sale+plant sale', 'Hard goods sale': 'shared:hard goods sale+plant sale'}
+  changed=['Hard goods sale', 'Plant sale']  wrong=(none)  missed=(none)
+  VERDICT: LANDED
+
+==============================================================================
+W3  'everything except design' is the other three lines
+==============================================================================
+  clone minif0b3796a8d7a  lines=['Plant sale', 'Hard goods sale', 'Install project', 'Design consult']
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Everything except design runs at about 55 percent for materials. Design stays where it is.
+  < [200] Got it—so you’ve set your COGS to 55.0% across Plant sale, Hard goods sale, and Install project, all matching that 55 percent materials figure while keeping design as-is.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $196,298 (25.7% of revenue), that stress figure actually sits above the 5.0%-12.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 12.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $38,872 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+  after : {'Plant sale': 0.55, 'Hard goods sale': 0.55, 'Install project': 0.55, 'Design consult': None}
+  groups: {}
+  changed=['Hard goods sale', 'Install project', 'Plant sale']  wrong=(none)  missed=(none)
+  VERDICT: LANDED
+
+  (3 clone(s) removed)
+==============================================================================
+  W1: LANDED               wrote=['Hard goods sale'] wrong=[]
+  W2: LANDED               wrote=['Hard goods sale', 'Plant sale'] wrong=[]
+  W3: LANDED               wrote=['Hard goods sale', 'Install project', 'Plant sale'] wrong=[]
+No wording wrote the wrong line.

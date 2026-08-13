@@ -2082,6 +2082,195 @@ def _r_line_split_confidence(ctx):
 
 
 
+# =========================================================================
+# The ISSUE REGISTRY's own gate (CW-031 tier 1). Nick does not trust a
+# registry that reports resolutions it did not verify; these two legs are
+# what stops that reverting quietly.
+#
+# The registry evaluates every open issue against one finished run, so a leg
+# that drives it touches SHARED state. Both legs therefore (a) seed their own
+# synthetic issues under a reserved prefix and delete them again, and (b)
+# snapshot and restore every mutable column of every OTHER issue plus the two
+# append-only tables' high-water marks. Measured on the shipped build: an
+# evaluation of this draft touches nothing but the synthetics. The baseline
+# build has no artifact gate and reaches the resolve path more often, which is
+# exactly why the restore is not optional.
+# =========================================================================
+
+_REG_DRAFT = "1070c6a560a04f3d971019a3787180bf"   # Ravenwood: a real completed run
+_REG_SEED = "replay_gate_leg:financials:"
+_REG_MUTABLE = ("status", "occurrence_count", "reopened_count",
+                "clean_exercise_count", "runs_since_last_seen",
+                "resolved_detected_at", "resolution_basis",
+                "resolution_confidence", "probe_json", "last_seen_at")
+
+
+def _reg_columns(cur):
+    """The mutable columns THIS commit's schema actually has."""
+    cur.execute(
+        "SELECT COLUMN_NAME FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'issues'")
+    have = {str(r[0]) for r in (cur.fetchall() or [])}
+    return [c for c in _REG_MUTABLE if c in have]
+
+
+def _reg_snapshot(conn):
+    cur = conn.cursor()
+    cols = _reg_columns(cur)
+    cur.execute(f"SELECT issue_id, {', '.join(cols)} FROM issues")
+    rows = cur.fetchall()
+    cur.execute("SELECT COALESCE(MAX(id), 0) FROM issue_occurrences")
+    max_occ = int(cur.fetchone()[0] or 0)
+    cur.execute("SELECT COALESCE(MAX(id), 0) FROM issue_resolution_events")
+    max_evt = int(cur.fetchone()[0] or 0)
+    cur.close()
+    return {"cols": cols, "rows": rows, "occ": max_occ, "evt": max_evt}
+
+
+def _reg_restore(conn, snap, signatures):
+    cur = conn.cursor()
+    for sig in signatures:
+        cur.execute("SELECT issue_id FROM issues WHERE signature = %s", (sig,))
+        row = cur.fetchone()
+        if row:
+            issue_id = int(row[0])
+            cur.execute("DELETE FROM issue_occurrences WHERE issue_id = %s", (issue_id,))
+            cur.execute("DELETE FROM issue_resolution_events WHERE issue_id = %s",
+                        (issue_id,))
+            cur.execute("DELETE FROM issues WHERE issue_id = %s", (issue_id,))
+    cur.execute("DELETE FROM issue_occurrences WHERE id > %s", (snap["occ"],))
+    cur.execute("DELETE FROM issue_resolution_events WHERE id > %s", (snap["evt"],))
+    sets = ", ".join(f"{c} = %s" for c in snap["cols"])
+    for row in snap["rows"]:
+        cur.execute(f"UPDATE issues SET {sets} WHERE issue_id = %s",
+                    (*row[1:], row[0]))
+    conn.commit()
+    cur.close()
+
+
+def _reg_seed(reg, conn, signature, probe):
+    """One synthetic HARD issue, one quiet run away from resolving either way.
+
+    resolution_class is stated rather than derived from the category map, so
+    the leg measures the resolution RULE and not that map's contents.
+    """
+    reg.report_issue(
+        conn, signature=signature, category="flow", severity="major",
+        resolution_class="hard",
+        observed="synthetic issue seeded by replay_gate",
+        expected="deleted before this leg returns",
+        draft_id="replay-gate-seed", probe=probe, source="probe",
+    )
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE issues SET runs_since_last_seen = 4, clean_exercise_count = 0, "
+        "occurrence_count = 1 WHERE signature = %s", (signature,))
+    conn.commit()
+    cur.close()
+
+
+def _reg_state(reg, conn, signature):
+    issue = reg.get_issue(conn, signature=signature)
+    return {
+        "status": str(issue["status"]),
+        "confidence": issue["resolution_confidence"],
+        "basis": issue["resolution_basis"],
+        "quiet": int(issue["runs_since_last_seen"] or 0),
+        "clean": int(issue["clean_exercise_count"] or 0),
+    }
+
+
+def _r_confirmed_needs_artifact(ctx):
+    """R33 - 'confirmed' requires a READ artifact that HELD.
+
+    THE BUG (CW-031 tier 1, the meta-fix). Zero of 129 detectors verified an
+    artifact. The probe vocabulary only ever asked whether a run WALKED the
+    path, so 'resolved confirmed' meant opportunity plus silence - and #138
+    was minted confirmed on the very run that disproves it.
+
+    Two synthetic issues, identical but for the thing under test, both driven
+    through the production evaluator against a real completed run:
+
+      OPPORTUNITY-ONLY  a hard issue whose probe says only "the run visited
+                        financials". It may resolve - but never 'confirmed'.
+      ARTIFACT-BACKED   the same, plus an assertion that reads a persisted
+                        artifact which HOLDS on this draft. This one MUST
+                        reach 'confirmed', or the leg would be satisfied by a
+                        registry that simply stopped confirming anything.
+    """
+    from client_intake_and_finmo import issue_registry as reg  # type: ignore
+
+    opportunity = _REG_SEED + "opportunity_only_hard_issue_must_not_confirm"
+    backed = _REG_SEED + "artifact_backed_hard_issue_must_confirm"
+    conn = ctx.conn
+    snap = _reg_snapshot(conn)
+    try:
+        _reg_restore(conn, snap, (opportunity, backed))   # any leftovers first
+        _reg_seed(reg, conn, opportunity, {"section": "financials"})
+        _reg_seed(reg, conn, backed, {
+            "section": "financials",
+            "artifact": [{"kind": "ops_field_non_null",
+                          "path": "products[].product_name"}],
+        })
+        reg.evaluate_run_for_resolution(conn, draft_id=_REG_DRAFT)
+        weak = _reg_state(reg, conn, opportunity)
+        strong = _reg_state(reg, conn, backed)
+    finally:
+        _reg_restore(conn, snap, (opportunity, backed))
+
+    fails = []
+    if weak["confidence"] == "confirmed":
+        fails.append("an opportunity-only hard issue reached 'confirmed' on "
+                     f"opportunity and silence alone (basis={weak['basis']!r})")
+    if strong["confidence"] != "confirmed":
+        fails.append("an artifact-backed hard issue did NOT reach 'confirmed' "
+                     f"(status={strong['status']!r}, basis={strong['basis']!r}) "
+                     "- 'confirmed' has to stay earnable")
+    return not fails, (
+        f"opportunity-only -> {weak['status']}/{weak['confidence']}; "
+        f"artifact-backed -> {strong['status']}/{strong['confidence']} "
+        f"(basis {strong['basis']!r})"
+        + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_metadata_probe_never_ticks(ctx):
+    """R34 - a probe that states no retest condition never ticks.
+
+    Ten of the 129 probes were metadata only - a note, a pin, no condition to
+    test. Auto-sensing counted every completed run as a clean exercise for
+    them, so they resolved on ANY run that finished. The guard reads the probe
+    and refuses: no stated condition, no opportunity, no credit.
+    """
+    from client_intake_and_finmo import issue_registry as reg  # type: ignore
+
+    signature = _REG_SEED + "metadata_only_probe_must_not_tick"
+    conn = ctx.conn
+    snap = _reg_snapshot(conn)
+    try:
+        _reg_restore(conn, snap, (signature,))
+        _reg_seed(reg, conn, signature,
+                  {"note": "seeded by replay_gate", "regression_pin": True})
+        before = _reg_state(reg, conn, signature)
+        reg.evaluate_run_for_resolution(conn, draft_id=_REG_DRAFT)
+        after = _reg_state(reg, conn, signature)
+    finally:
+        _reg_restore(conn, snap, (signature,))
+
+    fails = []
+    if after["status"] != "open":
+        fails.append(f"status moved {before['status']!r} -> {after['status']!r} "
+                     "on a probe that states no retest condition")
+    if after["quiet"] != before["quiet"] or after["clean"] != before["clean"]:
+        fails.append(f"counters ticked (quiet {before['quiet']}->{after['quiet']}, "
+                     f"clean {before['clean']}->{after['clean']}) on a run that "
+                     "cannot have exercised anything")
+    return not fails, (
+        f"metadata-only probe after a completed run: status={after['status']}, "
+        f"quiet={after['quiet']} (was {before['quiet']}), "
+        f"clean={after['clean']} (was {before['clean']})"
+        + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -2285,6 +2474,20 @@ REGRESSIONS = [
                     "so there is no baseline behaviour to observe. VS_NOTES "
                     "states structural absence for this leg independently. "
                     "Promote if the gate ever drives a live consultant turn.")),
+    Leg("R33", "REGRESSION", "confirmed-needs-a-read-artifact",
+        "'confirmed' requires an artifact that was read and HELD",
+        "4dc2c33", "2f5940b", _r_confirmed_needs_artifact, issue="CW-031 tier 1",
+        surface="issue registry",
+        proof_note=("Carries its own positive control: the artifact-backed "
+                    "issue MUST reach 'confirmed' in the same pass, so the "
+                    "leg cannot be satisfied by a registry that stopped "
+                    "confirming anything. Seeds and deletes its own synthetic "
+                    "issues and restores every other issue's mutable columns "
+                    "and both append-only tables' high-water marks.")),
+    Leg("R34", "REGRESSION", "metadata-probe-never-ticks",
+        "a probe stating no retest condition earns no clean-run credit",
+        "4dc2c33", "2f5940b", _r_metadata_probe_never_ticks, issue="CW-031 tier 1",
+        surface="issue registry"),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 5/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -393,7 +393,7 @@ TASK:
      rows when a label repeats -- confirm a single-line business's
      receipts are byte-identical to before.
 
-  ALSO OWED, and it is a real gap rather than a nicety: the
+  ALSO OWED, and it is a real gap rather than a nicety (kept below): the
   deterministic receipt is naturalized before the client sees it, so
   "Recorded: Plant sale at 48% of that line's revenue" reached the
   client as "...(plus four more you will share)". The numbers are
@@ -401,3 +401,122 @@ TASK:
   the receipt-without-a-write class re-entering through the naturalizer
   and it needs its own ruling from Nick about whether naturalization
   may touch a deterministic receipt at all.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: cogs_door:bare-percent-at-or-below-1-stored-as-ratio
+  EVIDENCE: _mini_cw031_tier23_audit_20260813.txt (all five items + four
+    more); _mini_cw031_live_wording_20260813.txt (the live transcript);
+    _mini_cw031_prove_R33_R34_20260813.txt (R33/R34 proven);
+    Test Files/_mini_cw031_t23_*.py (seven probes)
+  SUMMARY: A-110 is real and it is the strongest result of this batch. Three
+  wordings that name none of the app's lines -- "the pavers side", "the two
+  retail ones", "everything except design" -- all landed on exactly the
+  denoted rows through the live router, and ZERO wrote a wrong line. Items 3a
+  (the canary binds by delivery record; my Thistledown false PASS is dead), 4
+  (0.5% measured, keep it) and 5 (byte-identical on 387 real single-line
+  drafts) hold. Not green: four defects. Your window fallback CAN be broken --
+  a slow build plus a second run awards draft A's workbook to draft B, the
+  same class as the bug I found last round. A collapse whose member lacks a
+  revenue weight does not plain-average, it DROPS that member's stated rate
+  silently. A client saying "1%" stores 100%, and every artifact assertion
+  passes it. And the uniform-rate opt-out your own docstring promises is not
+  implemented, so a client who declares one rate for every line is filed as a
+  RECURRENCE. Also: the :5050 process started 13:44:29, before tier 3's files
+  were written at 13:49/13:50, so the canary you cite never contained tier 3
+  -- I restarted it (ONE listener) and ran my live turns on the real thing.
+  R33/R34 landed as promised: 52 legs, both proven behavioural, registry
+  byte-identical after two prove runs.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: four fixes, then the canary tier 3 never got. Reproduction and numbers
+  for every one of them are in _mini_cw031_tier23_audit_20260813.txt.
+
+  1. "1%" IS STORED AS 100%. _clamp (intake_consult.py ~2908) divides by 100
+     only when the figure exceeds 1.0, so cogs_percent=1 stores 1.0 and a
+     client whose design line runs 1% gets a line costing 100% of its own
+     revenue. "half a point" -> 0.5 -> 50%. It passes ops_per_line_cogs
+     (non-null, distinct) and it passes the reconciliation (the workbook is
+     internally consistent about a wrong number), so nothing downstream
+     catches it. My live W3 shows bare numbers reach the door from ordinary
+     sentences. THE UNIT MUST BE DECLARED, NOT INFERRED: carry it from the
+     router, where the client's own words are still visible, and convert
+     unconditionally at the door; refuse rather than guess when it is absent.
+     Do not fix this by narrowing the guessing band -- 0.71 and 71 are both
+     real client inputs and no threshold separates them from 1 and 0.5.
+
+  2. THE WINDOW FALLBACK MIS-AWARDS. Two runs of one business name, minutes
+     apart, and draft B is handed draft A's workbook:
+       A runs 09:00:00, builds slowly, its file stamps 09:03:20
+       B runs 09:02:30, builds fast,   its file stamps 09:02:40
+     A's file sits 50s from B's run and 200s from its own, so nearest-run
+     awards it to B; B then owns two files and workbook_delivery_record.py:284
+     ("among the files that are genuinely THIS draft's, the latest export
+     wins") makes B prefer A's file over its own. A correctly refuses; B
+     silently judges someone else's workbook. Tighter spacing does the same.
+     FIX SHAPE: among the files whose owner is this draft, take the one
+     NEAREST this draft's own LATEST run stamp, not the globally latest owned
+     file -- a re-run still resolves to its newest run's file, because that
+     run's stamp is the one being measured from. Re-run
+     Test Files/_mini_cw031_t23_window_break.py: shapes 2 and 3 must go clean
+     and shape 1 must stay clean.
+
+  3. A COLLAPSE SILENTLY DROPS A STATED RATE. You asked whether the
+     plain-average fallback is defensible; it never runs in the case you were
+     worried about. With Plant sale weighted 249,600 at 0.48 and Hard goods
+     sale carrying no unit_price, _cogs_line_revenue_weight returns None, the
+     zip contributes 0.0, total_weight is still > 0 -- so the shared rate is
+     0.48 EXACTLY and the client's stated 0.71 is not averaged in, it is
+     discarded. The receipt reports 0.48 as a computed shared rate. Nothing
+     logs it. REFUSE: a group whose members do not all carry a weight should
+     ask, or fall back to the plain average across ALL members and SAY SO in
+     the receipt. The all-weights-absent plain average must announce itself
+     too. (The weighting itself is RIGHT and I checked it hard: it preserves
+     the group's direct-cost dollars to $12 on $208,416, and to $93 on $1.0M
+     at 200:1 weights, where a plain average lands $14,352 out. Do not change
+     it. At 200:1 the shared rate sitting on the big line is the client's
+     instruction being obeyed, not a defect.)
+
+  4. IMPLEMENT THE OPT-OUT YOUR DOCSTRING PROMISES. _assert_ops_per_line_cogs
+     says the all-lines-share case "must opt out EXPLICITLY, from the recorded
+     grouping"; the code only reads spec['allow_shared_rates'], a probe-spec
+     key nobody sets mid-run and that Nick would have to edit machinery to
+     set. Measured: four rows at 0.55 FAIL even with the collapse STORED on
+     all four rows, while ops_cogs_shared_group PASSES the same artifact. So a
+     client who declares one rate for every line is filed as a RECURRENCE of
+     #138 -- the false confirmation's mirror image. Pass when a stored
+     cogs_cost_structure_group covers every line; fail otherwise. And have the
+     door store that group when the client declares a single rate across all
+     lines, so the artifact carries the client's own authority.
+
+  5. THE CANARY TIER 3 NEVER GOT. The :5050 listener was PID 13580, started
+     13:44:29; intake_consult.py was last written 13:49:22 and
+     capture_receipt.py 13:50:11, both part of 51d0810, and the launcher is
+     _run_server_noreload.py so there is no reloader to save it. Your 13:57
+     Sunny_V3 run is real evidence for tiers 1-2 (PER_LINE_COGS_DOOR appears
+     at 13:44:39 in _logs_persona_20260813_134429.txt) and NO evidence for
+     tier 3, which was never loaded. I restarted the backend with
+     scripts/start_persona_backend.ps1 (ONE listener, PID 30768) and my three
+     live turns ran on it, so the door is confirmed on current code -- but the
+     receipt renderer has still never run inside a live server. Owe one
+     Sunny_V3 canary on a server that actually contains it.
+
+  6. LATENT, cheap, do it while you are in there: _resolve_cogs_line's loose
+     branch tests `product_name in target`, and "" is a substring of
+     everything, so a single unnamed product row matches ANY wording -- "the
+     pavers side" wrote 0.71 onto the blank row and the receipt called it
+     "Garden". Census first so nobody panics: 0 of 3,050 drafts with an ops
+     model carry an unnamed product row. Skip empty names in that branch.
+
+  NOT YOURS, NOTHING TO DO: R33 and R34 are in the gate (52 legs, both proven
+  behavioural against 2f5940b, registry byte-identical after two prove runs),
+  so the tier-1 mechanisms are permanently covered and the ablation script is
+  retired as the instrument of record.
+
+  NICK'S RULING STILL OPEN, and my turn sharpens it rather than settling it:
+  whether naturalization may touch a deterministic receipt. You saw it invent
+  "(plus four more you will share)". In my three live turns every naturalized
+  reply was write-accurate. Intermittent invention on top of a deterministic
+  receipt is WORSE than consistent invention, because no single reply reveals
+  it. That one is Nick's.
