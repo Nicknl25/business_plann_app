@@ -1,0 +1,45 @@
+==============================================================================
+L1  THE DEFECT: 1 percent must be 0.01, not a line costing 100% of itself
+==============================================================================
+  clone unitb8b1b0ea64da
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > On direct costs - the design consult line only runs about 1 percent in materials, it's basically all my own time.
+  < [200] Got it, so you’ve updated the garden design consultations line so that the COGS is now set at 1.0% of that line’s revenue to match the roughly 1% in materials you mentioned.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': 0.01}
+  expected={'Design consult': 0.01}  wrong=(none)  other lines touched=(none)
+  VERDICT: LANDED
+
+==============================================================================
+L2  'half a point' must be 0.005, not 50%
+==============================================================================
+  clone unitedb6f00ecf6e
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > Design consult materials are half a point of that line, call it half a percent.
+  < [200] Got it, you’re now setting the design consult materials at 0.5% of that line’s revenue instead of 0%.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stre
+  after : {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': 0.005}
+  expected={'Design consult': 0.005}  wrong=(none)  other lines touched=(none)
+  VERDICT: LANDED
+
+==============================================================================
+L3  a ratio stays a ratio - 0.71 must not become 0.0071
+==============================================================================
+  clone unitb99aadad8e95
+  before: {'Plant sale': None, 'Hard goods sale': None, 'Install project': None, 'Design consult': None}
+  > For hard goods sale the direct-cost ratio is 0.71 of that line's revenue.
+  < [200] Got it, we’ll lock in your update so that the hard goods & materials / hard goods sale cost of goods is set to 71.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural t
+  after : {'Plant sale': None, 'Hard goods sale': 0.71, 'Install project': None, 'Design consult': None}
+  expected={'Hard goods sale': 0.71}  wrong=(none)  other lines touched=(none)
+  VERDICT: LANDED
+
+  (3 clone(s) removed)
+==============================================================================
+  L1: LANDED               expected={'Design consult': 0.01} wrong={}
+  L2: LANDED               expected={'Design consult': 0.005} wrong={}
+  L3: LANDED               expected={'Hard goods sale': 0.71} wrong={}
+Every case either landed the client's own number or asked which unit it was.

@@ -85,10 +85,10 @@ def main() -> int:
     # that is how a client says it.
     patch = {
       "financials.cogs_per_line_overrides": [
-        {"line_name": "Plant sale", "cogs_percent": 48},
-        {"line_name": "Hard goods sale", "cogs_percent": 71},
-        {"line_name": "Install project", "cogs_percent": 19},
-        {"line_name": "Design consult", "cogs_percent": 4},
+        {"line_name": "Plant sale", "cogs_percent": 48, "cogs_percent_unit": "percent"},
+        {"line_name": "Hard goods sale", "cogs_percent": 71, "cogs_percent_unit": "percent"},
+        {"line_name": "Install project", "cogs_percent": 19, "cogs_percent_unit": "percent"},
+        {"line_name": "Design consult", "cogs_percent": 4, "cogs_percent_unit": "percent"},
       ],
     }
     ops_after = copy.deepcopy(ops_before)
@@ -188,7 +188,8 @@ def main() -> int:
     empty = ic._build_per_line_cogs_receipt_text(
       ic._apply_per_line_cogs_patch_keys(
         {"financials.cogs_per_line_overrides": [
-          {"line_name": "a line that does not exist", "cogs_percent": 50}]},
+          {"line_name": "a line that does not exist", "cogs_percent": 50,
+           "cogs_percent_unit": "percent"}]},
         ops_json=copy.deepcopy(ops_before)))
     print(f"  unmatched: {empty}")
     check("an unmatched line produces a question, never a confirmation",

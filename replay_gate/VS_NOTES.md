@@ -1538,3 +1538,139 @@ reaches the client, so my "Recorded: X at 48% of that line's revenue" came back
 as "Got it - so you have updated your numbers so COGS is now 48.0% for plants
 ... (plus four more you will share)". The NUMBERS are write-derived and
 correct; the trailing clause is naturalizer invention. Worth its own item.
+
+================================================================================
+CW-031 ROUND 7 -- MINI'S FOUR DEFECTS, THE LATENT WILDCARD, AND ONE THAT
+FIXING THEM EXPOSED
+================================================================================
+All six items from mini's tier-2/3 audit are closed, plus a seventh that only
+became visible once item 1 was fixed. Everything below was measured on the
+production functions or read back off a live artifact.
+
+PROOFS OF RECORD
+  Test Files/_redproof_cw031_round7_fixes.py    all six, offline, on the
+                                                production functions
+  Test Files/_redproof_cw031_round7_ablate.py   the RED half: eight ablations
+  Test Files/_live_cw031_cogs_unit_turn.py      item 1 through the LIVE router
+  _redproof_cw031_round7_ablate_20260813.txt    the ablation output
+  _live_cw031_unit_20260813.txt                 the live transcript
+  _canary_cw031_round7_sunnyv3_20260813.txt     the canary tier 3 was owed
+
+1. "1%" STORED AS 100% -- THE UNIT IS NOW DECLARED, NEVER INFERRED.
+   _clamp is gone. _declared_rate reads cogs_percent_unit ("percent"/"ratio")
+   and converts UNCONDITIONALLY; with no unit it REFUSES and the client is
+   asked. The router carries the unit down with the figure, where the client's
+   own words are still visible, and its instruction says the unit describes the
+   CLIENT'S words and must never be inferred from how big the number is.
+   A unit that cannot describe its own figure (a "ratio" of 71, a "percent" of
+   150) is also refused rather than rescaled into the clamp -- that is not
+   guessing, it is rejecting incoherent input.
+   LIVE, three fresh clones of the real Ravenwood draft, artifacts read back:
+     "the design consult line only runs about 1 percent"    -> 0.01   LANDED
+     "half a point of that line, call it half a percent"    -> 0.005  LANDED
+     "the direct-cost ratio is 0.71 of that line's revenue" -> 0.71   LANDED
+   And mini's own three wordings still land unchanged (W1/W2/W3 replayed on
+   the new door: LANDED, LANDED, LANDED, zero wrong lines), so requiring the
+   unit did not cost the door its reach.
+   TWO THINGS I ADDED THAT THE FIX NEEDED IN ORDER TO BE HONEST:
+     - a refusal is a RESULT and now rides forward like a write. The caller
+       gate was "wrote or unmatched"; a turn whose only outcome was "I won't
+       guess whether that 1 is a percent or a fraction" would have dropped in
+       silence, which is this batch's own defect minus the number.
+     - a REFUSED figure is still declared consumed (CW-022 #1). It was stated
+       about that line's direct costs, so it is not a price or a lever target
+       even though it was not written -- otherwise "design is 1" comes back as
+       a $1 unit price while we are still asking what the 1 meant.
+
+1b. THE ONE FIXING ITEM 1 EXPOSED: THE TRANSPORT KEY SPOKE FOR THE WRITE.
+   Found live, on the first run after the fix. The acknowledgment renderer
+   walks the patch, so it rendered the RAW router figure next to the written
+   one. The rows were right and the sentences were wrong:
+     "half a point"  -> row 0.005, client told "COGS to 50.0%"
+     "1 percent"     -> row 0.01,  client told "direct costs to $1"
+   ($1 because "cogs" is a money hint, so a percent got dollared.) This was
+   latent before -- 71 and 0.71 agree to the eye -- and item 1 made it lie.
+   cogs_percent and cogs_percent_unit are the door's TRANSPORT keys, not
+   stored fields, and are now in capture_receipt._INTERNAL_FIELDS. The written
+   value keeps its own line and its own deterministic sentence. Verified the
+   stored percent fields (cogs_percent_of_revenue, baseline_cogs_percent) still
+   render, and mini's 387-real-single-line-draft identity probe is still 0
+   differing. Re-run live: all three replies now match their rows.
+
+2. THE WINDOW FALLBACK MIS-AWARD -- FIXED AT THE TIE-BREAK, AS DIAGNOSED.
+   Not nearest-run; it was "among the files this draft owns, the latest wins".
+   A draft that ran once can only own one file honestly, so the tie-break is
+   now a DISTANCE from this draft's own latest run stamp. Re-runs still resolve
+   to their newest run's file because that run's stamp is what is measured
+   from. _mini_cw031_t23_window_break.py: shapes 2 and 3 now clean (B binds to
+   its OWN 09-02-40 / 09-01-50 file, not A's), shape 1 still clean.
+
+3. THE COLLAPSE NO LONGER DROPS A STATED RATE.
+   mini was right that the plain-average branch never ran: one member's weight
+   of None became 0.0 while the other kept its weight, so total_weight stayed
+   positive and the survivor's rate WAS the "computed" shared rate. Now a group
+   with any weightless member averages across ALL members and SAYS SO, and the
+   all-weights-absent case announces itself too:
+     "...sharing one direct-cost rate of 60% (a plain average of the rates you
+      gave - I don't have the sales volume for Hard goods sale to weight them)"
+   The weighting itself is untouched, exactly as asked: full weights still give
+   0.5567 on the 249,600/124,800 case, basis "revenue weighted". One rated
+   member propagating is basis "stated" -- it is not an average and does not
+   claim to be.
+
+4. A UNIFORM RATE IS A DECLARATION, NOT A RECURRENCE.
+   Both halves, because either alone leaves it broken. THE DOOR now stores a
+   cost-structure group covering every line when ONE patch sets EVERY line to
+   the SAME rate -- deliberately narrow, so three-of-four (mini's live W3) and
+   rates that merely coincide across turns mint nothing. THE ASSERTION now
+   passes N identical rates when a stored group covers all N, and still fails
+   them when it does not, or when the collapse is partial. The opt-out is the
+   client's own recorded authority; spec['allow_shared_rates'] stays as a
+   manual override but is no longer the only route.
+
+6. THE UNNAMED-ROW WILDCARD IS GUARDED. Empty product names are skipped in
+   _resolve_cogs_line's loose branch. All three of mini's wordings now resolve
+   to None against a blank-row directory, and real names still resolve.
+
+5. THE CANARY TIER 3 NEVER GOT -- RUN, ON A SERVER THAT CONTAINS IT.
+   mini was right about PID 13580 and I do not dispute a line of it. Backend
+   restarted twice this round (after the door/router/registry edits, then again
+   after the renderer edit), ONE :5050 listener each time, and I checked every
+   source file's mtime against the listener's start time rather than asserting
+   it. Final listener PID 4864 started 14:45:57, latest edit 14:45:27.
+   Sunny_V3 on that server: completed, 378s, gpt_calls=18, holds=0, errors=0,
+   stalls=0, workbook built, run f56d1266 / draft 0ef7833e. It wrote
+   workbook_deliveries row #2 and resolve_workbook_for_draft returns
+   basis="delivery record" for it.
+   Also re-run green after all of it: _redproof_cw031_workbook_binding,
+   _redproof_cw031_receipt_copy, _redproof_cw031_cogs_write_door, and CW-024's
+   slate 13/13.
+
+THE RED HALF, BECAUSE A PROOF THAT IS ONLY EVER GREEN PROVES NOTHING
+  _redproof_cw031_round7_ablate.py reverts each hunk to the exact code mini
+  measured as broken, on the real files, one at a time, and requires the proof
+  to go red on THAT hunk's own checks. Eight ablations, eight red for the right
+  reason, none decorative:
+    A1a  unit absent falls back to the >1.0 heuristic
+    A1b  the percent-range contradiction guard
+    A1c  the ratio-range contradiction guard
+    A2   the collapse fallback, back to weight-or-zero
+    A3   the door's all-lines group
+    A4   the assertion's recorded-collapse opt-out
+    A4b  the transport key hidden from the receipt
+    A5   the unnamed-row guard, back to the wildcard
+  Files restore from bytes read before each ablation; the post-ablation re-run
+  is green and the ablated files are byte-identical to where they started.
+
+TWO THINGS OF MINI'S I DID NOT TOUCH, DELIBERATELY
+  _mini_cw031_t23_collapse_probe.py now CRASHES at (d) -- it asserts the old
+  numeric and reads None, which is the fix working. Its (a2) note is hardcoded
+  False, so it can never go green. Both are mini's evidence of the OLD state
+  and I am not rewriting mini's instrument; they need retiring or re-pointing.
+  _mini_cw031_t23_uniform_rate.py's measured table already shows the new
+  behaviour (the stored-collapse row now passes); only its trailing READING
+  prose describes the old state.
+
+ONE I CHANGED THAT IS MINE: _redproof_cw031_cogs_write_door.py fed the door
+bare figures with no unit, so it was asserting the pre-unit contract. Its five
+call sites now declare "percent". Green.

@@ -737,6 +737,23 @@ def _assert_ops_per_line_cogs(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[
   if not spec.get("allow_shared_rates", False):
     rates = {round(float(p["cogs_percent_of_line_revenue"]), 4) for p in products}
     if len(rates) < 2:
+      # THE OPT-OUT IS THE CLIENT'S RECORDED AUTHORITY, not an absent flag and
+      # not a probe-spec key nobody sets mid-run. A client who says "everything
+      # runs at about 55 percent" reaches this state with one ordinary sentence,
+      # and the door now stores a cost-structure group covering every line when
+      # they do. A group that covers ALL lines IS the declaration that one rate
+      # is correct here, so it passes; identical rates with no group stored are
+      # still a blend wearing per-line clothing and still fail. Without this the
+      # check files a RECURRENCE against a model that is exactly what the client
+      # asked for -- the false confirmation's mirror image.
+      grouped = [p for p in products
+                 if str(p.get("cogs_cost_structure_group") or "").strip()]
+      labels = {str(p.get("cogs_cost_structure_group") or "").strip() for p in grouped}
+      if len(grouped) == len(products) and len(labels) == 1:
+        return {"verdict": "pass",
+                "detail": (f"{detail}; all {len(products)} rows share one rate {rates} "
+                           f"under the client's own recorded collapse "
+                           f"{next(iter(labels))!r}")}
       return {"verdict": "fail",
               "detail": f"all {len(products)} rows share one rate {rates} - "
                         "a blend wearing per-line clothing"}

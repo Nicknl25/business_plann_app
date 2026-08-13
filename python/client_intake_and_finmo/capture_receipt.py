@@ -201,6 +201,18 @@ _INTERNAL_FIELDS = {
   "confidence",
   "wage_source",
   "months_until_hire",
+  # CW-031 round 7. cogs_percent is the per-line COGS door's TRANSPORT key --
+  # the client's figure in the client's own unit, on its way to being converted
+  # and written. It is not a stored field and it is not what landed. Rendering
+  # it spoke a number that contradicted the row: "half a point" wrote 0.005 and
+  # the client was told "COGS to 50.0%", and "1 percent" wrote 0.01 and was read
+  # out as "$1" (a percent, dollared, because "cogs" is a money hint). The
+  # written value has its own line (cogs_percent_of_line_revenue) and its own
+  # deterministic sentence from _build_per_line_cogs_receipt_text; this key must
+  # never speak for the write. cogs_percent_unit is bookkeeping and never a
+  # number the client stated.
+  "cogs_percent",
+  "cogs_percent_unit",
 }
 
 # A field renders as currency ONLY when its name says money (CW-009:

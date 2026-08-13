@@ -1824,7 +1824,15 @@ def route_intent(
     extra_instructions = (
       extra_instructions
       + "Per-line direct costs (COGS) handling:\n"
-      + "- This business has SEVERAL revenue lines, each with its own direct-cost rate. When the client states or corrects the direct-cost/materials percent FOR A NAMED LINE, emit edit_patch with financials.cogs_per_line_overrides = [{\"line_name\": <the line as the app named it>, \"cogs_percent\": <the rate>}]. One entry per line the client named, all in ONE patch - a message giving four lines' rates emits four entries, never one blended number.\n"
+      + "- This business has SEVERAL revenue lines, each with its own direct-cost rate. When the client states or corrects the direct-cost/materials percent FOR A NAMED LINE, emit edit_patch with financials.cogs_per_line_overrides = [{\"line_name\": <the line as the app named it>, \"cogs_percent\": <the rate>, \"cogs_percent_unit\": <\"percent\" or \"ratio\">}]. One entry per line the client named, all in ONE patch - a message giving four lines' rates emits four entries, never one blended number.\n"
+      # THE UNIT IS DECLARED, NEVER INFERRED. The door used to divide by 100
+      # only when the figure exceeded 1.0, so a client whose line runs 1% got a
+      # line costing 100% of its own revenue and "half a point" became 50%. No
+      # threshold can separate the readings - 0.71 and 71 are both real inputs,
+      # and so are 1 and 0.5 - so the unit has to travel with the figure from
+      # here, where the client's own words are still visible. The door refuses
+      # without it and asks the client, which is recoverable; a silent 100% is not.
+      + "- cogs_percent_unit is REQUIRED on every entry and it describes the CLIENT'S OWN WORDS, not your preference. \"about 71 percent\", \"71%\", \"half a point\", \"runs at 4\" -> cogs_percent: 71 / 71 / 0.5 / 4 with cogs_percent_unit \"percent\". \"0.71 of that line\", \"a ratio of 0.38\" -> cogs_percent: 0.71 / 0.38 with cogs_percent_unit \"ratio\". Never rescale the client's figure yourself and never infer the unit from how big the number is: a client saying a line runs 1 percent means 1 percent, and the app records exactly what you declare. If the client's wording genuinely does not say which, still emit the entry with the figure and omit cogs_percent_unit - the app will ask them rather than guess.\n"
       + "- Use the line names as the last assistant message listed them where you can; the app matches on the full line name, the product name, or the line of business.\n"
       + "- A stated per-line rate NEVER goes into financials.current_cogs or financials.cogs_percent_of_revenue. Those hold the blended total, which the app re-derives from the per-line rates itself. Putting one line's rate into the blend is a wrong number, not an approximation.\n"
       + "- When the client says two or more lines SHARE one cost structure (\"plants and hard goods are both bought-in retail goods, treat those two as sharing one cost structure\", \"those two run about the same\"), emit edit_patch with financials.cogs_shared_structure_groups = [[<line A>, <line B>]] - one inner list per group that shares a rate. Lines they keep separate simply do not appear in any group.\n"

@@ -2842,11 +2842,18 @@ def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[D
       return exact[0]
     if len(exact) > 1:
       return None
-  loose = [
-    entry for entry in directory
-    if target in str(entry.get("line_name") or "").strip().lower()
-    or str(entry.get("product_name") or "").strip().lower() in target
-  ]
+  # The loose branch must not carry a WILDCARD. "" is a substring of every
+  # target, so an unnamed product row used to match ANY client phrasing: "the
+  # pavers side" wrote a real rate onto a blank row and the receipt named it
+  # after the LOB. Latent rather than live (0 of 3,050 drafts with an ops model
+  # carry an unnamed row), but a door whose whole design is "refuse rather than
+  # guess" cannot have a row that matches everything.
+  loose = []
+  for entry in directory:
+    line_name = str(entry.get("line_name") or "").strip().lower()
+    product_name = str(entry.get("product_name") or "").strip().lower()
+    if (line_name and target in line_name) or (product_name and product_name in target):
+      loose.append(entry)
   return loose[0] if len(loose) == 1 else None
 
 
@@ -2900,20 +2907,48 @@ def _apply_per_line_cogs_patch_keys(
   confirmation that outruns its write is the defect this batch is named for.
   """
   receipt: Dict[str, Any] = {"written": [], "unmatched": [], "grouped": [],
-                             "wrote": False, "consumed_figures": []}
+                             "wrote": False, "consumed_figures": [],
+                             "unit_unclear": []}
   directory = _cogs_line_directory(ops_json)
   if not directory:
     return receipt
 
-  def _clamp(value: Any) -> Optional[float]:
-    pct = _safe_float(value)
-    if pct is None:
-      return None
-    pct = float(pct)
-    # A client saying "71 percent" is a percent; 0.71 is the same rate.
-    if pct > 1.0:
-      pct = pct / 100.0
-    return round(max(0.0, min(1.0, pct)), 4)
+  _PERCENT_WORDS = {"percent", "percentage", "pct", "%", "points", "point"}
+  _RATIO_WORDS = {"ratio", "fraction", "decimal", "share", "proportion"}
+
+  def _declared_rate(item: Dict[str, Any]) -> Tuple[Optional[float], str]:
+    """THE UNIT IS DECLARED, NEVER INFERRED.
+
+    The old rule divided by 100 only when the figure exceeded 1.0, so a client
+    whose design line runs 1% got a line costing 100% of its own revenue, and
+    "half a point" became 50%. Every artifact assertion passes that number --
+    it is non-null, it is distinct, and the workbook is internally consistent
+    about it -- so nothing downstream can catch it. No threshold can separate
+    the two readings either: 0.71 and 71 are both real client inputs, and so
+    are 1 and 0.5.
+
+    So the router carries the unit down with the figure (it still has the
+    client's own words), and this converts unconditionally. When the unit is
+    absent, or contradicts the figure's own range, this REFUSES and the caller
+    asks -- an unanswered question is recoverable, a silent 100% is not.
+    """
+    raw = item.get("cogs_percent")
+    if raw is None:
+      raw = item.get("cogs_percent_of_line_revenue")
+    value = _safe_float(raw)
+    if value is None:
+      return None, "no_value"
+    value = float(value)
+    unit = str(item.get("cogs_percent_unit") or item.get("unit") or "").strip().lower()
+    if unit in _PERCENT_WORDS:
+      if value < 0.0 or value > 100.0:
+        return None, "contradiction"
+      return round(value / 100.0, 4), "ok"
+    if unit in _RATIO_WORDS:
+      if value < 0.0 or value > 1.0:
+        return None, "contradiction"
+      return round(value, 4), "ok"
+    return None, "no_unit"
 
   overrides = patch.get("financials.cogs_per_line_overrides")
   if overrides is None:
@@ -2924,11 +2959,33 @@ def _apply_per_line_cogs_patch_keys(
     if not isinstance(item, dict):
       continue
     name = item.get("line_name") or item.get("product_name") or item.get("name")
-    pct = _clamp(item.get("cogs_percent") if item.get("cogs_percent") is not None
-                 else item.get("cogs_percent_of_line_revenue"))
+    pct, why = _declared_rate(item)
     entry = _resolve_cogs_line(name, directory)
-    if entry is None or pct is None:
+    if entry is None:
       receipt["unmatched"].append(str(name or "").strip() or "(unnamed line)")
+      continue
+    if pct is None:
+      # The LINE is known; the RATE is not readable. Say which, so the client
+      # is asked the question that can actually be answered.
+      if why in ("no_unit", "contradiction"):
+        receipt["unit_unclear"].append({
+          "line_name": entry["line_name"],
+          "value": item.get("cogs_percent") if item.get("cogs_percent") is not None
+                   else item.get("cogs_percent_of_line_revenue"),
+          "reason": why,
+        })
+      else:
+        receipt["unmatched"].append(str(name or "").strip() or "(unnamed line)")
+      # A REFUSED FIGURE IS STILL SPOKEN FOR. It was stated about this line's
+      # direct costs, so it is not a price, a capacity or a lever target -- the
+      # CW-022 #1 guarantee has to survive the refusal, or "design is 1" comes
+      # back as a $1 unit price while we are still asking what the 1 meant.
+      _unclear_value = _safe_float(
+        item.get("cogs_percent") if item.get("cogs_percent") is not None
+        else item.get("cogs_percent_of_line_revenue"))
+      if _unclear_value is not None:
+        receipt["consumed_figures"].extend([
+          float(_unclear_value), round(float(_unclear_value) / 100.0, 4)])
       continue
     entry["row"]["cogs_percent_of_line_revenue"] = pct
     receipt["written"].append({"line_name": entry["line_name"], "cogs_percent": pct})
@@ -2940,6 +2997,35 @@ def _apply_per_line_cogs_patch_keys(
     # reverted as an underivable second lever.
     receipt["consumed_figures"].extend([float(pct), round(float(pct) * 100.0, 4)])
     receipt["wrote"] = True
+
+  # ONE RATE FOR EVERY LINE IS A DECLARED COLLAPSE, and it must be RECORDED as
+  # one. "Everything runs at about 55 percent" is a client exercising the same
+  # authority as "treat those two as sharing one cost structure" -- but it
+  # arrives as N overrides with no group, and the artifact assertion then reads
+  # N identical rates as a blend wearing per-line clothing and files a
+  # RECURRENCE against a model that is exactly what the client asked for. The
+  # opt-out has to come from the client's own recorded authority, so the door
+  # writes the group here rather than leaving a probe-spec flag nobody sets.
+  # Deliberately narrow: only when ONE patch sets EVERY line in the directory
+  # to the SAME rate. Three of four lines, or rates that merely happen to
+  # coincide across turns, are not a declaration and get no group.
+  if len(directory) >= 2 and len(receipt["written"]) == len(directory):
+    _written_rates = {round(float(w["cogs_percent"]), 4) for w in receipt["written"]}
+    _written_lines = {w["line_name"] for w in receipt["written"]}
+    if len(_written_rates) == 1 and len(_written_lines) == len(directory):
+      _all_label = "shared:" + "+".join(
+        sorted(str(e["product_name"] or e["line_name"]).strip().lower() for e in directory)
+      )
+      for entry in directory:
+        entry["row"]["cogs_cost_structure_group"] = _all_label
+      receipt["grouped"].append({
+        "line_names": [e["line_name"] for e in directory],
+        "group": _all_label,
+        "cogs_percent": next(iter(_written_rates)),
+        "basis": "declared for every line",
+        "unweighted_lines": [],
+        "all_lines": True,
+      })
 
   groups = patch.get("financials.cogs_shared_structure_groups")
   if groups is None:
@@ -2963,14 +3049,28 @@ def _apply_per_line_cogs_patch_keys(
     rated = [m for m in members
              if _safe_float(m["row"].get("cogs_percent_of_line_revenue")) is not None]
     shared_pct = None
+    basis = ""
+    unweighted: List[str] = []
     if len(rated) >= 1:
-      weights = [(_cogs_line_revenue_weight(m["row"]) or 0.0) for m in rated]
       rates = [float(_safe_float(m["row"].get("cogs_percent_of_line_revenue"))) for m in rated]
-      total_weight = sum(weights)
-      shared_pct = round(
-        (sum(r * w for r, w in zip(rates, weights)) / total_weight) if total_weight > 0
-        else (sum(rates) / len(rates)), 4,
-      )
+      weights = [_cogs_line_revenue_weight(m["row"]) for m in rated]
+      unweighted = [m["line_name"] for m, w in zip(rated, weights) if not w]
+      if len(rated) == 1:
+        # Nothing to average: the one stated rate propagates to the group.
+        shared_pct, basis = round(rates[0], 4), "stated"
+      elif unweighted:
+        # A WEIGHTED MEAN WOULD DROP A RATE THE CLIENT STATED OUT LOUD. A member
+        # with no unit price contributes weight 0, and because the OTHER member
+        # still carries weight the total stays positive -- so the documented
+        # plain-average branch never ran and the missing-weight line's rate was
+        # discarded silently, while the receipt reported the survivor's rate as
+        # a computed shared rate. Average across ALL members instead, and SAY SO.
+        shared_pct, basis = round(sum(rates) / len(rates), 4), "plain average"
+      else:
+        total_weight = sum(float(w) for w in weights)
+        shared_pct = round(
+          sum(r * float(w) for r, w in zip(rates, weights)) / total_weight, 4)
+        basis = "revenue weighted"
     for member in members:
       member["row"]["cogs_cost_structure_group"] = label
       if shared_pct is not None:
@@ -2980,6 +3080,8 @@ def _apply_per_line_cogs_patch_keys(
       "line_names": [m["line_name"] for m in members],
       "group": label,
       "cogs_percent": shared_pct,
+      "basis": basis,
+      "unweighted_lines": unweighted,
     })
   return receipt
 
@@ -2994,15 +3096,38 @@ def _build_per_line_cogs_receipt_text(receipt: Dict[str, Any]) -> str:
   for item in receipt.get("written") or []:
     parts.append(f"{item['line_name']} at {round(float(item['cogs_percent']) * 100):g}% of that line's revenue")
   for group in receipt.get("grouped") or []:
-    names = " and ".join(group.get("line_names") or [])
+    line_names = group.get("line_names") or []
+    names = ("all " + str(len(line_names)) + " lines") if group.get("all_lines") \
+      else " and ".join(line_names)
     pct = group.get("cogs_percent")
     if pct is None:
       parts.append(f"{names} sharing one direct-cost rate")
-    else:
-      parts.append(f"{names} sharing one direct-cost rate of {round(float(pct) * 100):g}%")
+      continue
+    said_group = f"{names} sharing one direct-cost rate of {round(float(pct) * 100):g}%"
+    # A SHARED RATE MUST SAY HOW IT WAS REACHED. The weighted mean preserves
+    # the group's direct-cost dollars; the plain average does not, and it is
+    # only used when a member has no sales volume to weight by. Naming the
+    # basis is what makes the fallback a stated approximation the client can
+    # object to instead of a rate that quietly replaced one they gave.
+    unweighted = [u for u in (group.get("unweighted_lines") or []) if u]
+    if group.get("basis") == "plain average":
+      said_group += " (a plain average of the rates you gave"
+      if unweighted:
+        said_group += (" - I don't have the sales volume for "
+                       + " or ".join(unweighted[:3]) + " to weight them")
+      said_group += ")"
+    parts.append(said_group)
   said = ""
   if parts:
     said = "Recorded: " + "; ".join(parts) + "."
+  unclear = [u for u in (receipt.get("unit_unclear") or []) if u]
+  if unclear:
+    first = unclear[0]
+    said = (said + " I didn't record a rate for "
+            + " or ".join(str(u.get("line_name") or "") for u in unclear[:3])
+            + f": {first.get('value')!r} could be a percent or a fraction of that "
+              "line's revenue, and I won't guess between them - say it as a "
+              "percent, for example 4%, and I'll set it.").strip()
   unmatched = [u for u in (receipt.get("unmatched") or []) if u]
   if unmatched:
     said = (said + " I couldn't tell which line you meant by "
@@ -11568,14 +11693,21 @@ def _apply_scoped_patch(
   # The receipt rides on next_financials so the caller can speak from the
   # write instead of from prose.
   _cogs_receipt = _apply_per_line_cogs_patch_keys(patch or {}, ops_json=next_ops)
-  if _cogs_receipt.get("wrote") or _cogs_receipt.get("unmatched"):
+  # A REFUSAL IS A RESULT AND HAS TO REACH THE CLIENT. unit_unclear is here
+  # with wrote and unmatched: a turn where the only outcome was "I won't guess
+  # whether that 1 is a percent or a fraction" must carry its receipt forward,
+  # or the client's statement is dropped in silence -- which is the same class
+  # of defect as writing the wrong number, minus the number.
+  if (_cogs_receipt.get("wrote") or _cogs_receipt.get("unmatched")
+      or _cogs_receipt.get("unit_unclear")):
     next_financials["_per_line_cogs_receipt"] = _cogs_receipt
     logger.info(
-      "PER_LINE_COGS_DOOR wrote=%s lines=%s grouped=%s unmatched=%s",
+      "PER_LINE_COGS_DOOR wrote=%s lines=%s grouped=%s unmatched=%s unit_unclear=%s",
       _cogs_receipt.get("wrote"),
       [w["line_name"] for w in _cogs_receipt.get("written") or []],
       [g["group"] for g in _cogs_receipt.get("grouped") or []],
       _cogs_receipt.get("unmatched"),
+      [u.get("line_name") for u in _cogs_receipt.get("unit_unclear") or []],
     )
 
   for raw_key, value in (patch or {}).items():

@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 6/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -520,3 +520,94 @@ TASK:
   reply was write-accurate. Intermittent invention on top of a deterministic
   receipt is WORSE than consistent invention, because no single reply reveals
   it. That one is Nick's.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:round7-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 7 section;
+    Test Files/_redproof_cw031_round7_fixes.py;
+    Test Files/_redproof_cw031_round7_ablate.py;
+    Test Files/_live_cw031_cogs_unit_turn.py;
+    _redproof_cw031_round7_ablate_20260813.txt;
+    _live_cw031_unit_20260813.txt;
+    _canary_cw031_round7_sunnyv3_20260813.txt
+  SUMMARY: Your four defects plus the latent wildcard are closed, and fixing
+  the unit exposed a seventh I then fixed. The unit is now DECLARED by the
+  router and converted unconditionally at the door; absent or self-
+  contradicting, it refuses. Live on three fresh Ravenwood clones: 1 percent
+  -> 0.01, half a point -> 0.005, ratio 0.71 -> 0.71, and your W1/W2/W3 still
+  land unchanged, so the requirement cost the door no reach. THE SEVENTH: the
+  acknowledgment renders the RAW router figure, so the corrected write was
+  spoken wrongly -- row 0.005 read out as "COGS to 50.0%", row 0.01 as "$1"
+  (a percent, dollared). Latent until item 1 made 71 and 0.71 stop agreeing.
+  Transport keys are now internal to the receipt; your 387-draft identity
+  probe is still 0 differing. Window tie-break is now distance-from-my-own-
+  latest-run: your shapes 2 and 3 go clean, shape 1 stays clean. A weightless
+  member no longer has its stated rate discarded -- plain average across ALL
+  members, and the receipt says so. Uniform rates: the door stores the group,
+  the assertion honours it, partial collapses still fail. Eight ablations,
+  each red on its own checks, none decorative. Canary owed for tier 3: run on
+  a server I proved postdates every edit (PID 4864 14:45:57, last edit
+  14:45:27) -- 378s, 0 errors, 0 holds, 0 stalls, delivery record written.
+  Not green: none of it is artifact-audited by you, which is Nick's standing
+  law for this batch.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit round 7 at the ARTIFACT level. Same rule as before -- my pass
+  lines are not evidence, and the live replies least of all now.
+
+  1. THE ONE THAT MATTERS THIS ROUND. The unit contract's whole safety rests
+     on the LIVE router emitting cogs_percent_unit, and a GPT field is not a
+     guarantee. Drive your own wordings and read the rows: figures that are
+     ambiguous by construction ("design runs at 1", "materials are point five
+     on that line", "call it a tenth"), a unit stated only in an earlier turn,
+     and a mixed message ("plants 48 percent, install 0.19"). Report which
+     land correctly, which honestly ask, and above all whether ANY writes a
+     wrong NUMBER -- that is now the unacceptable outcome, the way a wrong
+     LINE was last round. If the router omits the unit often enough that
+     clients get asked when they were clear, say so with a rate: I would
+     rather widen the router instruction than let refusal become the norm.
+
+  2. ADVERSARIAL ON 1b, WHICH IS THE ONE I AM LEAST SURE OF. I closed it by
+     hiding two leaf names from the receipt. That is a denylist, and the class
+     is "a raw transport figure gets rendered as if it were the write". Look
+     for the others: any patch key that carries a client figure in a unit the
+     stored field does not use, on any door, not just COGS. If the honest fix
+     is an allowlist or a rule keyed on something other than the leaf name,
+     say so -- I would rather be told my fix is the wrong shape now than
+     discover the next instance live.
+
+  3. THE COLLAPSE BASIS ON REAL DRIVER ROWS. My plain-average fallback is
+     proven on synthetic rows. Find real drafts whose product rows lack
+     unit_price or capacity, run the collapse, and check the receipt sentence
+     is TRUE of what landed -- specifically that "I don't have the sales
+     volume for X" names the right lines and that the average is over the
+     members I claim. Also: does the fallback ever fire on a line that HAS a
+     weight the weight function simply cannot see (a different field name)?
+     That would be a plain average announced where a weighted one was owed.
+
+  4. THE ALL-LINES GROUP, ADVERSARIALLY. It fires only when ONE patch sets
+     EVERY line to the SAME rate. Try to make it fire when the client did not
+     declare a collapse (a two-line business where both lines genuinely run
+     the same rate is my worry -- N=2 makes the coincidence cheap), and try to
+     make it MISS a real declaration (four lines set to one rate across two
+     messages). Say whether N=2 should be excluded.
+
+  5. LEGS, if you judge them worth pinning: the unit contract and the
+     transport-key rule are both the kind of thing that rots silently. R33/R34
+     are yours and worked; these are the same shape. Your call on whether they
+     are gate legs or stay as my red-proofs.
+
+  ALSO, HOUSEKEEPING THAT IS YOURS: _mini_cw031_t23_collapse_probe.py now
+  crashes at (d) because it asserts the old numeric and reads None (the fix
+  working), and its (a2) note is hardcoded False so it can never go green.
+  Both are your record of the OLD state and I would not rewrite your
+  instrument -- retire or re-point them as you see fit.
+
+  STILL NICK'S, UNCHANGED AND NOT MINE TO SETTLE: whether naturalization may
+  touch a deterministic receipt at all. Round 7 sharpens it a third time. My
+  1b fix stops the receipt from CONTAINING a contradictory number, which is
+  the half I can fix in code; it does nothing about the naturalizer adding a
+  clause the write does not support. Every naturalized reply I saw this round
+  was write-accurate -- which, as you said, is exactly what makes it hard.

@@ -262,7 +262,11 @@ def resolve_workbook_for_draft(
             "detail": (f"{len(candidates)} workbook(s) named {business_name!r} but this "
                        "draft has no run timestamp to bind them by")}
 
-  best: Optional[Tuple[datetime, float, str]] = None
+  # A draft can run more than once, so it can own more than one file. The
+  # tie-break among owned files is measured from THIS draft's own LATEST run.
+  my_latest = max(mine)
+
+  best: Optional[Tuple[float, datetime, float, str]] = None
   contested: List[str] = []
   for path in candidates:
     stamp = _stamp_from_filename(path)
@@ -279,10 +283,19 @@ def resolve_workbook_for_draft(
     if owner != draft_id:
       contested.append(os.path.basename(path))
       continue
-    # A draft can run more than once. Among the files that are genuinely THIS
-    # draft's, the latest export is the one that reflects its current state.
-    if best is None or stamp > best[0]:
-      best = (stamp, owner_delta, path)
+    # NOT "the latest export wins" -- that was the remaining mis-award (mini,
+    # CW-031 shape 2). Draft A runs 09:00:00 and builds slowly to 09:03:20;
+    # draft B runs 09:02:30 and builds fast to 09:02:40. A's file sits 50s from
+    # B's run and 200s from A's own, so nearest-run hands A's file to B; B then
+    # owns two files and "latest wins" made B prefer A's workbook over its own.
+    # A draft that ran once can only own one file honestly, so the tie-break
+    # must be a DISTANCE from this draft's own run, not a global maximum. A
+    # re-run still resolves to its newest run's file, because that run's stamp
+    # is the one being measured from.
+    own_delta = abs((stamp - my_latest).total_seconds())
+    key = (own_delta, stamp, owner_delta, path)
+    if best is None or (key[0], -key[1].timestamp()) < (best[0], -best[1].timestamp()):
+      best = key
 
   if best is None:
     detail = (f"no workbook attributable to this draft; {len(candidates)} file(s) share "
@@ -290,6 +303,6 @@ def resolve_workbook_for_draft(
     if contested:
       detail += f" and belong to other drafts ({', '.join(sorted(contested)[:3])})"
     return {"path": None, "basis": "none", "detail": detail}
-  return {"path": best[2], "basis": "run window",
-          "detail": (f"{os.path.basename(best[2])} (this draft's latest run, "
-                     f"stamp within {best[1]:.0f}s of it)")}
+  return {"path": best[3], "basis": "run window",
+          "detail": (f"{os.path.basename(best[3])} (nearest this draft's own latest "
+                     f"run, {best[0]:.0f}s from it; owned within {best[2]:.0f}s)")}

@@ -1,0 +1,26 @@
+baseline: GREEN
+
+[RED, RIGHT REASON] A1a refusal when the unit is absent (back to the >1.0 heuristic)
+    turns red: ['no unit -> nothing written', 'no unit -> receipt asks']
+[RED, RIGHT REASON] A1b the percent-range contradiction guard
+    turns red: ['contradiction -2 as percent', 'contradiction 150 as percent']
+[RED, RIGHT REASON] A1c the ratio-range contradiction guard
+    turns red: ['contradiction 71 as ratio']
+[RED, RIGHT REASON] A2 the collapse fallback (back to weight-or-zero)
+    turns red: ['basis is named on the receipt', 'stated rate not discarded', 'the client is TOLD']
+[RED, RIGHT REASON] A3 the door's all-lines group
+    turns red: ["door records the client's own collapse", 'the receipt says the collapse happened', 'uniform + recorded collapse PASSES']
+[RED, RIGHT REASON] A4 the assertion's recorded-collapse opt-out
+    turns red: ['uniform + recorded collapse PASSES']
+[RED, RIGHT REASON] A4b the transport key hidden from the receipt
+    turns red: ['the raw router figure is not spoken']
+[RED, RIGHT REASON] A5 the unnamed-row guard (back to the wildcard)
+    turns red: ["unnamed row refuses 'everything except design'", "unnamed row refuses 'the pavers side'", "unnamed row refuses 'the two retail ones'"]
+
+restored; git status of the ablated files:
+  M python/api_handlers/intake_consult.py
+ M python/client_intake_and_finmo/capture_receipt.py
+ M python/client_intake_and_finmo/issue_registry.py
+post-ablation re-run: GREEN
+
+EVERY FIX IS LOAD-BEARING -- each one, removed alone, turns its own checks red
