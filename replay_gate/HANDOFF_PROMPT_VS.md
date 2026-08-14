@@ -19,10 +19,31 @@ THE TURN CONTRACT — follow exactly:
    package name (spec §6.1). App code (python/,
    client_statements_output_excel/), Test Files/, docs/ are yours.
 4. STANDING LAWS still apply headless: restart the backend after any
-   app-code edit and verify ONE :5050 listener; one Sunny_V3 canary
-   after app-code changes before any batch; never kill :5050
+   app-code edit and verify ONE :5050 listener; never kill :5050
    mid-canary; red-proofs red for the RIGHT reason; commit messages
-   without embedded double quotes.
+   without embedded double quotes. The Sunny_V3 canary is governed by
+   the VERIFICATION SCOPING LAW below — it runs for system-touching
+   changes, not after every localized fix.
+
+VERIFICATION SCOPING LAW (Nick, 2026-08-14, STANDING): verify what
+the fix touched, not the whole system. Decide per change by BLAST
+RADIUS, and state the call in your RESULT so mini can audit the call
+itself:
+- LOCALIZED (one router/field/receipt string/copy path — structurally
+  cannot reach the engine, the money math, or the golden floor) →
+  TARGETED check ONLY: red→green on the changed behavior + its
+  immediate seam, plus the fast floor guard (the gate's golden legs
+  via --only, e.g. R31/R32 — NOT a live canary, NOT the full 61-leg
+  prove, NOT a full system re-verification).
+- SYSTEM-TOUCHING (engine, money math, golden floor, or anything
+  cross-cutting) → the FULL apparatus (full prove + Sunny_V3 canary
+  before any batch), earned. These are RARE.
+Full verification is the EXCEPTION; targeted is the DEFAULT. The full
+apparatus exists to catch system-wide regressions; a fix that
+provably can't reach the system doesn't re-earn it every turn. This
+is not lower standards — it is matching the check to the blast
+radius. Mirror this law into VS_NOTES design laws once (idempotent —
+skip if already recorded).
 5. When done: append a RESULT block to replay_gate/HANDOFF.md:
      RESULT:
        AGENT: VS

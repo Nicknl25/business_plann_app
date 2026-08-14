@@ -24,6 +24,21 @@ THE TURN CONTRACT — follow exactly:
    RIGHT reason; a golden leg refuses-to-hash rather than hashing a
    thin/vacuous artifact; legs stand alone under --only; SETUP
    failures NAME their gap.
+
+VERIFICATION SCOPING LAW (Nick, 2026-08-14, STANDING): audit THE FIX,
+not the whole system. For a LOCALIZED change (one router/field/receipt
+string/copy path that structurally cannot reach the engine, the money
+math, or the golden floor): verify THAT change landed correctly at the
+artifact level, run only the legs the change touches plus the golden
+floor legs via --only — do NOT re-run the full prove, do NOT re-audit
+the entire board, do NOT demand a fresh Sunny canary. Reserve the FULL
+apparatus (full prove + canary + full audit) for turns whose changes
+touch the engine, money math, the golden floor, or anything
+cross-cutting — those are RARE and earn it. VS states its blast-radius
+call in each RESULT; AUDIT THE CALL: if a "localized" claim actually
+reaches the system, saying so IS an audit finding and the full
+apparatus applies. Full verification is the EXCEPTION; targeted is the
+DEFAULT.
 5. When done: append a RESULT block to replay_gate/HANDOFF.md:
      RESULT:
        AGENT: mini
