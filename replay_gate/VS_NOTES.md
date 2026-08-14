@@ -2380,3 +2380,33 @@ Agents: an open-questions ledger entry must be checked against the
 design-laws section before it is copied into a new round summary -
 inferring "still open" instead of reading the declared answer is the
 parent law violated in miniature, by us.
+
+## CW-032 LIVE FINDING (Alderfen, draft 158f6816, DURING the run):
+## the per-line write door exists at the WALL, not IN THE STAGE
+
+At the cogs stage the app proposed per-line correctly (58% plants...)
+and invited correction. The client answered with a textbook per-line
+correction (46/73/17/3, all four lines, reasons attached) -> "I wasn't
+able to apply that change yet" (HONEST - the receipt law holds). The
+client retried in the door's own canonical format ("Hardgoods sale: 73
+percent of that line's revenue") -> STILL nothing landed. The stage
+then completed on the app's own blended proposal (0.5042, $757,862),
+DISCARDING the client's stated numbers, and moved to marketing with a
+self-contradicting receipt ("I'll start with direct costs of $757,862
+a year (50% of revenue)... I haven't recorded cogs percent of revenue
+yet").
+
+ROOT CAUSE (from the stage spec, not inference): the financials-stage
+router vocabulary for cogs is (current_cogs, cogs_total_year1,
+cogs_percent_of_revenue) - NO line-scoped field. The CW-031 write door
+and all of mini's live L-checks operate at the DONE surface; the stage
+flow never got the door. The one surface where the per-line proposal
+is made and correction is invited is the one surface that cannot
+receive it.
+
+WHAT THE BATCH DID FIX, visible live: no false receipts (two honest
+refusals where Ravenwood got a confident "Got it"), and the proposal
+itself is per-line with bands. What remains: THE STAGE DOOR. Expect
+the client to possibly land the correction later at the wall (where
+the door works) - if so the artifact may still end per-line; watch
+the run to terminal before verdicting.
