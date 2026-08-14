@@ -40,7 +40,12 @@ RULES
                         sha256-matched to live, mutated lookup moved the
                         digest). Evidence: _prove_20260813_*.txt,
                         VS_NOTES rounds 8-10.
-    LIVE:   passed    — VS 2026-08-13 22:15, on the FIXED build (CW-031
+    LIVE:   failing   — RETRACTED 2026-08-13 23:20 on CW-032 Alderfen:
+                        the in-stage surface fails (3 artifact-backed
+                        filings incl. 2 blockers). VS's conversation
+                        check ran at the WALL; the client corrects IN
+                        THE STAGE, which has no line-scoped field. The
+                        engine + wall-door remain proven. Was: VS 22:15, on the FIXED build (CW-031
                         batch, gate blessed 61 legs / 0 DRIFT / R43):
                         (a) backend on HEAD, ONE :5050 listener;
                         (b) Sunny_V3 canary completed AND byte-identical
@@ -59,7 +64,7 @@ RULES
                         land as the right fraction. LIVE RESULT: CLEAN.
                         Evidence: _live_cw031_round9_turns output,
                         canary + E2E task logs 2026-08-13 22:0x.
-    COWORK: cleared   — GATE blessed + LIVE passed on the fixed build. Nick's 4-stream
+    COWORK: blocked   — auto-reblocked on the CW-032 filings. Nick's 4-stream
                         garden centre is the intended first run (the case
                         WS1b was built for, and the first N>2 exercise).
 
