@@ -1,0 +1,191 @@
+﻿A1 - M1 seam: redirect + genuine stage answer in one message
+
+A1 FULL REPLY < [200]
+One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+
+  [PASS] A1 200: 200
+  [PASS] A1 price stays 95 (no ops write): {'wk': 165, 'period': 165, 'price': 95, 'util': 0.57}
+  [PASS] A1 rows byte-equal
+  [PASS] A1 rent 2000 LANDED: 2000.0
+  [PASS] A1 redirect leads: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we
+  [PASS] A1 no ack of the suppressed 99
+  [FAIL] A1 the rent landing is RECEIPTED (2,000 spoken): One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it.
+
+Looking ahead, do you expect paid d
+  [PASS] A1 no false Also-recorded
+
+A2 - M1 seam: redirect whose figure-parse FAILS (6 vs 8, no mark)
+
+A2 FULL REPLY < [200]
+One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Thanks for flagging that. The install crew capacity is part of your revenue and operating model, not this financials section, so I won’t change anything here in this step.
+
+When you’re back in the operations/capacity part of the app, you’ll want to adjust the weekly job capacity for landscaping/installation to reflect that range (for example, 6–8 jobs per week rather than a single fixed number).
+
+  [PASS] A2 200: 200
+  [PASS] A2 no ops write: {'wk': 5, 'period': 5, 'price': 2400, 'util': 0.66}
+  [PASS] A2 redirect spoken: One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+T
+  [PASS] A2 no 'Recorded:' claim
+  [PASS] A2 neither candidate spoken as landed
+  [PASS] A2 no financials write of 6/8
+
+A3 - M1 seam: NON-redirect turn, dropped stated field -> note ships
+
+A3 FULL REPLY < [200]
+Got it. (One note: I haven't recorded cash on hand yet — we'll get to that in a moment.) Recorded: monthly rent $52,000.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+
+  [PASS] A3 200: 200
+  [FAIL] A3 rent 2400 landed: 52000.0
+  [PASS] A3 the 52,000 is HONESTLY handled (landed, noted, or proposed): cash_on_hand=None reply=Got it. (One note: I haven't recorded cash on hand yet — we'll get to that in a moment.) Recorded: monthly rent $52,000.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how
+  [PASS] A3 no silent swallow of 52,000
+  [NOTE] A3 outcome: noted
+
+A4 - M1 seam: Also-recorded must skip a no-op restated value
+
+A4 FULL REPLY < [200]
+Got it.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+
+  [PASS] A4 200: 200
+  [PASS] A4 rent 3200 landed: 3200.0
+  [PASS] A4 current revenue NOT spoken as newly recorded: Got it.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+  [PASS] A4 stored current_revenue unchanged: 1730000.0
+
+B1 - M2: volunteered price FIRST-CAPTURE on a nulled row, mid-interview
+  [NOTE] B1 install row before: {'wk': 5, 'period': 5, 'price': None, 'util': 0.66}
+
+B1 FULL REPLY < [200]
+One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there. What other monthly debt-payment amount should I record?
+
+  [PASS] B1 200: 200
+  [PASS] B1 NO price write mid-interview (row still null): {'wk': 5, 'period': 5, 'price': None, 'util': 0.66}
+  [PASS] B1 no other ops write
+  [PASS] B1 no fabricated receipt
+  [PASS] B1 the refusal/redirect is honest when spoken: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there. What other monthly debt-payment amount should
+
+B2 - M2: volunteered utilization mid-interview
+
+B2 FULL REPLY < [200]
+Sorry, I think I missed that—could you tell me what other monthly debt payment amount I should include?
+
+  [PASS] B2 200: 200
+  [PASS] B2 NO utilization write mid-interview: {'wk': 5, 'period': 5, 'price': 2400, 'util': 0.66}
+  [PASS] B2 no fabricated receipt
+
+C1 - M3 attack: unrelated cadence word ('We invoice monthly')
+
+C1 FULL REPLY < [200]
+Recorded: current cogs $745,353. Recorded: Landscaping/installation job capacity 9 a month (about 2.1 per week as this line is modeled).
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $241,225 (28.4% of revenue), that stress figure actually sits above the 6.0%-13.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 13.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $35,162 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] C1 200: 200
+  [NOTE] C1 install row after: {'wk': 2.0769, 'period': 2.0769, 'price': 2400, 'util': 0.66}
+  [NOTE] C1 outcome: MISBOUND to 2.08/wk (WRONG NUMBER)
+  [FAIL] C1 the number is never silently wrong (9 landed, or asked; NOT 2.08): {'wk': 2.0769, 'period': 2.0769, 'price': 2400, 'util': 0.66} | Recorded: current cogs $745,353. Recorded: Landscaping/installation job capacity 9 a month (about 2.1 per week as this line is modeled).
+
+Thanks. I have everything I need for financials, and the intak
+
+C2 - M3: weekly row told a monthly figure (26/mo -> 6/wk)
+
+C2 FULL REPLY < [200]
+Recorded: Landscaping/installation job capacity 26 a month (about 6.0 per week as this line is modeled).
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $241,225 (28.4% of revenue), that stress figure actually sits above the 6.0%-13.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 13.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $35,162 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] C2 200: 200
+  [PASS] C2 converts 26/mo -> 6.0/wk: {'wk': 6.0, 'period': 6.0, 'price': 2400, 'util': 0.66}
+  [PASS] C2 receipt speaks the client's cadence ('26 a month'): Recorded: Landscaping/installation job capacity 26 a month (about 6.0 per week as this line is modeled).
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing wo
+
+C3 - M3 no-op edge: store 40, then '40 a week' must CONVERT
+
+C3 turn1 < [200] Recorded: capacity 40 a month.
+
+Thanks. I have everything I need for financials, and the intake is complete. One thing worth sitting with together before you lean on this: at the strongest realistic v
+  [NOTE] C3 row after turn1: {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82}
+  [PASS] C3 turn1 lands 40 (month==period identity on 12-period row): {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82}
+
+C3 turn2 FULL REPLY < [200]
+I wasn't able to apply that change just now - could you tell me exactly which field to change and the value it should be?
+
+You're all set - the intake is complete again and you can submit whenever you're ready. One thing worth sitting with together before you lean on this: at the strongest realistic version of your business, the structure can work - a mature quarter at that stress point keeps about $30,158 (35.0% of revenue), that stress figure actually sits above the 10.0%-18.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 18.0% as the honest ceiling, not the figure above it. But at the growth we'd actually plan for, it still comes up about $1,812 a quarter short. At today's scale, before any growth, the same structure keeps about $1,555 a quarter. If you want, we can work those levers together right now - pricing, costs, or another line of revenue - or you can submit and the full build will run its own final checks. Every number you just set is yours.
+
+  [NOTE] C3 row after turn2: {'wk': 9.2308, 'period': 40, 'price': 520, 'util': 0.82}
+  [PASS] C3 200/200
+  [FAIL] C3 turn2 CONVERTS (period 173.33), never a silent no-op: {'wk': 9.2308, 'period': 40, 'price': 520, 'util': 0.82}
+  [FAIL] C3 week twin reads 40: {'wk': 9.2308, 'period': 40, 'price': 520, 'util': 0.82}
+
+C4 - M3: VS's D3 rerun (Sumac '40 a week, not 34')
+
+C4 FULL REPLY < [200]
+Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $886,912 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+  [PASS] C4 200: 200
+  [PASS] C4 period 173.33: {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] C4 wk 40: {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] C4 reply speaks '40 a week': Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doe
+
+C5 - M3: VS's D2 control rerun (Thornfield 7 jobs a week)
+
+C5 FULL REPLY < [200]
+Recorded: Landscaping/installation job capacity 7 a week.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $241,225 (28.4% of revenue), that stress figure actually sits above the 6.0%-13.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 13.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $35,162 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] C5 200: 200
+  [PASS] C5 wk 7: {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66}
+  [PASS] C5 period 7: {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66}
+
+C6 - M3: mixed cadences must ASK, write nothing
+
+C6 FULL REPLY < [200]
+Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it with one clear cadence, like '40 a week') and I'll set it.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $30,158 (35.0% of revenue), that stress figure actually sits above the 8.0%-18.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 18.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $1,555 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] C6 200: 200
+  [FAIL] C6 nothing written: {'wk': 7.8462, 'period': 34, 'price': 520, 'util': 0.82}
+  [PASS] C6 the ask is spoken: Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it wit
+
+X1 - xsec door (focus=people): cadence wording on the 12-period row
+  [NOTE] X1 row before: {'wk': 34, 'period': 34, 'price': 520, 'util': 0.82}
+
+X1 FULL REPLY < [200]
+Recorded: current revenue $175,000. Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $886,912 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+  [NOTE] X1 row after: {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] X1 200: 200
+  [NOTE] X1 outcome: converted correctly
+  [PASS] X1 the client's '40 a week' is never stored as 9.23/wk: {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+
+RESULT: RED - 6 failing check(s):
+  - A1 the rent landing is RECEIPTED (2,000 spoken)
+  - A3 rent 2400 landed
+  - C1 the number is never silently wrong (9 landed, or asked; NOT 2.08)
+  - C3 turn2 CONVERTS (period 173.33), never a silent no-op
+  - C3 week twin reads 40
+  - C6 nothing written

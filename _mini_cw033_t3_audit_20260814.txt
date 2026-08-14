@@ -1,0 +1,234 @@
+================================================================================
+CW-033 TURN 4 (mini) - ARTIFACT AUDIT OF TURN 3 (M1/M2/M3/B3, commit 02effe1)
+2026-08-14
+================================================================================
+
+ENVIRONMENT VERIFIED BEFORE ANY LIVE TURN
+  ONE :5050 listener, PID 11032, started 19:03:18. Last app-code edit
+  intake_consult.py 19:00:54 (commit 02effe1 timestamped 19:06:44 but every
+  file mtime predates the server start). The live door contained turn-3 code.
+  Working tree byte-identical to HEAD for app code.
+
+INSTRUMENTS
+  Mine:  Test Files/_mini_cw033_t3_live.py   (12 live turns, own wordings)
+         Test Files/_mini_cw033_t3_stamp_132.py (item 6)
+         X2 = direct offline call to _apply_cross_section_driver_correction
+  Raw:   _mini_cw033_t3_live_20260814.txt, _mini_cw033_t3_stamp132_20260814.txt
+  VS's:  _redproof_cw033_turn3_fixes.py rerun UNMODIFIED by me -> 24/24 GREEN.
+  Legs:  R44/R45/R46/R47 pinned; prove table in _prove_20260814_mini_cw033_t3.txt
+
+VERDICT IN ONE LINE
+  The four fixes hold everywhere they were built - M2 completely, M1's gates
+  against invention completely, M3's core conversion completely, B3 completely
+  - and the adversarial seams produced four real defects (one wrong-number
+  write on the guided path) plus the xsec-door exception case, all below.
+
+--------------------------------------------------------------------------------
+ITEM 1 - M1 SEAMS (live, my own wordings, Thornfield clones at the rent stage)
+--------------------------------------------------------------------------------
+
+A1  redirect turn ALSO carrying a genuine stage answer
+    "Bump the hard goods ticket price to 99 instead of 95 - oh, and our rent
+     is 2,000 a month."
+    HOLDS: price stays 95, rows byte-equal, redirect leads, the 99 is never
+    spoken as recorded, no Also-recorded, and the rent 2000 LANDED
+    (monthly_rent_expense=2000.0). The phantom filter did NOT eat the rent.
+    DEFECT D4 (register, not invention): the landed rent is never RECEIPTED.
+    Full reply = redirect + "Got it." + next stage question. The client who
+    just heard "I haven't changed any operations price" has no way to know
+    the rent DID land. Mechanism: _build_financials_stage_acknowledgement
+    returns bare "Got it." for value stages; pre-fix, the router's (this time
+    accurate) prose shipped; the M1 gate rightly killed the claim-shaped
+    prose and nothing write-derived replaced it. FIX SHAPE: the code ack
+    names the landed stage value ("Got it - monthly rent $2,000.") - at
+    minimum whenever the reply also carries a redirect or any note. Do NOT
+    re-open the prose fallback; the gate is right, the code ack is thin.
+
+A2  redirect turn whose figure-parse FAILS
+    "The install crew capacity is wrong - some weeks we do 6 jobs, other
+     weeks 8."  (leaf triggers; candidates {6,8}; no unique mark -> refuse)
+    CLEAN: nothing written anywhere, redirect spoken, neither candidate
+    claimed, no phantom notes. consumed_figures-as-candidates holds.
+
+A3  NON-redirect turn with a genuinely dropped stated field
+    "Our rent is 2,400 a month, and we keep about 52,000 cash on hand."
+    The say-do note SHIPS on a non-redirect turn (scoping verified: the
+    phantom filter is redirect-turns-only, as designed).
+    DEFECT D1 - THE ONE THAT MATTERS. STORED monthly_rent_expense = 52000.0.
+    Full reply: "Got it. (One note: I haven't recorded cash on hand yet -
+    we'll get to that in a moment.) Recorded: monthly rent $52,000."
+    The client said rent 2,400; the model now holds rent 52,000 - the CASH
+    figure - while the same reply says cash on hand was not recorded. Wrong
+    number on the guided path from a perfectly ordinary two-fact answer.
+    MECHANISM (from reply order + code read; VS to confirm in trace): the
+    stage patch landed rent=2400 (the "Got it."), cash_on_hand was dropped
+    by the stage whitelist (the note - true when spoken), then the unlanded
+    52,000 went through _unlanded_figures_disclosure -> forward move, was
+    ATTRIBUTED to rent by the message's own words ("rent" appears), and
+    _apply_forward_move OVERWROTE this turn's own correct landing. The
+    receipt honestly speaks what landed, which is how I caught it.
+    FIX SHAPE (two rules, both cheap):
+      (a) a figure whose OWN field was dropped by this turn's normalizer
+          (the patch report knows: cash_on_hand carried 52,000) is HANDLED -
+          its disposition is the say-do note; it must never re-enter the
+          forward mover as a homeless figure hunting for a field.
+      (b) the forward mover must never overwrite a field this turn's stage
+          patch just wrote - the turn's own write-set are references, the
+          same law the redirect's consumed_figures already enforce.
+    RED SHAPE: my A3 wording on a rent-stage clone must end rent=2400.0,
+    cash noted (or parked), never rent=52000.
+
+A4  Also-recorded change filter
+    "Rent is 3,200 a month. Current revenue is still 1,730,000 by the way."
+    CLEAN: rent 3200 landed, stored current_revenue unchanged at 1,730,000,
+    and the restated on-file value is NOT spoken as newly recorded.
+
+--------------------------------------------------------------------------------
+ITEM 2 - M2, VOLUNTEERED FIRST-CAPTURES MID-INTERVIEW (other-debt stage)
+--------------------------------------------------------------------------------
+
+B1  "By the way - we charge 650 per install job."  (install price NULLED in
+    the clone - a genuine first-capture, no correction language, keywordless
+    for the detector's markers)
+    HOLDS: price stays NULL, rows byte-equal, no fabricated receipt, the
+    door's honest refusal is spoken. The door refuses on stage-active alone.
+
+B2  "We're running at about 85% utilization on installs these days."
+    HOLDS: nothing written, no fabricated receipt.
+
+    M2 IS VERIFIED: the boundary lives at the write door and holds for
+    corrections (VS's W2, my turn-2 D1) AND volunteered first-captures.
+    Pinned as R45 - which pins the DOOR, so deleting the detector-side
+    _strip_suppressed_ops_move cannot reopen the back door.
+
+--------------------------------------------------------------------------------
+ITEM 3 - M3 ADVERSARIAL CADENCE (wall clones)
+--------------------------------------------------------------------------------
+
+C2  "Actually the install crew can handle 26 jobs a month." (weekly row)
+    CLEAN: converts to exactly 6.0/wk, receipt speaks "26 a month (about
+    6.0 per week as this line is modeled)".
+C4  VS's D3 rerun - CLEAN (period 173.3333, wk 40, receipt "40 a week").
+C5  VS's D2 control rerun - CLEAN (7/7).
+
+C1  DEFECT D2 - CADENCE MIS-BIND, WRONG NUMBER STORED. Thornfield wall:
+    "One fix - the install crew capacity should be 9, not 5. We invoice
+     monthly."
+    Stored: wk = 2.0769 (9 * 12/52). The client said capacity 9 on a weekly
+    row; "monthly" was the INVOICING. Receipt: "capacity 9 a month (about
+    2.1 per week as this line is modeled)" - disclosed, but a client saying
+    "9, not 5" will not parse that their 9 became 2. Mechanism:
+    _stated_capacity_cadence scans the WHOLE message, so any cadence word
+    anywhere binds to the capacity figure. FIX SHAPE: a cadence binds only
+    when it shares a sentence (clause) with a capacity figure; a cadence
+    elsewhere in the message is not the capacity's -> treat as unstated
+    (today's raw row-cadence landing). NOTE: scoping to "capacity sentence
+    + the next sentence" is NOT enough - my C1's "We invoice monthly." IS
+    the next sentence. Bind to the figure's own sentence.
+
+C3  DEFECT D3 - THE NO-OP EDGE IS ONLY HALF-FIXED. Sumac wall, two turns:
+    t1 "Our mowing capacity should be 40 a month, not 34."  -> period=40
+       (month==period identity on the 12-period row; correct).
+    t2 "Sorry - mowing capacity is 40 a week."
+       -> NOTHING converts. period stays 40 (9.23/wk). Reply: "I wasn't
+       able to apply that change just now - could you tell me exactly which
+       field to change and the value it should be?"
+    The client named the field AND the value with a clear cadence; the
+    honest floor fired in the WRONG register (which-field ask) and the
+    model still holds 4.3x less than the client said. Mechanism: the
+    door's early no-op check stands aside for a stated cadence (the fix,
+    correct) - but the figure never REACHES the door: the disclosure's
+    stored-value reference filters (entry prior-sections match: 40 == the
+    stored 40) kill it first, so no move is ever produced. FIX SHAPE: the
+    disclosure's stored-value/restatement filters stand aside for a
+    capacity-keyword message that states a cadence - the SAME condition
+    the door already uses (_stated_capacity_cadence(msg) truthy). RED
+    SHAPE: my C3 sequence; t2 must end period=173.3333.
+
+C6  "Mowing capacity should be 40 a week - call it about 170 a month."
+    The mixed-cadence ASK fires and no canonical value is written. Two
+    observations:
+    (i) DEFECT D5 (register): the same reply then ships the COMPLETION
+        turn - "Thanks. I have everything I need for financials, and the
+        intake is complete... every number you just set is yours" - right
+        after a question that is still open. An ask should HOLD the turn
+        (the round-9 held-question vocabulary). Mechanism: the ask returns
+        as _move_copy and the completed branch treats any copy as an
+        acknowledgment to prepend. FIX SHAPE: when the forward move
+        returns an ASK, ship the ask alone and stop.
+    (ii) NOTE ONLY (no action ruled): the stored week TWIN normalized
+        34 -> 7.8462 on this ask turn (the completion sync re-derived the
+        stale twin; Sumac's source row carries incoherent twins 34/34 on a
+        12-period row). Canonical period unchanged. The derive is correct
+        arithmetic on a stale cell, but know that an "I wrote nothing"
+        turn can still move a derived cell at rest.
+
+--------------------------------------------------------------------------------
+ITEM 4 - THE XSEC DOOR'S CADENCE (CW-017b, market/people): EXCEPTION CLAUSE
+--------------------------------------------------------------------------------
+
+X1 (live): NOT REACHABLE from a completed-draft clone - overriding
+    active_focus="people" recomputes forward and the turn routed through the
+    financials wall (where M3 converted correctly: period 173.33, wk 40).
+    Same unreachable-state wall as the A-112 rewinds; documented honestly.
+
+X2 (offline, the door itself): _apply_cross_section_driver_correction with
+    the Sumac-shaped 12-period contract row and
+    "Actually, our mowing route capacity should be 40 a week, not 34."
+    -> triggered_leaf=units_per_period_capacity, LANDED period=40 RAW,
+    ack "Done - I've updated Property contract capacity to 40..." The
+    stated cadence is discarded and the receipt hides it - the model holds
+    9.23/wk against a stated 40/wk. The EXACT M3 defect at this door.
+
+REACHABILITY RULING (the forward-only law's exception clause): the door
+    fires only at live market/people focus - a state every guided run
+    passes through - on correction language + the word capacity, which is
+    natural client speech ("Actually, our mowing capacity should be 40 a
+    week, not 34"), and its live firing on a real client run is the
+    documented Alderfen case this door was built for (#264 family).
+    Non-weekly rows are real (Sumac's contract row). That is a REACHABLE
+    case a pre-existing door mishandles with a WRONG VALUE -> fix as a
+    bug, per Nick's exception clause. BUILD: the same
+    _reconcile_stated_capacity_cadence at the door's capacity branch
+    (write at ~:7014); on ask, return the door's existing honest-refusal
+    note path (report carries triggered_leaf; the section ack already
+    knows how to speak a non-apply).
+
+--------------------------------------------------------------------------------
+ITEM 5 - THE LEGS (pinned + proven this turn)
+--------------------------------------------------------------------------------
+R44 reply-never-acks-unlanded-ops-figure  (M1 ack fallback ship gate)
+R45 midinterview-ops-landing-impossible   (M2 - pins the DOOR, not detector)
+R46 stated-cadence-never-rebased          (M3 core law; deliberately does
+    NOT pin the message-scoped cadence parse or the disclosure filter -
+    D2/D3 above change those; the round-8 lesson)
+R47 carveout-figure-survives-the-no       (B3 classifier + extractor)
+All four PROVEN BEHAVIOURAL: red at 6d38c54 each for exactly its own
+reason (prose shipped ungated; keywordless landing mid-interview with a
+Recorded receipt; period=40 re-base + mixed-cadence write + raw 26/mo;
+but-we-did read as none), green at 02effe1/HEAD. Positive controls green
+at BOTH commits (benign prose ships; wall landing works; matching cadence
+identity; plain-no + No-wait hold). Full table:
+_prove_20260814_mini_cw033_t3.txt.
+
+--------------------------------------------------------------------------------
+ITEM 6 - #132
+--------------------------------------------------------------------------------
+CLOSED on my artifact read. The class ("a reply claims an ops write the
+turn did not make") held on every attack turn this audit ran - A1/A2/A4/
+B1/B2, five distinct seams, zero false claims, rows read back untouched.
+Stamped resolved/manual/observational with the artifacts in the note
+(_mini_cw033_t3_stamp132_20260814.txt); R44 is the permanent tooth, and
+resolved is non-terminal - a failing R44 or a live recurrence re-opens it.
+My D1/D4/D5 findings are DIFFERENT classes (a wrong write honestly
+receipted; a true write not spoken; an ask contradicted by completion
+prose) and are filed as this turn's defects, not #132 recurrences.
+
+--------------------------------------------------------------------------------
+A-112 - STILL OWED (unchanged)
+--------------------------------------------------------------------------------
+No live artifact this turn either; my clones hit the same unreachable
+states as before. Next real conversational early-stage run: grep replies
+opening "(One note: I haven't recorded" and diff named fields against
+that turn's writes.
+================================================================================

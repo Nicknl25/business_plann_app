@@ -6,6 +6,58 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 17 (CW-033 turn 4, mini) - turn-3 fixes audited at the seams; M2 verified whole; R44-R47 pinned + proven; four seam defects (one wrong-number write) + the xsec exception clause fired
+
+Full report: `_mini_cw033_t3_audit_20260814.txt`. Probe:
+`Test Files/_mini_cw033_t3_live.py` (12 live turns, own wordings); raw:
+`_mini_cw033_t3_live_20260814.txt`; #132 stamp:
+`_mini_cw033_t3_stamp132_20260814.txt`; prove:
+`_prove_20260814_mini_cw033_t3.txt`.
+
+- **The fixes hold where they were built.** M2 completely (volunteered
+  first-captures and corrections both refuse at the door, nothing writes,
+  no false receipts); M1's four gates against INVENTION completely (A1
+  redirect+stage-answer, A2 parse-fail, A4 no-op restatement: zero false
+  claims); M3's core conversion completely (26/mo -> 6/wk, D3 and D2
+  rerun clean); B3 completely (VS's redproof rerun by me unmodified,
+  24/24).
+- **D1, the finding of the turn**: "Our rent is 2,400 a month, and we
+  keep about 52,000 cash on hand" stored **rent = 52,000** - the forward
+  mover re-attributed the dropped cash figure to rent and OVERWROTE this
+  turn's own correct 2,400 landing, while the same reply said cash was
+  not recorded. Wrong number on the guided path from an ordinary two-fact
+  answer. Fix shape: a figure whose own field was dropped is HANDLED (the
+  note is its disposition), and the turn's own write-set are references.
+- **D2**: the cadence parse is message-scoped - "capacity should be 9,
+  not 5. We invoice monthly." stored 2.08/wk. Bind the cadence to the
+  figure's own sentence; "next sentence" scoping is NOT enough (measured).
+- **D3**: the no-op edge is half-fixed - the door's bypass exists but the
+  disclosure's stored-value filter kills a cadence-differing restatement
+  ("40 a week" against stored 40) before any move exists; dead-ends in
+  the which-field register.
+- **D4/D5 (registers)**: a landed stage answer on a redirect turn ships
+  with a bare "Got it." (the client cannot see the rent landed), and a
+  cadence ASK is followed by "intake is complete... every number you just
+  set is yours" in the same reply. Both deterministic-layer.
+- **Xsec door: the exception clause fired.** Offline, the CW-017b door
+  lands period=40 RAW on the 12-period row for "Actually, our mowing
+  route capacity should be 40 a week, not 34" and speaks "updated
+  capacity to 40" - reachable state (every run passes market/people),
+  natural wording, live-precedented door (#264/Alderfen). Live clone
+  could NOT reach it (focus recomputes) - documented honestly. Build the
+  same reconciler at that door's capacity branch.
+- **R44-R47 pinned, all PROVEN BEHAVIOURAL at 6d38c54** (each red for its
+  own reason; positive controls green at both commits). R46 deliberately
+  does not pin the cadence-binding scope or the disclosure filter -
+  D2/D3 change those (the round-8 lesson).
+- **#132 CLOSED** on the artifact read: five attack seams, zero false
+  claims; stamped resolved/manual/observational; R44 is the permanent
+  tooth and resolved is non-terminal.
+- **A-112**: still owed a live artifact; my clones hit the same
+  unreachable states (X1's focus recompute is the same wall).
+
+---
+
 ## Round 16 (CW-033 turn 2, mini) - turn-1 fixes audited; A-115a/b HOLD; three live defects (M1 ack-invention on the interview path, M2 detector-narrower-than-lander, M3 cadence-blind wall write)
 
 Full report: `_mini_cw033_t1_audit_20260814.txt`. Probes:

@@ -1,0 +1,4 @@
+﻿matched 1 rows:
+  {"issue_id": "132", "signature": "experience:operations:ack_claims_a_capacity_write_that_did_not_happen", "category": "experience", "severity": "major", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+stamped experience:operations:ack_claims_a_capacity_write_that_did_not_happen: status=resolved basis=manual confidence=observational
+VERIFY: {"signature": "experience:operations:ack_claims_a_capacity_write_that_did_not_happen", "status": "resolved", "resolution_basis": "manual", "resolution_confidence": "observational"}

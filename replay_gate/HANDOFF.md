@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 4/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1725,3 +1725,116 @@ TASK:
   deterministic receipt on write-carrying turns (the one residual named
   in VS_NOTES turn 2). M1's fixes are all deterministic-layer - which is
   exactly why they were buildable without the ruling.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: forward_move:dropped-field-figure-rehomed-onto-stage-write
+  EVIDENCE: _mini_cw033_t3_audit_20260814.txt (the full audit);
+    _mini_cw033_t3_live_20260814.txt (12 live turns, own wordings);
+    _prove_20260814_mini_cw033_t3.txt (65 legs, R44-R47 PROVEN, 0 DRIFT,
+    0 UNEARNED, CLEAN); Test Files/_mini_cw033_t3_live.py;
+    _mini_cw033_t3_stamp132_20260814.txt;
+    replay_gate/MINI_NOTES.md round-17 section
+  SUMMARY: The four fixes hold where they were built. M2 is verified WHOLE
+  (volunteered first-captures and corrections both refuse at the door, no
+  writes, no false receipts); M1's gates against invention held on every
+  seam I attacked (redirect+stage-answer, parse-fail, no-op restatement:
+  zero false claims, and the genuine 2,000 rent landed beside the refused
+  99); M3's core conversion is clean (26/mo -> 6.0/wk exact, D3/D2 rerun
+  green); VS's redproof reran 24/24 unmodified. The four promised legs are
+  R44-R47, ALL PROVEN BEHAVIOURAL at 6d38c54; #132 is CLOSED on the
+  artifact read and stamped. Not green for four seam defects + one ruled
+  build. D1, the one that matters: "rent is 2,400 a month, and we keep
+  about 52,000 cash on hand" stored RENT = 52,000 - the forward mover
+  re-attributed the dropped cash figure and OVERWROTE this turn's own
+  correct 2,400 landing, while the same reply said cash was not recorded.
+  D2: the cadence parse is message-scoped - "capacity should be 9, not 5.
+  We invoice monthly." stored 2.08/wk. D3: the no-op edge is half-fixed -
+  the disclosure's stored-value filter kills "40 a week" against a stored
+  40 before the door's bypass can see it (dead-ends in the which-field
+  register). D4/D5: register gaps (a landed stage answer ships as bare
+  "Got it." on a redirect turn; a cadence ASK is followed by "intake is
+  complete... every number you just set is yours"). And the xsec door:
+  X2 offline proves the CW-017b capacity branch lands 40 RAW on the
+  12-period row for "should be 40 a week, not 34" - reachable state,
+  natural wording, live-precedented door, so the forward-only law's
+  EXCEPTION CLAUSE fires: build it.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: five fixes. Reproductions, mechanisms, red shapes, and fix shapes
+  for every one are in _mini_cw033_t3_audit_20260814.txt.
+
+  1. D1, THE ONE THAT MATTERS. A figure whose OWN field was dropped by
+     this turn's normalizer must never re-enter the forward mover as a
+     homeless figure - its disposition IS the say-do note. And the
+     forward mover must never overwrite a field this turn's stage patch
+     just wrote (the turn's own write-set are references, the same law
+     the redirect's consumed_figures already enforce). Live red shape:
+     "Our rent is 2,400 a month, and we keep about 52,000 cash on hand"
+     at the rent stage must end rent=2400.0 with cash noted - today it
+     ends rent=52000.0 with a receipt speaking the clobber. This is a
+     wrong number stored on the guided path; it outranks everything else
+     here.
+  2. D2, CADENCE BINDS TO ITS FIGURE. _stated_capacity_cadence scans the
+     whole message, so "One fix - the install crew capacity should be 9,
+     not 5. We invoice monthly." converts 9 into 2.0769/wk. A cadence
+     counts as STATED only when it shares a sentence with a capacity
+     figure; measured warning: "capacity sentence + next sentence" is
+     NOT enough - my C1's "We invoice monthly." IS the next sentence.
+     Cadence elsewhere = unstated (today's raw row-cadence landing).
+  3. D3, THE OTHER HALF OF THE NO-OP BYPASS. Your fix makes the door's
+     early no-op check stand aside for a stated cadence, but the
+     disclosure's stored-value reference filters kill the figure first:
+     stored period=40, then "Sorry - mowing capacity is 40 a week" ->
+     no move, "could you tell me exactly which field to change" - the
+     client named field, value, and cadence. Apply the SAME condition
+     (_stated_capacity_cadence truthy on a capacity-keyword message) to
+     the disclosure's restatement filters. Red shape: my C3 sequence;
+     turn 2 must end period=173.3333.
+  4. D4+D5, THE REGISTERS (both deterministic-layer). (a) A landed stage
+     answer must be visible: on my A1 turn the rent 2,000 landed and the
+     reply read redirect + "Got it." + next question - the client cannot
+     know it landed. Make the write-derived stage ack name the landed
+     value (at minimum when the reply also carries a redirect or a
+     note); do NOT re-open the prose fallback - the gate is right, the
+     code ack is thin. (b) An ASK holds the turn: the mixed-cadence ask
+     shipped followed by "intake is complete... every number you just
+     set is yours" in the same reply (C6). When the forward move returns
+     an ask, ship the ask alone and stop.
+  5. THE XSEC DOOR, ruled buildable under the exception clause: the same
+     _reconcile_stated_capacity_cadence at
+     _apply_cross_section_driver_correction's capacity branch (write at
+     ~:7014) - convert or ask, receipt in the client's cadence. X2 in my
+     audit is the offline proof (period=40 raw, ack "updated capacity to
+     40"); reachability argument in the audit item 4. On ask, use the
+     door's existing honest-refusal note path.
+
+  ALSO KNOW, no action ruled: an ask turn's completion sync re-derived
+  Sumac's stale week twin (34 -> 7.8462, canonical unchanged) - a
+  written-nothing turn can still move a derived cell at rest (audit C6
+  note). If you think that deserves more than documentation, say so.
+
+  Standing laws apply: restart the backend after app-code edits and
+  verify ONE :5050 listener, one Sunny_V3 canary before any batch,
+  red-proofs red for the right reason, never end a turn with a job
+  running.
+
+  NOT YOURS: R44-R47 are in the gate and proven (do not touch legs.py);
+  R46 deliberately does not pin D2/D3's shapes - after your fixes land I
+  will extend it with the binding tooth and the disclosure tooth. #132
+  is stamped resolved (manual/observational, artifacts in the note) - do
+  not re-stamp it; a failing R44 or a live recurrence re-opens it. The
+  #132-adjacent findings this turn (D1/D4/D5) are DIFFERENT classes and
+  are filed above, not as recurrences.
+
+  A-112, STILL OWED (unchanged): a live artifact from a real
+  conversational early-stage run; my clones hit the same
+  unreachable-state wall (X1's focus recompute included). Next real
+  Cowork/persona run: grep replies opening "(One note: I haven't
+  recorded" and diff named fields against that turn's writes.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt on write-carrying turns. Nothing this turn moves
+  it - all five fixes above are deterministic-layer, which is exactly
+  why they are buildable without the ruling.

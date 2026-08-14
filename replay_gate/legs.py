@@ -3072,6 +3072,306 @@ def _r_legacy_tier_is_law(ctx):
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _weekly_install_ops(price=2400.0):
+    """A Thornfield-shaped single weekly install row (CW-033's live shapes,
+    reduced to one product so no line resolution is in play)."""
+    return {
+        "business_naics_6": "561730",
+        "lob_models": [{
+            "lob_name": "Landscaping",
+            "products": [{
+                "product_name": "Install job",
+                "unit_name": "install job",
+                "unit_price": price,
+                "unit_cadence": "weekly",
+                "units_per_week_capacity": 5.0,
+                "units_per_period_capacity": 5.0,
+                "operating_periods_per_year": 52,
+                "utilization_rate": 0.66,
+            }],
+        }],
+    }
+
+
+def _r_reply_never_acks_unlanded(ctx):
+    """R44 - the ack fallback never out-claims the receipt.
+
+    THE BUG (CW-033 M1, mini's A4b live). On a redirect turn that wrote
+    NOTHING, the reply shipped "Got it -- I'll update the hard goods
+    checkout ticket price to 99" - the router's free prose, surviving as
+    the stage acknowledgment fallback. F1(b) at this ship gate: prose that
+    claims a write, or acknowledges a figure the client stated this turn,
+    may never ship from a branch whose receipt carries nothing.
+
+    Pins the fallback gate directly (the other three M1 layers - the
+    redirect-consumed reference filter, the phantom-note filter, and the
+    Also-recorded change filter - are inline in the stage flow and covered
+    by the committed turn-3 red-proof plus the live A-series probes).
+    Positive control: benign prose without a claim still ships, so a gate
+    that silences everything fails as loudly as one that gates nothing.
+    """
+    ic = ctx.ic
+    fails, seen = [], []
+
+    def _ack(prose, user_message):
+        res, note = call_compat(
+            ic._build_financials_stage_acknowledgement_first,
+            router_text=prose, stage_name="monthly_rent_expense",
+            financials_json={}, user_message=user_message,
+        )
+        return str(res or ""), note
+
+    # The A4b shape: a write-claim on a turn whose stage wrote nothing.
+    ack, note = _ack(
+        "Got it - I'll update the hard goods checkout ticket price to 99.",
+        "One more thing - bump the hard goods ticket price to 99 instead of 95.",
+    )
+    seen.append(f"write-claim -> {ack[:60]!r}{note or ''}")
+    if "99" in ack or "update the hard goods" in ack.lower():
+        fails.append("router prose claiming an unmade write SHIPPED as the ack")
+
+    # The figure half: receipt-claiming without a change verb.
+    ack, note = _ack(
+        "Thanks for sharing that - your ticket price of 99 is noted.",
+        "The ticket price is 99.",
+    )
+    seen.append(f"figure-ack -> {ack[:60]!r}")
+    if "99" in ack:
+        fails.append("prose acknowledging a figure no receipt carries SHIPPED")
+
+    # Positive control: benign prose still ships.
+    ack, note = _ack(
+        "Thanks - noted, and one thought on positioning.", "hello there")
+    seen.append(f"benign -> {ack[:60]!r}")
+    if "positioning" not in ack:
+        fails.append("benign prose without a claim was silenced - the gate "
+                     "is over-eager")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_midinterview_ops_never_lands(ctx):
+    """R45 - mid-interview ops landings are impossible regardless of wording.
+
+    THE BUG (CW-033 M2, mini's D1 live). The redirect DETECTOR required
+    the literal words capacity/price/utilization, but the forward-move
+    lander understood "7 jobs a week" - a keywordless correction landed an
+    ops lever MID-INTERVIEW with a "Recorded:" receipt and no redirect,
+    re-opening the off-path landing Nick retracted (A-113) through the
+    back door. The fix puts the boundary AT THE WRITE DOOR:
+    _apply_forward_move's ops branch refuses with the honest redirect
+    whenever a financials stage is active, whatever wording carried the
+    move there. This leg pins the DOOR (the choke point), not the
+    detector - deleting _strip_suppressed_ops_move must not reopen it.
+
+    Driven through the real wrapper (detect included) with a recorded
+    router, so the whole reachable chain is the thing pinned. Positive
+    control: the same correction at the WALL still lands 7/7, so a door
+    that refuses everywhere fails as loudly as one that refuses nowhere.
+    """
+    fails, seen = [], []
+    fin_mid = ctx.completed_fin()
+    fin_mid.pop("monthly_rent_expense", None)
+
+    # T1: the keywordless capacity correction, rent stage active.
+    turn, _fin, did = ctx.turn(
+        "Hang on - the install crew can do 7 jobs a week now, not 5.",
+        RecordedRouter(PATCHLESS), fin=fin_mid, ops=_weekly_install_ops(),
+        seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    wk = product_field(ops_db, "units_per_week_capacity")
+    msg = str((turn or {}).get("assistant_message") or "").lower()
+    seen.append(f"mid-interview capacity -> stored wk={wk!r}")
+    if not near(wk, 5.0):
+        fails.append(f"a keywordless capacity correction moved the row "
+                     f"mid-interview (stored {wk!r}, want 5 untouched)")
+    if "recorded:" in msg:
+        fails.append("the mid-interview reply claimed a receipt")
+    if "haven't changed any operations" not in msg:
+        fails.append("the honest refusal/redirect was not spoken")
+
+    # T2: a volunteered FIRST-CAPTURE (null-price row) mid-interview.
+    turn, _fin, did = ctx.turn(
+        "By the way - we charge 650 per install job.",
+        RecordedRouter(PATCHLESS), fin=copy.deepcopy(fin_mid),
+        ops=_weekly_install_ops(price=None), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    price = product_field(ops_db, "unit_price")
+    msg = str((turn or {}).get("assistant_message") or "").lower()
+    seen.append(f"mid-interview first-capture -> stored price={price!r}")
+    if price is not None:
+        fails.append(f"a volunteered price first-capture LANDED "
+                     f"mid-interview ({price!r})")
+    if "recorded:" in msg:
+        fails.append("the first-capture reply claimed a receipt")
+
+    # Positive control: the same capacity correction at the WALL lands.
+    turn, _fin, did = ctx.turn(
+        "Hang on - the install crew can do 7 jobs a week now, not 5.",
+        RecordedRouter(PATCHLESS), fin=ctx.completed_fin(),
+        ops=_weekly_install_ops(), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    wk = product_field(ops_db, "units_per_week_capacity")
+    seen.append(f"wall control -> stored wk={wk!r}")
+    if not near(wk, 7.0):
+        fails.append(f"the WALL landing broke (stored {wk!r}, want 7) - "
+                     "the door refuses everywhere")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_stated_cadence_never_rebased(ctx):
+    """R46 - a stated cadence is never silently re-based.
+
+    THE BUG (CW-033 M3, mini's D3 live on Sumac). "Capacity should be 40
+    a week, not 34" on a contract row (12 operating periods/yr) wrote
+    period=40 - the model then held 9.23 a week - and the receipt
+    ("Recorded: capacity 40") hid the misread. The stated cadence is PART
+    of the stated number: matching cadence lands as today, a differing
+    one CONVERTS into the canonical cell (40/wk -> 173.33/period), an
+    ambiguous one ASKS, and the receipt always speaks the client's own
+    cadence.
+
+    Driven through the real wrapper at the wall on the Sumac-shaped
+    contract row and a weekly install row. Positive control: a matching
+    cadence still lands identity (7 a week -> 7), so a reconciler that
+    converts everything fails as loudly as none at all.
+
+    KNOWN LIMITS, deliberately not pinned here (open fix shapes handed to
+    VS in the turn-4 audit): the cadence parse is message-scoped, so an
+    unrelated cadence word ("We invoice monthly") can mis-bind; and the
+    disclosure's stored-value reference filter lacks the cadence bypass,
+    so a cadence-differing restatement of the stored NUMBER dead-ends.
+    Pinning today's exact scope would pin those bugs (the round-8
+    lesson); this leg pins only the re-base law itself.
+    """
+    fails, seen = [], []
+
+    # T1: the D3 shape - differing cadence CONVERTS, receipt speaks it.
+    turn, _fin, did = ctx.turn(
+        "Our mowing route capacity should be 40 a week, not 34.",
+        RecordedRouter(PATCHLESS), fin=ctx.completed_fin(),
+        ops=copy.deepcopy(OPS), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    per = product_field(ops_db, "units_per_period_capacity")
+    msg = str((turn or {}).get("assistant_message") or "")
+    seen.append(f"40-a-week on contract row -> stored period={per!r}")
+    if not (per is not None and near(per, 40.0 * 52.0 / 12.0, 0.01)):
+        fails.append(f"the stated week cadence was re-based to the row "
+                     f"(stored period {per!r}, want 173.33)")
+    if "40 a week" not in msg.lower():
+        fails.append("the receipt does not speak the client's own cadence")
+
+    # T2: mixed cadences in one message ASK; nothing moves.
+    turn, _fin, did = ctx.turn(
+        "Mowing capacity should be 40 a week - call it about 170 a month.",
+        RecordedRouter(PATCHLESS), fin=ctx.completed_fin(),
+        ops=copy.deepcopy(OPS), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    per = product_field(ops_db, "units_per_period_capacity")
+    msg = str((turn or {}).get("assistant_message") or "")
+    seen.append(f"mixed cadences -> stored period={per!r}")
+    if not near(per, 34.0):
+        fails.append(f"an ambiguous cadence WROTE (stored {per!r}, want 34)")
+    if "Quick check on that capacity change" not in msg:
+        fails.append("the ambiguous cadence did not ask")
+
+    # T3: a weekly row told a monthly figure converts (26/mo -> 6/wk).
+    turn, _fin, did = ctx.turn(
+        "Actually the install crew can handle 26 jobs a month.",
+        RecordedRouter(PATCHLESS), fin=ctx.completed_fin(),
+        ops=_weekly_install_ops(), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    wk = product_field(ops_db, "units_per_week_capacity")
+    msg = str((turn or {}).get("assistant_message") or "")
+    seen.append(f"26-a-month on weekly row -> stored wk={wk!r}")
+    if not (wk is not None and near(wk, 6.0, 0.01)):
+        fails.append(f"a monthly figure on a weekly row did not convert "
+                     f"(stored {wk!r}, want 6.0)")
+    if "26 a month" not in msg.lower():
+        fails.append("the conversion receipt does not speak '26 a month'")
+
+    # Positive control: matching cadence still lands identity.
+    turn, _fin, did = ctx.turn(
+        "Hang on - the install crew can do 7 jobs a week now, not 5.",
+        RecordedRouter(PATCHLESS), fin=ctx.completed_fin(),
+        ops=_weekly_install_ops(), seed_ops=True)
+    ctx.note_turn(turn)
+    _f, _p, ops_db = ctx.sections(did)
+    wk = product_field(ops_db, "units_per_week_capacity")
+    seen.append(f"matching cadence -> stored wk={wk!r}")
+    if not near(wk, 7.0):
+        fails.append(f"a matching cadence no longer lands (stored {wk!r}, "
+                     "want 7)")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_carveout_survives_the_no(ctx):
+    """R47 - a carve-out purchase survives the no.
+
+    THE BUG (CW-033 B3, confirmed live by the turn-3 audit then fixed).
+    "No, none of it was bought this year - but we did spend 15,000 on a
+    mower" is a solicited answer to the capex question carrying BOTH a
+    real exclusion (the 380k asset base) and a real purchase (the
+    mower). _capex_answer_expresses_none read the negative lead and
+    forced 0 - the mower's 15,000 died on a solicited answer. The
+    carve-out figure IS the capex; the excluded base still cannot land.
+
+    Positive controls: the plain explicit-no still expresses none
+    (A-115b intact) and the "No wait" correction lookahead still never
+    matches, so a classifier that stopped recognising refusals fails as
+    loudly as one that swallows carve-outs.
+    """
+    ic = ctx.ic
+    fails, seen = [], []
+    both = ("None of it this year, we've got about 380,000 sitting there - "
+            "but we did spend 15,000 on a mower.")
+    plain = ("Not really, no. Over the years we've built up about 380,000 "
+             "worth of trucks and greenhouse equipment, but none of that "
+             "was bought this year.")
+    correction = "No wait, it was 380,000."
+
+    got = ic._capex_answer_expresses_none(both)
+    seen.append(f"but-we-did -> expresses_none={got!r}")
+    if got:
+        fails.append("the but-we-did answer was read as a none-answer - "
+                     "the mower's 15,000 dies into a forced 0")
+    got = ic._capex_answer_expresses_none(plain)
+    seen.append(f"plain no -> {got!r}")
+    if not got:
+        fails.append("the plain explicit-no stopped expressing none "
+                     "(A-115b broken)")
+    got = ic._capex_answer_expresses_none(correction)
+    seen.append(f"no-wait -> {got!r}")
+    if got:
+        fails.append("the 'No wait' correction matched none - the "
+                     "lookahead is broken")
+
+    carve = getattr(ic, "_capex_carveout_figure", None)
+    if carve is None:
+        fails.append("the carve-out extractor is absent - the excluded "
+                     "380,000 has no scoping rule")
+    else:
+        got = carve(both)
+        seen.append(f"carve-out figure -> {got!r}")
+        if got != 15000.0:
+            fails.append(f"the carve-out figure is {got!r}, want the "
+                         "mower's 15,000 (never the excluded 380,000)")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -3409,6 +3709,52 @@ REGRESSIONS = [
                     "the agreeing mixed attach lands, both green at "
                     "baseline, so retire-everything and an over-eager "
                     "guard fail too.")),
+    Leg("R44", "REGRESSION", "reply-never-acks-unlanded-ops-figure",
+        "the ack fallback never out-claims the receipt",
+        "02effe1", "6d38c54", _r_reply_never_acks_unlanded,
+        issue="CW-033 M1", surface="financials stage ack ship gate",
+        proof_note=("At 6d38c54 the fallback shipped the router's free "
+                    "prose ungated (and took no user_message - call_compat "
+                    "bridges the signature), so the A4b write-claim and the "
+                    "figure-ack both shipped - red behaviourally. Positive "
+                    "control: benign prose still ships, so a gate that "
+                    "silences everything fails too. The other three M1 "
+                    "layers are inline in the stage flow; the committed "
+                    "turn-3 red-proof and the live A-series cover them.")),
+    Leg("R45", "REGRESSION", "midinterview-ops-landing-impossible",
+        "mid-interview ops landings are impossible regardless of wording",
+        "02effe1", "6d38c54", _r_midinterview_ops_never_lands,
+        issue="CW-033 M2", surface="forward-move ops write door",
+        proof_note=("At 6d38c54 the keywordless '7 jobs a week' wording "
+                    "slipped past the redirect detector and the door landed "
+                    "it mid-interview with a 'Recorded:' receipt - red "
+                    "behaviourally through the real wrapper, detect "
+                    "included. Pins the DOOR: the boundary must hold with "
+                    "the detector deleted. Positive control: the WALL "
+                    "landing still works, green at both commits.")),
+    Leg("R46", "REGRESSION", "stated-cadence-never-rebased",
+        "a stated cadence is never silently re-based",
+        "02effe1", "6d38c54", _r_stated_cadence_never_rebased,
+        issue="CW-033 M3", surface="forward-move ops write door",
+        proof_note=("At 6d38c54 '40 a week' on the 12-period contract row "
+                    "stored period=40 (9.23/wk), the mixed-cadence message "
+                    "wrote instead of asking, and 26-a-month landed raw on "
+                    "the weekly row - red behaviourally on three teeth. "
+                    "Positive control: a matching cadence still lands "
+                    "identity at both commits. Deliberately does NOT pin "
+                    "the message-scoped cadence parse or the disclosure "
+                    "filter (open fix shapes in the turn-4 audit) - "
+                    "pinning today's scope would pin those bugs.")),
+    Leg("R47", "REGRESSION", "carveout-figure-survives-the-no",
+        "a carve-out purchase survives the no",
+        "02effe1", "6d38c54", _r_carveout_survives_the_no,
+        issue="CW-033 B3", surface="capex answer classifier",
+        proof_note=("At 6d38c54 _capex_answer_expresses_none read the "
+                    "but-we-did answer as a none-answer (True) - red "
+                    "behaviourally on the classifier tooth; the absent "
+                    "extractor line is secondary evidence, not the red. "
+                    "Positive controls: the plain explicit-no and the "
+                    "'No wait' lookahead hold at both commits.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),
