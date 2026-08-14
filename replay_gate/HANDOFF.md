@@ -1,34 +1,77 @@
-STATUS: awaiting-Nick
-TURN: 1/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  NICK BLESSED THE GATE (purity proof ratified: Q1 deltas 750=15,000/20
-  and 1,000=20,000/20 dead-on, every P&L row above Interest
-  byte-identical, the 240 added leaves are the opening-PPE vintage, the
-  date-anchor confound isolated pre/pre, workbook_formulas unmoved).
-  GO — VS runs the LIVE verification on HEAD:
-  1. Backend restarted on HEAD, verify ONE :5050 listener.
-  2. Sunny_V3 canary (Test Files/_prove_single_line_byte_floor.py,
-     6feac758) — must complete through production; compare against the
-     RE-BLESSED post-depreciation goldens (97117892... /
-     e813c118..., same-day caveat noted in the script docstring).
-  3. Multi-line E2E: Test Files/_live_cw032_multiline_workbook_e2e.py —
-     four drivers on Model Inputs, ONE P&L COGS roll-up cell, assertion
-     pass on delivery binding.
-  4. THE IN-STAGE CONVERSATION CHECK on a FRESH 4-line clone
-     (Test Files/_live_cw032_instage_cogs_turn.py): proposal -> full
-     multi-line correction in ONE message (46/73/17/3) -> all four rows
-     carry the CLIENT'S numbers -> Model Inputs shows four drivers ->
-     P&L shows ONE summing line. This is the surface Alderfen failed on;
-     it is the check that decides LIVE.
-  All FOREGROUND, read in the same turn. If all pass: flip STAGES
-  (replay_gate/STAGES.md) per-line-COGS LIVE=passed with the evidence
-  named on the line (VS owns LIVE), COWORK clears itself to cleared,
-  and also tidy the stale NEXT STEP block from the CW-031 era. Then
-  VERDICT: green so the watcher stops for Nick — he re-runs the garden
-  center to SEE the four drivers and the one summing P&L line. Any
-  failure: VERDICT progress/blocked with the exact artifact evidence,
-  never a partial flip.
+  CW-033 FIXES + DISCOVERY RESEARCH (Nick, 2026-08-14) — blockers first,
+  artifact-level verification throughout. Per-line COGS is PROVEN
+  end-to-end and CLOSED (A-110/A-111/A-114); do not reopen it. Evidence
+  base: CW-033 Thornfield draft d9b17850 run 76b2553b, the A-113 filing,
+  VS_NOTES CW-033 sections.
+  TIER 1 — A-113 CAPACITY SMEAR (rank 1, the ONE open blocker):
+  A post-stage per-line capacity correction (install 5 -> 7) is LOST —
+  three correction shapes tried live (bundled, standalone-both-values,
+  standalone-single-number-line-named), three receipts, ZERO writes; one
+  receipt echoed back the value being corrected AWAY from. And the loss
+  SILENTLY SMEARS: the build applied a uniform 1.106527 factor across
+  ALL FOUR lines, inflating three lines the client never touched by
+  10.65% to absorb install volume never booked, install itself 21% below
+  the corrected value. FIX: a post-stage per-line capacity write path
+  that lands the correction on the NAMED line, OR an honest refusal —
+  NEVER a silent uniform smear. The app must not silently alter what the
+  client declared (the parent law, same as A-110).
+  ARTIFACT VERIFICATION (mini): the corrected line carries the client's
+  value; the OTHER lines are unchanged; no uniform factor anywhere in
+  the build; the receipt speaks the written value (never the corrected-
+  away-from one).
+  TIER 2 — RECEIPT/ROUTER FIDELITY (two findings, one shape: the router
+  mistakes what KIND of number it is):
+  1. A COGS rate echoed as "Recorded: unit price 58" and fired the
+     price-change retention gate against NO price change; correcting via
+     restated prices reproduced it ("unit price 95") and fired the gate
+     again — the recovery path SELF-TRIGGERS. Fix: the router classifies
+     a COGS rate as a COGS rate, never a price; a COGS correction must
+     not fire the price-retention gate. Verify: a COGS-rate turn writes
+     the COGS field, no unit_price write, retention_pending NOT stamped.
+  2. An explicit "Not recently, no" to the capex question was DISCARDED
+     and the $380k the client EXPRESSLY EXCLUDED in the same sentence
+     was captured as current-year capex — and the next question asks
+     equipment worth, so an unattended client BOOKS THE EQUIPMENT BASE
+     TWICE. Fix: honor the client's no; never capture an expressly-
+     excluded figure as capex; prevent the double-count. Verify:
+     the "no + excluded figure" turn stores capex 0/none, and the
+     equipment base appears ONCE in the built model.
+  3. Ack contradiction (clean recurrence of the receipt law): the note
+     named "units per week capacity and unit price" as unrecorded in the
+     very message that recorded and restated both. Words match state,
+     one source — fix at the source that composes the note.
+  TIER 3 — DISCOVERY RESEARCH (RESEARCH ONLY — produce a spec, BUILD
+  NOTHING; runs alongside tiers 1-2 since it touches no code):
+  Proactive stream discovery: the app surfaces revenue streams the
+  client's business type USUALLY has but didn't mention, so real revenue
+  is not left out of the plan. Nick's framing, non-negotiable:
+  - DISCOVERY not upsell: capture streams the client ALREADY HAS but
+    didn't mention ("a lot of garden centers also do design work — do
+    you?"). NEVER propose streams to ADD ("have you considered adding
+    design?") — that fabricates revenue.
+  - Ask about EXISTENCE, not addition. The client's actual business is
+    the authority.
+  - Only the 2-3 streams GENUINELY COMMON for that specific business
+    type (use the category knowledge the demand judge already has),
+    never a generic checklist.
+  - Ask ONCE per likely stream, believe the answer, no re-probing.
+  - A discovered stream lands as a real LOB through the confidence gate.
+  RESEARCH THE SHAPE: where the category knowledge comes from, how it
+  asks without over-proposing, how a discovered stream lands through the
+  confidence gate into the per-line machinery, where in the flow it
+  fires. REPORT THE SPEC for Nick's review (a docs/ design note is the
+  deliverable). The build waits on A-113 closing AND Nick approving the
+  spec.
+  PROCESS: A-113 first, then tier 2; tier 3 research alongside. Mini
+  artifact-verifies each fix. Standing laws hold (backend restart + ONE
+  listener, canary before batches, foreground-only long jobs, red-proofs
+  red for the right reason). When A-113 + tier 2 are clean AND
+  live-verified AND the discovery spec is ready for review: VERDICT
+  green so the watcher stops and pings Nick.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1403,53 +1446,9 @@ RESULT:
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
 RESULT:
-  AGENT: VS
-  VERDICT: green
+  AGENT: none
+  VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: _canary_cw032_live_byte_floor_20260814.txt;
-    _live_cw032_multiline_e2e_20260814.txt;
-    _live_cw032_instage_20260814.txt;
-    replay_gate/STAGES.md per-line-COGS block
-  SUMMARY: All four LIVE checks pass on HEAD 8c173cc. Backend restarted
-  13:29:25, ONE :5050 listener (pid 12688). Byte-floor canary: 6feac758
-  completed through production and BOTH SHAs are identical to the
-  re-blessed post-depreciation goldens (FINMO 97117892...,
-  MODEL_INPUT e813c118...), same-day caveat satisfied. Multi-line E2E
-  GREEN: the client's four-rate sentence through the live wall router,
-  a real system-run, four COGS driver rows on Model Inputs, FINMO
-  carrying EXACTLY ONE Cost of Goods Sold row that IS the four-term
-  roll-up, zero per-line P&L rows, the workbook assertion PASSING on
-  the delivery-record binding, Q1 depreciation carrying the
-  straight-line share. THE IN-STAGE CHECK (the surface Alderfen failed
-  on) GREEN on fresh rewound 4-line clones: all four client rates
-  (46/73/17/3) land in ONE in-stage message and the stage COMPLETES on
-  the derived 42.2% blend with a receipt, not the Alderfen refusal;
-  the collapse sentence stores the shared group on exactly the named
-  rows basis=declared; a single-line rate writes one row and the
-  recovery keeps the per-line shape with no false receipt. STAGES
-  flipped: per-line-COGS LIVE=passed with evidence named, COWORK
-  cleared (automatic), stale CW-031-era NEXT STEP tidied. Nick: re-run
-  the garden center to SEE it - four driver rows on Model Inputs, one
-  summing P&L line.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  mini (next turn, after Nick's garden-center Cowork run): three
-  things, none urgent before Nick runs.
-
-  1. The pin legs you owe from CW-032 turn 1 (your own note): pin the
-     re-blessed floor state so the CW-032 shape cannot silently
-     regress.
-  2. Audit this LIVE flip at the artifact level if you judge it needs
-     it: the three evidence files above are the record; the in-stage
-     transcripts and ops-row readbacks are in
-     _live_cw032_instage_20260814.txt.
-  3. After Nick's run: reconcile any Cowork filings it produces
-     against the shared issue DB (artifact-backed rule applies), and
-     the per-issue verdicts land in the next RESULT.
-
-  NOT YOURS: proactive stream discovery research is scoped AFTER the
-  garden-center run and is a research task, not a gate task.
-
-  STILL NICK'S, UNCHANGED: whether naturalization may touch a
-  deterministic receipt on write-carrying turns.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
