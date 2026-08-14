@@ -1,77 +1,53 @@
-STATUS: awaiting-mini
-TURN: 1/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  CW-033 FIXES + DISCOVERY RESEARCH (Nick, 2026-08-14) — blockers first,
-  artifact-level verification throughout. Per-line COGS is PROVEN
-  end-to-end and CLOSED (A-110/A-111/A-114); do not reopen it. Evidence
-  base: CW-033 Thornfield draft d9b17850 run 76b2553b, the A-113 filing,
-  VS_NOTES CW-033 sections.
-  TIER 1 — A-113 CAPACITY SMEAR (rank 1, the ONE open blocker):
-  A post-stage per-line capacity correction (install 5 -> 7) is LOST —
-  three correction shapes tried live (bundled, standalone-both-values,
-  standalone-single-number-line-named), three receipts, ZERO writes; one
-  receipt echoed back the value being corrected AWAY from. And the loss
-  SILENTLY SMEARS: the build applied a uniform 1.106527 factor across
-  ALL FOUR lines, inflating three lines the client never touched by
-  10.65% to absorb install volume never booked, install itself 21% below
-  the corrected value. FIX: a post-stage per-line capacity write path
-  that lands the correction on the NAMED line, OR an honest refusal —
-  NEVER a silent uniform smear. The app must not silently alter what the
-  client declared (the parent law, same as A-110).
-  ARTIFACT VERIFICATION (mini): the corrected line carries the client's
-  value; the OTHER lines are unchanged; no uniform factor anywhere in
-  the build; the receipt speaks the written value (never the corrected-
-  away-from one).
-  TIER 2 — RECEIPT/ROUTER FIDELITY (two findings, one shape: the router
-  mistakes what KIND of number it is):
-  1. A COGS rate echoed as "Recorded: unit price 58" and fired the
-     price-change retention gate against NO price change; correcting via
-     restated prices reproduced it ("unit price 95") and fired the gate
-     again — the recovery path SELF-TRIGGERS. Fix: the router classifies
-     a COGS rate as a COGS rate, never a price; a COGS correction must
-     not fire the price-retention gate. Verify: a COGS-rate turn writes
-     the COGS field, no unit_price write, retention_pending NOT stamped.
-  2. An explicit "Not recently, no" to the capex question was DISCARDED
-     and the $380k the client EXPRESSLY EXCLUDED in the same sentence
-     was captured as current-year capex — and the next question asks
-     equipment worth, so an unattended client BOOKS THE EQUIPMENT BASE
-     TWICE. Fix: honor the client's no; never capture an expressly-
-     excluded figure as capex; prevent the double-count. Verify:
-     the "no + excluded figure" turn stores capex 0/none, and the
-     equipment base appears ONCE in the built model.
-  3. Ack contradiction (clean recurrence of the receipt law): the note
-     named "units per week capacity and unit price" as unrecorded in the
-     very message that recorded and restated both. Words match state,
-     one source — fix at the source that composes the note.
-  TIER 3 — DISCOVERY RESEARCH (RESEARCH ONLY — produce a spec, BUILD
-  NOTHING; runs alongside tiers 1-2 since it touches no code):
-  Proactive stream discovery: the app surfaces revenue streams the
-  client's business type USUALLY has but didn't mention, so real revenue
-  is not left out of the plan. Nick's framing, non-negotiable:
-  - DISCOVERY not upsell: capture streams the client ALREADY HAS but
-    didn't mention ("a lot of garden centers also do design work — do
-    you?"). NEVER propose streams to ADD ("have you considered adding
-    design?") — that fabricates revenue.
-  - Ask about EXISTENCE, not addition. The client's actual business is
-    the authority.
-  - Only the 2-3 streams GENUINELY COMMON for that specific business
-    type (use the category knowledge the demand judge already has),
-    never a generic checklist.
-  - Ask ONCE per likely stream, believe the answer, no re-probing.
-  - A discovered stream lands as a real LOB through the confidence gate.
-  RESEARCH THE SHAPE: where the category knowledge comes from, how it
-  asks without over-proposing, how a discovered stream lands through the
-  confidence gate into the per-line machinery, where in the flow it
-  fires. REPORT THE SPEC for Nick's review (a docs/ design note is the
-  deliverable). The build waits on A-113 closing AND Nick approving the
-  spec.
-  PROCESS: A-113 first, then tier 2; tier 3 research alongside. Mini
-  artifact-verifies each fix. Standing laws hold (backend restart + ONE
-  listener, canary before batches, foreground-only long jobs, red-proofs
-  red for the right reason). When A-113 + tier 2 are clean AND
-  live-verified AND the discovery spec is ready for review: VERDICT
-  green so the watcher stops and pings Nick.
+  NICK'S CURRENT ORDERS (2026-08-14, supersedes ALL prior A-113
+  instructions — read before continuing anything):
+  A-113 IS RETRACTED. Cowork's tester artifact shows no question invites
+  post-stage per-line capacity revisiting, and the "smear" was the model
+  reconciling to stated revenue on the value the client actually gave —
+  by design. If the in-flight turn built post-stage capacity write
+  machinery, REMOVE IT (remove-don't-route-around; the retraction means
+  prevent-not-support was not even needed — the state is unreachable
+  on-path). Keep only anything that gives an off-path attempt an honest redirect
+  instead of silence, IF it is already built and small; otherwise revert
+  clean.
+  THE GUIDED-FLOW PRINCIPLE stands as a design law (record in VS_NOTES):
+  guided flow bounds reachable SEQUENCES — off-path sequence bugs are
+  prevented, not supported. Honesty within any answer the app SOLICITS
+  is ALWAYS in scope. Cowork reclassified all 24 open issues under it:
+  22 on-path, 1 retracted (A-113), 1 flagged.
+  TASK 1 — ADJUDICATE A-116 (correction_consumed_as_pending_stage_answer,
+  CW-025), the flagged one. Do NOT take Cowork's classification on faith
+  in either direction. READ the actual question sequence and phrasing at
+  that point in the flow and RULE: does the app's phrasing invite a
+  correction while a stage question is pending (ON-PATH -> real bug, fix
+  it), or does it require re-opening something closed (OFF-PATH ->
+  confirm and retract with the evidence)? The ruling must cite the
+  actual app copy at that flow point.
+  TASK 2 — CONFIRM THE REAL BOARD and report it plainly in the RESULT:
+  Nick believes what remains is: A-115 (the two kind-misreads:
+  COGS-rate-echoed-as-unit-price firing the price-retention gate against
+  no price change incl. the self-triggering recovery; and the capex
+  override where "not recently, no" still captured the expressly-
+  excluded $380k -> double-count risk), receipt fidelity, the retention
+  probe, plus the CW-023 owner-pay item (unverified, needs a completed
+  build). Confirm or correct that list against the registry, and confirm
+  A-115's two are the priority.
+  TASK 3 — FIX A-115 FIRST (both are ON-PATH HONESTY bugs — the app
+  mishandling answers it solicited):
+  1. The router classifies a COGS rate as a COGS rate, never a unit
+     price; a COGS correction never fires the price-retention gate; the
+     recovery path must not self-trigger. Verify: COGS-rate turn writes
+     the COGS field, no unit_price write, retention_pending not stamped.
+  2. Honor the client's "no" on capex; never capture an expressly-
+     excluded figure; the equipment base appears ONCE in the built
+     model. Verify at artifact on the real CW-033 shapes.
+  3. The ack contradiction (recorded-and-unrecorded in one message) —
+     words match state, one source.
+  Tier-3 discovery research (spec-only, docs/ deliverable) continues
+  unchanged. Mini artifact-verifies each fix; green stops for Nick.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1453,95 +1429,9 @@ RESULT:
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
-  ERROR-SIGNATURE: cw033:a115-fixes-awaiting-artifact-audit
-  EVIDENCE: replay_gate/VS_NOTES.md CW-033 TURN 1 + PART 2 sections;
-    Test Files/_redproof_cw033_fixes.py; Test Files/_live_cw033_capacity_turns.py;
-    _redproof_cw033_prefix_20260814.txt (pre-fix RED, 16 checks);
-    _redproof_cw033_postfix_20260814.txt (GREEN); _live_cw033_20260814.txt;
-    _canary_cw033_sunnyv3_20260814.txt; _prove_20260814_vs_cw033.txt;
-    docs/STREAM_DISCOVERY_SPEC.md; commits 6911cb8, 123f532, b438b0b, f020a34
-  SUMMARY: NICK RE-SCOPED MID-TURN (HANDOFF_INBOX): A-113 is retracted under
-  the guided-flow law. I had already built the full post-stage capacity write
-  path and live-proven it; per the retraction it is REMOVED - the interview
-  region now detects an off-path ops-lever correction and leads with an
-  honest redirect (nothing changed, where the number is set), ops forward-
-  moves suppressed for that turn, and the reconcile epsilon is reverted
-  (reconcile-to-stated-revenue is design; the anchor_reconcile provenance
-  stamp stays). KEPT, per the honesty exception and TASK 3: A-115 both
-  halves are FIXED and LIVE-PROVEN on the real Thornfield turns - a COGS
-  rate never types as a unit price (rate is gone from the price rule, a
-  percent-shaped figure gets no forward move, restatements check EVERY row,
-  retention_pending cannot stamp without a landed price write) and the capex
-  explicit-no stores 0 with the excluded 380k a reference; the ack-
-  contradiction note now re-validates against post-followup state; the
-  forward move can never speak a receipt without a read-back write. The
-  first prove caught my own refusal discipline recreating the CW-026 freeze
-  on single-row and row-less drafts - fixed, R01/I01 back to PROVEN. A-116
-  ADJUDICATED ON-PATH citing the apps own corrections-admitted contract;
-  already fixed and pinned (#115, R02/R15). Board confirmed (VS_NOTES):
-  A-115 top, plus A-112/A-106/A-079/A-103, CW-023 owner-pay correctly
-  unverified-pending-build, one orphan flagged (owner_draw_ceiling), A-113-
-  family registry rows need the off-path stamp. Tier 3 spec delivered:
-  docs/STREAM_DISCOVERY_SPEC.md, five open questions for Nick. Final state:
-  full prove 61 legs / 54 behavioural / 5 structural-absence / 2 golden /
-  0 DRIFT / 0 UNEARNED / CLEAN; Sunny_V3 canary green after every app edit
-  (4 total), ONE listener verified each restart; live proof GREEN on the
-  post-retraction expectations (zero writes + redirect + no fabricated
-  receipt on L1-L4, A-115 honesty on L5-L6). Not green: mini has not
-  artifact-audited, which the re-scope keeps as the law.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  mini: artifact-audit the CW-033 honesty fixes and the retraction
-  compliance. My pass lines are not evidence; the live replies least of
-  all. Mechanisms and edges in VS_NOTES CW-033 TURN 1 + PART 2.
-
-  1. A-115(a), THE ONE THAT MATTERS. Drive your own COGS-rate wordings
-     (collapse, per-line restatement, the self-triggering recovery shape -
-     restating all four real prices after a bad echo) on Thornfield
-     clones and read rows: the COGS field written, NO unit_price write
-     anywhere, retention_pending ABSENT, and the reply never says
-     Recorded: unit price. My live L6 is the [75] verbatim; your wordings
-     are the check that counts.
-  2. A-115(b) adversarially. [89] verbatim stores capex 0 (L5). Attack
-     the negative-lead patterns: the known edge is a no-with-exclusion
-     that ALSO states a real purchase (No, none of it was bought this
-     year - but we did spend 15,000 on a mower in January) - my
-     _capex_answer_expresses_none would force 0 and reference the 15k.
-     Fix shape is a but-we-did carve-out; land it if you agree it is
-     yours to land (it is app code, so more likely: verify, and hand the
-     shape back to me with your wording set).
-  3. THE REDIRECT BOUNDARY (the retraction made this the law): mid-
-     interview ops-lever corrections -> ZERO writes anywhere + the
-     redirect leads + no fabricated receipt (L1-L4 shapes, your own
-     wordings); at the WALL (no active stage) corrections still LAND -
-     R01/I01 pin the Sumac shape. The boundary is active-stage-vs-none;
-     attack it: a turn that COMPLETES the last stage and corrects in the
-     same message, and a coherence-round turn (coherence_round_live
-     bypasses the interview region entirely).
-  4. A-112 NOTE FIX has no live artifact this turn: drive an ops-section
-     multi-line capture whose router patch drops driver fields and read
-     the reply - the note may no longer claim unrecorded fields the same
-     reply records. The mechanism is snapshot-diff at the merge point.
-  5. LEGS, your call: the receipt-speaks-read-back rule at the forward
-     move, and the redirect-vs-wall boundary, are both rot-prone laws in
-     the R33-R42 mold. The A-115 shapes are in my offline T7/T8.
-  6. HYGIENE: the A-113-family registry rows still read open-blocker
-     (capacity_correction_after_stage_close_never_lands, ack_claims_a_
-     capacity_write_that_did_not_happen) - they predate the retraction;
-     coordinate the off-path/observation stamp with Cowork's board.
-
-  FOR NICK, three open rulings surfaced (none block the audit):
-  (a) does the A-113 retraction extend to the PRE-EXISTING landing
-      machinery for the same off-path family - the CW-032 market/people
-      section applier (#264) and the CW-017b focus==financials applier?
-      I removed only what my turn built, per the retraction's own scope;
-      both older doors still land post-stage driver corrections today.
-  (b) the anchor_reconcile provenance stamp on the deterministic
-      proposer drivers: kept as visibility of a designed mechanism -
-      keep or drop.
-  (c) STILL OPEN, UNCHANGED: whether naturalization may touch a
-      deterministic receipt. Plus the five design questions in
-      docs/STREAM_DISCOVERY_SPEC.md when Nick reviews the spec.
+  ERROR-SIGNATURE: none
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
