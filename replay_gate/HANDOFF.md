@@ -1,44 +1,34 @@
-STATUS: awaiting-Nick
-TURN: 1/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  NICK RATIFIES THE DRIFT — but re-baselining is CONDITIONAL on a purity
-  proof, and the proof is the point. His words:
-  The DRIFT is EXPECTED. R31:single-line-golden-moved-by-ruled-depreciation
-  moved because the depreciation fix Nick RULED (opening PPE now gets the
-  5-year straight-line schedule) changes the numbers for every business
-  with opening assets, including single-line ones (Sunny carries 20k).
-  That is not a regression — it is the golden-master correctly catching a
-  real change which happens to be the ordered one. The floor did its job:
-  flagged a moved negative control and stopped. Nick confirms the move was
-  intended.
-  YOUR TASK, in order:
-  1. VERIFY THE DRIFT IS PURE before touching any baseline. Structurally
-     diff the moved single-line digests (old vs new finmo_json and
-     model_input_json): EVERY changed leaf must trace to the depreciation
-     schedule now applying to opening PPE — the depreciation expense rows,
-     accumulated depreciation, PPE roll-forward, and their arithmetic
-     descendants (net income, taxes, retained earnings, cash, totals).
-     ZERO changes from anything else. Expected-drift can MASK a real one —
-     that is why this verification exists. Do not re-bless on Nick's word
-     alone; his word covers WHY the numbers moved, your diff proves ONLY
-     those numbers moved.
-  2. IF the diff is 100% depreciation-attributable: re-bless R31's golden
-     baseline to the new post-depreciation values, re-baseline the
-     byte-floor goldens the same way, and re-point the layout legs (R32's
-     old per-line-P&L expectation is overruled by Nick's Model-Inputs
-     layout ruling — the assertion is four drivers on Model Inputs + ONE
-     P&L roll-up cell). Then run the full prove IN THE FOREGROUND and read
-     it in the same turn.
-  3. IF ANY leaf moved for a reason OTHER than depreciation: STOP. Do not
-     re-baseline anything. VERDICT: drift again, with the impure leaves
-     named precisely — that is a real regression hiding under the expected
-     one, and Nick looks at it before anything gets blessed.
-  Evidence base: VS turn-1 commits e26af21..5716ba4, the prove output from
-  VS's turn, _live_cw032_instage_cogs_turn.py, the VS_NOTES CW-032 batch
-  section. All standing laws hold (foreground-only long jobs; artifact
-  level; a clean table after re-baseline = VERDICT green so the watcher
-  stops for Nick's blessing).
+  NICK BLESSED THE GATE (purity proof ratified: Q1 deltas 750=15,000/20
+  and 1,000=20,000/20 dead-on, every P&L row above Interest
+  byte-identical, the 240 added leaves are the opening-PPE vintage, the
+  date-anchor confound isolated pre/pre, workbook_formulas unmoved).
+  GO — VS runs the LIVE verification on HEAD:
+  1. Backend restarted on HEAD, verify ONE :5050 listener.
+  2. Sunny_V3 canary (Test Files/_prove_single_line_byte_floor.py,
+     6feac758) — must complete through production; compare against the
+     RE-BLESSED post-depreciation goldens (97117892... /
+     e813c118..., same-day caveat noted in the script docstring).
+  3. Multi-line E2E: Test Files/_live_cw032_multiline_workbook_e2e.py —
+     four drivers on Model Inputs, ONE P&L COGS roll-up cell, assertion
+     pass on delivery binding.
+  4. THE IN-STAGE CONVERSATION CHECK on a FRESH 4-line clone
+     (Test Files/_live_cw032_instage_cogs_turn.py): proposal -> full
+     multi-line correction in ONE message (46/73/17/3) -> all four rows
+     carry the CLIENT'S numbers -> Model Inputs shows four drivers ->
+     P&L shows ONE summing line. This is the surface Alderfen failed on;
+     it is the check that decides LIVE.
+  All FOREGROUND, read in the same turn. If all pass: flip STAGES
+  (replay_gate/STAGES.md) per-line-COGS LIVE=passed with the evidence
+  named on the line (VS owns LIVE), COWORK clears itself to cleared,
+  and also tidy the stale NEXT STEP block from the CW-031 era. Then
+  VERDICT: green so the watcher stops for Nick — he re-runs the garden
+  center to SEE the four drivers and the one summing P&L line. Any
+  failure: VERDICT progress/blocked with the exact artifact evidence,
+  never a partial flip.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1406,73 +1396,9 @@ RESULT:
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
 RESULT:
-  AGENT: mini
-  VERDICT: green
+  AGENT: none
+  VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: _mini_cw032_drift_purity_20260814.txt (the purity proof, both
-    boundaries); _mini_cw032_r31_leaf_diff_20260814.txt /
-    _mini_cw032_ck_leaf_diff_20260814.txt (every moved leaf, raw);
-    _prove_20260814_mini_cw032_turn1.txt (61 legs CLEAN);
-    Test Files/_mini_cw032_drift_purity.py (the instrument)
-  SUMMARY: The drift is PURE, proven before anything was re-blessed, at BOTH
-  boundaries. Gate boundary: rebuilt R31's payloads at 9d2c41c and HEAD; all
-  four digests reproduce the DRIFT report exactly; every one of the 3,083
-  changed + 240 added model_input leaves and 644 finmo leaves is the
-  depreciation schedule or its arithmetic descendants (Q1 delta exactly
-  15,000/20 = 750; NI == -dep every quarter; EBITDA and every P&L row above
-  Interest byte-identical; the 240 adds ARE the opening-PPE vintage). Solver
-  boundary: pre/post checkpoints of Sunny 6feac758 (Q1 delta exactly
-  20,000/20 = 1,000) after isolating a date-anchor confound with a pre/pre
-  control - the live path stamps start_date from the run date, dates-only,
-  zero numerics; net of that, the extra movers are the solver's cash
-  coupling (interest, taxes, revolver, distributions). Re-blessed on that
-  proof: R31 baseline -> 5716ba4; frozen-input goldens re-based (proof
-  GREEN, workbook_formulas UNMOVED - R32's surface genuinely held);
-  byte-floor docstring carries the new post-solver goldens + the ruled
-  layout replacing the overruled per-line-P&L text. No gate leg pinned the
-  old multi-line layout. R29's stale STRUCTURAL_ABSENCE label dropped (the
-  harness itself reported its baseline red behavioural). Full prove on the
-  final tree: 61 legs, 54 behavioural, 5 structural-absence, 2 GOLDEN,
-  0 DRIFT, 0 UNEARNED, exit 0 - "Safe to spend a Cowork run." GATE flipped
-  blessed in STAGES.md (mine); LIVE stays VS's flip.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  VS (after Nick's blessing): four items, none blocking the gate.
-
-  1. FLIP LIVE, your evidence already exists. My turn changed ZERO app
-     code (legs/goldens/docs only), so your turn-1 proofs still describe
-     the shipped build exactly: canary x2 on a listener postdating every
-     edit, in-stage live proof 15/15 twice, multi-line workbook E2E with
-     the ruled layout + delivery-record binding. Flip LIVE with those
-     named or, if you judge a fresh canary owed after re-reading the
-     stale-server law, run ONE and flip on it. COWORK then auto-clears
-     for Nick's 4-stream garden centre.
-  2. RETIRE Test Files/_ws1b_multiline_e2e.py (remove-legacy law). Its
-     line 148 asserts the OVERRULED layout ('Cost of Goods Sold - '
-     P&L rows), superseded by your _live_cw032_multiline_workbook_e2e.py.
-     It will false-fail on the next ruled-layout workbook someone runs
-     it against.
-  3. THE unit_price BRANCH STILL USES cands[-1] - your own A-113 note:
-     the same last-figure-wins class you just fixed for capacity, in the
-     same applier. Queue it with a six-case offline proof like the
-     capacity one; no canary debt until it ships.
-  4. #267 stays open with the transcript turn as its reproduction seed -
-     nothing new from me; noting it so it does not silently vanish.
-
-  NOT YOURS: the CW-032 pin-worthy legs (the in-stage per-line door, the
-  stage completion through _pl_derived, the A-113 value selection, the
-  misroute guard) are MINE next turn - red shapes from your two
-  _live_cw032_* scripts and the router red-proof. I did not pin them this
-  turn because Nick's seeded task was the purity proof and re-bless, and
-  a green verdict should carry no half-built legs.
-
-  FOR NICK, plain english: the number that moved, moved because you ruled
-  it should (existing equipment now wears out over five years in the
-  model). I checked every single number that changed and they are all
-  that ruling's arithmetic - nothing else moved underneath it. The gate
-  is fully green again, on the new blessed numbers. Two things wait on
-  you: your blessing of this green (the watcher has stopped for it), and
-  the standing naturalization ruling (unchanged, not urgent). After your
-  blessing, VS flips LIVE and the 4-stream garden-centre Cowork run is
-  cleared.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
