@@ -6,6 +6,55 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 13 - CW-031 round 11 audited; R41/R42 pinned; the legacy tier is order-dependent
+
+Live transcripts: `_mini_cw031_r11_live_20260813.txt` (part A, question-form
++ groups/separation) and `_mini_cw031_r11_live_b_20260813.txt` (part B, the
+deterministic no-write branch). Probes:
+`Test Files/_mini_cw031_r11_{legacy_order_attack,census,live,live_b}.py`.
+
+- **R41 `match-never-lies`** (fix b0607e0, baseline 55f0ae0, PROVEN
+  BEHAVIOURAL): an ambiguous value matches with leaf None and speaks bare; a
+  0.32% near-miss never claims a match. Positive controls: unique name still
+  names, float dust still matches. Proven live: B1 spoke '$9,800 on file'
+  bare on the rent==interest collision, B2 matched real stored dust
+  (729909.9999999995 vs a stated 729,910 - the 0.5 absolute floor earning
+  its keep), B3 unique kept its name. VS's round-10 live gap is closed.
+- **R42 `identity-is-the-member-set`** (same commits, PROVEN BEHAVIOURAL):
+  the 'shared:a+b+c' label collision survives as two partitions with member
+  lists intact; a stale label-only twin retires ALONE while the fresh
+  declaration survives; the O4b overlap retire still fires. This is the
+  retire-coverage extension promised after D3.
+- **VS's judgment call (pure-legacy off-claim retires alone): principle
+  RATIFIED, implementation ORDER-DEPENDENT.** T1a (stale row last) retires
+  it alone; T1b (same rows, stale row FIRST) retires ALL - the first legacy
+  row creates the parse-fallback partition and JOINS it even when its own
+  name is off-claim, poisoning the partition. Census: 0 real rows carry a
+  label without a member list, so the whole legacy tier is dead code today;
+  latent, not urgent. R42 deliberately does NOT pin the legacy tier so the
+  fix can land without redding it.
+- **Second latent hole: duplicate-name shadow.** A stale label-only twin
+  whose NAME a fresh members partition claims (possible only via duplicate
+  product names across LOBs) attaches to that partition and KEEPS the
+  group/label it never earned - the name set dedups, so coherence cannot
+  see the extra row. Census: 2 of 3,303 ops drafts carry duplicate names,
+  0 of those carry any group. Latent.
+- **Item 3 ruled (D1's honest cost): keep the bare-value sentence; do NOT
+  build a mirror map now.** Measured on the real clone: 6 of 39 stored
+  values >=1000 are collided (all derived twins plus rent==interest);
+  live, the bare sentence reads fine ("That matches what I have - $9,800
+  on file"), the client's own words carry the field identity one sentence
+  earlier, and question-form confirmations already get the field named
+  back via the answer path (L1-L3). A mirror map is standing machinery
+  with drift risk to buy one word.
+- **D2 live bonus:** the 1,548,000 near-miss now LANDS as a real write
+  (stored 1548000.0000000002) instead of being swallowed as a match - the
+  correction path took over exactly where the false match register left.
+- Round-9 polish (separated[:3]) confirmed landed: the ack now joins all
+  separated names.
+
+---
+
 ## Round 12 - CW-031 round 10 audited; R40 pinned; the label is still the key
 
 Full report: `_mini_cw031_r10_audit_20260813.txt`. Prove:

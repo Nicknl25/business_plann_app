@@ -2804,6 +2804,166 @@ def _r_membership_is_data(ctx):
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _r_match_never_lies(ctx):
+    """R41 - a match never names an ambiguous field, a near-miss never
+    claims a match.
+
+    THE BUG (CW-031 round 10, mini's D1/D2 -> round 11 fixes 1-2). The
+    match-on-file sentence named the FIRST leaf whose value matched, so a
+    client who restated their annual interest payment (9,800) was told
+    "monthly rent expense is $9,800" - a field claim the client never made,
+    on a collision 92.7% of real drafts carry. And the 0.5% tolerance let a
+    swallowed near-miss CORRECTION (1,548,000 vs stored 1,553,000) be
+    spoken as a confirmation, keeping the client on the old number.
+
+    Teeth: (D1) a value stored under two distinct leaf names matches with
+    leaf None and the sentence speaks the bare value with no field claim;
+    (D2) a 0.32% near-miss never claims a match. Positive controls: a
+    unique-name figure still names its field (a law that never names fails
+    as loudly as one that always does), and exact + float-dust restatements
+    still match (a tolerance of zero fails as loudly as one of 0.5%).
+    Proven live 2026-08-13 (_mini_cw031_r11_live_b_20260813.txt): B1
+    ambiguous spoke '$9,800 on file' bare, B2 matched real stored dust
+    729909.9999999995 against a stated 729,910, B3 unique kept its name.
+    """
+    figures_on_file = ctx.ic._figures_all_on_file
+    spoken = ctx.ic._spoken_on_file_match
+
+    state = {"financials": {"monthly_rent_expense": 9800.0,
+                            "annual_interest_payment": 9800.0,
+                            "current_revenue": 1553000.0}}
+    fails, seen = [], []
+
+    m = figures_on_file(state, [9800.0])
+    sent = spoken(*m[0]) if m else "(no match)"
+    seen.append(f"ambiguous 9800 -> m={m!r} spoken={sent!r}")
+    if not m:
+        fails.append("an on-file ambiguous value no longer matches at all")
+    elif m[0][0] is not None:
+        fails.append(f"an ambiguous value named a field: {m[0][0]!r} "
+                     "(rent==interest - the client never said it)")
+    elif " is " in sent or "9,800" not in sent:
+        fails.append(f"the bare-value sentence is wrong: {sent!r}")
+
+    m2 = figures_on_file(state, [1548000.0])
+    seen.append(f"near-miss 1,548,000 vs 1,553,000 -> m={m2!r}")
+    if m2:
+        fails.append("a 0.32% correction was claimed as a match - the "
+                     "swallowed-correction register is back")
+
+    # Positive control 1: the unique name still names its field.
+    m3 = figures_on_file(state, [1553000.0])
+    sent3 = spoken(*m3[0]) if m3 else "(no match)"
+    seen.append(f"unique -> {sent3!r}")
+    if not (m3 and m3[0][0] == "current_revenue"
+            and "current revenue" in sent3 and "1,553,000" in sent3):
+        fails.append("a unique-name match lost its field name - the law "
+                     "must not be satisfied by never naming")
+
+    # Positive control 2: exact and float-dust restatements still match.
+    m4 = figures_on_file(state, [1552999.999999999])
+    seen.append(f"dust -> match={bool(m4)}")
+    if not m4:
+        fails.append("a float-dust restatement no longer matches - the "
+                     "tolerance died instead of narrowing")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_identity_is_member_set(ctx):
+    """R42 - group identity is the stored member set, not the label string.
+
+    THE BUG (CW-031 round 10, mini's D3 -> round 11 fix 3). The coherence
+    pass grouped carrying rows BY LABEL, so two healthy groups whose
+    '+'-joined labels collide ('A+B','C' vs 'A','B+C' -> both
+    'shared:a+b+c') read as ONE incoherent claim and BOTH retired -
+    declaring the second killed the first and itself in the same call. And
+    a stale label-only legacy row (renamed after grouping) dragged a fresh
+    members-carrying declaration down with it.
+
+    Teeth: (a) the label collision yields two coherent partitions and BOTH
+    survive with their member lists intact; (b) the stale legacy twin
+    retires ALONE while the fresh declaration survives. Positive control:
+    a one-row group wearing a two-member claim still retires (a pass that
+    never retires fails as loudly as one that retires everything).
+
+    KNOWN LIMIT, deliberate: the pure-legacy tier (no member list anywhere
+    under a label) is order-dependent - an off-claim row that iterates
+    FIRST creates and poisons the parse-fallback partition, retiring the
+    coherent remainder with it (round-11 audit T1b). Census 2026-08-13: 0
+    real rows carry a label without a member list, so the tier is dead
+    code today; the tooth is NOT pinned here so the fix can change the
+    behaviour without redding this leg.
+    """
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+
+    def mkops(names_rates):
+        return {"lob_models": [{"lob_name": "Main", "products": [
+            {"product_name": n, "cogs_percent_of_line_revenue": r,
+             "unit_price": 100.0, "units_per_period_capacity": 10.0,
+             "operating_periods_per_year": 12.0}
+            for n, r in names_rates]}]}
+
+    fails, seen = [], []
+
+    # Tooth (a): the '+'-label collision - both groups must survive.
+    o1 = mkops([("A+B", 0.30), ("C", 0.30), ("A", 0.50), ("B+C", 0.50)])
+    rows1 = o1["lob_models"][0]["products"]
+    door({"financials.cogs_shared_structure_groups": [["A+B", "C"]]},
+         ops_json=o1)
+    r1 = door({"financials.cogs_shared_structure_groups": [["A", "B+C"]]},
+              ops_json=o1)
+    labels1 = [r.get("cogs_cost_structure_group") for r in rows1]
+    members1 = [r.get("cogs_cost_structure_group_members") for r in rows1]
+    seen.append(f"collision: labels={labels1!r} "
+                f"ungrouped={r1.get('ungrouped')!r}")
+    if not all(labels1) or r1.get("ungrouped"):
+        fails.append("a label collision retired a healthy group - identity "
+                     "is being read from the label again")
+    elif not (members1[0] and sorted(members1[0]) == ["a+b", "c"]
+              and members1[2] and sorted(members1[2]) == ["a", "b+c"]):
+        fails.append(f"the surviving partitions lost their member lists: "
+                     f"{members1!r}")
+
+    # Tooth (b): a stale legacy twin retires ALONE.
+    o2 = mkops([("Alpha", 0.40), ("Beta", 0.40), ("Gamma", 0.20)])
+    ra, rb, rg = o2["lob_models"][0]["products"]
+    rg["cogs_cost_structure_group"] = "shared:alpha+beta"
+    rg["cogs_cost_structure_group_basis"] = "declared"
+    r2 = door({"financials.cogs_shared_structure_groups": [["Alpha", "Beta"]]},
+              ops_json=o2)
+    seen.append(f"stale twin: a={ra.get('cogs_cost_structure_group')!r} "
+                f"g={rg.get('cogs_cost_structure_group')!r} "
+                f"ungrouped={r2.get('ungrouped')!r}")
+    if not (ra.get("cogs_cost_structure_group")
+            and rb.get("cogs_cost_structure_group")):
+        fails.append("a stale label-only twin dragged the fresh declaration "
+                     "down with it")
+    if rg.get("cogs_cost_structure_group"):
+        fails.append("the stale twin kept a group it never earned")
+    if "Main / Gamma" not in (r2.get("ungrouped") or []):
+        fails.append(f"the stale twin's retire is not named "
+                     f"(ungrouped={r2.get('ungrouped')!r})")
+
+    # Positive control: a failing claim still retires (the O4b shape).
+    o3 = mkops([("P1", 0.30), ("P2", 0.30), ("P3", 0.30), ("P4", 0.10)])
+    rows3 = o3["lob_models"][0]["products"]
+    door({"financials.cogs_shared_structure_groups": [["P1", "P2"]]},
+         ops_json=o3)
+    r3 = door({"financials.cogs_shared_structure_groups": [["P2", "P3", "P4"]]},
+              ops_json=o3)
+    seen.append(f"overlap: p1={rows3[0].get('cogs_cost_structure_group')!r} "
+                f"ungrouped={r3.get('ungrouped')!r}")
+    if rows3[0].get("cogs_cost_structure_group") \
+            or "Main / P1" not in (r3.get("ungrouped") or []):
+        fails.append("a one-row group wearing a two-member claim survived - "
+                     "the pass lost its teeth")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -3088,6 +3248,31 @@ REGRESSIONS = [
                     "agreeing mixed (list + legacy label-only) group "
                     "survives, so a pass that retires everything or one "
                     "that never retires both fail.")),
+    Leg("R41", "REGRESSION", "match-never-lies",
+        "a match never names an ambiguous field, a near-miss never claims a match",
+        "b0607e0", "55f0ae0", _r_match_never_lies,
+        issue="CW-031 round 11 fixes 1-2",
+        surface="no-write match-on-file sentence",
+        proof_note=("At 55f0ae0 (round-10 code) the scan named the FIRST "
+                    "matching leaf (walk order put rent before interest) and "
+                    "the 0.5% tolerance matched a 0.32% correction - red "
+                    "behaviourally on both teeth. Positive controls: a "
+                    "unique-name figure still names its field and float-dust "
+                    "still matches, so never-naming and a dead tolerance "
+                    "both fail.")),
+    Leg("R42", "REGRESSION", "identity-is-the-member-set",
+        "group identity is the stored member set, not the label string",
+        "b0607e0", "55f0ae0", _r_identity_is_member_set,
+        issue="CW-031 round 11 fix 3",
+        surface="per-line COGS write door + group coherence pass",
+        proof_note=("At 55f0ae0 the coherence pass held one claim per label: "
+                    "the 'shared:a+b+c' collision read as one incoherent "
+                    "claim and retired all four rows (the second declaration "
+                    "killed the first AND itself), and the agreeing member "
+                    "sets under a stale twin's label retired the fresh "
+                    "declaration with the twin - red behaviourally on both "
+                    "teeth. Positive control: the O4b overlap retire still "
+                    "fires, so a pass that never retires fails too.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

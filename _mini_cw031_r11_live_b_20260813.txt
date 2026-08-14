@@ -1,0 +1,24 @@
+clone mn4fcf9277da7143139b1a4d6e02ec51
+before: interest=9800.0 rent=9800.0 cogs_total_year1=729909.9999999995 current_cogs=729909.9999999995 other_debt=3100.0
+
+B1 ambiguous < [200] That matches what I have - $9,800 on file.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic versio
+B1 ambiguous stored annual_interest_payment=9800 (changed=False)
+B1 deterministic-match register: True; names interest field: False
+
+B2 twin < [200] That matches what I have - $729,910 on file.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic vers
+B2 twin stored current_cogs=729910.0 (changed=False)
+B2 deterministic-match register: True
+
+B3 unique < [200] That matches what I have - other monthly debt payments is $3,100.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the str
+B3 unique stored other_monthly_debt_payments=3100 (changed=False)
+B3 deterministic-match register: True; names field: True
+
+(1 clone(s) removed)
+==============================================================================
+LIVE-B: all clean

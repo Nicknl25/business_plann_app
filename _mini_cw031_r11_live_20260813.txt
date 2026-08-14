@@ -1,0 +1,44 @@
+clone mncf1d9e8ff5654178a261eed272d2b0 -- collision map (financials, >=1000):
+           9,800 under ['annual_interest_payment', 'monthly_rent_expense']
+          68,000 under ['annual_wage', 'year1_payroll_amount']
+          96,000 under ['annual_wage', 'year1_payroll_amount']
+         214,000 under ['annual_wage', 'year1_payroll_amount']
+         378,000 under ['baseline_payroll_year1', 'current_payroll', 'payroll_total_year1']
+         729,910 under ['cogs_total_year1', 'current_cogs']
+  6 of 39 distinct stored values >=1000 are collided -- each of those confirmations now speaks bare
+
+L1 < [200] I have your annual interest payment set to 9,800, yes — that matches what you just calculated.
+
+L2 twin picked: 729,910 under ['cogs_total_year1', 'current_cogs']
+L2 < [200] Yes. Based on what we’ve entered, your direct costs are modeled at about 729,910 for the year, which is roughly 47% of your 1,552,000 in revenue.
+L2 names spoken: []
+
+L3 unique picked: 3,100 under 'other_monthly_debt_payments'
+L3 < [200] You originally gave 3,100 as your other monthly debt payments, and that’s exactly what’s in the model now.
+
+L4 clone mnee21a6742bd347c5b9ece988156a1c
+L4 < [200] Got it, I’ll update your annual revenue to $1,548,000 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,548,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. T
+L4 stored current_revenue after: 1548000.0000000002
+L4 claims_match=False kept_old=False landed=True
+
+L5 clone mn70c6e18f29b44e9cb966419823ba1a
+L5a < [200] Got it—so we’ll treat plant sales and hard goods together at 52.0% COGS, and install projects and design consults together at 30.0% COGS.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth
+L5a row: {'product_name': 'Plant sale', 'cogs_percent_of_line_revenue': 0.52, 'cogs_cost_structure_group': 'shared:hard goods sale+plant sale', 'cogs_cost_structure_group_members': ['hard goods sale', 'plant sale'], 'cogs_cost_structure_group_basis': 'declared'}
+L5a row: {'product_name': 'Hard goods sale', 'cogs_percent_of_line_revenue': 0.52, 'cogs_cost_structure_group': 'shared:hard goods sale+plant sale', 'cogs_cost_structure_group_members': ['hard goods sale', 'plant sale'], 'cogs_cost_structure_group_basis': 'declared'}
+L5a row: {'product_name': 'Install project', 'cogs_percent_of_line_revenue': 0.3, 'cogs_cost_structure_group': 'shared:design consult+install project', 'cogs_cost_structure_group_members': ['design consult', 'install project'], 'cogs_cost_structure_group_basis': 'declared'}
+L5a row: {'product_name': 'Design consult', 'cogs_percent_of_line_revenue': 0.3, 'cogs_cost_structure_group': 'shared:design consult+install project', 'cogs_cost_structure_group_members': ['design consult', 'install project'], 'cogs_cost_structure_group_basis': 'declared'}
+L5b < [200] Got it—design consults will now stand on their own with their own cost structure again, separate from Landscaping & installation / Install project, unless you’d like any of them to still share a rate.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reporte
+L5b row: {'product_name': 'Plant sale', 'cogs_percent_of_line_revenue': 0.52, 'cogs_cost_structure_group': 'shared:hard goods sale+plant sale', 'cogs_cost_structure_group_members': ['hard goods sale', 'plant sale'], 'cogs_cost_structure_group_basis': 'declared'}
+L5b row: {'product_name': 'Hard goods sale', 'cogs_percent_of_line_revenue': 0.52, 'cogs_cost_structure_group': 'shared:hard goods sale+plant sale', 'cogs_cost_structure_group_members': ['hard goods sale', 'plant sale'], 'cogs_cost_structure_group_basis': 'declared'}
+L5b row: {'product_name': 'Install project', 'cogs_percent_of_line_revenue': 0.3, 'cogs_cost_structure_group': None, 'cogs_cost_structure_group_members': None, 'cogs_cost_structure_group_basis': None}
+L5b row: {'product_name': 'Design consult', 'cogs_percent_of_line_revenue': 0.3, 'cogs_cost_structure_group': None, 'cogs_cost_structure_group_members': None, 'cogs_cost_structure_group_basis': None}
+
+(3 clone(s) removed)
+==============================================================================
+LIVE: all clean
