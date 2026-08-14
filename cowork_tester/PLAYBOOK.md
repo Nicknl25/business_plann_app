@@ -186,19 +186,110 @@ acceptance (in progress); baseline_marketing contamination (in progress).
 "the ack said X" and "the stored field is X" are DIFFERENT SENTENCES. Never write a
 storage claim without having read the field. Close non-reproductions in the same pass.
 
-## STANDING COMPREHENSION PROBE (Nick, 2026-08-13)
+# ON-PATH vs OFF-PATH — the testing boundary (standing, overrides prior habit)
 
-The persona is a cooperative business owner who is NOT a numbers
-person. You should not need an MBA - or even a BA - to use this app.
+The app is a GUIDED CONVERSATION. The client answers what they are asked, in the
+order they are asked. They do not know they can jump back into a closed stage or
+re-correct a value three steps later, because the app never invites it. The guided
+path IS the boundary. My job is to verify the design works for a client walking
+that path — not to enumerate every theoretical break reachable by leaving it.
 
-If the app ever speaks jargon the persona would not understand - an
-internal field name, an unexplained unit token ("ratio", "basis"), an
-unglossed acronym, a bare decimal where a human framing belongs - that
-is a COMPREHENSION FAILURE. File it as an experience issue, even when
-the numbers are correct.
+Classify EVERY probed behaviour before filing:
 
-The checked property on every run: "would a normal small-business
-owner understand this sentence?" A receipt can be perfectly faithful
-and completely opaque - faithfulness is checked elsewhere; THIS probe
-checks understandability. "COGS" is borderline ("direct costs" is
-friendlier); "cogs_per_line_overrides" must never reach a client.
+  ON-PATH  — reachable by following the app's lead: answering in order, correcting
+             WHEN AND WHERE the app invites correction (in-stage, at the proposal),
+             staying inside the flow. Breaks here are real. File them.
+  OFF-PATH — only reachable by a move the flow never offers: re-opening a closed
+             stage, correcting out of order, manufacturing a sequence to force a
+             break. A real client cannot get here. DO NOT FILE. At most record
+             "off-path — the app does not lead here" as an observation.
+
+The filing question is: WOULD A CLIENT FOLLOWING THE APP'S GUIDANCE HIT THIS?
+If no, it is not a bug worth filing, however reproducible it is.
+
+## The honesty exception — always on-path, no matter the sequence
+
+If the app MISHANDLES AN ANSWER IT SOLICITED, that is always a real bug:
+captures a value the client excluded, echoes back the wrong thing, double-counts,
+or says it recorded X when it stored Y. The boundary governs SEQUENCE (which states
+are reachable). It never excuses the app from honesty inside an answer it asked for.
+Canonical example: the app asked about recent capital purchases, the client said
+"not recently, no", and it captured $380k anyway. ON-PATH and real.
+
+## Where to be relentless instead
+
+Probe HARD inside the path — that is where production bugs live:
+messy and vague answers; plain-language corrections AT THE POINT the app invites
+them; realistic confusion and re-asking; multi-part answers to one question;
+wrong-then-right within a single stage; numbers written as words; explicit
+negatives ("none", "not recently") paired with context the app might harvest.
+
+## How I got this wrong (CW-031/CW-032, A-113)
+
+I corrected a per-line capacity AFTER the operations stage closed, three times, in
+shapes engineered to remove confounds, and filed a blocker plus a "smear across all
+four lines" consequence. The app never invites a post-stage per-line capacity
+correction. CW-030's identical correction LANDED because it was made in-stage. The
+evidence that it was off-path was in my own runlog and I read past it. The smear was
+not corruption either: with the correction never made, capacity stays at what the
+client actually said and the reconcile factor is the mechanism working. Retracted.
+
+Watch for this failure mode in myself: designing a run's arithmetic to prove a
+number BEFORE checking whether a client could reach the state that produces it.
+
+## The mechanism: the app's QUESTION SET bounds the input space
+
+The reason the guided path is the boundary is that the app asks for ONE specific
+thing at a time, and the client answers THAT thing. A client cannot hand the app an
+input its questions never asked for. So the test surface is finite and enumerable:
+
+  FOR EACH QUESTION THE APP ASKS, test the realistic range of answers to THAT
+  question — the plain value; a plain-language version of it; a number written as
+  words; "not sure" / "roughly" / a range; an explicit negative ("none", "not
+  recently") with context attached; a correction WHERE that question invites one;
+  and a multi-part answer IF the question invites multiple values.
+
+  DO NOT invent inputs no question would elicit. If no question the app asks would
+  produce a given input shape, a real client cannot produce it. Out of scope.
+
+The distinction, worked:
+  - "Do those match your actual costs per line? Correct any of them on their own..."
+    -> "Plants 46%, hardgoods 73%, install 17%, design 3%" in one message is IN
+       SCOPE. The question invited four values, so four is a realistic answer.
+    -> a 100-value dump is OUT OF SCOPE. No question asked for it.
+  - corrections: test one WHERE the app invites it. Do not manufacture a correction
+    the app never offered. (This is exactly where A-113 went wrong: no question in
+    the financials sequence invites revisiting a per-line capacity.)
+
+Practical consequence for run design: before probing, name the question being
+answered. If I cannot name it, I am off-path and should stop. "Which question does
+this answer?" is the cheapest reachability check I have, and it is the one I skipped.
+
+## Disposition rule: retract only on evidence, flag on doubt
+
+"Off-path" must be VERIFIABLE, never convenient. Retraction is the self-serving
+direction — it removes a finding I might be wrong about and shrinks my own work —
+so it carries a HIGHER burden of proof than filing, not a lower one.
+
+  RETRACT  only when I can NAME the reason the app never leads there, in a form
+           someone else can check against the actual flow.
+           A-113: "no question in the financials sequence invites revisiting a
+           per-line capacity" — checkable, and checked. That is the standard.
+  FLAG     whenever it is AMBIGUOUS whether the app invites the sequence. Hand it
+           to VS to verify against the real flow. Keep the severity, mark the doubt.
+           A-116 (correction sent while a stage question is pending) is the model:
+           plausibly on-path if the app's own phrasing invites it, off-path if it
+           re-opens something closed — so flagged, not dismissed.
+  NEVER    retract on suspicion, on "a client probably wouldn't", or because the
+           finding is inconvenient, expensive, or embarrassing to have filed.
+
+Test before retracting: could I write the reason as a sentence VS can check against
+the flow in under a minute? If not, it is a flag, not a retraction.
+
+The boundary is a checkable principle, not a licence to wave off a real bug. The
+failure mode on this side is the mirror of the A-113 one: there I proved a number
+before checking reachability; here the risk is declaring unreachability before
+proving it. Both are the same error — asserting ahead of the evidence.
+
+Standing hygiene: when a classification pass touches the board, state exactly which
+rows moved and verify nothing else was quietly downgraded alongside them.
