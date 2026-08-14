@@ -3531,18 +3531,35 @@ def _build_financials_stage_acknowledgement_first(
   *,
   stage_name: str,
   financials_json: Dict[str, Any],
+  user_message: str = "",
 ) -> str:
   """Layer 2 preference order: the acknowledgment BUILT FROM THE APPLIED
   VALUES wins; the router's free prose is fallback only. Prose is a
   sibling output of the interpretation call and can quote a figure the
   whitelist dropped - the applied-values ack cannot, because it reads the
-  post-write state."""
+  post-write state.
+
+  CW-033 M1 (mini's A4b, live): the fallback itself carried the defect -
+  the router's free prose shipped "Got it -- I'll update the hard goods
+  checkout ticket price to 99" on a turn that wrote nothing of the kind
+  (the ops figure was the redirect door's, the stage wrote no field).
+  F1(b) at this layer: the fallback may never out-claim the receipt.
+  Prose that claims a write or acknowledges a figure the client stated
+  this turn dies here; the write-derived ack (or the bare "Got it.")
+  ships instead."""
   code_ack = _build_financials_stage_acknowledgement(
     stage_name=stage_name, financials_json=financials_json,
   )
   if code_ack and code_ack != "Got it.":
     return code_ack
-  return str(router_text or "").strip() or code_ack
+  _prose = str(router_text or "").strip()
+  if _prose and (
+    _WRITE_CLAIM_RE.search(_prose)
+    or _prose_acks_unwritten_figure(
+      prose=_prose, user_message=str(user_message or ""))
+  ):
+    return code_ack
+  return _prose or code_ack
 
 
 def _build_financials_live_turn(
@@ -6971,6 +6988,15 @@ def _apply_cross_section_driver_correction(
     else:
       new_value = None
   if leaf is None or new_value is None:
+    if isinstance(report, dict) and leaf is not None:
+      # CW-033 M1: even a detection whose value could not be derived owns
+      # its figures - the wrapper threads them so a misread router patch
+      # cannot re-land or re-speak them through the stage half.
+      report["consumed_figures"] = [
+        *([float(current)] if current is not None else []),
+        *[float(v) for v in _not_vals],
+        *[float(c) for c in (cands or [])],
+      ]
     return None
   if isinstance(report, dict):
     # CW-033 A-113: the caller threads these into the unlanded-figure
@@ -7030,6 +7056,7 @@ def _guard_underivable_ops_lever_writes(
   ops_after: Dict[str, Any],
   user_message: str,
   last_assistant: str = "",
+  extra_derivable: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
   """CW-017 (c): the 196 leak - mid-intake ops LEVER writes get the same
   derivability rule as financials (CW-015): a price/capacity/utilization
@@ -7049,6 +7076,11 @@ def _guard_underivable_ops_lever_writes(
       + _message_figures(str(last_assistant or ""))
     ) if f and f > 0
   ]
+  # CW-033 M3: a value the caller PROVES derived from the client's figure
+  # (the cadence conversion's canonical result) counts as stated.
+  figures.extend(
+    float(f) for f in (extra_derivable or []) if isinstance(f, (int, float))
+  )
   _msg_l = str(user_message or "").strip().lower()
   zero_stated = _message_expresses_zero(_msg_l) or (
     bool(_AFFIRMATION_SHAPE_RE.search(_msg_l))
@@ -8344,6 +8376,28 @@ _CAPEX_EXCLUSION_RE = re.compile(
 )
 
 
+_CAPEX_CARVEOUT_RE = re.compile(
+  r"\bbut (?:we|i) did\b|\bexcept\b|\bapart from\b|\bother than\b|"
+  r"\baside from\b"
+)
+
+
+def _capex_carveout_figure(user_message: str) -> Optional[float]:
+  """CW-033 B3 (mini, live): the ONE figure a negative-lead capex answer
+  states INSIDE its carve-out clause ('none of it this year - but we did
+  spend 15,000 on a mower'). None when there is no negative lead, no
+  carve-out, no figure after it, or more than one distinct figure after
+  it (ambiguous - the normal capture rules stand)."""
+  msg = str(user_message or "").strip().lower()
+  if not msg or not _CAPEX_NEGATIVE_LEAD_RE.search(msg):
+    return None
+  m = _CAPEX_CARVEOUT_RE.search(msg)
+  if not m:
+    return None
+  figs = [f for f in _message_figures(msg[m.end():]) if f > 0]
+  return float(figs[0]) if len(set(figs)) == 1 else None
+
+
 def _capex_answer_expresses_none(user_message: str) -> bool:
   """CW-033 A-115(b): 'Not recently, no. ... about 380,000 worth of
   trucks ... none of it was bought this year' is an explicit NO to the
@@ -8353,11 +8407,21 @@ def _capex_answer_expresses_none(user_message: str) -> bool:
   True when the answer leads with a negative AND either names the
   exclusion or carries no figure at all. A correction shape ('No wait,
   it was 380,000') never matches - the negative-lead lookahead blocks
-  wait/actually/hold."""
+  wait/actually/hold.
+
+  CW-033 B3 (mini, live): a negative lead that ALSO states a real
+  purchase in a carve-out clause ('No, none of it was bought this year -
+  but we did spend 15,000 on a mower back in January') is NOT a none
+  answer - forcing 0 killed the mower's 15,000 on a solicited answer.
+  The carve-out figure is the capex; the excluded base still cannot
+  land (the normalizer scopes the numeric to the carve-out clause)."""
   msg = str(user_message or "").strip().lower()
   if not msg:
     return False
   if not _CAPEX_NEGATIVE_LEAD_RE.search(msg):
+    return False
+  _carve = _CAPEX_CARVEOUT_RE.search(msg)
+  if _carve and _message_figures(msg[_carve.end():]):
     return False
   if _CAPEX_EXCLUSION_RE.search(msg):
     return True
@@ -8515,6 +8579,21 @@ def _normalize_financials_router_patch(
         next_financials[field_name] = 0.0
         touched.add(field_name)
         continue
+      # CW-033 B3: a but-we-did carve-out scopes the landing numeric to
+      # the POST-carve-out clause - the router can capture the excluded
+      # base ('none of it this year, we've got about 380,000 sitting
+      # there - but we did spend 15,000 on a mower') or a forced 0, and
+      # either way the carved-out purchase is the capex the client
+      # stated. The excluded figure still cannot land.
+      _carve_fig = _capex_carveout_figure(user_message)
+      if _carve_fig is not None and abs(float(numeric) - _carve_fig) > max(
+        0.01, 1e-6 * abs(_carve_fig)
+      ):
+        logger.info(
+          "CAPEX_CARVEOUT_SCOPED value=%r -> %r (landing numeric scoped "
+          "to the post-carve-out clause)", raw_value, _carve_fig,
+        )
+        numeric = _carve_fig
       next_financials[field_name] = float(numeric)
       touched.add(field_name)
       continue
@@ -9546,6 +9625,87 @@ def _infer_figure_landing(
   return {"key": best[1], "value": fig, "label": best[2], "attributed": False}
 
 
+_STATED_CADENCE_RES: Tuple[Tuple[str, Any], ...] = (
+  ("week", re.compile(r"\b(?:a|per|each|every)\s+week\b|\bweekly\b")),
+  ("month", re.compile(r"\b(?:a|per|each|every)\s+month\b|\bmonthly\b")),
+  ("year", re.compile(
+    r"\b(?:a|per|each|every)\s+year\b|\bannually\b|\byearly\b|\bper annum\b")),
+  ("day", re.compile(r"\b(?:a|per|each|every)\s+day\b|\bdaily\b")),
+)
+_CADENCE_PER_YEAR = {"week": 52.0, "month": 12.0, "year": 1.0}
+
+
+def _stated_capacity_cadence(text: str) -> str:
+  """CW-033 M3: the cadence the client's own words attach to a capacity
+  figure. Returns the one stated cadence name, '' when none is stated,
+  or 'mixed' when the text states more than one (ambiguous - the caller
+  must ask, never pick)."""
+  t = str(text or "").lower()
+  hits = [name for name, rx in _STATED_CADENCE_RES if rx.search(t)]
+  if not hits:
+    return ""
+  return hits[0] if len(hits) == 1 else "mixed"
+
+
+def _reconcile_stated_capacity_cadence(
+  *, value: float, message: str, row: Dict[str, Any], leaf: str,
+) -> Dict[str, Any]:
+  """CW-033 M3 (mini's D3, live on Sumac): 'capacity should be 40 a week,
+  not 34' on a contract row (12 operating periods/yr) wrote period=40 and
+  the model then held 9.23 a week - the STATED cadence was discarded in
+  favour of row cadence, and the receipt ('Recorded: capacity 40') hid
+  the misread from the client. The stated cadence is PART of the stated
+  number: matching cadence lands as today; a differing one CONVERTS into
+  the canonical cell (40/wk -> 40*52/12 = 173.33/period); an ambiguous
+  one ASKS. The receipt always speaks the client's own cadence.
+
+  Returns {'value': canonical_value, 'spoken': receipt_text_or_'',
+  'converted': bool} on a landing, or {'ask': question_text} when the
+  stated cadence cannot be converted safely."""
+  stated = _stated_capacity_cadence(message)
+  vf = float(value)
+  if not stated:
+    return {"value": vf, "spoken": "", "converted": False}
+  _periods = _safe_float(row.get("operating_periods_per_year"))
+  if leaf == "units_per_week_capacity":
+    _canon_per_year = 52.0
+    _canon_unit = "week"
+  else:
+    _canon_per_year = _periods if _periods and _periods > 0 else None
+    _cad_word = str(row.get("unit_cadence") or "period").strip().lower()
+    _canon_unit = (
+      f"operating period ({_periods:.0f} a year)"
+      if _periods and _periods > 0 else _cad_word
+    )
+  _ask = (
+    "Quick check on that capacity change so I don't record the wrong "
+    "number: this line is modeled per "
+    f"{_canon_unit} - tell me the capacity per {_canon_unit} "
+    "(or restate it with one clear cadence, like '40 a week') and "
+    "I'll set it."
+  )
+  if stated == "mixed" or stated not in _CADENCE_PER_YEAR:
+    # More than one cadence in the message, or a cadence with no safe
+    # annualization (daily needs an operating-days basis nobody stores).
+    return {"ask": _ask}
+  if _canon_per_year is None:
+    # A per-period row with no usable operating_periods_per_year cannot
+    # convert a stated cadence - asking beats guessing.
+    return {"ask": _ask}
+  _canon_val = vf * _CADENCE_PER_YEAR[stated] / _canon_per_year
+  _spoken_cad = {"week": "a week", "month": "a month", "year": "a year"}[stated]
+  if abs(_canon_val - vf) <= max(1e-6, 0.001 * abs(vf)):
+    return {"value": vf, "spoken": f"{vf:,.0f} {_spoken_cad}", "converted": False}
+  return {
+    "value": round(float(_canon_val), 4),
+    "spoken": (
+      f"{vf:,.0f} {_spoken_cad} (about {_canon_val:,.1f} per "
+      f"{_canon_unit} as this line is modeled)"
+    ),
+    "converted": True,
+  }
+
+
 def _strip_suppressed_ops_move(
   move: Optional[Dict[str, Any]], suppress: bool,
 ) -> Optional[Dict[str, Any]]:
@@ -9610,8 +9770,20 @@ def _apply_forward_move(
     return None
 
   _retention_ask = ""
+  _cap_spoken = ""
   _before_val = _target_value_now(next_financials, shared)
   _val_f = _safe_float(val)
+  if (
+    _before_val is not None and _val_f is not None
+    and key.split(".", 1)[-1] in (
+      "units_per_period_capacity", "units_per_week_capacity")
+    and _stated_capacity_cadence(user_message)
+  ):
+    # CW-033 M3: a stated cadence can make a raw value-match a real
+    # change ("40 a week" against a stored per-period 40) - whenever the
+    # message states any cadence, the cadence-aware ops branch below
+    # owns the comparison and the raw no-op check stands aside.
+    _before_val = None
   if (_before_val is not None and _val_f is not None
       and abs(_before_val - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
     # CW-029 rider #4 (Nick-approved): a write that leaves the stored
@@ -9627,6 +9799,31 @@ def _apply_forward_move(
     )
     landed = True
   elif key.startswith("ops."):
+    # CW-033 M2 (mini's D1, live): the redirect DETECTOR requires the
+    # words capacity/price/utilization, but this door's own figure rules
+    # understand "7 jobs a week" - a keywordless wording landed an ops
+    # lever MID-INTERVIEW with a "Recorded:" receipt and no redirect,
+    # re-opening the off-path landing Nick retracted (A-113) through the
+    # back door. THE BOUNDARY DECISION LIVES WHERE THE WRITE IS: while a
+    # financials stage is still active, an ops move REFUSES with the
+    # same honest redirect the wrapper speaks - whatever wording carried
+    # it here, detector or no detector. At the wall (no active stage)
+    # corrections land unchanged (CW-026 machinery untouched).
+    try:
+      _stage_active_now = _next_financials_stage(
+        _ensure_financials_stage_defaults(dict(next_financials))
+      )
+    except Exception:
+      _stage_active_now = None
+    if _stage_active_now:
+      _leaf_lbl = {
+        "unit_price": "price", "utilization_rate": "utilization",
+      }.get(key.split(".", 1)[1], "capacity")
+      return next_financials, shared, (
+        f"One note: I haven't changed any operations {_leaf_lbl} from "
+        "here - those numbers were set in the operations step, and the "
+        "model still uses what we agreed there."
+      )
     # UNIVERSAL ENGINE phase 1 (the Fernhill persist-seam fix): the
     # mover operated on a COPY of the shared ops - it applied and
     # persisted correctly, then a later persist in the same turn
@@ -9722,9 +9919,22 @@ def _apply_forward_move(
         _tli, _tpi, _trow = _rows_all[0]
       # Capacity writes land on the CANONICAL cell for the TARGET row's
       # cadence (the old code read the FIRST row's cadence).
+      _cap_converted = False
       if _field in ("units_per_period_capacity", "units_per_week_capacity"):
         _field = _capacity_canonical_field(str(_trow.get("unit_cadence") or ""))
         key = "ops." + _field
+        # CW-033 M3: the stated cadence is part of the stated number -
+        # convert into the canonical cell or ask; never silently re-base.
+        if _val_f is not None:
+          _cadr = _reconcile_stated_capacity_cadence(
+            value=float(_val_f), message=str(user_message or ""),
+            row=_trow, leaf=_field,
+          )
+          if _cadr.get("ask"):
+            return next_financials, shared, str(_cadr["ask"])
+          _val_f = _safe_float(_cadr.get("value"))
+          _cap_spoken = str(_cadr.get("spoken") or "")
+          _cap_converted = bool(_cadr.get("converted"))
       # No-op check against the RESOLVED row.
       _row_before = _safe_float(_trow.get(_field))
       if (_row_before is not None and _val_f is not None
@@ -9739,6 +9949,11 @@ def _apply_forward_move(
         _ops_new = _guard_underivable_ops_lever_writes(
           ops_before=_ops_before, ops_after=_ops_new,
           user_message=user_message, last_assistant=last_assistant,
+          # CW-033 M3: a cadence-converted capacity (40/wk -> 173.33 per
+          # period) IS derived from the client's own figure, by the
+          # row's own documented cadence math - declared to the guard so
+          # the conversion is not reverted as underivable.
+          extra_derivable=[float(_val_f)] if _cap_converted else None,
         )
       except Exception:
         pass
@@ -9844,7 +10059,10 @@ def _apply_forward_move(
       next_financials = normalized
       landed = True
   if key.endswith(("units_per_period_capacity", "units_per_week_capacity")):
-    _fmt = f"{float(val):,.0f}"
+    # CW-033 M3: the receipt speaks the client's own cadence ("40 a
+    # week"), with the modeled per-period figure disclosed when the
+    # landing converted - never a bare number in the app's cadence.
+    _fmt = _cap_spoken or f"{float(val):,.0f}"
   elif key.endswith("owner_pay_monthly"):
     _fmt = f"{_format_currency(float(val))} a month"
   else:
@@ -10009,6 +10227,17 @@ def _unlanded_figures_disclosure(
   # rather than transported so every disclosure call in the turn agrees.
   if _capex_answer_expresses_none(user_message):
     _door_refs.extend(f for f in _message_figures(user_message) if f > 0)
+  else:
+    _carve_ref = _capex_carveout_figure(user_message)
+    if _carve_ref is not None:
+      # CW-033 B3: a carve-out capex answer's OTHER figures are the
+      # excluded base ('...380,000 sitting there - but we did spend
+      # 15,000...') - descriptive references, never values hunting for
+      # a home. Only the carve-out figure itself may land.
+      _door_refs.extend(
+        f for f in _message_figures(user_message)
+        if f > 0 and abs(f - _carve_ref) > max(0.01, 1e-6 * abs(_carve_ref))
+      )
   _unl = fin.get("_unlanded_note")
   _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
   if _figs and _door_refs:
@@ -10198,7 +10427,26 @@ def _run_financials_turn_and_sync_inner(
   financials_year1_json: Dict[str, Any],
   extra_reference_figures: Optional[List[float]] = None,
   suppress_ops_moves: bool = False,
+  redirect_consumed_figures: Optional[List[float]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  # CW-033 M1 (mini's A4b): figures the redirect consumed are references
+  # for the WHOLE turn - never re-landable and never re-noteable. The
+  # redirect door owns them; the stage half may not speak them.
+  _redirect_figs = [
+    float(f) for f in (redirect_consumed_figures or [])
+    if isinstance(f, (int, float))
+  ]
+  if _redirect_figs:
+    extra_reference_figures = [
+      *(extra_reference_figures or []), *_redirect_figs,
+    ]
+
+  def _echoes_redirect_figure(v: Any) -> bool:
+    _vf2 = _safe_float(v)
+    return _vf2 is not None and any(
+      abs(_vf2 - c) <= max(0.01, 1e-6 * abs(c)) for c in _redirect_figs
+    )
+
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
@@ -10405,6 +10653,17 @@ def _run_financials_turn_and_sync_inner(
   action = str(routed.get("action") or "").strip()
   assistant_message = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
   patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+  if suppress_ops_moves and _redirect_figs and isinstance(patch, dict) and patch:
+    # CW-033 M1 (mini's A4b): on a redirect turn the ops figure belongs
+    # to the redirect - the router misread the bare 99 as a RENT change
+    # and the stage half then wrote a phantom "couldn't apply your rent
+    # change" note about it. A patch value that echoes a figure the
+    # redirect consumed IS that misread: dropped here, before the doors
+    # and the normalizer, so neither a write nor a say-do note can
+    # speak it.
+    patch = {
+      k: v for k, v in patch.items() if not _echoes_redirect_figure(v)
+    } or None
   cash_strategy_mode = _cash_strategy_decision_mode(last_assistant) if active_stage == "cash_strategy" else ""
   _door_ack = ""
   _people_keys: Dict[str, Any] = {}
@@ -10538,6 +10797,7 @@ def _run_financials_turn_and_sync_inner(
         return next_turn, updated_financials
 
   if action == "edit_patch" and isinstance(patch, dict) and patch:
+    _orig_patch_vals = {str(k).split(".", 1)[-1]: v for k, v in patch.items()}
     _patch_report: Dict[str, Any] = {}
     normalized_patch = _normalize_financials_router_patch(
       patch=patch,
@@ -10555,8 +10815,29 @@ def _run_financials_turn_and_sync_inner(
       acknowledgement = _build_financials_stage_acknowledgement_first(assistant_message,
         stage_name=active_stage,
         financials_json=normalized_patch,
+        user_message=user_message,
       )
       _dropped = list(_patch_report.get("dropped") or [])
+      if suppress_ops_moves and _dropped:
+        # CW-033 M1: on a redirect turn a dropped field earns a say-do
+        # note only when the client actually STATED the figure the router
+        # tried to write there - a note born of a misread ("I haven't
+        # recorded other operating costs yet" on a price-correction turn)
+        # is phantom and never ships.
+        _msg_fig_targets: List[float] = []
+        for _mf in _message_figures(str(user_message or "")):
+          _msg_fig_targets.extend((_mf, _mf * 100.0, _mf / 100.0))
+        _kept_notes: List[str] = []
+        for _df in _dropped:
+          _pv = _safe_float(_orig_patch_vals.get(_df))
+          if _pv is None or _echoes_redirect_figure(_pv):
+            continue
+          if any(
+            abs(_pv - _t) <= max(0.005, 0.005 * abs(_t))
+            for _t in _msg_fig_targets
+          ):
+            _kept_notes.append(_df)
+        _dropped = _kept_notes
       if _dropped:
         _note = _unapplied_fields_note(_dropped, active_stage=str(active_stage or ""))
         if _note:
@@ -10572,6 +10853,23 @@ def _run_financials_turn_and_sync_inner(
         f for f in (_patch_report.get("applied") or [])
         if f not in _stage_targets
       ]
+      # CW-033 M1 (mini's A4b): "Also recorded:" is a RECEIPT, and a
+      # receipt speaks only values this turn CHANGED - the router echoed
+      # three on-file values back through the patch and the reply spoke
+      # them as newly recorded (cogs total, current revenue, marketing %
+      # - none moved). A no-op write is not a landing (CW-029 rider #4,
+      # the same law the forward mover already enforces).
+      _extra_changed: List[str] = []
+      for _xf0 in _extra_applied:
+        _nv0 = _safe_float(normalized_patch.get(_xf0))
+        _ov0 = _safe_float(next_financials.get(_xf0))
+        if (_nv0 is not None and _ov0 is not None
+            and abs(_nv0 - _ov0) <= max(0.005, 0.001 * abs(_nv0))):
+          continue
+        if _nv0 is None and normalized_patch.get(_xf0) == next_financials.get(_xf0):
+          continue
+        _extra_changed.append(_xf0)
+      _extra_applied = _extra_changed
       if _extra_applied:
         # CW-032 #143: a RATIO field spoken through _format_currency reads
         # "cogs percent of revenue $1" (0.5042 rounded to a dollar). The
@@ -10656,6 +10954,7 @@ def _run_financials_turn_and_sync_inner(
             assistant_message,
             stage_name=active_stage,
             financials_json=normalized_patch,
+            user_message=user_message,
           )
           # CW-025 rank-1 + CW-026 forward move on every landed branch.
           normalized_patch, _unused_txt, _pmove = _unlanded_figures_disclosure(
@@ -10702,6 +11001,15 @@ def _run_financials_turn_and_sync_inner(
     user_message=user_message,
     financials_year1_json=financials_year1_json,
   )
+  if suppress_ops_moves and _redirect_figs and isinstance(fallback_patch, dict):
+    # CW-033 M1: the deterministic fallback parses the raw message, so on
+    # a redirect turn it would re-land the redirect's own figure as the
+    # stage answer (rent = 99). Same jurisdiction rule as the router
+    # patch above.
+    fallback_patch = {
+      k: v for k, v in fallback_patch.items()
+      if not _echoes_redirect_figure(v)
+    } or None
   if isinstance(fallback_patch, dict) and fallback_patch:
     normalized_patch = _normalize_financials_router_patch(
       patch=fallback_patch,
@@ -10718,6 +11026,7 @@ def _run_financials_turn_and_sync_inner(
       acknowledgement = _build_financials_stage_acknowledgement_first(assistant_message,
         stage_name=active_stage,
         financials_json=normalized_patch,
+        user_message=user_message,
       )
       # CW-025 rank-1 + CW-026 forward move on every landed branch.
       normalized_patch, _unused_txt, _pmove = _unlanded_figures_disclosure(
@@ -10828,12 +11137,23 @@ def _run_financials_turn_and_sync_inner(
   _prose_claims_figure = _prose_acks_unwritten_figure(
     prose=str(assistant_message or ""), user_message=str(user_message or ""),
   )
+  _figure_is_redirects_own = False
+  if _prose_claims_figure and suppress_ops_moves and _redirect_figs:
+    _stated_m1 = [f for f in _message_figures(str(user_message or "")) if f > 0]
+    if _stated_m1 and all(_echoes_redirect_figure(f) for f in _stated_m1):
+      # CW-033 M1: every stated figure is the redirect's own - the
+      # redirect sentence already tells the client exactly what happened
+      # to it, so the failed-change register ("I haven't recorded that
+      # figure - tell me which field...") would only re-open the door
+      # the redirect just closed. The standing question ships instead.
+      # (The prose ship gate below still blocks the router prose itself.)
+      _figure_is_redirects_own = True
   if action in ("answer_readonly", "confirm_clarify") and assistant_message \
      and not _prose_claims_write and not _prose_claims_figure:
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
-  if _prose_claims_figure and not _door_ack:
+  if _prose_claims_figure and not _figure_is_redirects_own and not _door_ack:
     # Deterministic on purpose: the naturalizer sees the user message, and
     # handing it a turn whose defect is a manufactured acknowledgment is how
     # the claim comes back in warmer words.
@@ -10924,6 +11244,13 @@ def _run_financials_turn_and_sync(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     suppress_ops_moves=_redirect_pending,
+    # CW-033 M1: the detected correction's own figures ride along so the
+    # stage half can neither re-land nor re-speak them (the router
+    # misread "99" as a rent change; the phantom note and the false
+    # "Also recorded" both grew from that misread).
+    redirect_consumed_figures=(
+      list(_rep.get("consumed_figures") or []) if _redirect_pending else None
+    ),
   )
   if _redirect_pending:
     # The honest redirect LEADS the reply: the client hears, in the same

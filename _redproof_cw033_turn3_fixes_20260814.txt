@@ -1,0 +1,58 @@
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9977, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9977, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+[PASS] M2a mid-interview ops move REFUSES with the redirect -- One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+[PASS] M2b mid-interview: NOTHING written (install still 5) -- 5
+[PASS] M2c WALL control: the same correction LANDS (wk 7) -- {'product_name': 'Landscaping/installation job', 'unit_name': 'Landscaping/installation job', 'unit_description': 'One landscaping or installation job for a client property, regardless of how many days on site or how many plants/hardscape materials are involved', 'unit_cadence': 'weekly', 'units_per_week_capacity': 7.0, 'units_per_period_capacity': 7.0, 'operating_periods_per_year': 52, 'utilization_rate': 0.66, 'unit_price': 2400, 'cogs_percent_of_line_revenue': 0.17}
+[PASS] M2d WALL control: twins agree (period 7) -- {'product_name': 'Landscaping/installation job', 'unit_name': 'Landscaping/installation job', 'unit_description': 'One landscaping or installation job for a client property, regardless of how many days on site or how many plants/hardscape materials are involved', 'unit_cadence': 'weekly', 'units_per_week_capacity': 7.0, 'units_per_period_capacity': 7.0, 'operating_periods_per_year': 52, 'utilization_rate': 0.66, 'unit_price': 2400, 'cogs_percent_of_line_revenue': 0.17}
+[PASS] M2e WALL receipt speaks the client's cadence (7 a week) -- Recorded: Landscaping/installation job capacity 7 a week.
+[PASS] M3a '40 a week' on a contract row converts (period 173.33) -- 173.3333
+[PASS] M3b the derived week twin now says what the client said (40/wk) -- 40.0
+[PASS] M3c the receipt speaks the client's own cadence -- Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+[PASS] M3d the receipt discloses the modeled per-period figure -- Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+[PASS] M3e an unconvertible cadence ASKS instead of writing -- Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operati
+[PASS] M3f ask branch wrote nothing (period still 34) -- 34
+[PASS] M3g 'a month' on a 12-period row is identity (no conversion) -- {'value': 40.0, 'spoken': '40 a month', 'converted': False}
+[PASS] M3h '480 a year' converts to 40/period -- {'value': 40.0, 'spoken': '480 a year (about 40.0 per operating period (12 a year) as this line is modeled)', 'converted': True}
+[PASS] M3i two cadences in one message ASKS -- {'ask': "Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it with one clear cadence, like '40 a week') and I'll set it."}
+[PASS] M1a router prose claiming a write never ships as the ack -- Got it.
+[PASS] M1b benign prose without a write-claim still ships -- Thanks - noted, and one thought on positioning.
+[PASS] B3a a but-we-did answer is NOT a none-answer -- No, none of it was bought this year - but we did spend 15,00
+[PASS] B3d the plain explicit-no still expresses none (A-115b intact) -- Not really, no. Over the years we've built up about 380,000 
+[PASS] B3e 'No wait' correction still never matches none
+[PASS] B3b the carve-out figure is the mower's 15,000 -- 15000.0
+[PASS] B3c both-halves message: carve-out figure is 15,000 (not 380k) -- 15000.0
+[PASS] B3f router-captured 380k is SCOPED to the carved-out 15,000 -- 15000.0
+[PASS] B3g a router-forced 0 is corrected to the carved-out 15,000 -- 15000.0
+[PASS] B3h the plain explicit-no still stores 0 -- 0.0
+
+RESULT: GREEN - all 24 checks passed

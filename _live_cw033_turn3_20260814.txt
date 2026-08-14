@@ -1,0 +1,75 @@
+W1 - M1/A4b: the price-change redirect turn, full-reply honesty
+
+W1 FULL REPLY < [200]
+One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it.
+
+What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?
+
+  [PASS] W1 live turn 200: 200
+  [PASS] W1 price did NOT change: {'wk': 165, 'period': 165, 'price': 95, 'util': 0.57}
+  [PASS] W1 rows byte-equal
+  [PASS] W1 the honest redirect leads: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we
+  [PASS] W1 NO ack of the suppressed change
+  [PASS] W1 NO phantom rent note
+  [PASS] W1 NO phantom other-operating-costs note
+  [PASS] W1 NO false 'Also recorded' of on-file values
+  [PASS] W1 no retention stamp
+
+W2 - M2/D1: keywordless capacity correction mid-interview
+
+W2 FULL REPLY < [200]
+One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there. What other monthly debt-payment amount should I record?
+
+  [PASS] W2 live turn 200: 200
+  [PASS] W2 NO ops write anywhere mid-interview: {'wk': 5, 'period': 5, 'price': 2400, 'util': 0.66}
+  [PASS] W2 the redirect is spoken (door or wrapper): One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there. Wh
+  [PASS] W2 no fabricated receipt
+
+W3 - M3/D3: '40 a week, not 34' on Sumac's contract row at the wall
+  [NOTE] W3 Sumac rows before: {'Property contract': {'wk': 34, 'period': 34, 'price': 520, 'util': 0.82}}
+
+W3 FULL REPLY < [200]
+Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $886,912 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+  [NOTE] W3 Sumac rows after: {'Property contract': {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}}
+  [PASS] W3 live turn 200: 200
+  [PASS] W3 the stated cadence CONVERTS (period 173.33): {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] W3 the week twin now says what the client said (40/wk): {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] W3 the reply speaks the client's own cadence: Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doe
+
+W4 - D2 control: weekly install row at the wall still lands 7/7
+
+W4 FULL REPLY < [200]
+Recorded: Landscaping/installation job capacity 7 a week.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $241,225 (28.4% of revenue), that stress figure actually sits above the 6.0%-13.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 13.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $35,162 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] W4 live turn 200: 200
+  [PASS] W4 wall landing intact (wk 7): {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66}
+  [PASS] W4 twins agree (period 7): {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66}
+  [PASS] W4 other rows byte-equal
+
+W5 - B3: the but-we-did capex carve-out, both halves
+
+W5 FULL REPLY < [200]
+Got it - I'll use $15,000 for current capital spending. (One note: I haven't recorded initial assets yet — we'll get to that in a moment.)
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+
+  [PASS] W5 live turn 200: 200
+  [PASS] W5 the mower's 15,000 IS the capex: 15000.0
+  [PASS] W5 the excluded 380,000 landed NOWHERE in financials: []
+  [PASS] W5 380,000 not smuggled into people
+
+W5b (control) < [200] Got it - I'll use $0 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+  [PASS] W5b the plain explicit-no still stores 0 (A-115b intact): 0.0
+
+RESULT: GREEN - all live checks passed

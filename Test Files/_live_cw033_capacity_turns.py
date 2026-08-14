@@ -109,6 +109,13 @@ def make_clone(conn, tag, msg_cut, strip_fields):
     fin = json.loads(src["financials_json"] or "{}")
     for f in strip_fields:
         fin.pop(f, None)
+    # CW-033 clone hygiene (mini's finding): the SOURCE draft carries a
+    # STALE retention_pending frame stamped by the original PRE-FIX run
+    # at [78] - a rewind clone inherits it and every retention check
+    # false-fails against the baseline. Strip it at clone time.
+    _coh = fin.get("_coherence")
+    if isinstance(_coh, dict):
+        _coh.pop("retention_pending", None)
     overrides = {
         "draft_id": clone_id,
         "client_id": client_id,
@@ -267,7 +274,10 @@ def main() -> int:
               str({k: v[2] for k, v in after6.items()}))
         check("L6 reply never says 'Recorded: unit price'",
               "unit price" not in reply6.lower(), reply6[:120])
-        _coh = fin6.get("intake_coherence") or {}
+        # Re-pointed (mini's audit): the REAL home is financials._coherence
+        # (section.py get_state); "intake_coherence" never exists, so the
+        # old read was vacuously green.
+        _coh = fin6.get("_coherence") or {}
         _rt = _coh.get("retention_pending") if isinstance(_coh, dict) else None
         check("L6 retention_pending NOT stamped",
               not _rt and not fin6.get("retention_pending"),

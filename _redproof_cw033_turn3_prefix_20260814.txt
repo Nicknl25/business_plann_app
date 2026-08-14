@@ -1,0 +1,96 @@
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9762, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9762, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9762, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 9762, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+[FAIL] M2a mid-interview ops move REFUSES with the redirect -- Recorded: Landscaping/installation job capacity 7.
+[FAIL] M2b mid-interview: NOTHING written (install still 5) -- 7.0
+[PASS] M2c WALL control: the same correction LANDS (wk 7) -- {'product_name': 'Landscaping/installation job', 'unit_name': 'Landscaping/installation job', 'unit_description': 'One landscaping or installation job for a client property, regardless of how many days on site or how many plants/hardscape materials are involved', 'unit_cadence': 'weekly', 'units_per_week_capacity': 7.0, 'units_per_period_capacity': 7.0, 'operating_periods_per_year': 52, 'utilization_rate': 0.66, 'unit_price': 2400, 'cogs_percent_of_line_revenue': 0.17}
+[PASS] M2d WALL control: twins agree (period 7) -- {'product_name': 'Landscaping/installation job', 'unit_name': 'Landscaping/installation job', 'unit_description': 'One landscaping or installation job for a client property, regardless of how many days on site or how many plants/hardscape materials are involved', 'unit_cadence': 'weekly', 'units_per_week_capacity': 7.0, 'units_per_period_capacity': 7.0, 'operating_periods_per_year': 52, 'utilization_rate': 0.66, 'unit_price': 2400, 'cogs_percent_of_line_revenue': 0.17}
+[FAIL] M2e WALL receipt speaks the client's cadence (7 a week) -- Recorded: Landscaping/installation job capacity 7.
+[FAIL] M3a '40 a week' on a contract row converts (period 173.33) -- 40.0
+[FAIL] M3b the derived week twin now says what the client said (40/wk) -- 9.2308
+[FAIL] M3c the receipt speaks the client's own cadence -- Recorded: capacity 40.
+[FAIL] M3d the receipt discloses the modeled per-period figure -- Recorded: capacity 40.
+[FAIL] M3e an unconvertible cadence ASKS instead of writing -- Recorded: capacity 40.
+[FAIL] M3f ask branch wrote nothing (period still 34) -- 40.0
+[FAIL] M3g/M3h/M3i cadence reconciler exists -- helper absent
+[FAIL] _checks_m1 completed without error -- TypeError("_build_financials_stage_acknowledgement_first() got an unexpected keyword argument 'user_message'")
+[FAIL] B3a a but-we-did answer is NOT a none-answer -- No, none of it was bought this year - but we did spend 15,00
+[PASS] B3d the plain explicit-no still expresses none (A-115b intact) -- Not really, no. Over the years we've built up about 380,000 
+[PASS] B3e 'No wait' correction still never matches none
+[FAIL] B3b/B3c/B3f/B3g carve-out helper exists -- helper absent
+
+RESULT: RED - 13 failing check(s):
+  - M2a mid-interview ops move REFUSES with the redirect
+  - M2b mid-interview: NOTHING written (install still 5)
+  - M2e WALL receipt speaks the client's cadence (7 a week)
+  - M3a '40 a week' on a contract row converts (period 173.33)
+  - M3b the derived week twin now says what the client said (40/wk)
+  - M3c the receipt speaks the client's own cadence
+  - M3d the receipt discloses the modeled per-period figure
+  - M3e an unconvertible cadence ASKS instead of writing
+  - M3f ask branch wrote nothing (period still 34)
+  - M3g/M3h/M3i cadence reconciler exists
+  - _checks_m1 completed without error
+  - B3a a but-we-did answer is NOT a none-answer
+  - B3b/B3c/B3f/B3g carve-out helper exists
