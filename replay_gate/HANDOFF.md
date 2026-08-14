@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 0/16
+TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   NICK RATIFIES THE DRIFT — but re-baselining is CONDITIONAL on a purity
