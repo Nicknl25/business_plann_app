@@ -1,0 +1,6 @@
+﻿[PASS] T1a stale LAST: off-claim retires alone, coherent remainder survives -- ungrouped=['Main / Zed']
+[PASS] T1b stale FIRST: same rows, same law, same outcome -- ungrouped=['Main / Zed'] a='shared:a+b' b='shared:a+b' z=None
+[PASS] T2 stale duplicate-name twin does NOT keep an unearned group -- side_a group=None main_a='shared:alpha+beta' main_b='shared:alpha+beta' ungrouped=['Side / Alpha']
+[PASS] T3 mixed ambiguous+unique composes honestly -- sent='That matches what I have - $9,800 on file and current revenue is $1,553,000.'
+==============================================================================
+4 checks, 0 FAIL

@@ -3186,17 +3186,32 @@ def _apply_per_line_cogs_patch_keys(
         if isinstance(_m, list) and _m:
           _key = frozenset(str(t).strip().lower() for t in _m)
           _parts.setdefault(_key, []).append(e)
+      # THE LEGACY TIER IS A LAW, NOT AN ACCIDENT OF ORDER (round 11, mini's
+      # T1b): the parse-fallback partition used to be created by whichever
+      # legacy row iterated FIRST, and that row joined it even when its own
+      # name was off-claim -- same rows, stale-last retired alone, stale-first
+      # retired everything. The parse partition now comes from the LABEL,
+      # once, before any row is looked at; rows join it only the same way
+      # they join a listed partition: by their name sitting in the key.
+      if not _parts:
+        _parts[frozenset(t for t in _lbl[len("shared:"):].split("+") if t)] = []
       for e in _carrying:
         _m = e["row"].get("cogs_cost_structure_group_members")
         if isinstance(_m, list) and _m:
           continue
         _nm = str(e["product_name"] or e["line_name"]).strip().lower()
         _homes = [k for k in _parts if _nm in k]
-        if len(_homes) == 1:
+        # A LEGACY ROW NEVER ATTACHES TO A PARTITION THAT ALREADY CARRIES ITS
+        # NAME (round 11, mini's T2): a stale label-only twin under a
+        # duplicate product name used to attach to the fresh members
+        # partition and survive with a group it never earned, because the
+        # coherence test compares name SETS and the duplicate disappears in
+        # the dedup. A name already present in the partition means the claim
+        # slot is taken; the twin is stale, not homed.
+        if len(_homes) == 1 and all(
+            _nm != str(x["product_name"] or x["line_name"]).strip().lower()
+            for x in _parts[_homes[0]]):
           _parts[_homes[0]].append(e)
-        elif not _parts:
-          _key = frozenset(t for t in _lbl[len("shared:"):].split("+") if t)
-          _parts.setdefault(_key, []).append(e)
         else:
           _stale.append(e)
       _retire: List[Dict[str, Any]] = list(_stale)

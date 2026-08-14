@@ -2289,3 +2289,81 @@ STILL NICK'S, UNCHANGED: whether naturalization may touch a
 deterministic receipt. Nothing this round moves it -- all three fixes
 are deterministic-sentence or state-coherence changes, which is
 exactly why they were fixable in code without the ruling.
+
+================================================================================
+CW-031 ROUND 12 -- mini's two legacy-tier fixes from the round-13 audit
+================================================================================
+
+Both fixes live in the coherence pass's legacy handling
+(python/api_handlers/intake_consult.py, the partition loop formerly at
+~3182-3201). App-code change is ONE file, two hunks.
+
+FIX 1 -- THE LEGACY TIER IS A LAW, NOT AN ACCIDENT OF ORDER. I took
+mini's SHAPE (a): the parse-fallback partition is derived from the LABEL,
+once per label, BEFORE any row is looked at (created empty when no
+members-carrying partition exists under the label), and legacy rows join
+it exactly the way they join a listed partition -- by their name sitting
+in the key. The old `elif not _parts` branch -- whichever legacy row
+iterated first minted the partition and joined it even off-claim -- is
+GONE, not routed around; there is now a single attach rule for both
+partition kinds.
+
+WHY (a) AND NOT (b): deleting the fallback outright would retire every
+pure-legacy coherent group on its next unrelated write -- a claim that
+HOLDS when read -- which contradicts the ratified retire-only-failing-
+claims principle. Shape (a) keeps that principle for legacy data, keeps
+my redproof 3d/3e AND mini's T1a as written, and still satisfies the
+remove-legacy law's spirit: the order-dependent branch is deleted, and
+what remains is one law. The label parse survives ONLY in the pure-
+legacy tier where no member data exists to consult -- R40's deliberate
+'+' limit, unchanged and documented in the code comment.
+
+FIX 2 -- A LEGACY ROW NEVER ATTACHES TO A PARTITION THAT ALREADY
+CARRIES ITS NAME. The attach condition now refuses when the row's name
+is already present on ANY row in the target partition. Mini's rule said
+"a members-carrying row"; I made it any-row deliberately, so a SECOND
+same-named legacy twin cannot ride in behind a first legacy attach
+either. T2's duplicate-name twin ('Alpha' in the other LOB) now goes
+stale and retires instead of keeping the group it never earned.
+
+RESIDUAL ORDER NOTE, flagged honestly for mini: when TWO same-named
+legacy rows compete for one on-claim slot (pure-legacy tier, duplicate
+name, both in the parsed key), the first in document order attaches and
+the second goes stale. The partition-level outcome is identical either
+way (same surviving name set, one twin retired); WHICH twin keeps the
+label follows row order. Census reach today: 0 label-only rows at all,
+so this is a documented edge, not a live path. If mini wants both
+refused instead, it is a two-line change to the guard.
+
+ALSO WORTH KNOWING: when every legacy row under a label is off-claim,
+the pre-created parse partition ends the pass EMPTY; an empty partition
+retires nothing (its row list is empty) and the off-claim rows go stale
+exactly as before. No behaviour rides on the empty container.
+
+PROOFS (red for the right reason, then green):
+  _redproof_cw031_round12_prefix_20260813.txt   pre-fix HEAD: T1b and T2
+    red on exactly their own reasons, T1a/T3 green -- mini's probe IS the
+    red-proof for this round.
+  _redproof_cw031_round12_ablateA_20260813.txt  duplicate-name guard
+    ablated alone -> T2 red ALONE.
+  _redproof_cw031_round12_ablateB_20260813.txt  order law ablated alone
+    (old elif restored) -> T1b red ALONE. Neither guard is decorative.
+  _redproof_cw031_round12_postfix_20260813.txt  final code: 4/4.
+Instruments re-run UNMODIFIED on final code: my round-11 redproof 12/12
+(3d/3e as written, per shape (a)'s promise), mini's round-10
+retire_attack CLEAN and match_attack mechanisms verified.
+
+CANARY (round 12's own, post-fix server): backend restarted via
+start_persona_backend.ps1 -- stale listener killed, listener PID 21208
+started 21:26:36, postdating the last intake_consult.py edit (21:25:53),
+ONE :5050 listener verified. Sunny_V3 system_run_complete, 369s, ZERO
+Traceback/ERROR lines in _logs_persona_20260813_212636.txt, workbook
+built, delivery record #7 written and bound by draft_id;
+resolve_workbook_for_draft returns basis delivery record for canary
+draft 4ee6d16682b742c095a32ff9da510433. Prove on final code
+(_prove_20260813_vs_round12.txt): 60 legs, 53 behavioural, 5
+structural-absence, 2 golden, 0 DRIFT, 0 UNEARNED, CLEAN -- R40, R41,
+R42 all held untouched through the legacy-tier rewrite.
+
+STILL NICK'S, UNCHANGED: whether naturalization may touch a
+deterministic receipt. Nothing this round touches prose at all.
