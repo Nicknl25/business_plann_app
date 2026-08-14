@@ -40,39 +40,33 @@ RULES
                         sha256-matched to live, mutated lookup moved the
                         digest). Evidence: _prove_20260813_*.txt,
                         VS_NOTES rounds 8-10.
-    LIVE:   FAILING  — VS 2026-08-13, RETRACTED on live evidence from
-                        CW-031 Ravenwood (draft 1070c6a5). The engine
-                        half IS proven (canary: 22/35,519 leaves, all
-                        date-derived; workbook: 2 real per-line rows,
-                        total =SUM over them). The INTAKE half was
-                        NEVER exercised: _ws1b_multiline_e2e.py STAMPS
-                        cogs_percent_of_line_revenue onto the rows and
-                        then runs the system-run, so it proves
-                        rows->engine->workbook and never
-                        conversation->rows.
-                        LIVE DEFECT: the four per-line percents were
-                        PROPOSED to the client in prose (plant 55, hard
-                        goods 60, install 38, design 6) but NONE landed
-                        on the product rows; only the blended 47%
-                        persisted. Per-line is therefore INACTIVE by
-                        the all-or-nothing rule and the workbook will
-                        carry ONE blended row - contradicting what the
-                        client was told in writing.
-                        SUSPECTED CAUSE: the message and the write each
-                        resolve the COGS baseline independently (two
-                        judge calls); the write's call failed the
-                        all-or-nothing line-name match and degraded to
-                        blend-only SILENTLY.
-    COWORK: blocked   — auto-reblocked: LIVE is failing. Nick's 4-stream
+    LIVE:   passed    — VS 2026-08-13 22:15, on the FIXED build (CW-031
+                        batch, gate blessed 61 legs / 0 DRIFT / R43):
+                        (a) backend on HEAD, ONE :5050 listener;
+                        (b) Sunny_V3 canary completed AND byte-identical
+                        to the pre-batch canary (FINMO 76336ce0...,
+                        MODEL_INPUT c4292f8e... - 14 rounds of intake
+                        surgery moved a single-line draft ZERO bytes);
+                        (c) multi-line E2E: 2 COGS rows, Sigma==blend
+                        all 20q, workbook =SUM over per-line rows;
+                        (d) NEW - CONVERSATION-DRIVEN live check (the
+                        path the old E2E skipped): fresh Ravenwood
+                        clones through the real router - separation
+                        lands basis=declared per line; the uniform-rate
+                        ask converts a yes into a DECLARED group whose
+                        receipt speaks the stored values; an unmatched
+                        figure gets an honest no-record; stated dollars
+                        land as the right fraction. LIVE RESULT: CLEAN.
+                        Evidence: _live_cw031_round9_turns output,
+                        canary + E2E task logs 2026-08-13 22:0x.
+    COWORK: cleared   — GATE blessed + LIVE passed on the fixed build. Nick's 4-stream
                         garden centre is the intended first run (the case
                         WS1b was built for, and the first N>2 exercise).
 
-    NEXT STEP: (1) fix the write so the SHOWN proposal is the WRITTEN
-    one (resolve once, or make the degradation loud, never silent);
-    (2) re-fixture the multi-line E2E to drive the COGS stage through
-    the conversation instead of stamping rows; (3) mini re-fixtures
-    R29 to assert survival into persisted ops json. Only then does
-    LIVE flip again. Thistledown's unanswered question
+    NEXT STEP: none — done for the gate, done live, cleared for the
+    4-stream garden-center Cowork (the first N>2 run on the FIXED
+    intake half). Post-batch: the inference scan (section F of the
+    boundary seed) as its own task.
     ("shouldn't bikes and repairs be different?") now answers itself:
     bike sale 52%, repair 22%, two rows in the client's workbook.
 
