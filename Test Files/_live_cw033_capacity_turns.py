@@ -12,10 +12,15 @@ the exact turns that failed live, driven with the client's OWN transcript
 words against the live :5050 backend and live GPT router. Nothing is
 stubbed. The proof is the persisted rows afterwards.
 
+POST-RETRACTION (Nick, 2026-08-14): A-113 is retracted - post-stage
+capacity corrections are OFF-PATH and PREVENTED, not supported. L1-L4
+now assert: zero writes + the honest redirect leading the reply + no
+fabricated receipt. L5/L6 (A-115, on-path honesty) assert as before.
+
   L1 message [99] verbatim (bundled with the debt answer)
   L2 message [107] verbatim (standalone, names both values)
   L3 message [111] verbatim (standalone, single number, line named)
-  L4 a correction naming NO line -> honest refusal, zero writes
+  L4 a correction naming NO line
   L5 message [89] verbatim (capex explicit no + excluded 380k) -> capex 0
   L6 message [75] verbatim (the 58% collapse) -> no unit-price echo, no
      retention gate, prices untouched
@@ -163,6 +168,10 @@ BASE_CAPS = {
 
 
 def run_capacity_case(conn, tag, message, label, expect_install=7.0):
+    """POST-RETRACTION EXPECTATION (Nick, 2026-08-14): a post-stage
+    per-line capacity correction is OFF-PATH. The honest outcome is NO
+    write anywhere + an explicit redirect naming that nothing changed -
+    never silence, never a fabricated 'Recorded: capacity N'."""
     cid, kid, _ = make_clone(conn, tag, 99, _STRIP_FROM_OTHER_DEBT)
     try:
         before = ops_caps(conn, cid)
@@ -172,28 +181,16 @@ def run_capacity_case(conn, tag, message, label, expect_install=7.0):
         status, reply = post_turn(cid, kid, message)
         print(f"  < [{status}] {reply[:260]}")
         after = ops_caps(conn, cid)
-        inst = after.get("Landscaping/installation job")
         check(f"{label} live turn 200", status == 200, str(status))
-        if expect_install is None:
-            check(f"{label} NOTHING written (refusal case)",
-                  after == before, str(inst))
-            check(f"{label} reply asks which line, never 'Recorded:'",
-                  "Recorded:" not in reply
-                  and ("which line" in reply.lower()
-                       or "couldn't apply an operations change" in reply.lower()),
-                  reply[:120])
-        else:
-            check(f"{label} install row carries 7 on BOTH capacity cells",
-                  inst and inst[0] == expect_install and inst[1] == expect_install,
-                  str(inst))
-            check(f"{label} the OTHER three lines are untouched",
-                  all(after.get(k)[:2] == BASE_CAPS[k][:2]
-                      for k in BASE_CAPS if k != "Landscaping/installation job"),
-                  str({k: v[:2] for k, v in after.items()}))
-            check(f"{label} reply speaks 7 and never 'capacity 5'",
-                  ("7" in reply) and ("capacity 5" not in reply.lower())
-                  and ("capacity to 5" not in reply.lower()),
-                  "")
+        check(f"{label} NO ops write anywhere (off-path is prevented)",
+              after == before,
+              str(after.get("Landscaping/installation job")))
+        check(f"{label} the redirect LEADS and names that nothing changed",
+              "haven't changed any operations" in reply.lower(),
+              reply[:120])
+        check(f"{label} no fabricated receipt (never 'Recorded: capacity')",
+              "recorded: capacity" not in reply.lower()
+              and "i've updated" not in reply.lower(), "")
         return reply
     finally:
         cleanup(conn, cid)

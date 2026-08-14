@@ -2728,6 +2728,111 @@ names a DIFFERENT product than the row - the applier will land it on
 the one row, which is the CW-026 worst-case-a-correctable-proposal
 contract, but say so if you rule otherwise).
 
+## CW-033 TURN 1, PART 2 - NICK'S MID-TURN RETRACTION (HANDOFF_INBOX, 2026-08-14)
+
+### THE GUIDED-FLOW PRINCIPLE (recorded as a design law, per Nick)
+Guided flow bounds reachable SEQUENCES - off-path sequence bugs (moves
+the app never invites, e.g. revisiting a closed stage's per-line
+drivers) are PREVENTED, not supported. Honesty within any answer the
+app SOLICITS is ALWAYS in scope. Cowork reclassified all 24 open
+issues under it: 22 on-path, 1 retracted (A-113), 1 flagged (A-116).
+
+### A-113 RETRACTED - what was removed, what stays, and why
+REMOVED (the in-flight post-stage capacity write machinery):
+- the interview wrapper no longer APPLIES the driver applier; it
+  DETECTS a correction-shaped ops-lever message mid-interview and
+  prepends an honest REDIRECT ("I haven't changed any operations
+  <lever> from here - those numbers were set in the operations step"),
+  with ops forward-moves suppressed for that turn so no back-door
+  landing or fabricated receipt can ride the same message. At the WALL
+  (no active stage) nothing changed - corrections there are invited
+  and the standing CW-026 machinery handles them.
+- the 0.5% reconcile epsilon in the deterministic proposer AND the
+  finmo stub factor is REVERTED - Nick ruled the reconcile-to-stated-
+  revenue (capacity absorbing the factor) is BY DESIGN. The
+  anchor_reconcile provenance stamp STAYS (visibility of a designed
+  mechanism, not behavior; drop it if ruled otherwise - one hunk).
+KEPT (honesty within solicited answers - always in scope, and TASK 3
+orders exactly these): every A-115 fix, the ack-contradiction note
+re-validation, the forward-move read-back/refusal/row-resolution (no
+fabricated 'Recorded:' anywhere), the scoped-patch dead-flat-write
+drop, the applier hardening (it still serves the CW-017b/CW-032
+surfaces), the single-row bypass and legacy-flat landings (R01/I01).
+LEFT FOR A RULING, not removed by me: the CW-032 market/people section
+applier wiring (#264) and the late focus==financials applier call
+(CW-017b) are PRE-EXISTING Nick-approved landing machinery for the
+same off-path family - the retraction names only the in-flight turn's
+build, so I did not rip out prior-approved code without an explicit
+order. If the guided-flow law means those go too, that is a one-turn
+removal; say the word.
+NOTE: commit b438b0b accidentally swept an intermediate HANDOFF_INBOX
+revision into history (it was staged by the inbox flow mid-turn). No
+content was lost; the current inbox is newer and untouched by me.
+
+### A-116 ADJUDICATED (TASK 1) - ON-PATH, and already fixed + pinned
+The flagged issue is flow:financials:correction_consumed_as_pending_
+stage_answer (CW-025, #115: a standalone PAYROLL correction consumed
+as the pending CAPEX question's answer and stored as zero). RULING:
+ON-PATH, on the app's own written contract, cited:
+1. _normalize_financials_router_patch (intake_consult.py, the
+   corrections-admitted block): "CORRECTIONS ARE ADMITTED (issue #23):
+   the narrowing's job is to stop answers landing in FUTURE fields
+   (misroutes), never to reject a correction to a field the client
+   already deliberately captured. A field is correctable when its
+   owning stage is already COMPLETE." Payroll's stage is complete when
+   capex asks - the app DECLARES the move supported.
+2. docs/INTAKE_FLOW_CONTRACT.md (CW-025, Nick-approved): no turn
+   returns before the router runs; corrections land mid-interview by
+   construction.
+3. The misroute guard #265 (CW-032, Nick-approved) exists solely to
+   protect this admitted move from landing on the wrong field.
+4. Contrast the A-113 boundary: nothing in the ops/financials copy
+   invites revisiting a closed stage's PER-LINE DRIVERS; but
+   correcting an already-captured FINANCIALS/PEOPLE figure is invited
+   by the design itself (and the cogs-stage copy literally says
+   "Correct any of them on their own").
+So: a correction sent while a stage question is pending is a supported
+sequence; consuming it as the pending answer was a real bug. It is
+ALREADY FIXED AND PINNED - registry #115 is resolved (retested_clean),
+regression-pinned by Test Files/_redproof_cw025_rank1.py R4/R5/R6 and
+gate legs R02/R15 (both PROVEN in this turn's clean prove). No new
+build owed. A-116's other ask (a path-classification field on new
+filings) is Cowork's board machinery, not app code - left to Cowork.
+
+### THE REAL BOARD (TASK 2) - confirmed against agenda v20 + registry
+Nick's list is CONFIRMED with two additions and one nuance:
+- A-115 (rank 1) - the two kind-misreads - CONFIRMED top priority, and
+  BOTH ARE FIXED THIS TURN (built before the re-scope arrived, live-
+  proven L5/L6 + offline T7/T8): cogs_rate_read_as_unit_price... and
+  explicit_none_answer_overridden... both still read status=open in
+  the registry - they close on artifact evidence per the CW-031 gate,
+  which is mini's audit + the next run.
+- A-112 receipt fidelity (rank 2) - the ack-contradiction fix this
+  turn addresses its named recurrence; the rest is observational.
+- A-106 retention probe (rank 3) - needs the priced-below-market
+  business; unreachable by healthy shapes, unchanged.
+- A-079 (rank 4) and A-103's two never-run limbs (rank 5) - Nick's
+  list omitted these; they remain open on the agenda.
+- CW-023 owner-pay (owner_pay_correction_not_rolled_into_payroll_
+  total): status resolved/observational - "unverified, needs a
+  completed build" is exactly right under the artifact gate.
+- ADDITION: verdict:wall:owner_draw_ceiling_offered_is_the_whole_
+  team_payroll_ceiling is OPEN/major in the registry and on nobody's
+  list - flagging it so it is not orphaned.
+- HYGIENE: the A-113-family registry rows (capacity_correction_after_
+  stage_close_never_lands, blocker x2; ack_claims_a_capacity_write...,
+  major) predate the retraction and still read open-blocker; the board
+  reclassification lives in Cowork's agenda, but the registry rows
+  need the off-path/observation stamp - Cowork's or mini's call.
+
+### KNOWN ADVERSARIAL EDGE, handed forward (capex, small)
+A negative-lead capex answer that ALSO states a real purchase ("No,
+none of it was bought this year - but we did spend 15,000 on a mower
+in January") would be forced to 0 by _capex_answer_expresses_none.
+Fix shape: a but-we-did carve-out (`but we did|except|apart from|
+other than`) before the override. Not built - flagged for the next
+turn or mini's audit.
+
 ### TIER 3 - DISCOVERY SPEC (research only, nothing built)
 docs/STREAM_DISCOVERY_SPEC.md. Shape: category knowledge = business
 type + NAICS keying a GPT judgment in the demand-judge pattern

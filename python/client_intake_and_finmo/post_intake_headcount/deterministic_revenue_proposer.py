@@ -136,17 +136,12 @@ def propose_revenue_drivers_deterministic(
       # the downstream response locks.
       if abs(anchor_scale - 1.0) <= 1e-9:
         anchor_scale = 1.0
-      # CW-033 A-113 (the smear law): the client's per-line capacities are
-      # DECLARED numbers, and a residual stated-revenue-vs-drivers gap of
-      # estimate-rounding size must not silently rewrite every line
-      # (Thornfield: a LOST capacity correction became a uniform 1.106527
-      # factor inflating three lines the client never touched). Within a
-      # 0.5% gap the declared drivers stand and Q1 anchors to their own
-      # bottom-up; beyond it the stated-revenue anchor still governs (it
-      # is also a declared number) but the factor is STAMPED into the
-      # returned drivers - never silent.
-      elif abs(anchor_scale - 1.0) <= 0.005:
-        anchor_scale = 1.0
+      # CW-033 (Nick's retraction ruling): reconciling the Q1 level to
+      # the client's stated revenue - capacity absorbing the factor - is
+      # BY DESIGN; the briefly-added 0.5% keep-declared-drivers epsilon
+      # is reverted. What remains is visibility: a non-unity factor is
+      # stamped into the returned drivers (anchor_reconcile below), so
+      # the reconcile is never silent to a reader of the model.
 
   lines: List[Dict[str, Any]] = []
   for entry in reference:

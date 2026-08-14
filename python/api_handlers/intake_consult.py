@@ -10879,76 +10879,38 @@ def _run_financials_turn_and_sync(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-  """CW-033 A-113 (#264's missing half): the financials INTERVIEW region
-  short-circuits at its own call site, so the cross-section driver
-  applier wired for market/people section turns and the late focus
-  branch never saw a stage-interview turn - Thornfield's three install-
-  capacity corrections each drew a receipt from the forward-move
-  inference instead ("Recorded: capacity 7", zero writes) and the build
-  smeared a uniform 1.106527 factor across all four lines' capacity.
-
-  The applier now runs FIRST for every interview turn: a landed
-  correction persists immediately (ops + recalc'd year1 + financials)
-  and its deterministic receipt LEADS the reply; a correction-shaped
-  message that cannot land gets an honest refusal note; the figures the
-  door consumed become references so the forward move can never re-land
-  (or re-fabricate) them."""
-  _xsec_lead = ""
-  _xsec_refused = False
-  _xsec_consumed: List[float] = []
+  """CW-033, RE-SCOPED BY NICK'S RETRACTION (2026-08-14, HANDOFF_INBOX):
+  A-113 is retracted - the guided flow never invites post-stage per-line
+  driver revisiting, so an off-path driver correction spoken at a
+  financials STAGE question is PREVENTED, not supported. No write
+  machinery here (the in-flight landing/persist build was removed per
+  the retraction). What stays is the HONESTY floor: a correction-shaped
+  ops-lever message mid-interview gets an explicit redirect naming that
+  nothing changed - never silence, never a fabricated receipt - and the
+  ops forward-moves are suppressed for that turn so no back-door landing
+  or fake 'Recorded:' can ride the same message. At the WALL (no active
+  stage) corrections are invited and the standing CW-026 forward-move
+  machinery handles them unchanged."""
+  _redirect_pending = False
   _rep: Dict[str, Any] = {}
   _ops_live = (shared_context or {}).get("operating_model")
-  _xsec = None
   if isinstance(_ops_live, dict) and str(user_message or "").strip():
     try:
-      _xsec = _apply_cross_section_driver_correction(
-        ops_json=_ops_live, user_message=str(user_message or ""), report=_rep,
+      _active_peek = _next_financials_stage(
+        _ensure_financials_stage_defaults(dict(financials_json or {}))
       )
     except Exception:
-      logger.exception("XSEC_STAGE_DRIVER_APPLY_FAILED")
-      _xsec = None
-  if _xsec is not None:
-    _ops_new, _xsec_lead = _xsec
-    _ops_live.clear()
-    _ops_live.update(_ops_new)   # mutate THROUGH (the Fernhill seam law)
-    _xsec_consumed = [
-      float(f) for f in (_rep.get("consumed_figures") or [])
-      if isinstance(f, (int, float))
-    ]
-    try:
+      _active_peek = None
+    if _active_peek:
+      # Detect only - the applier is NOT applied mid-interview.
       try:
-        from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
-      except ImportError:
-        from financials_year1 import assemble_financials_year1  # type: ignore
-      financials_year1_json = assemble_financials_year1(
-        shared_context, financials_year1_json,
-      )
-      financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
-        people_json=dict((shared_context or {}).get("people_capability") or {}),
-        ops_json=_ops_live,
-      )
-    except Exception:
-      logger.exception("XSEC_STAGE_DRIVER_RECALC_FAILED")
-    try:
-      append_messages(
-        conn,
-        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
-        new_messages=[],
-        operating_model_json=_ops_live,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-      )
-      intake_context = dict(intake_context or {})
-      intake_context["operating_model_json"] = _ops_live
-      intake_context["financials_json"] = financials_json
-      intake_context["financials_year1_json"] = financials_year1_json
-    except Exception:
-      logger.exception("XSEC_STAGE_DRIVER_PERSIST_FAILED")
-  elif _rep.get("triggered_leaf"):
-    _xsec_refused = True
+        _apply_cross_section_driver_correction(
+          ops_json=copy.deepcopy(_ops_live),
+          user_message=str(user_message or ""), report=_rep,
+        )
+      except Exception:
+        logger.exception("XSEC_STAGE_DRIVER_DETECT_FAILED")
+      _redirect_pending = bool(_rep.get("triggered_leaf"))
 
   turn, out_financials = _run_financials_turn_and_sync_inner(
     route_intent=route_intent,
@@ -10961,26 +10923,24 @@ def _run_financials_turn_and_sync(
     user_message=user_message,
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
-    extra_reference_figures=_xsec_consumed,
-    suppress_ops_moves=bool(_rep.get("triggered_leaf")),
+    suppress_ops_moves=_redirect_pending,
   )
-  _msg_out = str((turn or {}).get("assistant_message") or "").strip()
-  if _xsec_lead:
-    turn = dict(turn or {})
-    turn["assistant_message"] = (
-      f"{_xsec_lead}\n\n{_msg_out}".strip() if _msg_out else _xsec_lead
+  if _redirect_pending:
+    # The honest redirect LEADS the reply: the client hears, in the same
+    # turn, that the operations number did NOT change and where it is
+    # set - never an unhedged ack for a write that did not happen.
+    _leaf_label = {
+      "unit_price": "price", "utilization_rate": "utilization",
+    }.get(str(_rep.get("triggered_leaf") or ""), "capacity")
+    _redirect = (
+      f"One note: I haven't changed any operations {_leaf_label} from "
+      "here - those numbers were set in the operations step, and the "
+      "model still uses what we agreed there."
     )
-  elif _xsec_refused and "which line" not in _msg_out.lower():
-    # Correction-shaped, could not land, and no branch downstream asked -
-    # the honest refusal leads rather than the correction dying silently.
     turn = dict(turn or {})
-    _refusal = (
-      "One note: I couldn't apply an operations change from that - "
-      "tell me the line and the new number plainly (for example, "
-      "'Install job capacity: 7 a week') and I'll set it."
-    )
+    _msg_out = str(turn.get("assistant_message") or "").strip()
     turn["assistant_message"] = (
-      f"{_refusal}\n\n{_msg_out}".strip() if _msg_out else _refusal
+      f"{_redirect}\n\n{_msg_out}".strip() if _msg_out else _redirect
     )
   return turn, out_financials
 

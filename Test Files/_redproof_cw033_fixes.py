@@ -1,6 +1,11 @@
-"""CW-033 offline proof - Tier 1 (A-113 capacity write path + smear law)
-and Tier 2 (A-115 kind-misreads, capex explicit-no) at the function level,
-on the REAL Thornfield wordings and the real functions.
+"""CW-033 offline proof, POST-RETRACTION SHAPE. A-113 is retracted
+(Nick, 2026-08-14): the interview region no longer lands post-stage
+driver corrections - it redirects honestly (see the live proof). What
+this file still proves at the function level: the cross-section applier
+itself is correct for the surfaces that keep it (T1-T3), the forward
+move can never fabricate a receipt or write a wrong line (T4-T6), the
+A-115 kind-misread and capex fixes (T7-T8), and the reconcile-by-design
+carries its provenance stamp (T9).
 
 THE PRODUCTION CALL CHAIN (named first, per the E2E law):
   POST /api/intake-consult (focus=financials, interview region
@@ -272,8 +277,8 @@ check("a stray ops move is SUPPRESSED on an applier-triggered turn",
            "label": "accounts payable", "attributed": True}, True) is not None,
       "ops stripped, non-ops untouched")
 
-print("\nT9 - the smear law: a 0.105% anchor gap never rescales declared "
-      "capacities; a material gap is stamped, never silent")
+print("\nT9 - the reconcile stands BY DESIGN (Nick's retraction ruling) and "
+      "is stamped, never silent")
 REF = [
     {"lob": "Plants", "unit": "ticket", "capacity_units_per_period": 4420.0,
      "unit_price": 52.0, "utilization_rate": 0.62},
@@ -291,21 +296,27 @@ r9 = propose_revenue_drivers_deterministic(
     anchor_q1_revenue_total=bottom_up * 1.00105)
 q1caps = [ln["quarters"][0]["capacity_units_per_period"]
           for ln in r9["drivers"]["lines_of_business"]]
-check("0.105% gap: Q1 capacities are the DECLARED values, unscaled",
-      q1caps == [4420.0, 2145.0, 91.0, 39.0], str(q1caps))
-check("0.105% gap: no anchor_reconcile stamp (factor is 1)",
-      "anchor_reconcile" not in r9["drivers"], "")
+check("any gap: the stated-revenue anchor governs (reconcile is design)",
+      abs(q1caps[0] / 4420.0 - 1.00105) < 1e-6, str(q1caps[:1]))
+check("any gap: the factor is STAMPED, never silent",
+      abs(((r9["drivers"].get("anchor_reconcile") or {}).get("factor") or 0)
+          - 1.00105) < 1e-6, str(r9["drivers"].get("anchor_reconcile")))
 r9b = propose_revenue_drivers_deterministic(
     current_revenue_reference=copy.deepcopy(REF),
     anchor_q1_revenue_total=bottom_up * 1.106527)
 q1caps_b = [ln["quarters"][0]["capacity_units_per_period"]
             for ln in r9b["drivers"]["lines_of_business"]]
 stamp = (r9b["drivers"].get("anchor_reconcile") or {})
-check("10.65% gap: the stated-revenue anchor still governs",
+check("10.65% gap: the stated-revenue anchor governs",
       abs(q1caps_b[0] / 4420.0 - 1.106527) < 1e-6, str(q1caps_b[:1]))
 check("10.65% gap: the factor is STAMPED, never silent",
       abs((stamp.get("factor") or 0) - 1.106527) < 1e-6
       and stamp.get("basis") == "stated_revenue_anchor", str(stamp))
+r9c = propose_revenue_drivers_deterministic(
+    current_revenue_reference=copy.deepcopy(REF),
+    anchor_q1_revenue_total=bottom_up)
+check("exact match: factor 1, no stamp",
+      "anchor_reconcile" not in r9c["drivers"], "")
 
 print()
 if FAILURES:
