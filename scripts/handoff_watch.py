@@ -37,6 +37,7 @@ LOG_DIR = STATE_DIR / "logs"
 WATCHER_PID = STATE_DIR / "watcher.pid"
 AGENT_PID = STATE_DIR / "agent.pid"
 STATE_PATH = STATE_DIR / "state.json"
+STOP_REQUEST = STATE_DIR / "watcher.stop_request"
 
 AGENT_STATUSES = {"awaiting-VS": "VS", "awaiting-mini": "mini"}
 STOP_STATUSES = {"awaiting-Nick", "stopped-stuck", "stopped-cap", "stopped-fault", "paused"}
@@ -433,9 +434,17 @@ def ping(subject: str, body: str, state: dict) -> None:
         "every mechanical step — you never edit HANDOFF.md, STATUS, config, "
         "or code."
     )
-    key = f"{subject}|{git('rev-parse', 'HEAD').stdout.strip()}"
-    if state.get("last_ping") == key:
-        return  # one ping per stop per ref — never loop-ping
+    # PING DEDUPE (Nick, after the popup storm): a ping fires ONCE per
+    # distinct state (subject == STATUS + reason) and stays quiet until the
+    # state actually CHANGES. The old key included HEAD, so a confused
+    # watcher cycling states re-fired the same alarms as commits moved.
+    # Belt: a global minimum interval between ANY two pings — even a
+    # confused watcher says its piece once and waits.
+    if state.get("last_ping_subject") == subject:
+        return
+    if time.time() - float(state.get("last_ping_ts", 0)) < 60:
+        log(f"ping rate-limited (<60s since last): {subject}")
+        return
     desktop_alert(subject)
     try:
         from dotenv import load_dotenv
@@ -456,7 +465,8 @@ def ping(subject: str, body: str, state: dict) -> None:
         log(f"PING sent: {subject}")
     except Exception as exc:  # ping failure is loud in the log but not fatal
         log(f"PING FAILED ({subject}): {type(exc).__name__}: {exc}")
-    state["last_ping"] = key
+    state["last_ping_subject"] = subject
+    state["last_ping_ts"] = time.time()
     save_state(state)
 
 
@@ -898,10 +908,28 @@ def source_fingerprint() -> str:
 
 
 def main() -> int:
+    """Nick's four rules after the popup storm: at most ONE watcher, always
+    on CURRENT code, each ping fires once. A stale or duplicate watcher is
+    structurally impossible, not detected-and-narrated."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    # HARD SINGLETON: refuse to be the second watcher. If one is alive it is
+    # either current (we have no business existing) or stale (rule 1 makes
+    # it self-exit within one poll) — either way we ask it to stop and WAIT
+    # for it to actually be dead before taking over; if it will not die
+    # (mid-turn), we refuse rather than coexist. pid_alive fails CLOSED.
     if pid_alive(WATCHER_PID):
-        print("another watcher is alive — exiting", file=sys.stderr)
-        return 2
+        STOP_REQUEST.write_text(str(os.getpid()), encoding="utf-8")
+        print("watcher already alive — stop requested, waiting up to 30s for a clean handoff...")
+        for _ in range(30):
+            time.sleep(1)
+            if not pid_alive(WATCHER_PID):
+                break
+        else:
+            STOP_REQUEST.unlink(missing_ok=True)
+            print("existing watcher did not exit (likely mid-turn) — REFUSING to "
+                  "coexist; retry at the turn boundary", file=sys.stderr)
+            return 2
+    STOP_REQUEST.unlink(missing_ok=True)
     WATCHER_PID.write_text(str(os.getpid()), encoding="utf-8")
     cfg = load_config()
     state = load_state()
@@ -912,6 +940,20 @@ def main() -> int:
         f"code={booted_src} @ {booted_head})")
     try:
         while True:
+            # SELF-TERMINATE ON STALE SOURCE (rule 1): a stale watcher gets
+            # out of the way at the next safe boundary — it does not narrate
+            # its staleness forever. This check sits BEFORE one_cycle, so a
+            # stale process never launches a turn; a turn already in flight
+            # finishes inside one_cycle and the exit happens right after.
+            if source_fingerprint() != booted_src:
+                log("SOURCE CHANGED on disk — self-terminating cleanly at this "
+                    "boundary so a fresh watcher can take over (rule: enforce, "
+                    "never narrate)")
+                return 0
+            # CLEAN HANDOFF (rule 2/4): a newer instance asked us to stop.
+            if STOP_REQUEST.exists() and not pid_alive(AGENT_PID):
+                log("stop requested by a newer watcher — exiting cleanly")
+                return 0
             try:
                 one_cycle(cfg, state)
             except Exception as exc:
@@ -924,12 +966,6 @@ def main() -> int:
                 return 1
             idle_sleep(cfg, int(cfg["poll_seconds"]))
             cfg = load_config()  # config is live-tunable (SS9 ruling 2)
-            # STALENESS IS INVISIBLE OTHERWISE: config reloads every poll but
-            # CODE does not. A watcher running a fixed-on-disk bug looks
-            # perfectly healthy right up until it hits it (it did, once).
-            if source_fingerprint() != booted_src:
-                log("!! watcher SOURCE CHANGED on disk since boot — this process "
-                    "is running OLD code; restart it to pick up the fix")
     finally:
         WATCHER_PID.unlink(missing_ok=True)
 
