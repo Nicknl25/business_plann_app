@@ -1,0 +1,9 @@
+﻿[PASS] G1 agreeing mixed attach still lands (guard refuses no legitimate attach) -- ungrouped=[]
+[PASS] G2 pure-legacy coherent group survives an unrelated write -- ungrouped=[]
+[PASS] G3 same-name twins (dup first): exactly one twin keeps, beta survives -- kept=[True, False] beta='shared:alpha+beta' ungrouped=['Main / Alpha']
+[PASS] G3 same-name twins (dup last): exactly one twin keeps, beta survives -- kept=[True, False] beta='shared:alpha+beta' ungrouped=['Main / Alpha']
+[PASS] G4 all-off-claim label: both retire, empty partition rides nothing -- ungrouped=['Main / Xray', 'Main / Yankee']
+[PASS] G5 degenerate 'shared:' label retires cleanly, no crash -- ungrouped=['Main / Alpha']
+[PASS] G7 twin #2 behind a legacy attach: refused alone, group intact -- ungrouped=['Side / Beta'] mb='shared:alpha+beta' sb=None
+==============================================================================
+7 checks, 0 FAIL

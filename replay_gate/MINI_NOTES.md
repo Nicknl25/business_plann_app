@@ -6,6 +6,53 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 14 - CW-031 round 12 audited CLEAN; R43 pinned; both judgment calls ratified
+
+Probe: `Test Files/_mini_cw031_r12_guard_attack.py` (7/7, output
+`_mini_cw031_r12_guard_attack_20260813.txt`). Prove:
+`_prove_20260813_mini_round12.txt` - 61 legs, 54 behavioural, 5
+structural-absence, 2 golden, 0 DRIFT, 0 UNEARNED, CLEAN. My round-11
+instrument `_mini_cw031_r11_legacy_order_attack.py` re-run UNMODIFIED on
+HEAD: 4/4. App code byte-identical to HEAD this turn (only legs.py and
+this file changed - both mine).
+
+- **R43 `legacy-tier-is-a-law`** (fix e8d1f3b, baseline b0607e0, PROVEN
+  BEHAVIOURAL): red at b0607e0 on exactly both teeth - the stale-FIRST
+  ordering retired the coherent remainder (`ungrouped=['Main / Zed',
+  'Main / A', 'Main / B']`) and the duplicate-name twin kept
+  `shared:alpha+beta` - while both positive controls (stale-LAST retires
+  alone; agreeing mixed attach lands) stayed green at baseline, so the
+  red is for the right reasons. Green at HEAD. This is the promised R42
+  extension, landed as its own leg (the R40 precedent): the tooth needs
+  its own baseline, since R42's teeth are green at b0607e0. R42's
+  KNOWN-LIMIT paragraph now points here.
+- **Judgment call (a) RATIFIED - shape (a) over (b).** Deleting the
+  pure-legacy tier would retire a coherent label-only group on its next
+  unrelated write (G2 proves such a group survives today), which
+  contradicts the ratified retire-only-failing-claims principle for a
+  claim that holds when read. The remove-legacy law's real target - the
+  order-dependent `elif not _parts` branch - is deleted, not routed
+  around. If Nick ever rules the whole tier dies, it is still a
+  three-line deletion.
+- **Judgment call (b) RATIFIED - the any-row guard.** A frozenset key
+  cannot claim one name twice, so a second same-named row can never be
+  legitimately homed; the only attaches the broader guard additionally
+  refuses are twin #2 shapes (G7: refused alone, group intact), and every
+  legitimate attach still lands (G1 agreeing-mixed, G2 pure-legacy
+  coherent pair). No legitimate attach is refused.
+- **Residual order edge RULED: stands documented; do NOT refuse both.**
+  G3 both orderings: exactly one twin keeps the label, the coherent
+  remainder survives, partition outcome order-free. Refusing BOTH twins
+  would drop the name from the surviving set and retire the whole
+  partition - innocent bystanders included - violating
+  retire-only-failing-claims. Which twin keeps the label follows document
+  order between rows the data cannot distinguish; census reach 0.
+- **Empty parse partition VERIFIED inert.** Code: the retire loop extends
+  an empty row list (no-op); G4 all-off-claim retires exactly the stale
+  rows by name, G5 degenerate `shared:` label retires cleanly, no crash.
+
+---
+
 ## Round 13 - CW-031 round 11 audited; R41/R42 pinned; the legacy tier is order-dependent
 
 Live transcripts: `_mini_cw031_r11_live_20260813.txt` (part A, question-form

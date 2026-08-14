@@ -2888,13 +2888,11 @@ def _r_identity_is_member_set(ctx):
     a one-row group wearing a two-member claim still retires (a pass that
     never retires fails as loudly as one that retires everything).
 
-    KNOWN LIMIT, deliberate: the pure-legacy tier (no member list anywhere
-    under a label) is order-dependent - an off-claim row that iterates
-    FIRST creates and poisons the parse-fallback partition, retiring the
-    coherent remainder with it (round-11 audit T1b). Census 2026-08-13: 0
-    real rows carry a label without a member list, so the tier is dead
-    code today; the tooth is NOT pinned here so the fix can change the
-    behaviour without redding this leg.
+    KNOWN LIMIT, closed in round 12: the pure-legacy tier's order
+    dependence (round-11 audit T1b) and the duplicate-name attach (T2)
+    were fixed at e8d1f3b and are pinned by R43, which baselines at
+    b0607e0 where this leg is green - the two legs partition the class
+    between them.
     """
     door = ctx.ic._apply_per_line_cogs_patch_keys
 
@@ -2959,6 +2957,116 @@ def _r_identity_is_member_set(ctx):
             or "Main / P1" not in (r3.get("ungrouped") or []):
         fails.append("a one-row group wearing a two-member claim survived - "
                      "the pass lost its teeth")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
+def _r_legacy_tier_is_law(ctx):
+    """R43 - the legacy tier is a law, not an accident of order.
+
+    THE BUG (CW-031 round-11 audit T1b/T2 -> round 12 fix, e8d1f3b). The
+    parse-fallback partition for pure-legacy rows (label, no member list)
+    was created by whichever legacy row iterated FIRST (`elif not _parts`),
+    and that row JOINED it even when its own name was off-claim: same rows,
+    stale-last retired alone, stale-FIRST poisoned the partition and
+    retired everything. And a stale label-only twin under a DUPLICATE
+    product name attached to a fresh members-carrying partition and kept a
+    group it never earned, because the coherence test compares name SETS
+    and the duplicate disappeared in the dedup.
+
+    THE LAW: the parse partition is derived from the LABEL, once, before
+    any row is looked at; rows join any partition by one rule (name in
+    key), and never one that already carries their name.
+
+    Teeth: (a) stale legacy row FIRST in document order still retires
+    ALONE - the coherent remainder survives; (b) the duplicate-name twin
+    goes stale instead of keeping the unearned group. Positive controls:
+    stale-LAST retires alone (a retire-everything pass fails) and the
+    agreeing mixed attach still lands (an over-eager guard fails).
+    """
+    door = ctx.ic._apply_per_line_cogs_patch_keys
+
+    def _p(n, r):
+        return {"product_name": n, "cogs_percent_of_line_revenue": r,
+                "unit_price": 100.0, "units_per_period_capacity": 10.0,
+                "operating_periods_per_year": 12.0}
+
+    def legacy(row, label):
+        row["cogs_cost_structure_group"] = label
+        row["cogs_cost_structure_group_basis"] = "declared"
+
+    trigger = {"financials.cogs_shared_structure_groups": [["C", "D"]]}
+    fails, seen = [], []
+
+    # Tooth (a): stale legacy row FIRST - must retire alone.
+    o1 = {"lob_models": [{"lob_name": "Main", "products": [
+        _p("Zed", 0.20), _p("A", 0.30), _p("B", 0.30),
+        _p("C", 0.10), _p("D", 0.10)]}]}
+    rz, ra, rb = o1["lob_models"][0]["products"][:3]
+    for r in (rz, ra, rb):
+        legacy(r, "shared:a+b")  # Zed renamed after grouping: off-claim
+    r1 = door(trigger, ops_json=o1)
+    seen.append(f"stale-first: ungrouped={r1.get('ungrouped')!r}")
+    if not (ra.get("cogs_cost_structure_group")
+            and rb.get("cogs_cost_structure_group")):
+        fails.append("a stale-FIRST legacy row poisoned the parse partition "
+                     "- the coherent remainder retired with it")
+    if rz.get("cogs_cost_structure_group"):
+        fails.append("the off-claim legacy row kept its label")
+
+    # Tooth (b): duplicate-name twin in another LOB stays stale.
+    o2 = {"lob_models": [
+        {"lob_name": "Main", "products": [_p("Alpha", 0.40), _p("Beta", 0.40)]},
+        {"lob_name": "Side", "products": [_p("Alpha", 0.55), _p("C", 0.10),
+                                          _p("D", 0.10)]},
+    ]}
+    ma, mb = o2["lob_models"][0]["products"]
+    sa = o2["lob_models"][1]["products"][0]
+    for r in (ma, mb):
+        legacy(r, "shared:alpha+beta")
+        r["cogs_cost_structure_group_members"] = ["alpha", "beta"]
+    legacy(sa, "shared:alpha+beta")  # stale label-only twin, duplicate name
+    r2 = door(trigger, ops_json=o2)
+    seen.append(f"dup twin: side={sa.get('cogs_cost_structure_group')!r} "
+                f"ungrouped={r2.get('ungrouped')!r}")
+    if sa.get("cogs_cost_structure_group"):
+        fails.append("a duplicate-name legacy twin kept a group it never "
+                     "earned - the name-set dedup is hiding it again")
+    if not (ma.get("cogs_cost_structure_group")
+            and mb.get("cogs_cost_structure_group")):
+        fails.append("the fresh members-carrying declaration retired with "
+                     "the twin")
+
+    # Positive control 1: stale legacy row LAST still retires alone.
+    o3 = {"lob_models": [{"lob_name": "Main", "products": [
+        _p("A", 0.30), _p("B", 0.30), _p("Zed", 0.20),
+        _p("C", 0.10), _p("D", 0.10)]}]}
+    ra3, rb3, rz3 = o3["lob_models"][0]["products"][:3]
+    for r in (ra3, rb3, rz3):
+        legacy(r, "shared:a+b")
+    r3 = door(trigger, ops_json=o3)
+    seen.append(f"stale-last: ungrouped={r3.get('ungrouped')!r}")
+    if not (ra3.get("cogs_cost_structure_group")
+            and rb3.get("cogs_cost_structure_group")
+            and not rz3.get("cogs_cost_structure_group")):
+        fails.append("the stale-LAST shape broke - the pass retires "
+                     "everything or nothing")
+
+    # Positive control 2: the agreeing mixed attach still lands.
+    o4 = {"lob_models": [{"lob_name": "Main", "products": [
+        _p("Alpha", 0.40), _p("Beta", 0.40), _p("C", 0.10), _p("D", 0.10)]}]}
+    ra4, rb4 = o4["lob_models"][0]["products"][:2]
+    legacy(ra4, "shared:alpha+beta")
+    ra4["cogs_cost_structure_group_members"] = ["alpha", "beta"]
+    legacy(rb4, "shared:alpha+beta")  # label-only, on-claim, no twin
+    r4 = door(trigger, ops_json=o4)
+    seen.append(f"mixed attach: ungrouped={r4.get('ungrouped')!r}")
+    if not (ra4.get("cogs_cost_structure_group")
+            and rb4.get("cogs_cost_structure_group")
+            and not r4.get("ungrouped")):
+        fails.append("a legitimate legacy attach was refused - the "
+                     "duplicate guard is over-eager")
 
     return not fails, (
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
@@ -3273,6 +3381,22 @@ REGRESSIONS = [
                     "declaration with the twin - red behaviourally on both "
                     "teeth. Positive control: the O4b overlap retire still "
                     "fires, so a pass that never retires fails too.")),
+    Leg("R43", "REGRESSION", "legacy-tier-is-a-law",
+        "the legacy tier is a law, not an accident of order",
+        "e8d1f3b", "b0607e0", _r_legacy_tier_is_law,
+        issue="CW-031 round 12",
+        surface="per-line COGS write door + group coherence pass",
+        proof_note=("At b0607e0 (round-11 final) the parse-fallback "
+                    "partition was minted by whichever legacy row iterated "
+                    "first (`elif not _parts`) and that row joined it even "
+                    "off-claim, so the stale-FIRST ordering retired the "
+                    "coherent remainder; and the duplicate-name twin "
+                    "attached to the fresh members partition because the "
+                    "name-set dedup hid it - red behaviourally on both "
+                    "teeth. Positive controls: stale-LAST retires alone and "
+                    "the agreeing mixed attach lands, both green at "
+                    "baseline, so retire-everything and an over-eager "
+                    "guard fail too.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

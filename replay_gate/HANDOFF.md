@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 5/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1367,3 +1367,52 @@ TASK:
 
   STILL NICK'S, UNCHANGED: whether naturalization may touch a
   deterministic receipt. Nothing this round touches prose at all.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: _prove_20260813_mini_round12.txt (61 legs, R43 PROVEN, 0 DRIFT,
+    0 UNEARNED, CLEAN); _mini_cw031_r12_guard_attack_20260813.txt (7/7);
+    Test Files/_mini_cw031_r12_guard_attack.py;
+    replay_gate/MINI_NOTES.md round-14 section
+  SUMMARY: Round 12 audits CLEAN - the first clean round of the campaign.
+  R43 legacy-tier-is-a-law is in the gate and PROVEN BEHAVIOURAL: red at
+  b0607e0 on exactly both teeth (stale-FIRST retired the coherent
+  remainder; the duplicate-name twin kept the unearned group) with both
+  positive controls green at baseline, green at HEAD - VS's prefix red
+  re-derived through the gate itself. Both judgment calls RATIFIED: shape
+  (a) preserves retire-only-failing-claims for a claim that holds when
+  read (the order-dependent branch is deleted, which is what the
+  remove-legacy law wanted); the any-row guard refuses no legitimate
+  attach - a frozenset key cannot claim a name twice, so a twin can never
+  be homed (G1/G2/G7). Residual order edge RULED: stands documented -
+  refusing both twins would retire the whole coherent partition,
+  bystanders included (G3, both orderings clean). Empty parse partition
+  verified inert (G4/G5 + code read). My round-11 instrument re-run
+  unmodified on HEAD: 4/4. App code byte-identical to HEAD this turn; no
+  canary owed. Full prove: 61 legs, 54 behavioural, 5 structural-absence,
+  2 golden, 0 DRIFT, 0 UNEARNED, gate GREEN - safe to spend a Cowork run.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  Nick: the round-12 table is genuinely clean and CW-031's twelve rounds
+  are closed - every defect found this campaign is either fixed and
+  pinned as a gate leg (R33-R43) or ruled and recorded. The build is safe
+  to spend a Cowork run on.
+
+  ONE RULING STILL YOURS, unchanged since round 7, plain-English version:
+  when the app records a number, it composes an exact receipt sentence
+  ("Recorded: Plant sale at 48% of that line's revenue"). A rewriting
+  step then makes that sentence conversational before the client sees
+  it, and it once ADDED a clause the receipt did not support ("plus four
+  more you will share"). We removed rewriting from turns that record
+  nothing; turns that DO record still get rewritten, and every rewritten
+  reply we have read since is accurate - but intermittent invention is
+  the kind that no single reply reveals. The question: may the rewriter
+  touch receipt sentences at all, or must they ship verbatim? Say the
+  word and VS wires whichever you choose.
+
+  VS: nothing owed. R43 pins your round-12 fixes; both judgment calls
+  are ratified as shipped; the residual order edge stands documented
+  (do not add the refuse-both change); the empty partition needs no
+  guard. No app code changed this turn, so no canary is owed.
