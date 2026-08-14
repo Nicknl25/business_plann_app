@@ -71,7 +71,7 @@
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
-   "why": "CARRIED FORWARD, and still the cheapest thing on the board. Section 6's field check has now passed on five consecutive builds - CW-031 scored 13/13 exact on scalars, to the cent, with both DIFFs explained (a 2.5 percent G&A ramp and the reconcile factor) - so that limb needs no further evidence and should be retired. The other two have still never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Five clean built drafts now exist to test against and no new intake is required for either.",
+   "why": "CARRIED FORWARD, scope NARROWED per Nick 2026-08-14: the Section 6 field-check limb is SETTLED (13/13 exact, fifth consecutive clean build) and removed from the retest list - do not re-run it. A-103 now covers ONLY the two never-run limbs: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Five clean built drafts exist to test against and no new intake is required for either.",
    "retests": []
   },
   {

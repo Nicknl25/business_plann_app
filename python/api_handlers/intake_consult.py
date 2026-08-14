@@ -8205,6 +8205,30 @@ def _financials_stage_fallback_patch(
   return patch
 
 
+# CW-032 #265 misroute guard vocabulary: the client-word families that make
+# a COMPLETED-stage write believable. Deliberately incomplete - a field with
+# no entry is never guarded (fail open), so this can only narrow the exact
+# misroute shape (active family named, foreign family not named).
+_FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD: Dict[str, Tuple[str, ...]] = {
+  "marketing_total_year1": ("marketing", "advertis", "promo"),
+  "marketing_percent_of_revenue": ("marketing", "advertis", "promo"),
+  "annual_principal_payment": ("principal",),
+  "annual_interest_payment": ("interest",),
+  "total_debt_outstanding": ("debt", "owe", "loan", "borrow"),
+  "other_monthly_debt_payments": ("debt", "loan", "payment"),
+  "monthly_rent_expense": ("rent", "lease", "space"),
+  "current_payroll": ("payroll", "wage", "salar", "staff", "team", "pay"),
+  "payroll_total_year1": ("payroll", "wage", "salar", "staff", "team", "pay"),
+  "current_cogs": ("cogs", "direct cost", "material", "cost of goods", "supplies"),
+  "cogs_total_year1": ("cogs", "direct cost", "material", "cost of goods", "supplies"),
+  "cogs_percent_of_revenue": ("cogs", "direct cost", "material", "cost of goods", "supplies"),
+  "inventory_balance": ("inventory", "stock"),
+  "current_capex": ("capex", "capital", "equipment"),
+  "initial_assets": ("asset", "equipment", "worth"),
+  "cash_on_hand": ("cash", "bank"),
+}
+
+
 def _normalize_financials_router_patch(
   *,
   patch: Dict[str, Any],
@@ -8368,6 +8392,43 @@ def _normalize_financials_router_patch(
     # by the field_basis registry.)
     next_financials[field_name] = float(numeric)
     touched.add(field_name)
+  # CW-032 #265: THE MISROUTE GUARD. Alderfen answered the debt-schedule
+  # question with "the annual principal payment is $25,800" and the
+  # router wrote it to marketing_total_year1 - overwriting an
+  # already-corrected $29,000 and leaving the principal undefined. A
+  # write to a COMPLETED stage's field is only trustworthy when the
+  # client's own words touch that field's family; when the message
+  # instead names the ACTIVE stage's family and never the foreign one,
+  # the foreign write is the router's guess wearing a correction's
+  # clothes, and it reverts (reported honestly via the say-do
+  # accounting). Fields with no keyword entry are left alone - this
+  # guard only ever narrows the exact observed shape.
+  _msg_l_mr = str(user_message or "").strip().lower()
+  if _msg_l_mr and stage_name:
+    _active_kw = _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD
+    _active_named = any(
+      kw in _msg_l_mr
+      for tf in active_targets
+      for kw in _active_kw.get(tf, ())
+    )
+    if _active_named:
+      for _mf in list(touched):
+        if _mf in active_targets:
+          continue
+        _kws = _active_kw.get(_mf)
+        if not _kws:
+          continue
+        if not any(kw in _msg_l_mr for kw in _kws):
+          _prev_mf = (financials_json or {}).get(_mf)
+          if _prev_mf is None:
+            next_financials.pop(_mf, None)
+          else:
+            next_financials[_mf] = _prev_mf
+          touched.discard(_mf)
+          logger.info(
+            "MISROUTE_GUARD field=%s reverted - message names the active "
+            "stage family, never this one", _mf,
+          )
   # Mid-intake derivability guard (CW-015 majors): writes must be
   # derivable from the turn's content (message + preceding proposal) or
   # they drop BEFORE the say-do accounting, so the client hears the

@@ -1733,6 +1733,23 @@ def _derived_capex_and_depreciation_runtime(
       "capex_depreciation_useful_life_quarters_invalid: useful_life_years must resolve to a positive whole number of quarters."
     )
   capex_depreciation_vintages: List[Dict[str, Any]] = []
+  # CW-032 #266 (Nick-ruled): the OPENING asset base depreciates on the
+  # same default straight-line schedule as new capex. Before this, only
+  # subsequent capex earned a vintage, so a client's $386k of existing
+  # equipment was carried at close to full value across all five years -
+  # net income, retained earnings and the balance sheet all overstated
+  # it, silently. NO intake question is asked (normal owners cannot
+  # answer remaining-useful-life and we hold a sensible default); the
+  # assumption is stated in the plan output instead.
+  if opening_ppe > 0.0:
+    capex_depreciation_vintages.append(
+      {
+        "placed_quarter": 0,
+        "basis": opening_ppe,
+        "quarterly_depreciation": round(opening_ppe / float(useful_life_quarter_count), 6),
+        "remaining_quarters": useful_life_quarter_count,
+      }
+    )
   capex_live_values: List[float] = []
   depreciation_percent_live_values: List[float] = []
   depreciation_amount_live_values: List[float] = []

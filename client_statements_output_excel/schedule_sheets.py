@@ -554,7 +554,17 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
 def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
   ws = create_sheet(wb, CAPEX_SHEET)
   apply_base_style(ws)
-  set_title(ws, "CapEx & Depreciation Schedule", "Capital expenditure and depreciation mechanics. Model Inputs links to calculated outputs.")
+  # CW-032 #266: the depreciation assumption is STATED where the client
+  # reads the schedule - no intake question asks equipment age, so the
+  # policy must be visible rather than implied.
+  _life_years = number(data.schedules.get("useful_life_years")) or 5
+  set_title(
+    ws,
+    "CapEx & Depreciation Schedule",
+    "Capital expenditure and depreciation mechanics. Model Inputs links "
+    "to calculated outputs. Existing equipment and new capital spending "
+    f"are depreciated straight-line over {_life_years:g} years.",
+  )
   write_period_headers(ws, data.periods)
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
