@@ -1,14 +1,14 @@
 {
- "version": 17,
- "updated": "2026-08-13T13:30:00Z",
- "notes": "CW-030 (Ravenwood Garden Company, Madison - a healthy garden centre selling plants, hard goods, install work and design) is the first N=4 run, and it splits the per-line COGS question cleanly down the middle.\n\nThe proposal half works, and it is the best single moment the campaign has produced. From one plain description the confidence gate named all four streams back, and at the COGS stage it opened with 'Your lines of business earn differently, so I am setting up direct costs separately for each' and then gave four distinct bands correctly ordered across the entire range - Design consult 6 percent on a 3-9 band, Install project 38 on 30-45, Plant sale 55 on 50-60, Hard goods sale 60 on 55-65 - plus the blend, the dollar total, and an explicit invitation to correct any one alone or collapse those that match.\n\nNothing below the proposal accepts a client value. The client corrected all four in one message, then one line alone mid-stage, then one line alone using the app's own line name and a bare percent. Six attempts, three phrasings, and cogs_percent_of_line_revenue read null on all four rows after every one. The cogs_shared collapse was acknowledged in precisely the right words - 'I will keep one shared direct-cost rate for Plant sale and Hard goods sale, with separate rates for Install project and Design consult' - and stored nothing. And the workbook carries a single flat 0.47 cost-of-goods row against total revenue rather than four rows summing to a total, which the grid confirms exactly.\n\nThe contrast within the same build is the useful part. sections.revenue has twelve driver rows - capacity, price and utilisation for each of the four lines, every value the client's own - and the mid-flow install capacity correction from 6 to 8 reached the workbook at 104.01 per quarter. Revenue is fully per-line at N=4. Cost is not per-line at all below the sentence that proposes it.\n\nEverything else held. The goal anchor fired verbatim as a structured milestone. The owner was captured as one row with no phantom, cleaner than CW-029. A healthy business passed clean for the third run running, and section 6 came in 10/10 on a fourth consecutive build. Four candidate findings were dropped against the contract before filing - including the driver broadcast to not-yet-asked lines, which earlier runs would have filed as a bug and which the contract classes as an intermediate state.",
+ "version": 18,
+ "updated": "2026-08-14T02:55:00Z",
+ "notes": "CW-031 (Alderfen Nursery and Garden, Monona - a healthy garden centre with plants, hardgoods, install work and design) re-ran the N=4 shape on 3796ec6, the build cleared for the garden centre. The cost-side verdict reproduced exactly: four correctly-ordered bands proposed, six correction attempts, all four cogs_percent_of_line_revenue still null, one blended 0.504233 row in the built workbook.\n\nWhat is new is WHERE. Reading the source rather than only the behaviour, the entire downstream is already built and already correct. finmo_bridge._reconcile_per_line_cogs_rows makes the blended lever the revenue-weighted average of the per-line rows; the bridge emits per-line COGS rows the engine and workbook consume; intake_consult._apply_per_line_cogs_to_ops is a complete writer; and the code's own docstring already names this defect - 'confirmation that outruns its write is the defect this batch is named for.' All of it is starved because a client sentence never becomes a financials.cogs_per_line_overrides patch. This corroborates from the client side what VS found in-stage during the run (3091bda, later retracted as untested-surface in b80405e). A-110 should therefore be re-scoped: it is one router fix, not a write-door plus a workbook row.\n\nTwo things the run adds beyond confirmation. First, the all-or-nothing rule: the bridge and the recalc both disable per-line COGS entirely when ANY slot lacks a percent, so a partial fix ships nothing. Second, and unexpected, a lost per-line CAPACITY correction does not stay on its line. Install stayed at 5 instead of the client's corrected 7, so the reconcile scaled ALL FOUR lines' capacity by 1.11220 to reach stated revenue - and at 7 the bottom-up would have reconciled at 0.99972, essentially exactly. The client's own number was the one that worked; losing it overstates three untouched lines by 11.2 percent each in the built plan. That raises the cost of a dropped correction well above 'one wrong field'.\n\nThe conversation layer keeps improving while the write layer does not. The bundled four-at-once COGS move drew an honest refusal this time instead of CW-030's false acknowledgement; the collapse invitation now offers all three moves rather than collapsing-down only; the plain-language repair of a mis-attributed figure worked on the first attempt and carried into the workbook; and the healthy business passed with a clean, jargon-free verdict. The gap between what the app says and what it stores is now the whole remaining problem.",
  "recommendations": [
   {
    "rank": 1,
    "id": "A-110",
    "persona": "any",
    "business": "any business with more than one revenue line",
-   "why": "BLOCKER, and it is one cause with two faces. The per-line COGS proposal is excellent and the schema field exists - cogs_percent_of_line_revenue is present on every product row - but no client correction reaches it. Six attempts across three phrasings, including the app's own suggested form, all left it null, so an accepting client ships the app's blended guess: 0.47 here against the 0.406 the client's four figures actually imply, about 98,700 a year of cost they corrected away from. The second face is the workbook, which carries one flat cost-of-goods row against total revenue rather than four rows summing to a total. Revenue is fully per-line in the same build, so the shape to copy already exists one section over. Fix the write door and the model row together - separately they each leave the feature unusable.",
+   "why": "BLOCKER, reproduced on the cleared build and now LOCALISED TO ONE PLACE. Previously scoped as two fixes (a write door plus a workbook row); CW-031's source read says it is one. finmo_bridge.py:2568 _reconcile_per_line_cogs_rows, finmo_bridge.py:3399 (blend DERIVED from the line percents, never independently patchable) and intake_consult.py:2800 _apply_per_line_cogs_to_ops are all complete and correct. The workbook carrying one flat row is a correct no-op given empty input, not a second defect - it closes for free. What is missing is the router step that turns a client sentence into financials.cogs_per_line_overrides. CW-031's failing input was unambiguous by the code's own standard: line named, unit declared - 'Hardgoods sale: 73 percent of that line's revenue' - and it was absorbed as acceptance of the blend instead. Note the all-or-nothing rule at intake_consult.py:8803 and in the bridge docstring: one unwritten slot disables per-line COGS for the whole plan, so the fix must land every line or it lands none. Two consecutive N=4 runs have now shipped the app's blended guess over four client figures.",
    "retests": [
     "hard_break:financials:per_line_cogs_is_proposed_but_cannot_be_written_by_the_client",
     "hard_break:plan_build:workbook_carries_one_blended_cogs_row_at_n_equals_four"
@@ -16,61 +16,79 @@
   },
   {
    "rank": 2,
+   "id": "A-113",
+   "persona": "any",
+   "business": "any multi-line business that corrects a per-line figure after the operations stage closes",
+   "why": "BLOCKER, NEW, and it costs more than it looks. Install capacity 5 to 7: three attempts, three acknowledgements, no write. The third was unhedged - 'I'm treating your install line as having a weekly capacity of 7 jobs (reflecting three crews), not 5. That's what I'll carry forward into the final operational plan' - and it was not carried forward. The diagnostic contrast is sharp: CW-030's identical 6-to-8 correction DID land, and it was made during the operations stage rather than after it, so the working hypothesis is that per-line capacity is writable in-stage only, with no post-stage door and no post-stage refusal either. The propagation is the reason this outranks the receipt work. Because install stayed at 5, the bottom-up line model came to 1351376 against stated revenue 1503000, so the build applied a uniform 1.11220 factor to EVERY line - plant, hardgoods and design capacities are each 11.2 percent above what the client stated, in a plan they will read as theirs. At the corrected 7 the bottom-up is 1503424, a factor of 0.99972. The client's number was the one that reconciled. Fix should either open the post-stage write or decline the correction out loud; an unhedged promise is the worst of the three.",
+   "retests": [
+    "hard_break:operations:capacity_correction_after_stage_close_never_lands"
+   ]
+  },
+  {
+   "rank": 3,
    "id": "A-111",
    "persona": "any",
    "business": "any multi-line business where two lines share economics",
-   "why": "MAJOR. The COGS proposal invites the collapse in as many words - 'if the costs really run about the same across lines, say so and I will treat them as one' - and the collapse is where client control over the distinct-COGS count lives. Asked for it, the first attempt was not understood and the second was acknowledged perfectly and stored nothing: no sharing flag anywhere in the operating model. Depends on A-110, since there is nowhere to write a shared rate until per-line rates exist. Worth noting the first refusal ASKED rather than guessing, which is the right failure.",
+   "why": "MAJOR, now exercised at N=4 and unchanged. The invitation has improved - it now offers all three moves ('correct any of them on their own, tell me if some of those lines share one cost structure, or say if a line needs splitting further') where CW-030 offered only collapsing down - but the collapse instruction still acknowledges and stores nothing: zero keys matching /shared/ anywhere in the operating model, and nobody named. Same root as A-110, since the collapse writer at intake_consult.py:3116 sets cogs_percent_of_line_revenue through the same directory the router never populates. Kept separate because collapse is a distinct promise the app makes in its own words. Closes with A-110; worth a dedicated retest because the shared-rate path has its own branch.",
    "retests": [
     "flow:financials:cogs_shared_collapse_acknowledged_but_not_stored"
    ]
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-112",
    "persona": "any",
    "business": "any",
-   "why": "MAJOR, and a clean instance of the rule the contract already states. One turn produced two receipts for values that were never stored: 'I will use a marketing budget of 0 a year (0 percent of revenue). Also recorded: cogs percent of revenue 0.' marketing_total_year1 read undefined rather than 0, and cogs_percent_of_revenue stayed 0.47, so nothing was corrupted - but a client reading that turn believes their marketing budget is now zero, and the zero was never theirs. Same family as the CW-028 receipts; worth checking whether they share a code path.",
+   "why": "MAJOR, recurred on the new build with the same two fields - 'marketing budget of $0' and 'Also recorded: cogs percent of revenue 1' against stored undefined and 0.504233. CW-031 adds two things. First, it is INTERMITTENT rather than systemic: the four-field balance turn in the same run produced a receipt matching all four stored values exactly, and the repair receipt was accurate, so whatever the code path is, it is not on every turn. Second, a worse sibling appeared and is filed separately - a figure offered for annual principal was captured as marketing, overwriting an already-corrected value (hard_break:financials:debt_schedule_figure_captured_as_marketing_over_a_corrected_value). That one damaged a stored field rather than only misreporting, but the app surfaced it and a single plain-language sentence repaired both fields on the first attempt, which is the mitigating fact that keeps it at major.",
    "retests": [
-    "flow:financials:two_false_receipts_in_one_turn_on_the_cogs_and_marketing_fields"
+    "flow:financials:two_false_receipts_in_one_turn_on_the_cogs_and_marketing_fields",
+    "hard_break:financials:debt_schedule_figure_captured_as_marketing_over_a_corrected_value",
+    "experience:financials:receipt_header_names_one_line_and_prints_another_lines_price"
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
-   "why": "PROBE STILL NEVER REACHED, four attempts running. Retention-applied has not been exercised end to end: CW-027 asked and did not apply the answer, and CW-028, CW-029 and CW-030 were never asked because each business passed without needing a lever. Three consecutive healthy shapes have now made it unreachable by accident. It needs a business priced below its market that clears its wall on a price lever and goes on to build - design the run around that single requirement.",
+   "why": "PROBE STILL NEVER REACHED, five attempts running. Retention-applied has not been exercised end to end: CW-027 asked and did not apply the answer, and CW-028 through CW-031 were never asked because each business passed without needing a lever. Four consecutive healthy shapes have now made it unreachable by accident. It needs a business priced below its market that clears its wall on a price lever and goes on to build - design the run around that single requirement, and pair it with A-079.",
    "retests": [
     "verdict:plan_build:stated_retention_acknowledged_then_not_applied"
    ]
   },
   {
-   "rank": 5,
+   "rank": 6,
+   "id": "A-114",
+   "persona": "any",
+   "business": "any existing business with an equipment base",
+   "why": "MAJOR, NEW, and a contract gap as much as a code one. The client's stated $386,000 of trucks, skid steer, hoop houses, benching, irrigation and yard equipment opens the balance sheet correctly and is then never depreciated: Q0 depreciation 0, Q1 106.92 against capex 2142, and accumulated depreciation across the entire 21-quarter projection only 46063 - roughly 12 percent of the opening base, carried at near-full value into 2031. Only new capex depreciates. EBITDA is unaffected since depreciation sits below it, but net income, retained earnings and total assets all carry the omission for five years. The by-design case is real and should be weighed: the intake never asks the age or remaining useful life of existing equipment, so the model has no basis to depreciate it, and holding it flat is a defensible choice. But it is an undisclosed one, and docs/INTAKE_FLOW_CONTRACT.md is silent on depreciation policy entirely. Cheapest resolution is probably a contract decision plus one line of plan copy, not an intake question.",
+   "retests": [
+    "verdict:plan_build:opening_ppe_never_depreciated_over_the_projection"
+   ]
+  },
+  {
+   "rank": 7,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
-   "why": "CARRIED FORWARD, and now the cheapest thing on the board by a wide margin. Section 6's field check has passed 10/10 on four consecutive builds, so that limb needs no further evidence. The other two have still never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Four clean built drafts now exist to test against and no new intake is required for either.",
+   "why": "CARRIED FORWARD, and still the cheapest thing on the board. Section 6's field check has now passed on five consecutive builds - CW-031 scored 13/13 exact on scalars, to the cent, with both DIFFs explained (a 2.5 percent G&A ramp and the reconcile factor) - so that limb needs no further evidence and should be retired. The other two have still never been run: the byte-equal rerun on a coherent draft, and derived-field healing on an old or dormant draft. Five clean built drafts now exist to test against and no new intake is required for either.",
    "retests": []
   },
   {
-   "rank": 6,
+   "rank": 8,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
-   "why": "CARRIED FORWARD, untested for eight runs. Three healthy businesses have now passed cleanly and honestly, each time arguing its own pass figure down to a named ceiling, which is strong counter-evidence on the honesty half. The unexercised half is still an underpriced business that reaches a verdict without correcting itself first. Pairs naturally with A-106 - one well-designed underpriced run could settle both.",
+   "why": "CARRIED FORWARD, untested for nine runs. Four healthy businesses have now passed cleanly and honestly, each arguing its own pass figure down to a named ceiling - CW-031 promised 16.0 percent as the honest ceiling against a 18.8 percent stress figure and built to 7.4 percent at q20 - which is strong and accumulating counter-evidence on the honesty half. The unexercised half is still an underpriced business that reaches a verdict without correcting itself first. Pairs naturally with A-106; one well-designed underpriced run could settle both.",
    "retests": [
     "verdict:convergence:unviable_business_passes_on_volume_above_stated_capacity"
    ]
   }
  ],
  "closed_this_cycle": [
-  {
-   "id": "A-108",
-   "reason": "Superseded and answered. The design ruling CW-029 asked for has shipped: the app now proposes per-line COGS with distinct bands and invites both correction and collapse. What remains is that none of it can be written or modelled, which is A-110 and A-111 rather than an open design question."
-  },
-  {
-   "id": "A-109",
-   "reason": "Not reproduced. No state note contradicted a value it had just quoted in this run."
-  }
+  "Nothing closed. Both CW-030 blockers reproduced verbatim on 3796ec6 and are re-filed rather than closed.",
+  "Two candidate findings were investigated and closed WITHOUT filing in the same pass: the Osric $71,000 wage appearing missing with two phantom null rows (resolved cleanly once the narrative was confirmed - section 2 intermediate state), and a suspected double count of initial_assets against the current-asset seeds (the intake question asks specifically about equipment, devices, furniture and fixtures, so PPE is the correct destination; total_assets 819000 = 433000 current + 386000 PPE ties exactly).",
+  "PARTIAL IMPROVEMENT worth recording against A-110 rather than closing it: the bundled four-at-once per-line COGS move now draws an honest refusal ('I wasn't able to apply that change yet') where CW-030 produced a false acknowledgement. The acknowledgement layer is being fixed ahead of the write layer.",
+  "Section 6's field-check limb (part of A-103) should be considered SETTLED at five consecutive clean builds and dropped from the retest list."
  ]
 }
