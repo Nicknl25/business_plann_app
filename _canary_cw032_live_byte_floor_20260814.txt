@@ -1,0 +1,15 @@
+CW-032 LIVE verification step 2 — Sunny_V3 byte-floor canary
+Date: 2026-08-14 (same-day as re-blessed goldens, caveat satisfied)
+Backend: restarted on HEAD 8c173cc at 13:29:25, ONE :5050 listener (pid 12688)
+Command: .venv\Scripts\python.exe -u "Test Files\_prove_single_line_byte_floor.py" 6feac758 LIVE
+
+[LIVE] system run for 6feac7580c3948339fd850468af50282
+[LIVE] HTTP 200
+[LIVE] run 6bf5fb59a94e49 stage=post_intake_finalize_validation_completed
+[LIVE] FINMO_SHA 97117892c9db4345ed42ded21d66eb8d7cec8616660b673ac4df7098db9482eb
+[LIVE] MODEL_INPUT_SHA e813c11851787c6c509bca69b5d7d52ffb28cd4d9747151cb645bdfa1c7ed850
+[LIVE] status {'planning_run_status': 'completed'}
+
+VERDICT: MATCH — both SHAs identical to the re-blessed post-depreciation
+goldens (97117892... / e813c118..., blessed 2026-08-14 by mini, run ac235a90).
+Run completed through production to the final checkpoint.

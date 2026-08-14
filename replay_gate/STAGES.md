@@ -48,40 +48,48 @@ RULES
                         _prove_20260814_mini_cw032_turn1.txt.
                         Was: Nick 2026-08-13, on mini's round-10 audit
                         (_prove_20260813_*.txt, VS_NOTES rounds 8-10).
-    LIVE:   failing   — RETRACTED 2026-08-13 23:20 on CW-032 Alderfen:
-                        the in-stage surface fails (3 artifact-backed
-                        filings incl. 2 blockers). VS's conversation
-                        check ran at the WALL; the client corrects IN
-                        THE STAGE, which has no line-scoped field. The
-                        engine + wall-door remain proven. Was: VS 22:15, on the FIXED build (CW-031
-                        batch, gate blessed 61 legs / 0 DRIFT / R43):
-                        (a) backend on HEAD, ONE :5050 listener;
-                        (b) Sunny_V3 canary completed AND byte-identical
-                        to the pre-batch canary (FINMO 76336ce0...,
-                        MODEL_INPUT c4292f8e... - 14 rounds of intake
-                        surgery moved a single-line draft ZERO bytes);
-                        (c) multi-line E2E: 2 COGS rows, Sigma==blend
-                        all 20q, workbook =SUM over per-line rows;
-                        (d) NEW - CONVERSATION-DRIVEN live check (the
-                        path the old E2E skipped): fresh Ravenwood
-                        clones through the real router - separation
-                        lands basis=declared per line; the uniform-rate
-                        ask converts a yes into a DECLARED group whose
-                        receipt speaks the stored values; an unmatched
-                        figure gets an honest no-record; stated dollars
-                        land as the right fraction. LIVE RESULT: CLEAN.
-                        Evidence: _live_cw031_round9_turns output,
-                        canary + E2E task logs 2026-08-13 22:0x.
-    COWORK: blocked   — auto-reblocked on the CW-032 filings. Nick's 4-stream
-                        garden centre is the intended first run (the case
-                        WS1b was built for, and the first N>2 exercise).
+    LIVE:   passed    — VS 2026-08-14, on HEAD 8c173cc (the CW-032 batch,
+                        gate re-blessed same day):
+                        (a) backend restarted on HEAD 13:29:25, ONE
+                        :5050 listener (pid 12688);
+                        (b) Sunny_V3 byte-floor canary (6feac758)
+                        completed through production, both SHAs
+                        IDENTICAL to the re-blessed post-depreciation
+                        goldens (FINMO 97117892..., MODEL_INPUT
+                        e813c118...), same-day caveat satisfied:
+                        _canary_cw032_live_byte_floor_20260814.txt;
+                        (c) multi-line E2E GREEN: client's four-rate
+                        sentence -> live wall router -> real system-run
+                        -> four COGS driver rows on Model Inputs, FINMO
+                        exactly ONE 'Cost of Goods Sold' row that IS
+                        the four-term roll-up, zero per-line P&L rows,
+                        _assert_workbook_cogs_rows PASSES on the
+                        delivery-record binding, Q1 depreciation carries
+                        the straight-line share:
+                        _live_cw032_multiline_e2e_20260814.txt;
+                        (d) THE IN-STAGE CONVERSATION CHECK (the surface
+                        CW-032 Alderfen failed on) GREEN on fresh
+                        rewound 4-line clones: S1 all four client rates
+                        (46/73/17/3) land in ONE message, stage
+                        COMPLETES on the derived blend 42.2%, reply is
+                        the receipt not the Alderfen refusal; S2
+                        collapse stores /shared/ on exactly the named
+                        rows basis=declared; S3 single-line write keeps
+                        the per-line recovery shape, no false receipt:
+                        _live_cw032_instage_20260814.txt.
+                        (Was: RETRACTED 2026-08-13 23:20 on the CW-032
+                        Alderfen in-stage failure; the fix batch closed
+                        it and this pass re-exercised that surface.)
+    COWORK: cleared   — automatic: GATE=blessed + LIVE=passed
+                        (2026-08-14). Nick's 4-stream garden centre is
+                        the intended first run (the case WS1b was built
+                        for, and the first N>2 exercise).
 
-    NEXT STEP: none — done for the gate, done live, cleared for the
-    4-stream garden-center Cowork (the first N>2 run on the FIXED
-    intake half). Post-batch: the inference scan (section F of the
-    boundary seed) as its own task.
-    ("shouldn't bikes and repairs be different?") now answers itself:
-    bike sale 52%, repair 22%, two rows in the client's workbook.
+    NEXT STEP: Nick re-runs the garden center to SEE it — four COGS
+    driver rows on Model Inputs and the one summing P&L line. After
+    that Cowork run: the inference scan (section F of the boundary
+    seed) as its own task, and proactive stream discovery research
+    (block below).
 
 ---
 

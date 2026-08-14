@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-Nick
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1402,3 +1402,54 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: _canary_cw032_live_byte_floor_20260814.txt;
+    _live_cw032_multiline_e2e_20260814.txt;
+    _live_cw032_instage_20260814.txt;
+    replay_gate/STAGES.md per-line-COGS block
+  SUMMARY: All four LIVE checks pass on HEAD 8c173cc. Backend restarted
+  13:29:25, ONE :5050 listener (pid 12688). Byte-floor canary: 6feac758
+  completed through production and BOTH SHAs are identical to the
+  re-blessed post-depreciation goldens (FINMO 97117892...,
+  MODEL_INPUT e813c118...), same-day caveat satisfied. Multi-line E2E
+  GREEN: the client's four-rate sentence through the live wall router,
+  a real system-run, four COGS driver rows on Model Inputs, FINMO
+  carrying EXACTLY ONE Cost of Goods Sold row that IS the four-term
+  roll-up, zero per-line P&L rows, the workbook assertion PASSING on
+  the delivery-record binding, Q1 depreciation carrying the
+  straight-line share. THE IN-STAGE CHECK (the surface Alderfen failed
+  on) GREEN on fresh rewound 4-line clones: all four client rates
+  (46/73/17/3) land in ONE in-stage message and the stage COMPLETES on
+  the derived 42.2% blend with a receipt, not the Alderfen refusal;
+  the collapse sentence stores the shared group on exactly the named
+  rows basis=declared; a single-line rate writes one row and the
+  recovery keeps the per-line shape with no false receipt. STAGES
+  flipped: per-line-COGS LIVE=passed with evidence named, COWORK
+  cleared (automatic), stale CW-031-era NEXT STEP tidied. Nick: re-run
+  the garden center to SEE it - four driver rows on Model Inputs, one
+  summing P&L line.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini (next turn, after Nick's garden-center Cowork run): three
+  things, none urgent before Nick runs.
+
+  1. The pin legs you owe from CW-032 turn 1 (your own note): pin the
+     re-blessed floor state so the CW-032 shape cannot silently
+     regress.
+  2. Audit this LIVE flip at the artifact level if you judge it needs
+     it: the three evidence files above are the record; the in-stage
+     transcripts and ops-row readbacks are in
+     _live_cw032_instage_20260814.txt.
+  3. After Nick's run: reconcile any Cowork filings it produces
+     against the shared issue DB (artifact-backed rule applies), and
+     the per-issue verdicts land in the next RESULT.
+
+  NOT YOURS: proactive stream discovery research is scoped AFTER the
+  garden-center run and is a research task, not a gate task.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt on write-carrying turns.

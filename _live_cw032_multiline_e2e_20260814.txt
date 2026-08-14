@@ -1,0 +1,23 @@
+﻿cloned completed Alderfen -> cw32wb0b66f18b54344d23a62087b16a
+
+STEP 1 - the client's four rates through the LIVE wall router
+  < [200] Got it, I’ve updated your COGS to Plants at 46%, Hardgoods at 73%, Install at 17%, and Design at 3% of each line’s revenue just as you described.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. One more thing 
+  ops rates: {'Plant sale': 0.46, 'Hardgoods sale': 0.73, 'Install job': 0.17, 'Design project': 0.03}
+  [PASS] wall turn landed all four client rates: {'Plant sale': 0.46, 'Hardgoods sale': 0.73, 'Install job': 0.17, 'Design project': 0.03}
+
+STEP 2 - real system-run (foreground; rerun names its own run)
+  HTTP 200
+  [PASS] system run completed: completed
+  [PASS] (1) model_input carries FOUR COGS % rows: 4 rows: ['lob_1_product_1', 'lob_2_product_1', 'lob_3_product_1', 'lob_4_product_1']
+
+STEP 3 - the delivered workbook: C:\dev\Cilient Plans\Alderfen Nursery and Garden -- 08-14-2026 13-37-37.xlsx
+  [PASS] (2) Model Inputs renders FOUR COGS driver rows: ['Plant retail / Plant sale - COGS %', 'Hardgoods retail / Hardgoods sale - COGS %', 'Install services / Install job - COGS %', 'Design consultations / Design project - COGS %']
+  [PASS] (3a) FINMO carries EXACTLY ONE COGS row, zero per-line rows: totals=1 per_line=[]
+  [PASS] (3b) the one cell IS the four-term roll-up: ='Model Inputs'!D11*'Model Inputs'!D10+'Model Inputs'!D16*'Model Inputs'!D15+'Model Inputs'!D21*'Model Inputs'!D20+'Mode
+  [PASS] (5) Q1 depreciation rate carries the straight-line share: q1 rate=0.052952 (>= 0.05 - 5y straight line + capex vintages)
+  [PASS] (4) workbook_cogs_rows assertion PASSES on the delivery binding: Alderfen Nursery and Garden -- 08-14-2026 13-37-37.xlsx [FINMO] carries ONE 'Cost of Goods Sold' roll-up row over 4 Model Inputs drivers (21 period columns checked); Sigma(line rev x line pct) == blen
+
+========================================================================
+GREEN - client words -> live router -> ops rows -> system run -> four drivers on Model Inputs + ONE roll-up P&L line, delivered and assertion-bound.

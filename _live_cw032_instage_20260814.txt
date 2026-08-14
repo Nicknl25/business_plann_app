@@ -1,4 +1,4 @@
-S1 - all four rates in ONE message at the cogs stage
+﻿S1 - all four rates in ONE message at the cogs stage
   [PASS] clone rewound to the pre-correction state: lines=['Plant sale', 'Hardgoods sale', 'Install job', 'Design project']
   < [200] Recorded: Plant retail / Plant sale at 46% of that line's revenue; Hardgoods retail / Hardgoods sale at 73% of that line's revenue; Install services / Install job at 17% of that line's revenue; Design consultations / Design project at 3% of that line's revenue. Together that rolls up to direct costs of about $634,545 a year (42% of revenue), derive
   ops now: {'Plant sale': 0.46, 'Hardgoods sale': 0.73, 'Install job': 0.17, 'Design project': 0.03}
