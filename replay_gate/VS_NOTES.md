@@ -2699,10 +2699,34 @@ _redproof_cw033_prefix_20260814.txt  - pre-fix tree (git stash): RED,
   week=5/period=7 evaporating twin).
 _redproof_cw033_postfix_20260814.txt - fixed tree: GREEN (35 checks).
 _live_cw033_20260814.txt             - live GREEN (above).
-_canary_cw033_sunnyv3_20260814.txt   - Sunny_V3 on listener 20200
-  (started 16:33:38, postdates last app edit 16:33:03, ONE listener):
-  system_run_complete, 399s, workbook built, zero error lines.
-_prove_20260814_vs_cw033.txt         - full prove on final code.
+_canary_cw033_sunnyv3_20260814.txt   - Sunny_V3 on a listener postdating
+  every app edit (ONE listener verified at each of three restarts):
+  system_run_complete, workbook built, zero error lines. Three canaries
+  were run this turn - one after each app-code change.
+_prove_20260814_vs_cw033.txt         - full prove on FINAL code: 61 legs,
+  54 proven behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
+  0 UNEARNED, 0 other failures, CLEAN.
+
+### WHAT THE FIRST PROVE CAUGHT (two rounds of my own medicine)
+The first full prove ran R01/I01 (completed-financials freeze /
+forward-move price, the CW-026 no-dead-end law) RED at HEAD - my
+multi-line discipline had re-created the outlawed freeze on two shapes:
+1. ROW-LESS legacy flat models: the refusal refused drafts where the
+   flat key IS the home. Fixed: refusal requires MORE THAN ONE product
+   row; zero rows keeps the flat landing, read-back added (123f532).
+2. SINGLE-ROW models (the actual R01/I01 Sumac draft 2ecc759c - one
+   'Property contract' row): 'my unit price is now 650 instead of 520'
+   carries the marker INSTEAD, triggers the price leaf, resolves no
+   product name ('unit'/'price' match nothing), and the wrapper then
+   SUPPRESSED the forward move behind the refusal - a freeze with extra
+   steps. Fixed: one product row means there is nothing to
+   disambiguate; the applier lands on it without a name. The final
+   prove has both legs back to PROVEN.
+LESSON FOR THE AUDIT: the refusal discipline is exactly one-line-vs-
+many; mini should attack the boundary (a single-row draft whose message
+names a DIFFERENT product than the row - the applier will land it on
+the one row, which is the CW-026 worst-case-a-correctable-proposal
+contract, but say so if you rule otherwise).
 
 ### TIER 3 - DISCOVERY SPEC (research only, nothing built)
 docs/STREAM_DISCOVERY_SPEC.md. Shape: category knowledge = business

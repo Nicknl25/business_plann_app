@@ -6866,12 +6866,21 @@ def _apply_cross_section_driver_correction(
   if isinstance(report, dict):
     report["triggered_leaf"] = _leaf_probe
 
-  resolved, _why = _resolve_ops_product_line(ops_json, msg)
-  if resolved is None:
-    if isinstance(report, dict):
-      report["product_unresolved"] = _why
-    return None
-  li, pi, product = resolved
+  if len(products) == 1:
+    # ONE product row: there is nothing to disambiguate - a lever
+    # correction lands on it whether or not the client names it the way
+    # the app does (R01/I01's Sumac draft: 'my unit price is now 650
+    # instead of 520' names no line because there is only one; refusing
+    # here re-created the CW-026 freeze with the forward move suppressed
+    # behind it).
+    li, pi, product = products[0]
+  else:
+    resolved, _why = _resolve_ops_product_line(ops_json, msg)
+    if resolved is None:
+      if isinstance(report, dict):
+        report["product_unresolved"] = _why
+      return None
+    li, pi, product = resolved
 
   leaf = None
   new_value: Optional[float] = None
