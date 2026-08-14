@@ -1,7 +1,7 @@
 {
  "version": 1,
- "updated": "2026-08-14T02:55:00Z",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible. As of CW-031 the campaign has reached the passing path four times (CW-028 through CW-031) and the remaining defects are concentrated in the capture/write layer and in receipt fidelity, not in the conversation.",
+ "updated": "2026-08-14T04:40:00Z",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible. As of CW-032 the campaign has reached the passing path five times running (CW-028 to CW-032), and the N=4 cost-side chain that defined CW-030 and CW-031 is closed. The remaining concentration is per-line CAPACITY writes after a stage closes, and receipt fidelity.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -165,9 +165,10 @@
    ],
    "runs": [
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ],
-   "note": "FOUR revenue lines spanning the full COGS range - the first N>2 shape in the campaign. Exercised twice (CW-030, CW-031) on two different builds; the N=4 cost-side verdict reproduced identically both times."
+   "note": "FOUR revenue lines spanning the full COGS range. Exercised three times (CW-030, CW-031, CW-032) across three builds. The cost-side chain failed identically on the first two and passed end to end on the third; the capacity-correction limb has failed on all three."
   }
  },
  "friction_conditions": {
@@ -274,7 +275,8 @@
     "CW-028",
     "CW-029",
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -307,7 +309,8 @@
     "CW-028",
     "CW-029",
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ]
   },
   "pre_revenue_startup": {
@@ -323,7 +326,8 @@
     "CW-015",
     "CW-018",
     "CW-019",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ]
   },
   "multiple_revenue_streams": {
@@ -349,7 +353,8 @@
     "CW-019",
     "CW-020",
     "CW-021",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ]
   },
   "lease_heavy_cost_structure": {
@@ -484,7 +489,8 @@
     "CW-018",
     "CW-029",
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ]
   },
   "mixed_period_cadence_lobs": {
@@ -674,21 +680,30 @@
   "four_revenue_streams": {
    "runs": [
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ],
-   "note": "N=4. Revenue reaches the workbook per line and exactly (12 driver rows, 4 slots); COGS does not - one blended row on both builds. The all-or-nothing per-line rule means a partial fix buys nothing."
+   "note": "N=4. Revenue reaches the workbook per line on all three runs. COGS reached it for the FIRST time on CW-032 (e3f2c1b): four per-line driver rows on Model Inputs plus one P&L roll-up line, matching to eight decimal places."
   },
   "post_stage_close_capacity_correction": {
    "runs": [
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ],
-   "note": "NEW. A per-line capacity correction issued AFTER the operations stage closed draws unhedged receipts and never writes, while the same correction made in-stage (CW-030) lands. The loss propagates: the reconcile rescales every other line to absorb it."
+   "note": "Failed on CW-031 and again on CW-032 across three deliberately different attempt shapes (bundled / standalone two-number / standalone single-number). The uniform reconcile smear reproduces at the magnitude predicted before the run."
   },
   "undepreciated_opening_asset_base": {
    "runs": [
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ],
-   "note": "NEW. A $386,000 client-stated equipment base is carried flat across 21 quarters; only new capex depreciates. Contract is silent on depreciation policy."
+   "note": "FIXED on CW-032. CW-031 accumulated only 46,063 of depreciation on a 386,000 base; CW-032 amortises a 380,000 base straight-line over five years with useful_life_years:5 stated in the model policy block."
+  },
+  "declared_shared_cost_group_across_lines": {
+   "runs": [
+    "CW-032"
+   ],
+   "note": "NEW and PASSING. Two of four lines collapsed to one declared cost rate: cogs_cost_structure_group / _members / _basis 'declared' stored on exactly the two members, receipt naming the group and confirming the two exclusions."
   }
  },
  "verdict_classes_reached": {
@@ -1274,6 +1289,34 @@
    "headline": "CW-030's N=4 cost-side blocker reproduces exactly on the cleared build, and this run localises it to the intent router - the writer, the reconcile and the workbook consumer are all already built and correct, and all three are starved. New finding: a lost per-line capacity correction rescales ALL FOUR lines by 11.220 pct in the built plan.",
    "issues_filed": 8,
    "blockers": 3
+  },
+  "CW-032": {
+   "persona": "Rosalind Achterberg - healthy, correctly priced garden centre owner, four revenue lines",
+   "business": "Thornfield Green Nursery and Garden",
+   "city": "Verona WI",
+   "type": "garden_centre_multi_line",
+   "draft_id": "d9b17850350545e9911fa09b3e333429",
+   "stack": "e3f2c1b throughout, no movement during the run",
+   "reference_code": "QJWJXPM35316063373 (submission #76)",
+   "outcome": "CONVERGED, SUBMITTED, PLAN BUILT TO COMPLETION. Verdict 'Clears every structural test we can run right now.' accounting_equation_check 0 and balance sheet ties on all 21 quarters. Section 6 12/13 exact.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "healthy_correctly_priced_founder",
+    "four_revenue_streams",
+    "multiple_revenue_streams",
+    "existing_business_with_history",
+    "seasonal_revenue",
+    "inventory_carrying_business",
+    "declared_shared_cost_group_across_lines",
+    "post_stage_close_capacity_correction",
+    "per_line_cogs_written_and_rolled_up",
+    "depreciated_opening_asset_base",
+    "goal_anchor_stated",
+    "spurious_retention_gate"
+   ],
+   "headline": "The re-run lands. Per-line COGS works end to end for the first time - four rates in ONE message all wrote and read back true, the collapse stores a real named group, and the workbook carries the ruled layout (four Model Inputs driver rows, one P&L line, exact roll-up). Depreciation fixed too. A-110, A-111 and A-114 close on built-workbook evidence. A-113 reproduces alone and clean: three attempts, three receipts, zero writes, uniform 1.106527 smear.",
+   "issues_filed": 5,
+   "blockers": 1
   }
  },
  "verdict_classes": {
@@ -1294,7 +1337,8 @@
     "CW-028",
     "CW-029",
     "CW-030",
-    "CW-031"
+    "CW-031",
+    "CW-032"
    ]
   },
   "parked": {
