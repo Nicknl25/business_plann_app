@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 2/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1121,3 +1121,80 @@ TASK:
   deterministic receipt. Nothing this turn moves it; D1/D2 are
   deterministic-sentence defects, which is exactly why they are fixable
   in code without the ruling.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw031:round11-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-031 ROUND 11 section;
+    Test Files/_redproof_cw031_round11_fixes.py;
+    Test Files/_redproof_cw031_round11_ablate.py;
+    _redproof_cw031_round11_ablate_20260813.txt;
+    _canary_cw031_round11_sunnyv3_20260813.txt;
+    _prove_20260813_vs_round11.txt; commit b0607e0
+  SUMMARY: Your three round-10 fixes are landed. D1: a match names a field
+  only when exactly ONE distinct leaf name matches; two or more distinct
+  names return leaf None and the sentence speaks the bare value ($9,800 on
+  file) - the distinct-NAME rule, so a value mirrored under one name still
+  names it. D2: the tolerance is max(0.5, 1e-9*|v|); dust matches, a 0.32%
+  correction never does. D3: the coherence pass partitions carrying rows by
+  stored member frozenset - your O1 collision yields two coherent
+  partitions and BOTH survive, O2's stale twin retires ALONE, O3/O4/O4b
+  unchanged; the label parse survives only for pure-legacy labels. Your
+  match_attack A1/A2 are re-pointed to the new law as RED conditions
+  (header says so); retire_attack runs CLEAN unmodified. Twelve green
+  checks, five ablations each red on their own check, none decorative.
+  Canary on PID 12544 (postdates every edit, ONE listener): 471s,
+  system_run_complete, 0 errors, delivery record #6 bound by draft_id.
+  Prove: 58 legs, 0 DRIFT, 0 UNEARNED, GREEN; R40 held untouched. Not
+  green: none of it is artifact-audited by you, which is Nick's standing
+  law for this batch.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit round 11 at the ARTIFACT level. Mechanisms, edges, and one
+  deliberate judgment call are in VS_NOTES ROUND 11.
+
+  1. THE LEGS YOU PROMISED. R41 (a match never names an ambiguous field,
+     a near-miss never claims a match) - you said land D1/D2 and you
+     would pin it; the shapes are in your probes and my
+     _redproof_cw031_round11_fixes.py checks 1a-2c. And the retire
+     coverage extension you promised after D3.
+
+  2. THE JUDGMENT CALL I MADE WITHOUT YOU, ratify or overturn: at the
+     PURE-LEGACY tier (no member list anywhere under a label), an
+     off-claim row now retires ALONE and the coherent remainder
+     survives; round-10 code retired the WHOLE label set. Consistent
+     with retire-only-failing-claims, but it is my reading of your
+     principle, not your ruling. Check 3d/3e in the redproof are the
+     shapes.
+
+  3. D1's LIVE RATE, the honest cost of the law. Your own census says
+     92.7% of drafts carry a collision, and most are DERIVED TWINS
+     (current_revenue == revenue totals, annual_wage ==
+     year1_payroll_amount - your W5b). Under the new law those
+     confirmations speak the bare value with no field name. Drive live
+     restatements on a real clone and say whether the bare-value
+     sentence is acceptable client-speak at that rate, or whether
+     derived twins (mirrors of the SAME quantity) deserve a same-
+     identity rule so the common case can keep its name. I did not
+     build that - it needs a mirror map nobody has ruled on.
+
+  4. MY LIVE GAP, stated plainly: no live router turn this round. All
+     three fixes are deterministic functions proven at function level
+     plus a clean canary; the match sentence and the retire have not
+     been driven through the live router since the change. Your live
+     wordings are the check that counts under Nick's law.
+
+  Standing laws apply: restart the backend after app-code edits and
+  verify ONE :5050 listener, one Sunny_V3 canary before any batch,
+  red-proofs red for the right reason, never end a turn with a job
+  running.
+
+  NOT YOURS: nothing in replay_gate gate code changed; R40 passes
+  untouched on the D3 rewrite (the prove file is
+  _prove_20260813_vs_round11.txt).
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt. Nothing this round moves it - all three fixes
+  are deterministic-sentence or state-coherence changes, which is
+  exactly why they were fixable without the ruling.
