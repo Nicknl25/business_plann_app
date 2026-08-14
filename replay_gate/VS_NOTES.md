@@ -2929,3 +2929,112 @@ verdict:wall:owner_draw_ceiling_offered_is_the_whole_team_payroll_
 ceiling - OPEN/major in the registry - is now formally ON THE BOARD
 (rank below A-115/A-112/A-106, above hygiene). It was on nobody's list
 until turn 1 flagged it; Nick's revision adopts it.
+
+## CW-033 TURN 3 (2026-08-14, commit 02effe1): mini's four fixes landed
+
+The audit's three live defects (M1/M2/M3) plus the B3 capex edge, all
+fixed at the layer mini ruled, red-proofed pre-fix, ablated per-fix,
+and driven live on real clones. Evidence:
+_redproof_cw033_turn3_prefix_20260814.txt (pre-fix RED, 13 checks, each
+red for its own reason), _redproof_cw033_turn3_fixes_20260814.txt
+(24/24 GREEN), _redproof_cw033_turn3_ablate_20260814.txt (4 ablations,
+each red on its own checks alone), _live_cw033_turn3_20260814.txt
+(W1-W5b GREEN on PID 11032, postdates every edit).
+
+### M1 - the interview reply speaks only from the receipt (F1(b) at
+### this ship gate)
+The A4b anatomy was FOUR emitting layers, all fixed:
+1. THE ACK FALLBACK (the "Got it -- I'll update ... to 99" half):
+   _build_financials_stage_acknowledgement_first now gates the router
+   free-prose fallback - prose that matches _WRITE_CLAIM_RE or
+   _prose_acks_unwritten_figure dies; the write-derived ack (or bare
+   "Got it.") ships. The winner branch (a real stage write) is
+   untouched.
+2. THE MISREAD PATCH (the phantom "rent change" note): the wrapper now
+   threads the redirect's consumed_figures into the inner turn as
+   redirect_consumed_figures; any patch value echoing one (the router's
+   rent=99 misread) is dropped BEFORE the doors and normalizer, and the
+   same figures ride extra_reference_figures so the forward mover can
+   never re-land them. _apply_cross_section_driver_correction now
+   populates consumed_figures on the value-underivable return too.
+3. PHANTOM NOTES (the "other operating costs yet" half): on a redirect
+   turn a dropped field earns a say-do note only when the client
+   actually stated the figure the router tried to write there.
+4. "ALSO RECORDED" (three on-file values spoken as new): the
+   extra-applied list is now filtered to values that actually CHANGED
+   vs pre-patch state - a no-op write is not a landing (CW-029 rider
+   #4, the law the forward mover already enforced).
+   Plus: when every stated figure is the redirect's own, the no-write
+   tail skips the failed-change register (the redirect already told the
+   client what happened) - the standing question ships instead.
+Live W1: the A4b turn now reads redirect + "Got it." + the rent
+question. Nothing written, nothing claimed.
+
+### M2 - the boundary decision lives at the write door
+_apply_forward_move's ops branch refuses with the honest redirect
+whenever _next_financials_stage() says a financials stage is active -
+whatever wording carried the move there, detector or no detector. The
+wrapper's detect stays for the redirect COPY only (one authority, as
+ruled). At the wall (no active stage) landings are unchanged - W4
+control still lands 7/7. Live W2: mini's keywordless "7 jobs a week"
+wording now gets the redirect and writes nothing mid-interview.
+NOTE for mini's promised leg ("mid-interview ops landings are
+impossible regardless of wording"): the door is the choke point -
+_strip_suppressed_ops_move remains as belt-and-braces on detector
+turns, but deleting it would NOT reopen the back door.
+
+### M3 - a stated cadence is never silently re-based
+New _stated_capacity_cadence + _reconcile_stated_capacity_cadence
+(intake_consult.py, above _strip_suppressed_ops_move): the stated
+cadence parses from the message; matching cadence lands as today;
+differing converts into the canonical cell (40/wk -> 40*52/12 =
+173.33/period on Sumac's 12-period contract row; the derived week twin
+then reads exactly 40); day-cadence, mixed cadences, or a per-period
+row with no usable operating_periods_per_year ASK instead of writing.
+The receipt always speaks the client's own cadence and discloses the
+modeled figure when it converted: "Recorded: capacity 40 a week (about
+173.3 per operating period (12 a year) as this line is modeled)."
+Wiring notes: the early no-op check stands aside whenever a capacity
+message states any cadence (a raw value-match can be a real change);
+the underivability guard takes extra_derivable so the converted value
+is not reverted as a figure from nowhere.
+HONEST EDGE, handed to mini: _apply_cross_section_driver_correction
+(the CW-017b market/people door) still lands capacity WITHOUT the
+cadence reconciler - same class, different door, no observed artifact,
+pre-existing door under the forward-only law. If mini can produce a
+reachable wrong-number there ("mowing capacity is 40 a week" with
+correction language + the word capacity at a market/people stage), that
+is the reachable-case exception and the fix is the same helper at that
+door's capacity branch (~intake_consult.py:6990).
+
+### B3 - the capex but-we-did carve-out
+_capex_answer_expresses_none returns False when a negative lead
+carries a carve-out (but we did|except|apart from|other than|aside
+from) followed by a figure; new _capex_carveout_figure returns the ONE
+figure stated after the carve-out. The normalizer scopes the landing
+numeric to it (router-captured 380k -> 15,000; router-forced 0 ->
+15,000), and _unlanded_figures_disclosure treats the OTHER figures as
+descriptive references so the excluded base cannot hunt for a home.
+Plain explicit-no (B1 shape) and the No-wait correction lookahead are
+proven intact. Live W5: 15,000 IS the capex, 380,000 lands nowhere in
+financials or people; W5b control still stores 0.
+
+### HOUSEKEEPING + THE A-112 DEBT
+_live_cw033_capacity_turns.py L6 re-pointed to financials._coherence
+(the vacuous intake_coherence read is gone) and its make_clone now
+strips the stale retention frame (mini's hygiene). A-112 still owes a
+live artifact from a real conversational run; the bypass canary has no
+interview turns so it cannot supply one. Partial live evidence this
+turn: W5's reply carried "(One note: I haven't recorded initial assets
+yet)" and initial_assets was verifiably unstored that turn - the note
+mechanism speaking truly on a real turn; the re-validation half (a note
+dropped because the same reply recorded the field) remains unexercised
+live.
+
+### CANARY + PROVE
+Sunny_V3 on PID 11032 (started 19:03:18, postdates every edit, ONE
+listener verified): system_run_complete, 484s, ZERO error lines in
+_logs_persona_20260814_190317.txt, workbook built and delivered,
+workbook_deliveries row #22 bound by draft_id
+(_canary_cw033_turn3_sunnyv3_20260814.txt). Full prove:
+_prove_20260814_vs_cw033_turn3.txt (see RESULT for the table).

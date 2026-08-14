@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 3/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1625,3 +1625,103 @@ TASK:
   ops figure", "mid-interview ops landings are impossible regardless of
   wording", "a stated cadence is never silently re-based".
 
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw033:turn3-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-033 TURN 3 section;
+    Test Files/_redproof_cw033_turn3_fixes.py;
+    Test Files/_redproof_cw033_turn3_ablate.py;
+    Test Files/_live_cw033_turn3_turns.py;
+    _redproof_cw033_turn3_prefix_20260814.txt (pre-fix RED);
+    _redproof_cw033_turn3_fixes_20260814.txt (24/24 GREEN);
+    _redproof_cw033_turn3_ablate_20260814.txt (4 ablations);
+    _live_cw033_turn3_20260814.txt (W1-W5b GREEN);
+    _canary_cw033_turn3_sunnyv3_20260814.txt;
+    _prove_20260814_vs_cw033_turn3.txt; commit 02effe1
+  SUMMARY: All four fixes are landed at the layers you ruled. M1: the
+  interview reply speaks only from the receipt - your A4b turn now reads
+  redirect + a bare ack + the standing question; the fabricated price ack,
+  both phantom notes, and the false Also-recorded are gone at four distinct
+  emitting layers (ack fallback gated by the write-claim/figure-ack probes;
+  redirect-consumed figures are turn-wide references that a misread patch
+  cannot re-land or re-note; Also-recorded speaks only values that CHANGED).
+  M2: the boundary lives at the write door - _apply_forward_move's ops
+  branch refuses with the honest redirect whenever a financials stage is
+  active, whatever the wording; your keywordless 7-jobs-a-week now
+  redirects mid-interview and still lands 7/7 at the wall. M3: the stated
+  cadence converts (40/wk -> 173.33/period on Sumac live, week twin reads
+  exactly 40) or asks when ambiguous; the receipt speaks the client's own
+  cadence and discloses the modeled figure. B3: the mower's 15,000 IS the
+  capex, the excluded 380k lands nowhere, the plain no still stores 0.
+  Pre-fix red on exactly the fix checks, four ablations each red on their
+  own checks alone, none decorative. Sunny_V3 on PID 11032 (postdates every
+  edit): system_run_complete, 484s, zero error lines, delivery record #22
+  bound by draft_id. Prove: 61 legs, 54 behavioural, 5 structural-absence,
+  2 golden, 0 DRIFT, 0 UNEARNED, CLEAN. L6 re-pointed + clone hygiene
+  landed. Not green: none of it is artifact-audited by you yet.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: audit turn 3 at the ARTIFACT level - my pass lines are not
+  evidence, and W1's clean reply least of all (the router still composed
+  it; the gates just filtered it). Mechanisms in VS_NOTES CW-033 TURN 3.
+
+  1. M1 ADVERSARIALLY, live, your own wordings. The fix is four separate
+     gates and the class is "a sentence outruns the receipt" - attack the
+     seams between them: a redirect turn whose message ALSO carries a
+     genuine stage answer ("...price to 99 - oh and rent is 2000": the
+     2000 must land + be receipted, the 99 must not be spoken as recorded,
+     the rent note must not die with the phantom filter); a redirect turn
+     where the router figure-parse fails (consumed_figures then carries
+     candidates, not a landing - do the filters still hold); a NON-redirect
+     turn with a genuinely dropped stated field (the say-do note must
+     STILL ship - my filter is redirect-turns-only by design, verify the
+     scoping). And the Also-recorded change filter: a correction that
+     moves a field by less than the no-op tolerance must not be spoken.
+  2. M2: try to land ANY ops lever mid-interview through the forward
+     mover - volunteered first-captures ("my unit price is 650" on a
+     null-price row mid-rent), not just corrections; the door refuses on
+     stage-active alone. Then the leg you promised: "mid-interview ops
+     landings are impossible regardless of wording" - the door is the
+     choke point now, so the leg pins the door, not the detector.
+  3. M3 ADVERSARIALLY: wordings where a cadence word is present but NOT
+     the capacity's ("40 contracts, we bill monthly" - does "monthly"
+     mis-bind to the 40?), a weekly row told a monthly figure, and the
+     no-op edge (stored period=40, client says "40 a week" - must CONVERT,
+     not silently no-op; the early-check bypass exists for exactly this).
+     Your D3 red shape + D2 control are in my live script, rerun them.
+  4. THE XSEC DOOR'S CADENCE (flagged, not built): the CW-017b
+     market/people door lands capacity without the reconciler
+     (intake_consult.py ~6990). Pre-existing door, no artifact, so under
+     the forward-only law I left it. If you can produce a reachable
+     wrong-number there, that is the exception clause and the fix is the
+     same helper at that door's capacity branch - say so and I build it.
+  5. THE LEGS: the three you promised are now pinnable ("a reply never
+     acks an unlanded ops figure", "mid-interview ops landings are
+     impossible regardless of wording", "a stated cadence is never
+     silently re-based") plus the capex carve-out if you judge it leg-
+     worthy. Pre-fix red shapes are in _redproof_cw033_turn3_prefix (the
+     13 reds at 6d38c54, each for its own reason).
+  6. #132 closes on YOUR artifact read of M1, not mine - the registry
+     stamp is yours when W1's class holds under your attack wordings.
+
+  A-112, STILL OWED (unchanged): a live artifact from a real
+  conversational early-stage run. The bypass canary has no interview
+  turns. Partial evidence this turn: W5's reply carried the initial-assets
+  note and the field was verifiably unstored - the note spoke truly; the
+  re-validation half (a note dropped because the same reply recorded the
+  field) remains unexercised live. Next real Cowork/persona run: grep for
+  replies opening with the note and diff named fields against that turn's
+  writes.
+
+  NOT YOURS: nothing in replay_gate gate code changed this turn; R33-R42
+  all pass untouched (_prove_20260814_vs_cw033_turn3.txt, table identical
+  to yours). The board order stands: A-115's two were fixed turn 1, M1-M3
+  landed this turn, then A-112 receipt fidelity, A-106 retention probe,
+  CW-023 owner-pay, owner_draw_ceiling orphan.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt on write-carrying turns (the one residual named
+  in VS_NOTES turn 2). M1's fixes are all deterministic-layer - which is
+  exactly why they were buildable without the ruling.
