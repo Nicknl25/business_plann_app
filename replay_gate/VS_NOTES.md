@@ -2560,3 +2560,159 @@ never-run limbs.
 4. The in-stage door, the stage completion, the capacity-door surfaces
    and the misroute guard are all pin-worthy legs; my red shapes are in
    the two _live_cw032_* scripts and the router red-proof.
+
+
+## CW-033 TURN 1 (VS, 2026-08-14): A-113 capacity write path + A-115 kind-misreads + discovery spec
+
+Evidence base: Thornfield draft d9b17850, the A-113/A-115/A-112 filings
+(cowork_tester/agenda.json v19), turns [99]/[107]/[111] (capacity),
+[89] (capex), [75]-[78] (cogs-rate-as-price), [10] (ack contradiction).
+Commit 6911cb8 (fixes + proofs), this section's commit (spec + notes).
+
+### TIER 1 - A-113: WHY three receipts and zero writes (the full mechanism)
+FOUR stacked defects, each proven red then fixed:
+1. THE MISSING DOOR. The financials INTERVIEW region (intake_consult
+   ~15898) calls _run_financials_turn_and_sync and returns; the
+   cross-section driver applier was wired into the market/people section
+   turns and the LATE focus==financials branch (~18392) - a region
+   stage-interview turns never reach. So no capacity correction spoken
+   at a financials stage question ever met the applier. FIX: a wrapper
+   with the old name runs the applier FIRST for every interview turn,
+   persists a landing immediately (ops + RECALC + year1, mutate-through
+   per the Fernhill seam law), and its receipt LEADS the reply.
+2. THE FABRICATED RECEIPT. With the applier out of reach, the CW-026
+   forward-move inference attributed the capacity figure
+   (_FIGURE_FIELD_RULES), pushed a bare ops driver key through
+   _apply_scoped_patch - which on a MULTI-LINE model fell through to a
+   flat ops key NO reader consumes (the universal engine deleted the
+   flat mirror as a home) - set landed=True unconditionally, and spoke
+   'Recorded: capacity 7' from the INFERRED value. [107] spoke
+   'Recorded: capacity 5' because the figure ranker picked the OLD value
+   from 'currently set to five'. FIX: the ops branch resolves the NAMED
+   line, READS BACK the row before any 'Recorded:', and REFUSES honestly
+   (no write, which-line question) when no line resolves; the no-op
+   check now reads the RESOLVED row (was: first row - which is why a
+   stale-value echo could speak at all). _apply_scoped_patch now DROPS
+   bare driver keys on multi-line models (logged OPS_DRIVER_WRITE_
+   UNROUTED) instead of manufacturing dead landings.
+3. THE APPLIER ITSELF had three latent teeth missing, found by running
+   it offline on the real wordings: (a) exact-token product match -
+   'install' never matched 'Landscaping/installation job'
+   ([99]/[107] returned None before leaf detection, so not even the
+   refusal note fired); (b) digit-only value scan - 'needs to be seven
+   jobs per week' had no candidates; (c) IT WROTE THE WRONG TWIN -
+   capacity landed on units_per_period_capacity always, which for a
+   weekly-cadence row is the DERIVED twin: the next canonical pass
+   (_derive_capacity_cells) restored the stale week value and the
+   landing EVAPORATED AT REST. The pre-fix redproof shows [111] as
+   (week=5, period=7). FIX: _resolve_ops_product_line (ONE stemmed
+   resolver shared with the forward move; >=2 matching lines REFUSE -
+   'fix the plant and hard goods capacity' must never pick one),
+   _digitize_small_words scoped to the capacity value text only, and
+   the write goes to _capacity_canonical_field(row cadence) + derive.
+4. FOUND BY THE LIVE PROOF, fix within the hour: with the applier
+   landing, the forward move was STILL free to land OTHER stray figures
+   on ops rows in the same turn - live, [99]'s 'one thing I need to
+   fix' put capacity 1 on the just-corrected install row, and [111]'s
+   volunteered 'Accounts payable about 121,000' landed as install
+   capacity 121,000 (the AP figure is future-stage, therefore unlanded,
+   and the message contains 'capacity'). FIX: _strip_suppressed_ops_move
+   - on an applier-TRIGGERED turn (landed or refused) ops-key forward
+   moves are stripped; the applier's consumed figures (new value, old
+   value, not-N values) also ride into every disclosure call as
+   references. Non-ops moves untouched.
+
+THE SMEAR HALF: the uniform 1.106527 is deterministic_revenue_proposer
+anchor_scale = stated-Q1 / bottom-up-Q1 applied to EVERY line's Q1
+capacity (and finmo_bridge stub_scale_factor, same ratio, stub column).
+With the write path fixed the Thornfield factor is 1.00105 - but that
+still rewrites four declared capacities by 0.1%. RULED SHAPE per the
+task text (never a silent smear; mini verifies 'no uniform factor
+anywhere'): a 0.5% epsilon on BOTH (declared drivers stand under
+estimate-rounding gaps; Q1 anchors to their own bottom-up), and a
+MATERIAL factor still governs (stated revenue is also a declared
+number) but is STAMPED into the drivers as anchor_reconcile{factor,
+basis, applied_to} - visible to any reader, never silent. The epsilon
+value (0.5%) is mine to defend: it matches the derivability tolerance
+used at the ops lever guard. If Nick wants material gaps to REFUSE at
+intake instead (the coherence fence's vocabulary), that is a design
+call I did not make - flagged in the RESULT.
+
+### TIER 2
+1. COGS-RATE-AS-PRICE (A-115a): _FIGURE_FIELD_RULES mapped \brate\b ->
+   ops.unit_price, so 'one shared rate at 58 percent' forward-moved 58
+   into a price receipt + the WS2 retention stamp (the door stamps
+   retention on unit_price landings; the dead flat write meant no price
+   actually changed, which is why stored prices survived). FIXES:
+   \brate\b removed from the price rule ('rate per <unit>' stays); a
+   percent-shaped figure now gets NO forward move at all (it would
+   otherwise have fallen through to the REVENUE rule via 'percent of
+   revenue' - worse); figures the per-line COGS door consumed this turn
+   (written + grouped rates, ratio and percent forms) are disclosure
+   references; the small-figure restatement check reads EVERY row's
+   stored value (was: first row - 'my prices are still 52/95/2400' on a
+   four-line model read as a 95 price change). Retention now cannot
+   stamp without a real landed price write (read-back gated).
+2. CAPEX EXPLICIT-NO (A-115b): _normalize_financials_router_patch gains
+   a current_capex branch - a negative-lead answer with the figure
+   expressly excluded (patterns for 'none of it', 'over the years',
+   'not this year'...) stores 0; 'No wait, it was 380,000' is protected
+   by a lookahead and lands. The excluded figure becomes a reference
+   via _capex_answer_expresses_none recomputed IN the disclosure (a
+   transport key was tried first and failed live: the first disclosure
+   call popped it, a later call in the same turn then proposed 380k
+   into rest-of-team payroll - the nearest-stored inference. Recompute,
+   not transport). Live [89] verbatim: capex 0, nothing else captured,
+   the next question asks equipment worth once.
+3. ACK CONTRADICTION (A-112): the unapplied-fields note at the edit-
+   receipt path is composed BEFORE the section consultant's own patch
+   applies - [10]'s note claimed capacity+price unrecorded, then the
+   followup patch recorded both into the same reply. FIX at the source:
+   the dropped list + an ops/fin snapshot are stashed at composition
+   and the note is RE-VALIDATED against the post-followup state at the
+   merge point; fields whose stored values changed since composition
+   are dropped from the note (all of them -> note removed). Offline
+   unit coverage is impossible (the path lives mid-handler); the
+   mechanism is snapshot-diff, deterministic. MINI: this is the one fix
+   with no live artifact this turn - drive an ops-section multi-line
+   capture whose router patch drops driver fields and read the reply.
+
+### LIVE PROOF (_live_cw033_capacity_turns.py, _live_cw033_20260814.txt)
+Clones of the REAL Thornfield draft rewound to [99]/[107]/[111]/[89]/
+[75], live :5050 + live GPT router, client's own words, GREEN:
+all three capacity shapes land install 7/7 with the other rows
+byte-equal and the ack speaking 7; the no-line-named correction writes
+NOTHING and asks which line; [89] stores capex 0; [75] stores the 58%
+collapse group with no price echo and retention_pending ABSENT.
+The debug rerun (_cw033_l1_debug.py) shows the full [99] turn: applier
+ack leads, the bundled $3,100 lands with its own receipt, the next
+stage question rides. NOTE for mini: in one L1 run the router's stage
+prose came back EMPTY (reply was the applier ack alone, values still
+landed) - GPT variance on the stage half, not a write defect; and the
+router occasionally echo-writes install's existing 0.17 cogs rate
+('Recorded: ... at 17%' on a message that never says 17) - same-value
+echo, words match state, but it is receipt noise worth a look.
+
+### PROOFS ON DISK
+_redproof_cw033_prefix_20260814.txt  - pre-fix tree (git stash): RED,
+  16 checks failing each for its filed reason (incl. the [111]
+  week=5/period=7 evaporating twin).
+_redproof_cw033_postfix_20260814.txt - fixed tree: GREEN (35 checks).
+_live_cw033_20260814.txt             - live GREEN (above).
+_canary_cw033_sunnyv3_20260814.txt   - Sunny_V3 on listener 20200
+  (started 16:33:38, postdates last app edit 16:33:03, ONE listener):
+  system_run_complete, 399s, workbook built, zero error lines.
+_prove_20260814_vs_cw033.txt         - full prove on final code.
+
+### TIER 3 - DISCOVERY SPEC (research only, nothing built)
+docs/STREAM_DISCOVERY_SPEC.md. Shape: category knowledge = business
+type + NAICS keying a GPT judgment in the demand-judge pattern
+(validator-enforced fences, Python-computed thin-evidence -> NO ask);
+fires ONCE at end-of-ops via a deterministic existence-question
+template (GPT fills only stream labels, 'consider adding' is
+unrepresentable); dedup against captured lines uses the same stemmed
+resolver as A-113; a yes lands through the line-split confidence gate
+as an ordinary product row (zero new write paths, provenance
+origin=discovery_confirmed); a no is latched and never re-asked.
+Five open questions for Nick are in the doc (surface, knowledge-source
+ceiling, cap 2v3, pre-revenue exclusion, re-run latch).

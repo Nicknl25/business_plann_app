@@ -9648,74 +9648,115 @@ def _apply_forward_move(
       if isinstance(_rpr, dict)
     ]
     if not _rows_all:
-      return next_financials, shared, ""
-    _field = key.split(".", 1)[1]
-    if len(_rows_all) > 1:
-      _resolved_fm, _why_fm = _resolve_ops_product_line(_ops_live, user_message)
-      if _resolved_fm is None:
-        _example = (
-          "'Install job capacity: 7 a week'"
-          if "capacity" in _field else "'Install job price: $2,400'"
+      # ROW-LESS legacy flat model (R01/I01's captured draft): the flat
+      # key IS the home there - the pre-CW-033 landing is preserved,
+      # now with a read-back before anything is claimed.
+      _field = key.split(".", 1)[1]
+      _flat_before = _safe_float(_ops_live.get(_field))
+      if (_flat_before is not None and _val_f is not None
+          and abs(_flat_before - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
+        return next_financials, shared, ""
+      _bf2, _ops_flat, _mk2, _pp2, next_financials, _ff2 = _apply_scoped_patch(
+        {key: val}, business_facts={}, ops_json=_ops_live, market_json={},
+        people_json=dict(shared.get("people_capability") or {}),
+        financials_json=next_financials, fulfillment_json={},
+      )
+      try:
+        _ops_flat = _guard_underivable_ops_lever_writes(
+          ops_before=_ops_before, ops_after=_ops_flat,
+          user_message=user_message, last_assistant=last_assistant,
         )
+      except Exception:
+        pass
+      _derive_ops_cells(_ops_flat)
+      _landed_flat = _safe_float(_ops_flat.get(_field))
+      _ops_live.clear()
+      _ops_live.update(_ops_flat)
+      try:
+        append_messages(
+          conn,
+          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+          new_messages=[], operating_model_json=_ops_live,
+        )
+      except Exception:
+        logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
+      if (_landed_flat is None or _val_f is None
+          or abs(_landed_flat - _val_f) > max(0.005, 0.001 * abs(_val_f))):
         return next_financials, shared, (
-          f"One thing I couldn't place: that sounds like a {label} change, "
-          "but I couldn't tell which line you meant"
-          + (" - more than one line matches" if _why_fm == "ambiguous" else "")
-          + f". Tell me the line and the number (for example, {_example}) "
-          "and I'll set it."
+          f"It looks like you mean {label} - I couldn't apply that change "
+          "safely, so tell me the exact line and the number and I'll set it."
         )
-      _tli, _tpi, _trow = _resolved_fm
-      _line_name = str(_trow.get("product_name") or _trow.get("unit_name") or "").strip()
-      if _line_name:
-        label = f"{_line_name} {label}"
+      _skip_row_write = True
     else:
-      _tli, _tpi, _trow = _rows_all[0]
-    # Capacity writes land on the CANONICAL cell for the TARGET row's
-    # cadence (the old code read the FIRST row's cadence).
-    if _field in ("units_per_period_capacity", "units_per_week_capacity"):
-      _field = _capacity_canonical_field(str(_trow.get("unit_cadence") or ""))
-      key = "ops." + _field
-    # No-op check against the RESOLVED row.
-    _row_before = _safe_float(_trow.get(_field))
-    if (_row_before is not None and _val_f is not None
-        and abs(_row_before - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
-      return next_financials, shared, ""
-    _ops_new = copy.deepcopy(_ops_live)
-    try:
-      _ops_new["lob_models"][_tli]["products"][_tpi][_field] = float(_val_f)
-    except (KeyError, IndexError, TypeError):
-      return next_financials, shared, ""
-    try:
-      _ops_new = _guard_underivable_ops_lever_writes(
-        ops_before=_ops_before, ops_after=_ops_new,
-        user_message=user_message, last_assistant=last_assistant,
-      )
-    except Exception:
-      pass
-    _derive_ops_cells(_ops_new)
-    # READ-BACK (the receipt law): "Recorded:" may speak only a value
-    # that is now actually stored on the target row.
-    try:
-      _landed_v = _safe_float(
-        _ops_new["lob_models"][_tli]["products"][_tpi].get(_field))
-    except (KeyError, IndexError, TypeError):
-      _landed_v = None
-    if (_landed_v is None or _val_f is None
-        or abs(_landed_v - _val_f) > max(0.005, 0.001 * abs(_val_f))):
-      return next_financials, shared, (
-        f"It looks like you mean {label} - I couldn't apply that change "
-        "safely, so tell me the exact line and the number and I'll set it."
-      )
-    _ops_live.clear()
-    _ops_live.update(_ops_new)
-    try:
-      append_messages(
-        conn,
-        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
-        new_messages=[], operating_model_json=_ops_live,
-      )
-    except Exception:
-      logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
+      _skip_row_write = False
+      _field = key.split(".", 1)[1]
+    if not _skip_row_write:
+      if len(_rows_all) > 1:
+        _resolved_fm, _why_fm = _resolve_ops_product_line(_ops_live, user_message)
+        if _resolved_fm is None:
+          _example = (
+            "'Install job capacity: 7 a week'"
+            if "capacity" in _field else "'Install job price: $2,400'"
+          )
+          return next_financials, shared, (
+            f"One thing I couldn't place: that sounds like a {label} change, "
+            "but I couldn't tell which line you meant"
+            + (" - more than one line matches" if _why_fm == "ambiguous" else "")
+            + f". Tell me the line and the number (for example, {_example}) "
+            "and I'll set it."
+          )
+        _tli, _tpi, _trow = _resolved_fm
+        _line_name = str(_trow.get("product_name") or _trow.get("unit_name") or "").strip()
+        if _line_name:
+          label = f"{_line_name} {label}"
+      else:
+        _tli, _tpi, _trow = _rows_all[0]
+      # Capacity writes land on the CANONICAL cell for the TARGET row's
+      # cadence (the old code read the FIRST row's cadence).
+      if _field in ("units_per_period_capacity", "units_per_week_capacity"):
+        _field = _capacity_canonical_field(str(_trow.get("unit_cadence") or ""))
+        key = "ops." + _field
+      # No-op check against the RESOLVED row.
+      _row_before = _safe_float(_trow.get(_field))
+      if (_row_before is not None and _val_f is not None
+          and abs(_row_before - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
+        return next_financials, shared, ""
+      _ops_new = copy.deepcopy(_ops_live)
+      try:
+        _ops_new["lob_models"][_tli]["products"][_tpi][_field] = float(_val_f)
+      except (KeyError, IndexError, TypeError):
+        return next_financials, shared, ""
+      try:
+        _ops_new = _guard_underivable_ops_lever_writes(
+          ops_before=_ops_before, ops_after=_ops_new,
+          user_message=user_message, last_assistant=last_assistant,
+        )
+      except Exception:
+        pass
+      _derive_ops_cells(_ops_new)
+      # READ-BACK (the receipt law): "Recorded:" may speak only a value
+      # that is now actually stored on the target row.
+      try:
+        _landed_v = _safe_float(
+          _ops_new["lob_models"][_tli]["products"][_tpi].get(_field))
+      except (KeyError, IndexError, TypeError):
+        _landed_v = None
+      if (_landed_v is None or _val_f is None
+          or abs(_landed_v - _val_f) > max(0.005, 0.001 * abs(_val_f))):
+        return next_financials, shared, (
+          f"It looks like you mean {label} - I couldn't apply that change "
+          "safely, so tell me the exact line and the number and I'll set it."
+        )
+      _ops_live.clear()
+      _ops_live.update(_ops_new)
+      try:
+        append_messages(
+          conn,
+          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+          new_messages=[], operating_model_json=_ops_live,
+        )
+      except Exception:
+        logger.exception("FORWARD_MOVE_OPS_PERSIST_FAILED")
     # WS2 (Nick-ruled, the retention probe's finding): a PRICE landing
     # at this door stamps the SAME retention frame the walk's pricing
     # round stamps - price_clarifier_due only fired from rounds, so a
@@ -12833,7 +12874,14 @@ def _apply_scoped_patch(
             next_ops["lob_models"] = [_lm0]
             _row_landed = True
       if not _row_landed:
-        if _driver_write:
+        _row_count = sum(
+          1
+          for _lm_c in (next_ops.get("lob_models") or [])
+          if isinstance(_lm_c, dict)
+          for _p_c in (_lm_c.get("products") or [])
+          if isinstance(_p_c, dict)
+        )
+        if _driver_write and _row_count > 1:
           # CW-033 A-113: a bare driver key on a MULTI-LINE model has no
           # row to land on, and the flat ops mirror is dead by the
           # universal-engine ruling (the product row is the one home).
@@ -12841,7 +12889,10 @@ def _apply_scoped_patch(
           # consumed while receipts spoke them as recorded (Thornfield:
           # three capacity receipts, zero writes). The write is DROPPED -
           # the caller's diff-based say-do accounting then reports the
-          # field as unapplied instead of a false receipt.
+          # field as unapplied instead of a false receipt. A ROW-LESS
+          # legacy flat model keeps its flat write: there the flat key
+          # IS the home (R01/I01's captured draft), and _derive_ops_cells
+          # adopts it onto the row once one exists.
           logger.info(
             "OPS_DRIVER_WRITE_UNROUTED field=%s value=%r (multi-line model, "
             "no row resolution at this door)", field, value,
