@@ -1,53 +1,51 @@
-STATUS: stopped-fault
+STATUS: awaiting-VS
 TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  NICK'S CURRENT ORDERS (2026-08-14, supersedes ALL prior A-113
-  instructions — read before continuing anything):
-  A-113 IS RETRACTED. Cowork's tester artifact shows no question invites
-  post-stage per-line capacity revisiting, and the "smear" was the model
-  reconciling to stated revenue on the value the client actually gave —
-  by design. If the in-flight turn built post-stage capacity write
-  machinery, REMOVE IT (remove-don't-route-around; the retraction means
-  prevent-not-support was not even needed — the state is unreachable
-  on-path). Keep only anything that gives an off-path attempt an honest redirect
-  instead of silence, IF it is already built and small; otherwise revert
-  clean.
-  THE GUIDED-FLOW PRINCIPLE stands as a design law (record in VS_NOTES):
-  guided flow bounds reachable SEQUENCES — off-path sequence bugs are
-  prevented, not supported. Honesty within any answer the app SOLICITS
-  is ALWAYS in scope. Cowork reclassified all 24 open issues under it:
-  22 on-path, 1 retracted (A-113), 1 flagged.
-  TASK 1 — ADJUDICATE A-116 (correction_consumed_as_pending_stage_answer,
-  CW-025), the flagged one. Do NOT take Cowork's classification on faith
-  in either direction. READ the actual question sequence and phrasing at
-  that point in the flow and RULE: does the app's phrasing invite a
-  correction while a stage question is pending (ON-PATH -> real bug, fix
-  it), or does it require re-opening something closed (OFF-PATH ->
-  confirm and retract with the evidence)? The ruling must cite the
-  actual app copy at that flow point.
-  TASK 2 — CONFIRM THE REAL BOARD and report it plainly in the RESULT:
-  Nick believes what remains is: A-115 (the two kind-misreads:
-  COGS-rate-echoed-as-unit-price firing the price-retention gate against
-  no price change incl. the self-triggering recovery; and the capex
-  override where "not recently, no" still captured the expressly-
-  excluded $380k -> double-count risk), receipt fidelity, the retention
-  probe, plus the CW-023 owner-pay item (unverified, needs a completed
-  build). Confirm or correct that list against the registry, and confirm
-  A-115's two are the priority.
-  TASK 3 — FIX A-115 FIRST (both are ON-PATH HONESTY bugs — the app
-  mishandling answers it solicited):
-  1. The router classifies a COGS rate as a COGS rate, never a unit
-     price; a COGS correction never fires the price-retention gate; the
-     recovery path must not self-trigger. Verify: COGS-rate turn writes
-     the COGS field, no unit_price write, retention_pending not stamped.
-  2. Honor the client's "no" on capex; never capture an expressly-
-     excluded figure; the equipment base appears ONCE in the built
-     model. Verify at artifact on the real CW-033 shapes.
-  3. The ack contradiction (recorded-and-unrecorded in one message) —
-     words match state, one source.
-  Tier-3 discovery research (spec-only, docs/ deliverable) continues
-  unchanged. Mini artifact-verifies each fix; green stops for Nick.
+  NICK'S REVISION + STANDING ORDERS (2026-08-14 evening — this is the
+  complete current task; it merges the revision onto the earlier orders):
+  (a) NO RETROFIT — RULED. Do NOT extend the A-113 retraction into the
+  pre-existing CW-032/CW-017b doors. They are working; leave them. An
+  unreachable state is not a bug, and rewriting working doors to enforce
+  a boundary they are not violating is retrofit for its own sake. THE
+  GUIDED-FLOW PRINCIPLE IS A DESIGN LAW GOING FORWARD, not a mandate to
+  re-audit existing code:
+  - NEW and IN-PROGRESS work respects the boundary (off-path sequences
+    prevented/redirected, never supported; honesty always in scope).
+  - EXISTING working doors stay as they are — no hunting them down to
+    match the new paradigm.
+  - ONLY exception: if a pre-existing door actually mishandles a
+    REACHABLE case (wrong value on something a client can hit on the
+    guided path), that is a real bug — fix it as a bug, not as
+    consistency retrofit.
+  The A-113 machinery already removed this turn STAYS REMOVED (it was
+  just-built, not pre-existing). Record the forward-only law in VS_NOTES.
+  (b) PROVENANCE STAMP — RULED conditionally: KEEP it if it is inert /
+  annotation-only; DROP it if it moves any value. Determine which it is
+  and SAY WHICH in the RESULT with the evidence.
+  (c) NATURALIZATION RULING — confirm it is landed (VS_NOTES design law,
+  ~line 1817, tombstoned once already) and STOP it resurfacing as an
+  open question. If any code path still re-derives a number in prose,
+  that is a bug against the landed law — name it.
+  BOARD ADDITION: put the owner_draw_ceiling ORPHAN on the board.
+  THEN THE STANDING TASKS (from the prior seed, unchanged):
+  1. ADJUDICATE A-116 (correction_consumed_as_pending_stage_answer,
+     CW-025): read the ACTUAL question sequence and phrasing at that
+     flow point; rule on-path (fix) or off-path (confirm + retract),
+     citing the app copy. Take neither Cowork classification on faith.
+  2. CONFIRM THE BOARD in the RESULT: A-115's two kind-misreads
+     (COGS-rate-as-unit-price + phantom retention gate incl.
+     self-triggering recovery; capex "not recently, no" capturing the
+     excluded $380k -> double-count), receipt fidelity, the retention
+     probe, CW-023 owner-pay (needs a completed build), plus the new
+     owner_draw_ceiling orphan. Confirm A-115's two are the priority.
+  3. FIX A-115 FIRST (on-path honesty): COGS rate is a COGS rate (no
+     unit_price write, no retention stamp, no self-trigger); the
+     client's no is honored and the excluded figure never captured
+     (equipment base once); the ack contradiction dies. Artifact-verify
+     on the real CW-033 shapes.
+  4. Tier-3 discovery research (spec-only, docs/ deliverable) continues.
+  Mini artifact-verifies each fix; green stops for Nick.
 RESULT:
   AGENT: VS
   VERDICT: progress
