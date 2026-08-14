@@ -6751,6 +6751,7 @@ def _apply_cross_section_driver_correction(
   *,
   ops_json: Dict[str, Any],
   user_message: str,
+  report: Optional[Dict[str, Any]] = None,
 ) -> Optional[Tuple[Dict[str, Any], str]]:
   """CW-017 (b): a mid-intake OPS-DRIVER correction arriving while a
   FINANCIALS stage question is pending used to be refused with stage
@@ -6833,12 +6834,53 @@ def _apply_cross_section_driver_correction(
   elif re.search(r"\bcapacity\b", msg):
     leaf = "units_per_period_capacity"
     current = _safe_float(product.get("units_per_period_capacity"))
+    # CW-032 #264: cands[-1] wrote the WRONG NUMBER on the real Alderfen
+    # wording - "it should be 7. I was thinking of two crews and we've
+    # been running three since last autumn" parsed [7, 2, 3] and landed 3
+    # (the crew count) as install capacity. Three rules replace it:
+    # (1) only the sentence naming the lever and the sentence after it
+    # are read for the value (a mixed message's "Target 35 to 75" must
+    # not compete), (2) a figure after "not" is the OLD value being
+    # corrected, never a candidate, (3) the value should be MARKED by the
+    # client's phrasing ("should be 7", "to 7", "is 7"); several distinct
+    # surviving candidates with no unique mark REFUSE - a wrong capacity
+    # written is worse than a question asked.
+    _sentences = re.split(r"(?<=[.!?])\s+", msg)
+    _scoped_parts: List[str] = []
+    for _si, _sent in enumerate(_sentences):
+      if "capacity" in _sent:
+        _scoped_parts.append(_sent)
+        if _si + 1 < len(_sentences):
+          _scoped_parts.append(_sentences[_si + 1])
+    _scoped = " ".join(_scoped_parts) or msg
+    _scoped_figures = _message_figures(_scoped)
+    _not_vals = {
+      float(m.group(1))
+      for m in re.finditer(r"\bnot\s+(\d+(?:\.\d+)?)\b", _scoped)
+    }
     cands = [
-      f for f in figures
+      f for f in _scoped_figures
       if f > 1.0 and abs(f - round(f)) < 1e-6
+      and f not in _not_vals
       and (current is None or abs(f - current) > max(1e-6, 0.001 * abs(current)))
     ]
-    new_value = cands[-1] if cands else None
+    marked = [
+      float(m.group(1))
+      for m in re.finditer(
+        r"\b(?:should be|to|is|now|at)\s+(\d+(?:\.\d+)?)\b", _scoped)
+      if float(m.group(1)) in cands
+    ]
+    if len(set(marked)) == 1:
+      new_value = marked[0]
+    elif len(set(cands)) == 1:
+      new_value = cands[0]
+    else:
+      new_value = None
+  if leaf is not None and isinstance(report, dict):
+    # CW-032 #264: the caller can tell a correction-SHAPED message that
+    # failed to land (owed an honest refusal) from a message that never
+    # was a driver correction (owed nothing).
+    report["triggered_leaf"] = leaf
   if leaf is None or new_value is None:
     return None
 
@@ -18201,6 +18243,69 @@ def post_intake_consult_handler(*, app, request):
       if consumer_type not in ("consumer", "b2b", "mixed"):
         consumer_type = "consumer"
       intake_context["consumer_type"] = consumer_type
+
+    # CW-032 #264 (A-113): a post-stage per-line driver correction spoken
+    # while the MARKET or PEOPLE section is asking its own questions had no
+    # write path at all - the section GPT freely acknowledged (Alderfen:
+    # three unhedged capacity-7 receipts) while stored capacity stayed 5,
+    # and the build then reconciled driver-implied revenue to stated
+    # revenue with ONE uniform 1.1122 factor smeared across every line.
+    # Same deterministic applier as the financials-focus interception
+    # (CW-017 (b)): the write lands on the NAMED line and persists here
+    # and now; a correction-shaped message that does NOT land gets an
+    # honest refusal note that leads the reply, so the section GPT's
+    # manufactured receipt can never stand alone. Never a silent smear.
+    _xsec_section_ack = ""
+    if str(focus).strip().lower() in ("market", "people"):
+      _xsec_report: Dict[str, Any] = {}
+      _xsec2 = None
+      try:
+        _xsec2 = _apply_cross_section_driver_correction(
+          ops_json=ops_json, user_message=str(message or ""),
+          report=_xsec_report,
+        )
+      except Exception:
+        _xsec2 = None
+      if _xsec2 is not None:
+        ops_json, _xsec_section_ack = _xsec2
+        try:
+          shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
+        try:
+          financials_year1_json = assemble_financials_year1(
+            shared_context, financials_year1_json,
+          )
+          financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            marketing_model_json=marketing_model_json,
+            people_json=people_json,
+            ops_json=ops_json,
+          )
+        except Exception:
+          pass
+        try:
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[],
+            operating_model_json=ops_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+          )
+          intake_context["operating_model_json"] = ops_json
+          intake_context["financials_json"] = financials_json
+          intake_context["financials_year1_json"] = financials_year1_json
+        except Exception:
+          logger.exception("XSEC_SECTION_DRIVER_PERSIST_FAILED")
+      elif _xsec_report.get("triggered_leaf"):
+        _xsec_section_ack = (
+          "One note: I couldn't apply an operations change from that - "
+          "tell me the line and the new number plainly (for example, "
+          "'Install job capacity: 7 a week') and I'll set it."
+        )
+
     if focus == "ops":
       turn = consultant_chat_turn(
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
@@ -18298,6 +18403,10 @@ def post_intake_consult_handler(*, app, request):
     assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
     if focus == "market":
       assistant_text = _strip_acs_codes(assistant_text)
+    if _xsec_section_ack:
+      # The deterministic driver receipt (or honest refusal) LEADS the
+      # section's own reply - words match state, one source (#264).
+      assistant_text = f"{_xsec_section_ack}\n\n{assistant_text}".strip()
     if focus == "financials":
       assistant_text = _append_constraints_snippet(
         assistant_text,
