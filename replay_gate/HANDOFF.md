@@ -1,91 +1,44 @@
-STATUS: awaiting-Nick
-TURN: 1/16
+STATUS: awaiting-mini
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  CW-032 ALDERFEN BATCH (Nick, 2026-08-14) — the full 8-item CW-031/032
-  issues list, ONE loop batch, BLOCKERS FIRST, artifact-level verification
-  throughout (the false-green class came from proposal-level checking —
-  never repeat it). Evidence base: draft 158f6816, run 414a3b0a, workbook
-  "Alderfen Nursery and Garden -- 08-13-2026 23-13-03.xlsx", the three
-  registry filings, VS_NOTES CW-032 sections.
-  THE COGS BREAKOUT — CORRECT LAYOUT (Nick's ruling, hold to it exactly):
-  - MODEL INPUTS sheet: FOUR per-line COGS DRIVERS, one row per line
-    (plant %, hardgoods %, install %, design %). These are the source
-    assumption cells.
-  - P&L (FINMO) sheet: ONE COGS line — the total — computed as
-    Sigma(each line's revenue x that line's COGS driver from Model
-    Inputs). One consolidated line on the P&L, driven by the four
-    Model-Inputs drivers.
-  NOTE FOR VS — THIS IS A LAYOUT CHANGE: the current finmo_sheet.py
-  inserts per-line COGS rows INTO THE P&L with the total as =SUM over
-  them. Nick rules the breakout lives on Model Inputs; the P&L stays
-  clean with ONE COGS line whose formula rolls up the four drivers
-  (line revenue x line driver, summed in the one cell). Move it.
-  HARD RULE — ALL-OR-NOTHING, CLEAN OR NOT AT ALL (Nick): if it cannot
-  be set up correctly (four drivers on Model Inputs AND a P&L COGS line
-  that PROVABLY sums them), then DO NOT do it — fall back to the single
-  blended rate. A half-built breakout (drivers that do not tie to the
-  P&L line, or a partial that ships broken) is WORSE than the clean
-  blend, because it shows the client detail that does not reconcile.
-  Fully correct, or the single blend. No half-state, no silent
-  degradation. The existing all-or-nothing enforcement
-  (intake_consult.py ~:8803 + the bridge activation rule) IS this
-  guarantee — route ALL FOUR lines; if any fails, it correctly falls to
-  blend. DO NOT WEAKEN ALL-OR-NOTHING.
-  TIER 1 — THE THREE BLOCKERS ARE ONE ROOT (A-110):
-  The downstream is already built and correct
-  (_reconcile_per_line_cogs_rows, the bridge per-line emit,
-  _apply_per_line_cogs_to_ops the complete writer) — they are STARVED
-  because a client COGS/collapse sentence in the STAGE never becomes a
-  financials.cogs_per_line_overrides patch. FIX = ONE ROUTER CHANGE:
-  route the client's per-line COGS sentence AND the collapse sentence
-  into the patch, IN-STAGE (the surface where the proposal is made and
-  correction invited). This closes corrections-write, the four
-  Model-Inputs drivers appearing, and the collapse — together. Include
-  the multi-figure parse (a real owner answers "Plants are 46%.
-  Hardgoods 73%. Install 17%. Design 3%" in ONE message — land all N,
-  one turn) and fix the clarifier copy (after a per-line answer fails,
-  it currently asks for ONE singular blend figure — the recovery
-  question must preserve the per-line shape, plain English).
-  ARTIFACT VERIFICATION (mini): cogs_per_line_overrides non-null on all
-  4; FOUR COGS driver rows on the Model Inputs sheet; ONE P&L COGS line
-  that provably equals Sigma(line rev x line driver) per period; the
-  collapse stores a /shared/ key naming whose structure it shares.
-  Also: the stage ack must obey the receipt law — the Alderfen ack
-  claimed a recorded blend AND said "I haven't recorded cogs percent
-  yet" in the same message. Words match state, one source.
-  TIER 2 — A-113 CAPACITY SMEAR (rank 2, same parent law): the client's
-  post-stage per-line capacity correction (install 5 -> 7) was LOST, and
-  the build then applied a UNIFORM 1.11220 factor to EVERY line —
-  putting 3 lines 11.2% above what the client stated, in a plan they
-  read as theirs. FIX: a post-stage capacity write path that lands the
-  correction on the named line, OR an honest refusal — NEVER a silent
-  uniform smear. The app must not silently alter what the client
-  declared.
-  TIER 3 — DEPRECIATION (NO client question — the policy exists):
-  _CAPEX_USEFUL_LIFE_YEARS = 5.0 default and initial_assets (~$386k
-  opening PPE) are both present and straight-line logic is wired. BUG:
-  new capex depreciates, the OPENING PPE never gets the useful-life
-  schedule. FIX: apply the existing default 5-year straight-line
-  schedule to opening PPE, same as new capex. NO intake question about
-  asset age/life — normal owners cannot answer it and we have a sensible
-  default. State the assumption in the plan output ("equipment
-  depreciated straight-line over 5 years").
-  TIER 4 — THE REMAINING FILED ITEMS from the 8: the
-  collapse-invitation timing item and any receipt/label items still
-  open. Fix at source; mini artifact-verifies each.
-  SETTLED (Nick): SS6 is 13/13 exact, fifth consecutive — REMOVE it
-  from A-103's retest list.
-  PROCESS: blockers first. Standing laws hold (backend restart + ONE
-  listener after app-code edits, Sunny_V3 canary before any batch of
-  runs, foreground-only long jobs, red-proofs red for the right
-  reason). When the batch is clean + live-verified (canary + multi-line
-  E2E + an IN-STAGE conversation check on a fresh 4-line clone —
-  proposal -> full multi-line correction in one message -> all four rows
-  carry the client's numbers -> Model Inputs shows four drivers -> P&L
-  shows ONE summing line), STAGES flips per-line-COGS LIVE=passed and
-  COWORK clears. Nick then re-runs the garden center to SEE the four
-  drivers and the one summing P&L line. THEN discovery research.
+  NICK RATIFIES THE DRIFT — but re-baselining is CONDITIONAL on a purity
+  proof, and the proof is the point. His words:
+  The DRIFT is EXPECTED. R31:single-line-golden-moved-by-ruled-depreciation
+  moved because the depreciation fix Nick RULED (opening PPE now gets the
+  5-year straight-line schedule) changes the numbers for every business
+  with opening assets, including single-line ones (Sunny carries 20k).
+  That is not a regression — it is the golden-master correctly catching a
+  real change which happens to be the ordered one. The floor did its job:
+  flagged a moved negative control and stopped. Nick confirms the move was
+  intended.
+  YOUR TASK, in order:
+  1. VERIFY THE DRIFT IS PURE before touching any baseline. Structurally
+     diff the moved single-line digests (old vs new finmo_json and
+     model_input_json): EVERY changed leaf must trace to the depreciation
+     schedule now applying to opening PPE — the depreciation expense rows,
+     accumulated depreciation, PPE roll-forward, and their arithmetic
+     descendants (net income, taxes, retained earnings, cash, totals).
+     ZERO changes from anything else. Expected-drift can MASK a real one —
+     that is why this verification exists. Do not re-bless on Nick's word
+     alone; his word covers WHY the numbers moved, your diff proves ONLY
+     those numbers moved.
+  2. IF the diff is 100% depreciation-attributable: re-bless R31's golden
+     baseline to the new post-depreciation values, re-baseline the
+     byte-floor goldens the same way, and re-point the layout legs (R32's
+     old per-line-P&L expectation is overruled by Nick's Model-Inputs
+     layout ruling — the assertion is four drivers on Model Inputs + ONE
+     P&L roll-up cell). Then run the full prove IN THE FOREGROUND and read
+     it in the same turn.
+  3. IF ANY leaf moved for a reason OTHER than depreciation: STOP. Do not
+     re-baseline anything. VERDICT: drift again, with the impure leaves
+     named precisely — that is a real regression hiding under the expected
+     one, and Nick looks at it before anything gets blessed.
+  Evidence base: VS turn-1 commits e26af21..5716ba4, the prove output from
+  VS's turn, _live_cw032_instage_cogs_turn.py, the VS_NOTES CW-032 batch
+  section. All standing laws hold (foreground-only long jobs; artifact
+  level; a clean table after re-baseline = VERDICT green so the watcher
+  stops for Nick's blessing).
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1446,92 +1399,9 @@ RESULT:
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
 RESULT:
-  AGENT: VS
-  VERDICT: drift
-  ERROR-SIGNATURE: R31:single-line-golden-moved-by-ruled-depreciation
-  EVIDENCE: _prove_20260814_vs_cw032_turn1.txt (R31 DRIFT block);
-    replay_gate/VS_NOTES.md CW-032 TURN 1 section;
-    _live_cw032_instage_20260814.txt (in-stage 15/15);
-    _live_cw032_multiline_wb_20260814.txt (client-path workbook E2E);
-    _canary_cw032_turn1_final_sunnyv3_20260814.txt;
-    commits e26af21, cf5b0e7, 7b26ff6
-  SUMMARY: All four tiers of the eight-item batch are BUILT and live-proven.
-  The A-110 root was one missing vocabulary list: the stage router's
-  hand-maintained financials field list never carried the per-line COGS
-  keys (the wall list did), so the in-stage surface could not receive what
-  it proposed. Fixed; live on rewound Alderfen clones the four rates land
-  46/73/17/3 in one message, the stage completes on the client's derived
-  blend, the collapse stores a declared /shared/ group in-stage, and a
-  partial answer gets a per-line recovery question. The ruled layout is
-  in: FOUR drivers on Model Inputs, ONE P&L COGS cell that IS the roll-up,
-  proven end to end on a real system-run with the assertion passing on the
-  delivery binding. Capacity corrections now land at the market/people
-  surfaces (where Alderfen actually spoke) with a wrong-number defect in
-  the old applier fixed on the way. Opening PPE depreciates straight-line
-  over the default 5 years, stated on the CapEx sheet. Misroute guard in;
-  A-103 narrowed. Canary x2 clean, delivery records bound by draft_id.
-  VERDICT drift, not green: the prove is 61 legs / 54 behavioural /
-  0 UNEARNED / R32 GOLDEN HELD / 1 DRIFT - R31 single-line-unchanged
-  moved on finmo+model_input because the DEPRECIATION RULING moves every
-  draft carrying opening assets. That is the ordered change landing, not
-  a regression, but a golden moved and the contract says Nick sees it.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  NICK, PLAIN ENGLISH: everything you asked for in the batch is built and
-  working - I watched the garden-center correction land live, and the
-  workbook now shows the four cost assumptions on Model Inputs with one
-  clean roll-up line on the P&L. One flag: making existing equipment
-  depreciate (your tier-3 ruling) changes the bottom line of every plan
-  that has equipment - net income is lower and more honest now. The
-  gate's do-not-move tripwire fired on exactly that, as it should. If the
-  new numbers look right to you, say GO and mini re-pins the tripwire to
-  the new baseline. Nothing else moved: the formula-grid control held.
-
-  mini, after Nick's go - audit at the ARTIFACT level, my pass lines are
-  not evidence:
-
-  1. THE DRIFT. Ratify the depreciation delta on the R31 fixture (Sunny:
-     opening PPE 20,000 -> expect ~1,000/quarter of new straight-line
-     depreciation plus the old capex vintages; my Alderfen check was Q1
-     19,406.92 = 386,000/20 + 106.92). Then re-baseline R31's golden
-     SHAs and the byte-floor docstring goldens. Any other leg pinning
-     exact finmo values on a fixture with initial_assets>0 shifts the
-     same way - re-pin from ratified numbers, never soften assertions.
-  2. THE LAYOUT LAW. R32's stated multi-line expectation (per-line P&L
-     rows + total =SUM) pins the OLD layout Nick has now overruled.
-     Re-point the leg text to: N driver rows on Model Inputs, EXACTLY
-     ONE P&L 'Cost of Goods Sold' row whose formula is the N-term
-     (revenue x driver) sum, no per-line P&L rows. The updated
-     _assert_workbook_cogs_rows in issue_registry.py is the reference
-     implementation, proven pass/fail both directions.
-  3. THE IN-STAGE DOOR, adversarially, your own wordings. My proofs are
-     Test Files/_live_cw032_instage_cogs_turn.py (rewinds a real
-     Alderfen clone to the cogs stage) and
-     _redproof_cw032_stage_perline_router.py. Attack the completion
-     rule: a per-line answer that rates all four lines while ALSO
-     carrying an unmatched fifth name, a mixed message (rates + a
-     marketing figure), and a unit-less bare list (46, 73, 17, 3 with
-     no percent signs anywhere). The stage must never complete on a
-     turn that still owes the client a question.
-  4. THE CAPACITY DOOR at market/people. My six-case offline proof is in
-     commit cf5b0e7; drive your own live wordings at the MARKET focus
-     (the surface Alderfen spoke at). The refusal note must lead when
-     the number is ambiguous; the section GPT's own prose must never be
-     the only receipt. Also note the unit_price branch still uses
-     last-figure-wins - same class I fixed for capacity, untouched to
-     keep this turn auditable; your call whether it is next-turn work
-     or a filed latent.
-  5. PIN-WORTHY LEGS: in-stage door + completion, the market-surface
-     capacity door, the misroute guard, the new workbook law. Red
-     shapes are in my two live scripts and the router red-proof.
-  6. OPEN, not mine to close this turn: #267 (receipt header names one
-     line, prints another's price) has no reproduction from the filing;
-     the seed is Alderfen transcript turn ~[30-40] region (Design
-     project header, Install price). A-106/A-079 still need the
-     designed underpriced-business run.
-
-  Standing laws hold: backend restart + ONE listener after app-code
-  edits (current listener postdates every edit), canary before batches
-  (two clean Sunny_V3 runs this turn), red-proofs red for the right
-  reason, never end a turn with a job running.
+  AGENT: none
+  VERDICT: progress
+  ERROR-SIGNATURE: none
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
