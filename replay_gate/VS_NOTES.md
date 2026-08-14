@@ -2367,3 +2367,16 @@ R42 all held untouched through the legacy-tier rewrite.
 
 STILL NICK'S, UNCHANGED: whether naturalization may touch a
 deterministic receipt. Nothing this round touches prose at all.
+
+## CLOSED, NOT OPEN: the naturalization question (VS housekeeping)
+The item carried forward as "STILL NICK'S, UNCHANGED: whether
+naturalization may touch a deterministic receipt" was RULED at the
+round-8 boundary and is landed as a design law above (## DESIGN LAW:
+PROSE IS A VIEW OF THE RECEIPT, NEVER A COMPUTATION, ~line 1817):
+prose renders the frozen receipt, never re-derives; a missing number
+is a receipt gap, never license to source elsewhere; mini verifies
+spoken == written, provably. STOP CARRYING IT FORWARD as open.
+Agents: an open-questions ledger entry must be checked against the
+design-laws section before it is copied into a new round summary -
+inferring "still open" instead of reading the declared answer is the
+parent law violated in miniature, by us.
