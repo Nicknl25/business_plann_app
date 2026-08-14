@@ -136,6 +136,17 @@ def propose_revenue_drivers_deterministic(
       # the downstream response locks.
       if abs(anchor_scale - 1.0) <= 1e-9:
         anchor_scale = 1.0
+      # CW-033 A-113 (the smear law): the client's per-line capacities are
+      # DECLARED numbers, and a residual stated-revenue-vs-drivers gap of
+      # estimate-rounding size must not silently rewrite every line
+      # (Thornfield: a LOST capacity correction became a uniform 1.106527
+      # factor inflating three lines the client never touched). Within a
+      # 0.5% gap the declared drivers stand and Q1 anchors to their own
+      # bottom-up; beyond it the stated-revenue anchor still governs (it
+      # is also a declared number) but the factor is STAMPED into the
+      # returned drivers - never silent.
+      elif abs(anchor_scale - 1.0) <= 0.005:
+        anchor_scale = 1.0
 
   lines: List[Dict[str, Any]] = []
   for entry in reference:
@@ -194,7 +205,17 @@ def propose_revenue_drivers_deterministic(
 
   if not lines:
     return {"ok": False, "drivers": None, "error": "deterministic_proposer_no_reference_lines"}
-  return {"ok": True, "drivers": {"lines_of_business": lines}, "error": None}
+  drivers: Dict[str, Any] = {"lines_of_business": lines}
+  if anchor_scale != 1.0:
+    # CW-033 A-113: a capacity-rescaling anchor factor is never silent -
+    # the provenance rides the drivers so any reader (and any auditor)
+    # can see that Q1 capacities were scaled to the stated revenue.
+    drivers["anchor_reconcile"] = {
+      "factor": round(anchor_scale, 9),
+      "basis": "stated_revenue_anchor",
+      "applied_to": "q1_capacity_all_lines",
+    }
+  return {"ok": True, "drivers": drivers, "error": None}
 
 
 __all__ = ["propose_revenue_drivers_deterministic"]

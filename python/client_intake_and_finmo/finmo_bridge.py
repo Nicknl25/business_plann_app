@@ -3309,6 +3309,12 @@ def _build_model_input_overlay(
       )
     if raw_stub_revenue > 0.0:
       stub_scale_factor = (stated_annual_revenue / 4.0) / raw_stub_revenue
+      # CW-033 A-113 (the smear law, stub half - same epsilon as the
+      # deterministic proposer's anchor): declared capacities stand when
+      # the stated-revenue gap is estimate-rounding size; a 0.1% residual
+      # must not nudge every line's stub capacity.
+      if abs(stub_scale_factor - 1.0) <= 0.005:
+        stub_scale_factor = 1.0
   quarter_child_maps = [
     _child_driver_map_for_quarter({"lobs": (slot.get("revenue_products") or []) if isinstance(slot, dict) else []})
     if seed_slots else

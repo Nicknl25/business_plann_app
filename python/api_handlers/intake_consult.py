@@ -6747,6 +6747,72 @@ _XSEC_CORRECTION_MARKERS = re.compile(
 )
 
 
+def _digitize_small_words(text: str) -> str:
+  """CW-033 A-113: small number words become digits for the value-marker
+  scans ('needs to be seven jobs' -> 'needs to be 7 jobs'). Scoped to the
+  capacity value-selection text only - never used for leaf dispatch, so
+  'running three crews' cannot start matching the utilization digit rule."""
+  def _sub(m: "re.Match") -> str:
+    return str(_WORD_UNITS.get(m.group(0)) or _WORD_TENS.get(m.group(0)) or m.group(0))
+  return re.sub(
+    r"\b(" + "|".join(list(_WORD_UNITS) + list(_WORD_TENS)) + r")\b",
+    _sub, str(text or ""),
+  )
+
+
+def _resolve_ops_product_line(
+  ops_json: Dict[str, Any], message: str,
+) -> Tuple[Optional[Tuple[int, int, Dict[str, Any]]], str]:
+  """CW-033 A-113: ONE resolver for which product row a sentence means -
+  shared by the cross-section driver applier and the forward-move ops
+  branch so the two doors cannot disagree. Matching is STEMMED both ways
+  ('install' names 'Landscaping/installation job'; Thornfield lost two of
+  its three capacity corrections to the exact-token rule) across product
+  name, unit name and LOB name. Ambiguity REFUSES rather than guesses -
+  a wrong line written is the one unacceptable outcome. Returns
+  ((li, pi, product), '') on a unique winner, (None, 'none') when nothing
+  matches, (None, 'ambiguous') on a tie."""
+  msg_tokens = {
+    t for t in re.findall(r"[a-z]+", str(message or "").lower()) if len(t) >= 4
+  }
+  if not msg_tokens or not isinstance(ops_json, dict):
+    return None, "none"
+
+  def _hits(row_tokens: set) -> int:
+    n = 0
+    for pt in row_tokens:
+      if any(pt == mt or pt.startswith(mt) or mt.startswith(pt) for mt in msg_tokens):
+        n += 1
+    return n
+
+  scored = []
+  for li, lob in enumerate(ops_json.get("lob_models") or []):
+    if not isinstance(lob, dict):
+      continue
+    for pi, p in enumerate(lob.get("products") or []):
+      if not isinstance(p, dict):
+        continue
+      toks = {
+        t
+        for name in (p.get("product_name"), p.get("unit_name"), lob.get("lob_name"))
+        for t in re.findall(r"[a-z]+", str(name or "").lower())
+        if len(t) >= 4
+      }
+      h = _hits(toks)
+      if h:
+        scored.append((h, li, pi, p))
+  if not scored:
+    return None, "none"
+  if len(scored) > 1:
+    # TWO OR MORE lines matched ("fix the plant and hard goods lines
+    # capacity...") - a hit-count tiebreak would pick one of them and
+    # write the wrong line, the one unacceptable outcome. Refuse; the
+    # honest which-line question costs a turn, a wrong write costs trust.
+    return None, "ambiguous"
+  _, li, pi, p = scored[0]
+  return (li, pi, p), ""
+
+
 def _apply_cross_section_driver_correction(
   *,
   ops_json: Dict[str, Any],
@@ -6783,25 +6849,33 @@ def _apply_cross_section_driver_correction(
   if not products:
     return None
 
-  def _name_tokens(p: Dict[str, Any]) -> List[str]:
-    name = str(p.get("product_name") or p.get("unit_name") or "").lower()
-    return [t for t in re.findall(r"[a-z]+", name) if len(t) >= 4]
-
-  scored = []
-  for li, pi, p in products:
-    toks = _name_tokens(p)
-    hits = sum(1 for t in toks if t in msg)
-    if hits:
-      scored.append((hits, li, pi, p))
-  if not scored:
+  # CW-033 A-113: the LEAF is detected before the product, so a
+  # correction-shaped lever message whose product reference cannot be
+  # resolved REFUSES OUT LOUD (report carries triggered_leaf) instead of
+  # silently declining - Thornfield lost two capacity corrections to a
+  # silent None here while a fabricated receipt spoke downstream.
+  _leaf_probe = None
+  if re.search(r"utili[sz]ation|\brun(?:ning)?\s+(?:about\s+)?\d", msg):
+    _leaf_probe = "utilization_rate"
+  elif re.search(r"\bprice\b|\bcharge\b|\brate per\b", msg):
+    _leaf_probe = "unit_price"
+  elif re.search(r"\bcapacity\b", msg):
+    _leaf_probe = "units_per_period_capacity"
+  if _leaf_probe is None:
     return None
-  scored.sort(key=lambda s: s[0], reverse=True)
-  if len(scored) > 1 and scored[0][0] == scored[1][0]:
-    return None  # ambiguous product reference - do not act
-  _, li, pi, product = scored[0]
+  if isinstance(report, dict):
+    report["triggered_leaf"] = _leaf_probe
+
+  resolved, _why = _resolve_ops_product_line(ops_json, msg)
+  if resolved is None:
+    if isinstance(report, dict):
+      report["product_unresolved"] = _why
+    return None
+  li, pi, product = resolved
 
   leaf = None
   new_value: Optional[float] = None
+  _not_vals: set = set()
   figures = _message_figures(msg)
   if re.search(r"utili[sz]ation|\brun(?:ning)?\s+(?:about\s+)?\d", msg):
     leaf = "utilization_rate"
@@ -6832,8 +6906,15 @@ def _apply_cross_section_driver_correction(
     ]
     new_value = cands[-1] if cands else None
   elif re.search(r"\bcapacity\b", msg):
-    leaf = "units_per_period_capacity"
-    current = _safe_float(product.get("units_per_period_capacity"))
+    # CW-033 A-113: capacity lands on the CANONICAL cell for THIS row's
+    # cadence (weekly rows: the week figure; everything else: the period
+    # figure). The old fixed units_per_period_capacity write sat on the
+    # derived twin of a weekly row, and the next canonical pass restored
+    # the stale week value - a landing that evaporated at rest.
+    leaf = _capacity_canonical_field(str(product.get("unit_cadence") or ""))
+    current = _safe_float(product.get(leaf))
+    if current is None:
+      current = _safe_float(product.get("units_per_period_capacity"))
     # CW-032 #264: cands[-1] wrote the WRONG NUMBER on the real Alderfen
     # wording - "it should be 7. I was thinking of two crews and we've
     # been running three since last autumn" parsed [7, 2, 3] and landed 3
@@ -6852,7 +6933,10 @@ def _apply_cross_section_driver_correction(
         _scoped_parts.append(_sent)
         if _si + 1 < len(_sentences):
           _scoped_parts.append(_sentences[_si + 1])
-    _scoped = " ".join(_scoped_parts) or msg
+    # CW-033 A-113: word-number values count ("needs to be seven jobs per
+    # week" - the Thornfield retry). Digits only in the SCOPED text, so
+    # leaf dispatch above is untouched.
+    _scoped = _digitize_small_words(" ".join(_scoped_parts) or msg)
     _scoped_figures = _message_figures(_scoped)
     _not_vals = {
       float(m.group(1))
@@ -6867,7 +6951,8 @@ def _apply_cross_section_driver_correction(
     marked = [
       float(m.group(1))
       for m in re.finditer(
-        r"\b(?:should be|to|is|now|at)\s+(\d+(?:\.\d+)?)\b", _scoped)
+        r"\b(?:should be|needs to be|to be|to|is|now|at)\s+(\d+(?:\.\d+)?)\b",
+        _scoped)
       if float(m.group(1)) in cands
     ]
     if len(set(marked)) == 1:
@@ -6876,19 +6961,28 @@ def _apply_cross_section_driver_correction(
       new_value = cands[0]
     else:
       new_value = None
-  if leaf is not None and isinstance(report, dict):
-    # CW-032 #264: the caller can tell a correction-SHAPED message that
-    # failed to land (owed an honest refusal) from a message that never
-    # was a driver correction (owed nothing).
-    report["triggered_leaf"] = leaf
   if leaf is None or new_value is None:
     return None
+  if isinstance(report, dict):
+    # CW-033 A-113: the caller threads these into the unlanded-figure
+    # references so the forward move cannot re-land a figure this door
+    # already consumed (the new value, the value corrected away from,
+    # and any not-N old values).
+    report["consumed_figures"] = [
+      float(new_value),
+      *([float(current)] if current is not None else []),
+      *[float(v) for v in _not_vals],
+    ]
 
   ops_after = json.loads(json.dumps(ops_json))
   try:
     ops_after["lob_models"][li]["products"][pi][leaf] = float(new_value)
   except (KeyError, IndexError, TypeError):
     return None
+  try:
+    _derive_ops_cells(ops_after)
+  except Exception:
+    pass
   ops_fixed, note = _reconcile_driver_correction(
     ops_before=ops_json,
     ops_after=ops_after,
@@ -8229,6 +8323,38 @@ _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD: Dict[str, Tuple[str, ...]] = {
 }
 
 
+_CAPEX_NEGATIVE_LEAD_RE = re.compile(
+  r"^\s*(?:not recently\b|not really\b|nope\b|none\b|nothing recent(?:ly)?\b|"
+  r"no\b(?!,?\s*(?:wait|actually|hold on|hang on)))"
+)
+_CAPEX_EXCLUSION_RE = re.compile(
+  r"none of (?:it|that|them|those)|over the (?:years|decades)|"
+  r"(?:not|wasn'?t|weren'?t|hasn'?t been|haven'?t)\s+(?:bought|purchased|"
+  r"acquired)|not (?:in |from )?(?:this|the past|the last) (?:year|twelve months)|"
+  r"nothing (?:new|recent|this year)"
+)
+
+
+def _capex_answer_expresses_none(user_message: str) -> bool:
+  """CW-033 A-115(b): 'Not recently, no. ... about 380,000 worth of
+  trucks ... none of it was bought this year' is an explicit NO to the
+  recent-capex question - the figure in the same sentence is the asset
+  base the client EXPRESSLY excluded, and the very next stage asks what
+  that equipment is worth, so capturing it here books the base twice.
+  True when the answer leads with a negative AND either names the
+  exclusion or carries no figure at all. A correction shape ('No wait,
+  it was 380,000') never matches - the negative-lead lookahead blocks
+  wait/actually/hold."""
+  msg = str(user_message or "").strip().lower()
+  if not msg:
+    return False
+  if not _CAPEX_NEGATIVE_LEAD_RE.search(msg):
+    return False
+  if _CAPEX_EXCLUSION_RE.search(msg):
+    return True
+  return not _message_figures(msg)
+
+
 def _normalize_financials_router_patch(
   *,
   patch: Dict[str, Any],
@@ -8359,6 +8485,28 @@ def _normalize_financials_router_patch(
       if share is None:
         continue
       next_financials[field_name] = float(share)
+      touched.add(field_name)
+      continue
+    if field_name == "current_capex":
+      numeric = _safe_float(raw_value)
+      if numeric is None:
+        continue
+      # CW-033 A-115(b): honor the client's no. An explicit negative
+      # answer to the capex question stores ZERO even when the router
+      # captured a figure the client expressly excluded in the same
+      # sentence - the excluded figure becomes a reference (transport
+      # key, consumed and popped by the unlanded-figure disclosure) so
+      # nothing downstream re-lands it, and the equipment base books
+      # ONCE, at the asset question that follows.
+      if float(numeric) > 0.0 and _capex_answer_expresses_none(user_message):
+        logger.info(
+          "CAPEX_EXPLICIT_NONE_OVERRIDE value=%r -> 0 (negative answer, "
+          "figure expressly excluded)", raw_value,
+        )
+        next_financials[field_name] = 0.0
+        touched.add(field_name)
+        continue
+      next_financials[field_name] = float(numeric)
       touched.add(field_name)
       continue
     if field_name in {"cogs_percent_of_revenue", "marketing_percent_of_revenue"}:
@@ -9275,7 +9423,12 @@ def _apply_stage_people_door_keys(
 # first - a message naming its own field is not ambiguous. Order matters
 # (owner pay before payroll; rest-of-team before payroll).
 _FIGURE_FIELD_RULES: Tuple[Tuple[str, str, str], ...] = (
-  (r"\bprice\b|\bcharge\b|\brate\b|per (?:property|visit|unit|contract|job)",
+  # CW-033 A-115(a): \brate\b is GONE from the price rule - "one shared
+  # rate at 58 percent" is a COGS rate, and attributing it here echoed
+  # "Recorded: unit price 58" and fired the price-retention gate against
+  # no price change (twice - the recovery restatement re-fired it). A
+  # price says price/charge/"rate per <unit>"; a bare "rate" never does.
+  (r"\bprice\b|\bcharge\b|\brate per\b|per (?:property|visit|unit|contract|job)",
    "ops.unit_price", "unit price"),
   (r"\bcapacity\b|\bproperties\b|\bclients\b|\bcustomers\b|\baccounts\b|"
    r"\bvisits\b|\bjobs\b|\borders\b|\bcheckouts\b|\bcalls\b|"
@@ -9305,18 +9458,32 @@ def _infer_figure_landing(
   financials_json: Dict[str, Any],
   people_json: Dict[str, Any],
   ops_json: Dict[str, Any],
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
   """CW-026 (Nick-ruled): 'stuck' is structurally impossible - an
   unlanded figure ALWAYS resolves to a landing target. Keyword
   attribution first ("unit price is now 650" names its field - that is
   not ambiguous). With no keyword, infer the nearest stored value by
   log-distance and PROPOSE it - the worst case is a wrong proposal the
-  client corrects, never a dead stop. Always returns a move:
-  {key, value, label, attributed}."""
+  client corrects, never a dead stop. Returns a move
+  {key, value, label, attributed} - except for a percent-shaped figure
+  (CW-033 A-115(a)), which belongs to the percent doors and returns
+  None rather than being re-typed as dollars or a count."""
   import math
 
   msg = str(user_message or "")
   fig = float(figure)
+  # CW-033 A-115(a): a figure the message states as a PERCENT is never a
+  # dollar amount or a capacity count - every field this mover can name
+  # is one of those, so a percent-shaped figure gets NO move at all
+  # ("one shared rate at 58 percent of revenue" manufactured "Recorded:
+  # unit price 58" and would otherwise fall through to "current revenue
+  # 58"). Percent facts belong to the percent doors; an unconsumed one
+  # is disclosed, never re-typed.
+  _fig_is_percent = bool(re.search(
+    rf"\b{re.escape('%g' % fig)}\s*(?:%|percent\b)", msg.lower().replace(",", "")
+  ))
+  if _fig_is_percent:
+    return None
   for _pat, _key, _label in _FIGURE_FIELD_RULES:
     if re.search(_pat, msg, re.I):
       _val = fig
@@ -9370,6 +9537,21 @@ def _infer_figure_landing(
   return {"key": best[1], "value": fig, "label": best[2], "attributed": False}
 
 
+def _strip_suppressed_ops_move(
+  move: Optional[Dict[str, Any]], suppress: bool,
+) -> Optional[Dict[str, Any]]:
+  """CW-033 A-113 (found by the live proof): on a turn where the
+  cross-section driver applier TRIGGERED (landed or refused), the ops
+  levers are that door's jurisdiction - a residual stray figure must not
+  forward-move onto a product row. Live, '[99] one thing I need to fix'
+  put capacity 1 on the just-corrected install row, and the volunteered
+  AP 121,000 in [111] landed as install capacity 121,000. Non-ops moves
+  are untouched."""
+  if move and suppress and str(move.get("key") or "").startswith("ops."):
+    return None
+  return move
+
+
 def _apply_forward_move(
   *,
   move: Dict[str, Any],
@@ -9395,11 +9577,19 @@ def _apply_forward_move(
 
   def _target_value_now(fin_d: Dict[str, Any], shared_d: Dict[str, Any]):
     if key.startswith("ops."):
+      # CW-033 A-113: on a multi-line model the no-op check is made in
+      # the ops branch against the RESOLVED row - comparing here against
+      # the first row silenced corrections whose value happened to match
+      # an unrelated line ("Recorded: capacity 5" spoke the stale value).
       _f_name = key.split(".", 1)[1]
-      for _lm_t in (shared_d.get("operating_model") or {}).get("lob_models") or []:
-        for _pr_t in (_lm_t or {}).get("products") or []:
-          if isinstance(_pr_t, dict):
-            return _safe_float(_pr_t.get(_f_name))
+      _rows_t = [
+        _pr_t
+        for _lm_t in (shared_d.get("operating_model") or {}).get("lob_models") or []
+        for _pr_t in (_lm_t or {}).get("products") or []
+        if isinstance(_pr_t, dict)
+      ]
+      if len(_rows_t) == 1:
+        return _safe_float(_rows_t[0].get(_f_name))
       return None
     if key == "people.total_team_payroll":
       return _safe_float(fin_d.get("current_payroll"))
@@ -9441,23 +9631,60 @@ def _apply_forward_move(
       _ops_live = {}
       shared["operating_model"] = _ops_live
     _ops_before = copy.deepcopy(_ops_live)
-    # Capacity writes land on the CANONICAL cell for the row's cadence.
-    if key.split(".", 1)[1] in (
-      "units_per_period_capacity", "units_per_week_capacity",
-    ):
-      _cad0 = ""
-      for _lm0 in _ops_live.get("lob_models") or []:
-        for _pr0 in (_lm0 or {}).get("products") or []:
-          if isinstance(_pr0, dict):
-            _cad0 = str(_pr0.get("unit_cadence") or "")
-            break
-        break
-      key = "ops." + _capacity_canonical_field(_cad0)
-    _bf, _ops_new, _mk, _pp, next_financials, _ff = _apply_scoped_patch(
-      {key: val}, business_facts={}, ops_json=_ops_live, market_json={},
-      people_json=dict(shared.get("people_capability") or {}),
-      financials_json=next_financials, fulfillment_json={},
-    )
+    # CW-033 A-113: the write needs a ROW. A single-product model keeps
+    # its unambiguous landing; a multi-line model resolves the NAMED line
+    # from the client's own words and REFUSES honestly when it cannot.
+    # The old path pushed a bare flat ops key through _apply_scoped_patch
+    # - dead on multi-line models (no reader consumes the flat driver
+    # mirror) - then set landed=True unconditionally and spoke
+    # "Recorded:" from the INFERRED value: Thornfield got three unhedged
+    # capacity receipts, zero writes, and a uniform 1.106527 capacity
+    # smear at build.
+    _rows_all = [
+      (_rli, _rpi, _rpr)
+      for _rli, _rlm in enumerate(_ops_live.get("lob_models") or [])
+      if isinstance(_rlm, dict)
+      for _rpi, _rpr in enumerate(_rlm.get("products") or [])
+      if isinstance(_rpr, dict)
+    ]
+    if not _rows_all:
+      return next_financials, shared, ""
+    _field = key.split(".", 1)[1]
+    if len(_rows_all) > 1:
+      _resolved_fm, _why_fm = _resolve_ops_product_line(_ops_live, user_message)
+      if _resolved_fm is None:
+        _example = (
+          "'Install job capacity: 7 a week'"
+          if "capacity" in _field else "'Install job price: $2,400'"
+        )
+        return next_financials, shared, (
+          f"One thing I couldn't place: that sounds like a {label} change, "
+          "but I couldn't tell which line you meant"
+          + (" - more than one line matches" if _why_fm == "ambiguous" else "")
+          + f". Tell me the line and the number (for example, {_example}) "
+          "and I'll set it."
+        )
+      _tli, _tpi, _trow = _resolved_fm
+      _line_name = str(_trow.get("product_name") or _trow.get("unit_name") or "").strip()
+      if _line_name:
+        label = f"{_line_name} {label}"
+    else:
+      _tli, _tpi, _trow = _rows_all[0]
+    # Capacity writes land on the CANONICAL cell for the TARGET row's
+    # cadence (the old code read the FIRST row's cadence).
+    if _field in ("units_per_period_capacity", "units_per_week_capacity"):
+      _field = _capacity_canonical_field(str(_trow.get("unit_cadence") or ""))
+      key = "ops." + _field
+    # No-op check against the RESOLVED row.
+    _row_before = _safe_float(_trow.get(_field))
+    if (_row_before is not None and _val_f is not None
+        and abs(_row_before - _val_f) <= max(0.005, 0.001 * abs(_val_f))):
+      return next_financials, shared, ""
+    _ops_new = copy.deepcopy(_ops_live)
+    try:
+      _ops_new["lob_models"][_tli]["products"][_tpi][_field] = float(_val_f)
+    except (KeyError, IndexError, TypeError):
+      return next_financials, shared, ""
     try:
       _ops_new = _guard_underivable_ops_lever_writes(
         ops_before=_ops_before, ops_after=_ops_new,
@@ -9466,6 +9693,19 @@ def _apply_forward_move(
     except Exception:
       pass
     _derive_ops_cells(_ops_new)
+    # READ-BACK (the receipt law): "Recorded:" may speak only a value
+    # that is now actually stored on the target row.
+    try:
+      _landed_v = _safe_float(
+        _ops_new["lob_models"][_tli]["products"][_tpi].get(_field))
+    except (KeyError, IndexError, TypeError):
+      _landed_v = None
+    if (_landed_v is None or _val_f is None
+        or abs(_landed_v - _val_f) > max(0.005, 0.001 * abs(_val_f))):
+      return next_financials, shared, (
+        f"It looks like you mean {label} - I couldn't apply that change "
+        "safely, so tell me the exact line and the number and I'll set it."
+      )
     _ops_live.clear()
     _ops_live.update(_ops_new)
     try:
@@ -9672,13 +9912,18 @@ def _unlanded_figures_disclosure(
   landed_patch: Optional[Dict[str, Any]] = None,
   prior_sections: Optional[List[Any]] = None,
   last_assistant: str = "",
+  extra_reference_figures: Optional[List[float]] = None,
 ) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]]]:
   """CW-025 rank-1 backstop, CW-026 forward-move shape: a figure the
   client gave that landed nowhere ALWAYS produces a landing move - the
   'I couldn't tell where to record it, you tell me' dead-end is
   unrepresentable. Returns (financials, copy_prefix, move) where move is
   the inferred landing to apply ({key, value, label, attributed}) or
-  None when every figure placed."""
+  None when every figure placed.
+
+  extra_reference_figures (CW-033 A-113): figures another door already
+  consumed this turn (the cross-section driver applier's landed value and
+  the old value it replaced) - references here, never re-landable."""
   fin = _stamp_unlanded_figures_note(
     financials_json=next_financials,
     people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
@@ -9687,8 +9932,40 @@ def _unlanded_figures_disclosure(
     applied_notes=[],
     patch=landed_patch,
   )
+  _door_refs: List[float] = [
+    float(f) for f in (extra_reference_figures or [])
+    if isinstance(f, (int, float))
+  ]
+  # CW-033 A-115(a): figures the per-line COGS door consumed this turn
+  # (written rates, shared-group rates) are landed facts - their percent
+  # forms must never re-enter as unlanded price/capacity candidates
+  # ("Recorded: unit price 58" from a 58% cost-rate collapse).
+  _cogs_rcpt = fin.get("_per_line_cogs_receipt")
+  if isinstance(_cogs_rcpt, dict):
+    for _w in list(_cogs_rcpt.get("written") or []) + list(_cogs_rcpt.get("grouped") or []):
+      if not isinstance(_w, dict):
+        continue
+      for _rk in ("value", "rate", "shared_rate", "cogs_percent"):
+        _rv2 = _safe_float(_w.get(_rk))
+        if _rv2 is not None and 0.0 < abs(_rv2) <= 1.5:
+          _door_refs.extend([abs(_rv2), abs(_rv2) * 100.0])
+        elif _rv2 is not None:
+          _door_refs.append(abs(_rv2))
+  # CW-033 A-115(b): when the message is an explicit NO with its figures
+  # expressly excluded ("Not recently, no ... none of it was bought this
+  # year"), every figure it carries is DESCRIPTIVE - a reference, never a
+  # value hunting for a home (the 380k otherwise gets proposed into the
+  # nearest stored field, e.g. rest-of-team payroll). Recomputed here
+  # rather than transported so every disclosure call in the turn agrees.
+  if _capex_answer_expresses_none(user_message):
+    _door_refs.extend(f for f in _message_figures(user_message) if f > 0)
   _unl = fin.get("_unlanded_note")
   _figs = (_unl or {}).get("figures") if isinstance(_unl, dict) else None
+  if _figs and _door_refs:
+    _figs = [
+      f for f in _figs
+      if not any(abs(abs(f) - abs(r)) <= max(0.5, 0.01 * abs(f)) for r in _door_refs)
+    ]
   if _figs and prior_sections:
     _pv = _prior_section_values(prior_sections)
     _figs = [
@@ -9734,7 +10011,7 @@ def _unlanded_figures_disclosure(
     # sees. A keyword-ATTRIBUTED price/capacity correction admits small
     # figures; a restatement of the stored value stays a no-op.
     _msg = str(user_message or "")
-    _small_refs = _negated_figures(_msg) + [
+    _small_refs = _negated_figures(_msg) + _door_refs + [
       f for f in _message_figures(str(last_assistant or "")) if f > 0
     ]
     # CW-028 ratio-twin at the small path ("48% of the sale price"): a
@@ -9809,15 +10086,37 @@ def _unlanded_figures_disclosure(
         return (-int(_is_product), -_near_summary)
 
       _small_ranked = sorted(_small, key=_fig_rank)
+      # CW-033 A-115(a): restatement checks run against EVERY row's stored
+      # value, not the first row's - "my prices are still 52 / 95 / 2400"
+      # on a four-line model is four restatements, never a price change.
+      _all_rows_sm = [
+        _pr_sm
+        for _lm_sm in (dict((stage_shared_context or {}).get("operating_model") or {})
+                       .get("lob_models") or [])
+        for _pr_sm in (_lm_sm or {}).get("products") or []
+        if isinstance(_pr_sm, dict)
+      ]
+      _pct_shaped_sm = set()
+      _msg_flat_sm = _msg.lower().replace(",", "")
+      for _pf in _small:
+        if re.search(rf"\b{re.escape('%g' % _pf)}\s*(?:%|percent\b)", _msg_flat_sm):
+          _pct_shaped_sm.add(_pf)
       for _pat, _key, _label in _FIGURE_FIELD_RULES:
         if _key not in ("ops.unit_price", "ops.units_per_period_capacity"):
           continue
         if not re.search(_pat, _msg, re.I):
           continue
-        _stored = _safe_float(_ops_l.get(_key.split(".", 1)[1]))
+        _leaf_sm = _key.split(".", 1)[1]
+        _stored_vals = [
+          v for v in (
+            _safe_float(_r.get(_leaf_sm)) for _r in (_all_rows_sm or [_ops_l])
+          ) if v is not None
+        ]
         for _f in _small_ranked:
-          if _stored and abs(_f - _stored) <= max(0.5, 0.01 * abs(_stored)):
-            continue   # restatement of the stored value
+          if _f in _pct_shaped_sm:
+            continue   # a percent-shaped figure is never a price/count
+          if any(abs(_f - _sv) <= max(0.5, 0.01 * abs(_sv)) for _sv in _stored_vals):
+            continue   # restatement of a stored value (any row)
           return next_financials, "", {
             "key": _key, "value": float(_f), "label": _label,
             "attributed": True,
@@ -9835,7 +10134,7 @@ def _unlanded_figures_disclosure(
   return fin, "", move
 
 
-def _run_financials_turn_and_sync(
+def _run_financials_turn_and_sync_inner(
   *,
   route_intent,
   conn,
@@ -9847,6 +10146,8 @@ def _run_financials_turn_and_sync(
   user_message: str,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  extra_reference_figures: Optional[List[float]] = None,
+  suppress_ops_moves: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
@@ -9949,7 +10250,9 @@ def _run_financials_turn_and_sync(
       user_message=user_message,
       prior_sections=_entry_prior_sections,
       last_assistant=last_assistant,
+      extra_reference_figures=extra_reference_figures,
     )
+    _move = _strip_suppressed_ops_move(_move, suppress_ops_moves)
     _move_copy = ""
     if _move and "?" not in str(user_message or ""):
       # A QUESTION carrying a figure is a question, not a statement -
@@ -10250,7 +10553,9 @@ def _run_financials_turn_and_sync(
         user_message=user_message,
         prior_sections=_entry_prior_sections,
         last_assistant=last_assistant,
+        extra_reference_figures=extra_reference_figures,
       )
+      _pmove = _strip_suppressed_ops_move(_pmove, suppress_ops_moves)
       if _pmove:
         normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
           move=_pmove, stage_shared_context=stage_shared_context,
@@ -10309,7 +10614,9 @@ def _run_financials_turn_and_sync(
             user_message=user_message,
             prior_sections=_entry_prior_sections,
             last_assistant=last_assistant,
+            extra_reference_figures=extra_reference_figures,
           )
+          _pmove = _strip_suppressed_ops_move(_pmove, suppress_ops_moves)
           if _pmove:
             normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
               move=_pmove, stage_shared_context=stage_shared_context,
@@ -10369,7 +10676,9 @@ def _run_financials_turn_and_sync(
         user_message=user_message,
         prior_sections=_entry_prior_sections,
         last_assistant=last_assistant,
+        extra_reference_figures=extra_reference_figures,
       )
+      _pmove = _strip_suppressed_ops_move(_pmove, suppress_ops_moves)
       if _pmove:
         normalized_patch, stage_shared_context, _pm_copy = _apply_forward_move(
           move=_pmove, stage_shared_context=stage_shared_context,
@@ -10419,7 +10728,9 @@ def _run_financials_turn_and_sync(
     landed_patch=_people_keys or None,
     prior_sections=_entry_prior_sections,
     last_assistant=last_assistant,
+    extra_reference_figures=extra_reference_figures,
   )
+  _tail_move = _strip_suppressed_ops_move(_tail_move, suppress_ops_moves)
   _requested_writes = [
     k for k in (patch or {})
     if str(k).split(".", 1)[-1] != "_people_door_only"
@@ -10503,6 +10814,125 @@ def _run_financials_turn_and_sync(
     "assistant_message": _tail_msg,
     "finalize_ready": False,
   }, next_financials
+
+
+def _run_financials_turn_and_sync(
+  *,
+  route_intent,
+  conn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  business_facts: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  """CW-033 A-113 (#264's missing half): the financials INTERVIEW region
+  short-circuits at its own call site, so the cross-section driver
+  applier wired for market/people section turns and the late focus
+  branch never saw a stage-interview turn - Thornfield's three install-
+  capacity corrections each drew a receipt from the forward-move
+  inference instead ("Recorded: capacity 7", zero writes) and the build
+  smeared a uniform 1.106527 factor across all four lines' capacity.
+
+  The applier now runs FIRST for every interview turn: a landed
+  correction persists immediately (ops + recalc'd year1 + financials)
+  and its deterministic receipt LEADS the reply; a correction-shaped
+  message that cannot land gets an honest refusal note; the figures the
+  door consumed become references so the forward move can never re-land
+  (or re-fabricate) them."""
+  _xsec_lead = ""
+  _xsec_refused = False
+  _xsec_consumed: List[float] = []
+  _rep: Dict[str, Any] = {}
+  _ops_live = (shared_context or {}).get("operating_model")
+  _xsec = None
+  if isinstance(_ops_live, dict) and str(user_message or "").strip():
+    try:
+      _xsec = _apply_cross_section_driver_correction(
+        ops_json=_ops_live, user_message=str(user_message or ""), report=_rep,
+      )
+    except Exception:
+      logger.exception("XSEC_STAGE_DRIVER_APPLY_FAILED")
+      _xsec = None
+  if _xsec is not None:
+    _ops_new, _xsec_lead = _xsec
+    _ops_live.clear()
+    _ops_live.update(_ops_new)   # mutate THROUGH (the Fernhill seam law)
+    _xsec_consumed = [
+      float(f) for f in (_rep.get("consumed_figures") or [])
+      if isinstance(f, (int, float))
+    ]
+    try:
+      try:
+        from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
+      except ImportError:
+        from financials_year1 import assemble_financials_year1  # type: ignore
+      financials_year1_json = assemble_financials_year1(
+        shared_context, financials_year1_json,
+      )
+      financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
+        people_json=dict((shared_context or {}).get("people_capability") or {}),
+        ops_json=_ops_live,
+      )
+    except Exception:
+      logger.exception("XSEC_STAGE_DRIVER_RECALC_FAILED")
+    try:
+      append_messages(
+        conn,
+        draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+        new_messages=[],
+        operating_model_json=_ops_live,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+      )
+      intake_context = dict(intake_context or {})
+      intake_context["operating_model_json"] = _ops_live
+      intake_context["financials_json"] = financials_json
+      intake_context["financials_year1_json"] = financials_year1_json
+    except Exception:
+      logger.exception("XSEC_STAGE_DRIVER_PERSIST_FAILED")
+  elif _rep.get("triggered_leaf"):
+    _xsec_refused = True
+
+  turn, out_financials = _run_financials_turn_and_sync_inner(
+    route_intent=route_intent,
+    conn=conn,
+    intake_context=intake_context,
+    conversation_messages=conversation_messages,
+    business_facts=business_facts,
+    shared_context=shared_context,
+    last_assistant=last_assistant,
+    user_message=user_message,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    extra_reference_figures=_xsec_consumed,
+    suppress_ops_moves=bool(_rep.get("triggered_leaf")),
+  )
+  _msg_out = str((turn or {}).get("assistant_message") or "").strip()
+  if _xsec_lead:
+    turn = dict(turn or {})
+    turn["assistant_message"] = (
+      f"{_xsec_lead}\n\n{_msg_out}".strip() if _msg_out else _xsec_lead
+    )
+  elif _xsec_refused and "which line" not in _msg_out.lower():
+    # Correction-shaped, could not land, and no branch downstream asked -
+    # the honest refusal leads rather than the correction dying silently.
+    turn = dict(turn or {})
+    _refusal = (
+      "One note: I couldn't apply an operations change from that - "
+      "tell me the line and the new number plainly (for example, "
+      "'Install job capacity: 7 a week') and I'll set it."
+    )
+    turn["assistant_message"] = (
+      f"{_refusal}\n\n{_msg_out}".strip() if _msg_out else _refusal
+    )
+  return turn, out_financials
 
 
 def _ops_ready_for_wrap_from_gate_obj(obj: Any) -> bool:
@@ -12403,6 +12833,20 @@ def _apply_scoped_patch(
             next_ops["lob_models"] = [_lm0]
             _row_landed = True
       if not _row_landed:
+        if _driver_write:
+          # CW-033 A-113: a bare driver key on a MULTI-LINE model has no
+          # row to land on, and the flat ops mirror is dead by the
+          # universal-engine ruling (the product row is the one home).
+          # Writing it anyway manufactured "landings" no reader ever
+          # consumed while receipts spoke them as recorded (Thornfield:
+          # three capacity receipts, zero writes). The write is DROPPED -
+          # the caller's diff-based say-do accounting then reports the
+          # field as unapplied instead of a false receipt.
+          logger.info(
+            "OPS_DRIVER_WRITE_UNROUTED field=%s value=%r (multi-line model, "
+            "no row resolution at this door)", field, value,
+          )
+          continue
         next_ops[field] = value
       if _driver_write:
         _derive_ops_cells(next_ops)
@@ -17607,6 +18051,8 @@ def post_intake_consult_handler(*, app, request):
         if (confirm_question_live or active_focus_out != focus or proposer_content_correction)
         else ""
       )
+      _note_dropped_fields: List[str] = []
+      _note_ops_at_compose: Dict[str, Any] = {}
       # Layer 2: numeric acknowledgments come FROM THE RECEIPT - what the
       # diff of persisted state says actually changed. The router's prose
       # is used only for non-numeric content (e.g. the advantage text).
@@ -17640,9 +18086,22 @@ def post_intake_consult_handler(*, app, request):
           except Exception:
             assistant_text = _ack_base
         elif _edit_receipt.get("dropped"):
-          _drop_note = _unapplied_fields_note(
-            [str(f).split(".", 1)[-1] for f in _edit_receipt["dropped"]]
-          )
+          # CW-033 A-112 (the ack contradiction): this note is composed
+          # BEFORE the section consultant's own patch applies, and that
+          # patch can record the very fields named here ("I haven't
+          # recorded units per week capacity and unit price yet" leading
+          # the reply that recorded both). The dropped list and an ops
+          # snapshot are stashed; the note is RE-VALIDATED against the
+          # post-followup state at the merge point below - words match
+          # state, one source.
+          _note_dropped_fields = [
+            str(f).split(".", 1)[-1] for f in _edit_receipt["dropped"]
+          ]
+          _note_ops_at_compose = {
+            "ops": json.loads(json.dumps(ops_json)) if ops_json else {},
+            "fin": json.loads(json.dumps(financials_json)) if financials_json else {},
+          }
+          _drop_note = _unapplied_fields_note(_note_dropped_fields)
           assistant_text = (_drop_note or "I wasn't able to apply that change yet.").strip()
       elif proposer_content_correction and assistant_text:
         try:
@@ -17994,6 +18453,39 @@ def post_intake_consult_handler(*, app, request):
               }
             )
         if followup_text:
+          if _note_dropped_fields and assistant_text:
+            # CW-033 A-112: re-validate the unapplied-fields note against
+            # the POST-followup state - the followup's own patch may have
+            # just recorded the named fields. A field whose stored values
+            # changed since the note was composed WAS recorded this turn;
+            # claiming otherwise is the ack contradiction.
+            def _leaf_vals(obj: Any, leaf: str, out: List[float]) -> None:
+              if isinstance(obj, dict):
+                for _k2, _v2 in obj.items():
+                  if (str(_k2) == leaf and isinstance(_v2, (int, float))
+                      and not isinstance(_v2, bool)):
+                    out.append(float(_v2))
+                  else:
+                    _leaf_vals(_v2, leaf, out)
+              elif isinstance(obj, list):
+                for _it2 in obj:
+                  _leaf_vals(_it2, leaf, out)
+
+            _still_dropped: List[str] = []
+            for _nf in _note_dropped_fields:
+              _was: List[float] = []
+              _now: List[float] = []
+              _leaf_vals(_note_ops_at_compose.get("ops") or {}, _nf, _was)
+              _leaf_vals(_note_ops_at_compose.get("fin") or {}, _nf, _was)
+              _leaf_vals(ops_json if isinstance(ops_json, dict) else {}, _nf, _now)
+              _leaf_vals(financials_json if isinstance(financials_json, dict) else {}, _nf, _now)
+              if sorted(_now) != sorted(_was):
+                continue   # recorded this turn - the claim would be false
+              _still_dropped.append(_nf)
+            if set(_still_dropped) != set(_note_dropped_fields):
+              assistant_text = (
+                _unapplied_fields_note(_still_dropped) if _still_dropped else ""
+              ).strip()
           if assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
           else:
