@@ -1655,6 +1655,16 @@ def route_intent(
       "current_cogs",
       "cogs_total_year1",
       "cogs_percent_of_revenue",
+      # A-110, CW-032 in-stage root cause: these three were in the unified
+      # (wall) list via the schema keys but NEVER in this hand-maintained
+      # financials list, so the STAGE flow's router - the one surface where
+      # the per-line proposal is made and correction invited - had no
+      # line-scoped field to land a per-line answer in. The client's
+      # 46/73/17/3 died here. The multi-line gate below still drops them on
+      # single-line drafts.
+      "cogs_per_line_overrides",
+      "cogs_shared_structure_groups",
+      "cogs_separate_lines",
 
       "marketing_total_year1",
 
@@ -1817,7 +1827,15 @@ def route_intent(
       + "- If current_stage.name is cash_strategy and current_stage.decision_mode is forced_choice: do not return confirm_proceed; infer the selected option from the user's reply, nearby context, and any numbered choice in the last assistant message, then return edit_patch.\n"
       + "- If current_stage.name is cash_strategy and current_stage.decision_mode is forced_choice and the user is still indirect, choose the single best-fit allowed value from context and return edit_patch so the stage can persist.\n"
       + "- If the active financial stage presented a baseline and the user briefly agrees, return confirm_proceed.\n"
-      + "- If the user gives a concrete replacement for the active financial stage, return edit_patch for the narrow stage field(s) only.\n"
+      # CW-032 A-110, the IN-STAGE half: this narrowing rule is what starved
+      # the per-line door on the live Alderfen run. At the cogs stage the app
+      # itself proposed four per-line rates and invited correction; the client
+      # answered per-line (46/73/17/3) and this rule funnelled the reply into
+      # the stage's blend fields, where the figures died at the guards and the
+      # stage completed on the app's own blend, discarding the client's
+      # numbers. The one surface where the per-line proposal is made must be a
+      # surface that can receive a per-line answer.
+      + "- If the user gives a concrete replacement for the active financial stage, return edit_patch for the narrow stage field(s) only. EXCEPTION: on a business with several revenue lines, a reply that states direct-cost rates or cost structure for specific lines (or for each line the app just listed) follows the per-line direct-cost rules instead of this narrowing - those keys apply at every stage, including while the direct-cost stage question is live.\n"
       + "- If the user gives directionally clear intent but one concrete number or boolean is still missing for the active stage, return confirm_clarify with one short question for that missing fact.\n"
       + "Financials basis handling (applies to every dollar patch):\n"
       + "- shared_context.financials_controller.current_stage.basis declares the stored basis for each patch target (monthly, annual, count, ratio, amount). Normalize the client's STATED basis to the field's declared basis - convert, never copy. Example: field basis monthly + client says a yearly figure -> divide by 12; field basis annual + client says a monthly figure -> multiply by 12; same basis -> patch as-is.\n"
@@ -1865,8 +1883,9 @@ def route_intent(
   if _draft_has_multiple_revenue_lines(shared_context):
     extra_instructions = (
       extra_instructions
-      + "Per-line direct costs (COGS) handling:\n"
+      + "Per-line direct costs (COGS) handling (these rules OUTRANK the active-stage narrowing above - they apply at every stage, including while the direct-cost stage question or proposal is live):\n"
       + "- This business has SEVERAL revenue lines, each with its own direct-cost rate. When the client states or corrects the direct-cost/materials percent FOR A NAMED LINE, emit edit_patch with financials.cogs_per_line_overrides = [{\"line_name\": <the line as the app named it>, \"cogs_percent\": <the rate>, \"cogs_percent_unit\": <\"percent\" or \"ratio\">}]. One entry per line the client named, all in ONE patch - a message giving four lines' rates emits four entries, never one blended number.\n"
+      + "- When the app's last message PROPOSED a per-line direct-cost split (one percent per listed line) and the client replies with their own percents for those lines (\"Plants are 46%. Hardgoods 73%. Install 17%. Design 3%\"), that is a per-line CORRECTION: emit one cogs_per_line_overrides entry per line they gave, matched to the proposed line names in order of mention. It is never confirm_proceed, never a blend field, and every stated line lands in the SAME single patch.\n"
       # THE UNIT IS DECLARED, NEVER INFERRED. The door used to divide by 100
       # only when the figure exceeded 1.0, so a client whose line runs 1% got a
       # line costing 100% of its own revenue and "half a point" became 50%. No

@@ -7959,22 +7959,43 @@ _FINANCIALS_FIELD_LABELS = {
 }
 
 
-def _unapplied_fields_note(dropped: List[str]) -> str:
+def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
   """Factual, deterministic note appended when a router patch mentioned
   fields that did not apply (issue #23 say-do rule: the client hears what
   was NOT recorded, never a false confirmation). With corrections to
   complete stages now admitted, the residue here is future-stage fields —
-  their stages will ask, so 'we'll get to that' is literally true."""
-  labels = [
-    _FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in dropped if f
-  ]
-  if not labels:
-    return ""
-  if len(labels) == 1:
-    listed = labels[0]
-  else:
-    listed = ", ".join(labels[:-1]) + " and " + labels[-1]
-  return f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
+  their stages will ask, so 'we'll get to that' is literally true.
+
+  CW-032 #143: a dropped field belonging to the ACTIVE stage's own family
+  is a different sentence. The Alderfen turn claimed a recorded blend AND
+  said "I haven't recorded cogs percent of revenue yet" in one message -
+  the "we'll get to that" promise is false (the stage was JUST asked) and
+  the "haven't recorded" claim contradicts the value the same ack states.
+  For the active stage's fields the honest note is that the client's
+  CHANGE did not apply, which is compatible with the recorded value the
+  acknowledgment speaks."""
+  _stage_fields = set(
+    _financials_stage_spec(active_stage).get("patch_targets") or ()
+  ) if active_stage else set()
+  own = [f for f in dropped if f and f in _stage_fields]
+  future = [f for f in dropped if f and f not in _stage_fields]
+  parts: List[str] = []
+  if own:
+    own_labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in own]
+    listed_own = (own_labels[0] if len(own_labels) == 1
+                  else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
+    parts.append(
+      f"(One note: I couldn't apply your {listed_own} change - the figure "
+      "above is what I have; correct me and I'll update it.)"
+    )
+  if future:
+    labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in future]
+    listed = labels[0] if len(labels) == 1 \
+      else ", ".join(labels[:-1]) + " and " + labels[-1]
+    parts.append(
+      f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
+    )
+  return " ".join(parts)
 
 
 def _natural_recovery(closed_question: str, *, user_message: str = "", fallback: str = "") -> str:
@@ -8000,7 +8021,37 @@ def _natural_continue(focus: str = "") -> str:
     return "Continue."
 
 
-def _build_financials_stage_clarifier(stage_name: Optional[str]) -> str:
+def _build_financials_stage_clarifier(
+  stage_name: Optional[str],
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  # CW-032 tier 1 (clarifier copy): after the Alderfen client answered the
+  # per-line proposal with four per-line rates and the turn failed, the
+  # recovery question asked for ONE singular blend figure - inviting the
+  # client to abandon the very shape the app itself proposed. On a
+  # multi-line business the cogs recovery question keeps the per-line
+  # shape, and names the lines still missing a rate so a partial answer
+  # is finished rather than restarted.
+  if str(stage_name or "").strip() == "cogs" and isinstance(ops_json, dict):
+    directory = _cogs_line_directory(ops_json)
+    if len(directory) >= 2:
+      missing = [
+        e["product_name"] or e["line_name"] for e in directory
+        if _safe_float(e["row"].get("cogs_percent_of_line_revenue")) is None
+      ]
+      if missing and len(missing) < len(directory):
+        listed = ", ".join(missing[:4])
+        return (
+          f"What percent of each line's revenue goes to direct costs for "
+          f"{listed}? For example: '{missing[0]} 40%'."
+        )
+      names = [e["product_name"] or e["line_name"] for e in directory]
+      example = ", ".join(f"{n} 40%" for n in names[:2])
+      return (
+        "What percent of each line's revenue goes to direct costs? Give me "
+        f"one percent per line - for example: '{example}' - or one blended "
+        "percent of revenue if every line runs about the same."
+      )
   spec = _financials_stage_spec(stage_name)
   clarifier = str(spec.get("clarifier") or "").strip()
   if clarifier:
@@ -8983,7 +9034,7 @@ def _apply_stage_cogs_door_keys(
   stage_shared_context: Dict[str, Any],
   conn,
   intake_context: Dict[str, Any],
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str, Dict[str, Any]]:
   """A-110 inside the financials stage flow.
 
   The general correction path applies these keys through _apply_scoped_patch,
@@ -8999,13 +9050,13 @@ def _apply_stage_cogs_door_keys(
   """
   _ack = ""
   if not (isinstance(patch, dict) and patch):
-    return patch, stage_shared_context, _ack
+    return patch, stage_shared_context, _ack, {}
   _cogs_keys = {
     k: v for k, v in patch.items()
     if str(k).split(".")[-1] in _PER_LINE_COGS_TRANSPORT_FIELDS
   }
   if not _cogs_keys:
-    return patch, stage_shared_context, _ack
+    return patch, stage_shared_context, _ack, {}
   _stage_ops = dict((stage_shared_context or {}).get("operating_model") or {})
   receipt = _apply_per_line_cogs_patch_keys(_cogs_keys, ops_json=_stage_ops)
   stage_shared_context = dict(stage_shared_context or {})
@@ -9021,7 +9072,7 @@ def _apply_stage_cogs_door_keys(
       logger.exception("STAGE_COGS_DOOR_PERSIST_FAILED")
   _ack = _build_per_line_cogs_receipt_text(receipt)
   patch = {k: v for k, v in patch.items() if k not in _cogs_keys}
-  return patch, stage_shared_context, _ack
+  return patch, stage_shared_context, _ack, receipt
 
 
 def _apply_stage_people_door_keys(
@@ -9960,13 +10011,75 @@ def _run_financials_turn_and_sync(
   # correction had nowhere to land, exactly as the payroll correction did
   # before the people door existed. The receipt below is built from the
   # write, so it leads whatever else this turn says.
+  _cogs_receipt: Dict[str, Any] = {}
   if isinstance(patch, dict) and patch:
-    patch, stage_shared_context, _cogs_ack = _apply_stage_cogs_door_keys(
+    patch, stage_shared_context, _cogs_ack, _cogs_receipt = _apply_stage_cogs_door_keys(
       patch=patch, stage_shared_context=stage_shared_context,
       conn=conn, intake_context=intake_context,
     )
     if _cogs_ack:
       _door_ack = f"{_door_ack} {_cogs_ack}".strip() if _door_ack else _cogs_ack
+
+  # CW-032 A-110, the completion half: a per-line answer that rates EVERY
+  # line has answered the cogs stage's own question - re-asking "what
+  # annual direct-cost amount should I use instead?" after it is the
+  # Alderfen loop (the stage then completed on the app's own blend,
+  # discarding the client's stated numbers). When the door's write leaves
+  # every product row carrying a rate, THE RECALC derives the blend family
+  # from those rows (the one existing derivation - nothing here invents a
+  # number) and the stage advances on the client's numbers. Only a turn
+  # whose patch carried nothing else takes this path; a bundled sibling
+  # write still runs the normal stage machinery below.
+  if (
+    str(active_stage or "") == "cogs"
+    and isinstance(_cogs_receipt, dict) and _cogs_receipt.get("wrote")
+    and not (isinstance(patch, dict) and patch)
+    and not _cogs_receipt.get("unit_unclear")
+    and not _cogs_receipt.get("unmatched")
+  ):
+    _door_ops = dict((stage_shared_context or {}).get("operating_model") or {})
+    _door_rows = [
+      p for lob in (_door_ops.get("lob_models") or []) if isinstance(lob, dict)
+      for p in (lob.get("products") or []) if isinstance(p, dict)
+    ]
+    if len(_door_rows) >= 2 and all(
+      _safe_float(p.get("cogs_percent_of_line_revenue")) is not None
+      for p in _door_rows
+    ):
+      _ppl_door = copy.deepcopy(
+        dict((stage_shared_context or {}).get("people_capability") or {})
+      )
+      next_financials, financials_year1_json = _sync_financials_consult_persistence_state(
+        financials_json=next_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((stage_shared_context or {}).get("marketing") or {}),
+        people_json=_ppl_door,
+        ops_json=_door_ops,
+      )
+      if _financials_stage_complete("cogs", next_financials):
+        _blend_total = _safe_float(next_financials.get("cogs_total_year1"))
+        _blend_pct = _safe_float(next_financials.get("cogs_percent_of_revenue"))
+        _rollup_line = ""
+        if _blend_total is not None and _blend_pct is not None:
+          _rollup_line = (
+            f" Together that rolls up to direct costs of about "
+            f"{_format_currency(_blend_total)} a year "
+            f"({_format_percent(_blend_pct)} of revenue), derived from your "
+            "line rates."
+          )
+        next_turn, updated_financials, _ = _advance_persisted_financials_stage(
+          conn=conn,
+          draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+          business_facts=business_facts,
+          intake_context=_stage_context(active_stage, next_financials),
+          conversation_messages=conversation_messages,
+          shared_context=stage_shared_context,
+          financials_json=next_financials,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=dict((stage_shared_context or {}).get("marketing") or {}),
+          acknowledgement=f"{_door_ack}{_rollup_line}".strip(),
+        )
+        return next_turn, updated_financials
 
   if action == "edit_patch" and isinstance(patch, dict) and patch:
     _patch_report: Dict[str, Any] = {}
@@ -9989,7 +10102,7 @@ def _run_financials_turn_and_sync(
       )
       _dropped = list(_patch_report.get("dropped") or [])
       if _dropped:
-        _note = _unapplied_fields_note(_dropped)
+        _note = _unapplied_fields_note(_dropped, active_stage=str(active_stage or ""))
         if _note:
           acknowledgement = f"{acknowledgement} {_note}".strip()
       # CW-028 REPAIR RECEIPT (Nick-ruled): the ack names EVERY applied
@@ -10004,13 +10117,23 @@ def _run_financials_turn_and_sync(
         if f not in _stage_targets
       ]
       if _extra_applied:
+        # CW-032 #143: a RATIO field spoken through _format_currency reads
+        # "cogs percent of revenue $1" (0.5042 rounded to a dollar). The
+        # field's declared basis decides the rendering - the same registry
+        # the router normalizes against, so words and stored units agree.
+        try:
+          from client_intake_and_finmo.field_basis import basis_of as _basis_of  # type: ignore
+        except Exception:
+          _basis_of = lambda _f: ""  # noqa: E731
         _xparts = []
         for _xf in _extra_applied[:3]:
           _xv = _safe_float(normalized_patch.get(_xf))
-          _xparts.append(
-            f"{_xf.replace('_', ' ')} {_format_currency(float(_xv))}"
-            if _xv is not None else _xf.replace("_", " ")
-          )
+          if _xv is None:
+            _xparts.append(_xf.replace("_", " "))
+          elif str(_basis_of(_xf) or "").strip().lower() == "ratio":
+            _xparts.append(f"{_xf.replace('_', ' ')} {_format_percent(float(_xv))}")
+          else:
+            _xparts.append(f"{_xf.replace('_', ' ')} {_format_currency(float(_xv))}")
         acknowledgement = (
           f"{acknowledgement} Also recorded: {', '.join(_xparts)}."
         ).strip()
@@ -10212,7 +10335,7 @@ def _run_financials_turn_and_sync(
       conn=conn, intake_context=intake_context,
       user_message=user_message, last_assistant=last_assistant,
     )
-    _standing_q = _build_financials_stage_clarifier(active_stage)
+    _standing_q = _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     return {
       "assistant_message": f"{_door_ack} {_move_copy} {_standing_q}".strip(),
       "finalize_ready": False,
@@ -10221,7 +10344,7 @@ def _run_financials_turn_and_sync(
     # A patch that landed nothing and no stated figure to move: honest
     # non-apply plus the standing question.
     _disclose = "" if _door_ack else "I wasn't able to apply that change yet. "
-    _standing_q = _build_financials_stage_clarifier(active_stage)
+    _standing_q = _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     return {
       "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
       "finalize_ready": False,
@@ -10253,13 +10376,13 @@ def _run_financials_turn_and_sync(
     _tail_msg = (
       "I haven't recorded that figure - tell me exactly which field it "
       "should update and I'll set it. "
-      + _build_financials_stage_clarifier(active_stage)
+      + _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     ).strip()
   else:
     _tail_msg = _natural_recovery(
-      _build_financials_stage_clarifier(active_stage),
+      _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {})),
       user_message=str(user_message or ""),
-      fallback=_build_financials_stage_clarifier(active_stage),
+      fallback=_build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {})),
     )
   if _door_ack:
     _tail_msg = f"{_door_ack} {_tail_msg}".strip()

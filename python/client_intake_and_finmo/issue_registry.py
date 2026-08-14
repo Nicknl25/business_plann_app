@@ -912,43 +912,6 @@ def _sheet_rows_by_label(ws) -> List[Any]:
   return out
 
 
-def _assert_total_sums_over_lines(ws, per_line_rows, total_row, label):
-  """Law bullet 2: the total row must be =SUM over EXACTLY the per-line rows.
-
-  N per-line rows above a total that sums the wrong range is the same wrong
-  number with better manners, so the range is checked span-for-span in every
-  quarter column that carries the formula.
-  """
-  first, last = min(per_line_rows), max(per_line_rows)
-  if last - first + 1 != len(per_line_rows):
-    return (f"the {len(per_line_rows)} per-line {label!r} rows are not contiguous "
-            f"(rows {sorted(per_line_rows)})")
-  if first <= total_row <= last:
-    return f"the total row {total_row} sits inside the per-line block {first}-{last}"
-  checked = 0
-  periods = _period_columns(ws)
-  if not periods:
-    return f"no period columns found on the sheet, cannot check the {label!r} total"
-  for col in sorted(periods.values()):
-    raw = ws.cell(row=total_row, column=col).value
-    if not isinstance(raw, str) or not raw.strip().startswith("="):
-      continue
-    match = _SUM_FORMULA_RE.match(raw.strip())
-    letter = ws.cell(row=total_row, column=col).column_letter
-    if not match:
-      return (f"total row {total_row} column {letter} is {raw.strip()[:60]!r}, "
-              "not a SUM over the per-line rows")
-    lcol, lrow, rcol, rrow = match.group(1).upper(), int(match.group(2)), \
-        match.group(3).upper(), int(match.group(4))
-    if lcol != letter or rcol != letter or lrow != first or rrow != last:
-      return (f"total row {total_row} column {letter} sums {raw.strip()} but the "
-              f"per-line rows are {letter}{first}:{letter}{last}")
-    checked += 1
-  if not checked:
-    return f"total row {total_row} carries no SUM formula in any quarter column"
-  return None
-
-
 def _reconcile_workbook_cogs(wb, label):
   """Law bullet 3: Sigma(line revenue x line pct) == blend == finmo COGS, per quarter.
 
@@ -1031,19 +994,23 @@ def _reconcile_workbook_cogs(wb, label):
 
 
 def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
-  """The DELIVERED workbook must carry one COGS row per line, a total that
-  sums over EXACTLY those rows, and three routes to the quarter's COGS that
-  agree — Nick's verification law for this batch, bullets 2 and 3.
-
-  Scoped to the P&L sheet on purpose: the same label legitimately appears on
-  Model Inputs (the driver row) and Audit Source (persisted values, no
-  formulas), and counting those inflates the count into a false pass.
+  """CW-032 layout law (Nick's ruling): the breakout lives on MODEL INPUTS
+  (one '<line> - COGS %' driver row per line) and the P&L carries EXACTLY
+  ONE 'Cost of Goods Sold' row whose formula is the roll-up -
+  Sigma(line revenue x that line's COGS driver), summed in the one cell,
+  every term referencing Model Inputs. Per-line P&L rows are the OLD
+  layout and now FAIL: showing the client detail rows beside a separately
+  computed total is the half-built state the all-or-nothing rule exists
+  to prevent. Reconciliation (three agreeing routes to the quarter's
+  COGS) is unchanged.
 
   The workbook is resolved by BINDING, never by newest-mtime: see
-  workbook_delivery_record. An unattributable file is not evidence about this
-  draft, so it returns not_applicable rather than judging someone else's run.
+  workbook_delivery_record. An unattributable file is not evidence about
+  this draft, so it returns not_applicable rather than judging someone
+  else's run.
   """
   import os
+  import re as _re
   from client_intake_and_finmo.workbook_delivery_record import (  # type: ignore
     resolve_workbook_for_draft,
   )
@@ -1063,26 +1030,61 @@ def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict
   try:
     if sheet_name not in wb.sheetnames:
       return {"verdict": "not_applicable", "detail": f"sheet {sheet_name!r} absent"}
+    if "Model Inputs" not in wb.sheetnames:
+      return {"verdict": "not_applicable", "detail": "sheet 'Model Inputs' absent"}
     ws = wb[sheet_name]
+    where = f"{os.path.basename(path)} [{sheet_name}]"
     labelled = [(r, t) for r, t in _sheet_rows_by_label(ws) if t.startswith(label)]
     per_line = [r for r, t in labelled if t != label]
     totals = [r for r, t in labelled if t == label]
-    where = f"{os.path.basename(path)} [{sheet_name}]"
-    if len(per_line) < min_rows:
+    if per_line:
       return {"verdict": "fail",
-              "detail": (f"{where} carries {len(per_line)} per-line {label!r} row(s) "
-                         f"({len(labelled)} labelled total), expected >= {min_rows}")}
-    if spec.get("check_total_sum", True):
-      if len(totals) != 1:
+              "detail": (f"{where} carries {len(per_line)} per-line {label!r} "
+                         "row(s) on the P&L - the breakout belongs on Model "
+                         "Inputs and the P&L must carry ONE consolidated row")}
+    if len(totals) != 1:
+      return {"verdict": "fail",
+              "detail": (f"{where} carries {len(totals)} {label!r} rows, "
+                         "expected exactly 1")}
+    # The drivers: one '<line> - COGS %' row per line on Model Inputs.
+    mi = wb["Model Inputs"]
+    driver_rows = [r for r, t in _sheet_rows_by_label(mi) if t.endswith(" - COGS %")]
+    if len(driver_rows) < min_rows:
+      return {"verdict": "fail",
+              "detail": (f"Model Inputs carries {len(driver_rows)} per-line "
+                         f"COGS driver row(s), expected >= {min_rows}")}
+    # The one P&L cell must BE the roll-up: N (revenue x driver) terms
+    # joined by '+', every reference pointing at Model Inputs. A formula
+    # of any other shape (a blend times revenue, a SUM over hidden rows)
+    # is the old layout or a half-state, not the ruled one.
+    _term = _re.compile(
+      r"^'?Model Inputs'?![A-Z]{1,3}\d+\*'?Model Inputs'?![A-Z]{1,3}\d+$"
+    )
+    checked = 0
+    periods = _period_columns(ws)
+    if not periods:
+      return {"verdict": "fail",
+              "detail": f"{where}: no period columns found, cannot check the roll-up"}
+    for col in sorted(periods.values()):
+      raw = ws.cell(row=totals[0], column=col).value
+      if not isinstance(raw, str) or not raw.strip().startswith("="):
+        continue
+      terms = raw.strip().lstrip("=").split("+")
+      if len(terms) != len(driver_rows) or not all(_term.match(t.strip()) for t in terms):
+        letter = ws.cell(row=totals[0], column=col).column_letter
         return {"verdict": "fail",
-                "detail": (f"{where} carries {len(totals)} total {label!r} rows "
-                           f"above {len(per_line)} per-line rows, expected exactly 1")}
-      problem = _assert_total_sums_over_lines(ws, per_line, totals[0], label)
-      if problem:
-        return {"verdict": "fail", "detail": f"{where}: {problem}"}
-    detail = f"{where} carries {len(per_line)} per-line {label!r} rows"
-    if spec.get("check_total_sum", True):
-      detail += f" totalled by =SUM over exactly those rows"
+                "detail": (f"{where} {label!r} cell {letter}{totals[0]} is "
+                           f"{raw.strip()[:80]!r} - expected {len(driver_rows)} "
+                           "'(Model Inputs revenue x Model Inputs driver)' "
+                           "terms summed in the one cell")}
+      checked += 1
+    if not checked:
+      return {"verdict": "fail",
+              "detail": (f"{where} {label!r} row carries no formula in any "
+                         "quarter column")}
+    detail = (f"{where} carries ONE {label!r} roll-up row over "
+              f"{len(driver_rows)} Model Inputs drivers ({checked} period "
+              "columns checked)")
     if spec.get("check_reconciliation", True):
       verdict, recon_detail = _reconcile_workbook_cogs(wb, label)
       if verdict != "pass":
