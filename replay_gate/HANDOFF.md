@@ -1,20 +1,91 @@
-STATUS: awaiting-Nick
-TURN: 5/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
-  FINISH TURN 13. Your audit work is done and committed for you (notes +
-  leg edits, commit "mini's turn-13 audit work"); your session then exited
-  with the prove running in the background and it died as a 0-byte file -
-  there is NO re-invocation under claude -p; children die at exit. Your
-  bootstrap prompt now explains this mechanism.
-  Remaining steps only:
-  - Re-run the full prove IN THE FOREGROUND (blocking) and read the verdict
-    in this same turn.
-  - Write the RESULT block on the prove's actual outcome. If your audit of
-    round 10 (membership-as-data) is clean AND the table is clean, VERDICT:
-    green - the watcher will stop for Nick as designed. Any defect: name it
-    with a fresh ERROR-SIGNATURE and flip to awaiting-VS as usual.
-  - The flip rides your final commit; push immediately.
+  CW-032 ALDERFEN BATCH (Nick, 2026-08-14) — the full 8-item CW-031/032
+  issues list, ONE loop batch, BLOCKERS FIRST, artifact-level verification
+  throughout (the false-green class came from proposal-level checking —
+  never repeat it). Evidence base: draft 158f6816, run 414a3b0a, workbook
+  "Alderfen Nursery and Garden -- 08-13-2026 23-13-03.xlsx", the three
+  registry filings, VS_NOTES CW-032 sections.
+  THE COGS BREAKOUT — CORRECT LAYOUT (Nick's ruling, hold to it exactly):
+  - MODEL INPUTS sheet: FOUR per-line COGS DRIVERS, one row per line
+    (plant %, hardgoods %, install %, design %). These are the source
+    assumption cells.
+  - P&L (FINMO) sheet: ONE COGS line — the total — computed as
+    Sigma(each line's revenue x that line's COGS driver from Model
+    Inputs). One consolidated line on the P&L, driven by the four
+    Model-Inputs drivers.
+  NOTE FOR VS — THIS IS A LAYOUT CHANGE: the current finmo_sheet.py
+  inserts per-line COGS rows INTO THE P&L with the total as =SUM over
+  them. Nick rules the breakout lives on Model Inputs; the P&L stays
+  clean with ONE COGS line whose formula rolls up the four drivers
+  (line revenue x line driver, summed in the one cell). Move it.
+  HARD RULE — ALL-OR-NOTHING, CLEAN OR NOT AT ALL (Nick): if it cannot
+  be set up correctly (four drivers on Model Inputs AND a P&L COGS line
+  that PROVABLY sums them), then DO NOT do it — fall back to the single
+  blended rate. A half-built breakout (drivers that do not tie to the
+  P&L line, or a partial that ships broken) is WORSE than the clean
+  blend, because it shows the client detail that does not reconcile.
+  Fully correct, or the single blend. No half-state, no silent
+  degradation. The existing all-or-nothing enforcement
+  (intake_consult.py ~:8803 + the bridge activation rule) IS this
+  guarantee — route ALL FOUR lines; if any fails, it correctly falls to
+  blend. DO NOT WEAKEN ALL-OR-NOTHING.
+  TIER 1 — THE THREE BLOCKERS ARE ONE ROOT (A-110):
+  The downstream is already built and correct
+  (_reconcile_per_line_cogs_rows, the bridge per-line emit,
+  _apply_per_line_cogs_to_ops the complete writer) — they are STARVED
+  because a client COGS/collapse sentence in the STAGE never becomes a
+  financials.cogs_per_line_overrides patch. FIX = ONE ROUTER CHANGE:
+  route the client's per-line COGS sentence AND the collapse sentence
+  into the patch, IN-STAGE (the surface where the proposal is made and
+  correction invited). This closes corrections-write, the four
+  Model-Inputs drivers appearing, and the collapse — together. Include
+  the multi-figure parse (a real owner answers "Plants are 46%.
+  Hardgoods 73%. Install 17%. Design 3%" in ONE message — land all N,
+  one turn) and fix the clarifier copy (after a per-line answer fails,
+  it currently asks for ONE singular blend figure — the recovery
+  question must preserve the per-line shape, plain English).
+  ARTIFACT VERIFICATION (mini): cogs_per_line_overrides non-null on all
+  4; FOUR COGS driver rows on the Model Inputs sheet; ONE P&L COGS line
+  that provably equals Sigma(line rev x line driver) per period; the
+  collapse stores a /shared/ key naming whose structure it shares.
+  Also: the stage ack must obey the receipt law — the Alderfen ack
+  claimed a recorded blend AND said "I haven't recorded cogs percent
+  yet" in the same message. Words match state, one source.
+  TIER 2 — A-113 CAPACITY SMEAR (rank 2, same parent law): the client's
+  post-stage per-line capacity correction (install 5 -> 7) was LOST, and
+  the build then applied a UNIFORM 1.11220 factor to EVERY line —
+  putting 3 lines 11.2% above what the client stated, in a plan they
+  read as theirs. FIX: a post-stage capacity write path that lands the
+  correction on the named line, OR an honest refusal — NEVER a silent
+  uniform smear. The app must not silently alter what the client
+  declared.
+  TIER 3 — DEPRECIATION (NO client question — the policy exists):
+  _CAPEX_USEFUL_LIFE_YEARS = 5.0 default and initial_assets (~$386k
+  opening PPE) are both present and straight-line logic is wired. BUG:
+  new capex depreciates, the OPENING PPE never gets the useful-life
+  schedule. FIX: apply the existing default 5-year straight-line
+  schedule to opening PPE, same as new capex. NO intake question about
+  asset age/life — normal owners cannot answer it and we have a sensible
+  default. State the assumption in the plan output ("equipment
+  depreciated straight-line over 5 years").
+  TIER 4 — THE REMAINING FILED ITEMS from the 8: the
+  collapse-invitation timing item and any receipt/label items still
+  open. Fix at source; mini artifact-verifies each.
+  SETTLED (Nick): SS6 is 13/13 exact, fifth consecutive — REMOVE it
+  from A-103's retest list.
+  PROCESS: blockers first. Standing laws hold (backend restart + ONE
+  listener after app-code edits, Sunny_V3 canary before any batch of
+  runs, foreground-only long jobs, red-proofs red for the right
+  reason). When the batch is clean + live-verified (canary + multi-line
+  E2E + an IN-STAGE conversation check on a fresh 4-line clone —
+  proposal -> full multi-line correction in one message -> all four rows
+  carry the client's numbers -> Model Inputs shows four drivers -> P&L
+  shows ONE summing line), STAGES flips per-line-COGS LIVE=passed and
+  COWORK clears. Nick then re-runs the garden center to SEE the four
+  drivers and the one summing P&L line. THEN discovery research.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1368,51 +1439,9 @@ TASK:
   STILL NICK'S, UNCHANGED: whether naturalization may touch a
   deterministic receipt. Nothing this round touches prose at all.
 RESULT:
-  AGENT: mini
-  VERDICT: green
+  AGENT: none
+  VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: _prove_20260813_mini_round12.txt (61 legs, R43 PROVEN, 0 DRIFT,
-    0 UNEARNED, CLEAN); _mini_cw031_r12_guard_attack_20260813.txt (7/7);
-    Test Files/_mini_cw031_r12_guard_attack.py;
-    replay_gate/MINI_NOTES.md round-14 section
-  SUMMARY: Round 12 audits CLEAN - the first clean round of the campaign.
-  R43 legacy-tier-is-a-law is in the gate and PROVEN BEHAVIOURAL: red at
-  b0607e0 on exactly both teeth (stale-FIRST retired the coherent
-  remainder; the duplicate-name twin kept the unearned group) with both
-  positive controls green at baseline, green at HEAD - VS's prefix red
-  re-derived through the gate itself. Both judgment calls RATIFIED: shape
-  (a) preserves retire-only-failing-claims for a claim that holds when
-  read (the order-dependent branch is deleted, which is what the
-  remove-legacy law wanted); the any-row guard refuses no legitimate
-  attach - a frozenset key cannot claim a name twice, so a twin can never
-  be homed (G1/G2/G7). Residual order edge RULED: stands documented -
-  refusing both twins would retire the whole coherent partition,
-  bystanders included (G3, both orderings clean). Empty parse partition
-  verified inert (G4/G5 + code read). My round-11 instrument re-run
-  unmodified on HEAD: 4/4. App code byte-identical to HEAD this turn; no
-  canary owed. Full prove: 61 legs, 54 behavioural, 5 structural-absence,
-  2 golden, 0 DRIFT, 0 UNEARNED, gate GREEN - safe to spend a Cowork run.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  Nick: the round-12 table is genuinely clean and CW-031's twelve rounds
-  are closed - every defect found this campaign is either fixed and
-  pinned as a gate leg (R33-R43) or ruled and recorded. The build is safe
-  to spend a Cowork run on.
-
-  ONE RULING STILL YOURS, unchanged since round 7, plain-English version:
-  when the app records a number, it composes an exact receipt sentence
-  ("Recorded: Plant sale at 48% of that line's revenue"). A rewriting
-  step then makes that sentence conversational before the client sees
-  it, and it once ADDED a clause the receipt did not support ("plus four
-  more you will share"). We removed rewriting from turns that record
-  nothing; turns that DO record still get rewritten, and every rewritten
-  reply we have read since is accurate - but intermittent invention is
-  the kind that no single reply reveals. The question: may the rewriter
-  touch receipt sentences at all, or must they ship verbatim? Say the
-  word and VS wires whichever you choose.
-
-  VS: nothing owed. R43 pins your round-12 fixes; both judgment calls
-  are ratified as shipped; the residual order edge stands documented
-  (do not add the refuse-both change); the empty partition needs no
-  guard. No app code changed this turn, so no canary is owed.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
