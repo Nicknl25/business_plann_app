@@ -2410,3 +2410,153 @@ itself is per-line with bands. What remains: THE STAGE DOOR. Expect
 the client to possibly land the correction later at the wall (where
 the door works) - if so the artifact may still end per-line; watch
 the run to terminal before verdicting.
+
+
+## CW-032 TURN 1 (VS, 2026-08-14): the eight-item batch - what landed, where, and what moves
+
+### TIER 1 - A-110 IN-STAGE (#140/#142, the three-blocker root)
+ROOT CAUSE, found by red-proof (not the one the notes guessed): the
+financials consult type's hand-maintained allowed-fields list
+(intent_router.py ~1651) NEVER carried the three per-line COGS keys. The
+unified (wall) list gets them from the schema keys; the stage flow's list
+was written by hand and never updated - so the one surface where the
+per-line proposal is made had NO vocabulary to land a per-line answer,
+and the prompt hard-constrains patch keys to that list. Secondary: the
+narrow-stage rule (edit_patch for the narrow stage fields only)
+funnelled per-line replies into blend fields, where 46 died at the
+not-a-fraction guard and dollar conversions died at the derivability
+guard - hence Alderfen's honest-but-useless refusal.
+FIX (one router change + its stage-side completion):
+  - the three keys added to the financials allowed list (multi-line gate
+    at ~1781 still drops them on single-line drafts);
+  - the narrow-stage rule carries an explicit per-line exception; the
+    per-line block outranks the narrowing and covers the
+    proposal-on-the-table case (four percents in one message = four
+    entries, never confirm_proceed);
+  - IN-STAGE COMPLETION (intake_consult, after the stage cogs door): a
+    per-line answer rating EVERY line completes the cogs stage through
+    THE RECALC's own _pl_derived derivation - client numbers, never the
+    app's blend. Partial answers keep the stage open;
+  - CLARIFIER (tier 1c): _build_financials_stage_clarifier now takes
+    ops_json; on a multi-line draft the cogs recovery question keeps the
+    per-line shape and NAMES the still-missing lines;
+  - RECEIPT LAW (tier 1d, #143): _unapplied_fields_note splits
+    active-stage fields (I could not apply your X change - the figure
+    above is what I have) from future-stage fields (we will get to
+    that); the Also-recorded formatter renders ratio-basis fields as
+    percents (the cogs-percent-$1 bug); and the _prose_claims_figure
+    deterministic tail no longer says it has not recorded a figure on a
+    turn whose DOOR receipt just recorded it (found live by my own S3
+    scenario - the last words-vs-state contradiction in the reply).
+LIVE PROOF (_live_cw032_instage_cogs_turn.py, 15/15 GREEN twice, file
+_live_cw032_instage_20260814.txt): clones of the REAL Alderfen draft
+rewound to message [74] (the proposal on the table), live :5050, live
+GPT router, the client's own transcript words. S1: all four rates in ONE
+message -> rows carry 46/73/17/3, stage completes at $634,545 (42%)
+derived, reply = receipt + roll-up + next question. S2: the collapse
+sentence -> shared:hardgoods sale+plant sale stored on exactly the two
+named rows, basis declared, IN-STAGE (closes A-111/#142). S3: one line
+-> that row written, recovery names the three missing lines.
+Router red-proof: Test Files/_redproof_cw032_stage_perline_router.py
+(RED pre-fix on all three wordings - blend fields only; GREEN post).
+
+### LAYOUT (#141, Nick's ruling)
+finmo_sheet.py: per-line P&L rows DELETED; the ONE Cost of Goods Sold
+cell is now the roll-up - Sigma over slots of
+(Model Inputs line Revenue x Model Inputs line COGS %), e.g.
+='Model Inputs'!D11*'Model Inputs'!D10+'Model Inputs'!D16*'Model Inputs'!D15
+The drivers were ALWAYS on Model Inputs (LOB / Product - COGS %,
+linked from Revenue Drivers) - the ruling removed the P&L detail rows,
+nothing else. Single-line drafts render the exact legacy shape
+(=D8*'Model Inputs'!D16 verified on a fresh export).
+_assert_workbook_cogs_rows (issue_registry.py) now pins the NEW law:
+ONE P&L row, zero per-line P&L rows (old layout now FAILS), >= N driver
+rows on Model Inputs, the cell IS the N-term roll-up, reconciliation
+unchanged. Proven pass on the new-layout export, fail on an old
+per-line-P&L workbook and on a degraded no-driver workbook, each for
+its own reason. Dead _assert_total_sums_over_lines + _SUM_FORMULA_RE
+deleted (remove-legacy law).
+
+### TIER 2 - A-113 (#264)
+The three Alderfen false receipts happened at MARKET focus, where turns
+NEVER reach route_intent (model-interpreted every turn) - the section
+GPT acknowledged freely, nothing landed, and the build smeared a uniform
+1.1122 reconcile factor across all four lines' capacity. FIX: the
+existing cross-section driver applier (CW-017 b, financials focus) now
+runs BEFORE the market/people section turns; a landed write persists
+immediately (ops + recalc'd financials + year1) and its deterministic
+receipt LEADS the reply; a correction-shaped message that cannot land
+gets an honest refusal note. Fixing it exposed a WRONG-NUMBER defect in
+the applier itself: last-figure-wins parsed the real [47] sentence
+(...should be 7. I was thinking of two crews and we have been running
+three...) into capacity 3. Value selection is now (a) sentence-scoped
+(the lever sentence + its follower - Target 35 to 75 cannot compete),
+(b) not-N excluded as the old value, (c) marked (should be/to/is/now/at),
+refuse on ambiguity. Six-case offline proof in the commit. NOTE for a
+later round: the unit_price branch still uses cands[-1]; same class,
+untouched this turn to keep the change auditable.
+
+### TIER 3 - #266 (A-114)
+finmo_bridge: opening PPE seeds a placed_quarter-0 vintage on the same
+default 5y straight-line schedule as new capex. Verified on the REAL
+Alderfen model_input: Q1 depreciation 19,406.92 = 386,000/20 + the
+106.92 the old code produced alone; the opening base fully depreciates.
+The assumption is STATED on the CapEx & Depreciation sheet subtitle
+(Existing equipment and new capital spending are depreciated
+straight-line over 5 years). No intake question added, per the ruling.
+THIS MOVES EVERY DRAFT WITH OPENING ASSETS: net income, taxes, retained
+earnings, balance sheet. It is the cause of the R31 DRIFT below.
+
+### TIER 4
+#265: the MISROUTE GUARD in _normalize_financials_router_patch - a write
+to a COMPLETED stage's field reverts when the message names the ACTIVE
+stage's family and never the foreign one
+(_FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD; fail-open - unlisted fields
+are never guarded). Three-shape unit proof: the Alderfen misroute
+reverts; the repair wording and the volunteered debt cluster land
+untouched.
+#267 (minor, receipt header vs another line's price): NOT fixed -
+no reproduction from the filing (final stored state was correct); the
+capture_receipt naming path reads correct on inspection. Left open with
+the transcript turn as the reproduction seed.
+A-103: Section-6 limb SETTLED per Nick, agenda.json narrowed to the two
+never-run limbs.
+
+### VERIFICATION (all foreground, all on listeners postdating every edit)
+- Sunny_V3 canary x2: 538s and 499s, system_run_complete, 0 errors,
+  delivery records #11 and #13 bound by draft_id
+  (_canary_cw032_turn1_sunnyv3_20260814.txt, _canary_cw032_turn1_final_...).
+- In-stage live proof 15/15 GREEN (above).
+- Multi-line workbook E2E (_live_cw032_multiline_workbook_e2e.py,
+  _live_cw032_multiline_wb_20260814.txt): completed-Alderfen clone ->
+  the client's four-rate sentence through the LIVE WALL router -> real
+  system-run -> delivered workbook: FOUR driver rows on Model Inputs,
+  EXACTLY ONE P&L COGS row = the four-term roll-up, Q1 depreciation rate
+  0.0530, and _assert_workbook_cogs_rows PASS on the delivery-record
+  binding (Sigma == blend == finmo on 21 columns). The file's first pass
+  shows 8/9 with a PROBE defect (I handed the resolver a dictionary
+  cursor; production uses tuple cursors) - the corrected check is
+  appended and the probe fixed.
+- Full prove (_prove_20260814_vs_cw032_turn1.txt): 61 legs, 54 proven
+  behavioural, 5 structural-absence, 1 GOLDEN (R32 held - single-line
+  formula grid unchanged), 0 UNEARNED, 1 DRIFT:
+  R31 single-line-unchanged MOVED on finmo + model_input. THIS IS THE
+  DEPRECIATION RULING LANDING, not a regression: Sunny carries opening
+  assets, so its finmo numbers legitimately changed. R31's golden SHAs
+  need re-baselining (mini's; ratify the new numbers first). The
+  single-line byte-floor golden values in
+  _prove_single_line_byte_floor.py's docstring move for the same reason.
+
+### FOR MINI, EXPLICITLY
+1. R31 re-baseline after ratifying the depreciation delta (the ONLY
+   drift; R32 held golden).
+2. Any leg pinning exact finmo values on a fixture with initial_assets>0
+   will shift the same way - re-pin from ratified numbers, do not soften
+   assertions.
+3. The workbook law legs / R32's stated multi-line expectation (one
+   Cost of Goods Sold - LINE row per line plus a total =SUM) pin the
+   OLD layout - re-point to the ruled one: N driver rows on Model
+   Inputs, ONE P&L roll-up row, no per-line P&L rows.
+4. The in-stage door, the stage completion, the capacity-door surfaces
+   and the misroute guard are all pin-worthy legs; my red shapes are in
+   the two _live_cw032_* scripts and the router red-proof.

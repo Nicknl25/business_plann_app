@@ -1,0 +1,27 @@
+S1 - all four rates in ONE message at the cogs stage
+  [PASS] clone rewound to the pre-correction state: lines=['Plant sale', 'Hardgoods sale', 'Install job', 'Design project']
+  < [200] Recorded: Plant retail / Plant sale at 46% of that line's revenue; Hardgoods retail / Hardgoods sale at 73% of that line's revenue; Install services / Install job at 17% of that line's revenue; Design consultations / Design project at 3% of that line's revenue. Together that rolls up to direct costs of about $634,545 a year (42% of revenue), derive
+  ops now: {'Plant sale': 0.46, 'Hardgoods sale': 0.73, 'Install job': 0.17, 'Design project': 0.03}
+  [PASS] S1 live turn 200: 200
+  [PASS] all four rows carry the CLIENT's numbers: 46/73/17/3 through the live in-stage router
+  [PASS] the cogs stage COMPLETED on the derived blend: current_cogs=634544.9987 pct=0.4221856278775782
+  [PASS] the reply is a receipt, not the Alderfen refusal: speaks the write
+  [PASS] the flow moved ON (a next question rides the same reply): the stage did not re-ask the blend
+
+S2 - the collapse sentence at the cogs stage
+  < [200] Recorded: Plant retail / Plant sale and Hardgoods retail / Hardgoods sale sharing one direct-cost rate; Install services / Install job and Design consultations / Design project now carry their own separate cost structures. What percent of each line's revenue goes to direct costs? Give me one percent
+  ops now: {"Plant sale": {"pct": null, "group": "shared:hardgoods sale+plant sale", "basis": "declared"}, "Hardgoods sale": {"pct": null, "group": "shared:hardgoods sale+plant sale", "basis": "declared"}, "Install job": {"pct": null, "group": null, "basis": null}, "Design project": {"pct": null, "group": null, "basis": null}}
+  [PASS] S2 live turn 200: 200
+  [PASS] a /shared/ group is STORED on exactly the two named rows: shared:hardgoods sale+plant sale
+  [PASS] the group's basis is DECLARED: declared
+
+S3 - a single line's rate; the recovery keeps the per-line shape
+  < [200] Recorded: Hardgoods retail / Hardgoods sale at 73% of that line's revenue. What percent of each line's revenue goes to direct costs for Plant sale, Install job, Design project? For example: 'Plant sale 40%'.
+  [PASS] S3 live turn 200: 200
+  [PASS] the named row is written: hardgoods=0.73
+  [PASS] the other rows are untouched: plant/install/design still null
+  [PASS] the recovery question keeps the per-line shape: names the missing lines / per-line wording, never the singular blend ask
+  [PASS] no false receipt for unstated lines: only the written line is receipted
+
+========================================================================
+GREEN - the in-stage surface receives, writes, completes and recovers per-line.

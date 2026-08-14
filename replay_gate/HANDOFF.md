@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-Nick
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1445,3 +1445,93 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: drift
+  ERROR-SIGNATURE: R31:single-line-golden-moved-by-ruled-depreciation
+  EVIDENCE: _prove_20260814_vs_cw032_turn1.txt (R31 DRIFT block);
+    replay_gate/VS_NOTES.md CW-032 TURN 1 section;
+    _live_cw032_instage_20260814.txt (in-stage 15/15);
+    _live_cw032_multiline_wb_20260814.txt (client-path workbook E2E);
+    _canary_cw032_turn1_final_sunnyv3_20260814.txt;
+    commits e26af21, cf5b0e7, 7b26ff6
+  SUMMARY: All four tiers of the eight-item batch are BUILT and live-proven.
+  The A-110 root was one missing vocabulary list: the stage router's
+  hand-maintained financials field list never carried the per-line COGS
+  keys (the wall list did), so the in-stage surface could not receive what
+  it proposed. Fixed; live on rewound Alderfen clones the four rates land
+  46/73/17/3 in one message, the stage completes on the client's derived
+  blend, the collapse stores a declared /shared/ group in-stage, and a
+  partial answer gets a per-line recovery question. The ruled layout is
+  in: FOUR drivers on Model Inputs, ONE P&L COGS cell that IS the roll-up,
+  proven end to end on a real system-run with the assertion passing on the
+  delivery binding. Capacity corrections now land at the market/people
+  surfaces (where Alderfen actually spoke) with a wrong-number defect in
+  the old applier fixed on the way. Opening PPE depreciates straight-line
+  over the default 5 years, stated on the CapEx sheet. Misroute guard in;
+  A-103 narrowed. Canary x2 clean, delivery records bound by draft_id.
+  VERDICT drift, not green: the prove is 61 legs / 54 behavioural /
+  0 UNEARNED / R32 GOLDEN HELD / 1 DRIFT - R31 single-line-unchanged
+  moved on finmo+model_input because the DEPRECIATION RULING moves every
+  draft carrying opening assets. That is the ordered change landing, not
+  a regression, but a golden moved and the contract says Nick sees it.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  NICK, PLAIN ENGLISH: everything you asked for in the batch is built and
+  working - I watched the garden-center correction land live, and the
+  workbook now shows the four cost assumptions on Model Inputs with one
+  clean roll-up line on the P&L. One flag: making existing equipment
+  depreciate (your tier-3 ruling) changes the bottom line of every plan
+  that has equipment - net income is lower and more honest now. The
+  gate's do-not-move tripwire fired on exactly that, as it should. If the
+  new numbers look right to you, say GO and mini re-pins the tripwire to
+  the new baseline. Nothing else moved: the formula-grid control held.
+
+  mini, after Nick's go - audit at the ARTIFACT level, my pass lines are
+  not evidence:
+
+  1. THE DRIFT. Ratify the depreciation delta on the R31 fixture (Sunny:
+     opening PPE 20,000 -> expect ~1,000/quarter of new straight-line
+     depreciation plus the old capex vintages; my Alderfen check was Q1
+     19,406.92 = 386,000/20 + 106.92). Then re-baseline R31's golden
+     SHAs and the byte-floor docstring goldens. Any other leg pinning
+     exact finmo values on a fixture with initial_assets>0 shifts the
+     same way - re-pin from ratified numbers, never soften assertions.
+  2. THE LAYOUT LAW. R32's stated multi-line expectation (per-line P&L
+     rows + total =SUM) pins the OLD layout Nick has now overruled.
+     Re-point the leg text to: N driver rows on Model Inputs, EXACTLY
+     ONE P&L 'Cost of Goods Sold' row whose formula is the N-term
+     (revenue x driver) sum, no per-line P&L rows. The updated
+     _assert_workbook_cogs_rows in issue_registry.py is the reference
+     implementation, proven pass/fail both directions.
+  3. THE IN-STAGE DOOR, adversarially, your own wordings. My proofs are
+     Test Files/_live_cw032_instage_cogs_turn.py (rewinds a real
+     Alderfen clone to the cogs stage) and
+     _redproof_cw032_stage_perline_router.py. Attack the completion
+     rule: a per-line answer that rates all four lines while ALSO
+     carrying an unmatched fifth name, a mixed message (rates + a
+     marketing figure), and a unit-less bare list (46, 73, 17, 3 with
+     no percent signs anywhere). The stage must never complete on a
+     turn that still owes the client a question.
+  4. THE CAPACITY DOOR at market/people. My six-case offline proof is in
+     commit cf5b0e7; drive your own live wordings at the MARKET focus
+     (the surface Alderfen spoke at). The refusal note must lead when
+     the number is ambiguous; the section GPT's own prose must never be
+     the only receipt. Also note the unit_price branch still uses
+     last-figure-wins - same class I fixed for capacity, untouched to
+     keep this turn auditable; your call whether it is next-turn work
+     or a filed latent.
+  5. PIN-WORTHY LEGS: in-stage door + completion, the market-surface
+     capacity door, the misroute guard, the new workbook law. Red
+     shapes are in my two live scripts and the router red-proof.
+  6. OPEN, not mine to close this turn: #267 (receipt header names one
+     line, prints another's price) has no reproduction from the filing;
+     the seed is Alderfen transcript turn ~[30-40] region (Design
+     project header, Install price). A-106/A-079 still need the
+     designed underpriced-business run.
+
+  Standing laws hold: backend restart + ONE listener after app-code
+  edits (current listener postdates every edit), canary before batches
+  (two clean Sunny_V3 runs this turn), red-proofs red for the right
+  reason, never end a turn with a job running.

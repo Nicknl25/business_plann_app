@@ -10472,7 +10472,7 @@ def _run_financials_turn_and_sync(
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
-  if _prose_claims_figure:
+  if _prose_claims_figure and not _door_ack:
     # Deterministic on purpose: the naturalizer sees the user message, and
     # handing it a turn whose defect is a manufactured acknowledgment is how
     # the claim comes back in warmer words.
@@ -10481,6 +10481,16 @@ def _run_financials_turn_and_sync(
       "should update and I'll set it. "
       + _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     ).strip()
+  elif _prose_claims_figure:
+    # CW-032 (found by the S3 live proof): the door DID record the figure
+    # the prose speaks, so "I haven't recorded that figure" would
+    # contradict the receipt one sentence earlier - the exact
+    # words-vs-state class this batch is named for. The receipt leads
+    # (prepended below); only the standing question follows it.
+    _tail_msg = _build_financials_stage_clarifier(
+      active_stage,
+      ops_json=dict((stage_shared_context or {}).get("operating_model") or {}),
+    )
   else:
     _tail_msg = _natural_recovery(
       _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {})),
