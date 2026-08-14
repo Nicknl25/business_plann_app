@@ -6,6 +6,51 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 15 (CW-032 turn 1, mini) - R31 drift proven PURE at both boundaries; re-blessed
+
+Nick ratified the R31 move (ruled opening-PPE 5y straight-line, 7b26ff6);
+this turn proved the ratification's premise before re-baselining anything.
+Evidence: `_mini_cw032_drift_purity_20260814.txt` (both boundaries), raw
+leaf diffs `_mini_cw032_r31_leaf_diff_20260814.txt` /
+`_mini_cw032_ck_leaf_diff_20260814.txt`, instrument
+`Test Files/_mini_cw032_drift_purity.py`.
+
+- **Gate boundary (R31's own surface).** Rebuilt the golden payloads through
+  `surface.single_line_payloads()` at the old baseline worktree (9d2c41c) and
+  HEAD; all four digests reproduce the DRIFT report's exactly, so the diff is
+  over the very bytes that drifted. 3,083 changed + 240 added leaves in
+  model_input, 644 in finmo - EVERY one in the depreciation family: the
+  capex_depreciation logs (x3 mirrors), the opening-PPE vintage (the 240 =
+  20 quarter-logs x 4 fields x 3 mirrors), PL {Depreciation, Net Income}, BS
+  {Cash, Current Assets, PPE, Acc. Dep., Total Assets, RE, Equity, L&E}, CF
+  {cash rows, CapEx, Investing}. Q1 delta exactly 15,000/20 = 750 (fixture
+  ppe); NI delta == -dep delta every quarter; taxes 0.0 both sides; EBITDA
+  and every P&L row above Interest byte-identical; zero REMOVED.
+- **Solver boundary (the byte-floor's surface).** Pre (dab4b977, 8/13 22:08,
+  digests == the recorded pre-batch canary pair) vs post (ac235a90, today's
+  foreground system-run). CONFOUND ISOLATED FIRST: the live path stamps
+  start_date from the run date; the pre/pre cross-day control (8/12 vs 8/13)
+  moves exactly 44 date leaves and ZERO numerics, and the 8/12 same-day pair
+  is byte-identical (and IS the c77094a docstring pair 9549d3/d7cc76 - the
+  "moved" canary values were only ever the date anchor). Net of dates, the
+  pre/post movers are the depreciation family plus the solver's cash
+  coupling (Interest, Taxes, revolver, distributions) - Q1 delta exactly
+  20,000/20 = 1,000 on Sunny's opening PPE. PURE.
+- **Re-blessed on that proof:** R31 baseline 9d2c41c -> 5716ba4 (legs.py,
+  --list clean, 61 legs); `_prove_frozen_input_no_db.py` ROUND7 goldens ->
+  the post-depreciation pair (proof re-run GREEN, workbook_formulas
+  UNMOVED - R32's surface genuinely held); byte-floor docstring carries the
+  new post-solver goldens + the same-day-comparator caveat + the ruled
+  layout (N driver rows on Model Inputs, ONE P&L roll-up row) replacing the
+  overruled per-line-P&L text. No gate leg pinned the old multi-line
+  layout (R32 pins the single-line shape, which the ruling preserves).
+- **For VS:** `Test Files/_ws1b_multiline_e2e.py:148` still asserts the
+  overruled layout (`Cost of Goods Sold - ` P&L rows) - superseded by your
+  `_live_cw032_multiline_workbook_e2e.py`; retire it per the remove-legacy
+  law, it will false-fail on the next ruled-layout workbook.
+
+---
+
 ## Round 14 - CW-031 round 12 audited CLEAN; R43 pinned; both judgment calls ratified
 
 Probe: `Test Files/_mini_cw031_r12_guard_attack.py` (7/7, output

@@ -3220,9 +3220,18 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
-        "c77094a", "9d2c41c", _r_single_line_unchanged, issue="WS1b floor",
+        "c77094a", "5716ba4", _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("Five of six businesses are single-line. This leg cannot "
+        proof_note=("RE-BLESSED 2026-08-14 (baseline 9d2c41c -> 5716ba4): the "
+                    "ruled opening-PPE 5y straight-line depreciation (7b26ff6, "
+                    "Nick ratified) legitimately moved every business with "
+                    "opening assets, incl. this fixture (ppe=15,000). Purity "
+                    "proven leaf-by-leaf before re-baselining - EVERY moved "
+                    "leaf traces to the depreciation schedule and its "
+                    "arithmetic descendants, zero others "
+                    "(_mini_cw032_drift_purity_20260814.txt, instrument "
+                    "Test Files/_mini_cw032_drift_purity.py). "
+                    "Five of six businesses are single-line. This leg cannot "
                     "go red-on-broken - its whole claim is that nothing "
                     "changed - so it is proved by hash equality ACROSS the two "
                     "commits. RE-BOUNDED after VS answered: both his SHAs hash "
@@ -3269,12 +3278,15 @@ REGRESSIONS = [
     Leg("R29", "INVARIANT", "line-split-confidence-gate",
         "the chat turn carries line_split_confidence and a split rationale",
         "c77094a", "9d2c41c", _r_line_split_confidence, issue="WS1a",
-        surface="consultant patch schema", proof=STRUCTURAL_ABSENCE,
-        proof_note=("line_split_confidence = 0 and split_rationale = 0 "
-                    "occurrences at 9d2c41c - the schema fields do not exist, "
-                    "so there is no baseline behaviour to observe. VS_NOTES "
-                    "states structural absence for this leg independently. "
-                    "Promote if the gate ever drives a live consultant turn.")),
+        surface="consultant patch schema",
+        proof_note=("PROMOTED 2026-08-14: the prove harness reported the "
+                    "baseline red is BEHAVIOURAL (the leg reds at 9d2c41c on "
+                    "its own assertion, not on an import crash), so the "
+                    "STRUCTURAL_ABSENCE label was dropped per its own note. "
+                    "Original absence rationale, kept for the record: "
+                    "line_split_confidence = 0 and split_rationale = 0 "
+                    "occurrences at 9d2c41c - the schema fields did not "
+                    "exist there.")),
     Leg("R33", "REGRESSION", "confirmed-needs-a-read-artifact",
         "'confirmed' requires an artifact that was read and HELD",
         "4dc2c33", "2f5940b", _r_confirmed_needs_artifact, issue="CW-031 tier 1",

@@ -22,12 +22,25 @@ EXACTLY WHAT IS HASHED (mini: match this boundary, not another):
     finmo_json column (the build_python_finmo_json output).
   - The WORKBOOK IS NOT HASHED here: .xlsx bytes are not
     deterministic (zip metadata / timestamps). The workbook surface
-    is covered structurally (see _ws1b_multiline_e2e-style checks:
-    single-line = exactly one "Cost of Goods Sold" P&L row with the
-    legacy formula shape; multi-line = one "Cost of Goods Sold - "
-    row per line + total =SUM over them). A deterministic workbook
-    hash, if wanted as a gate leg, should hash the FORMULA GRID
-    (sheet -> row label -> formula strings), never the file bytes.
+    is covered structurally under Nick's Model-Inputs layout ruling
+    (CW-032 #141): single-line = exactly one "Cost of Goods Sold"
+    P&L row with the legacy formula shape; multi-line = N driver
+    rows on Model Inputs (LOB / Product - COGS %) + exactly ONE P&L
+    "Cost of Goods Sold" row that IS the N-term roll-up, ZERO
+    per-line P&L rows. (The pre-ruling shape - one "Cost of Goods
+    Sold - LINE" row per line + total =SUM - is OVERRULED; an old
+    workbook in that shape now FAILS _assert_workbook_cogs_rows.)
+    A deterministic workbook hash, if wanted as a gate leg, should
+    hash the FORMULA GRID (sheet -> row label -> formula strings),
+    never the file bytes - R32 does exactly this.
+
+ANCHOR CAVEAT (measured 2026-08-14, mini): the live run stamps
+start_date from the RUN DATE, so these goldens are SAME-DAY
+comparators - OLD and NEW must run on the same day. Across a day
+boundary exactly 44 date leaves move (periods[].date, start_date,
+quarter_rows.date) and ZERO numeric leaves (proven pre/pre on the
+8/12 17:13 vs 8/13 22:08 checkpoints). The gate's R31 freezes the
+anchor and does not have this property.
 
 PROTOCOL (the c77094a proof, reproducible):
   1. On the OLD code: restart :5050, run
@@ -37,6 +50,20 @@ PROTOCOL (the c77094a proof, reproducible):
      match exactly. c77094a golden values (draft 6feac758):
        FINMO_SHA       9549d3a950080b8773601df38093fe4951e597c98410b70d6db82093cc425152
        MODEL_INPUT_SHA d7cc76831a1b1caaa8c5995d0d35508193b387324b9921e34511c69120205373
+
+RE-BLESSED 2026-08-14 (mini, CW-032 turn 1): the ruled opening-PPE
+5y straight-line depreciation (7b26ff6, Nick ratified) legitimately
+moved every business with opening assets - this draft carries
+20,000, and the Q1 depreciation delta is exactly 20,000/20 = 1,000.
+Purity proven leaf-by-leaf at BOTH boundaries before re-blessing
+(_mini_cw032_drift_purity_20260814.txt): every non-date moved leaf
+is the depreciation schedule or its arithmetic descendants (incl.
+the solver's cash coupling: interest, taxes, revolver, permitted
+distributions); EBITDA and every P&L row above Interest is
+byte-identical. Post-depreciation golden values (run ac235a90,
+2026-08-14, same-day-comparator caveat above):
+       FINMO_SHA       97117892c9db4345ed42ded21d66eb8d7cec8616660b673ac4df7098db9482eb
+       MODEL_INPUT_SHA e813c11851787c6c509bca69b5d7d52ffb28cd4d9747151cb645bdfa1c7ed850
 
 The rerun POST never passes planning_run_id (the run names the NEW
 run - recovery-design law). Requires ONE live :5050 listener.

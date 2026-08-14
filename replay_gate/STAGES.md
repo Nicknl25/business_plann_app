@@ -34,12 +34,20 @@ RULES
 
 ## per-line-COGS  (WS1a confidence gate + WS1b N-line COGS + WS2 retention)
 
-    GATE:   blessed   — Nick 2026-08-13, on mini's round-10 audit: prove
-                        clean 50/50, freeze audited independently (DB
-                        poisoned, digests reproduced, frozen payloads
-                        sha256-matched to live, mutated lookup moved the
-                        digest). Evidence: _prove_20260813_*.txt,
-                        VS_NOTES rounds 8-10.
+    GATE:   blessed   — mini 2026-08-14, post CW-032 batch: the R31 DRIFT
+                        (ruled opening-PPE depreciation, Nick ratified)
+                        proven PURE leaf-by-leaf at BOTH boundaries before
+                        re-baselining (gate build: Q1 delta exactly 750 =
+                        15,000/20; solver checkpoint: exactly 1,000 =
+                        20,000/20; zero non-depreciation movers; date-anchor
+                        confound isolated with a pre/pre control). R31
+                        re-blessed at baseline 5716ba4; frozen-input +
+                        byte-floor goldens re-based; prove CLEAN 61 legs /
+                        0 DRIFT / 0 UNEARNED. Evidence:
+                        _mini_cw032_drift_purity_20260814.txt,
+                        _prove_20260814_mini_cw032_turn1.txt.
+                        Was: Nick 2026-08-13, on mini's round-10 audit
+                        (_prove_20260813_*.txt, VS_NOTES rounds 8-10).
     LIVE:   failing   — RETRACTED 2026-08-13 23:20 on CW-032 Alderfen:
                         the in-stage surface fails (3 artifact-backed
                         filings incl. 2 blockers). VS's conversation

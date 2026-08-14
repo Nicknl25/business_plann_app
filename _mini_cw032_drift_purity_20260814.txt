@@ -1,0 +1,329 @@
+CW-032 turn 1 (mini) - R31 DRIFT PURITY PROOF - 2026-08-14
+Instrument: Test Files/_mini_cw032_drift_purity.py
+OLD root: C:\dev\bpa_gate_baselines\9d2c41c (R31 baseline, pre-depreciation)
+NEW root: home repo @ a9335fd (post 7b26ff6 opening-PPE depreciation)
+
+DIGEST IDENTITY (both sides rebuilt through surface.single_line_payloads,
+frozen fixture 89e5a622 CareCompanions, ppe=15,000, anchor frozen):
+  OLD model_input 9650f148a32026aefade9a36aa48c585eebe5968497c6d1847aaf9a42d5cfc76  == R31 baseline
+  OLD finmo       c21a05c9d30bef1f408886f81596bc659914636bdc923f40fa84272017c8257e  == R31 baseline
+  NEW model_input 1d50e46ab8e653a21c85a9114d6ca49186ab750b3135b831ee60c663af0739ff  == DRIFT current
+  NEW finmo       24e38de4dc9879f8ff2e0400f90d271e5c8db6819944f59bde45a2226c841583  == DRIFT current
+  single_line_input 72dfcb81f6f3... IDENTICAL both sides (same frozen input)
+  => the diff below is over the exact bytes that drifted, not a reconstruction.
+
+LEAF DIFF TOTALS: model_input 3083 changed / 240 added / 0 removed (13849 -> 14089 leaves)
+=== finmo: 644 changed, 0 added, 0 removed (of 2824 old / 2824 new leaves) ===
+
+CHANGED FIELDS, AGGREGATED (indices stripped) - the COMPLETE set:
+    210 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+    210 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+    210 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.basis
+    209 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+    209 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+    209 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.placed_quarter
+    190 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    190 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    190 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    158 CHANGED balance_sheet.values
+    134 CHANGED cash_flow.values
+     40 CHANGED pl.values
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.modeled_depreciation
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.depreciation_percent
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.depreciation_dollars
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.closing_ppe
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_count
+     20 CHANGED sections.expenses.values
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.modeled_depreciation
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.depreciation_percent
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.depreciation_dollars
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.closing_ppe
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_count
+     20 CHANGED quarter_rows.total_liabilities_and_equity
+     20 CHANGED quarter_rows.total_equity
+     20 CHANGED quarter_rows.total_assets
+     20 CHANGED quarter_rows.retained_earnings
+     20 CHANGED quarter_rows.ppe_depreciation_expense
+     20 CHANGED quarter_rows.ppe
+     20 CHANGED quarter_rows.net_income
+     20 CHANGED quarter_rows.depreciation
+     20 CHANGED quarter_rows.accumulated_depreciation
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.modeled_depreciation
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.depreciation_percent
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.depreciation_dollars
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.closing_ppe
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_count
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.depreciation_percent_live_values
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.depreciation_amount_live_values
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.basis
+     19 CHANGED sections.schedules.rows.values
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.prior_ppe
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.maintenance_capex
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.final_capex_used
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.derived_capex
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.prior_ppe
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.maintenance_capex
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.final_capex_used
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.derived_capex
+     19 CHANGED quarter_rows.net_cash_flow
+     19 CHANGED quarter_rows.investing_cash_flow
+     19 CHANGED quarter_rows.ending_cash
+     19 CHANGED quarter_rows.current_assets
+     19 CHANGED quarter_rows.cash
+     19 CHANGED quarter_rows.capital_expenditures
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.prior_ppe
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.maintenance_capex
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.final_capex_used
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.derived_capex
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.capex_live_values
+     18 CHANGED quarter_rows.beginning_cash
+
+ROW-LABEL RESOLUTION of the index-carrying containers:
+
+finmo :: balance_sheet - 8 rows changed:
+  [0] 'Cash'
+  [3] 'Current Assets'
+  [4] 'PPE'
+  [5] 'Accumulated Depreciation'
+  [6] 'Total Assets'
+  [15] 'Retained Earnings'
+  [17] 'Total Equity'
+  [18] 'Total Liabilities & Equity'
+
+finmo :: cash_flow - 7 rows changed:
+  [0] 'Beginning Cash'
+  [1] 'Net Income'
+  [2] 'Depreciatoin'
+  [6] 'Capital Expenditures'
+  [7] 'Investing Cash Flow'
+  [13] 'Net Cash Flow'
+  [14] 'Ending Cash'
+
+finmo :: pl - 2 rows changed:
+  [10] 'Depreciation'
+  [12] 'Net Income'
+
+model_input :: sections.expenses - 1 rows changed:
+  [7] 'Depreciation'
+
+model_input :: sections.schedules.rows - 1 rows changed:
+  [2] 'Capital Expenditures'
+
+PL ROW IDENTITY (finmo, old vs new):
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/claude/C--dev-business-plann-app/701efdb0-8ad9-464a-90d4-5718db946d32/scratchpad/r31_old/finmo.json'
+
+ATTRIBUTION:
+  Q1 delta = +750.00 exactly = 15,000 opening PPE / 20 quarters (the ruled 5y straight-line).
+  Declining tail (749.53 -> 655.78) = maintenance-capex feedback: faster PPE depreciation
+  -> lower net PPE -> 5% maintenance capex smaller -> smaller new vintages -> less vintage
+  depreciation. All arithmetic descendants of the ruled schedule.
+  240 ADDED leaves = the opening-PPE vintage component: 20 quarter_logs x 4 fields x 3
+  mirrors (derived_driver_runtime / sections.expenses / sections.schedules).
+  Taxes 0.0 both sides (loss-making fixture) - no tax descendant exists to move.
+  EBITDA, Interest, Revenue, COGS, Gross Profit, Marketing, R&D, Lease, Payroll, G&A:
+  byte-identical. Zero REMOVED leaves. Zero changes outside the depreciation family.
+
+VERDICT: PURE. 100% of moved leaves trace to the ruled opening-PPE depreciation.
+
+======================================================================
+PART 2 - THE SOLVER BOUNDARY (the byte-floor's own surface), same rigour
+Draft 6feac7580c39 (Sunny_V3, opening PPE 20,000). Checkpoints compared:
+  PRE  dab4b977c384 2026-08-13 22:08 (VS round-12-era code, pre-depreciation)
+       digests 76336ce0fd5000b7 / c4292f8e1da1a5a4 == the recorded pre-batch canary pair
+  POST ac235a90e394 2026-08-14 11:38 (today's REBASE run, listener 33424 09:50:36
+       postdating every app edit, latest 09:50:15; ONE listener)
+       digests 97117892c9db4345 / e813c11851787c6c == the new blessed goldens
+
+CONFOUND FOUND AND ISOLATED: the live path stamps start_date from the RUN
+DATE. Cross-day pre/pre control (ddb61397 8/12 17:13 vs dab4b977 8/13 22:08):
+  === model_input: 22 changed, 0 added, 0 removed (of 32695 old / 32695 new leaves) ===
+  === finmo: 22 changed, 0 added, 0 removed (of 2824 old / 2824 new leaves) ===
+  changed leaves: periods[].date x42, start_date, quarter_rows.date - DATES
+  ONLY, zero numeric movement. Same-day determinism control: 8/12 16:58 vs
+  17:13 runs byte-identical (9549d3a950080b87 / d7cc76831a1b1caa, which ARE
+  the c77094a docstring goldens).
+
+PRE->POST aggregate (beyond the 44 date leaves, all movers):
+    210 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+    210 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+    210 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+    210 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.basis
+    209 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+    209 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+    209 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.placed_quarter
+    190 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    190 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    190 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+    190 CHANGED cash_flow.values
+    166 CHANGED balance_sheet.values
+     63 CHANGED pl.values
+     42 CHANGED periods.date
+     23 CHANGED sections.schedules.rows.values
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.modeled_depreciation
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.depreciation_percent
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.depreciation_dollars
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.closing_ppe
+     20 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_count
+     20 CHANGED sections.expenses.values
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.modeled_depreciation
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.depreciation_percent
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.depreciation_dollars
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.closing_ppe
+     20 CHANGED sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_count
+     20 CHANGED quarter_rows.total_liabilities_and_equity
+     20 CHANGED quarter_rows.total_equity
+     20 CHANGED quarter_rows.total_assets
+     20 CHANGED quarter_rows.taxes
+     20 CHANGED quarter_rows.retained_earnings
+     20 CHANGED quarter_rows.ppe_depreciation_expense
+     20 CHANGED quarter_rows.ppe
+     20 CHANGED quarter_rows.operating_cash_flow
+     20 CHANGED quarter_rows.net_income
+     20 CHANGED quarter_rows.net_cash_flow
+     20 CHANGED quarter_rows.ending_cash
+     20 CHANGED quarter_rows.depreciation
+     20 CHANGED quarter_rows.current_assets
+     20 CHANGED quarter_rows.cash
+     20 CHANGED quarter_rows.accumulated_depreciation
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.modeled_depreciation
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.depreciation_percent
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.depreciation_dollars
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.closing_ppe
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_count
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.depreciation_percent_live_values
+     20 CHANGED derived_driver_runtime.capex_depreciation_policy.depreciation_amount_live_values
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   sections.schedules.rows.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   sections.expenses.capex_depreciation.quarter_logs.active_capex_vintage_components.basis
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.remaining_quarters_before_current
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.quarterly_depreciation
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.placed_quarter
+     20 ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs.active_capex_vintage_components.basis
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.prior_ppe
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.maintenance_capex
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.final_capex_used
+     19 CHANGED sections.schedules.rows.capex_depreciation.quarter_logs.derived_capex
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.prior_ppe
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.maintenance_capex
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.final_capex_used
+     19 CHANGED sections.expenses.capex_depreciation.quarter_logs.derived_capex
+     19 CHANGED quarter_rows.investing_cash_flow
+     19 CHANGED quarter_rows.capital_expenditures
+     19 CHANGED quarter_rows.beginning_cash
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.prior_ppe
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.maintenance_capex
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.final_capex_used
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.quarter_logs.derived_capex
+     19 CHANGED derived_driver_runtime.capex_depreciation_policy.capex_live_values
+     16 CHANGED quarter_rows.financing_cash_flow
+     13 CHANGED sections.balance_sheet.values
+     13 CHANGED quarter_rows.owner_distributions
+     13 CHANGED quarter_rows.distributions
+      3 CHANGED quarter_rows.interest
+      3 CHANGED quarter_rows.debt_requested_repayment
+      3 CHANGED quarter_rows.debt_repayment
+      3 CHANGED quarter_rows.debt_receive_repay
+      3 CHANGED quarter_rows.debt_interest_expense_only
+      3 CHANGED quarter_rows.debt_interest_expense
+      3 CHANGED quarter_rows.debt_additions_repayments_net
+      2 CHANGED quarter_rows.total_liabilities
+      2 CHANGED quarter_rows.short_term_debt
+      2 CHANGED quarter_rows.debt_opening_balance
+      2 CHANGED quarter_rows.debt_closing_balance
+      2 CHANGED quarter_rows.current_liabilities
+      1 CHANGED start_date
+      1 CHANGED quarter_rows.debt_requested_issuance
+      1 CHANGED quarter_rows.debt_issuance
+      1 CHANGED quarter_rows.date
+
+ROW RESOLUTION + ARITHMETIC:
+
+finmo :: balance_sheet - 11 rows changed:
+  [0] 'Cash'
+  [3] 'Current Assets'
+  [4] 'PPE'
+  [5] 'Accumulated Depreciation'
+  [6] 'Total Assets'
+  [9] 'Short Term Debt'
+  [11] 'Current Liabilites'
+  [13] 'Total Liabilities'
+  [15] 'Retained Earnings'
+  [17] 'Total Equity'
+  [18] 'Total Liabilities & Equity'
+
+finmo :: cash_flow - 12 rows changed:
+  [0] 'Beginning Cash'
+  [1] 'Net Income'
+  [2] 'Depreciatoin'
+  [5] 'Operating Cash Flow'
+  [6] 'Capital Expenditures'
+  [7] 'Investing Cash Flow'
+  [8] 'Debt Issuance (New Borrowing)'
+  [9] 'Debt Repayment'
+  [11] 'Distributions'
+  [12] 'Financing Cash Flow'
+  [13] 'Net Cash Flow'
+  [14] 'Ending Cash'
+
+finmo :: pl - 4 rows changed:
+  [9] 'Interest'
+  [10] 'Depreciation'
+  [11] 'Taxes'
+  [12] 'Net Income'
+
+model_input :: sections.expenses - 1 rows changed:
+  [7] 'Depreciation'
+
+model_input :: sections.schedules.rows - 3 rows changed:
+  [0] 'Debt Issuance (New Borrowing)'
+  [1] 'Debt Repayment (Scheduled)'
+  [2] 'Capital Expenditures'
+  pl[0] 'Revenue' identical=True
+  pl[1] 'Cost of Goods Sold' identical=True
+  pl[2] 'Gross Profit' identical=True
+  pl[3] 'Marketing' identical=True
+  pl[4] 'Research & Development' identical=True
+  pl[5] 'Lease/Rent' identical=True
+  pl[6] 'Payroll' identical=True
+  pl[7] 'General & Administrative' identical=True
+  pl[8] 'EBITDA' identical=True
+  pl[9] 'Interest' identical=False
+  pl[10] 'Depreciation' identical=False
+  pl[11] 'Taxes' identical=False
+  pl[12] 'Net Income' identical=False
+  Depreciation delta/q: [0.0, 1000.0, 999.684407, 999.036901, 998.039709, 996.733272, 995.109911, 993.125051, 990.825891, 988.18333, 985.199413, 981.890407, 978.236886, 974.213434, 969.876748, 965.213099, 960.175212, 954.811565, 949.084652, 943.046966, 936.634066]
+  Q1 delta == 20000/20 == 1000.00: True
+
+ATTRIBUTION AT THIS BOUNDARY: the extra movers vs the gate boundary -
+Interest, Taxes, Operating Cash Flow, debt issuance/repayment/interest,
+Short Term Debt, Distributions, Financing Cash Flow - are the SOLVER's
+cash coupling: lower net income -> lower cash -> revolver sizing, interest,
+taxes and permitted distributions all move as arithmetic descendants.
+Revenue, COGS, Gross Profit, Marketing, R&D, Lease/Rent, Payroll, G&A,
+EBITDA: byte-identical. Zero ADDED/REMOVED outside the opening-PPE vintage.
+
+VERDICT (both boundaries): PURE. The DRIFT is the ratified depreciation
+ruling landing, and nothing else is hiding under it.

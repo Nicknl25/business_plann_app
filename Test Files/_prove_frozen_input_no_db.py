@@ -85,10 +85,18 @@ from replay_gate.surface import Surface  # noqa: E402
 
 # ROUND-7 GOLDENS (_prove_20260812_ws1ws2_prove7b_goldens.txt), the last
 # digests produced while the input was still a live query.
+# RE-BLESSED 2026-08-14: model_input + finmo moved when the ruled opening-PPE
+# 5y straight-line depreciation landed (7b26ff6, Nick ratified). Purity proven
+# leaf-by-leaf before re-baselining (_mini_cw032_drift_purity_20260814.txt):
+# every moved leaf traces to the depreciation schedule and its arithmetic
+# descendants. single_line_input and workbook_formulas did not move.
+# Pre-depreciation values, for the record:
+#   model_input 9650f148a32026aefade9a36aa48c585eebe5968497c6d1847aaf9a42d5cfc76
+#   finmo       c21a05c9d30bef1f408886f81596bc659914636bdc923f40fa84272017c8257e
 ROUND7 = {
     "single_line_input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
-    "model_input": "9650f148a32026aefade9a36aa48c585eebe5968497c6d1847aaf9a42d5cfc76",
-    "finmo": "c21a05c9d30bef1f408886f81596bc659914636bdc923f40fa84272017c8257e",
+    "model_input": "1d50e46ab8e653a21c85a9114d6ca49186ab750b3135b831ee60c663af0739ff",
+    "finmo": "24e38de4dc9879f8ff2e0400f90d271e5c8db6819944f59bde45a2226c841583",
     "workbook_formulas": "cbd764631e986196d6be8fab9940b029c3818f290a92a392f84da6d22a466cc0",
 }
 
