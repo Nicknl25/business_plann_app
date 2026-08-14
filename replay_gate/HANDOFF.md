@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1433,3 +1433,75 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw033:awaiting-mini-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-033 TURN 2 section;
+    python/client_intake_and_finmo/post_intake_headcount/
+    deterministic_revenue_proposer.py:204-212 (the stamp);
+    revenue_critique.py:78-98 (the hash the stamp cannot re-key);
+    intake_consult.py:17879-17906 (the naturalization enforcement);
+    intake_coherence/section.py:2648 (_safe_naturalize)
+  SUMMARY: Nick's revision is landed, all reading and rulings, zero app-code
+  edits (so no canary owed). (a) The forward-only law is recorded in
+  VS_NOTES; it also settles turn 1's LEFT-FOR-A-RULING - the CW-032 (#264)
+  and CW-017b doors STAY. (b) The anchor_reconcile stamp is INERT: written
+  after all driver math, read by no consumer (every reader takes named keys
+  only), and excluded from the critique lock hash - KEPT per the condition.
+  (c) The naturalization ruling IS landed (VS_NOTES ~1817) and enforced at
+  every prose layer; NO code path re-derives a number in prose; one residual
+  named not rebuilt (write-carrying acks see user_message as context -
+  instruction-bounded, works, pre-existing). A-116 stands adjudicated
+  ON-PATH on the app's own written contract, already fixed + pinned (#115
+  retested_clean, R02/R15 PROVEN). THE BOARD CONFIRMED: A-115's two
+  kind-misreads rank 1 (BOTH FIXED turn 1, live-proven L5/L6, awaiting your
+  artifact audit), A-112 receipt fidelity, A-106 retention probe, CW-023
+  owner-pay (needs a completed build), and owner_draw_ceiling now formally
+  ON the board. Discovery spec stands delivered (docs/STREAM_DISCOVERY_
+  SPEC.md, five open questions for Nick).
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: artifact-audit CW-033 turn 1 (the audit task Nick's revision
+  superseded - this restates it, merged with the revision). My pass lines
+  are not evidence. Mechanisms in VS_NOTES CW-033 TURN 1 + TURN 2.
+
+  1. A-115a ON THE REAL SHAPES. Rewind clones of Thornfield d9b17850 to
+     [75]-[78] with your own wordings ("one shared rate at 58 percent"
+     variants): NO unit_price write, NO retention_pending stamp, no
+     self-triggering recovery; the 58% lands only as the COGS collapse
+     group. Read rows, not replies. The retention stamp is read-back
+     gated now - try to make it stamp without a landed price write.
+  2. A-115b CAPEX. [89]'s "not recently, no" shape: capex stores 0, the
+     excluded $380k is captured NOWHERE (equipment base asked once, no
+     double-count), and "No wait, it was 380,000" still lands via the
+     lookahead. KNOWN EDGE handed forward: a negative-lead answer that
+     ALSO states a real purchase ("none of it this year - but we did
+     spend 15,000 on a mower") is forced to 0 by
+     _capex_answer_expresses_none. Confirm the reach and rule the
+     but-we-did carve-out fix shape (flagged in VS_NOTES, not built).
+  3. A-112 ACK CONTRADICTION - the one fix with NO live artifact. Drive
+     an ops-section multi-line capture whose router patch drops driver
+     fields and read the reply: the unapplied-fields note must be
+     re-validated against post-followup state (fields recorded in the
+     same reply must not be claimed unrecorded).
+  4. THE REDIRECT (A-113 retraction shape). Mid-interview ops-lever
+     correction: honest redirect leads, NOTHING written, no fabricated
+     receipt, ops forward-moves suppressed that turn. At the wall,
+     corrections still land (CW-026 machinery untouched). Attack the
+     single-row boundary: a single-row draft whose message names a
+     DIFFERENT product than the row - the applier lands it on the one
+     row (CW-026 worst-case-correctable-proposal); say if you rule
+     otherwise.
+  5. (b) INDEPENDENT CHECK, cheap: confirm the anchor_reconcile stamp
+     cannot re-key the critique lock (hash covers lines only) and no
+     reader consumes it - my evidence is VS_NOTES TURN 2.
+  6. REGISTRY HYGIENE, yours or Cowork's: the A-113-family rows
+     (capacity_correction_after_stage_close_never_lands x2,
+     ack_claims_a_capacity_write) still read open-blocker; they predate
+     the retraction and need the off-path/observation stamp.
+
+  NOT YOURS: the forward-only law means NO retrofit hunting - audit the
+  turn-1 fixes and the reachable path only. Discovery spec is Nick's to
+  answer (five questions in the doc). Green stops for Nick.

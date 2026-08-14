@@ -2845,3 +2845,87 @@ as an ordinary product row (zero new write paths, provenance
 origin=discovery_confirmed); a no is latched and never re-asked.
 Five open questions for Nick are in the doc (surface, knowledge-source
 ceiling, cap 2v3, pre-revenue exclusion, re-run latch).
+
+## CW-033 TURN 2 (VS, 2026-08-14): NICK'S REVISION LANDED - forward-only law recorded, stamp ruled inert, naturalization confirmed
+
+### THE FORWARD-ONLY LAW (design law, Nick 2026-08-14 - recorded per order)
+The guided-flow principle is a DESIGN LAW GOING FORWARD, not a mandate
+to re-audit existing code:
+- NEW and IN-PROGRESS work respects the boundary: off-path sequences
+  are prevented/redirected, never supported; honesty within any answer
+  the app solicits is ALWAYS in scope.
+- EXISTING working doors stay as they are. No hunting them down to
+  match the new paradigm. An unreachable state is not a bug; rewriting
+  working doors to enforce a boundary they are not violating is
+  retrofit for its own sake.
+- ONLY exception: a pre-existing door that mishandles a REACHABLE case
+  (wrong value on something a client can hit on the guided path) is a
+  real bug - fixed as a bug, never as consistency retrofit.
+- The A-113 machinery removed in turn 1 STAYS REMOVED (just-built, not
+  pre-existing).
+THIS SETTLES turn 1's "LEFT FOR A RULING" item: the CW-032
+market/people applier wiring (#264) and the CW-017b late
+focus==financials applier call are pre-existing, working, Nick-approved
+doors - they STAY. Nobody removes them under the guided-flow law.
+
+### (b) PROVENANCE STAMP RULED: INERT / ANNOTATION-ONLY -> KEPT
+Nick's condition: keep if inert, drop if it moves any value. VERDICT:
+INERT. The evidence trail, every reader checked:
+- WRITE: deterministic_revenue_proposer.py:204-212 - the stamp is
+  attached AFTER all driver math, only when factor != 1.0. The scaling
+  itself (line 155, anchor_scale) is unconditional and reads nothing
+  from the stamp.
+- READERS (repo-wide grep, app code): none consume it. evaluator.py:271
+  reads only drivers["lines_of_business"]; revenue_authoring.py
+  _extract_author_lines reads lines_of_business/quarters only and the
+  write path copies only per-quarter values into model_input revenue
+  rows; apply_bounded_revenue_critique (revenue_critique.py:426) dict-
+  copies and rewrites lines only - the stamp rides through untouched.
+- THE LOCK CANNOT RE-KEY: critique_input_hash (revenue_critique.py:78-98)
+  hashes {stable compact, proposal_LINES, qoq_max, factor bounds} - the
+  drivers dict (and so the stamp) never enters the hash, so response
+  locks keyed before the stamp are byte-identical after it.
+- Only other references: VS_NOTES, the CW-033 redproof (asserts stamp
+  presence/absence - annotation checks, not value checks).
+It records a designed mechanism (Nick ruled the reconcile is BY
+DESIGN); it moves nothing. KEPT.
+
+### (c) NATURALIZATION RULING CONFIRMED LANDED - and the question is CLOSED
+The design law (PROSE IS A VIEW OF THE RECEIPT, NEVER A COMPUTATION -
+corollary 3 of THE APP MUST NOT INVENT WHAT THE CLIENT IS THE AUTHORITY
+TO DECLARE) is at ~line 1817 of this file, ruled by Nick 2026-08-13.
+It does NOT resurface as an open question; the recurring "STILL NICK'S,
+UNCHANGED" line in HANDOFF history predates the ruling and is DEAD.
+Enforcement, verified in code this turn:
+- No-write turns ship the deterministic sentence VERBATIM
+  (intake_consult.py:17879-17885, CW-031 round 9) - the naturalizer
+  never sees a turn with no change to acknowledge.
+- _prose_acks_unwritten_figure guards both no-write ship gates; R36
+  pins "a transport figure never speaks"; R37 pins "a transport key is
+  consumed at its door, never stored".
+- Write-carrying acks source numbers ONLY from the receipt-derived
+  deterministic fallback (intake_consult.py:17890-17896); asks ride
+  AFTER naturalization, re-appended verbatim (17900-17906).
+- Coherence prose is STRUCTURALLY enforced: _safe_naturalize
+  (section.py:2648) verifies every dollar figure and the marker survive
+  verbatim, else the deterministic text stands.
+- _naturalize_year_one_text (intake_consult_draft.py:1789) is a
+  wording-only regex; no numbers.
+NO CODE PATH RE-DERIVES A NUMBER IN PROSE - nothing computes a figure
+for prose from any source but the frozen receipt. ONE RESIDUAL, named
+for the record, not rebuilt (forward-only law): on write-carrying turns
+naturalize_recovery also receives user_message as context
+(intake_consult.py:17895), so "receipt is the ONLY numeric source" is
+held there by instruction + deterministic fallback rather than by
+construction (unlike the coherence path's figure-survival check). Every
+live audited reply across rounds 7-9 was write-accurate. It is a
+pre-existing working door with no observed reachable mishandling - it
+stays; if a live run ever shows a naturalized ack diverging from its
+receipt, THAT is the reachable-case bug and the fix shape is the
+_safe_naturalize figure-survival guard applied to the ack path.
+
+### BOARD ADDITION (per Nick): owner_draw_ceiling orphan
+verdict:wall:owner_draw_ceiling_offered_is_the_whole_team_payroll_
+ceiling - OPEN/major in the registry - is now formally ON THE BOARD
+(rank below A-115/A-112/A-106, above hygiene). It was on nobody's list
+until turn 1 flagged it; Nick's revision adopts it.
