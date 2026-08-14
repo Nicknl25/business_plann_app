@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1452,3 +1452,96 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: cw033:a115-fixes-awaiting-artifact-audit
+  EVIDENCE: replay_gate/VS_NOTES.md CW-033 TURN 1 + PART 2 sections;
+    Test Files/_redproof_cw033_fixes.py; Test Files/_live_cw033_capacity_turns.py;
+    _redproof_cw033_prefix_20260814.txt (pre-fix RED, 16 checks);
+    _redproof_cw033_postfix_20260814.txt (GREEN); _live_cw033_20260814.txt;
+    _canary_cw033_sunnyv3_20260814.txt; _prove_20260814_vs_cw033.txt;
+    docs/STREAM_DISCOVERY_SPEC.md; commits 6911cb8, 123f532, b438b0b, f020a34
+  SUMMARY: NICK RE-SCOPED MID-TURN (HANDOFF_INBOX): A-113 is retracted under
+  the guided-flow law. I had already built the full post-stage capacity write
+  path and live-proven it; per the retraction it is REMOVED - the interview
+  region now detects an off-path ops-lever correction and leads with an
+  honest redirect (nothing changed, where the number is set), ops forward-
+  moves suppressed for that turn, and the reconcile epsilon is reverted
+  (reconcile-to-stated-revenue is design; the anchor_reconcile provenance
+  stamp stays). KEPT, per the honesty exception and TASK 3: A-115 both
+  halves are FIXED and LIVE-PROVEN on the real Thornfield turns - a COGS
+  rate never types as a unit price (rate is gone from the price rule, a
+  percent-shaped figure gets no forward move, restatements check EVERY row,
+  retention_pending cannot stamp without a landed price write) and the capex
+  explicit-no stores 0 with the excluded 380k a reference; the ack-
+  contradiction note now re-validates against post-followup state; the
+  forward move can never speak a receipt without a read-back write. The
+  first prove caught my own refusal discipline recreating the CW-026 freeze
+  on single-row and row-less drafts - fixed, R01/I01 back to PROVEN. A-116
+  ADJUDICATED ON-PATH citing the apps own corrections-admitted contract;
+  already fixed and pinned (#115, R02/R15). Board confirmed (VS_NOTES):
+  A-115 top, plus A-112/A-106/A-079/A-103, CW-023 owner-pay correctly
+  unverified-pending-build, one orphan flagged (owner_draw_ceiling), A-113-
+  family registry rows need the off-path stamp. Tier 3 spec delivered:
+  docs/STREAM_DISCOVERY_SPEC.md, five open questions for Nick. Final state:
+  full prove 61 legs / 54 behavioural / 5 structural-absence / 2 golden /
+  0 DRIFT / 0 UNEARNED / CLEAN; Sunny_V3 canary green after every app edit
+  (4 total), ONE listener verified each restart; live proof GREEN on the
+  post-retraction expectations (zero writes + redirect + no fabricated
+  receipt on L1-L4, A-115 honesty on L5-L6). Not green: mini has not
+  artifact-audited, which the re-scope keeps as the law.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  mini: artifact-audit the CW-033 honesty fixes and the retraction
+  compliance. My pass lines are not evidence; the live replies least of
+  all. Mechanisms and edges in VS_NOTES CW-033 TURN 1 + PART 2.
+
+  1. A-115(a), THE ONE THAT MATTERS. Drive your own COGS-rate wordings
+     (collapse, per-line restatement, the self-triggering recovery shape -
+     restating all four real prices after a bad echo) on Thornfield
+     clones and read rows: the COGS field written, NO unit_price write
+     anywhere, retention_pending ABSENT, and the reply never says
+     Recorded: unit price. My live L6 is the [75] verbatim; your wordings
+     are the check that counts.
+  2. A-115(b) adversarially. [89] verbatim stores capex 0 (L5). Attack
+     the negative-lead patterns: the known edge is a no-with-exclusion
+     that ALSO states a real purchase (No, none of it was bought this
+     year - but we did spend 15,000 on a mower in January) - my
+     _capex_answer_expresses_none would force 0 and reference the 15k.
+     Fix shape is a but-we-did carve-out; land it if you agree it is
+     yours to land (it is app code, so more likely: verify, and hand the
+     shape back to me with your wording set).
+  3. THE REDIRECT BOUNDARY (the retraction made this the law): mid-
+     interview ops-lever corrections -> ZERO writes anywhere + the
+     redirect leads + no fabricated receipt (L1-L4 shapes, your own
+     wordings); at the WALL (no active stage) corrections still LAND -
+     R01/I01 pin the Sumac shape. The boundary is active-stage-vs-none;
+     attack it: a turn that COMPLETES the last stage and corrects in the
+     same message, and a coherence-round turn (coherence_round_live
+     bypasses the interview region entirely).
+  4. A-112 NOTE FIX has no live artifact this turn: drive an ops-section
+     multi-line capture whose router patch drops driver fields and read
+     the reply - the note may no longer claim unrecorded fields the same
+     reply records. The mechanism is snapshot-diff at the merge point.
+  5. LEGS, your call: the receipt-speaks-read-back rule at the forward
+     move, and the redirect-vs-wall boundary, are both rot-prone laws in
+     the R33-R42 mold. The A-115 shapes are in my offline T7/T8.
+  6. HYGIENE: the A-113-family registry rows still read open-blocker
+     (capacity_correction_after_stage_close_never_lands, ack_claims_a_
+     capacity_write_that_did_not_happen) - they predate the retraction;
+     coordinate the off-path/observation stamp with Cowork's board.
+
+  FOR NICK, three open rulings surfaced (none block the audit):
+  (a) does the A-113 retraction extend to the PRE-EXISTING landing
+      machinery for the same off-path family - the CW-032 market/people
+      section applier (#264) and the CW-017b focus==financials applier?
+      I removed only what my turn built, per the retraction's own scope;
+      both older doors still land post-stage driver corrections today.
+  (b) the anchor_reconcile provenance stamp on the deterministic
+      proposer drivers: kept as visibility of a designed mechanism -
+      keep or drop.
+  (c) STILL OPEN, UNCHANGED: whether naturalization may touch a
+      deterministic receipt. Plus the five design questions in
+      docs/STREAM_DISCOVERY_SPEC.md when Nick reviews the spec.
