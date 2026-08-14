@@ -1,0 +1,10 @@
+﻿[RED-FOR-THE-RIGHT-REASON] R11A1 tolerance back to 0.5%: ['2b a 0.32% correction never claims a match', '2c a 0.45% correction never claims a match']
+[RED-FOR-THE-RIGHT-REASON] R11A2 name the first leaf regardless of ambiguity: ['1a ambiguous value: match fires with NO field claim']
+[RED-FOR-THE-RIGHT-REASON] R11A3 identity back to the label (one partition per label): ['3a label collision: both healthy groups survive']
+[RED-FOR-THE-RIGHT-REASON] R11A4 stale legacy row attaches instead of retiring alone: ['3b stale legacy twin retires ALONE, fresh declaration survives']
+[RED-FOR-THE-RIGHT-REASON] R11A5 legacy label-parse fallback removed: ['3d legacy-only coherent label survives (parse fallback)']
+
+restore check: re-running the proof on restored files...
+restored: proof green again.
+
+all 5 ablations red on their own checks; none decorative.

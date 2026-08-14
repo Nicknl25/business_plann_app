@@ -3165,32 +3165,52 @@ def _apply_per_line_cogs_patch_keys(
       if _lbl.startswith("shared:"):
         _by_label.setdefault(_lbl, []).append(entry)
     for _lbl, _carrying in _by_label.items():
-      # MEMBERSHIP IS DATA, NOT A LABEL PARSE (round 10, mini's O2 finding).
-      # The claimed membership is read from the stored member list; parsing
-      # it out of the label with split('+') broke on '+'-named products
-      # ('Design + Build' -> {'design ', ' build'}), retiring a group in the
-      # same call that declared it. The label parse survives ONLY as the
-      # fallback for legacy rows stamped before the member list existed
-      # (R39's cursor-stub rows among them). Rows carrying one label with
-      # DISAGREEING member lists are an incoherent claim and retire too.
-      _member_sets = []
+      # IDENTITY IS THE STORED MEMBER SET, NOT THE LABEL (round 10, mini's
+      # D3, completing the round-10 principle: membership became data, and
+      # now identity is too). Grouping the carrying rows by label string let
+      # two distinct groups whose '+'-joined labels collide read as ONE
+      # incoherent claim (retiring both healthy groups), and let one stale
+      # legacy row drag a fresh members-carrying declaration down with it.
+      # So: partition the carrying rows by stored member frozenset. A
+      # partition whose stored set exactly equals the names of the rows
+      # carrying it is a TRUE claim and survives; only failing claims
+      # retire. Label-only legacy rows (stamped before the member list
+      # existed - R39's cursor-stub rows among them) attach to the unique
+      # partition whose claim covers their name, fall back to the label
+      # parse when no listed partition exists under the label, and retire
+      # alone when neither holds (the renamed-after-grouping shape).
+      _parts: Dict[Any, List[Dict[str, Any]]] = {}
+      _stale: List[Dict[str, Any]] = []
       for e in _carrying:
         _m = e["row"].get("cogs_cost_structure_group_members")
         if isinstance(_m, list) and _m:
-          _member_sets.append(frozenset(str(t).strip().lower() for t in _m))
-      if _member_sets:
-        _claimed = set(_member_sets[0]) if len(set(_member_sets)) == 1 else None
-      else:
-        _claimed = {t for t in _lbl[len("shared:"):].split("+") if t}
-      _names = {str(e["product_name"] or e["line_name"]).strip().lower()
-                for e in _carrying}
-      if _claimed is None or _names != _claimed:
-        for entry in _carrying:
-          entry["row"].pop("cogs_cost_structure_group", None)
-          entry["row"].pop("cogs_cost_structure_group_basis", None)
-          entry["row"].pop("cogs_cost_structure_group_members", None)
-          receipt["ungrouped"].append(entry["line_name"])
-          receipt["wrote"] = True
+          _key = frozenset(str(t).strip().lower() for t in _m)
+          _parts.setdefault(_key, []).append(e)
+      for e in _carrying:
+        _m = e["row"].get("cogs_cost_structure_group_members")
+        if isinstance(_m, list) and _m:
+          continue
+        _nm = str(e["product_name"] or e["line_name"]).strip().lower()
+        _homes = [k for k in _parts if _nm in k]
+        if len(_homes) == 1:
+          _parts[_homes[0]].append(e)
+        elif not _parts:
+          _key = frozenset(t for t in _lbl[len("shared:"):].split("+") if t)
+          _parts.setdefault(_key, []).append(e)
+        else:
+          _stale.append(e)
+      _retire: List[Dict[str, Any]] = list(_stale)
+      for _key, _rows in _parts.items():
+        _names = {str(e["product_name"] or e["line_name"]).strip().lower()
+                  for e in _rows}
+        if _names != set(_key):
+          _retire.extend(_rows)
+      for entry in _retire:
+        entry["row"].pop("cogs_cost_structure_group", None)
+        entry["row"].pop("cogs_cost_structure_group_basis", None)
+        entry["row"].pop("cogs_cost_structure_group_members", None)
+        receipt["ungrouped"].append(entry["line_name"])
+        receipt["wrote"] = True
 
   # ONE RATE ON EVERY LINE IS A COLLAPSE -- BUT ONLY THE CLIENT CAN SAY SO.
   #
@@ -7125,7 +7145,7 @@ _MATCH_ON_FILE_FLOOR = 1000.0
 
 def _figures_all_on_file(
   state: Dict[str, Any], figures: List[float]
-) -> List[Tuple[str, float]]:
+) -> List[Tuple[Optional[str], float]]:
   """CW-031 round 10 (mini's B1): a no-write turn whose stated figures ALL
   sit on file already is a CONFIRMATION, not a failed change - "just to
   confirm, our annual revenue is 1,553,000" deserves "that matches what I
@@ -7134,7 +7154,17 @@ def _figures_all_on_file(
   Returns one (leaf_name, stored_value) match per stated figure when EVERY
   figure clears _MATCH_ON_FILE_FLOOR and matches a stored numeric leaf; []
   otherwise (any unmatched or small figure -> the caller keeps its honest
-  failed-change register, which is imperfect wording but never a claim)."""
+  failed-change register, which is imperfect wording but never a claim).
+
+  Round 10 (mini's D1/D2): leaf_name is None when the value sits under TWO
+  OR MORE distinct leaf names - naming any one of them would claim a field
+  the client may never have mentioned (Ravenwood's rent == interest, both
+  9,800: the client restated their INTEREST and was told about their RENT).
+  92.7% of real drafts carry such a collision, so ambiguity is the norm and
+  the caller speaks the bare value for it. And the tolerance is float dust
+  ONLY: 0.5% of 1.5M was +/-7,765, wide enough to speak a swallowed
+  near-miss CORRECTION as a confirmation and keep the client on the old
+  number."""
   if not figures or any(f < _MATCH_ON_FILE_FLOOR for f in figures):
     return []
   leaves: List[Tuple[str, float]] = []
@@ -7153,26 +7183,36 @@ def _figures_all_on_file(
         _walk(item)
 
   _walk(state)
-  matches: List[Tuple[str, float]] = []
+  matches: List[Tuple[Optional[str], float]] = []
   for f in figures:
-    found = None
+    found: List[Tuple[str, float]] = []
     for leaf, value in leaves:
-      if abs(f - value) <= max(0.5, 0.005 * abs(value)):
-        found = (leaf, value)
-        break
-    if found is None:
+      if abs(f - value) <= max(0.5, 1e-9 * abs(value)):
+        found.append((leaf, value))
+    if not found:
       return []
-    if found not in matches:
-      matches.append(found)
+    distinct_names = {leaf for leaf, _ in found}
+    item: Tuple[Optional[str], float] = (
+      found[0] if len(distinct_names) == 1 else (None, found[0][1]))
+    if item not in matches:
+      matches.append(item)
   return matches
 
 
-def _spoken_on_file_match(leaf: str, value: float) -> str:
+def _spoken_on_file_match(leaf: Optional[str], value: float) -> str:
   """One matched figure, spoken from the stored leaf: humanized field name
-  plus the stored value in the register the leaf's name implies."""
-  name = str(leaf).replace("_", " ").strip()
+  plus the stored value in the register the leaf's name implies.
+
+  leaf is None when the value matches under MULTIPLE distinct leaf names
+  (round 10, mini's D1): a match may name a field only when exactly one
+  distinct name matches, so the ambiguous case speaks the bare value with
+  no field claim. Always dollared - the floor is 1000 and the figures a
+  client restates at that size are money."""
   amount = f"{int(round(value)):,}" if abs(value - round(value)) < 0.005 \
     else f"{value:,.2f}"
+  if leaf is None:
+    return f"${amount} on file"
+  name = str(leaf).replace("_", " ").strip()
   if any(t in str(leaf).lower() for t in (
       "revenue", "cogs", "cost", "price", "pay", "rent", "expense", "salary",
       "wage", "cash", "funding", "loan", "budget", "draw", "debt", "capital",

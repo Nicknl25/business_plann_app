@@ -2217,3 +2217,75 @@ deterministic receipt. Nothing this round moves it - both new
 sentences (the match ack and the full separation list) are
 deterministic and ship verbatim on the no-write tail; write-carrying
 turns are still naturalized, still governed by the open ruling.
+
+
+## CW-031 ROUND 11 -- a match never lies about the field, identity is the member set
+(VS, 2026-08-13, headless turn. Evidence: Test Files/_redproof_cw031_round11_fixes.py
+(12 checks GREEN); Test Files/_redproof_cw031_round11_ablate.py -- 5 ablations,
+each red on its own checks, none decorative, restore proven
+(_redproof_cw031_round11_ablate_20260813.txt); mini's instruments re-run:
+_mini_cw031_r10_match_attack.py A-cases green under the new law (A1/A2
+re-pointed by VS, header says so), _mini_cw031_r10_retire_attack.py CLEAN --
+O1 both collided groups SURVIVE, O2 fresh survives / stale twin retires
+alone, O3/O4/O4b unchanged; _canary_cw031_round11_sunnyv3_20260813.txt;
+_prove_20260813_vs_round11.txt 58 legs 0 DRIFT 0 UNEARNED GREEN.)
+
+FIX 1 -- D1, A MATCH NEVER NAMES AN AMBIGUOUS FIELD. _figures_all_on_file
+now collects EVERY leaf whose value matches and names a field only when
+exactly ONE DISTINCT leaf name matches; two or more distinct names return
+leaf None and _spoken_on_file_match speaks the bare value with no field
+claim ('$9,800 on file' -- always dollared, the floor is 1000 and figures
+that size are money). Same name under multiple paths still names (the
+distinct-NAME rule, not a leaf count -- 1c). Ravenwood's rent==interest
+now gets 'That matches what I have - $9,800 on file.' KNOCK-ON, honest:
+mini's W5 wage confirmation loses its field name too -- annual_wage
+mirrors under year1_payroll_amount (mini's own W5b showed both), so the
+wage now speaks bare. That is the law working: the app cannot know which
+of two same-valued leaves the client meant, and naming either is a claim.
+
+FIX 2 -- D2, THE TOLERANCE IS FLOAT DUST ONLY. max(0.5, 0.005*|v|) ->
+max(0.5, 1e-9*|v|), exactly mini's constant. Exact restatements and
+1552999.999999999-style dust still match; 1,548,000 vs stored 1,553,000
+(0.32% off -- a CORRECTION) no longer claims a match and keeps the honest
+failed-change register. Only the match scan changed; the unrelated 0.5%
+in _prose_acks_unwritten_figure's echo detection is a different rule
+(catching the app CLAIMING a figure, where wide is safe) and untouched.
+
+FIX 3 -- D3, IDENTITY IS THE STORED MEMBER SET. The coherence pass no
+longer treats one label as one claim: carrying rows are PARTITIONED by
+stored member frozenset; a partition whose stored set exactly equals the
+names of the rows carrying it is a TRUE claim and survives; only failing
+claims retire. Label-only legacy rows attach to the unique partition
+whose claim covers their name (O3's agreeing-mixed survives), fall back
+to the label parse only when NO listed partition exists under the label
+(pure-legacy coherent groups survive, incoherent ones retire), and
+retire ALONE when unhomed (the renamed-after-grouping stale twin, O2).
+Mini's O1 collision -- 'A+B','C' vs 'A','B+C' on one label -- now yields
+two coherent partitions and BOTH survive; the O4b one-row-wearing-a-
+two-member-claim still retires. One deliberate judgment CHANGE at the
+legacy tier, flagged for mini: a legacy-only label whose carrying set
+includes one off-claim row used to retire the WHOLE label set; now the
+off-claim row retires alone and the coherent remainder survives --
+consistent with retire-only-failing-claims, but it is my reading, not
+mini's ruling.
+
+ABLATIONS (5, each red on its own checks): tolerance back to 0.5% ->
+2b/2c red; first-leaf naming restored -> 1a red; identity back to
+one-partition-per-label -> 3a red; stale row attaches instead of
+retiring alone -> 3b red; legacy parse fallback removed -> 3d red.
+
+CANARY (round 11's own, post-fix server): backend restarted via
+start_persona_backend.ps1 -- stale listener 34536 killed, PID 12544,
+ONE listener verified by the script's own fatal check, started
+20:38:40, postdating the last intake_consult.py edit. Sunny_V3
+system_run_complete, 471s, ZERO Traceback/ERROR lines in
+_logs_persona_20260813_203840.txt, workbook built, delivery record #6
+written and bound by draft_id; resolve_workbook_for_draft returns
+basis delivery record for the canary draft. Prove on final code: 58
+legs, 51 behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
+0 UNEARNED, GREEN -- R40 held through the D3 rewrite untouched.
+
+STILL NICK'S, UNCHANGED: whether naturalization may touch a
+deterministic receipt. Nothing this round moves it -- all three fixes
+are deterministic-sentence or state-coherence changes, which is
+exactly why they were fixable in code without the ruling.
