@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 2/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1505,3 +1505,123 @@ TASK:
   NOT YOURS: the forward-only law means NO retrofit hunting - audit the
   turn-1 fixes and the reachable path only. Discovery spec is Nick's to
   answer (five questions in the doc). Green stops for Nick.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: interview_ack:claims-suppressed-ops-write
+  EVIDENCE: _mini_cw033_t1_audit_20260814.txt (the full audit);
+    _mini_cw033_t1_live_20260814.txt / _live2 (live rounds 1-2);
+    _mini_cw033_t1_detect_20260814.txt (offline detector diagnosis);
+    _mini_cw033_registry_stamp_20260814.txt (item 6);
+    _prove_20260814_mini_cw033.txt (61 legs, 0 DRIFT, 0 UNEARNED, CLEAN);
+    Test Files/_mini_cw033_*.py (five probes);
+    replay_gate/MINI_NOTES.md round-16 section
+  SUMMARY: The turn-1 fixes HOLD where they were built: A-115a is clean on
+  my own wordings (58% lands only as the declared COGS group, no price/
+  capacity/util write, retention never stamped - read at its REAL home,
+  _coherence; VS's L6 checked a key that never exists), A-115b stores 0
+  with 380k nowhere and the lookahead lands the correction, the wall
+  landing works with both capacity twins agreeing, the single-row landing
+  is RATIFIED, the stamp is confirmed inert, and my own foreground prove
+  is CLEAN (61 legs, 0 DRIFT, 0 UNEARNED). Not green for three live
+  defects. M1: one reply carried the honest redirect PLUS "Got it -- I'll
+  update the hard goods checkout ticket price to 99" (nothing written),
+  two phantom unapplied-notes, and "Also recorded:" over three unwritten
+  figures - F1(b) is unenforced on the financials interview path, and it
+  is VS's turn-2 "residual" observed as reachable. M2: the redirect's
+  detector needs the word capacity/price/utilization while the lander
+  understands "7 jobs a week" - my wording LANDED install 7/7
+  mid-interview with a Recorded receipt and no redirect: the retracted
+  off-path landing survives through the back door. M3: at the wall, "40 a
+  week" on Sumac's contract-cadence row stored period=40 / wk=9.23 with
+  receipt "Recorded: capacity 40" - the stated cadence is discarded and
+  the client cannot see it. Also: the B3 capex edge is CONFIRMED live
+  (the mower's 15,000 dies into a forced 0) and reachable. A-112's note
+  re-validation is code-sound but still has NO live artifact - both my
+  rewind attempts produced unreachable states, documented. Registry:
+  #264 stamped off-path per the retraction; #132 KEPT OPEN deliberately
+  (honesty row - M1 is its class, live today).
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: four fixes. Reproductions, line numbers, and ruled fix shapes for
+  every one are in _mini_cw033_t1_audit_20260814.txt.
+
+  1. M1, THE ONE THAT MATTERS. No sentence of the financials INTERVIEW
+     reply may claim a write the turn did not make. My A4b turn (full
+     reply in _mini_cw033_t1_live2_20260814.txt) shipped, in ONE reply
+     with ZERO writes: the honest redirect, then "Got it -- I'll update
+     the hard goods checkout ticket price to 99", "(One note: I couldn't
+     apply your rent change...)" (rent never mentioned; the router
+     misread the bare 99), "(One note: I haven't recorded other
+     operating costs yet...)", and "Also recorded: cogs total year1
+     $745,353, current revenue $1,730,000, marketing percent of revenue
+     2%" - three on-file values spoken as newly recorded. This is the
+     receipt-without-a-write class on the path the round-8/9 gates never
+     covered, your own turn-2 residual now observed live, and #132's
+     class recurring as a price variant. Trace the emitting layers (the
+     ack half looks like router prose surviving; 3-5 are say-do notes +
+     disclosure composed from a misread patch) and put the F1(b) rule at
+     this ship gate: acks and "recorded" claims speak only from the
+     turn's receipt; on an ops-redirect turn the stage half must not
+     re-ack the suppressed figure. My A4b wording is the red shape.
+  2. M2, THE BACK DOOR. The redirect detector (_apply_cross_section_
+     driver_correction leaf probe, intake_consult.py:6858-6863) requires
+     the literal words capacity/price/utilization; the forward-move
+     lander understands "7 jobs a week", so my D1 wording landed install
+     7/7 MID-INTERVIEW with a "Recorded:" receipt and no redirect
+     (offline: triggered_leaf=None on my wording, triggers on your
+     verbatim [99]/[107]/[111]). RULED SHAPE: enforce at the WRITE door,
+     not the detector - the forward-move ops branch refuses/redirects
+     when a financials stage is active, and the wrapper's detect stays
+     only for the redirect copy. One authority; widening the regex just
+     re-splits the vocabulary and it drifts again.
+  3. M3, THE CADENCE MISREAD. At the wall, "capacity should be 40 a
+     week, not 34" on a unit_cadence='contract' row (periods 12) wrote
+     period=40 and derived wk=9.2308; receipt "Recorded: capacity 40."
+     The client said 40 A WEEK and the model now holds 9.23 a week.
+     RULED SHAPE: parse the stated cadence from the correction text;
+     matching cadence lands as today; differing cadence CONVERTS into
+     the canonical field (40/wk -> 173.3/period at periods=12) or asks
+     when ambiguous; the receipt always speaks the client's own cadence
+     ("capacity 40 a week"). Red shapes: my D3 (wrong number today) and
+     D2 as the weekly-row control (must stay 7/7).
+  4. THE CAPEX CARVE-OUT, now confirmed live (B3): "No, none of it was
+     bought this year - but we did spend 15,000 on a mower back in
+     January" stores 0 and the 15,000 dies. Reachable answer to the
+     solicited capex question -> fix-as-bug under the forward-only law.
+     Shape: in _capex_answer_expresses_none (:8347), a but-we-did
+     carve-out (`but we did|except|apart from|other than|aside from` +
+     figure) returns False, with the landing numeric scoped to the
+     post-carve-out clause so the EXCLUDED figure still cannot land.
+     Red-proof both halves in one message (15,000 lands, 380,000 does
+     not).
+
+  HOUSEKEEPING, yours: _live_cw033_capacity_turns.py L6 reads
+  fin.get("intake_coherence") - a key that never exists (the real home
+  is financials._coherence.retention_pending, section.py:104-111), so
+  its retention check is vacuously green. Re-point it. Also know your
+  rewind clones inherit the STALE retention frame the pre-fix run
+  stamped at [78] - strip it at clone time (my live2 make_clone shows
+  the hygiene) or retention checks false-fail.
+
+  A-112, still owed A LIVE ARTIFACT (not by synthetic rewind - both of
+  my attempts produced unreachable states, documented in the audit):
+  on the next real early-stage run (Cowork or persona), grep the
+  transcript for a reply opening "(One note: I haven't recorded" and
+  verify the named fields were NOT stored that turn. The mechanism is
+  code-sound; the class's live face this turn is M1.
+
+  Standing laws apply: restart the backend after app-code edits and
+  verify ONE :5050 listener, one Sunny_V3 canary before any batch,
+  red-proofs red for the right reason, never end a turn with a job
+  running.
+
+  NOT YOURS: the registry stamps are done (#264 resolved with the
+  retraction in the note; #132 stays open until M1 lands with artifact
+  evidence - do not re-stamp it). No gate legs changed this turn, on
+  purpose: pinning today's M1-M3 shapes would pin the wrong thing. After
+  your fixes land I will pin three legs: "a reply never acks an unlanded
+  ops figure", "mid-interview ops landings are impossible regardless of
+  wording", "a stated cadence is never silently re-based".
+

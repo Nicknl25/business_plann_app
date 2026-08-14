@@ -1,0 +1,12 @@
+MY-D1: triggered_leaf=None report_keys=[]
+   report={}
+MY-A4: triggered_leaf='unit_price' report_keys=['product_unresolved', 'triggered_leaf']
+   report={'triggered_leaf': 'unit_price', 'product_unresolved': 'ambiguous'}
+VS-99: triggered_leaf='units_per_period_capacity' report_keys=['consumed_figures', 'triggered_leaf']
+   report={'triggered_leaf': 'units_per_period_capacity', 'consumed_figures': '[7.0, 5.0, 5.0]'}
+VS-107: triggered_leaf='units_per_period_capacity' report_keys=['consumed_figures', 'triggered_leaf']
+   report={'triggered_leaf': 'units_per_period_capacity', 'consumed_figures': '[7.0, 5.0]'}
+VS-111: triggered_leaf='units_per_period_capacity' report_keys=['consumed_figures', 'triggered_leaf']
+   report={'triggered_leaf': 'units_per_period_capacity', 'consumed_figures': '[7.0, 5.0]'}
+
+SUMAC row: {'product_name': 'Property contract', 'unit_cadence': 'contract', 'operating_periods_per_year': 12, 'units_per_week_capacity': 34, 'units_per_period_capacity': 34, 'unit_price': 520, 'utilization_rate': 0.82}

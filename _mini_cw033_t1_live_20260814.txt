@@ -1,0 +1,123 @@
+========================================================================
+A: A-115a - the 58% shared-rate class, my own wordings at [75]
+========================================================================
+
+A1 < [200] Recorded: Plant and nursery sales / Plant and nursery sale at 58% of that line's revenue; Hard goods retail / Hard goods sale at 58% of that line's revenue; Plant and nursery sales / Plant and nursery sale and Hard goods retail / Hard goods sale sharing one direct-cost rate of 58%; Landscaping and i
+  [PASS] A1 live turn 200: 200
+  [PASS] A1 NO unit price changed on any row: {'Plant and nursery sale': 52, 'Hard goods sale': 95, 'Landscaping/installation job': 2400, 'Design/consultation project': 1250}
+  [FAIL] A1 NO capacity/util changed on any row
+  [FAIL] A1 retention_pending NOT stamped (real home: _coherence): None
+  [PASS] A1 reply has no retention ask (no self-trigger): Recorded: Plant and nursery sales / Plant and nursery sale at 58% of that line's revenue; Hard goods retail / Hard goods
+  [PASS] A1 reply never records a unit price
+  [PASS] A1 58% landed on BOTH named rows as cogs: {'Plant and nursery sale': 0.58, 'Hard goods sale': 0.58, 'Landscaping/installation job': 0.17, 'Design/consultation project': 0.03}
+  [PASS] A1 shared group stored with basis declared: shared:hard goods sale+plant and nursery sale
+  [PASS] A1 install/design rates untouched
+
+A2 < [200] Recorded: Plant and nursery sales / Plant and nursery sale at 58% of that line's revenue; Hard goods retail / Hard goods sale at 58% of that line's revenue; Plant and nursery sales / Plant and nursery sale and Hard goods retail / Hard goods sale sharing one direct-cost rate of 58%. What monthly rent
+  [PASS] A2 live turn 200: 200
+  [PASS] A2 NO unit price changed on any row: {'Plant and nursery sale': 52, 'Hard goods sale': 95, 'Landscaping/installation job': 2400, 'Design/consultation project': 1250}
+  [PASS] A2 NO capacity/util changed on any row
+  [FAIL] A2 retention_pending NOT stamped (real home: _coherence): {'prices': [{'product': 'Plant and nursery sale', 'to': 52.0}, {'product': 'Hard goods sale', 'to': 95.0}, {'product': 'Landscaping/installation job', 'to': 2400.0}, {'product': 'Design/consultation project', 'to': 1250.0}], 'retained_used': 1.0}
+  [PASS] A2 reply has no retention ask (no self-trigger): Recorded: Plant and nursery sales / Plant and nursery sale at 58% of that line's revenue; Hard goods retail / Hard goods
+  [PASS] A2 reply never records a unit price
+  [PASS] A2 58% landed on BOTH named rows as cogs: {'Plant and nursery sale': 0.58, 'Hard goods sale': 0.58, 'Landscaping/installation job': 0.17, 'Design/consultation project': 0.03}
+  [PASS] A2 shared group stored with basis declared: shared:hard goods sale+plant and nursery sale
+  [PASS] A2 install/design rates untouched
+
+A3 < [200] I wasn't able to apply that change yet. What monthly rent amount should I record?
+  [PASS] A3 live turn 200: 200
+  [PASS] A3 restated prices did NOT move any row: {'Plant and nursery sale': 52, 'Hard goods sale': 95, 'Landscaping/installation job': 2400, 'Design/consultation project': 1250}
+  [PASS] A3 NO retention stamp on a restatement: None
+  [PASS] A3 reply speaks no new price recording: I wasn't able to apply that change yet. What monthly rent amount should I record?
+
+A4 < [200] One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it — I’ll update the hard goods checkout ticket price to 99. Also recorded: current cogs $745,353, current revenue $1,730,000.
+
+What do you 
+  [PASS] A4 live turn 200: 200
+  [PASS] A4 price did NOT change (off-path is prevented): 95
+  [FAIL] A4 NO retention stamp without a landed price write: {'prices': [{'product': 'Plant and nursery sale', 'to': 52.0}, {'product': 'Hard goods sale', 'to': 95.0}, {'product': 'Landscaping/installation job', 'to': 2400.0}, {'product': 'Design/consultation project', 'to': 1250.0}], 'retained_used': 1.0}
+  [PASS] A4 redirect leads / no fabricated price receipt: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got 
+
+========================================================================
+B: A-115b - capex explicit-no at [89], my own wordings
+========================================================================
+
+B1 < [200] Got it - I'll use $0 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+  [PASS] B1 live turn 200: 200
+  [PASS] B1 current_capex stored as 0: 0.0
+  [PASS] B1 380,000 captured NOWHERE in financials: []
+  [PASS] B1 380,000 not smuggled into people either: []
+
+B2 < [200] Got it - I'll use $0 for initial assets already in the business. Also recorded: current capex $380,000.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+  [PASS] B2 live turn 200: 200
+  [PASS] B2 the lookahead lets the correction LAND (capex 380,000): 380000.0
+
+B3 < [200] Got it - I'll use $0 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+  [NOTE] B3 EDGE current_capex stored: 0.0
+  [NOTE] B3 EDGE where 15,000 landed in financials: []
+  [NOTE] B3 reply: Got it - I'll use $0 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+
+========================================================================
+C: A-112 - ops-section capture, plant row rewound to mid-capture
+========================================================================
+  [NOTE] C1 plant row before: {'wk': None, 'period': None, 'price': None, 'util': None, 'cogs': 0.58, 'group': 'shared:hard goods sale+plant and nursery sale', 'basis': 'declared'}
+
+C1 < [200] It looks like you mean monthly rent - I've set it to $340. If that's not right, tell me which line it belongs to and I'll move it.
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($1,730,000) is more than your operation can physically produce even flat-out - at your stated capacity and prices, 100% utilization tops out around $1,634,100 a year. Which is right -
+  [NOTE] C1 plant row after: {'wk': None, 'period': None, 'price': None, 'util': None, 'cogs': 0.58, 'group': 'shared:hard goods sale+plant and nursery sale', 'basis': 'declared'}
+  [PASS] C1 live turn 200: 200
+  [NOTE] C1 no unapplied-note in reply (nothing to contradict)
+  [FAIL] C1 the capture itself landed (price 52 / cap 340 on plant row): {'wk': None, 'period': None, 'price': None, 'util': None, 'cogs': 0.58, 'group': 'shared:hard goods sale+plant and nursery sale', 'basis': 'declared'}
+
+========================================================================
+D: A-113 redirect vs the wall, and the single-row boundary
+========================================================================
+
+D1 < [200] Recorded: Landscaping/installation job capacity 7. What other monthly debt-payment amount should I record?
+  [PASS] D1 live turn 200: 200
+  [FAIL] D1 NO ops write anywhere mid-interview: {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66, 'cogs': 0.17, 'group': None, 'basis': None}
+  [FAIL] D1 the honest redirect leads: Recorded: Landscaping/installation job capacity 7. What other monthly debt-payment amount should I record?
+  [PASS] D1 no fabricated receipt
+  [PASS] D2 wall clone: install still 5/5: {'wk': 5, 'period': 5, 'price': 2400, 'util': 0.66, 'cogs': 0.17, 'group': None, 'basis': None}
+
+D2 < [200] Recorded: Landscaping/installation job capacity 7.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of y
+  [PASS] D2 live turn 200: 200
+  [PASS] D2 the wall correction LANDS (week twin = 7): {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66, 'cogs': 0.17, 'group': None, 'basis': None}
+  [PASS] D2 no evaporation (period twin agrees = 7): {'wk': 7.0, 'period': 7.0, 'price': 2400, 'util': 0.66, 'cogs': 0.17, 'group': None, 'basis': None}
+  [PASS] D2 other rows byte-equal
+  [PASS] D2 reply speaks the landing (no silent write): Recorded: Landscaping/installation job capacity 7.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: y
+  [NOTE] D3 Sumac rows before: {'Property contract': {'wk': 34, 'period': 34, 'price': 520, 'util': 0.82, 'cogs': None, 'group': None, 'basis': None}}
+
+D3 < [200] Recorded: capacity 40.
+
+Thanks. I have everything I need for financials, and the intake is complete. One thing worth sitting with together before you lean on this: at the strongest realistic version of your business, the structure can work - a mature quarter at that stress point keeps about $30,158 
+  [NOTE] D3 Sumac rows after: {'Property contract': {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82, 'cogs': None, 'group': None, 'basis': None}}
+  [PASS] D3 live turn 200: 200
+  [FAIL] D3 wrote something unexpected: {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82, 'cogs': None, 'group': None, 'basis': None}
+
+RESULT: RED - 8 failing check(s):
+  - A1 NO capacity/util changed on any row
+  - A1 retention_pending NOT stamped (real home: _coherence)
+  - A2 retention_pending NOT stamped (real home: _coherence)
+  - A4 NO retention stamp without a landed price write
+  - C1 the capture itself landed (price 52 / cap 340 on plant row)
+  - D1 NO ops write anywhere mid-interview
+  - D1 the honest redirect leads
+  - D3 wrote something unexpected

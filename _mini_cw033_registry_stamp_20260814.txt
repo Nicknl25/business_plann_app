@@ -1,0 +1,7 @@
+matched 2 rows:
+  {"issue_id": "132", "signature": "experience:operations:ack_claims_a_capacity_write_that_did_not_happen", "category": "experience", "severity": "major", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "264", "signature": "hard_break:operations:capacity_correction_after_stage_close_never_lands", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+KEPT OPEN (honesty row, class recurred live): experience:operations:ack_claims_a_capacity_write_that_did_not_happen
+stamped hard_break:operations:capacity_correction_after_stage_close_never_lands: status=resolved basis=manual confidence=confirmed
+VERIFY: {"signature": "experience:operations:ack_claims_a_capacity_write_that_did_not_happen", "status": "open", "resolution_basis": "None", "resolution_confidence": "None"}
+VERIFY: {"signature": "hard_break:operations:capacity_correction_after_stage_close_never_lands", "status": "resolved", "resolution_basis": "manual", "resolution_confidence": "confirmed"}

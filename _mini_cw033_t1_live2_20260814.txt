@@ -1,0 +1,50 @@
+========================================================================
+A1b: the 58% collapse, clean baseline, full row diff
+========================================================================
+
+A1b < [200] Recorded: Plant and nursery sales / Plant and nursery sale at 58% of that line's revenue; Hard goods retail / Hard goods sale at 58% of that line's revenue; Plant and nursery sales / Plant and nursery sale and Hard goods retail / Hard goods sale sharing one direct-cost rate of 58%; Landscaping and installation services / Landscaping/installation job and Garden design and consultation / Design/cons
+  [PASS] A1b live turn 200: 200
+  [PASS] A1b NO price/capacity/util changed on any row
+  [PASS] A1b NO NEW retention stamp: None
+  [PASS] A1b 58% on both rows, basis declared
+
+========================================================================
+A4b: the price-change redirect - full reply + financials diff
+========================================================================
+
+A4b FULL REPLY < [200]
+One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it — I’ll update the hard goods checkout ticket price to 99. (One note: I couldn't apply your rent change - the figure above is what I have; correct me and I'll update it.) (One note: I haven't recorded other operating costs yet — we'll get to that in a moment.) Also recorded: cogs total year1 $745,353, current revenue $1,730,000, marketing percent of revenue 2%.
+
+What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?
+
+  [PASS] A4b live turn 200: 200
+  [PASS] A4b price did NOT change: 95
+  [PASS] A4b NO NEW retention stamp: None
+  [PASS] A4b redirect leads: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the mode
+  [FAIL] A4b reply does NOT ack the suppressed price change: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it — I’ll update the hard goods checkout ticket price to 99. (One note: I couldn't apply your rent change - the figure above is what I have; correct me and I'll update it.) (One note: I haven't recorded other operating costs yet — we'll get
+
+========================================================================
+C1b: [9] ops capture, financials EMPTY (reachable state)
+========================================================================
+  [NOTE] C1b plant row before: {'wk': None, 'period': None, 'price': None, 'util': None, 'cogs': 0.58, 'group': 'shared:hard goods sale+plant and nursery sale', 'basis': 'declared'}
+
+C1b FULL REPLY < [200]
+Understood. We’ll build from your current revenue picture and move into the rest of the financials. It looks like you mean rest-of-team payroll - I've set it to $340. If that's not right, tell me which line it belongs to and I'll move it.
+
+For marketing, a reasonable starting point is about 6% of revenue, which works out to around $64,574 a year.
+
+Does that broadly match what it will take to attract and convert customers, or should we adjust it because your marketing spend will be materially different?
+
+  [NOTE] C1b plant row after: {'wk': None, 'period': None, 'price': None, 'util': None, 'cogs': 0.58, 'group': 'shared:hard goods sale+plant and nursery sale', 'basis': 'declared'}
+  [NOTE] C1b financials keys now: ['baseline_payroll_year1', 'cogs_basis', 'cogs_percent_of_revenue', 'cogs_total_year1', 'current_cogs', 'current_payroll', 'current_revenue', 'owner_compensation', 'payroll_basis_people_roles', 'payroll_total_year1']
+  [PASS] C1b live turn 200: 200
+  [NOTE] C1b no unapplied-note in reply
+  [NOTE] C1b did the capture land?: price=None wk=None util=None
+  [PASS] C1b nothing wrote 340 into a financials field: {}
+
+RESULT: RED - 1 failing check(s):
+  - A4b reply does NOT ack the suppressed price change

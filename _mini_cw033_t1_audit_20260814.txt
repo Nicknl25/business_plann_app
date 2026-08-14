@@ -1,0 +1,256 @@
+================================================================================
+mini CW-033 TURN-1 ARTIFACT AUDIT - 2026-08-14
+Build audited: 6d38c54 (VS turn-1 fixes 6911cb8 + turn-2 rulings 33375b8)
+Backend: ONE :5050 listener, PID 8952, started 17:27:59 - postdates every
+app-code edit (git clean in python/, no .py newer than the listener).
+Probes: Test Files/_mini_cw033_peek.py, _mini_cw033_t1_audit_live.py,
+        _mini_cw033_t1_audit_live2.py, _mini_cw033_t1_detect_offline.py,
+        _mini_cw033_registry_stamp.py
+Raw outputs: _mini_cw033_t1_live_20260814.txt (round 1),
+        _mini_cw033_t1_live2_20260814.txt (round 2, clone-hygiene fixed),
+        _mini_cw033_t1_detect_20260814.txt, _mini_cw033_registry_stamp_20260814.txt
+Prove:  _prove_20260814_mini_cw033.txt - 61 legs, 54 behavioural,
+        5 structural-absence, 2 golden, 0 DRIFT, 0 UNEARNED, CLEAN.
+================================================================================
+
+VERDICT BY TASK ITEM
+  1 A-115a............ HOLDS (live, my own wordings, clean baselines)
+  2 A-115b capex...... HOLDS; the but-we-did edge CONFIRMED live; fix ruled
+  3 A-112............. mechanism verified in code; NO live artifact (two
+                       honest failed attempts, both unreachable states);
+                       the CLASS is alive on the interview path -> M1
+  4 A-113 redirect.... redirect works on keyword wordings; TWO real
+                       defects: M2 (detector narrower than lander),
+                       M3 (cadence-blind wall write); single-row RATIFIED
+  5 stamp inert....... CONFIRMED independently
+  6 registry hygiene.. #264 stamped off-path; #132 KEPT OPEN (adjudicated)
+
+--------------------------------------------------------------------------------
+ITEM 1 - A-115a, THE 58% CLASS (live rounds 1+2)
+--------------------------------------------------------------------------------
+Wordings of my own at a [75] clone (strip-from-rent):
+  A1 "...Put them on one shared cost rate of 58 percent..."
+  A2 "...use a single shared rate for both retail lines - call it 58
+      percent across plants and hard goods together."
+  A3 (the [77] shape) "no prices moved - still 52 / 95 / 2400 / 1250.
+      That 58 percent is only a cost rate."
+  A4 a genuine price CHANGE ("bump the hard goods ticket price to 99")
+ALL CLEAN on the rows: no unit_price write anywhere (52/95/2400/1250
+byte-equal), no capacity/util moved, 58% landed ONLY as
+cogs_percent_of_line_revenue=0.58 on the two named rows with
+cogs_cost_structure_group 'shared:hard goods sale+plant and nursery sale'
+basis=declared, install 0.17 / design 0.03 untouched. A3's restated 95
+did not land as a change (the every-row read fix works).
+
+RETENTION: read at its REAL home financials._coherence.retention_pending
+(section.py:104-111). No stamp on any of the four turns. The gate is
+structurally sound: the stamp (intake_consult.py:9776-9800) sits AFTER
+the read-back refusal return (:9753), so no unlanded price can reach it;
+A4's refused/redirected price change left no stamp - stamp-without-a-
+write is unreachable by construction on this path.
+
+TWO PROBE-BASELINE NOTES (not app defects):
+  - The SOURCE Thornfield draft's financials carry a STALE
+    retention_pending frame stamped by the original PRE-FIX run at [78].
+    Round-1 clones inherited it; every round-1 retention 'FAIL' was that
+    baseline, proven by round 2 going clean once the clone strips it.
+  - VS INSTRUMENT BUG, worth knowing: _live_cw033_capacity_turns.py L6
+    reads fin.get("intake_coherence") - a key that never exists; the real
+    home is fin["_coherence"]. VS's "retention_pending NOT stamped" check
+    was vacuously green. My probe re-proves the conclusion at the real key,
+    so the CONCLUSION stands; the instrument should be re-pointed.
+
+--------------------------------------------------------------------------------
+ITEM 2 - A-115b CAPEX (live)
+--------------------------------------------------------------------------------
+  B1 my wording of [89] -> current_capex 0.0; 380,000 present NOWHERE in
+     financials or people (full-tree numeric scan).
+  B2 "No wait, actually we did spend 380,000 on equipment this year."
+     -> the negative-lead lookahead admits it; current_capex 380,000.
+  B3 THE KNOWN EDGE, live: "No, none of it was bought this year - but we
+     did spend 15,000 on a mower back in January." -> capex forced to
+     0.0, the 15,000 lands NOWHERE, reply "Got it - I'll use $0". The
+     edge is REAL and REACHABLE (an ordinary answer to the solicited
+     capex question), so under the forward-only law's own exception it
+     is a fix-as-bug, not retrofit.
+RULED FIX SHAPE (for VS): in _capex_answer_expresses_none
+(intake_consult.py:8347), before the exclusion-pattern return, a
+but-we-did carve-out: `but we did|except|apart from|other than|aside
+from` followed by a figure -> return False, and the normalizer scopes
+the landing numeric to the post-carve-out clause so the EXCLUDED figure
+still cannot land. Red-proof BOTH halves in one message: "none of it
+this year, we've got about 380,000 sitting there - but we did spend
+15,000 on a mower" must store capex 15,000 and 380,000 nowhere.
+
+--------------------------------------------------------------------------------
+ITEM 3 - A-112 (the one fix with no live artifact)
+--------------------------------------------------------------------------------
+CODE-LEVEL: the re-validation exists and is sound - the dropped list +
+ops/fin snapshot stash at compose (intake_consult.py:18117-18123), the
+merge point re-walks every noted leaf against POST-followup state and
+drops recorded fields from the note, removing it entirely when empty
+(:18477-18508). Deterministic, snapshot-diff, right mechanism.
+
+LIVE: I could NOT produce an honest artifact. Two attempts to rewind an
+ops-section mid-capture clone (msg_cut=9, focus=ops, plant row nulled)
+both produced UNREACHABLE states: with the source draft's completed
+financials the forward move consumed my capacity figure cross-section
+("It looks like you mean monthly rent - I've set it to $340"); with
+financials emptied the section machinery treated ops as complete and
+handed off ("It looks like you mean rest-of-team payroll - I've set it
+to $340" - people_json was still the source draft's, i.e. future-state).
+Both misroutes are artifacts of future-state section data that cannot
+coexist with an ops capture on the guided path (ops is captured FIRST;
+market/people/financials are empty at the real [9]). I am NOT filing
+them as defects; I am filing the GAP: the A-112 note re-validation has
+still never fired live. It needs a real early-stage draft - the next
+Cowork/persona run's transcript is the artifact to check (any turn whose
+reply opens "(One note: I haven't recorded ...)" - grep the vitals).
+
+BUT THE CLASS IS ALIVE - see M1. A-112's essence (a reply claiming what
+the state does not hold) recurred live on the financials INTERVIEW path
+in my A4b turn, which the round-8/9 no-write gates never covered.
+
+--------------------------------------------------------------------------------
+ITEM 4 - A-113 REDIRECT (live + offline)
+--------------------------------------------------------------------------------
+D1-GOOD HALF (VS's proof re-confirmed by A4b): a correction-shaped
+ops-lever message that the detector catches gets the honest redirect
+LEADING the reply, zero writes, no fabricated receipt.
+D2 THE WALL: my wording ("the install crew can actually do 7 jobs a
+week, not 5") at the completed-financials wall LANDS install 7 with BOTH
+twins agreeing (wk 7.0 / period 7.0 - no evaporation), other rows
+byte-equal, receipt "Recorded: Landscaping/installation job capacity 7."
+CW-026 machinery intact.
+
+M2 - THE DETECTOR IS NARROWER THAN THE LANDER (real defect, live).
+The SAME wording at msg_cut=99 MID-INTERVIEW (other-debt stage active)
+LANDED (wk 5->7, period 5->7) with receipt "Recorded: ... capacity 7"
+and NO redirect. Offline diagnosis (_mini_cw033_t1_detect_20260814.txt):
+_apply_cross_section_driver_correction returns triggered_leaf=None for
+my wording - the leaf probe (intake_consult.py:6858-6863) requires the
+literal keywords capacity/price/utilization, and "7 jobs a week" has
+none of them - while VS's verbatim [99]/[107]/[111] (all containing
+"capacity") trigger. The forward-move lander's figure rules DO
+understand "7 jobs a week". So any client who states a capacity change
+without the word "capacity" bypasses the redirect and the off-path
+landing Nick retracted is SUPPORTED again through the back door.
+RULED FIX SHAPE: do not widen the detect regex (two vocabularies, same
+drift next year). Enforce at the ONE door the write happens: the
+forward-move ops branch refuses/redirects when a financials stage is
+active - the wrapper's detect can stay for the redirect COPY, but the
+boundary decision must live where the write is (one authority, the
+campaign's own law).
+
+M3 - THE WALL WRITE IS CADENCE-BLIND (real defect, live, wrong number).
+Sumac (one row, unit_cadence='contract', operating_periods_per_year=12,
+stored wk=34/period=34): "Our mowing route capacity should be 40 a
+week, not 34." -> _capacity_canonical_field wrote period=40, derive
+recomputed wk=9.2308, receipt "Recorded: capacity 40." The client said
+40 A WEEK and the stored model now says 9.23 a week; the receipt speaks
+40 with no cadence, so the client cannot even see the misread. The
+stated cadence in the message ("a week") is discarded in favour of row
+cadence. Reachable at the wall on ANY non-weekly row. Also note the
+pre-state twins were already incoherent (34/34 on a monthly-ish row -
+legacy capture) and the landing silently rewrote wk 34->9.23, a value
+the client never touched.
+RULED FIX SHAPE: parse the stated cadence from the correction text; if
+it matches the row's canonical cadence, land as today; if it differs,
+CONVERT into the canonical field (40/week -> 40*52/12=173.3/period for
+periods=12) or ask when conversion is ambiguous; the receipt must speak
+the cadence the client used ("capacity 40 a week"). Red shapes: my D3
+(wrong number today) + a weekly-row control (D2, must stay unchanged).
+
+SINGLE-ROW BOUNDARY - RATIFIED. On the one-row Sumac draft the message
+named a product the model does not have ("mowing route") and the applier
+landed it on the only row with the receipt spoken. That is the CW-026
+worst-case-correctable-proposal contract and I ratify it: with one row
+there is nothing to disambiguate, refusal would re-create the R01/I01
+freeze, and the spoken receipt is the client's correction lever. (Note
+D3's receipt spoke a wrong-cadence number - that is M3, not a boundary
+problem.)
+
+--------------------------------------------------------------------------------
+M1 - THE INTERVIEW REPLY ACKS WRITES THAT DID NOT HAPPEN (real defect,
+     live, the A-112/#132 class on the path the fixes never covered)
+--------------------------------------------------------------------------------
+A4b, one turn, clean clone, FULL reply in _mini_cw033_t1_live2_20260814.txt.
+Client: "One more thing - bump the hard goods ticket price to 99 instead
+of 95." (rent stage pending). ZERO writes this turn: price still 95,
+no financials leaf changed (full diff empty), no retention stamp. The
+reply, in order:
+  1. The honest redirect (correct): "I haven't changed any operations
+     price from here..."
+  2. "Got it -- I'll update the hard goods checkout ticket price to 99."
+     - an ack of the SUPPRESSED change, contradicting sentence 1, price
+     stored nowhere.
+  3. "(One note: I couldn't apply your rent change - the figure above is
+     what I have...)" - the client never mentioned rent; there is no
+     figure above.
+  4. "(One note: I haven't recorded other operating costs yet...)" -
+     never mentioned either.
+  5. "Also recorded: cogs total year1 $745,353, current revenue
+     $1,730,000, marketing percent of revenue 2%." - three on-file
+     values spoken as if newly recorded; none was written this turn.
+One reply: one honest sentence, one fabricated ack, two phantom notes,
+three false "recorded" claims. Every number is write-free. This is
+F1(b) ("NO REPLY MAY CLAIM RECEIPT OF A FIGURE NO RECEIPT CARRIES")
+unenforced on the financials INTERVIEW path - the round-8/9
+_prose_acks_unwritten_figure gates guard the section-consult ship gates,
+not this one. It is also the "one residual" VS's turn-2 note named
+(write-context naturalization held by instruction, not construction) now
+OBSERVED as a reachable mishandling, which by VS's own sentence is the
+reachable-case bug: "the fix shape is the _safe_naturalize
+figure-survival guard applied to the ack path." Sentences 3-5 are
+upstream of naturalization (say-do note + disclosure composed from a
+router patch that misread the bare 99 as rent) - VS to trace the exact
+emitting layers; the artifact stands regardless of layer.
+
+--------------------------------------------------------------------------------
+ITEM 5 - THE anchor_reconcile STAMP (independent, static)
+--------------------------------------------------------------------------------
+CONFIRMED INERT. Writer: deterministic_revenue_proposer.py:204-212,
+attached after all driver math, only when factor != 1.0; the scaling
+(:155) reads nothing back. The critique lock CANNOT re-key: hash input
+is drivers["lines_of_business"] ONLY (revenue_critique.py:452 -> :460;
+critique_input_hash :78-99 hashes {stable compact, proposal LINES,
+qoq_max, factor bounds}) and the stamp lives at drivers top level.
+apply_bounded_revenue_critique (:426-428) dict-copies and replaces only
+lines_of_business - the stamp rides through unread. Repo-wide grep: the
+only references are the writer, notes/HANDOFF, the redproof's
+presence/absence asserts, and an email script. Zero consumers. KEEP
+stands per Nick's condition.
+
+--------------------------------------------------------------------------------
+ITEM 6 - REGISTRY HYGIENE (adjudicated, applied)
+--------------------------------------------------------------------------------
+Two open rows matched the A-113 family (the "blocker x2" in VS's notes
+is two OCCURRENCES of one signature):
+  #264 hard_break:operations:capacity_correction_after_stage_close_
+       never_lands (blocker, hard) -> STAMPED: resolved / basis=manual /
+       confidence=confirmed via issue_registry.resolve_manually, note
+       carrying Nick's retraction + the live redirect artifacts. "Never
+       lands" IS the design now; the artifact (redirect + zero writes)
+       was read and held.
+  #132 experience:operations:ack_claims_a_capacity_write_that_did_not_
+       happen (major, soft) -> KEPT OPEN, deliberately. It is an HONESTY
+       row, and honesty within solicited answers is always in scope
+       under the guided-flow law. My A4b artifact shows the class LIVE
+       today as a price variant on the interview path (M1). Stamping it
+       off-path would be a false confirmation inside the very gate this
+       campaign built. It closes when M1's fix lands with artifact
+       evidence.
+
+--------------------------------------------------------------------------------
+GATE STATE
+--------------------------------------------------------------------------------
+Full prove re-run by me on HEAD 6d38c54, FOREGROUND, read this turn:
+61 legs - 54 behavioural, 5 structural-absence (declared), 2 golden,
+0 DRIFT, 0 UNEARNED, 0 other failures. CLEAN and it matches VS's
+_prove_20260814_vs_cw033.txt. No legs added this turn: M1-M3 change
+behaviour VS is about to fix; pinning today's shapes would pin the wrong
+thing (the round-8 lesson). I will pin after the fixes land:
+"a reply never acks an unlanded ops figure" (M1), "mid-interview ops
+landings are impossible regardless of wording" (M2), "a stated cadence
+is never silently re-based" (M3).
+================================================================================

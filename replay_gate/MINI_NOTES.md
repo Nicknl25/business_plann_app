@@ -6,6 +6,65 @@ mini reads VS_NOTES.md.
 
 ---
 
+## Round 16 (CW-033 turn 2, mini) - turn-1 fixes audited; A-115a/b HOLD; three live defects (M1 ack-invention on the interview path, M2 detector-narrower-than-lander, M3 cadence-blind wall write)
+
+Full report: `_mini_cw033_t1_audit_20260814.txt`. Probes:
+`Test Files/_mini_cw033_{peek,t1_audit_live,t1_audit_live2,t1_detect_offline,registry_stamp}.py`;
+raw: `_mini_cw033_t1_live_20260814.txt`, `_mini_cw033_t1_live2_20260814.txt`,
+`_mini_cw033_t1_detect_20260814.txt`, `_mini_cw033_registry_stamp_20260814.txt`.
+Prove re-run in the foreground: `_prove_20260814_mini_cw033.txt` - 61 legs,
+0 DRIFT, 0 UNEARNED, CLEAN (matches VS's).
+
+- **A-115a HOLDS** on my own wordings (two collapse phrasings + the [77]
+  restatement + a price-change attack): rates land only as the declared
+  COGS group, prices/capacities byte-equal, retention read at its REAL
+  home (`financials._coherence.retention_pending`) never stamped. The
+  stamp is read-back gated BY POSITION (after the refusal return), so
+  stamp-without-a-write is unreachable on this path.
+- **Two probe-baseline traps documented for future rewind clones**: the
+  source Thornfield draft carries a STALE retention frame from the
+  pre-fix run at [78] (strip it at clone time or every retention check
+  false-fails), and VS's L6 instrument reads `fin["intake_coherence"]` -
+  a key that never exists; the real key is `_coherence`. VS's retention
+  check was vacuous; conclusion re-proven at the real key by me.
+- **A-115b HOLDS** (0 stored, 380k nowhere, lookahead correction lands);
+  the but-we-did edge is CONFIRMED LIVE (the mower's 15,000 dies into a
+  forced 0) and is reachable -> fix-as-bug ruled, carve-out shape in the
+  report.
+- **A-112**: mechanism verified in code (:18477-18508, sound); NO live
+  artifact - both my rewind attempts produced unreachable states
+  (future-state section data + ops capture cannot coexist on the guided
+  path). The gap stands honestly; the next real early-stage run is the
+  artifact. But the CLASS is alive: see M1.
+- **M1 (the finding of the turn)**: on a clean [75] clone, a suppressed
+  price change produced ONE reply containing the honest redirect, then
+  "Got it -- I'll update the hard goods checkout ticket price to 99"
+  (nothing written), two phantom unapplied-notes (rent/opex never
+  mentioned), and "Also recorded:" over three on-file figures - zero
+  writes in the whole turn. F1(b) is unenforced on the financials
+  INTERVIEW path; this is VS's own named residual observed as reachable,
+  and #132's class recurring as a price variant.
+- **M2**: the redirect's leaf probe (:6858-6863) needs the literal words
+  capacity/price/utilization; the forward-move lander understands "7
+  jobs a week". My wording landed install 7/7 MID-INTERVIEW with a
+  "Recorded:" receipt and no redirect (offline: triggered_leaf=None;
+  VS's verbatim [99]/[107]/[111] all trigger). Fix at the write door
+  (ops branch refuses when a stage is active), not by widening the
+  regex - one authority.
+- **M3**: at the wall, "40 a week" on Sumac's contract-cadence row wrote
+  period=40 and derived wk=9.23 - receipt "Recorded: capacity 40". The
+  stated cadence is discarded; wrong number, invisible to the client.
+  Single-row landing itself RATIFIED (CW-026 worst-case-correctable).
+- **Item 5**: anchor_reconcile stamp CONFIRMED inert independently (hash
+  input is lines only; zero consumers repo-wide). **Item 6**: #264
+  stamped resolved/manual with Nick's retraction in the note; #132 KEPT
+  OPEN deliberately - honesty row, M1 is its class live today.
+- **No legs pinned this turn on purpose** (the round-8 lesson: M1-M3
+  change the behaviour VS is about to fix). Owed after the fixes: the
+  three legs named at the end of the report.
+
+---
+
 ## Round 15 (CW-032 turn 1, mini) - R31 drift proven PURE at both boundaries; re-blessed
 
 Nick ratified the R31 move (ruled opening-PPE 5y straight-line, 7b26ff6);
