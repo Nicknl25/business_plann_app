@@ -44,6 +44,21 @@ provably can't reach the system doesn't re-earn it every turn. This
 is not lower standards — it is matching the check to the blast
 radius. Mirror this law into VS_NOTES design laws once (idempotent —
 skip if already recorded).
+
+CONTEXT SCOPING LAW (Nick, 2026-08-14, STANDING): scope what you LOAD
+the same way verification is scoped to the fix. A fresh session loads
+ENOUGH to do its task correctly — not the whole world. Each turn
+loads: (1) the task (HANDOFF), (2) the standing design laws — the
+short list (client-authority/parent law, guided-flow forward-only,
+receipt law, naturalization, verification-scoping, this law) — read
+the laws section of VS_NOTES, NOT all of VS_NOTES, (3) ONLY the
+files/code the task touches: the router for a router fix, the receipt
+composer for a receipt fix. Do NOT reload the full codebase, the full
+campaign history, the per-line-COGS saga, or legs you aren't
+touching. Full-context load is EARNED only when the task genuinely
+spans the system (engine change, cross-cutting refactor) — rare. Most
+turns are localized; most turns load light. Mirror into VS_NOTES
+design laws once (idempotent).
 5. When done: append a RESULT block to replay_gate/HANDOFF.md:
      RESULT:
        AGENT: VS

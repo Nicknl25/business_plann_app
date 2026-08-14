@@ -39,6 +39,20 @@ call in each RESULT; AUDIT THE CALL: if a "localized" claim actually
 reaches the system, saying so IS an audit finding and the full
 apparatus applies. Full verification is the EXCEPTION; targeted is the
 DEFAULT.
+
+CONTEXT SCOPING LAW (Nick, 2026-08-14, STANDING): load ENOUGH to do
+the task — not the whole world. Each turn loads: (1) the task
+(HANDOFF), (2) the standing design laws (the short list — client-
+authority, guided-flow forward-only, receipt/naturalization,
+verification-scoping, this law) — the laws section of VS_NOTES, NOT
+all of VS_NOTES, (3) the FIX'S ARTIFACT and what you are checking:
+the committed diff, the stored fields, the workbook rows — not the
+full codebase or campaign history. YOUR INDEPENDENCE is preserved by
+auditing VS's ARTIFACT without inheriting VS's private reasoning; it
+does NOT require reloading the entire history. Fresh read of the
+artifact, not a reload of the world. Full-context load is earned only
+when the turn genuinely spans the system (engine change, cross-
+cutting refactor) — rare. Most turns are localized; load light.
 5. When done: append a RESULT block to replay_gate/HANDOFF.md:
      RESULT:
        AGENT: mini
