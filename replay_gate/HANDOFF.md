@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1046,3 +1046,78 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: match_on_file:first-matching-leaf-names-wrong-field
+  EVIDENCE: _mini_cw031_r10_audit_20260813.txt (the full round-10 audit);
+    _prove_20260813_mini_round10.txt (58 legs, R40 PROVEN, 0 DRIFT,
+    0 UNEARNED, GREEN); _mini_cw031_r10_live_20260813.txt (W1-W5);
+    replay_gate/MINI_NOTES.md round-12 section
+  SUMMARY: Turn 13 is finished: the prove that died with the previous
+  session was re-run IN THE FOREGROUND and read this turn. Table CLEAN:
+  58 legs, 51 behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
+  0 UNEARNED, gate GREEN. R40 membership-is-data is PROVEN BEHAVIOURAL --
+  red at 5dcbca4 citing exactly its two reasons (the '+'-named group died
+  in its own declaring call via the split('+') trap; members=None), with
+  the agreeing-mixed positive control still green there, green at HEAD.
+  Round 10's fixes are real and held live ('Hard goods + Sundries'
+  declared through the real router, members read back off the rows).
+  Not green because the AUDIT is not clean: D1 LIVE -- the match-on-file
+  sentence names the FIRST leaf whose value matches, so a client who
+  restated their annual interest payment (9,800) was told "monthly rent
+  expense is $9,800" (census: 92.7% of 4,674 real drafts carry one value
+  under 2+ leaf names -- the collision is the norm, not the edge). D2
+  latent -- the 0.5% tolerance can speak a swallowed near-miss CORRECTION
+  as a match. D3 structural, low reach -- the retire's grouping key is
+  still the label string, so a label collision or a stale legacy row
+  kills a fresh declaration in its own call.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS: three fixes, all with reproductions, line-level mechanisms, censuses
+  and fix shapes in _mini_cw031_r10_audit_20260813.txt.
+
+  1. D1, THE LIVE ONE. A match may name a field ONLY when exactly one
+     DISTINCT leaf name matches the stated value. Multiple distinct names
+     -> speak the value with no field claim: "That matches a figure I have
+     on file - $9,800." Exactly one (the common case) -> name it as today.
+     Deterministic, no NLP, no router change; do not fix it by consulting
+     the client's words. Ravenwood's own rent==interest is the live case;
+     _mini_cw031_r10_match_attack.py A-cases are the checks.
+
+  2. D2, ONE CONSTANT. The match tolerance max(0.5, 0.005*|v|) is doing
+     unowed work: 1,548,000 "matches" a stored 1,553,000, so a swallowed
+     near-miss correction gets "that matches what I have" and the client
+     keeps the old number. The only legitimate need is float dust --
+     make it max(0.5, 1e-9*|v|). Nothing legitimate needs 0.5%.
+
+  3. D3, COMPLETE YOUR OWN PRINCIPLE: membership became data, identity
+     did not. The coherence pass still groups carrying rows BY LABEL
+     STRING, so (a) 'A+B','C' vs 'A','B+C' collide on 'shared:a+b+c' and
+     declaring the second retires ALL FOUR rows including the group being
+     declared in that call, and (b) a stale label-only legacy row kills a
+     fresh members-carrying declaration. Partition by stored member
+     frozenset: a partition whose stored set equals the names of the rows
+     carrying it is coherent and survives; retire only failing claims.
+     Re-run Test Files/_mini_cw031_r10_retire_attack.py: O1 and O2 must
+     go clean, O3/O4/O4b must stay clean.
+
+  Standing laws apply: restart the backend after app-code edits and verify
+  ONE :5050 listener, one Sunny_V3 canary before any batch, red-proofs red
+  for the right reason, never end a turn with a job running.
+
+  NOT YOURS: R40 is in the gate and proven; the prove file is
+  _prove_20260813_mini_round10.txt. I did NOT pin the match-on-file
+  sentence -- pinning today's shape would pin D1/D2 (the round-8 lesson).
+  Land fixes 1-2 and I will pin R41 next turn: "a match never names an
+  ambiguous field, a near-miss never claims a match" -- the shape is
+  ready in my probes. After fix 3 I will extend the retire coverage the
+  same way. Housekeeping already done: _mini_cw031_r9_coherence_attack.py
+  is the round-9 record, not an instrument; my round-10 probes are
+  Test Files/_mini_cw031_r10_{match_attack,retire_attack,live,peek}.py.
+
+  STILL NICK'S, UNCHANGED: whether naturalization may touch a
+  deterministic receipt. Nothing this turn moves it; D1/D2 are
+  deterministic-sentence defects, which is exactly why they are fixable
+  in code without the ruling.
