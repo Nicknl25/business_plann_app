@@ -119,10 +119,25 @@ def git_fetch_with_retries(branch: str, attempts: int = 3) -> bool:
     return False
 
 
-def git_sync(branch: str) -> str:
-    """fetch; ff-only reconcile. Returns '' if ok else a fault reason."""
-    if not git_fetch_with_retries(branch):
-        return "fetch-failed-after-retries"
+_LAST_FETCH_TS = 0.0
+
+
+def git_sync(branch: str, *, fetch_interval: float = 0.0) -> str:
+    """fetch; ff-only reconcile. Returns '' if ok else a fault reason.
+
+    POLL-GAP RULE (Nick): the only idle is an agent genuinely working.
+    The poll now runs every ~10s, but fetching origin that often is
+    pointless — agents commit LOCALLY on this machine, and `git push`
+    updates the remote-tracking ref, so HEAD==origin/branch is correct
+    without a fetch for the whole local flow. The fetch exists to see
+    REMOTE changes (a pause pushed from Nick's phone), and 60s is fine
+    for that. fetch_interval > 0 skips the fetch when the last one is
+    fresh."""
+    global _LAST_FETCH_TS
+    if fetch_interval <= 0 or (time.time() - _LAST_FETCH_TS) >= fetch_interval:
+        if not git_fetch_with_retries(branch):
+            return "fetch-failed-after-retries"
+        _LAST_FETCH_TS = time.time()
     local = git("rev-parse", "HEAD").stdout.strip()
     remote = git("rev-parse", f"origin/{branch}").stdout.strip()
     if local == remote:
@@ -168,8 +183,17 @@ def result_mentions_drift(block: str) -> bool:
 
     Narrative prose about drift is NOT a trigger. A mislabelled table always
     carries the count or the leg row; an agent describing the concept does
-    not. The VERDICT field remains the primary channel — this is the belt."""
-    return any(pattern.search(block) for pattern in _DRIFT_REAL)
+    not. The VERDICT field remains the primary channel — this is the belt.
+
+    ZERO-COUNTS ARE STRIPPED FIRST, for ALL patterns: the leg-row pattern
+    used to fire on the evidence line '58 legs, R40 PROVEN, 0 DRIFT,
+    0 UNEARNED' — a leg id and the word drift on one line, with the count
+    explicitly ZERO — sending Nick an URGENT for a clean table (2026-08-13
+    turn 13). False urgency erodes the one alarm that must never be
+    ignored; a stated zero can never be evidence of movement."""
+    scrubbed = re.sub(r"(?<![1-9])0\s+drift\b", " ", block, flags=re.I)
+    scrubbed = re.sub(r"\bdrift\b\s*[:=]\s*0(?!\d)", " ", scrubbed, flags=re.I)
+    return any(pattern.search(scrubbed) for pattern in _DRIFT_REAL)
 
 
 def parse_handoff() -> dict:
@@ -497,6 +521,16 @@ def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path
         started = time.time()
         deadline = started + timeout_minutes * 60
         last_beat = started
+        # SELF-WATCHDOG (Nick's ruling 3): alive-but-dead-inside is a fault
+        # to act on, not a state to rest in. The agent LOG is no signal
+        # (buffered until exit), so 'genuinely executing' is measured by CPU
+        # accumulation: less than hung_agent_cpu_seconds of CPU across a
+        # watchdog_minutes window means hung -> kill, code -8, and one_cycle
+        # runs the known-fault recovery on it.
+        wd_window = float(cfg.get("watchdog_minutes", 12)) * 60
+        wd_min_cpu = float(cfg.get("hung_agent_cpu_seconds", 5.0))
+        wd_mark_ts = started
+        wd_mark_cpu = _cpu_seconds(child.pid) or 0.0
         # HEARTBEAT WHILE WORKING: the old child.wait() blocked silently for
         # the whole turn, so a healthy 10-minute turn and a dead watcher
         # looked identical. Never block without a pulse.
@@ -509,6 +543,16 @@ def launch_agent(agent: str, cfg: dict, timeout_minutes: int) -> tuple[int, Path
                 child.kill()
                 code = -9
                 break
+            if now - wd_mark_ts >= wd_window:
+                cpu_now = _cpu_seconds(child.pid)
+                if cpu_now is not None and (cpu_now - wd_mark_cpu) < wd_min_cpu:
+                    log(f"WATCHDOG: {agent} pid={child.pid} accumulated "
+                        f"{cpu_now - wd_mark_cpu:.1f}s CPU in {wd_window / 60:.0f}m — hung, killing")
+                    child.kill()
+                    code = -8
+                    break
+                wd_mark_ts = now
+                wd_mark_cpu = cpu_now if cpu_now is not None else wd_mark_cpu
             if now - last_beat >= beat:
                 last_beat = now
                 elapsed = int(now - started)
@@ -585,7 +629,7 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     if inbox:
         consume_inbox(inbox, branch)
         return True
-    fault = git_sync(branch)
+    fault = git_sync(branch, fetch_interval=float(cfg.get("fetch_interval_seconds", 60)))
     if fault:
         h = parse_handoff()
         stop("stopped-fault", f"git fault: {fault}",
@@ -672,6 +716,19 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     write_status(status, reason=f"turn {next_turn}: launch {agent}", branch=branch, bump_turn=next_turn)
     timeout = h["turn_timeout_minutes"] or cfg["default_turn_timeout_minutes"]
     code, logfile = launch_agent(agent, cfg, timeout)
+    if code == -8:
+        # WATCHDOG KILL: alive-but-idle agent. Known-fault registry first —
+        # a hung turn re-seeds and relaunches (cap-limited); only a failed
+        # or repeat recovery pings.
+        if auto_recover_dead_turn(agent, cfg, state, logfile, reason="hung (watchdog)"):
+            return True
+        stop("stopped-fault", f"{agent} hung (watchdog kill) and recovery declined",
+             f"{agent} hung",
+             f"Watchdog killed an alive-but-idle agent; auto-recovery declined "
+             f"(cap or unknown residue).\nlog tail:\n"
+             f"{logfile.read_text(encoding='utf-8', errors='replace')[-1500:]}",
+             cfg, state)
+        return False
     if code == -9:
         stop("stopped-fault", f"{agent} turn timeout after {timeout}m",
              f"{agent} timed out",
@@ -688,17 +745,147 @@ def one_cycle(cfg: dict, state: dict) -> bool:
              "malformed HANDOFF.md after turn", str(exc), cfg, state)
         return False
     if after["status"] == status:
+        # KNOWN-FAULT SELF-HEAL (Nick's ruling): a fault whose recovery is
+        # mechanical must not park the loop until Nick notices — the 0-byte-
+        # prove death cost an hour of idle for 30 seconds of recovery, twice.
+        # Known class: clean exit, no flip, a 0-byte _prove_* artifact (the
+        # agent backgrounded its prove and the child died with the session).
+        # Recovery = the manual playbook: delete the dead artifact, commit
+        # orphaned work (compile-gated), re-seed the SAME turn foreground.
+        # Unknown faults and repeat offenders still stop + ping.
+        if code == 0 and auto_recover_backgrounded_prove(agent, cfg, state, logfile):
+            return True
         stop("stopped-fault", f"{agent} exited (code {code}) without flipping STATUS",
              f"{agent} did not flip",
              f"exit code {code}; log tail:\n{logfile.read_text(encoding='utf-8', errors='replace')[-1500:]}",
              cfg, state)
         return False
-    fault = git_sync(branch)  # push the agent's work if it could not (SS3.4)
+    fault = git_sync(branch, fetch_interval=0)  # post-turn: always fetch-fresh (SS3.4)
     if fault:
         stop("stopped-fault", f"post-turn git fault: {fault}", f"git fault ({fault})",
              fault, cfg, state)
         return False
     log(f"turn complete: {status} -> {after['status']} (verdict={after['verdict'] or '-'})")
+    return True
+
+
+# ---------------------------------------------------- known-fault registry
+# Nick's ruling: a fault whose recovery is mechanical must not park the loop
+# until a human notices. Each entry: detect(agent, code, cfg) -> bool, and
+# recover(agent, cfg, state, logfile) -> bool (True = healed, no ping).
+# UNKNOWN faults, cap-hit repeats, and failed recoveries still stop + ping —
+# self-healing never silently half-happens. Add the NEXT recurring fault
+# class here instead of hand-recovering it twice.
+
+def _cpu_seconds(pid: int) -> float | None:
+    """Total CPU seconds for a pid, or None if unknowable. Used by the
+    watchdog to tell 'genuinely executing' from 'alive but dead inside' —
+    the agent LOG is no signal (headless output buffers until exit)."""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-Process -Id {pid} -ErrorAction Stop).CPU"],
+            capture_output=True, text=True, timeout=20,
+        ).stdout.strip()
+        return float(out) if out else None
+    except Exception:
+        return None
+
+
+def auto_recover_backgrounded_prove(agent: str, cfg: dict, state: dict, logfile: Path) -> bool:
+    """Known fault #1 (seen twice, identical): agent exits 0 without
+    flipping, leaving a 0-byte _prove_*.txt — it backgrounded the prove and
+    the child died with the session. Detector: the 0-byte artifact must
+    exist; otherwise this is NOT the known class and the normal fault path
+    pings."""
+    dead_proves = [
+        p for p in REPO.glob("_prove_*.txt")
+        if p.stat().st_size == 0 and (time.time() - p.stat().st_mtime) < 6 * 3600
+    ]
+    if not dead_proves:
+        return False
+    return _recover_dead_turn(agent, cfg, state, dead_proves=dead_proves,
+                              reason="session exited with the prove backgrounded")
+
+
+def auto_recover_dead_turn(agent: str, cfg: dict, state: dict, logfile: Path, *, reason: str) -> bool:
+    """Known fault #2: watchdog-killed hung agent. Same recovery spine —
+    clear dead artifacts if any, commit orphaned work (compile-gated),
+    re-seed the SAME turn."""
+    dead_proves = [
+        p for p in REPO.glob("_prove_*.txt")
+        if p.stat().st_size == 0 and (time.time() - p.stat().st_mtime) < 6 * 3600
+    ]
+    return _recover_dead_turn(agent, cfg, state, dead_proves=dead_proves, reason=reason)
+
+
+def _recover_dead_turn(agent: str, cfg: dict, state: dict, *, dead_proves: list, reason: str) -> bool:
+    """The shared recovery spine. True = healed silently; False = decline
+    (cap hit or a step failed) and the caller's fault path pings — recovery
+    never half-happens silently."""
+    turn = parse_handoff().get("turn", 0)
+    key = f"turn{turn}-{agent}"
+    recoveries = state.setdefault("auto_recoveries", {})
+    if recoveries.get(key, 0) >= int(cfg.get("max_auto_recoveries_per_turn", 2)):
+        log(f"auto-recovery cap hit for {key} — escalating to Nick")
+        return False  # persistent crasher: a human should look
+
+    try:
+        # 1. The dead artifacts go away.
+        for p in dead_proves:
+            p.unlink()
+            log(f"auto-recover: deleted 0-byte {p.name}")
+        # 2. Orphaned tracked work gets committed AS the agent's — but only
+        #    if any changed python still compiles; half-edited code is an
+        #    unknown fault, not a known one.
+        dirty = [
+            line[3:].strip().strip('"')
+            for line in git("status", "--porcelain").stdout.splitlines()
+            if line and not line.startswith("??")
+        ]
+        import py_compile
+        for f in dirty:
+            if f.endswith(".py"):
+                py_compile.compile(str(REPO / f), doraise=True)  # raises -> unknown
+        if dirty:
+            git("add", "-A", "--", *dirty)
+            got = git("commit", "-m",
+                      f"[handoff-watcher] auto-recover: {agent} turn {turn} orphaned work "
+                      f"({reason})", check=False)
+            if got.returncode != 0 and "nothing to commit" not in (got.stdout + got.stderr):
+                raise RuntimeError(f"orphan commit failed: {got.stderr[:200]}")
+        # 3. Re-seed the SAME turn with the corrective task, foreground-prove.
+        raw = HANDOFF.read_text(encoding="utf-8")
+        corrective = (
+            "TASK:\n"
+            f"  TURN-TIMEOUT-MINUTES: 240\n"
+            f"  AUTO-RECOVERY of your previous session (it exited with the prove\n"
+            f"  running in the background; under claude -p there is NO re-invocation\n"
+            f"  and children die at exit - the prove died as a 0-byte file, now\n"
+            f"  deleted; your orphaned work is committed). Remaining steps ONLY:\n"
+            f"  re-run the full prove IN THE FOREGROUND (blocking), read the verdict\n"
+            f"  in this same turn, write the RESULT on the prove's actual outcome,\n"
+            f"  and flip as your final commit. Everything else from your previous\n"
+            f"  task is already done and recorded.\n"
+        )
+        seeded = re.sub(r"(?ms)^TASK:\n.*?(?=^RESULT:)", corrective, raw, count=1)
+        HANDOFF.write_text(seeded, encoding="utf-8")
+        git("add", str(HANDOFF.relative_to(REPO)))
+        got = git("commit", "-m",
+                  f"[handoff-watcher] auto-recover: re-seed {agent} turn {turn} (foreground prove)",
+                  check=False)
+        if got.returncode != 0 and "nothing to commit" not in (got.stdout + got.stderr):
+            raise RuntimeError(f"re-seed commit failed: {got.stderr[:200]}")
+        fault = push_with_retries(cfg["branch"])
+        if fault:
+            raise RuntimeError(fault)
+    except Exception as exc:
+        log(f"auto-recovery FAILED ({type(exc).__name__}: {exc}) — falling through to the fault path")
+        return False
+
+    recoveries[key] = recoveries.get(key, 0) + 1
+    save_state(state)
+    log(f"AUTO-RECOVERED {key} (attempt {recoveries[key]}) — no ping, relaunching next poll")
     return True
 
 

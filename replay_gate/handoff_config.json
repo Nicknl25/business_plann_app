@@ -1,6 +1,6 @@
 {
   "cap_round_trips": 16,
-  "poll_seconds": 60,
+  "poll_seconds": 5,
   "default_turn_timeout_minutes": 180,
   "branch": "intake-stable",
   "push_retries": 3,
@@ -11,5 +11,9 @@
     "{prompt}",
     "--dangerously-skip-permissions"
   ],
-  "heartbeat_seconds": 30
+  "heartbeat_seconds": 30,
+  "fetch_interval_seconds": 60,
+  "max_auto_recoveries_per_turn": 2,
+  "watchdog_minutes": 12,
+  "hung_agent_cpu_seconds": 5.0
 }
