@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
@@ -1405,3 +1405,74 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: _mini_cw032_drift_purity_20260814.txt (the purity proof, both
+    boundaries); _mini_cw032_r31_leaf_diff_20260814.txt /
+    _mini_cw032_ck_leaf_diff_20260814.txt (every moved leaf, raw);
+    _prove_20260814_mini_cw032_turn1.txt (61 legs CLEAN);
+    Test Files/_mini_cw032_drift_purity.py (the instrument)
+  SUMMARY: The drift is PURE, proven before anything was re-blessed, at BOTH
+  boundaries. Gate boundary: rebuilt R31's payloads at 9d2c41c and HEAD; all
+  four digests reproduce the DRIFT report exactly; every one of the 3,083
+  changed + 240 added model_input leaves and 644 finmo leaves is the
+  depreciation schedule or its arithmetic descendants (Q1 delta exactly
+  15,000/20 = 750; NI == -dep every quarter; EBITDA and every P&L row above
+  Interest byte-identical; the 240 adds ARE the opening-PPE vintage). Solver
+  boundary: pre/post checkpoints of Sunny 6feac758 (Q1 delta exactly
+  20,000/20 = 1,000) after isolating a date-anchor confound with a pre/pre
+  control - the live path stamps start_date from the run date, dates-only,
+  zero numerics; net of that, the extra movers are the solver's cash
+  coupling (interest, taxes, revolver, distributions). Re-blessed on that
+  proof: R31 baseline -> 5716ba4; frozen-input goldens re-based (proof
+  GREEN, workbook_formulas UNMOVED - R32's surface genuinely held);
+  byte-floor docstring carries the new post-solver goldens + the ruled
+  layout replacing the overruled per-line-P&L text. No gate leg pinned the
+  old multi-line layout. R29's stale STRUCTURAL_ABSENCE label dropped (the
+  harness itself reported its baseline red behavioural). Full prove on the
+  final tree: 61 legs, 54 behavioural, 5 structural-absence, 2 GOLDEN,
+  0 DRIFT, 0 UNEARNED, exit 0 - "Safe to spend a Cowork run." GATE flipped
+  blessed in STAGES.md (mine); LIVE stays VS's flip.
+TASK:
+  TURN-TIMEOUT-MINUTES: 240
+
+  VS (after Nick's blessing): four items, none blocking the gate.
+
+  1. FLIP LIVE, your evidence already exists. My turn changed ZERO app
+     code (legs/goldens/docs only), so your turn-1 proofs still describe
+     the shipped build exactly: canary x2 on a listener postdating every
+     edit, in-stage live proof 15/15 twice, multi-line workbook E2E with
+     the ruled layout + delivery-record binding. Flip LIVE with those
+     named or, if you judge a fresh canary owed after re-reading the
+     stale-server law, run ONE and flip on it. COWORK then auto-clears
+     for Nick's 4-stream garden centre.
+  2. RETIRE Test Files/_ws1b_multiline_e2e.py (remove-legacy law). Its
+     line 148 asserts the OVERRULED layout ('Cost of Goods Sold - '
+     P&L rows), superseded by your _live_cw032_multiline_workbook_e2e.py.
+     It will false-fail on the next ruled-layout workbook someone runs
+     it against.
+  3. THE unit_price BRANCH STILL USES cands[-1] - your own A-113 note:
+     the same last-figure-wins class you just fixed for capacity, in the
+     same applier. Queue it with a six-case offline proof like the
+     capacity one; no canary debt until it ships.
+  4. #267 stays open with the transcript turn as its reproduction seed -
+     nothing new from me; noting it so it does not silently vanish.
+
+  NOT YOURS: the CW-032 pin-worthy legs (the in-stage per-line door, the
+  stage completion through _pl_derived, the A-113 value selection, the
+  misroute guard) are MINE next turn - red shapes from your two
+  _live_cw032_* scripts and the router red-proof. I did not pin them this
+  turn because Nick's seeded task was the purity proof and re-bless, and
+  a green verdict should carry no half-built legs.
+
+  FOR NICK, plain english: the number that moved, moved because you ruled
+  it should (existing equipment now wears out over five years in the
+  model). I checked every single number that changed and they are all
+  that ruling's arithmetic - nothing else moved underneath it. The gate
+  is fully green again, on the new blessed numbers. Two things wait on
+  you: your blessing of this green (the watcher has stopped for it), and
+  the standing naturalization ruling (unchanged, not urgent). After your
+  blessing, VS flips LIVE and the 4-stream garden-centre Cowork run is
+  cleared.
