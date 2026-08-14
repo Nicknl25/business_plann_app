@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   NICK BLESSED THE GATE (purity proof ratified: Q1 deltas 750=15,000/20
