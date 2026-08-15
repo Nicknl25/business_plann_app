@@ -1,0 +1,25 @@
+A1 - price/utilization corrections: the MARKED figure lands, never the discarded one; ambiguity refuses
+  [PASS] price: should-be + old -> unit_price=650.0: stored 650.0; ack="Done - I've updated the Consulting engagement unit price to $650. Your Consultin"
+  [PASS] price: 'not' old value -> unit_price=700.0: stored 700.0; ack="Done - I've updated the Consulting engagement unit price to $700. Your Consultin"
+  [PASS] price: old first, new marked -> unit_price=650.0: stored 650.0; ack="Done - I've updated the Consulting engagement unit price to $650. Your Consultin"
+  [PASS] utilization: should-be + old -> utilization_rate=0.75: stored 0.75; ack="Done - I've updated utilization on Consulting engagement to 75%. Your Consulting"
+  [PASS] utilization: 'not' old value -> utilization_rate=0.8: stored 0.8; ack="Done - I've updated utilization on Consulting engagement to 80%. Your Consulting"
+  [PASS] price: several unmarked candidates REFUSE (no write): None
+  [PASS] price: sentence-scoped - other sentences' figures never compete: 650.0
+
+A2 - #134: a net-N payment term is never a capacity/price/count candidate (real Fernhill sentence, at the wall)
+  [PASS] Fernhill 'net 45' proposes NO ops move: move=None
+  [PASS] 'Our terms are net 45.' -> no move: move=None
+  [PASS] 'Customers pay net-30 mostly.' -> no move: move=None
+  [PASS] 'Clients are on net 60 days; a few pay net 30.' -> no move: move=None
+  [PASS] control: a real client-count capacity statement still moves (40): move={'key': 'ops.units_per_period_capacity', 'value': 40.0, 'label': 'capacity', 'attributed': True}
+
+A4 - #122: an undeclared price-tier claim never reaches the positioning copy
+  [PASS] scrub exists on target_market_consultant
+  [PASS] 'mid-market price point' -> tier dropped, price kept: The business model is a straightforward recurring service where clients pay per office cleaning visit on a weekly cadence and are invoiced monthly at a price po
+  [PASS] 'premium-priced' undeclared -> dropped: Positioned as a boutique at {{fact:ops.unit_price}}.
+  [PASS] client DECLARED mid-market -> claim kept: The business model is a straightforward recurring service where clients pay per office cleaning visit on a weekly cadenc
+  [PASS] a business NAME containing Premium is untouched: Premium Office Care serves offices at {{fact:ops.unit_price}}.
+  [PASS] finalize prompt no longer invites a value/mid-market/premium tier
+
+ALL GREEN

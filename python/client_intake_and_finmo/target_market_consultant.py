@@ -674,6 +674,76 @@ Output rules:
   }
 
 
+_PRICE_TIER_WORDS = (
+  r"mid[- ]?market|premium|value|budget|low[- ]cost|affordable|competitive|"
+  r"competitively|upscale|high[- ]end|economy|discount|luxury|bargain|entry[- ]level"
+)
+_PRICE_WORDS = r"price\s+points?|priced|pricing|prices?|rates?|tier"
+_UNDECLARED_TIER_RE = re.compile(
+  # "premium-priced boutique" -> the whole hyphenated compound goes;
+  # "mid-market price point" -> the qualifier goes, the price word stays.
+  rf"\b(?P<tier>{_PRICE_TIER_WORDS})(?:[- ]?tier)?"
+  rf"(?:-priced\b|\s+(?=(?:{_PRICE_WORDS})\b))",
+  re.I,
+)
+
+
+def _strip_undeclared_price_tier(
+  text: str, *, client_messages: Optional[List[str]] = None,
+) -> str:
+  """DEAL-BREAKER A4 / #122 (2026-08-15): the positioning paragraph called
+  a below-market $85 visit "a mid-market price point" (Brightline), and
+  CW-024 called $650 a month mid-market on the same shape. The app holds
+  NO market price fact when the target market is finalized - the tier
+  was invented by the writer. Parent law: the app must not invent what
+  the client is the authority to declare. A tier qualifier glued to a
+  price word (mid-market price point, premium-priced, competitive
+  pricing) is dropped UNLESS the client's own messages used that tier
+  word - then it is their declaration and it stands. Business names and
+  non-price uses ("value" as a noun, "premium" in a name) are untouched
+  because the pattern requires the price word to follow."""
+  if not text:
+    return text
+  said = " ".join(str(m or "") for m in (client_messages or [])).lower()
+  said_norm = re.sub(r"[-\s]+", "", said)
+
+  def _declared(tier: str) -> bool:
+    return bool(tier) and re.sub(r"[-\s]+", "", tier.lower()) in said_norm
+
+  def _sub(m: re.Match) -> str:
+    return m.group(0) if _declared(m.group("tier")) else ""
+
+  out = _UNDECLARED_TIER_RE.sub(_sub, str(text))
+  if out == str(text):
+    return out
+  # Leftovers: collapse doubled spaces; re-capitalize a sentence whose
+  # opening qualifier was dropped ("Competitively priced at" -> "Priced at").
+  out = re.sub(r"\s{2,}", " ", out)
+  return re.sub(
+    r"(^|(?<=[A-Za-z]{3}[.!?])\s+)([a-z])",
+    lambda m: m.group(1) + m.group(2).upper(), out,
+  )
+
+
+def _client_said(conversation_messages: List[Dict[str, str]]) -> List[str]:
+  return [
+    str(m.get("content") or "")
+    for m in (conversation_messages or [])
+    if isinstance(m, dict) and str(m.get("role") or "").lower() == "user"
+  ]
+
+
+def _scrub_finalized_copy(obj: Dict[str, Any], conversation_messages: List[Dict[str, str]]) -> Dict[str, Any]:
+  if not isinstance(obj, dict):
+    return obj
+  said = _client_said(conversation_messages)
+  for k in ("marketing_plan_summary", "target_market_summary"):
+    v = obj.get(k)
+    if isinstance(v, str) and v.strip():
+      obj[k] = _strip_undeclared_price_tier(v, client_messages=said)
+  return obj
+
+
 def target_market_finalize(
   *,
   intake_context: Dict[str, Any],
@@ -721,7 +791,7 @@ Field rules by mode:
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., membership/subscription vs per-visit vs per-transaction vs contract/retainer). Do not invent a model.
-    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. NEVER characterize the price against the market - no value / mid-market / premium / competitive / affordable / budget tier claim of any kind: the app holds no market price fact at this point and only the client can declare where they sit. If the client explicitly stated their tier in the conversation you may repeat their own words; otherwise state the price via its placeholder and say nothing about tier. If price is not known, describe the positioning without any price or tier claim.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) (consumer demographics and/or B2B firmographics) in plain language (no ACS codes and no NAICS codes).
@@ -775,7 +845,7 @@ Return ONLY JSON matching the provided schema. No prose.
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., project/contract/retainer vs per-transaction). Do not invent a model.
-    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. NEVER characterize the price against the market - no value / mid-market / premium / competitive / affordable / budget tier claim of any kind: the app holds no market price fact at this point and only the client can declare where they sit. If the client explicitly stated their tier in the conversation you may repeat their own words; otherwise state the price via its placeholder and say nothing about tier. If price is not known, describe the positioning without any price or tier claim.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) as B2B firmographics in plain language (industry terms, size bands, age bands) without listing NAICS codes.
@@ -820,7 +890,7 @@ Hard requirements:
     - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (consumer + B2B mix). Do not invent a model.
-    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Unit price or economic tier. PRICING SENTENCE RULE: if the business has MULTIPLE products/lines, the complete pricing statement MUST be the single placeholder {{fact:ops.product_pricing_summary}} (it renders every product's price, unit, and cadence correctly) - never combine {{fact:ops.unit_price}} with {{fact:ops.unit_name}} for multi-product businesses (that welds incomparable prices into one range). For a SINGLE-product business, reference {{fact:ops.unit_price}} per {{fact:ops.unit_name}}. Do not print literal values. NEVER characterize the price against the market - no value / mid-market / premium / competitive / affordable / budget tier claim of any kind: the app holds no market price fact at this point and only the client can declare where they sit. If the client explicitly stated their tier in the conversation you may repeat their own words; otherwise state the price via its placeholder and say nothing about tier. If price is not known, describe the positioning without any price or tier claim.
     - Geographic scope (local/regional/national) without inventing specific cities.
     - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
     - Confirmed target segment(s) across BOTH consumer demographics and B2B firmographics in plain language (no ACS codes and no NAICS codes).
@@ -890,10 +960,10 @@ Edit mode (if intake_context.edit_mode is true):
   for item in output:
     for part in item.get("content", []) or []:
       if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
-        return part["json"]
+        return _scrub_finalized_copy(part["json"], conversation_messages)
 
   raw = _parse_responses_text(data)
   parsed = json.loads(raw)
   if not isinstance(parsed, dict):
     raise RuntimeError("Finalization did not return a JSON object.")
-  return parsed
+  return _scrub_finalized_copy(parsed, conversation_messages)

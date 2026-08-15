@@ -6910,34 +6910,99 @@ def _apply_cross_section_driver_correction(
   new_value: Optional[float] = None
   _not_vals: set = set()
   figures = _message_figures(msg)
+
+  def _xsec_scoped(_kw: str) -> str:
+    # DEAL-BREAKER A1 (2026-08-15): the capacity branch's CW-032 #264
+    # sentence scoping, shared by all three lever branches - only the
+    # sentence naming the lever and the sentence after it are read for
+    # the value, so a mixed message's other figures never compete.
+    _sentences = re.split(r"(?<=[.!?])\s+", msg)
+    _parts: List[str] = []
+    for _si, _sent in enumerate(_sentences):
+      if re.search(_kw, _sent):
+        _parts.append(_sent)
+        if _si + 1 < len(_sentences):
+          _parts.append(_sentences[_si + 1])
+    return " ".join(_parts) or msg
+
+  _XSEC_MARK = r"\b(?:should be|needs to be|to be|to|is|now|at)\s+"
+
+  def _xsec_pick(_cands: List[float], _marked: List[float]) -> Optional[float]:
+    # One MARKED candidate wins; else a single surviving candidate; else
+    # REFUSE - a wrong lever written is worse than a question asked.
+    if len(set(_marked)) == 1:
+      return _marked[0]
+    if len(set(_cands)) == 1:
+      return _cands[0]
+    return None
+
   if re.search(r"utili[sz]ation|\brun(?:ning)?\s+(?:about\s+)?\d", msg):
     leaf = "utilization_rate"
     current = _safe_float(product.get("utilization_rate"))
+    # DEAL-BREAKER A1 (2026-08-15): this branch was cands[-1] - the LAST
+    # figure won, so "utilization should be 75%, I said 60% earlier"
+    # stored 60% (the discarded value). Same three rules as capacity:
+    # sentence-scoped, a figure after "not" is the OLD value, the value
+    # should be MARKED; several unmarked survivors REFUSE.
+    _scoped = _xsec_scoped(r"utili[sz]ation|\brun(?:ning)?\s+(?:about\s+)?\d")
     # Utilization values are stated as marked percents ("75%", "75
     # percent") or written decimals ("0.75") - NEVER inferred from bare
     # word-numbers ("two years ago" parses as 2 and must not become 2%).
     cands: List[float] = []
-    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", msg):
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", _scoped):
       v = float(m.group(1)) / 100.0
       if 0.0 < v <= 1.0:
         cands.append(v)
-    for m in re.finditer(r"\b(0\.\d+)\b", msg):
+    for m in re.finditer(r"\b(0\.\d+)\b", _scoped):
       v = float(m.group(1))
       if 0.0 < v <= 1.0:
         cands.append(v)
+    _not_vals = set()
+    for m in re.finditer(r"\bnot\s+(\d+(?:\.\d+)?)\s*(?:%|percent\b)", _scoped):
+      _not_vals.add(float(m.group(1)) / 100.0)
+    for m in re.finditer(r"\bnot\s+(0\.\d+)\b", _scoped):
+      _not_vals.add(float(m.group(1)))
     cands = [
       v for v in cands
-      if current is None or abs(v - current) > max(1e-6, 0.001 * abs(current))
+      if not any(abs(v - nv) < 1e-9 for nv in _not_vals)
+      and (current is None or abs(v - current) > max(1e-6, 0.001 * abs(current)))
     ]
-    new_value = cands[-1] if cands else None
+    marked = []
+    for m in re.finditer(_XSEC_MARK + r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", _scoped):
+      _mv = float(m.group(1)) / 100.0
+      if any(abs(_mv - c) < 1e-9 for c in cands):
+        marked.append(_mv)
+    for m in re.finditer(_XSEC_MARK + r"(0\.\d+)\b", _scoped):
+      _mv = float(m.group(1))
+      if any(abs(_mv - c) < 1e-9 for c in cands):
+        marked.append(_mv)
+    new_value = _xsec_pick(cands, marked)
   elif re.search(r"\bprice\b|\bcharge\b|\brate per\b", msg):
     leaf = "unit_price"
     current = _safe_float(product.get("unit_price"))
+    # DEAL-BREAKER A1 (2026-08-15): this branch was cands[-1] - "fix the
+    # price, it should be 650, I was thinking of 520 before" stored 520,
+    # the client's DISCARDED price, into the delivered model. Same three
+    # rules as capacity (sentence-scoped, not-N excluded, marked wins,
+    # ambiguity refuses).
+    _scoped = _xsec_scoped(r"\bprice\b|\bcharge\b|\brate per\b")
+    _scoped_figures = _message_figures(_scoped)
+    _not_vals = {
+      float(m.group(1))
+      for m in re.finditer(r"\bnot\s+\$?(\d+(?:\.\d+)?)\b", _scoped.replace(",", ""))
+    }
     cands = [
-      f for f in figures
-      if f > 1.0 and (current is None or abs(f - current) > max(1e-6, 0.001 * abs(current)))
+      f for f in _scoped_figures
+      if f > 1.0
+      and f not in _not_vals
+      and (current is None or abs(f - current) > max(1e-6, 0.001 * abs(current)))
     ]
-    new_value = cands[-1] if cands else None
+    marked = [
+      float(m.group(1))
+      for m in re.finditer(_XSEC_MARK + r"\$?(\d+(?:\.\d+)?)\b", _scoped.replace(",", ""))
+      if float(m.group(1)) in cands
+    ]
+    new_value = _xsec_pick(cands, marked)
   elif re.search(r"\bcapacity\b", msg):
     # CW-033 A-113: capacity lands on the CANONICAL cell for THIS row's
     # cadence (weekly rows: the week figure; everything else: the period
@@ -10232,6 +10297,32 @@ _NEGATION_FIGURE_RE = re.compile(
 )
 
 
+_PAYMENT_TERM_FIGURE_RE = re.compile(
+  r"\bnet\s*-?\s*(\d{1,3})\b(?:\s*days?)?"
+  r"|\b(\d{1,3})[- ]day\s+(?:payment\s+)?terms\b",
+  re.I,
+)
+
+
+def _payment_term_figures(user_message: str) -> List[float]:
+  """DEAL-BREAKER A2 / #134 (2026-08-15): a PAYMENT TERM is a reference,
+  never a value hunting for a home. Fernhill turn 52 - "Clients owe us
+  around $215,000 - consulting invoices go out net 45 and manufacturers
+  are slow" - carried the capacity keyword (clients) and a small
+  unplaced figure (45), and the forward mover wrote capacity 45 over the
+  client's confirmed 80: revenue was built on a payment term. The
+  net-N figure (net 45, net-30, net 60 days, 45-day terms) is excluded
+  from every landing candidate list, exactly like a negated figure."""
+  out: List[float] = []
+  for m in _PAYMENT_TERM_FIGURE_RE.finditer(str(user_message or "")):
+    tok = m.group(1) or m.group(2)
+    try:
+      out.append(float(tok))
+    except (TypeError, ValueError):
+      continue
+  return out
+
+
 def _negated_figures(user_message: str) -> List[float]:
   """CW-027 (Nick-ruled one-shot): figures in REJECTION/NEGATION context
   ("nowhere near $28,000", "not $500", "nothing like that $40,000") are
@@ -10312,6 +10403,10 @@ def _unlanded_figures_disclosure(
     float(f) for f in (extra_reference_figures or [])
     if isinstance(f, (int, float))
   ]
+  # DEAL-BREAKER A2 / #134: a net-N payment term ("invoices go out net
+  # 45") is a reference in BOTH figure paths below - never a capacity,
+  # price or count candidate. Fires only on messages carrying the term.
+  _door_refs.extend(_payment_term_figures(user_message))
   # CW-033 A-115(a): figures the per-line COGS door consumed this turn
   # (written rates, shared-group rates) are landed facts - their percent
   # forms must never re-enter as unlanded price/capacity candidates

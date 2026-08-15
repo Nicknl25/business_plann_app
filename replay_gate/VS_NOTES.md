@@ -3155,14 +3155,37 @@ live W3 red forced it - same defect class, same law, found by the
 declared live verification step). Blast radius stayed as declared
 (system-touching, full apparatus run).
 
-### SCOPING LAWS MIRROR (Nick 2026-08-14, recorded once - idempotent)
-VERIFICATION SCOPED TO BLAST RADIUS: verify what the fix touched.
-LOCALIZED (structurally cannot reach engine/money/golden floor) ->
-targeted red->green + the gate's golden legs via --only; NOT a canary,
-NOT the full prove. SYSTEM-TOUCHING (engine, money math, golden floor,
-cross-cutting) -> full apparatus (full prove + Sunny_V3 canary before
-any batch), earned and RARE. Targeted is the DEFAULT; the RESULT
-states the call so mini can audit the call itself.
+### SCOPING LAWS MIRROR (Nick 2026-08-14/15, recorded once - idempotent;
+### v2 of 2026-08-15 REPLACES the localized/system-touching tiering)
+VERIFICATION LAW v2 - SPOT-CHECK THE FIX. Hone in on the fix, test just
+that, move on. Three tiers, chosen by ONE question: does this fix
+CHANGE SHARED CODE THAT OTHER LIVE BEHAVIORS FLOW THROUGH (the forward
+mover, the engine math, the workbook builder - genuine high-fan-out
+chokepoints)?
+- SPOT-CHECK (DEFAULT - a guard, a copy string, a validation, a branch
+  that only fires on the broken case, anything that cannot affect a
+  neighbor): repro red->green on the specific behavior + the artifact
+  shows it (stored field / cell / receipt) + the single-line floor via
+  --only. Minutes. No full prove, no canary.
+- NEIGHBOR-CHECK (the fix genuinely changes shared high-fan-out code):
+  spot-check PLUS the NAMED other behaviors flowing through the same
+  changed path. Not the 61-leg universe, not a canary.
+- FULL APPARATUS (Sunny_V3 canary + full prove): ONLY for a change to
+  the engine/money math itself or the golden baseline. "It lives in a
+  hot path" is NOT this tier; actually changing the core math is.
+The single-line floor rides EVERY turn. The tier is declared per fix in
+the TURN PLAN and confirmed in the RESULT; mini verifies the call - a
+spot-check claim on a fix that changed shared high-fan-out code is a
+finding.
+SPLIT BY BLAST RADIUS: the call is per fix; a turn inherits the widest
+radius it carries, so guards never ride with semantic re-scopes.
+TRIAGE BEFORE FIX: a fix earns a turn only as a DEAL BREAKER (wrong
+number / false claim in a delivered plan on the guided path), named per
+fix in the TURN PLAN; new behavior dressed as a fix is a feature
+decision for Nick.
+TURN PLAN DECLARED UP FRONT: four lines (TASK / BLAST-RADIUS / LOADING /
+VERIFY) via scripts/handoff_turn_plan.py, then proceed immediately;
+RESULT confirms declared-vs-actual.
 CONTEXT SCOPED TO THE TASK: each turn loads (1) the task, (2) the
 short standing-laws list (client-authority/parent law, guided-flow
 forward-only, receipt law, naturalization, verification-scoping, this
@@ -3195,3 +3218,66 @@ Sunny_V3 canary (draft 6b46dcc5, system_run_complete, 0 error lines,
 delivery record #24 bound by draft_id), full prove CLEAN - 65 legs,
 58 PROVEN behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
 0 UNEARNED, no quarantine.
+
+### DEAL-BREAKER BATCH TURN A (VS, 2026-08-15) - A1 / A2 / A4, all SPOT-CHECK
+Proof file: Test Files/_redproof_dealbreaker_turnA.py; outputs
+_redproof_dealbreaker_turnA_PREFIX.txt (RED 10 on the stashed pre-fix
+tree) and _redproof_dealbreaker_turnA_POSTFIX.txt (ALL GREEN). Floor:
+_prove_20260815_turnA_floor.txt (R31 + R32 GOLDEN, 0 DRIFT). Backend
+restarted after the edits, ONE :5050 listener verified. Canary SKIPPED
+by law (no engine/money-math or golden change).
+
+A1 - _apply_cross_section_driver_correction, price + utilization
+branches (intake_consult.py ~6912-7010). WAS cands[-1] (last figure
+wins): "fix the price - it should be 650, I was thinking of 520 before"
+stored 520; "utilization should be 75%, I said 60% earlier" stored 60%.
+NOW the capacity branch's three rules, factored into two local helpers
+(_xsec_scoped, _xsec_pick) used by price + utilization: sentence-scoped
+(the lever sentence + the next), a figure after "not" is the OLD value,
+a MARKED figure (should be / needs to be / to / is / now / at) wins,
+several unmarked survivors REFUSE (None -> the door's existing
+honest-refusal path). Capacity branch byte-untouched (its own regex
+stays). Correction MARKERS unchanged - "should be" alone is still not a
+correction marker; a marker word (fix/correct/set/...) is required, as
+before. Artifact: stored ops row values in the proof output.
+NOTE for mini: Test Files/_redproof_cw033_fixes.py T1 attempt2 ("It is
+currently set to five ... needs to be seven") is RED on the pre-fix tree
+too (verified under git stash) and T4 tracebacks on the pre-fix tree
+(_apply_forward_move now returns 4 values) - both PRE-EXISTING leg-craft
+staleness in that file, not this turn's regression; not repaired here
+(out of scope, flagged).
+
+A2 - #134 payment-term guard. New _payment_term_figures (net 45 /
+net-30 / net 60 days / 45-day terms) added to _door_refs at the top of
+_unlanded_figures_disclosure, so the figure is a REFERENCE in both the
+main path and the small-figure attribution path - never a
+capacity/price/count candidate. Fires ONLY on messages carrying the
+term (no token, no change) - that is the spot-check justification for a
+guard living in the shared unlanded-figure path. Repro on the REAL
+Fernhill sentence ("Cash is about $186,000. Clients owe us around
+$215,000 - consulting invoices go out net 45 ...") at the wall: pre-fix
+move = ops.units_per_period_capacity 45.0; post-fix None. Control: "We
+can take on 40 clients a month now" still moves 40. NOTE: mid-interview
+the D1 (turn 5) redirect already refuses ops moves while a stage is
+active, so the ORIGINAL Fernhill turn shape is doubly closed; the guard
+matters at the wall and for any ops-key path fed by the disclosure.
+
+A4 - #122 invented price tier. VERIFIED FIRST: the finalize prompt still
+carried "If price is not known, describe the tier
+(value/mid-market/premium) without numbers" (3 copies) and the Brightline
+artifact reads "a mid-market price point ($85 per office cleaning
+visit)". The app holds NO market price fact at market finalize (the
+price_ceiling_market_fact is a coherence-section, client-stated fact,
+later). Parent law: the tier was INVENTED. FIX (source + scrub): the
+three prompt copies now forbid any tier claim unless the client stated
+it; target_market_finalize returns through _scrub_finalized_copy ->
+_strip_undeclared_price_tier on marketing_plan_summary +
+target_market_summary: a tier qualifier glued to a price word
+(mid-market price point, premium-priced, competitive pricing) is
+dropped UNLESS the client's own user messages used that tier word (then
+it is their declaration and stands). Names/non-price uses untouched
+(pattern requires the price word to follow). "Speak the actual
+position" resolves to: state the price, claim no tier - the app has no
+position fact to speak. If Nick wants a REAL market-position statement
+here, that needs a market price fact captured/asked at market stage =
+a feature decision, not built.

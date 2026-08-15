@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -1868,3 +1868,65 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none-turnA-awaiting-audit
+  EVIDENCE: Test Files/_redproof_dealbreaker_turnA.py;
+    _redproof_dealbreaker_turnA_PREFIX.txt (RED 10 on the stashed pre-fix
+    tree); _redproof_dealbreaker_turnA_POSTFIX.txt (ALL GREEN);
+    _prove_20260815_turnA_floor.txt (R31 + R32 GOLDEN, 0 DRIFT);
+    VS_NOTES "DEAL-BREAKER BATCH TURN A" section (full fix shapes)
+  SUMMARY: Turn A landed - A1, A2, A4, each SPOT-CHECK as declared.
+    DECLARED-vs-ACTUAL: matches. Tier per fix = spot-check (A1: two
+    value-selection branches inside one door, capacity branch untouched;
+    A2: a reference exclusion that fires ONLY on messages carrying a
+    net-N payment-term token - lives at the top of the shared
+    _unlanded_figures_disclosure but is a broken-case-only branch; A4:
+    prompt copy + a text scrub on the market finalize output). Loading
+    as declared. Verify as declared: repro red->green per fix, artifact
+    = stored ops row / move dict / rendered text in the proof output,
+    floor via --only R31,R32 GOLDEN, canary SKIPPED, no full prove.
+    Backend restarted after the edits, ONE :5050 listener. One
+    divergence to note: the A1 repro wording needed a correction MARKER
+    word ("fix the price - it should be 650 ...") - "should be" alone
+    was never a marker and I did not widen the marker set (that would be
+    new behavior). Flag for mini: Test Files/_redproof_cw033_fixes.py is
+    stale on the PRE-FIX tree too (T1 attempt2 red, T4 tracebacks on the
+    4-value _apply_forward_move) - pre-existing leg-craft, not this
+    turn's regression, not repaired (out of scope).
+TASK:
+  TURN-TIMEOUT-MINUTES: 60
+  mini - TURN B (SPOT-CHECK audit, minutes): the four confirmations on
+  A1 / A2 / A4, per the itinerary in the seed above:
+    1. Diff does what the plan said - git show HEAD for
+       python/api_handlers/intake_consult.py (A1 ~6912-7010: price +
+       utilization branches; A2: _payment_term_figures + the one-line
+       _door_refs.extend in _unlanded_figures_disclosure) and
+       python/client_intake_and_finmo/target_market_consultant.py (A4:
+       three prompt copies + _strip_undeclared_price_tier +
+       _scrub_finalized_copy on both finalize return points).
+    2. Artifact shows the right value on each repro - run
+       .venv\Scripts\python.exe "Test Files\_redproof_dealbreaker_turnA.py"
+       yourself; compare with the PREFIX/POSTFIX files. Red-for-the-
+       right-reason: PREFIX shows capacity 45.0 proposed on the real
+       Fernhill sentence and 520/60% stored on the A1 shapes.
+    3. Tier call honest - the one to scrutinize is A2: the guard sits at
+       the top of the shared unlanded-figure path but only adds
+       references when a net-N / N-day-terms token is present. If you
+       judge that neighbor-check, name the neighbors (the small-figure
+       attribution's price/capacity rules; the main path's
+       _infer_figure_landing) and check them - my control leg ("40
+       clients a month" still moves) covers the capacity one.
+    4. Floor held - _prove_20260815_turnA_floor.txt, R31 + R32 GOLDEN.
+  Also weigh, as a note not a build: A4 resolves "speak the actual
+  position" as "state the price, claim no tier" because the app holds no
+  market price fact at market finalize; a real position statement would
+  need a captured market price = feature decision for Nick.
+  Then flip and write VS's TASK for TURN C (A3 #101, travels ALONE,
+  spot-check by default, neighbor-check only if the viability fix
+  changes shared viability/engine code, full only if core money math;
+  REPRO FIRST on a real shape where stated capacity is exceeded and the
+  verdict still passes) - carry the TURN D itinerary forward verbatim
+  from the seed. Feature decisions stay PARKED; the 20 WONT-FIX
+  closures stand.

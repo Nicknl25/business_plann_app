@@ -1,0 +1,21 @@
+A1 - price/utilization corrections: the MARKED figure lands, never the discarded one; ambiguity refuses
+  [FAIL] price: should-be + old -> unit_price=650.0: stored 520.0; ack="Done - I've updated the Consulting engagement unit price to $520. Your Consultin"
+  [FAIL] price: 'not' old value -> unit_price=700.0: stored 650.0; ack="Done - I've updated the Consulting engagement unit price to $650. Your Consultin"
+  [PASS] price: old first, new marked -> unit_price=650.0: stored 650.0; ack="Done - I've updated the Consulting engagement unit price to $650. Your Consultin"
+  [FAIL] utilization: should-be + old -> utilization_rate=0.75: stored 0.6; ack="Done - I've updated utilization on Consulting engagement to 60%. Your Consulting"
+  [FAIL] utilization: 'not' old value -> utilization_rate=0.8: stored 0.55; ack="Done - I've updated utilization on Consulting engagement to 55%. Your Consulting"
+  [FAIL] price: several unmarked candidates REFUSE (no write): 700.0
+  [PASS] price: sentence-scoped - other sentences' figures never compete: 650.0
+
+A2 - #134: a net-N payment term is never a capacity/price/count candidate (real Fernhill sentence, at the wall)
+  [FAIL] Fernhill 'net 45' proposes NO ops move: move={'key': 'ops.units_per_period_capacity', 'value': 45.0, 'label': 'capacity', 'attributed': True}
+  [PASS] 'Our terms are net 45.' -> no move: move=None
+  [FAIL] 'Customers pay net-30 mostly.' -> no move: move={'key': 'ops.units_per_period_capacity', 'value': 30.0, 'label': 'capacity', 'attributed': True}
+  [FAIL] 'Clients are on net 60 days; a few pay net 30.' -> no move: move={'key': 'ops.units_per_period_capacity', 'value': 60.0, 'label': 'capacity', 'attributed': True}
+  [PASS] control: a real client-count capacity statement still moves (40): move={'key': 'ops.units_per_period_capacity', 'value': 40.0, 'label': 'capacity', 'attributed': True}
+
+A4 - #122: an undeclared price-tier claim never reaches the positioning copy
+  [FAIL] scrub exists on target_market_consultant
+  [FAIL] finalize prompt no longer invites a value/mid-market/premium tier
+
+RED: 10 failing -> ['price: should-be + old -> unit_price=650.0', "price: 'not' old value -> unit_price=700.0", 'utilization: should-be + old -> utilization_rate=0.75', "utilization: 'not' old value -> utilization_rate=0.8", 'price: several unmarked candidates REFUSE (no write)', "Fernhill 'net 45' proposes NO ops move", "'Customers pay net-30 mostly.' -> no move", "'Clients are on net 60 days; a few pay net 30.' -> no move", 'scrub exists on target_market_consultant', 'finalize prompt no longer invites a value/mid-market/premium tier']
