@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   DISCOVERY FIX F1+F2+F3 (RE-SEEDED: the first launch was killed at 4 min to fold in F3 — start fresh; a partial edit was discarded) — Nick's ruling after confirming run #1 (Cormorant
@@ -68,9 +68,17 @@ TASK:
   via --only); ask text existence-framed, forbidden-phrase grep clean;
   floor. Green -> stop -> Nick re-runs the confirming run.
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
-  ERROR-SIGNATURE: none
-  EVIDENCE: (superseded — new instruction seeded)
-  SUMMARY: The previous turn's RESULT was superseded by a new
-  instruction; it remains in git history.
+  ERROR-SIGNATURE: read_stream_discovery_answer:single_token_mention_flips_explicit_no_to_yes
+  EVIDENCE: 800c855; Test Files/_stream_discovery_f123_redproof.py (+ _20260815_PRE.txt RED 7 fails = the exact Cormorant latch reproduced, all 8 dropped / _20260815_POST.txt GREEN 55 checks); Test Files/_stream_discovery_redproof_20260815_postF123.txt (original red-proof still GREEN 96); Test Files/_live_discovery_cormorant_clone_20260815.txt (live ask verbatim + latch); Test Files/_gate_only_R31_R32_20260815_F123.txt (floor GREEN 2/2); Test Files/_discovery_reader_F4_repro_20260815.txt
+  SUMMARY: F1+F2+F3 SHIPPED validator-only (gpt_stream_discovery.py section 3 + the ONE call site in _stream_discovery_ask_if_due; judge prompt, seam, gate, engine, capture, _resolve_ops_product_line untouched - discovery no longer calls the resolver; its correction callers unchanged, verified). F1: discovery_dedup_reason - category nouns = business_type + NAICS-title stems (+ the LOB name's category word); matches_existing_line needs a NON-category shared token or >=2 shared with one row; NEW ground mentioned_by_client (distinguishing tokens covered by the client-confirmed description / unit descriptions) is what keeps 'wholesale coffee beans' + 'online coffee bean sales' deduped on Cormorant (row-name tokens alone are {roasted, coffee} - the task's expected outcome is unreachable without it; flag if Nick disagrees). F2: strip_size_qualifiers ('12 oz'/'5 lb'/'500ml'/'2-pack') -> label kept, judge_label recorded on the candidate; $/per-week/count figures still label_carries_number. F3: STREAM_DISCOVERY_PROPOSAL_CAP=4, propose_from_survivors most-first then many; latch = candidates(asked) + proposed + survivors + proposal_cap + dropped. Offline: exact Cormorant latch PRE red -> POST green (retail coffee bags / office coffee supply accounts / private label coffee roasting asked; wholesale/online deduped; 3 some dropped); 6 survivors -> 4 asked, 3 -> 3. LIVE (rewound clone of ec1e22ef, real judge): the ask RENDERED at the seam on the growth-lever turn: 'Before we wrap up operations: a lot of coffee roasters also wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions. Is any of that part of your business today? If not, just say so and we'll move on.' - 16 judged, 10 survivors, 4 proposed (the one most first), '12 oz retail coffee bags' stripped -> duplicate of the judge's own 'retail coffee bags'. LABEL GRAMMAR WATCH: 'coffee roasters also <noun phrase>' reads verb-less; template untouched (not in task). DECLARED-vs-ACTUAL: matches - spot-check tier, files as declared, canary skipped, floor R31/R32 via --only GREEN. VERDICT progress not green because the live clone SURFACED F4 (out of scope, NOT built): the ANSWER READER (section 5) read 'No, none of those. We just do the five pound wholesale bags.' as YES for 'wholesale subscription contracts' on the single shared token 'wholesale' (clause 'we just do the ... wholesale bags' names it, no negation in that clause) -> receipt 'Noted - wholesale subscription contracts is its own line' + a discovery_confirmed row appended ON AN EXPLICIT NO. Repro in _discovery_reader_F4_repro_20260815.txt ('No. Retail bags no, subscriptions no. Just wholesale to cafes.' -> yes as well). Same class as F1 (one-token over-match) in the reader; the 2 FAILs in the live file are this. Deal-breaker candidate: a false receipt + phantom line on the guided path (row is null-driver; the cascade then asks its numbers). Fix shape if ruled: a clause names a candidate only on a distinguishing token or >=half its tokens, and a leading whole-reply 'no/none of those' settles all NO. Nick's call.
+TASK:
+  TURN 2 (mini, SPOT-CHECK audit of 800c855):
+  - diff confined to the validator/dedup path: gpt_stream_discovery.py section 3 (+ docstring/constants) and the one validate_stream_candidates call in _stream_discovery_ask_if_due; the judge prompt/_SUBMIT_TOOL, the seam, the reader, carry, resolver unchanged (git diff 4fcbdee..800c855 -- python/).
+  - red-proof: run Test Files/_stream_discovery_f123_redproof.py (GREEN); confirm the PRE file is red for the RIGHT reason (the exact 8-drop latch reproduced, then AttributeError on the new helpers).
+  - _resolve_ops_product_line callers unchanged: grep + one correction leg via --only (your pick from the correction legs).
+  - ask text existence-framed, forbidden-phrase grep clean (live file has it verbatim); floor R31/R32 GREEN (file attached).
+  - classify F4 (the reader defect) for Nick's triage: deal breaker or not; it is NOT built. Recommend: if deal breaker, one spot-check turn for VS on read_stream_discovery_answer only.
+  - the mentioned_by_client dedup ground was VS's design call to reach the task's expected outcome (wholesale/online stay deduped) - flag it to Nick as a check, not a finding, unless you see a hole.
+  Green -> STATUS awaiting-Nick (Nick re-runs the confirming run once F4 is ruled).
