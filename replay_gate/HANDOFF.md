@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 0/16
+TURN: 1/16
 TASK:
   TRIAGE TURN — NICK'S NEW STANDING LAW, APPLIED NOW (this seed
   supersedes any fix TASK written at the last flip; that TASK stays in
