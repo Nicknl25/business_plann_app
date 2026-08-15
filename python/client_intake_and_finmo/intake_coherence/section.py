@@ -1007,6 +1007,8 @@ def refresh_eval_stamps(
     eval_result["basis_growth"] = {
       "used": "judged" if use_judged else "fence",
       "judged_multiple": round(growth_mult, 4) if growth_mult else None,
+      # CW-022 #101: the stated-capacity wall, visible on the stamp.
+      "growth": eval_result.get("growth"),
     }
     gap = _f(eval_result.get("gap_quarterly"))
     state = dict(state)
@@ -1018,6 +1020,7 @@ def refresh_eval_stamps(
       "thresholds": eval_result.get("thresholds"),
       "binding": binding_constraint(eval_result),
       "q20_hold": _q20_hold(eval_result, band),
+      "growth": eval_result.get("growth"),
     }
     state["gap_open"] = gap
     eval_flat = _ctl.evaluate_current(
@@ -1853,27 +1856,11 @@ def _converged_suffix(
 # ------------------------------------------------------------------ gate
 
 def _ops_implied_and_ceiling(ops_json: Dict[str, Any]) -> Tuple[float, float]:
-  """(CW-022 #2) The operation's own annual revenue arithmetic:
-  implied = sum(price x capacity x periods x utilization) and the
-  physical ceiling = the same at utilization 1.0. Zero when the model
-  carries no unit-driven products (non-unit businesses skip the check)."""
-  implied = 0.0
-  ceiling = 0.0
-  for lob in (ops_json or {}).get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for p in lob.get("products") or []:
-      if not isinstance(p, dict):
-        continue
-      price = _f(p.get("unit_price"))
-      cap = _f(p.get("units_per_period_capacity"))
-      periods = _f(p.get("operating_periods_per_year")) or 12.0
-      util = _f(p.get("utilization_rate"))
-      util = util if 0.0 < util <= 1.0 else 1.0
-      if price > 0 and cap > 0:
-        implied += price * cap * periods * util
-        ceiling += price * cap * periods
-  return implied, ceiling
+  """(CW-022 #2) The operation's own annual revenue arithmetic - ONE
+  home, evaluator.ops_implied_and_ceiling, shared with the #101 growth
+  wall so the hold's ceiling and the wall's ceiling can never diverge."""
+  from client_intake_and_finmo.intake_coherence.evaluator import ops_implied_and_ceiling
+  return ops_implied_and_ceiling(ops_json)
 
 
 def apply_retention_answer(
@@ -2308,6 +2295,8 @@ def gate_and_turn(
     eval_result["basis_growth"] = {
       "used": "judged" if use_judged else "fence",
       "judged_multiple": round(growth_mult, 4) if growth_mult else None,
+      # CW-022 #101: the stated-capacity wall, visible on the stamp.
+      "growth": eval_result.get("growth"),
     }
   if eval_result is None:
     # No revenue basis at all — nothing structural to say; let the
@@ -2324,6 +2313,8 @@ def gate_and_turn(
     "gap_quarterly": gap,
     "q11": eval_result.get("q11"),
     "thresholds": eval_result.get("thresholds"),
+    # CW-022 #101: requested multiple / stated-capacity wall / used.
+    "growth": eval_result.get("growth"),
     # The inequality that computes the gap, in client-facing terms — the
     # panel renders THIS, never a fixed band-floor template (CW-002).
     "binding": binding_constraint(eval_result),

@@ -3281,3 +3281,59 @@ position" resolves to: state the price, claim no tier - the app has no
 position fact to speak. If Nick wants a REAL market-position statement
 here, that needs a market price fact captured/asked at market stage =
 a feature decision, not built.
+
+### DEAL-BREAKER BATCH TURN C (VS, 2026-08-15) - A3 (#101): THE STATED-CAPACITY WALL, NEIGHBOR-CHECK
+
+The bug (still live on the pre-fix tree, re-proven this turn): the
+coherence gate's fence tier evaluates Q11 at anchor x 1.07^10 with NO
+capacity term. Fetch & Fluff turn 96 (real draft 50658fff, first-capture
+facts to the cent) PASSED at $24,097.60/q = $96,390/yr against a stated
+30 grooms/wk x $45 x 52 = $70,200/yr physical ceiling - 137% of what she
+said she can produce. The anchor hold (CW-022 #2) only guards Q1 (anchor
+vs ceiling); growth was a free licence past the wall.
+
+The fix (evaluator.basis_from_intake, ONE home): every coherence basis
+(fence, judged, corner, walk) caps its growth multiple at the
+PHYSICAL-CEILING MULTIPLE = (stated capacity x price x periods at 100%
+utilization) x PRICE_PATH_Q11 / revenue anchor. PRICE_PATH_Q11 =
+(1 + the deterministic proposer's own 1%/q drift)^10 = 1.1046 - the wall
+bounds THROUGHPUT (units), in the same currency the judged multiple is
+read in (the proposer's output includes that drift). Non-unit models (no
+priced products) carry no wall; the flat tier (1.0) is never touched; a
+consented volume/capacity move re-lands ops AND mirrors current_revenue,
+so the wall rises by construction. The ceiling arithmetic moved to
+evaluator.ops_implied_and_ceiling; section._ops_implied_and_ceiling now
+delegates (hold and wall can never diverge). controller.evaluate_current
+returns result["growth"] = {requested, capacity_ceiling_multiple, used,
+capped_by_stated_capacity}; the gate and refresh_eval_stamps stamp it
+into _coherence.eval.growth and basis_growth.growth (the artifact).
+
+Evidence: Test Files/_redproof_a3_capacity_fence.py (PREFIX: T1a/T1b/T2a
+red behaviourally - fence PASS at $96,390 > $77,544 wall, stamped
+passed=True; POSTFIX: ALL GREEN, capped multiple 1.5825, fence FAILS on
+fixed_cost_burden/band/ni, stamp shows the wall; controls: non-unit
+model untouched, a 3x-capacity shape byte-identical to the fence).
+Neighbor sweep (Test Files/_neighbor_sweep_a3_capacity_wall.py, 40 most
+recent real drafts with a band stamp, PRE vs POST): 34/40 carry a wall
+below the fence, ONLY 3 flip fence PASS -> FAIL (b1f4fac7 appliance
+repair 55/wk @78% util, 2ecc759c grounds maintenance 34/mo @82%,
+3de095cb commercial cleaning 60/wk @80%) - each was already the
+fence-pass + judged-fail divergence class (eval_judged_shortfall stored
+on all three), i.e. exactly F&F's shape; zero gap-only moves; anchor-hold
+arithmetic identical on all 40; flat tier identical; corner identical
+where bounds existed. Neighbor legs through gate_and_turn (R19, R21,
+U02, U05, R25, R30) all GREEN on the fixed tree; floor R31+R32 GOLDEN
+(digests 72dfcb81 / 24e38de4 / 1d50e46a / cbd76463 unchanged).
+
+Known residuals (flagged, not built - triage law):
+- _volume_move_basis / _price_move_basis carry the PRE-move capped
+  growth into a lever's closes-projection; after landing the gate
+  re-evaluates on the real wall, so a "closes about $X" can overstate
+  by the utilization the move consumed - never a false pass (the
+  verdict is the gate's), only a narration precision item.
+- _intake_current_structure (bounds author payload) still shows
+  revenue_lines_quarterly q11 at the raw fence - GPT input only.
+- The FAIL narration does not yet NAME capacity as the binding cause
+  ("where a single input is the cause, the system should name it" -
+  #101 expected). Feature decision for Nick; the verdict itself is now
+  honest.

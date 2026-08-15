@@ -1,0 +1,14 @@
+stated ops: cap=30.0/period x 52 periods x $45 -> physical ceiling $70,200/yr; anchor $49,000
+T1 fence: passed=False q11 rev $19,386.12/q ($77,544/yr) growth={'requested': 1.967151, 'capacity_ceiling_multiple': 1.58254, 'used': 1.58254, 'capped_by_stated_capacity': True}
+  PASS T1a fence Q11 revenue does not exceed the stated-capacity ceiling on the price path  [77,544 vs 77,544]
+  PASS T1b fence verdict FAILS on F&F first-capture facts (was PASS at 137% of capacity)
+  PASS T1c growth stamp shows requested/ceiling/used and capped flag
+T2 refresh_eval_stamps: eval.passed=False failed=['fixed_cost_burden', 'ebitda_band_low', 'ni_floor'] growth={'requested': 1.183989, 'capacity_ceiling_multiple': 1.58254, 'used': 1.183989, 'capped_by_stated_capacity': False}
+  PASS T2a stamped eval is NOT a pass
+  PASS T2b stamped eval carries the growth wall (artifact)
+  PASS T3 an over-capacity judged multiple is capped at the wall  [wall=1.5825]
+  PASS C1 non-unit model keeps the fence exactly (no wall)
+  PASS C1b non-unit model: ceiling multiple is None, verdict is the pre-fix fence verdict (PASS)
+  PASS C2 wall above the fence: growth used == fence, verdict unchanged from pre-fix (PASS)
+
+ALL GREEN

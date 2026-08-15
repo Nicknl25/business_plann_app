@@ -1,0 +1,245 @@
+Proving 6 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R19   retention-consumed               18f5ca5   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'. Honest but NOT behavioural - the capability did not exist at this commit. SETTLED ON SOURCE, not on the grep alone. At 18f5ca5 the frame DOES exist (retention_pending is written at section.py:2082 with prices + retained_used) and a consumer DOES exist - but only INLINE inside the coherence round-resolution path, keyed on a router patch 'coherence.retention_answer' (section.py:1115-1160). What is entirely absent is the link from the client's PROSE to that value: _parse_retention_answer = 0 occurrences, and apply_retention_answer = 0 (af791ec extracted the inline consumer into a callable AND added the parser AND wired it at any surface). So there is no behavioural red available: a leg aimed at the consumer would go GREEN on 18f5ca5 (the consumer worked - that was never the bug), and the bug's actual behaviour - a retention answer arriving at the done-focus surface and moving nothing - is only exercised inside post_intake_consult_handler, which the gate does not drive (its surface is _run_financials_turn_and_sync). PROMOTION PATH: if the deterministic resolve is ever lifted out of the HTTP handler into the turn chain, re-fixture to drive MSG_97 through ctx.turn with the frame stamped and assert stored utilization 0.78 -> 0.702.
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\18f5ca5 @ 18f5ca5
+         | ==============================================================================
+         | [ FAIL ] R19 REGRESSION retention-consumed [CW-027 #131]
+         |           the retention answer is consumed at any surface and moves utilization
+         |           ERROR: leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: retention-consumed [CW-027 #131]  (R19)
+         |         the retention answer is consumed at any surface and moves utilization
+         |         leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+         |         fixed at af791ec, was live at 18f5ca5
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] R19 REGRESSION retention-consumed [CW-027 #131]
+         |           the retention answer is consumed at any surface and moves utilization
+         |           HOLDS: applied = True; stored utilization = 0.702 (want 0.702, was 0.78); revenue = 379080.0 (want 379,080 from 421,200); frame cleared = True; W4 bare figures parsed as retention = (None, None) (want (None, None))
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R21   reconciliation-hold-consumes     af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R21 REGRESSION reconciliation-hold-consumes [CW-028 #2]
+         |           the reconciliation hold moves the driver and never re-issues verbatim
+         |           REGRESSED: second hold differs from the first = False; exposes its stored operands = False (the repeat must show what it is computing from, never re-issue the same text)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: reconciliation-hold-consumes [CW-028 #2]  (R21)
+         |         the reconciliation hold moves the driver and never re-issues verbatim
+         |         second hold differs from the first = False; exposes its stored operands = False (the repeat must show what it is computing from, never re-issue the same text)
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] R21 REGRESSION reconciliation-hold-consumes [CW-028 #2]
+         |           the reconciliation hold moves the driver and never re-issues verbatim
+         |           HOLDS: second hold differs from the first = True; exposes its stored operands = True (the repeat must show what it is computing from, never re-issue the same text)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U02   fernhill-round-trip              909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U02 REGRESSION fernhill-round-trip [ENGINE p1]
+         |           PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           SQL read-back: units_per_period_capacity = 45.0, want 80 - the landing did NOT survive the persist (the receipt said it landed; the database disagrees)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: fernhill-round-trip [ENGINE p1]  (U02)
+         |         PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |         no forward move: value did not land and nothing was proposed
+         |         SQL read-back: units_per_period_capacity = 45.0, want 80 - the landing did NOT survive the persist (the receipt said it landed; the database disagrees)
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] U02 REGRESSION fernhill-round-trip [ENGINE p1]
+         |           PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |           LAND: value landed in the stored field
+         |           receipt landed, SQL read-back period = 80.0 (survived), and the next turn's conflict check cleared = True (if it re-fires, the corrected value never reached the gate)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U05   pin-escalation                   909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U05 REGRESSION pin-escalation [ENGINE p1]
+         |           three holds, three distinct messages, the third offers the direct set
+         |           REGRESSED: three holds produced 2 distinct messages (want 3); the third escalates to the direct set = False (at 909f66f the operand message repeats verbatim from the second onward)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: pin-escalation [ENGINE p1]  (U05)
+         |         three holds, three distinct messages, the third offers the direct set
+         |         three holds produced 2 distinct messages (want 3); the third escalates to the direct set = False (at 909f66f the operand message repeats verbatim from the second onward)
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] U05 REGRESSION pin-escalation [ENGINE p1]
+         |           three holds, three distinct messages, the third offers the direct set
+         |           HOLDS: three holds produced 3 distinct messages (want 3); the third escalates to the direct set = True (at 909f66f the operand message repeats verbatim from the second onward)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R25   goal-anchor-roadmap              539fb17   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\539fb17 @ 539fb17
+         | ==============================================================================
+         | [ FAIL ] R25 REGRESSION goal-anchor-roadmap [conv-state #1]
+         |           the roadmap builds toward the client's own stated 12-month goal
+         |           REGRESSED: ANCHOR: the roadmap never names the client's goal - msg: "First: that change is recorded exactly as you chose it. It didn't move the numbers the way we hoped, so here's the honest picture. Here's where things honestly stand. The business you've described is " (at 539fb17 the paths are framed as distance with nothing to be distant FROM)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: goal-anchor-roadmap [conv-state #1]  (R25)
+         |         the roadmap builds toward the client's own stated 12-month goal
+         |         ANCHOR: the roadmap never names the client's goal - msg: "First: that change is recorded exactly as you chose it. It didn't move the numbers the way we hoped, so here's the honest picture. Here's where things honestly stand. The business you've described is " (at 539fb17 the paths are framed as distance with nothing to be distant FROM)
+         |         fixed at 13fae7c, was live at 539fb17
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] R25 REGRESSION goal-anchor-roadmap [conv-state #1]
+         |           the roadmap builds toward the client's own stated 12-month goal
+         |           HOLDS: capture holds, the roadmap names the client's own goal ('60 visits'), and with no goal captured the copy stays untouched
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R30   price-change-stamps-retention    9d2c41c   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\9d2c41c @ 9d2c41c
+         | ==============================================================================
+         | [ FAIL ] R30 REGRESSION price-change-stamps-retention [WS2]
+         |           a price change stamps the retention frame; a non-price move does not
+         |           REGRESSED: a price change through the forward-move door left retention_pending = None - no frame, so a client who volunteers 'I'd keep 85%' has nothing to consume it and utilization never moves
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: price-change-stamps-retention [WS2]  (R30)
+         |         a price change stamps the retention frame; a non-price move does not
+         |         a price change through the forward-move door left retention_pending = None - no frame, so a client who volunteers 'I'd keep 85%' has nothing to consume it and utilization never moves
+         |         fixed at c77094a, was live at 9d2c41c
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 2d57218
+         | ==============================================================================
+         | [  ok  ] R30 REGRESSION price-change-stamps-retention [WS2]
+         |           a price change stamps the retention frame; a non-price move does not
+         |           HOLDS: price move -> frame stamped {'prices': [{'product': 'Property contract', 'to': 650.0}], 'retained_used': 1.0}; non-price move -> None (must be None)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+------------------------------------------------------------------------------
+COUNT   5 proven BEHAVIOURALLY (red shows the bug behaving)
+        1 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        6 legs total
+
+  STRUCTURAL-ABSENCE (1) - honest, declared, NOT behavioural:
+    - R19 retention-consumed @ 18f5ca5: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+    The capability did not exist at these commits, so no behavioural
+    red was available. They guard the CURRENT build (their green side
+    is behavioural); they do not prove the broken side.
+
+  CLEAN - 5 legs go red BEHAVIOURALLY on the commit where
+  their bug was live and green on the fix; 1 are declared
+  STRUCTURAL-ABSENCE. No unearned proofs. The gate is on the real chain.

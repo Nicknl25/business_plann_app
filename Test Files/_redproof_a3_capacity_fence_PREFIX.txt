@@ -1,0 +1,12 @@
+stated ops: cap=30.0/period x 52 periods x $45 -> physical ceiling $70,200/yr; anchor $49,000
+T1 fence: passed=True q11 rev $24,097.60/q ($96,390/yr) growth={}
+  RED  T1a fence Q11 revenue does not exceed the stated-capacity ceiling on the price path  [96,390 vs 77,544]
+  RED  T1b fence verdict FAILS on F&F first-capture facts (was PASS at 137% of capacity)
+  RED  T1c growth stamp shows requested/ceiling/used and capped flag
+T2 refresh_eval_stamps: eval.passed=True failed=[] growth=None
+  RED  T2a stamped eval is NOT a pass
+  RED  T2b stamped eval carries the growth wall (artifact)
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\Test Files\_redproof_a3_capacity_fence.py", line 102, in <module>
+    from client_intake_and_finmo.intake_coherence.evaluator import growth_multiple_from_judged, capacity_growth_ceiling
+ImportError: cannot import name 'capacity_growth_ceiling' from 'client_intake_and_finmo.intake_coherence.evaluator' (C:\dev\business_plann_app\python\client_intake_and_finmo\intake_coherence\evaluator.py)

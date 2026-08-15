@@ -46,13 +46,34 @@ from __future__ import annotations
 import re as _re
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from client_intake_and_finmo.post_intake_headcount.deterministic_revenue_proposer import (
+  _DEFAULT_PRICE_INFLATION_QOQ as _PROPOSER_PRICE_INFLATION_QOQ,
+)
 
 
 # Q1 -> Q11 authorable growth ceiling: ten quarters at the model's own
 # 7% QoQ cap. The engine may land anywhere at or below this; the
 # verdict evaluates at the ceiling (exists-authorable, see module doc).
 GROWTH_FENCE_Q11 = 1.07 ** 10
+
+# CW-022 #101 (A3, Nick-approved deal breaker): THE STATED-CAPACITY WALL.
+# The fence is an authorable-GROWTH ceiling, not a throughput licence: a
+# Q11 point that needs more units than the client's stated capacity can
+# physically produce is not authorable from THIS operation - Fetch & Fluff
+# turn 96 PASSED at $96,390/yr against a 30-grooms/wk x $45 x 52 =
+# $70,200/yr ceiling (137% of capacity) and the plan certified numbers
+# the client had said she cannot produce. Every coherence basis (fence,
+# judged, corner, walk) therefore caps its growth multiple at the
+# PHYSICAL-CEILING MULTIPLE = (stated capacity x price x periods at 100%
+# utilization, on the engine's own Q1->Q11 price path) / revenue anchor.
+# The price path is the deterministic proposer's own 1%/q drift - the
+# same currency the judged multiple is read in - so the wall bounds
+# THROUGHPUT (units), never the price the engine already authors.
+# Non-unit-driven models (no priced products) carry no wall; a consented
+# capacity move re-lands ops and raises the wall by construction.
+PRICE_PATH_Q11 = (1.0 + _PROPOSER_PRICE_INFLATION_QOQ) ** 10
 
 # Advisory debt arithmetic (the lender's seat — never judged).
 SBA_ANNUAL_RATE = 0.105
@@ -290,6 +311,51 @@ def growth_multiple_from_judged(
   return qn_total / q1_total
 
 
+# ------------------------------------------------------------------ capacity wall
+
+def ops_implied_and_ceiling(ops_json: Optional[Dict[str, Any]]) -> Tuple[float, float]:
+  """(CW-022 #2 / #101) The operation's own annual revenue arithmetic:
+  implied = sum(price x capacity x periods x utilization) and the
+  physical ceiling = the same at utilization 1.0. Zero when the model
+  carries no unit-driven products (non-unit businesses skip the check).
+  ONE arithmetic for the gate's anchor hold and the growth wall."""
+  implied = 0.0
+  ceiling = 0.0
+  for lob in (ops_json or {}).get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for p in lob.get("products") or []:
+      if not isinstance(p, dict):
+        continue
+      price = _f(p.get("unit_price"))
+      cap = _f(p.get("units_per_period_capacity"))
+      periods = _f(p.get("operating_periods_per_year")) or 12.0
+      util = _f(p.get("utilization_rate"))
+      util = util if 0.0 < util <= 1.0 else 1.0
+      if price > 0 and cap > 0:
+        implied += price * cap * periods * util
+        ceiling += price * cap * periods
+  return implied, ceiling
+
+
+def capacity_growth_ceiling(
+  ops_json: Optional[Dict[str, Any]],
+  annual_revenue_anchor: float,
+) -> Optional[float]:
+  """The Q1->Q11 revenue multiple at which the stated operation is
+  flat-out: physical ceiling x the engine's own price path / anchor.
+  None when the model has no unit-driven products or no anchor (no
+  wall to apply); never below 1.0 (an anchor already above the ceiling
+  is the anchor hold's job, not this wall's)."""
+  anchor = _f(annual_revenue_anchor)
+  if anchor <= 0:
+    return None
+  _implied, ceiling = ops_implied_and_ceiling(ops_json)
+  if ceiling <= 0:
+    return None
+  return max(1.0, (ceiling * PRICE_PATH_Q11) / anchor)
+
+
 # ------------------------------------------------------------------ bases
 
 def basis_from_intake(
@@ -372,6 +438,17 @@ def basis_from_intake(
   debt = _f(fin.get("total_debt_outstanding"))
   capex = _f(fin.get("current_capex"))
 
+  # CW-022 #101: the stated-capacity wall on growth (see PRICE_PATH_Q11).
+  growth_requested = _f(growth_to_q11, GROWTH_FENCE_Q11)
+  wall = capacity_growth_ceiling(ops_json, ann_rev)
+  growth_used = min(growth_requested, wall) if wall is not None else growth_requested
+  notes["growth"] = {
+    "requested": round(growth_requested, 6),
+    "capacity_ceiling_multiple": round(wall, 6) if wall is not None else None,
+    "used": round(growth_used, 6),
+    "capped_by_stated_capacity": bool(wall is not None and growth_used < growth_requested),
+  }
+
   return StructuralBasis(
     q1_revenue_quarterly=ann_rev / 4.0,
     cogs_pct=cogs_pct,
@@ -381,7 +458,7 @@ def basis_from_intake(
     marketing_pct=(marketing_annual / ann_rev) if ann_rev else 0.0,
     interest_quarterly=debt * SBA_ANNUAL_RATE / 4.0,
     depreciation_quarterly=capex * 0.05,
-    growth_to_q11=growth_to_q11,
+    growth_to_q11=growth_used,
     notes=notes,
   )
 
@@ -555,6 +632,9 @@ def evaluate_intake_coherence(
 
 __all__ = [
   "GROWTH_FENCE_Q11",
+  "PRICE_PATH_Q11",
+  "ops_implied_and_ceiling",
+  "capacity_growth_ceiling",
   "SBA_ANNUAL_RATE",
   "COVERAGE_FLOOR",
   "StructuralBasis",

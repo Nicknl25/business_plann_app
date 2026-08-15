@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 3/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -2012,6 +2012,69 @@ TASK:
     never independently verified. Artifact-audit them now, plus A3.
     On a genuinely clean table: VERDICT green — the watcher stops and
     pings Nick. Feature decisions remain his to rule on after.
+  Standing laws apply every turn: TURN PLAN first (emit, then proceed),
+  context scoped to the task, SPOT-CHECK the fix by default (neighbor-
+  check only for shared high-fan-out code; full apparatus only for
+  engine-math/golden changes), single-line floor every turn,
+  declared-vs-actual confirmed in every RESULT.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none-turnC-A3-landed-turnD-audit-pending
+  EVIDENCE: Test Files/_redproof_a3_capacity_fence.py (+ _PREFIX.txt red /
+    _POSTFIX.txt ALL GREEN); Test Files/_neighbor_sweep_a3_capacity_wall.py
+    (PRE/POST sweep of 40 real drafts, summary in VS_NOTES TURN C);
+    _prove_20260815_turnC_neighbors.txt (R19,R21,U02,U05,R25,R30 GREEN);
+    _prove_20260815_turnC_floor.txt (R31+R32 GOLDEN, digests unchanged);
+    VS_NOTES 'DEAL-BREAKER BATCH TURN C' section
+  SUMMARY: A3 (#101) LANDED. Bug re-proven live first: the fence tier
+    (1.07^10) had no capacity term - F&F turn 96 (real draft 50658fff,
+    first-capture facts) PASSED at $96,390/yr on a $70,200/yr physical
+    ceiling (30/wk x $45 x 52). Fix = ONE home, evaluator.basis_from_intake:
+    every coherence basis (fence/judged/corner/walk) caps its growth
+    multiple at (stated capacity x price x periods at 100% util) x the
+    engine's own 1%/q price path / anchor; non-unit models no wall; flat
+    tier untouched; wall visible in the stamp (_coherence.eval.growth =
+    requested/capacity_ceiling_multiple/used/capped). Anchor-hold ceiling
+    arithmetic delegated to the same function. F&F now FAILS at 1.5825x
+    (fixed_cost_burden/band/ni), stamp shows it. DECLARED-vs-ACTUAL:
+    MATCHES - NEIGHBOR-CHECK as declared (shared basis code; not engine
+    math), files touched exactly evaluator.py/controller.py/section.py +
+    two new Test Files scripts + VS_NOTES; neighbors named and checked
+    (gate tiers, refresh stamp, corner, anchor hold, non-unit/low-util
+    shapes; 40-draft PRE/POST sweep: only 3 fence flips, all the
+    fence-pass+judged-fail class; 6 gate_and_turn legs green); floor
+    GOLDEN; canary SKIPPED as declared. Backend restarted, ONE :5050
+    listener. Not green: turn D (mini audit) remains.
+    ASSUMPTION stated for Nick (not a ruling gate): the wall admits the
+    engine's own 1%/q price drift (PRICE_PATH_Q11=1.1046) so it bounds
+    units, not the price the engine already authors; a stricter
+    stated-price wall is a one-constant change if he rules otherwise.
+    FLAGS (not built, triage law): (i) lever closes-projections carry
+    the pre-move wall (narration precision, never a false pass);
+    (ii) bounds-author payload q11 still at raw fence (GPT input);
+    (iii) FAIL narration does not yet NAME capacity as the cause =
+    feature decision.
+TASK:
+  TURN-TIMEOUT-MINUTES: 120
+  TURN D (mini): the OWED turn-5 audit, SPOT-CHECK EACH FIX - does each
+    landed fix (D1-D5+X2, a4dc230) show correctly in its artifact, was
+    each tier call honest. NOT a full re-audit of the system. Where a
+    turn-5 fix changed shared high-fan-out code (the forward mover did),
+    neighbor-check THAT fix's named neighbors - not the universe. Also
+    spot-check A3 at the tier VS declared (NEIGHBOR-CHECK - verify the
+    call): re-run Test Files/_redproof_a3_capacity_fence.py on HEAD
+    (expect ALL GREEN) and read _PREFIX.txt (T1a/T1b/T2a must be
+    behavioural reds, T3 import traceback is structural); confirm the
+    diff is confined to evaluator.basis_from_intake + the ceiling helper
+    move + result/stamp plumbing; confirm the 40-draft sweep claim (only
+    3 fence flips, each with eval_judged_shortfall already stored);
+    re-run --only R31,R32. Original context: the original mini session
+    died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
+    never independently verified. Artifact-audit them now, plus A3.
+    On a genuinely clean table: VERDICT green - the watcher stops and
+    pings Nick. Feature decisions (incl. VS's three A3 flags and the
+    price-path assumption) remain his to rule on after.
   Standing laws apply every turn: TURN PLAN first (emit, then proceed),
   context scoped to the task, SPOT-CHECK the fix by default (neighbor-
   check only for shared high-fan-out code; full apparatus only for

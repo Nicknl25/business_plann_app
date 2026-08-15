@@ -1163,6 +1163,10 @@ def evaluate_current(
     "ni_floor": thresholds.ni_floor,
     "judged": thresholds.judged,
   }
+  # CW-022 #101: the growth actually evaluated (requested multiple, the
+  # stated-capacity wall, the multiple used) rides the result so every
+  # stamp and trace can show WHY a verdict sits where it sits.
+  result["growth"] = dict(basis.notes.get("growth") or {})
   return result
 
 
