@@ -1,51 +1,38 @@
-STATUS: stopped-fault
-TURN: 6/16
+STATUS: awaiting-mini
+TURN: 0/16
 TASK:
-  TURN-TIMEOUT-MINUTES: 240
-  NICK'S REVISION + STANDING ORDERS (2026-08-14 evening — this is the
-  complete current task; it merges the revision onto the earlier orders):
-  (a) NO RETROFIT — RULED. Do NOT extend the A-113 retraction into the
-  pre-existing CW-032/CW-017b doors. They are working; leave them. An
-  unreachable state is not a bug, and rewriting working doors to enforce
-  a boundary they are not violating is retrofit for its own sake. THE
-  GUIDED-FLOW PRINCIPLE IS A DESIGN LAW GOING FORWARD, not a mandate to
-  re-audit existing code:
-  - NEW and IN-PROGRESS work respects the boundary (off-path sequences
-    prevented/redirected, never supported; honesty always in scope).
-  - EXISTING working doors stay as they are — no hunting them down to
-    match the new paradigm.
-  - ONLY exception: if a pre-existing door actually mishandles a
-    REACHABLE case (wrong value on something a client can hit on the
-    guided path), that is a real bug — fix it as a bug, not as
-    consistency retrofit.
-  The A-113 machinery already removed this turn STAYS REMOVED (it was
-  just-built, not pre-existing). Record the forward-only law in VS_NOTES.
-  (b) PROVENANCE STAMP — RULED conditionally: KEEP it if it is inert /
-  annotation-only; DROP it if it moves any value. Determine which it is
-  and SAY WHICH in the RESULT with the evidence.
-  (c) NATURALIZATION RULING — confirm it is landed (VS_NOTES design law,
-  ~line 1817, tombstoned once already) and STOP it resurfacing as an
-  open question. If any code path still re-derives a number in prose,
-  that is a bug against the landed law — name it.
-  BOARD ADDITION: put the owner_draw_ceiling ORPHAN on the board.
-  THEN THE STANDING TASKS (from the prior seed, unchanged):
-  1. ADJUDICATE A-116 (correction_consumed_as_pending_stage_answer,
-     CW-025): read the ACTUAL question sequence and phrasing at that
-     flow point; rule on-path (fix) or off-path (confirm + retract),
-     citing the app copy. Take neither Cowork classification on faith.
-  2. CONFIRM THE BOARD in the RESULT: A-115's two kind-misreads
-     (COGS-rate-as-unit-price + phantom retention gate incl.
-     self-triggering recovery; capex "not recently, no" capturing the
-     excluded $380k -> double-count), receipt fidelity, the retention
-     probe, CW-023 owner-pay (needs a completed build), plus the new
-     owner_draw_ceiling orphan. Confirm A-115's two are the priority.
-  3. FIX A-115 FIRST (on-path honesty): COGS rate is a COGS rate (no
-     unit_price write, no retention stamp, no self-trigger); the
-     client's no is honored and the excluded figure never captured
-     (equipment base once); the ack contradiction dies. Artifact-verify
-     on the real CW-033 shapes.
-  4. Tier-3 discovery research (spec-only, docs/ deliverable) continues.
-  Mini artifact-verifies each fix; green stops for Nick.
+  TRIAGE TURN — NICK'S NEW STANDING LAW, APPLIED NOW (this seed
+  supersedes any fix TASK written at the last flip; that TASK stays in
+  git history and is INPUT to this turn, not work to hand VS).
+  TURN-TIMEOUT-MINUTES: 90
+  Nick's law (now in your bootstrap): NO finding becomes a fix turn
+  until it passes the triage test — "Does this put a WRONG NUMBER or a
+  FALSE CLAIM into a real client's DELIVERED PLAN, on the GUIDED PATH?"
+  THIS TURN: run EVERY open item through that test — your turn-6 audit
+  findings (your own RESULT/TASK in git history + your audit evidence
+  file), anything still open on the board (A-116 adjudication outcome,
+  receipt fidelity, retention probe, CW-023 owner-pay, owner_draw_ceiling
+  orphan, #267, unit_price cands[-1], retired-script debts), and any
+  other queued defect you can enumerate from HANDOFF history, VS_NOTES
+  open items, and the STAGES file. Build TWO BUCKETS:
+    DEAL BREAKERS — each with ONE LINE naming the wrong number / false
+    claim it puts in a delivered plan on the guided path, and the
+    per-fix blast-radius call (localized|system-touching) so the fix
+    turns can be grouped per the split law.
+    WONT-FIX — closed, each with a one-line reason (off-path;
+    manufactured shape; cosmetic-but-truthful; doesn't corrupt a
+    delivered plan). Close them in the registry/board as you go —
+    closed means closed, not parked.
+    FEATURE DECISIONS — anything that is new behavior dressed as a fix
+    (the X2 class). List for Nick; build nothing.
+  Do NOT write a fix TASK this turn. End with VERDICT: needs-ruling and
+  the three buckets in your RESULT/SUMMARY (point EVIDENCE at a triage
+  file if the buckets outgrow the block) — the watcher stops for Nick
+  and pings him the buckets. Nick picks the deal breakers to fix; the
+  next fix TASK gets written AFTER his ruling.
+  No prove, no canary, no app-code edits this turn — this is judgment on
+  paper over artifacts you already have. Load light: the findings, the
+  laws, the board. Emit your TURN PLAN first as always.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -1839,112 +1826,9 @@ TASK:
   it - all five fixes above are deterministic-layer, which is exactly
   why they are buildable without the ruling.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
-  ERROR-SIGNATURE: cw033:turn5-awaiting-artifact-audit
-  EVIDENCE: replay_gate/VS_NOTES.md CW-033 TURN 5 section;
-    Test Files/_redproof_cw033_turn5_fixes.py;
-    Test Files/_redproof_cw033_turn5_ablate.py;
-    Test Files/_live_cw033_turn5_turns.py;
-    _redproof_cw033_turn5_prefix_20260814.txt (pre-fix RED, 10 checks);
-    _redproof_cw033_turn5_fixes_20260814.txt (25/25 GREEN);
-    _redproof_cw033_turn5_ablate_20260814.txt (6 ablations);
-    _live_cw033_turn5_20260814.txt (W1-W5 GREEN);
-    _canary_cw033_turn5_sunnyv3_20260814.txt;
-    _prove_20260814_vs_cw033_turn5.txt; commit a4dc230
-  SUMMARY: All five fixes are landed at the layers you ruled, and the live
-  verification found and closed a THIRD D3 layer plus one latent claim. D1:
-  dropped-field figures are references (the note is their disposition) and
-  the mover never overwrites the turn's own stage write - your A3 wording
-  ends rent=2400.0 live. D2: a cadence binds only in the figure's own
-  clause; your C1 lands 9/9. D3: the disclosure filters stand aside as
-  ruled - and live, your C3 t2 dies at the COMPLETED/REOPEN surface (t1's
-  completion flips focus to done; the router re-based 40/wk onto both twins
-  raw there), so the cadence law now lives at that surface's write too; t2
-  ends period=173.3333 / wk=40.0 with the receipt in the client's cadence.
-  D4: the rent ack names the landed value - and the first prove QUARANTINED
-  R44 on it, exposing a LATENT $0-claim in the empty-state scalar ack
-  builder (pre-existing for every scalar stage); fixed, R44 re-earned.
-  D5: the ask ships alone and is not a landing. X2: the CW-017b door
-  converts or asks, conversion declared derivable. NATURALIZER EVIDENCE:
-  it INVERTED the cadence word of a deterministic receipt live (40 a week
-  spoken as 40 a month, numbers kept) - cadence receipts now ship VERBATIM.
-  Blast radius declared system-touching and the full apparatus ran on the
-  FINAL code: Sunny_V3 canary (PID 33964 postdates every edit, 0 errors,
-  delivery record #24 bound by draft_id) + full prove CLEAN: 65 legs, 58
-  PROVEN behavioural, 5 structural-absence, 2 golden, 0 DRIFT, 0 UNEARNED,
-  no quarantine. Turn plan declared via scripts/handoff_turn_plan.py (the
-  law landed mid-bootstrap at 2da12be; emitted after the first site-reads,
-  before any edit); actual matched the declaration plus two additions the
-  declared verification itself forced (the reopen-surface fix, the R44
-  latent fix). Not green: none of it is artifact-audited by you, Nick's
-  standing law.
-TASK:
-  TURN-TIMEOUT-MINUTES: 240
-
-  mini: audit turn 5 at the ARTIFACT level. Mechanisms, the honest edges,
-  and the two found-live fixes are in VS_NOTES CW-033 TURN 5 (+ the R44
-  addendum).
-
-  1. THE NEW SURFACE, adversarially - this turn's only genuinely NEW code
-     path. The completed/reopen cadence interception fires when
-     draft_status=completed or focus=done, the patch carries capacity
-     keys, and the message states a cadence. My live proof is ONE shape
-     (Sumac, single row). Attack: a MULTI-LINE model at the reopen
-     surface (row resolution via _resolve_ops_product_line - can a
-     wrong-line resolution convert the right number onto the WRONG
-     row?); the ask path there (mixed cadence at reopen must hold the
-     turn and write nothing); a capacity patch at reopen with NO stated
-     cadence (must behave exactly as before - the interception is
-     cadence-gated); and the router twin-echo pick (the stated-figure
-     preference when the two capacity keys carry DIFFERENT numbers).
-  2. THE R44-FOUND FIX, independently: the empty-state scalar ack now
-     claims nothing for ANY scalar stage (it used to speak $0 for a
-     write that never happened - latent everywhere, exposed by naming
-     rent). Verify a stage whose landed value IS a genuine 0 still
-     speaks $0, and that benign router prose ships again on empty-state
-     turns across a few stages, not just rent.
-  3. D1's SILENT EDGE, stated plainly in VS_NOTES: at the completed wall
-     the write-set guard kills a clobbering move with NO say-do note
-     (the wall has no note machinery). Construct the wall version of A3
-     and rule whether the silent kill is acceptable or the wall needs
-     the note. Also attack rule (a): a dropped field whose patch VALUE
-     differs from the message figure (router mangles 52,000 into 52) -
-     the reference then misses; say if that is reachable.
-  4. D2/D3 wordings of your own: clause forms I did not cover ("which
-     we invoice monthly", parentheticals, "40/wk" slash forms), a
-     cadence word before the figure's clause, and the D3 bypass on a
-     message carrying capacity + cadence + an UNRELATED figure matching
-     a stored value (the bypass is per-figure; the unrelated figure
-     must still be filtered).
-  5. THE VERBATIM-SHIP RULE's blast radius: a cadence-conversion turn
-     ships its receipt verbatim (naturalizer skipped). Verify an
-     ordinary reopen correction WITHOUT a capacity conversion still
-     naturalizes as before, and read my live W3 t2 full reply for
-     register quality - the receipt leads, then Updated: names both
-     twin cells; say if the double-speak needs trimming.
-  6. THE LEGS. Your promised R46 extension (the binding tooth + the
-     disclosure tooth) is now landable - shapes are my redproof checks
-     D2a-D2g / D3a-D3c, red at 2da12be. Judgment call yours: pin D1b
-     (the mover never overwrites the turn's own write), D5 (an ask
-     holds the turn), and the reopen-surface conversion as legs, or
-     leave them as redproofs - all have stable red shapes at 2da12be.
-  7. X2 on artifacts: rerun my X2a-X2e offline checks unmodified, then
-     one live market/people-focus turn with a cadence-differing
-     capacity correction (the reachable Alderfen path) - the ask must
-     lead the section reply via the refusal-note path.
-
-  NOT YOURS: R44-R47 pass untouched on the final code (R44 via the
-  latent fix above, table in _prove_20260814_vs_cw033_turn5.txt). The
-  at-rest week-twin re-derive on ask turns stays documentation-only
-  (your C6 note ii) - W5 notes it firing; the canonical cell is
-  untouched.
-
-  STILL NICK'S, SHARPENED THIS TURN: whether naturalization may touch a
-  deterministic receipt on write-carrying turns. New evidence, the
-  sharpest yet: handed a cadence-conversion receipt, the naturalizer
-  KEPT the numbers and FLIPPED the cadence word (40 a week -> 40 a
-  month (173 a period)) - a receipt FACT inverted while every figure
-  survived. The deterministic layer now ships cadence receipts verbatim
-  (defensible without the ruling, round 9's sibling); the ruling still
-  governs every other write-carrying turn.
+  ERROR-SIGNATURE: none
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
