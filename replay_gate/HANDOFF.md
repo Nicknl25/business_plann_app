@@ -1,93 +1,52 @@
-STATUS: awaiting-Nick
-TURN: 2/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
-  DISCOVERY F4 — Nick's ruling: DEAL BREAKER, fix it — but NOT with the
-  token/keyword heuristic mini sketched. "Scrap the keyword/affirmative-
-  phrase approach — that's a string-matching heuristic and we don't do
-  those." Two things, both consistent with how the rest of the app works.
-  Discovery-path only, SPOT-CHECK tier. Judge, seam, gate, capture,
-  validator (F1/F2/F3, already green) untouched. Floor R31/R32.
-  TURN-TIMEOUT-MINUTES: 90
-  TURN 1 (VS, SPOT-CHECK): DEAL BREAKER prevented: a phantom
-  discovery_confirmed row + a false "is its own line" receipt on an
-  explicit no (the guided-path reply shape to the ask). Two parts:
-   (1) ROUTE THE ANSWER THROUGH INTENT, don't keyword-match. The client's
-       reply to the discovery proposal goes through the SAME intent
-       classifier the app already uses for every other client answer
-       (the router / the yes-no-per-item reading the stage answers use —
-       find the existing door and use it; do NOT write a new matcher).
-       The answer is INFERRED per proposed candidate, never pattern-
-       matched:
-         intent affirmative ("yeah we've got a little cafe") -> confirm
-           that stream -> the existing append + receipt + capture.
-         intent negative ("no, we don't do a cafe" — even though "cafe"
-           is in the sentence) -> NOT confirmed, nothing appended, no
-           receipt claiming otherwise. A word appearing inside a decline
-           is NOT a yes.
-         intent ambiguous/unclear ("sort of, on weekends") -> CLARIFY
-           with ONE question, don't guess either way (this supersedes the
-           earlier "unclear => not confirmed" — record in the spec Q5).
-           Exactly one clarify; the clarify answer is read the same way;
-           still-unclear after that -> not confirmed, no re-ask.
-       Zero keyword-presence logic, zero exact-phrase requirements in
-       read_stream_discovery_answer — delete the token scoring; if the
-       classifier cannot understand the answer, it asks.
-   (2) TELL THE CLIENT WHY THEY'RE ASKED — briefly. The proposal must
-       make clear a yes ADDS A REVENUE LINE to their plan, so they answer
-       knowingly. ONE clause, not a lecture, e.g.:
-         "A lot of <type>s also offer <A>, <B> or <C> — is any of that
-          part of your business today? (If so I'll include it as a
-          revenue line.) If not, just say so and we'll move on."
-       Still the deterministic template constant; only labels
-       interpolate. Use a template verb ("also offer ...") so the
-       noun-phrase labels read naturally (closes the label-grammar WATCH
-       item: "coffee roasters also <noun phrase>" read verb-less). No
-       back-and-forth, no long explanation: one question, context
-       included, move on.
-   RED-PROOF BOTH WAYS on the reader (offline, the classifier door
-   stubbed/real): "No, none of those. We just do the five pound
-   wholesale bags." -> all NO, nothing appended (the bug, PRE red);
-   "No. Retail bags no, subscriptions no. Just wholesale to cafes." ->
-   all NO; "yeah we have a small cafe" -> affirmative -> appended;
-   "no retail bags, but yes subscriptions" -> mixed, only subscriptions
-   appended; "sort of, sometimes" -> ONE clarify rendered, nothing
-   appended; a second unclear -> not confirmed, no further ask. The
-   rendered proposal text contains the revenue-line clause and the
-   forbidden-phrase grep stays clean. Rerun _stream_discovery_f123_
-   redproof.py + _stream_discovery_redproof.py answer-path checks GREEN;
-   the live Cormorant clone answer path (the 2 FAILs in _live_discovery_
-   cormorant_clone_20260815.txt) turns GREEN. Floor R31/R32 via --only.
-   Canary skip. Update docs/STREAM_DISCOVERY_SPEC.md Q2 (template) + Q5
-   (intent-routed reader; unclear => one clarify). Flip to mini.
-  TURN 2 (mini, SPOT-CHECK audit): diff confined to the reader + the
-  template constant (+ spec); NO keyword/token matching remains in the
-  reader (grep); PRE red / POST green on the six replies; the classifier
-  used IS the app's existing intent door (name it); receipt law holds
-  (no receipt without an append); floor. Green -> stop -> Nick re-runs
-  Cormorant to verify the validator fix + reader live at the CURRENT
-  seam (the seam move is a later, separate turn).
+  DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
+  (Nine Fathom Coffee Roasters, draft 6d2823db, record: _confirm_discovery_
+  ninefathom_20260815.txt). SPOT-CHECK tier, discovery-path only. Judge,
+  validator (F1-F3), reader (F4), seam, gate, capture, engine untouched.
+  (The seam move to :16794 is a SEPARATE neighbor-check turn that follows
+  this one — do not do it here.)
+  TURN-TIMEOUT-MINUTES: 75
+  TURN 1 (VS, SPOT-CHECK):
+   1a LOB NESTING. A discovered stream nested UNDER another line's LOB:
+      Model Inputs reads "retail coffee bags / wholesale coffee sales to
+      grocery stores" — grocery wholesale is a PEER stream, not a
+      sub-product of retail bags. Root: the LOB-PLACEMENT step in
+      append_confirmed_stream_rows stem-matched on the category noun
+      "coffee" (F1's class, one step downstream). FIX (semantic, not a
+      heuristic): a confirmed discovered stream ALWAYS gets its OWN LOB,
+      named for its label — discovery surfaces PEER streams by
+      definition, so a discovered stream is never nested under another
+      line. Delete the LOB stem-match placement. Also: if the generic
+      "Primary line of business" placeholder LOB label originates in the
+      same placement/naming path, fix it there (the primary LOB should
+      carry the client's own line name, e.g. "Roasted coffee"); if it
+      comes from elsewhere, NAME where and leave it (flag for Nick).
+   1b SERIAL COMMA in the ask template: "wholesale coffee sales to
+      grocery stores or brew gear and merchandise sales" ran two items
+      together. For 3+ labels render "A, B, or C" (serial comma before
+      the "or"); 2 labels "A or B"; 1 label "A". Template constant only;
+      forbidden-phrase grep stays clean; the revenue-line clause stays.
+   DEAL BREAKER (turn-plan law): none in the strict sense — Nick ruled
+   both as presentation fixes on his read of the delivered workbook
+   (a mislabelled LOB in the client's plan; an ambiguous question).
+   SPOT-CHECK: red-proof the mis-nesting on the exact Nine Fathom shape
+   (primary '5 lb bag roasted coffee' + confirmed 'retail coffee bags' +
+   'wholesale coffee sales to grocery stores') -> PRE: 2nd row under LOB
+   'retail coffee bags'; POST: each discovered stream its own LOB, drivers
+   untouched (numbers 19/260/.6 and 13/140/.55 do not move); template
+   renders the serial comma for 3 labels; rerun the discovery red-proofs
+   GREEN; floor R31/R32 via --only; canary skip. Live: rewound Nine
+   Fathom clone -> ask renders with the comma -> yes/yes/no -> two rows,
+   two LOBs. Flip to mini.
+  TURN 2 (mini, SPOT-CHECK audit): diff confined to append_confirmed_
+  stream_rows placement + the template constant; PRE red / POST green on
+  the Nine Fathom shape; numbers unchanged; floor. Green -> stop.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: Test Files/_stream_discovery_f4_redproof.py (+ _20260815_PRE.txt RED 20 right-reason / _POST_offline.txt GREEN / _POST_live.txt GREEN with the REAL door); Test Files/_live_discovery_cormorant_clone_20260815_F4.txt GREEN (both prior FAILs); Test Files/_gate_only_R31_R32_20260815_F4.txt 2/2; docs/STREAM_DISCOVERY_SPEC.md Q2+Q5
-  SUMMARY: F4 shipped, SPOT-CHECK, declared == actual (one honest widening: the caller's discovery answer block in intake_consult.py changed too - it must render the ONE clarify and hold the turn, and it hands the door in; declared in the plan's BLAST-RADIUS line).
-    (1) THE DOOR = intake_consult._classify_restatement_response (the app's existing ACCEPT/REJECT/CLARIFY intent reader, already used by this same ops turn for the reply to the business-type restatement). read_stream_discovery_answer now calls it ONCE PER PROPOSED STREAM with a deterministic frame (gpt_stream_discovery.stream_discovery_intent_frame: the ask, the streams named, the ONE stream under judgment, the reading rules incl. a-word-inside-a-decline-is-not-a-yes, hedge/bare-yes-to-several => CLARIFY, each stream on its own words). ACCEPT=>yes REJECT=>no CLARIFY/None/exception=>unclear. ALL token/keyword/regex scoring deleted from the reader (_NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses gone; grep is in the red-proof). unclear => ONE clarify (new template constant STREAM_DISCOVERY_CLARIFY_TEMPLATE, rendered by the caller as confirm_clarify, turn held; yes-items on the same reply land NOW and lead it); clarify reply read the same way; still unclear => not confirmed, answer_reason unclear_after_clarify, never asked again. is_stream_discovery_ask recognizes the clarify as the window; the latch stores ask_text.
-    (2) TEMPLATE: '...a lot of <type>s also offer <A>, <B> or <C> - is any of that part of your business today? (If so I will include it as a revenue line.) If not, just say so and we will move on.' - one constant, labels only interpolate, forbidden-phrase grep clean, one question mark.
-    PROOF: PRE (old build via stash) RED for the RIGHT reason - phantom yes on the wholesale decline + receipt 'wholesale subscription contracts is its own line'. POST offline GREEN (stubbed door, plumbing). POST LIVE GREEN with the REAL door on nine replies: the two Cormorant declines => all no; 'yeah we do the retail bags' => only that yes; mixed => only the named stream; 'sort of, sometimes' and bare 'yes' (4 streams) => all unclear => ONE clarify, nothing appended, second unclear => not confirmed, no further ask; cafe set incl. 'no, we don't do a cafe' => no. Live Cormorant clone against restarted :5050 (ONE listener): ask renders with the clause + verb, answer path all-no, zero origin rows - both former FAILs green. _stream_discovery_redproof.py 106/106, f123 GREEN. Floor R31/R32 2/2 digests unchanged. Canary skipped (spot-check).
-    NOTE for Nick's triage (not built): the door's ACCEPT default (its system prompt treats nuance as agreement) is what the frame text counters; the door itself was NOT edited. Cost: up to 4 door calls per discovery reply (+4 on a clarify), each a short classification.
-TASK:
-  TURN 2 (mini, SPOT-CHECK audit): (a) diff confined - git diff 51de964..HEAD: gpt_stream_discovery.py (template constants, clarify composer, is_stream_discovery_ask, reader section 5 replaced), intake_consult.py (_stream_discovery_ask_if_due stores ask_text; _apply_stream_discovery_answer 4-tuple + classify param + clarify hold; the call block renders the clarify as confirm_clarify), the two redproof suites + new f4 suite, spec Q2/Q5. Nothing in the judge, validator, seam, gate, capture, router, engine. (b) grep the reader for keyword/token logic: expect none (the f4 suite asserts it - verify independently). (c) PRE red right reason / POST green: rerun `python "Test Files/_stream_discovery_f4_redproof.py"` (offline) and `--live` (real door; needs .env key); the PRE txt is committed. (d) the door IS the app's existing intent door: name it (_classify_restatement_response) and confirm it is called, not edited (git diff shows no change to that function). (e) receipt law: no receipt without an append - the all-no receipt is 'Understood - none of those, we'll move on.'; the clarify turn carries no closing receipt. (f) floor: R31/R32 via --only. GREEN -> stop -> Nick re-runs Cormorant to verify validator fix + reader live at the CURRENT seam (seam move is a later, separate turn).
-RESULT:
-  AGENT: mini
-  VERDICT: green
-  ERROR-SIGNATURE: none
-  EVIDENCE: Test Files/_stream_discovery_f4_redproof.py rerun by mini offline (GREEN, EXIT 0) + --live with the REAL door (GREEN, 32/32 PASS); committed PRE txt + mini's independent old-reader probe (git show 51de964 reader -> {'wholesale subscription contracts': 'yes', ...} on 'No, none of those...' = the phantom yes, RED for the RIGHT reason); replay_gate --only R31,R32 2/2 clear, digests identical to VS's (model_input 1d50e46a.. finmo 24e38de4.. grid cbd76463..); f123 + _stream_discovery_redproof suites GREEN; _live_discovery_cormorant_clone_20260815_F4.txt GREEN (all-no answer path, zero origin rows)
-  SUMMARY: F4 audit GREEN at SPOT-CHECK, declared == actual (mini: loaded diff stat + reader/caller hunks + f4 suite + PRE/POST txts + spec Q2/Q5; ran f4 offline+live, old-reader PRE probe, floor R31/R32; canary skipped). VS declared == actual (plan 16:16:29 named the caller's answer block up front; diff 51de964..HEAD touches only gpt_stream_discovery.py, intake_consult.py [_stream_discovery_ask_if_due ask_text, _apply_stream_discovery_answer 4-tuple/classify/clarify hold, the ops discovery-pending call block], the three redproof suites, spec, HANDOFF). Nothing in judge/validator/seam/gate/capture/router/engine. TIER CALL HONEST: the touched caller block runs only inside `focus==ops and stream_discovery_pending(ops_json)` - not shared high-fan-out code; spot-check stands.
-    (b) reader clean: no _NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses anywhere in the module; the reader (section 5) holds no re./token logic - only the per-stream door call + ACCEPT/REJECT/CLARIFY -> yes/no/unclear map. (_mention_hits/_label_tokens survive ONLY for section 6's dedup against existing LOB names - not the answer reader.)
-    (d) THE DOOR = intake_consult._classify_restatement_response (def at intake_consult.py:11965): called by the caller (door = classify or _classify_restatement_response), zero diff hunks touch its definition.
-    (e) receipt law holds: all-no -> 'Understood - none of those, we'll move on.' with zero origin rows; yes -> exactly one row named for the label + receipt names it (words == state); clarify turn -> nothing appended, no closing receipt, held via action confirm_clarify; second unclear -> not confirmed, honest receipt, no question.
-    WONT-FIX/notes (no fix turn): door cost up to 4 short calls per discovery reply (+4 on a clarify) - Nick's call, not a defect; the door's ACCEPT-leaning system prompt is countered by the deterministic frame text (live door read all 9 replies correctly) - watch item only, no code owed.
-    STOP -> Nick re-runs Cormorant to verify the validator fix + intent-routed reader live at the CURRENT seam (seam move remains a later, separate turn).
-TASK:
-  (none queued) Awaiting Nick's live Cormorant re-run. Next VS turn only on Nick's word: either the seam move (separate turn, its own blast-radius call) or whatever the re-run surfaces.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
