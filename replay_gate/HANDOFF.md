@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 1/16
+TURN: 2/16
 TASK:
   STREAM DISCOVERY BUILD — Nick APPROVED docs/STREAM_DISCOVERY_SPEC.md
   (2026-08-15, HEAD carries the approved text). Build it exactly as the
