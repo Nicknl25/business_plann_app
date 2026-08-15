@@ -134,7 +134,7 @@ RULES
 
 ---
 
-## proactive-stream-discovery  (BUILT 8315341, audited 56ad95c)
+## proactive-stream-discovery  (BUILT 8315341 + F1/F2/F3 800c855 + F4 040ce0f; audits GREEN through 2f8718f)
 
     GATE:   blessed   — mini 2026-08-15 turn 2 (56ad95c) neighbor-check
                         audit GREEN: latch-carry at both finalize sites +
@@ -154,9 +154,9 @@ RULES
     COWORK: cleared   — automatic: GATE=blessed + LIVE=passed. ONE
                         confirming run (agenda rank 1, KILL-EARLY brief).
 
-    NEXT STEP: Nick's confirming Cowork run on a SINGLE-LOB business with
-    genuinely-common adjacent streams; decision point = end-of-ops (does
-    the judge propose?). Proposes -> play through -> multi-stream plan +
-    multiple COGS drivers. Doesn't propose -> KILL, report. New findings
-    triaged for Nick.
+    NEXT STEP: Cowork run #2 (run #1 Cormorant killed at the seam ->
+    F1/F2/F3 validator fix + F4 intent-routed reader shipped + audited).
+    Verifies validator + reader at the CURRENT seam; then the SEAM MOVE
+    to :16794 (Nick ruled) as a separate neighbor-check turn + run #3.
+    LIVE re-flipped: backend on HEAD 2f8718f 16:39, ONE :5050 listener.
 
