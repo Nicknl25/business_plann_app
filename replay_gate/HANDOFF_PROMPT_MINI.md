@@ -11,9 +11,9 @@ THE TURN CONTRACT — follow exactly:
    on him. Compose the four-line plan and run:
      python scripts/handoff_turn_plan.py mini "TASK: <what this turn
      will audit/do>
-     BLAST-RADIUS: localized | system-touching (+ why)
+     BLAST-RADIUS: spot-check | neighbor-check | full (+ why: does it change shared high-fan-out code?)
      LOADING: <exact artifacts/files/sections you will read>
-     VERIFY: canary skip|run | legs <which+count> | full prove y/n"
+     VERIFY: spot-check | neighbor-check <named neighbors> | full — plus canary skip|run, legs <which+count>"
    (Write the plan to a temp file and pass the path if quoting
    fights you.) The script logs it, emails it, desktop-alerts it,
    and always exits 0 — a delivery failure never stalls the turn.
@@ -41,45 +41,31 @@ THE TURN CONTRACT — follow exactly:
    thin/vacuous artifact; legs stand alone under --only; SETUP
    failures NAME their gap.
 
-VERIFICATION SCOPING LAW (Nick, 2026-08-14, STANDING): audit THE FIX,
-not the whole system. For a LOCALIZED change (one router/field/receipt
-string/copy path that structurally cannot reach the engine, the money
-math, or the golden floor): verify THAT change landed correctly at the
-artifact level, run only the legs the change touches plus the golden
-floor legs via --only — do NOT re-run the full prove, do NOT re-audit
-the entire board, do NOT demand a fresh Sunny canary. Reserve the FULL
-apparatus (full prove + canary + full audit) for turns whose changes
-touch the engine, money math, the golden floor, or anything
-cross-cutting — those are RARE and earn it. VS states its blast-radius
-call in each RESULT; AUDIT THE CALL: if a "localized" claim actually
-reaches the system, saying so IS an audit finding and the full
-apparatus applies. Full verification is the EXCEPTION; targeted is the
-DEFAULT.
-
-AUDIT-TIER LAW (Nick, 2026-08-15, STANDING — extends the scoping laws
-to YOUR audit step): the audit TURN is tiered to the fix's declared
-blast radius, not just what it verifies.
-- LOCALIZED fix (VS declared localized, ran targeted red->green +
-  floor, radius provably can't reach the system) -> a LIGHTWEIGHT
-  ARTIFACT SPOT-CHECK, not a full independent audit turn. Exactly
-  four confirmations: (1) the committed diff matches VS's stated fix
-  (the code does what the plan said); (2) the artifact shows the fix
-  (the stored field / workbook cell / receipt carries the right value
-  on the repro case); (3) VS's blast-radius CALL was honest — a
-  "localized" claim that actually reaches the system RE-TRIGGERS the
-  full audit (this check never relaxes; the light path cannot be
-  gamed); (4) the floor held (single-line byte-floor / golden legs
-  unmoved). Then flip. No full re-prove, no board-wide re-audit, no
-  re-reasoning the artifact from scratch. Target: minutes, not a
-  fresh-session hour.
-- SYSTEM-TOUCHING fix (engine / money math / golden / cross-cutting,
-  or VS declared system-touching) -> the FULL independent audit as
-  before: fresh uncontaminated read, full artifact reasoning, the
-  works. Earned.
-The full audit was load-bearing when green lied at the proposal level;
-for a two-line localized change with a targeted red->green already
-run, a fresh full audit is the over-verification the laws eliminate.
-State the tier you ran in your TURN PLAN and RESULT.
+VERIFICATION LAW — SPOT-CHECK THE FIX (Nick, 2026-08-15, STANDING;
+REPLACES the earlier localized/system-touching tiering AND the
+audit-tier law): every fix, wherever it lives, gets honed in on — and
+so does your AUDIT of it. Three tiers, chosen by ONE narrow question —
+does the fix CHANGE SHARED CODE THAT OTHER LIVE BEHAVIORS FLOW THROUGH
+(the forward mover, the engine math, the workbook builder — genuine
+high-fan-out chokepoints)?
+- SPOT-CHECK (the DEFAULT — almost everything: guards, copy strings,
+  validations, branches that only fire on the broken case): your audit
+  is a fast confirmation pass, minutes not an hour: (1) the committed
+  diff does what VS's plan said; (2) the artifact shows the fix (the
+  right value on the repro case); (3) VS's TIER CALL was honest — a
+  spot-check claim on a fix that actually changed shared high-fan-out
+  code is a FINDING and escalates the tier (this check never relaxes;
+  the light path cannot be gamed); (4) the single-line floor held. No
+  full re-prove, no board-wide re-audit, no re-reasoning from scratch.
+- NEIGHBOR-CHECK (the fix genuinely changes shared high-fan-out code):
+  the spot-check PLUS independently confirm the NAMED neighbors that
+  flow through the same changed path still behave — not the 61-leg
+  universe, not a canary.
+- FULL APPARATUS (canary + full prove + full independent audit): ONLY
+  for a change to the engine/money math itself or the golden
+  baseline. Not "it lives in a hot path" — actually changes core math.
+The single-line floor rides EVERY turn as the cheap catch-all. Declare
+the tier you are auditing at in your TURN PLAN and RESULT.
 
 TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING — gates the whole
 loop): NO finding becomes a fix turn until it passes the triage test:
@@ -104,9 +90,8 @@ re-scope or new cross-section behavior in the same TASK: the guard
 pays the re-scope's full-apparatus price (CW-033 turn 5: four
 contained guards rode with two semantic changes and all five paid full
 canary+prove). When WRITING a TASK block for VS: group the defects you
-hand over by per-fix radius — localized group as its own turn
-(targeted + floor), system-touching group as a separate turn (full
-apparatus). When AUDITING: a mixed bundle in one turn is itself a
+hand over by per-fix radius — spot-check group as its own turn,
+neighbor-check / full-apparatus fixes as separate turns. When AUDITING: a mixed bundle in one turn is itself a
 process finding — name it. Cheap fixes travel cheap; expensive fixes
 travel alone.
 

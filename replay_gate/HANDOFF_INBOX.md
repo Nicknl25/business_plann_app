@@ -10,9 +10,10 @@ one builds, pulls, or specs any of them.
 
 TURN-TIMEOUT-MINUTES: 120
 
-TURN A (VS, LOCALIZED — grouped per the split law; targeted checks +
-floor legs via --only, NO canary, NO full prove). Three fixes, each
-with its deal breaker named (turn-plan law):
+TURN A (VS, SPOT-CHECK tier — guards/copy/validation, none changes
+shared high-fan-out code; grouped per the split law: repro red->green
+per fix + artifact + single-line floor via --only, NO canary, NO full
+prove). Three fixes, each with its deal breaker named (turn-plan law):
   A1 (cands[-1] price/util branches): price/utilization corrections
     use last-figure-wins — "price should be 650, I was thinking 520"
     stores 520. DEAL BREAKER: the client's corrected price is
@@ -27,19 +28,21 @@ with its deal breaker named (turn-plan law):
     copy. DEAL BREAKER: a false market-position claim in the
     delivered plan. VERIFY FIRST (confirm the copy path still does
     it), then fix the claim to speak the actual position.
-  Flip to mini with a TASK to artifact-audit these three TARGETED
-  (the touched behaviors + floor legs; no full apparatus) AND to
-  then hand VS turn B below.
+  Flip to mini with a TASK for turn B below.
 
-TURN B (mini, LIGHTWEIGHT SPOT-CHECK per the audit-tier law — NOT a
-  full audit turn): A1/A2/A4 are localized, so exactly the four
-  confirmations: diff matches the stated fix; artifact shows the
-  right value on each repro case; VS's localized call was honest (if
-  it wasn't, escalate to full audit); floor held. Minutes, then flip
-  and write VS's TASK for:
+TURN B (mini, SPOT-CHECK audit — minutes): the four confirmations on
+  A1/A2/A4: diff does what the plan said; artifact shows the right
+  value on each repro; VS's tier call was honest (a spot-check claim
+  on shared high-fan-out code escalates); floor held. Flip and write
+  VS's TASK for:
 
-TURN C (VS, SYSTEM-TOUCHING — travels ALONE per the split law; FULL
-  apparatus earned: Sunny_V3 canary + full prove):
+TURN C (VS, travels ALONE per the split law; CLASSIFY under the new
+  verification law in your TURN PLAN: the viability verdict is a
+  shared path every plan flows through, so expect NEIGHBOR-CHECK —
+  spot-check + the named neighbors of the changed verdict code. FULL
+  apparatus (canary + full prove) ONLY if the fix actually changes
+  the engine/money math or golden baseline; "it lives in a hot path"
+  is not that):
   A3 (#101): a plan can PASS viability on volume ABOVE the client's
     stated capacity. DEAL BREAKER: the delivered plan certifies
     numbers the client told us they cannot produce. REPRO FIRST —
@@ -48,12 +51,18 @@ TURN C (VS, SYSTEM-TOUCHING — travels ALONE per the split law; FULL
     capacity.
   Flip to mini with a TASK for:
 
-TURN D (mini, FULL independent audit — system-touching, earned): the OWED turn-5 audit — the original mini session
+TURN D (mini): the OWED turn-5 audit at NEIGHBOR-CHECK tier — turn 5
+  changed the forward mover (shared high-fan-out code), so confirm the
+  five fixes AND the named neighbors flowing through the mover; full
+  apparatus only if turn 5 touched engine math (it did not). Also
+  audit A3 at the tier VS declared (verify the call). Original context: — the original mini session
   died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
   never independently verified. Artifact-audit them now, plus A3.
   On a genuinely clean table: VERDICT green — the watcher stops and
   pings Nick. Feature decisions remain his to rule on after.
 
 Standing laws apply every turn: TURN PLAN first (emit, then proceed),
-context scoped to the task, verification scoped to the declared blast
-radius, declared-vs-actual confirmed in every RESULT.
+context scoped to the task, SPOT-CHECK the fix by default (neighbor-
+check only for shared high-fan-out code; full apparatus only for
+engine-math/golden changes), single-line floor every turn,
+declared-vs-actual confirmed in every RESULT.

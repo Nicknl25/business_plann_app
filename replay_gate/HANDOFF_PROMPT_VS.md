@@ -11,9 +11,9 @@ THE TURN CONTRACT — follow exactly:
    on him. Compose the four-line plan and run:
      python scripts/handoff_turn_plan.py VS "TASK: <what this turn
      will do>
-     BLAST-RADIUS: localized | system-touching (+ why)
+     BLAST-RADIUS: spot-check | neighbor-check | full (+ why: does it change shared high-fan-out code?)
      LOADING: <exact files/sections you will read>
-     VERIFY: canary skip|run | legs <which+count> | full prove y/n"
+     VERIFY: spot-check | neighbor-check <named neighbors> | full — plus canary skip|run, legs <which+count>"
    (Write the plan to a temp file and pass the path if quoting
    fights you.) The script logs it, emails it, desktop-alerts it,
    and always exits 0 — a delivery failure never stalls the turn.
@@ -37,28 +37,36 @@ THE TURN CONTRACT — follow exactly:
    app-code edit and verify ONE :5050 listener; never kill :5050
    mid-canary; red-proofs red for the RIGHT reason; commit messages
    without embedded double quotes. The Sunny_V3 canary is governed by
-   the VERIFICATION SCOPING LAW below — it runs for system-touching
-   changes, not after every localized fix.
+   the VERIFICATION LAW below — it runs ONLY for engine/money-math or
+   golden-baseline changes, never for a spot-check or neighbor-check fix.
 
-VERIFICATION SCOPING LAW (Nick, 2026-08-14, STANDING): verify what
-the fix touched, not the whole system. Decide per change by BLAST
-RADIUS, and state the call in your RESULT so mini can audit the call
-itself:
-- LOCALIZED (one router/field/receipt string/copy path — structurally
-  cannot reach the engine, the money math, or the golden floor) →
-  TARGETED check ONLY: red→green on the changed behavior + its
-  immediate seam, plus the fast floor guard (the gate's golden legs
-  via --only, e.g. R31/R32 — NOT a live canary, NOT the full 61-leg
-  prove, NOT a full system re-verification).
-- SYSTEM-TOUCHING (engine, money math, golden floor, or anything
-  cross-cutting) → the FULL apparatus (full prove + Sunny_V3 canary
-  before any batch), earned. These are RARE.
-Full verification is the EXCEPTION; targeted is the DEFAULT. The full
-apparatus exists to catch system-wide regressions; a fix that
-provably can't reach the system doesn't re-earn it every turn. This
-is not lower standards — it is matching the check to the blast
-radius. Mirror this law into VS_NOTES design laws once (idempotent —
-skip if already recorded).
+VERIFICATION LAW — SPOT-CHECK THE FIX (Nick, 2026-08-15, STANDING;
+REPLACES the earlier localized/system-touching tiering): hone in on
+the fix, test just that, move on. Three tiers, chosen by ONE narrow
+question — does this fix CHANGE SHARED CODE THAT OTHER LIVE BEHAVIORS
+FLOW THROUGH (the forward mover that routes every number, the engine
+math, the workbook builder — genuine high-fan-out chokepoints where
+changing one behavior can silently alter a neighbor)?
+- SPOT-CHECK (the DEFAULT — almost everything: a guard, a copy string,
+  a validation, a branch that only fires on the broken case, anything
+  that can't affect a neighbor): prove THAT fix works (repro
+  red->green on the specific behavior), confirm the artifact shows it
+  (stored field / workbook cell / receipt), confirm the single-line
+  floor didn't move (golden legs via --only). Minutes. No full prove,
+  no canary.
+- NEIGHBOR-CHECK (the fix genuinely changes shared high-fan-out code):
+  spot-check PLUS the specific other behaviors that flow through the
+  same changed code path — NAME them, check them. NOT the 61-leg
+  universe, not a canary: just the neighbors sharing the changed code.
+- FULL APPARATUS (Sunny_V3 canary + full prove): ONLY for a change to
+  the engine/money math itself or the golden baseline — where the
+  blast radius genuinely is everything. "It lives in a hot path" is
+  NOT this tier; actually changing the core math is.
+The single-line floor rides EVERY turn as the cheap catch-all. Declare
+the tier per fix in your TURN PLAN (VERIFY line: spot-check |
+neighbor-check <named neighbors> | full) and confirm it in the RESULT;
+mini verifies the classification — a spot-check claim on a fix that
+changed shared high-fan-out code is a finding.
 
 TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING): a fix earns a
 turn ONLY as a DEAL BREAKER — it prevents a WRONG NUMBER or FALSE
@@ -77,8 +85,8 @@ re-scope's full-apparatus price (CW-033 turn 5: D1/D3/D4/D5 were
 contained guards, D2/X2 semantic — bundled, all five paid full
 canary+prove when four could have traveled targeted). In practice:
 - When WRITING a TASK block for the other agent: group fixes by
-  radius. Localized group → its own turn (targeted + floor, cheap).
-  System-touching group → a separate turn (full apparatus, earned).
+  radius. Spot-check group → its own turn (cheap). Neighbor-check /
+  full-apparatus fixes → separate turns (they carry their own bill).
 - When RECEIVING a mixed TASK: don't make the guards pay — execute
   ONE radius group this turn (by task priority), hand the remainder
   back explicitly in your outgoing TASK block. Say the split in your
