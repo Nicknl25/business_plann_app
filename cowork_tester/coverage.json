@@ -1,7 +1,7 @@
 {
  "version": 1,
- "updated": "2026-08-14T04:40:00Z",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. Dimensions are extensible. As of CW-032 the campaign has reached the passing path five times running (CW-028 to CW-032), and the N=4 cost-side chain that defined CW-030 and CW-031 is closed. The remaining concentration is per-line CAPACITY writes after a stage closes, and receipt fidelity.",
+ "updated": "2026-08-14T06:45:00Z",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. As of CW-033 the campaign has reached the passing path six times running (CW-028 to CW-033), the N=4 cost-side chain is closed and confirmed twice, and testing now runs under the guided-path / question-set discipline.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -166,9 +166,10 @@
    "runs": [
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ],
-   "note": "FOUR revenue lines spanning the full COGS range. Exercised three times (CW-030, CW-031, CW-032) across three builds. The cost-side chain failed identically on the first two and passed end to end on the third; the capacity-correction limb has failed on all three."
+   "note": "FOUR revenue lines spanning the full COGS range. Exercised four times (CW-030 to CW-033). The cost-side chain failed on the first two and has now passed end to end twice (CW-032, CW-033). CW-033 was the first run under guided-path discipline."
   }
  },
  "friction_conditions": {
@@ -276,7 +277,8 @@
     "CW-029",
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -310,7 +312,8 @@
     "CW-029",
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ]
   },
   "pre_revenue_startup": {
@@ -327,7 +330,8 @@
     "CW-018",
     "CW-019",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ]
   },
   "multiple_revenue_streams": {
@@ -354,7 +358,8 @@
     "CW-020",
     "CW-021",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ]
   },
   "lease_heavy_cost_structure": {
@@ -490,7 +495,8 @@
     "CW-029",
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ]
   },
   "mixed_period_cadence_lobs": {
@@ -681,9 +687,10 @@
    "runs": [
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ],
-   "note": "N=4. Revenue reaches the workbook per line on all three runs. COGS reached it for the FIRST time on CW-032 (e3f2c1b): four per-line driver rows on Model Inputs plus one P&L roll-up line, matching to eight decimal places."
+   "note": "N=4. Revenue reaches the workbook per line on all four runs. COGS reached it on CW-032 and again on CW-033: four per-line driver rows on Model Inputs plus one P&L roll-up line, matching to eight decimal places both times."
   },
   "post_stage_close_capacity_correction": {
    "runs": [
@@ -701,9 +708,22 @@
   },
   "declared_shared_cost_group_across_lines": {
    "runs": [
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ],
    "note": "NEW and PASSING. Two of four lines collapsed to one declared cost rate: cogs_cost_structure_group / _members / _basis 'declared' stored on exactly the two members, receipt naming the group and confirming the two exclusions."
+  },
+  "capacity_bound_line_at_high_utilization": {
+   "runs": [
+    "CW-033"
+   ],
+   "note": "NEW. A line stated at 95 pct of a hard weekly capacity, with a growth goal on that same line. The workbook re-bases the stated capacity (40/wk at 95 pct becomes 54.3/wk at 70 pct) under a utilization_ceiling 0.85 / post_expansion_utilization 0.7 policy and then runs mature quarters above the stated ceiling. Funded (volume +9 pct vs payroll +35.5 pct) and marked derived_driver, but undisclosed. Bucketed for Nick."
+  },
+  "payment_terms_stated_in_prose": {
+   "runs": [
+    "CW-033"
+   ],
+   "note": "NEW and PASSING. 'Net 45' stated twice in two different stages; 45 never became a capacity or production number and all four capacities stayed intact."
   }
  },
  "verdict_classes_reached": {
@@ -1317,6 +1337,30 @@
    "headline": "The re-run lands. Per-line COGS works end to end for the first time - four rates in ONE message all wrote and read back true, the collapse stores a real named group, and the workbook carries the ruled layout (four Model Inputs driver rows, one P&L line, exact roll-up). Depreciation fixed too. A-110, A-111 and A-114 close on built-workbook evidence. A-113 reproduces alone and clean: three attempts, three receipts, zero writes, uniform 1.106527 smear.",
    "issues_filed": 5,
    "blockers": 1
+  },
+  "CW-033": {
+   "persona": "Marguerite Solheim - healthy, crew-constrained garden centre owner, four revenue lines",
+   "business": "Kestrelbrook Nursery and Garden Company",
+   "city": "Sun Prairie WI",
+   "type": "garden_centre_multi_line",
+   "draft_id": "fd3d1b02bdfd4a18ab486b88d605ee83",
+   "stack": "e500810 throughout",
+   "reference_code": "KMKIRVM09491737316 (submission #77)",
+   "outcome": "CONVERGED, SUBMITTED, PLAN BUILT TO COMPLETION. Verdict 'Clears every structural test we can run right now.' accounting_equation_check 0 on all 21 quarters. Section 6 12/12 exact.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "healthy_correctly_priced_founder",
+    "four_revenue_streams",
+    "capacity_bound_line_at_high_utilization",
+    "payment_terms_stated_in_prose",
+    "declared_shared_cost_group_across_lines",
+    "per_line_cogs_written_and_rolled_up",
+    "mid_sentence_price_correction",
+    "weekly_cadence_all_lines"
+   ],
+   "headline": "Confirming run under guided-path discipline. Four of five deal-breaker confirmations HELD outright (cadence receipt, mid-sentence price correction, net-45 containment, per-line COGS end to end). The fifth - the A3 capacity cap - did not wall: the workbook re-bases a client-stated 40 jobs/week at 95 pct into 54.3 at 70 pct and runs mature quarters above the stated ceiling. Funded and marked derived, but undisclosed; bucketed for Nick.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1338,7 +1382,8 @@
     "CW-029",
     "CW-030",
     "CW-031",
-    "CW-032"
+    "CW-032",
+    "CW-033"
    ]
   },
   "parked": {
