@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-fault
 TURN: 1/16
 TASK:
   go — re-arm the STREAM DISCOVERY BUILD task exactly as seeded at 14:17
