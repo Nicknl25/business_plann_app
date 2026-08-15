@@ -1,7 +1,7 @@
-STATUS: stopped-fault
-TURN: 1/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
-  DISCOVERY FIX F1+F2 — Nick's ruling after confirming run #1 (Cormorant
+  DISCOVERY FIX F1+F2+F3 (RE-SEEDED: the first launch was killed at 4 min to fold in F3 — start fresh; a partial edit was discarded) — Nick's ruling after confirming run #1 (Cormorant
   Coffee Roasters, draft ec1e22ef; record: _confirm_discovery_cormorant_
   20260815.txt). VALIDATOR-ONLY, SPOT-CHECK tier. Do NOT touch the judge,
   the seam, the gate, the engine, or capture. The seam question is a
@@ -31,6 +31,23 @@ TASK:
        coffee bags") — and/or instruct the judge to omit sizes — NEVER
        drop the candidate for a size descriptor. Keep dropping labels
        that carry a money/volume figure ($, per week, 40 units).
+    F3 PROPOSAL CAP OF 4 (Nick, 2026-08-15 — a UX/cognitive-load limit on
+       the QUESTION, NOT a business heuristic: a client cannot meaningfully
+       answer a laundry-list ask in one breath). The judge/band-gate may
+       surface however many genuinely-common streams it finds; the ASK
+       proposes AT MOST 4. If MORE than 4 survive the band-gate, propose
+       the 4 STRONGEST by band — ALL `most` first, then fill remaining
+       slots with `many` (so the 4 asked-about are the 4 most likely to
+       apply, never an arbitrary 4). If 4 or fewer survive, propose all,
+       no padding. Still ONE ask, one turn. The cap applies to the
+       PROPOSAL ONLY — never block what the client can volunteer through
+       the normal flow (do not build/test a >4-volunteered path; just do
+       not block it). Store the full survivor list AND the proposed slice
+       in the latch (auditable: `survivors` vs `proposed`). It is a slice
+       of the survivor list in the validator — same surface, same
+       spot-check radius as F1/F2. Red-proof: 6 synthetic survivors
+       (2 most, 4 many) -> proposed = the 2 most + first 2 many, ask names
+       exactly 4; 3 survivors -> all 3.
     DEAL BREAKER named (turn-plan law): none in the strict sense — Nick
     ruled this a feature-effectiveness fix (silence on a business with
     common adjacent streams defeats discovery); it ships on his ruling.
@@ -46,7 +63,7 @@ TASK:
     WATCH item). Floor R31/R32 via --only. No canary, no full prove.
     Flip to mini.
   TURN 2 (mini, SPOT-CHECK audit): diff confined to the validator/dedup
-  path; red-proof PRE red / POST green on the Cormorant latch; the other
+  path (F1 dedup, F2 size-strip, F3 most-first slice of <=4); red-proof PRE red / POST green on the Cormorant latch; the other
   _resolve_ops_product_line callers unchanged (grep + one correction leg
   via --only); ask text existence-framed, forbidden-phrase grep clean;
   floor. Green -> stop -> Nick re-runs the confirming run.
