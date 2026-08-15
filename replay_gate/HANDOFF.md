@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   DISCOVERY F4 — Nick's ruling: DEAL BREAKER, fix it — but NOT with the
   token/keyword heuristic mini sketched. "Scrap the keyword/affirmative-
