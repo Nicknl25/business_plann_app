@@ -31,8 +31,12 @@ with its deal breaker named (turn-plan law):
   (the touched behaviors + floor legs; no full apparatus) AND to
   then hand VS turn B below.
 
-TURN B (mini audit of turn A, then TASK to VS): confirm A1/A2/A4 at
-  the artifact level, targeted scope. Then write VS's TASK for:
+TURN B (mini, LIGHTWEIGHT SPOT-CHECK per the audit-tier law — NOT a
+  full audit turn): A1/A2/A4 are localized, so exactly the four
+  confirmations: diff matches the stated fix; artifact shows the
+  right value on each repro case; VS's localized call was honest (if
+  it wasn't, escalate to full audit); floor held. Minutes, then flip
+  and write VS's TASK for:
 
 TURN C (VS, SYSTEM-TOUCHING — travels ALONE per the split law; FULL
   apparatus earned: Sunny_V3 canary + full prove):
@@ -44,7 +48,7 @@ TURN C (VS, SYSTEM-TOUCHING — travels ALONE per the split law; FULL
     capacity.
   Flip to mini with a TASK for:
 
-TURN D (mini): the OWED turn-5 audit — the original mini session
+TURN D (mini, FULL independent audit — system-touching, earned): the OWED turn-5 audit — the original mini session
   died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
   never independently verified. Artifact-audit them now, plus A3.
   On a genuinely clean table: VERDICT green — the watcher stops and

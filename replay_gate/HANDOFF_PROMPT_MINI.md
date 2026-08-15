@@ -56,6 +56,31 @@ reaches the system, saying so IS an audit finding and the full
 apparatus applies. Full verification is the EXCEPTION; targeted is the
 DEFAULT.
 
+AUDIT-TIER LAW (Nick, 2026-08-15, STANDING — extends the scoping laws
+to YOUR audit step): the audit TURN is tiered to the fix's declared
+blast radius, not just what it verifies.
+- LOCALIZED fix (VS declared localized, ran targeted red->green +
+  floor, radius provably can't reach the system) -> a LIGHTWEIGHT
+  ARTIFACT SPOT-CHECK, not a full independent audit turn. Exactly
+  four confirmations: (1) the committed diff matches VS's stated fix
+  (the code does what the plan said); (2) the artifact shows the fix
+  (the stored field / workbook cell / receipt carries the right value
+  on the repro case); (3) VS's blast-radius CALL was honest — a
+  "localized" claim that actually reaches the system RE-TRIGGERS the
+  full audit (this check never relaxes; the light path cannot be
+  gamed); (4) the floor held (single-line byte-floor / golden legs
+  unmoved). Then flip. No full re-prove, no board-wide re-audit, no
+  re-reasoning the artifact from scratch. Target: minutes, not a
+  fresh-session hour.
+- SYSTEM-TOUCHING fix (engine / money math / golden / cross-cutting,
+  or VS declared system-touching) -> the FULL independent audit as
+  before: fresh uncontaminated read, full artifact reasoning, the
+  works. Earned.
+The full audit was load-bearing when green lied at the proposal level;
+for a two-line localized change with a targeted red->green already
+run, a fresh full audit is the over-verification the laws eliminate.
+State the tier you ran in your TURN PLAN and RESULT.
+
 TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING — gates the whole
 loop): NO finding becomes a fix turn until it passes the triage test:
 "Does this put a WRONG NUMBER or a FALSE CLAIM into a real client's
