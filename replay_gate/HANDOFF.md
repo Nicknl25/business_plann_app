@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 5/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -2174,3 +2174,74 @@ TASK:
   check only for shared high-fan-out code; full apparatus only for
   engine-math/golden changes), single-line floor every turn,
   declared-vs-actual confirmed in every RESULT.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none-open:turnE-awaiting-mini-spot-check
+  EVIDENCE: f6ea787 (fix + artifacts). _live_turnE_PRE_20260815.txt (HEAD
+    7473095, backend restarted on HEAD, Sumac clone, W3 t1+t2: RED 3/3 -
+    reply carried 'monthly capacity -> 40' and '(I didn't end up using 40
+    and 40 ...)'); _live_turnE_POST_20260815.txt (fixed tree, backend
+    restarted, ONE :5050 listener pid 33804: GREEN - reply 'Recorded:
+    capacity 40 a week (about 173.3 per operating period ...). Updated:
+    weekly capacity -> 40; monthly capacity -> 173. Your Property contract
+    side now models at about $886,912 a year.' - NO monthly->40, NO non-use
+    tail, stored wk 40 / period 173.3333 unchanged); offline
+    _redproof_turnE_PRE_20260815.txt (PREFIX via stash of the two files: E1
+    behavioural red - receipt 'monthly capacity -> 40; monthly capacity ->
+    173'; E2 structural red on the new kwarg + the undeclared call SHOWS the
+    pre-fix tail) / _redproof_turnE_POST_20260815.txt GREEN 8/8;
+    _prove_20260815_turnE_floor.txt R31+R32 GOLDEN (72dfcb81/24e38de4/
+    1d50e46a/cbd76463 unchanged, 0 DRIFT). Harness: Test Files/
+    _live_turnE_w3_reopen.py (asserts ABSENCE), Test Files/
+    _redproof_turnE_receipt_saydo.py.
+  SUMMARY: TURN E done at SPOT-CHECK, both fixes copy/branch-only. E1:
+    capture_receipt._fmt applies the cadence label to units_per_period_
+    capacity ONLY; units_per_week_capacity keeps its static 'weekly
+    capacity' label (its CW-031-item-8 'capacity' fallback stays on the
+    period cell). E2: _reconcile_driver_correction gains converted_stated
+    (List[float]); the (d) figure-coverage backstop adds those to
+    covered_vals - fires only when a caller passed a conversion. Two callers
+    pass it: the xsec door (_xsec_cap_stated = the pre-conversion new_value,
+    only when _xsec_cap_converted) and the main capacity reconciler
+    (_cap_cad_stated = _stated_v_c, only when _cadr_c converted). The guard
+    caller (_guard_underivable_ops_lever_writes) is untouched - it has no
+    say-do tail. Not touched: legs.py, engine, workbook, mover routing.
+    DECLARED-vs-ACTUAL: MATCHES - tier spot-check as declared; loaded
+    exactly HANDOFF TASK, VS_NOTES laws mirror (already present, no edit),
+    capture_receipt.py 200-300, intake_consult.py 7060-7150 / 7683-8010 /
+    9801-9860 / 10096-10135 / 17688-17845 / 18470-18510, the W3 t2 artifact,
+    the turn-5 live harness (reused by import); canary SKIPPED; legs run =
+    R31,R32 only; backend restarted twice (pre-repro on HEAD, post-fix),
+    one listener each time; no live Cowork draft touched (2d874abf was
+    idle since 11:30, clones only, all clones deleted). One divergence,
+    harness-side only: first PRE run crashed on cp1252 encoding of the
+    arrow in MY harness print (fixed with stdout.reconfigure, stray clone
+    deleted, rerun) - app untouched by that. Note for mini: post-fix the
+    two receipt phrases differ so the CW-031 collision de-dup no longer
+    prefixes 'Property contract:' - the product name appears once in the
+    stream note; not a regression, the receipt names the row when phrases
+    collide only. Watch-list (not built, Nick's triage): the say-do tail
+    said '40 and 40' - _message_figures yields the stated 40 twice from a
+    one-figure message; harmless now that the figure is covered.
+TASK:
+  TURN-TIMEOUT-MINUTES: 45
+  TURN F (mini, SPOT-CHECK audit of turn E, f6ea787): (1) diff confined to
+    capture_receipt._fmt (cadence branch narrowed to the period leaf) +
+    intake_consult (converted_stated kwarg + covered_vals extension + the
+    two caller pass-throughs + two locals) - nothing else; (2) the artifact
+    _live_turnE_POST_20260815.txt shows the clean reply (assert ABSENCE of
+    'monthly capacity -> 40' and 'didn't end up using 40', presence of
+    'weekly capacity -> 40' and 'monthly capacity -> 173'), stored row wk
+    40 / period 173.3333; (3) tier honest - spot-check: is _fmt or the (d)
+    backstop shared high-fan-out code whose neighbors changed? (my call:
+    no - _fmt's change is a leaf-name narrowing; the backstop's extension
+    is inert unless converted_stated is passed); (4) floor held (re-run
+    --only R31,R32 if you want your own digest read); (5) redproof PRE red
+    for the RIGHT reason (E1 behavioural; E2 structural on the kwarg PLUS
+    the undeclared call showing the tail = the pre-fix behaviour on
+    record). On a clean table VERDICT green -> awaiting-Nick. Do not touch
+    app code; the harness scripts are VS's.
+  Standing laws apply: TURN PLAN first, context scoped to the task,
+  spot-check the fix, single-line floor every turn, declared-vs-actual in
+  the RESULT.
