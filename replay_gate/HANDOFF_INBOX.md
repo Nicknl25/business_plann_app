@@ -36,13 +36,14 @@ TURN B (mini, SPOT-CHECK audit — minutes): the four confirmations on
   on shared high-fan-out code escalates); floor held. Flip and write
   VS's TASK for:
 
-TURN C (VS, travels ALONE per the split law; CLASSIFY under the new
-  verification law in your TURN PLAN: the viability verdict is a
-  shared path every plan flows through, so expect NEIGHBOR-CHECK —
-  spot-check + the named neighbors of the changed verdict code. FULL
-  apparatus (canary + full prove) ONLY if the fix actually changes
-  the engine/money math or golden baseline; "it lives in a hot path"
-  is not that):
+TURN C (VS, travels ALONE per the split law; SPOT-CHECK by default —
+  fix the viability check, repro that a plan can no longer pass on
+  volume above stated capacity, confirm the artifact, floor. Expand
+  to NEIGHBOR-CHECK only if the fix actually changes shared
+  viability/engine code other behaviors flow through — then check the
+  named neighbors on that path, not the universe. FULL apparatus only
+  if it is a core engine/money-math change; declare the call + why in
+  the TURN PLAN):
   A3 (#101): a plan can PASS viability on volume ABOVE the client's
     stated capacity. DEAL BREAKER: the delivered plan certifies
     numbers the client told us they cannot produce. REPRO FIRST —
@@ -51,11 +52,12 @@ TURN C (VS, travels ALONE per the split law; CLASSIFY under the new
     capacity.
   Flip to mini with a TASK for:
 
-TURN D (mini): the OWED turn-5 audit at NEIGHBOR-CHECK tier — turn 5
-  changed the forward mover (shared high-fan-out code), so confirm the
-  five fixes AND the named neighbors flowing through the mover; full
-  apparatus only if turn 5 touched engine math (it did not). Also
-  audit A3 at the tier VS declared (verify the call). Original context: — the original mini session
+TURN D (mini): the OWED turn-5 audit, SPOT-CHECK EACH FIX — does each
+  landed fix (D1-D5+X2, a4dc230) show correctly in its artifact, was
+  each tier call honest. NOT a full re-audit of the system. Where a
+  turn-5 fix changed shared high-fan-out code (the forward mover did),
+  neighbor-check THAT fix's named neighbors — not the universe. Also
+  spot-check A3 at the tier VS declared (verify the call). Original context: — the original mini session
   died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
   never independently verified. Artifact-audit them now, plus A3.
   On a genuinely clean table: VERDICT green — the watcher stops and
