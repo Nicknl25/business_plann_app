@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   DISCOVERY FIX F1+F2 — Nick's ruling after confirming run #1 (Cormorant
   Coffee Roasters, draft ec1e22ef; record: _confirm_discovery_cormorant_
