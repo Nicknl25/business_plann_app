@@ -1,0 +1,28 @@
+TURN E - W3 (mini's C3 sequence) on a Sumac clone, absence checks
+
+W3 t1 FULL REPLY < [200]
+Recorded: capacity 40 a month.
+
+Thanks. I have everything I need for financials, and the intake is complete. One thing worth sitting with together before you lean on this: at the strongest realistic version of your business, the structure can work - a mature quarter at that stress point keeps about $18,576 (26.9% of revenue), that stress figure actually sits above the 8.0%-18.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 18.0% as the honest ceiling, not the figure above it. But at the growth we'd actually plan for, it still comes up about $1,812 a quarter short. At today's scale, before any growth, the same structure keeps about $1,555 a quarter. If you want, we can work those levers together right now - pricing, costs, or another line of revenue - or you can submit and the full build will run its own final checks. Every number you just set is yours.
+
+  [PASS] t1 live turn 200: 200
+  [PASS] t1 identity on the 12-period row (period 40): {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82}
+
+W3 t2 FULL REPLY < [200]
+Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.) That change would move your annual revenue from $175,000 to about $758,333 - a big move, so I haven't applied it to your revenue yet. Is that really what your numbers should say?
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $886,912 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+  [PASS] t2 live turn 200: 200
+  [PASS] t2 CONVERTS (period 173.3333, wk 40): {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] t2 speaks the client's cadence: Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your 
+  [FAIL] E1 NO 'monthly capacity -> 40' (the week twin is weekly): Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.) That change would move your annual revenue from $175,000
+  [FAIL] E1 the week twin is spoken as weekly capacity -> 40: Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.) That change would move your annual revenue from $175,000
+  [FAIL] E2 NO false non-use claim of the stated 40: Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.) That change would move your annual revenue from $175,000 to about $758,333 - a big move, so I haven't applied it to your revenue yet. Is that really what your numbers should say?
+
+Before I run the final checks, one thing doesn't add up: your stated annual 
+
+RESULT: RED - 3 failing check(s):
+  - E1 NO 'monthly capacity -> 40' (the week twin is weekly)
+  - E1 the week twin is spoken as weekly capacity -> 40
+  - E2 NO false non-use claim of the stated 40

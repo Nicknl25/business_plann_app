@@ -249,14 +249,20 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
   # 160" on a 1-period/year product misstates the record the client
   # just corrected. Label from periods; static label only when the
   # cadence is not in this receipt.
+  # CW-033 turn E (E1): the cadence label belongs to the PERIOD cell only.
+  # units_per_week_capacity is the per-week twin whatever the row's cadence
+  # (40/wk on a 12-period row stores wk=40, period=173.33) - labelling it by
+  # the row's cadence told the client "monthly capacity -> 40" when the
+  # monthly figure was 173. The week twin always renders "weekly capacity"
+  # (its static _LABELS entry).
   _leaf_raw = path.rsplit(".", 1)[-1]
-  if _leaf_raw in ("units_per_week_capacity", "units_per_period_capacity"):
+  if _leaf_raw == "units_per_period_capacity":
     _cadence = _CADENCE_LABELS.get(
       (periods_by_prefix or {}).get(path.rsplit(".", 1)[0]) or 0.0
     )
     if _cadence:
       label = f"{_cadence} capacity"
-    elif _leaf_raw == "units_per_period_capacity":
+    else:
       # CW-031 item 8: units_per_period_capacity is per WHATEVER period this
       # product runs on. With no cadence in the receipt, the static label
       # asserted "weekly" over a monthly unit. Say what is known instead.

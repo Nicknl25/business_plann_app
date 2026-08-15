@@ -1,0 +1,16 @@
+E1 - receipt builder, the twin pair on a 12-period row
+  receipt: Property contract: monthly capacity -> 40; Property contract: monthly capacity -> 173
+  [FAIL] E1 week twin spoken as weekly capacity -> 40: Property contract: monthly capacity -> 40; Property contract: monthly capacity -> 173
+  [PASS] E1 period cell spoken as monthly capacity -> 173: Property contract: monthly capacity -> 40; Property contract: monthly capacity -> 173
+  [FAIL] E1 NEVER monthly capacity -> 40: Property contract: monthly capacity -> 40; Property contract: monthly capacity -> 173
+  [FAIL] E1 absence (exact): Property contract: monthly capacity -> 40; Property contract: monthly capacity -> 173
+
+E2 - say-do tail, the converted stated figure is covered
+  undeclared:  Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.)
+  [PASS] E2 (documenting) undeclared call shows the pre-fix tail:  Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.)
+  [FAIL] E2 declared call accepted (structural): _reconcile_driver_correction() got an unexpected keyword argument 'converted_stated'
+  declared:   
+  [FAIL] E2 declared: stream note still ships
+  [PASS] E2 declared: NO false non-use claim of the stated 40
+
+RESULT: RED - 5: E1 week twin spoken as weekly capacity -> 40; E1 NEVER monthly capacity -> 40; E1 absence (exact); E2 declared call accepted (structural); E2 declared: stream note still ships

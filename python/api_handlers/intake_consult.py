@@ -7091,6 +7091,7 @@ def _apply_cross_section_driver_correction(
 
   _xsec_cap_spoken = ""
   _xsec_cap_converted = False
+  _xsec_cap_stated = float(new_value)
   if leaf in ("units_per_period_capacity", "units_per_week_capacity"):
     # CW-033 turn 5 (mini's X2, ruled buildable under the forward-only
     # law's exception clause): this door landed "40 a week" RAW on a
@@ -7132,6 +7133,8 @@ def _apply_cross_section_driver_correction(
     # documented cadence math - declared so the consequence contract
     # does not revert the conversion as underivable.
     extra_derivable=[float(new_value)] if _xsec_cap_converted else None,
+    # turn E (E2): the stated pre-conversion figure counts as covered.
+    converted_stated=[_xsec_cap_stated] if _xsec_cap_converted else None,
   )
   try:
     landed = _safe_float(
@@ -7687,6 +7690,7 @@ def _reconcile_driver_correction(
   user_message: str,
   consumed_figures: Optional[List[float]] = None,
   extra_derivable: Optional[List[float]] = None,
+  converted_stated: Optional[List[float]] = None,
 ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
   """The CW-011 consequence contract, enforced in code: a driver
   correction may move ONLY levers derivable from the client's own
@@ -7978,6 +7982,14 @@ def _reconcile_driver_correction(
   if note.get("confirm") is None:
     used = {anchor} if anchor is not None else set()
     covered_vals = [price, cap, cap * periods, util * 100.0, periods, stream]
+    # CW-033 turn E (E2): a stated capacity the cadence reconciler CONVERTED
+    # (40/wk -> 173.33/period) is the very figure that landed - it is
+    # covered by construction, not "unused". Without this the tail claimed
+    # "(I didn't end up using 40 ...)" right after "Recorded: capacity 40 a
+    # week". Fires only when a caller converted (converted_stated non-empty).
+    covered_vals += [
+      float(x) for x in (converted_stated or []) if isinstance(x, (int, float))
+    ]
     uncovered: List[float] = []
     for f in figures:
       if f < 2.0 or (f in used if used else False):
@@ -17689,6 +17701,7 @@ def post_intake_consult_handler(*, app, request):
       # (the ask holds the turn, D5), receipt in the client's cadence.
       _cap_cad_spoken = ""
       _cap_cad_value: Optional[float] = None
+      _cap_cad_stated: Optional[float] = None  # turn E (E2): stated, pre-conversion
       _cap_cad_field = ""
       _cap_cad_receipt_leads = False
       if (
@@ -17765,6 +17778,8 @@ def post_intake_consult_handler(*, app, request):
               patch["ops." + _cap_cad_field] = float(_conv_c)
               _cap_cad_value = float(_conv_c)
               _cap_cad_spoken = str(_cadr_c.get("spoken") or "")
+              if bool(_cadr_c.get("converted")):
+                _cap_cad_stated = float(_stated_v_c)
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -17834,6 +17849,10 @@ def post_intake_consult_handler(*, app, request):
           # row's own cadence math - never reverted as underivable.
           extra_derivable=(
             [_cap_cad_value] if _cap_cad_value is not None else None
+          ),
+          # turn E (E2): the stated pre-conversion figure counts as covered.
+          converted_stated=(
+            [_cap_cad_stated] if _cap_cad_stated is not None else None
           ),
         )
         if isinstance(_driver_note, dict) and _driver_note.get("pending_frame"):
