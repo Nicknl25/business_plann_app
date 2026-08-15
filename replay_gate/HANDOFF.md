@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 3/16
 TASK:
   DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
@@ -80,3 +80,48 @@ TASK:
   placeholder origin (financials_year1.py:167 default echoed by the ops
   model) - a naming rule for the primary LOB is a separate turn if he
   wants it; the seam move to :16794 remains the next neighbor-check turn.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_gate_only_R31_R32_20260815_mini_lobnesting.txt (mini's own --only R31,R32 rerun, all 4 GOLDEN-SHA identical to the pre-turn F4 capture); git show 39d1c17 -- gpt_stream_discovery.py; Test Files/_discovery_lob_nesting_redproof_20260815_PRE.txt/_POST.txt; Test Files/_live_discovery_ninefathom_clone_20260815.txt
+  SUMMARY: SPOT-CHECK audit GREEN. (1) App diff = gpt_stream_discovery.py ONLY
+  (56 lines): stem_match_lob_index deleted, both callers (append_confirmed_
+  stream_rows + carry_stream_discovery re-append) collapsed to lobs.append(own
+  LOB), 'own line under <lob>' receipt variant gone, join_labels 3+ -> ', or '.
+  Nothing else in python/ touched; no leg or app file references the deleted
+  helper (grep). (2) PRE red 9 for the RIGHT reasons (nested LOB, 'under'
+  receipt, missing serial comma incl. clarify template) -> POST GREEN; I re-ran
+  the red-proof myself: GREEN; drivers 19/260/.6, 13/140/.55, 58/380/.75
+  unchanged in both branches. Also re-ran _stream_discovery_redproof, _f123,
+  _f4 (stubbed door): all GREEN. (3) Live clone txt: ask carries ', or '
+  before the last of 4 labels; yes/yes/no/no -> two rows, two own LOBs,
+  receipts 'is its own line;' with no 'under', primary untouched. (4) Floor:
+  my own --only R31,R32 rerun rc=0, single_line_input 72dfcb81 / model_input
+  1d50e46a / finmo 24e38de4 / workbook_formulas cbd76463 == pre-turn digests.
+  VS TIER CALL honest (spot-check; discovery-only module, no high-fan-out
+  code). VS DECLARED-vs-ACTUAL: watcher-log plan 18:10:52 matches the commit;
+  the one divergence (new _live_discovery_ninefathom_clone.py runner) was
+  declared additive in VS's RESULT - not a finding. 'Primary line of business'
+  origin confirmed at financials_year1._build_default_lobs (line 167 fallback
+  when business_type is empty), outside the placement path - correctly LEFT.
+  HOUSEKEEPING (not a defect, WONT-FIX as a fix turn): _mention_hits in
+  gpt_stream_discovery.py:683 is now dead (its only caller was the deleted
+  helper) - delete it as a rider on the next turn that touches this file.
+  mini DECLARED-vs-ACTUAL: matches the plan (loaded HANDOFF, the 39d1c17 diff,
+  the three txt captures, financials_year1.py:167; re-ran red-proof + floor;
+  canary skip; legs R31+R32). Extra beyond plan: re-ran the three existing
+  discovery red-proofs (cheap, offline).
+  FOR NICK (needs-ruling, not queued): (a) primary-LOB naming rule - the
+  primary LOB reads 'Primary line of business' when the ops model carries no
+  business_type; if you want it to carry the client's own line name (e.g.
+  'Roasted coffee') that is a separate spot-check turn, say so; (b) the seam
+  move to :16794 remains the next NEIGHBOR-CHECK turn as already scheduled.
+TASK:
+  (gated on Nick - STATUS awaiting-Nick) NEXT VS TURN when Nick releases it:
+  the seam move to :16794 (NEIGHBOR-CHECK tier as previously scoped, its own
+  turn, nothing bundled). Rider allowed on that turn only because it is the
+  same file family: delete dead _mention_hits in gpt_stream_discovery.py. If
+  Nick rules (a) primary-LOB naming, that is a SEPARATE spot-check turn in
+  financials_year1._build_default_lobs / the ops-model echo - do not bundle
+  with the seam move.
