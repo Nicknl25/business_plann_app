@@ -1,0 +1,57 @@
+completed runs since 08-01: 60
+business                               run           stubNI  stub%      Q1NI    Q1%     Q20NI   Q20% belowStub  Q1->Q20 revQoQ%   dep0    dep1   int1
+Nine Fathom Coffee Roasters            10a81085       18366    6.9      8119    3.0     15338    4.5        20       UP    1.28      0   12067   3235  <-- NF PATTERN
+Kestrelbrook Nursery and Garden Compan 6055904d      -89376   -9.5     17625    1.9     57547    4.6         0       UP    1.55      0   44747  14529
+Sunny Glaze Donuts                     da9d5862       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     15003650       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     43083e5d       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     68149ba5       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     40d47bc9       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     bcec8865       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     5198606f       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Thornfield Green Nursery and Garden    76b2553b        6873    1.6      9767    2.3     34876    5.6         0       UP    1.98      0   19105   5358
+Alderfen Nursery and Garden            082270ae       -3737   -1.0     -5642   -1.5     20991    4.4         1       UP    1.25      0   19407   5003
+Sunny Glaze Donuts                     6bf5fb59       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Sunny Glaze Donuts                     cf75ec32       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Alderfen Nursery and Garden            ad038186       -3737   -1.0     -5642   -1.5     20991    4.4         1       UP    1.25      0   19407   5003
+Sunny Glaze Donuts                     ab8bbe52       15112   21.5      1041    1.5      8591    9.4        20       UP    1.42      0    1006     40  <-- NF PATTERN
+Alderfen Nursery and Garden            414a3b0a      -34566   -9.2     -2002   -0.5     22582    4.7         0       UP    1.25      0     107   5369
+Thistledown Cycle and Service          06ce5605        7029    4.1      7089    4.2     13414    6.2         0       UP    1.32      0      24   1816
+Sunny Glaze Donuts                     89a5351c       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     83f5656d       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     6ed0cf4b       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     fee3e195       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     b0507ea4       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     f56d1266       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Sunny Glaze Donuts                     b0622f56       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Ravenwood Garden Company               ad8627f3        2361    0.6     18988    4.9     37273    7.4         0       UP    1.38      0     114   5123
+Thistledown Cycle and Service          c95b2fbc        7029    4.1      7089    4.2     13414    6.2         0       UP    1.32      0      24   1816
+Sunny Glaze Donuts                     689f6c65       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Thistledown Cycle and Service          e587b8ab        7029    4.1      7089    4.2     13414    6.2         0       UP    1.32      0      24   1816
+Thistledown Cycle and Service          58a0ffbf        7027    4.1      7089    4.2     13412    6.2         0       UP    1.32      0      24   1816
+Sunny Glaze Donuts                     88f73594       15112   21.5      1837    2.6      9338   10.2        20       UP    1.42      0       6     43  <-- NF PATTERN
+Fernhill Advisory                      6a60a599       36834   11.4     69846   21.6    144034   30.5         0       UP    2.01      0      14   1190
+Sunny Glaze Donuts                     84585f4c       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     f31697b0       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Wren Hollow Appliance Repair           cf93299b        7269    6.9     17347   16.5     30375   19.6         0       UP    2.05      0      20   1181
+Sunny Glaze Donuts                     3e2a9ad4       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     a30c6eea       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     cbaf4ecd       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     d26c1953       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     b8947dbf       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     f3f23d6b       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     e881a51d       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     032067fe       15112   21.5      3710    5.3     12275   13.4        20       UP    1.42      0       6      9  <-- NF PATTERN
+Sunny Glaze Donuts                     96595f80       15112   21.5      3716    5.3     12195   13.3        20       UP    1.42      0       6      1  <-- NF PATTERN
+Anderson & Blake Legal Associates      e8bb1c45      751467   49.2    707972   46.3    948208   52.3         7       UP    0.90      0      10      0
+Sunny Glaze Donuts                     48b5114f       15112   21.5      3716    5.3     12195   13.3        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sparrow Home Cleaning                  d02372b1        3902    7.8      2707    5.4      7877    9.1         2       UP    2.96      0       8    485
+Fetch & Fluff Mobile Grooming          051fc736        4993   22.9      1451    6.6      9238   27.0         7       UP    2.39      0      26   1428
+Sunny Glaze Donuts                     f64c8884       15112   21.5      3716    5.3     12195   13.3        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sunny Glaze Donuts                     d5dc35ed       15112   21.5      3716    5.3     12195   13.3        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sunny Glaze Donuts                     bf73c0ba       15112   21.5      3716    5.3     12195   13.3        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sunny Glaze Donuts                     bc4c0d6a       15112   21.5      3716    5.3     11228   12.2        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sunny Glaze Donuts                     b5ecc2ea       15112   21.5      3716    5.3     11228   12.2        20       UP    1.42      0       6      1  <-- NF PATTERN
+Sunny Glaze Donuts                     19d82153       15112   21.5      3716    5.3     11228   12.2        20       UP    1.42      0       6      1  <-- NF PATTERN
+
+NF-PATTERN (NI below stub >=15/20 quarters AND Q20 margin < stub margin): 38 of 53 distinct drafts
