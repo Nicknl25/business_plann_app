@@ -1,0 +1,23 @@
+CONFIRMING COWORK RUN - Kestrelbrook Nursery and Garden Company (draft fd3d1b02, run 6055904d) - 2026-08-15
+Backend HEAD ca0c072 (deal-breaker batch), 4 lines, weekly cadence, 54 turns, coherence CONVERGED, system run COMPLETED 273s, 0 errors, registry: 0 recurred.
+Verified from stored artifacts (messages_json / operating_model_json / financials_json._coherence / workbook xlsx), NOT from Cowork narration.
+
+CHECK                              RESULT          EVIDENCE
+A1 price correction (last-figure)  HELD            msg21 "That should be 850, I was thinking 720." -> stored unit_price=850; receipt msg22 "let's go with an $850 average"
+A2 net-45 never capacity           HELD            "net 45" stated msg5 + msg97; capacities stored 420/190/40/6 - no 45 anywhere in ops rows
+A3 stated-capacity wall            HELD            _coherence.eval.growth: requested=1.967151, capacity_ceiling_multiple=1.193321, used=1.193321, capped_by_stated_capacity=True; plan judged AT the ceiling, converged
+Receipt weekly->40 / monthly->173  NOT EXERCISED   all four rows weekly cadence (52 periods) so no cadence conversion arose; the stated 40/wk landed as 40 and the receipt echoed "40 landscaping/installation jobs per week" (correct value, conversion path not hit)
+Per-line COGS end-to-end           HELD            Model Inputs rows 10/15/20/25 = four "LOB / Product - COGS %" drivers linked to Revenue Drivers (0.58/0.58/0.17/0.03); FINMO row 9 = exactly ONE Cost of Goods Sold whose formula IS the 4-term roll-up ='Model Inputs'!C11*C10+C16*C15+C21*C20+C26*C25; Cowork: section 6 12/12 exact, accounting equation 0 on all 21 quarters
+  observation (not a finding): Model Inputs row 28 also carries the blended "Cost of Goods Sold - Direct model driver 0.3705" - unreferenced by the P&L formula and exactly the revenue-weighted blend of the four rates; same layout that shipped/passed on CW-033.
+
+NEW COWORK FILINGS - TRIAGED (deal-breaker law):
+#344 experience:positioning:unit_prices_rendered_with_a_cadence_suffix_and_no_line_names (minor)
+     -> WONT-FIX, CLOSED in registry (Test Files/_confirm_run_kestrelbrook_close_344.py): cosmetic copy, prices truthful and exact in the workbook.
+#343 verdict:plan_build:stated_capacity_silently_rebased_above_what_the_client_stated (major)
+     -> NEEDS NICK'S RULING (deal-breaker CANDIDATE, product decision). Shape: the intake gate held (A3), but the POST-INTAKE ENGINE's
+        expansion policy (utilization_ceiling 0.85 / post_expansion_utilization 0.70; capacity row derived_driver=payroll_supported_capacity)
+        re-based landscaping capacity 40/wk -> 54.3/wk and utilization 0.95 -> 0.70 (Q1 volume identical: 519.8*0.95 = 705.5*0.70 = 493.8),
+        then delivered volume grows to a peak of 566 jobs/quarter vs the client's stated physical ceiling 40*13 = 520 (8.8% above), with no
+        disclosure anywhere in the plan narrative. Mitigation: the client's stated goal WAS crew growth ~30% (primary_growth_lever = add crew
+        capacity) and the expansion is funded (payroll +35.5%). Ruling needed: may the engine expand a client-stated capacity when the client
+        declared a growth goal - and if so, must the plan SAY so in plain words? Not auto-fixed. If ruled a fix, it is ENGINE code -> full apparatus.
