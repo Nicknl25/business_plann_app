@@ -1,7 +1,7 @@
 {
  "version": 1,
- "updated": "2026-08-14T06:45:00Z",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. As of CW-033 the campaign has reached the passing path six times running (CW-028 to CW-033), the N=4 cost-side chain is closed and confirmed twice, and testing now runs under the guided-path / question-set discipline.",
+ "updated": "2026-08-15T07:55:00Z",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. As of CW-035 stream discovery is confirmed working end to end on the vertical that produced silence in CW-034.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -170,6 +170,16 @@
     "CW-033"
    ],
    "note": "FOUR revenue lines spanning the full COGS range. Exercised four times (CW-030 to CW-033). The cost-side chain failed on the first two and has now passed end to end twice (CW-032, CW-033). CW-033 was the first run under guided-path discipline."
+  },
+  "food_beverage_production": {
+   "examples": [
+    "wholesale coffee roaster"
+   ],
+   "runs": [
+    "CW-034",
+    "CW-035"
+   ],
+   "note": "Wholesale coffee roaster, used twice as the stream-discovery probe. CW-034 silent (killed at the seam); CW-035 fired and worked end to end after F1-F4."
   }
  },
  "friction_conditions": {
@@ -724,6 +734,25 @@
     "CW-033"
    ],
    "note": "NEW and PASSING. 'Net 45' stated twice in two different stages; 45 never became a capacity or production number and all four capacities stayed intact."
+  },
+  "single_line_business_with_common_adjacent_streams": {
+   "runs": [
+    "CW-034",
+    "CW-035"
+   ],
+   "note": "A vertical that near-universally carries adjacent streams described as one line only. CW-034: discovery proposed nothing, killed at the decision point. CW-035 on the F1-F4 build: proposed three candidates, intent reader handled yes/yes/no correctly, both accepted streams became real modeled lines with their own per-line COGS in the built workbook."
+  },
+  "discovered_stream_becomes_a_modeled_lob": {
+   "runs": [
+    "CW-035"
+   ],
+   "note": "NEW and PASSING. Two streams accepted from a discovery ask carried origin: discovery_confirmed through capture, finalize and the build, ending as real workbook lines with Capacity / Unit Price / Utilization / COGS pct drivers each."
+  },
+  "explicit_no_containing_the_stream_keyword": {
+   "runs": [
+    "CW-035"
+   ],
+   "note": "NEW and PASSING. 'But no, we don't do brew gear and merchandise sales' - a refusal repeating the stream's own name - was read as no by the intent reader and created no line. A keyword reader would have flipped it."
   }
  },
  "verdict_classes_reached": {
@@ -1361,6 +1390,46 @@
    "headline": "Confirming run under guided-path discipline. Four of five deal-breaker confirmations HELD outright (cadence receipt, mid-sentence price correction, net-45 containment, per-line COGS end to end). The fifth - the A3 capacity cap - did not wall: the workbook re-bases a client-stated 40 jobs/week at 95 pct into 54.3 at 70 pct and runs mature quarters above the stated ceiling. Funded and marked derived, but undisclosed; bucketed for Nick.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-034": {
+   "persona": "Anselm - established single-line wholesale coffee roaster",
+   "business": "Cormorant Coffee Roasters",
+   "city": "Bellingham WA",
+   "type": "food_beverage_production",
+   "draft_id": "ec1e22ef2fda4beda467401770bfcfed",
+   "stack": "56ad95c",
+   "outcome": "KILLED AT THE DECISION POINT per protocol - reached end-of-operations, discovery proposed nothing, run stopped before Target Market. Not submitted, no plan built, intentionally.",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "single_line_business_with_common_adjacent_streams",
+    "weekly_cadence_all_lines",
+    "existing_business_with_history"
+   ],
+   "headline": "Stream discovery (build 8315341) proposed NOTHING at the ops wrap for a wholesale coffee roaster. Verified three ways: 24-phrase transcript sweep all absent, no discovery state on the draft, one LOB with origin:null. Killed at the decision point rather than walked to submission.",
+   "issues_filed": 2,
+   "blockers": 1
+  },
+  "CW-035": {
+   "persona": "Teodora Blackwood - single-line wholesale coffee roaster",
+   "business": "Nine Fathom Coffee Roasters",
+   "city": "Missoula MT",
+   "type": "food_beverage_production",
+   "draft_id": "6d2823db268d483bbb4c8be8c627dc26",
+   "stack": "c63d27a",
+   "reference_code": "IDRFSJP94194623905",
+   "outcome": "CONVERGED, SUBMITTED, PLAN BUILT. Verdict 'Clears every structural test we can run right now.' accounting_equation_check 0. Section 6 11/11 exact.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "single_line_business_with_common_adjacent_streams",
+    "discovered_stream_becomes_a_modeled_lob",
+    "explicit_no_containing_the_stream_keyword",
+    "per_line_cogs_written_and_rolled_up",
+    "weekly_cadence_all_lines",
+    "existing_business_with_history"
+   ],
+   "headline": "Discovery works end to end. Proposed three streams at the ops wrap with the revenue-line consequence stated, intent reader got yes/yes/no right including a keyword-bearing NO, and both accepted streams became real workbook lines with their own per-line COGS (0.62/0.38/0.55) rolling up exactly to one P&L line. Closes the CW-034 finding.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1383,7 +1452,8 @@
     "CW-030",
     "CW-031",
     "CW-032",
-    "CW-033"
+    "CW-033",
+    "CW-035"
    ]
   },
   "parked": {
@@ -1411,6 +1481,11 @@
     "CW-013"
    ],
    "note": "converged and submitted but the planning run died"
+  },
+  "killed_at_decision_point": {
+   "runs": [
+    "CW-034"
+   ]
   }
  }
 }

@@ -1,18 +1,10 @@
 {
  "version": 23,
- "updated": "2026-08-15T16:40:00Z",
- "notes": "CONFIRMATION MODE - DISCOVERY (operator directive 2026-08-15): next run is the SHORT kill-early discovery confirmation (rank 1). New findings triaged, never auto-fixed.\n\nCW-033 (Kestrelbrook Nursery and Garden, Sun Prairie - a healthy, crew-constrained four-line garden centre) was the scoped confirming run, and it was also the first run executed under the guided-path / question-set discipline. Every probe answered a question the app actually asked, in a shape that question invited. No off-path sequence was manufactured, and the A-113 shape was not attempted at all.\n\nFOUR OF THE FIVE DEAL-BREAKER CONFIRMATIONS HELD with artifact evidence. The cadence receipt read 'weekly capacity -> 40' with no monthly label anywhere. The mid-sentence price correction ('That should be 850, I was thinking 720') stored 850 and the abandoned 720 appears in no field of either JSON. 'Net 45', stated twice in two different stages, never became a capacity or production number. And per-line COGS held on every limb: four rates in ONE message all wrote and read back true, the collapse stored a real group with named members and basis 'declared', and the workbook carried the ruled layout - four COGS drivers on Model Inputs, exactly one P&L line, roll-up matching to eight decimal places.\n\nTHE FIFTH IS A JUDGMENT CALL I AM NOT SETTLING. The A3 capacity cap did not wall. The client stated 40 landscaping jobs a week at 95 pct utilization; the built workbook re-bases that to 54.3 a week at 70 pct under a utilization_ceiling 0.85 / post_expansion_utilization 0.7 policy, then runs mature quarters at 538-566 jobs against her stated 520 ceiling. Q1 is a pure re-expression - 519.8 x 0.95 and 705.5 x 0.70 are the same 493.8 jobs - and the expansion is more than funded, with volume up 9.0 pct across the projection against payroll up 35.5 pct. The Capacity row is also marked derived_driver payroll_supported_capacity, and section 6 says a stored-vs-workbook difference on a derived field is design. Against that: capacity and utilization are fields the client answered directly, the plan shows her numbers she never gave, and nothing in model_input or operating_model discloses the assumption. Whether a client-stated capacity may be silently re-based is a product decision the artifacts cannot decide, so it is filed and bucketed rather than asserted.\n\nThree CW-032 findings were retested and are clean: the capex override is fixed (identical answer shape, current_capex 0, the 890,000 correctly not harvested), the COGS-rate-as-unit-price retention gate did not recur, and payroll phantoms did not appear at any point. Section 6 scored 12/12 exact with zero DIFFs - the first perfect field check of the campaign.",
+ "updated": "2026-08-15T07:55:00Z",
+ "notes": "CW-035 (Nine Fathom Coffee Roasters, Missoula) re-ran the CW-034 probe on the F1-F4 build and STREAM DISCOVERY WORKS END TO END. Same vertical, same single-line description, same guided-path discipline - and this time the ask fired at the ops wrap with evidence_level 'rich'.\n\nThe ask verbatim: 'Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.' It states the revenue-line consequence explicitly and offers a clean exit. One grammar nit: no serial comma before 'or', so items 2 and 3 run together.\n\nTHE READER TEST PASSES BOTH WAYS. Two YES answers became real lines carrying origin: discovery_confirmed. The explicit NO - 'But no, we don't do brew gear and merchandise sales' - repeated the stream's own keywords and was still read as no; the persisted candidates array records answer 'no' and no such product exists anywhere. A keyword reader would have flipped that; the intent reader did not.\n\nAT THE BUILT-WORKBOOK LEVEL: twelve revenue rows (three lines x four drivers), three per-line COGS drivers at 0.62 / 0.38 / 0.55 exactly as stated in one message, and exactly one P&L Cost of Goods Sold line that is their exact revenue-weighted roll-up (0.58187216 derived vs 0.581872 booked). Quarterly revenue reconciles to the stated 1,065,000 exactly. Section 6 11/11 exact, accounting equation 0.\n\nF1-F4 also added a fully persisted stream_discovery record - business_type, naics, evidence level, asked flag, ask text, per-candidate answers and dropped candidates with reasons. That is exactly the diagnostic asked for in the CW-034 runlog, and it makes silence-versus-firing directly distinguishable from now on.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "CONFIRM-DISCOVERY-2",
-   "persona": "P1 straight-shooter founder, operating business, answers plainly, real numbers when asked",
-   "business": "SAME shape as run #1 - a SINGLE-LOB business that usually also has adjacent streams, described as ONLY its primary line (a coffee roaster describing only wholesale 5 lb bags is ideal - it is the exact case just fixed; a garden centre 'plants and supplies only' or a bike shop 'sales only' also work). Do NOT mention the adjacent streams up front. Your ground truth SHOULD include at least one of the streams the app is likely to propose (e.g. for a roaster: retail bags at the counter, or a small subscription program) so a truthful YES is possible.",
-   "why": "OPERATOR DIRECTIVE 2026-08-15 - CONFIRMING RUN #2 for stream discovery, after the validator fix (F1 category-noun dedup, F2 size qualifiers, F3 proposal cap 4 most-first) AND the reader fix (F4: your answer is read by INTENT through the app's own classifier, not by keywords; the proposal now says WHY it asks - a yes adds a revenue line). Run #1 (Cormorant Coffee Roasters) killed at the seam because all 8 judged candidates were dropped; this run confirms the fix at the CURRENT end-of-ops seam. DECISION POINT = end of ops, right after the last business-wide question and before 'what sets you apart': the app should ask ONE existence-framed question - 'A lot of <type>s also offer <A>, <B> or <C> - is any of that part of your business today? (If so I'll include it as a revenue line.)' - naming AT MOST 4 streams. (A) IF IT PROPOSES: answer in NATURAL words per stream - say YES only to what your ground truth has, NO plainly to the rest, and it is fine (encouraged, once) to phrase a NO in a way that mentions the stream word ('no, we don't do a cafe') - the reader must NOT hear that as a yes. Then answer the follow-up numbers (capacity/utilization/price) for the confirmed line, let ops wrap, PLAY THROUGH to completion so the plan can be checked for multiple revenue lines + multiple COGS drivers. Record the ask VERBATIM in the runlog (grammar watch). (B) IF IT DOES NOT PROPOSE at the seam - KILL THE RUN THERE, file 'discovery did not propose' with the type + turn, stop. Also watch: if you say something genuinely ambiguous ('sort of, on weekends') the app should ask ONE short clarifier, never guess. TRIAGE LAW: anything new is bucketed for the operator, filed not chased.",
-   "operator_command_hint": "run P1 \"coffee roaster, wholesale 5 lb bags only, since 2014\" focus: discovery confirming run #2 - kill early if no proposal at end-of-ops; if it proposes, answer naturally (yes/no per stream), accept what you have, play through"
-  },
-  {
-   "rank": 2,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -22,7 +14,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 2,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -33,7 +25,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 3,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -44,7 +36,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 4,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -54,7 +46,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 5,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -64,7 +56,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 6,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -72,7 +64,7 @@
    "retests": []
   },
   {
-   "rank": 8,
+   "rank": 7,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -81,11 +73,9 @@
   }
  ],
  "closed_this_cycle": [
-  "CONFIRM-DISCOVERY-1 (Cormorant Coffee Roasters ec1e22ef): killed at the seam as briefed - judge fired (rich, 8 labels), validator dropped all 8; diagnosed F1/F2, fixed 800c855 + F3 cap 4 + F4 intent-routed reader (2f8718f); NOT a deal breaker; superseded by run #2.",
-  "Deal-breaker confirmations 1, 2, 3 and 5 all HELD with artifact evidence on e500810 - cadence receipt, mid-sentence price correction, net-45 containment, and per-line COGS end to end including the ruled workbook layout and the shared cost group.",
-  "hard_break:financials:explicit_none_answer_overridden_by_a_contextual_figure (CW-032) CLOSED - identical answer shape retested, current_capex 0, receipt accurate, the excluded figure correctly not harvested.",
-  "Payroll phantoms did not recur - current_payroll accumulated immediately at each named person with no empty zero-wage rows and no owner-wage rounding artifact.",
-  "Section 6's field-check limb of A-103 retired at seven consecutive clean builds, CW-033 being the first with zero DIFFs.",
-  "baseline_marketing stored 244,075 against a spoken 'about 9 pct / 326,685' - observed and recorded, NOT filed, per the section 7 do-not-refile list where it sits as in-progress."
+  "A-118 CLOSED. Stream discovery fired and worked end to end on the exact vertical and description that produced silence in CW-034: three candidates proposed, revenue-line consequence stated, yes/yes/no all read correctly, both accepted streams modeled as real workbook lines with their own per-line COGS rolling up to one P&L line.",
+  "flow:operations:stream_discovery_silent_at_the_ops_wrap_on_a_common_multi_stream_vertical (CW-034) RESOLVED on c63d27a.",
+  "The CW-034 diagnostic request is satisfied - a full stream_discovery record is now persisted to operating_model_json (evidence level, asked flag, ask text, per-candidate answers, dropped candidates with reasons, proposal_cap).",
+  "Two new findings, both bucketed WONT-FIX and neither reaching a number in the delivered plan: the second discovered stream nests under the first as its LOB (receipt says 'its own line under retail coffee bags'), and a root-level unit_price holds 140.0, a capacity value from the last line captured."
  ]
 }
