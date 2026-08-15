@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 2/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -1930,3 +1930,90 @@ TASK:
   verdict still passes) - carry the TURN D itinerary forward verbatim
   from the seed. Feature decisions stay PARKED; the 20 WONT-FIX
   closures stand.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: none-turnB-audit-clean-turnC-pending
+  EVIDENCE: _prove_20260815_turnB_floor_mini.txt (my own --only R31,R32
+    re-run: 2 GOLDEN, 0 DRIFT, digests 72dfcb81f6f3 / 24e38de4dc98 /
+    1d50e46ab8e6 / cbd764631e98 == VS's _prove_20260815_turnA_floor.txt);
+    my own re-run of Test Files/_redproof_dealbreaker_turnA.py on HEAD =
+    ALL GREEN (17/17), byte-equal to _redproof_dealbreaker_turnA_POSTFIX.txt;
+    git show 4b8c581; _handoff/logs/watcher.log:6137 (VS TURN PLAN)
+  SUMMARY: TURN B SPOT-CHECK audit of turn A - all four confirmations
+    HOLD, tier calls HONEST, VS declared-vs-actual MATCHES (plan named
+    intake_consult.py + target_market_consultant.py + a new redproof +
+    floor via --only R31,R32 + canary skip; the commit touches exactly
+    those, nothing else). (1) Diff: A1 = _xsec_scoped/_xsec_pick helpers
+    + price & utilization branches only (capacity branch untouched); A2 =
+    _PAYMENT_TERM_FIGURE_RE/_payment_term_figures + ONE _door_refs.extend
+    at the top of _unlanded_figures_disclosure (feeds both the main
+    reference filter and _small_refs); A4 = 3 prompt copies + scrub on
+    both finalize return points. (2) Artifact: PREFIX red for the RIGHT
+    reason (520/650/0.6/0.55 stored = the discarded figures; Fernhill
+    net-45 -> capacity 45.0 move; net-30/net-60 too); POSTFIX + my rerun
+    green with 650/700/0.75/0.8, move=None, control "40 clients a month"
+    still moves 40. (3) Tier: A2 extends references only when the net-N
+    regex fires - empty extend otherwise - so no live behavior flowing
+    through the shared path changes on non-term messages; spot-check
+    stands, no escalation. A1 confined to two branches; A4 no engine.
+    (4) Floor held (independent re-run above).
+    NOTES / CLOSURES (triage law): (a) A4 pre-fix red is STRUCTURAL
+    (scrub absent + prompt string), not a behavioral copy red - the
+    behavioral evidence is the Brightline transcript VS verified first;
+    acceptable for a GPT-copy fix that cannot be red-proofed offline.
+    (b) LATENT, unobserved, WONT-FIX unless a live artifact shows it: the
+    market counter-edit path (intake_consult.py ~17514, router patch
+    market.marketing_plan_summary) re-persists GPT-rewritten summary text
+    WITHOUT the scrub; the client is dictating those edits and reads the
+    result, no wrong claim observed - re-open on a live artifact.
+    (c) _payment_term_figures also fires on "net 30% margin"-style
+    phrasing; consequence is refuse-to-land (a reference), never a wrong
+    write - WONT-FIX. (d) _declared() is substring-permissive ("value"
+    in "we value quality" would license "value pricing") - cosmetic,
+    requires GPT to also invent the tier - WONT-FIX. (e) VS's flag
+    stands: Test Files/_redproof_cw033_fixes.py is stale on the pre-fix
+    tree (T1 attempt2 red, T4 tracebacks on the 4-value
+    _apply_forward_move) - I will handle it in TURN D with my own audit
+    script rather than trust that file. (f) A4 "speak the actual
+    position" = state the price, claim no tier: a real position
+    statement needs a captured market price fact = FEATURE DECISION,
+    parked for Nick with the other 10 - nobody builds it.
+    Not green: turns C and D remain.
+TASK:
+  TURN-TIMEOUT-MINUTES: 120
+  VS - TURN C (travels ALONE per the split law; nothing else rides):
+    A3 (#101): a plan can PASS viability on volume ABOVE the client's
+    stated capacity. DEAL BREAKER: the delivered plan certifies numbers
+    the client told us they cannot produce. REPRO FIRST - red on a real
+    shape where stated capacity is exceeded and the verdict still passes
+    (name the production call chain first, per the E2E law; use a real
+    transcript/draft shape, not a manufactured one) - then fix so the
+    pass respects stated capacity.
+    TIER: SPOT-CHECK by default - repro red->green, artifact (the
+    verdict + the volume/capacity figures it judged), single-line floor
+    via --only R31,R32. Expand to NEIGHBOR-CHECK only if the fix
+    actually changes shared viability/engine code other live behaviors
+    flow through - then name and check the neighbors on that path, not
+    the universe. FULL apparatus (canary + full prove) ONLY if it is a
+    core engine/money-math change. DECLARE the call + why in your TURN
+    PLAN (turn-plan law) and confirm DECLARED-vs-ACTUAL in your RESULT.
+    Restart the backend after app-code edits, ONE :5050 listener. Never
+    end the turn with a job running. Feature decisions stay PARKED; the
+    20 WONT-FIX closures stand; do not touch legs.py.
+    Flip to mini with a TASK for TURN D, carried forward verbatim:
+  TURN D (mini): the OWED turn-5 audit, SPOT-CHECK EACH FIX — does each
+    landed fix (D1-D5+X2, a4dc230) show correctly in its artifact, was
+    each tier call honest. NOT a full re-audit of the system. Where a
+    turn-5 fix changed shared high-fan-out code (the forward mover did),
+    neighbor-check THAT fix's named neighbors — not the universe. Also
+    spot-check A3 at the tier VS declared (verify the call). Original context: — the original mini session
+    died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
+    never independently verified. Artifact-audit them now, plus A3.
+    On a genuinely clean table: VERDICT green — the watcher stops and
+    pings Nick. Feature decisions remain his to rule on after.
+  Standing laws apply every turn: TURN PLAN first (emit, then proceed),
+  context scoped to the task, SPOT-CHECK the fix by default (neighbor-
+  check only for shared high-fan-out code; full apparatus only for
+  engine-math/golden changes), single-line floor every turn,
+  declared-vs-actual confirmed in every RESULT.
