@@ -3038,3 +3038,160 @@ _logs_persona_20260814_190317.txt, workbook built and delivered,
 workbook_deliveries row #22 bound by draft_id
 (_canary_cw033_turn3_sunnyv3_20260814.txt). Full prove:
 _prove_20260814_vs_cw033_turn3.txt (see RESULT for the table).
+
+## CW-033 TURN 5 (VS) - MINI'S D1-D5 + THE X2 BUILD, ALL LANDED
+Task: the five fixes from mini's turn-4 audit
+(_mini_cw033_t3_audit_20260814.txt). Instruments:
+Test Files/_redproof_cw033_turn5_fixes.py (25 checks, GREEN at HEAD, RED
+on 10 at pre-fix 2da12be with all four controls green at both commits:
+_redproof_cw033_turn5_prefix_20260814.txt),
+Test Files/_redproof_cw033_turn5_ablate.py (6 ablations, each red on its
+own fix's checks alone - none decorative),
+Test Files/_live_cw033_turn5_turns.py (W1-W5 GREEN on a listener
+postdating every edit: _live_cw033_turn5_20260814.txt).
+
+### D1 - A DROPPED-FIELD FIGURE NEVER RE-ENTERS THE MOVER (two rules)
+(a) In the stage edit_patch branch, the normalizer's dropped-field
+patch values ride into _unlanded_figures_disclosure as
+extra_reference_figures - the figure's disposition IS the say-do note,
+so it never hunts for a home ("...52,000 cash on hand" re-attributed
+onto rent). (b) _apply_forward_move takes turn_written_fields (the
+turn's stage-patch write-set); a move targeting one dies silently -
+the same law the redirect's consumed_figures enforce. Wired at the
+edit_patch branch (report applied-set), the completed wall (_rep
+applied-set), cash_strategy ({"cash_strategy"}), and the fallback
+branch (the fallback patch's own keys). The completed wall gets rule
+(b) only - it has no say-do note machinery, so a (b)-killed figure
+there is silent; mini may attack that edge. Live: W1 ends rent=2400.0,
+cash noted, nothing false spoken.
+
+### D2 - A CADENCE BINDS TO ITS FIGURE (clause-scoped)
+_stated_capacity_cadence(text, value=...) scans ONLY clauses carrying
+the stated figure's digits (sentences split on terminators, then on
+", and "/", but " - mini's measured warning that next-sentence is not
+enough is honoured; "We invoice monthly." IS the next sentence and no
+longer binds). Digits absent (word-number forms) -> whole-message scan
+stands, which converts or asks but never silently re-bases. The figure
+regex refuses decimal prefixes ("9" never matches inside "9.23").
+Callers pass the value at the reconciler and the mover's no-op bypass.
+Live: W2 lands install 9/9 with no 2.08 anywhere.
+
+### D3 - THE RESTATEMENT FILTERS STAND ASIDE FOR A STATED CADENCE
+In _unlanded_figures_disclosure, both stored-value filters (the
+prior-sections reference filter and the small-path per-row restatement
+check, capacity key only) stand aside when the message carries the
+word capacity AND _stated_capacity_cadence(msg, value=fig) is truthy -
+the same condition the door's no-op bypass uses. Negation, door-
+consumed and last-assistant references still hold.
+FOUND LIVE, FIXED, THE REAL C3 SURFACE: mini's C3 t2 dies at a THIRD
+layer live - t1's completion turn flips the draft to done, and t2
+routes through the COMPLETED/REOPEN surface where the router itself
+re-based "40 a week" onto BOTH capacity twins raw (period=40 stayed,
+wk=40 evaporated at derive) and the (h) which-field register shipped.
+The cadence law now lives at that surface's write too: capacity patch
+keys reconcile against the TARGET row's cadence before
+_apply_scoped_patch - convert into the canonical cell (the redundant
+twin key is dropped), ask when ambiguous (the ask holds the turn and
+returns alone), extra_derivable declared to the consequence contract
+so the conversion is not reverted as underivable, receipt
+read-back-gated and spoken in the client's cadence. Live: W3 t2 ends
+period=173.3333 / wk=40.0 with "Recorded: capacity 40 a week (about
+173.3 per operating period...)" leading the reply.
+NATURALIZER EVIDENCE FOR NICK'S OPEN RULING: on the first W3 rerun the
+naturalizer took the deterministic receipt and INVERTED THE CADENCE
+WORD - "40 a week" spoken as "40 a month (173 a period)", numbers
+kept, fact flipped. A cadence-conversion receipt now ships VERBATIM
+(the round-9 no-write rule's sibling, deterministic-layer, defensible
+without the ruling). This is the sharpest data point yet that
+naturalization can flip a receipt FACT while keeping its numbers.
+
+### D4 - THE LANDED STAGE ANSWER IS NAMED
+monthly_rent_expense added to _GENERIC_FINANCIALS_FIELD_LABELS
+("monthly rent") - the one value stage whose code ack was a bare
+"Got it.". The write-derived scalar ack now names every rent landing
+("Got it - I'll use $2,000 for monthly rent."), which also means the
+deterministic ack outranks benign router prose on the rent stage
+(code_ack != "Got it." always wins in the _first builder - intended,
+M1's direction). Live: W4 names the landed 2,000 beside the redirect;
+all turn-3 honesty checks hold unchanged.
+
+### D5 - AN ASK HOLDS THE TURN
+_apply_forward_move returns (fin, shared, copy, holds_turn); the
+cadence ask is the only holds_turn=True source. The completed wall
+ships the ask ALONE (after any real receipt) and stops - no completion
+prose, and the ask is NOT a landing so the completion sync no longer
+runs on ask turns. Stage branches, the tail, and the coherence-round
+backstop all handle the flag (structurally unreachable today - ops
+moves refuse while a stage is active, BEFORE the cadence reconcile -
+kept as law so a future ask cannot re-open the register gap). The
+at-rest week-twin re-derive on ask turns (mini's C6 note ii, ruled
+documentation-only) still occurs via the endpoint's own sync - W5
+notes it; canonical cell untouched. Live: W5 ships the ask alone.
+
+### X2 - THE CW-017B DOOR RECONCILES THE STATED CADENCE
+_apply_cross_section_driver_correction's capacity branch runs
+_reconcile_stated_capacity_cadence after value derivation: matching
+cadence lands as today (X2e control, weekly row identity), a differing
+one CONVERTS into the canonical cell (X2a: period 173.3333, never a
+raw 40), an ambiguous one sets report["cadence_ask"] and returns None
+- the market/people caller speaks the ask as the leading note, the
+late focus==financials caller ships it alone (D5). The cands
+current-value filter stands aside for a stated cadence (X2c: stored
+40 + "40 a week" converts instead of declining). The conversion is
+declared to _reconcile_driver_correction via a new extra_derivable
+param (appended ONLY to the derivability check's figure list - landing
+roles, targets and anchors never see it), because 40*52/12 is not in
+the message's figures and the consequence contract would revert it.
+The ack speaks the client's cadence. NOTE: _capacity_canonical_field
+maps "weekly" (not "week") to the wk cell - a row stamped cadence
+"week" is period-canonical; the first X2e control tripped on this.
+
+### DECLARED-VS-ACTUAL (turn plan law, first turn under it)
+Declared after the first site-reads (the law landed in 2da12be, after
+this turn's bootstrap was generated) - emitted via
+scripts/handoff_turn_plan.py before any code edit. Actual matched the
+declaration with ONE addition: the completed/reopen surface fix (the
+live W3 red forced it - same defect class, same law, found by the
+declared live verification step). Blast radius stayed as declared
+(system-touching, full apparatus run).
+
+### SCOPING LAWS MIRROR (Nick 2026-08-14, recorded once - idempotent)
+VERIFICATION SCOPED TO BLAST RADIUS: verify what the fix touched.
+LOCALIZED (structurally cannot reach engine/money/golden floor) ->
+targeted red->green + the gate's golden legs via --only; NOT a canary,
+NOT the full prove. SYSTEM-TOUCHING (engine, money math, golden floor,
+cross-cutting) -> full apparatus (full prove + Sunny_V3 canary before
+any batch), earned and RARE. Targeted is the DEFAULT; the RESULT
+states the call so mini can audit the call itself.
+CONTEXT SCOPED TO THE TASK: each turn loads (1) the task, (2) the
+short standing-laws list (client-authority/parent law, guided-flow
+forward-only, receipt law, naturalization, verification-scoping, this
+law), (3) ONLY the files/code the task touches. Full-context load is
+EARNED only by genuinely system-spanning work. Mini independence = an
+artifact audit without VS reasoning, not a reload of the world.
+
+### CANARY + PROVE (turn 5)
+Sunny_V3 on listener PID 29768 (started 20:33:06, postdates every
+edit, ONE listener verified): system_run_complete, 305s, ZERO
+ERROR/Traceback lines in _logs_persona_20260814_203305.txt, workbook
+built, workbook_deliveries row #23 bound by draft_id 24860d32
+(_canary_cw033_turn5_sunnyv3_20260814.txt). Full prove:
+_prove_20260814_vs_cw033_turn5.txt (table in the RESULT).
+
+### THE FIRST PROVE'S R44 QUARANTINE - FOUND, FIXED, RE-EARNED
+The first full prove this turn QUARANTINED R44: its benign control
+("prose without a claim still ships") went red on the current build,
+because naming the rent stage (D4) exposed a LATENT $0-invention in
+the scalar ack builder - called with the stage value ABSENT it spoke
+"Got it - I'll use $0 for monthly rent.", a write-claim for a write
+that never happened, and that non-bare ack silenced benign prose. The
+shape pre-existed for EVERY scalar stage; D4 only made rent reach it.
+FIX: the empty-state builder claims nothing (value absent -> bare
+"Got it." -> benign prose ships); a stored 0 still speaks $0. R44
+re-run --only: HOLDS on all three probes. Everything re-earned on the
+FINAL code after a backend restart (ONE listener, PID 33964 20:47:09):
+redproofs 25/25 + 24/24, ablations all, live W1-W5 GREEN, fresh
+Sunny_V3 canary (draft 6b46dcc5, system_run_complete, 0 error lines,
+delivery record #24 bound by draft_id), full prove CLEAN - 65 legs,
+58 PROVEN behavioural, 5 structural-absence, 2 golden, 0 DRIFT,
+0 UNEARNED, no quarantine.

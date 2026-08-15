@@ -1,0 +1,82 @@
+W1 - D1: the two-fact rent answer (mini's A3 verbatim)
+
+W1 FULL REPLY < [200]
+Got it - I'll use $2,400 for monthly rent. (One note: I haven't recorded cash on hand yet — we'll get to that in a moment.)
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+
+  [PASS] W1 live turn 200: 200
+  [PASS] W1 rent is the CLIENT'S 2,400 - never the clobbered 52,000: 2400.0
+  [PASS] W1 cash on hand not falsely stored either: None
+  [PASS] W1 no receipt speaks 52,000 as rent: Got it - I'll use $2,400 for monthly rent. (One note: I haven't recorded cash on hand yet — we'll get to that in a moment.)
+
+Looking ahead, do you expect paid dedicated business space to stay part of 
+
+W2 - D2: cadence in another sentence never binds (mini's C1)
+  [NOTE] W2 install before: {'wk': 5, 'period': 5, 'price': 2400, 'util': 0.66}
+
+W2 FULL REPLY < [200]
+Recorded: current cogs $745,353. Recorded: Landscaping/installation job capacity 9.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $241,225 (28.4% of revenue), that stress figure actually sits above the 6.0%-13.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 13.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $35,162 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+  [PASS] W2 live turn 200: 200
+  [PASS] W2 the 9 lands in the row's own cadence (wk 9, never 2.08): {'wk': 9.0, 'period': 9.0, 'price': 2400, 'util': 0.66}
+  [PASS] W2 no mis-bound monthly conversion anywhere in the reply: Recorded: current cogs $745,353. Recorded: Landscaping/installation job capacity 9.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your num
+
+W3 - D3: the no-op bypass, both turns (mini's C3 sequence)
+
+W3 t1 FULL REPLY < [200]
+Recorded: capacity 40 a month.
+
+Thanks. I have everything I need for financials, and the intake is complete. One thing worth sitting with together before you lean on this: at the strongest realistic version of your business, the structure can work - a mature quarter at that stress point keeps about $30,158 (35.0% of revenue), that stress figure actually sits above the 8.0%-18.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 18.0% as the honest ceiling, not the figure above it. But at the growth we'd actually plan for, it still comes up about $1,812 a quarter short. At today's scale, before any growth, the same structure keeps about $1,555 a quarter. If you want, we can work those levers together right now - pricing, costs, or another line of revenue - or you can submit and the full build will run its own final checks. Every number you just set is yours.
+
+  [PASS] W3 t1 live turn 200: 200
+  [PASS] W3 t1 '40 a month' is identity on the 12-period row (period 40): {'wk': 9.2308, 'period': 40.0, 'price': 520, 'util': 0.82}
+
+W3 t2 FULL REPLY < [200]
+Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your Property contract side now models at about $886,912 a year. (I didn't end up using 40 and 40 - if that should change the model, tell me where.) That change would move your annual revenue from $175,000 to about $758,333 - a big move, so I haven't applied it to your revenue yet. Is that really what your numbers should say?
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($175,000) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $886,912 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+  [PASS] W3 t2 live turn 200: 200
+  [PASS] W3 t2 the restatement filter stands aside and CONVERTS (period 173.3333): {'wk': 40.0, 'period': 173.3333, 'price': 520, 'util': 0.82}
+  [PASS] W3 t2 the reply speaks the client's cadence: Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Updated: Property contract: monthly capacity → 40; Property contract: monthly capacity → 173. Your 
+
+W4 - D4: the landed stage answer is NAMED on the redirect turn
+
+W4 FULL REPLY < [200]
+One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it - I'll use $2,000 for monthly rent.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+
+  [PASS] W4 live turn 200: 200
+  [PASS] W4 rent landed (2000): 2000.0
+  [PASS] W4 the landed rent is NAMED in the reply: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got it - I'll use $2,000 for monthly rent.
+
+Looking ahead, do you expect paid dedica
+  [PASS] W4 price did NOT change: {'wk': 165, 'period': 165, 'price': 95, 'util': 0.57}
+  [PASS] W4 the honest redirect leads: One note: I haven't changed any operations price from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+Got 
+  [PASS] W4 NO ack of the suppressed 99
+  [PASS] W4 rows byte-equal
+
+W5 - D5: the mixed-cadence ask HOLDS the turn at the wall
+
+W5 FULL REPLY < [200]
+Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it with one clear cadence, like '40 a week') and I'll set it.
+
+  [PASS] W5 live turn 200: 200
+  [PASS] W5 the cadence ask ships: Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it wit
+  [PASS] W5 the ask HOLDS the turn (no completion prose behind it): Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it with one clear cadence, like '40 a week') and I'll set it.
+  [PASS] W5 the canonical cell is untouched on the ask turn: before={'wk': 34, 'period': 34, 'price': 520, 'util': 0.82} after={'wk': 7.8462, 'period': 34, 'price': 520, 'util': 0.82}
+  [NOTE] W5 stale week twin re-derived at rest (C6 note ii, documented): 34 -> 7.8462
+
+RESULT: GREEN - all live checks passed

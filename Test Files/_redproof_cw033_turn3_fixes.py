@@ -105,7 +105,11 @@ def _rows(ops):
 
 
 def _fwd(ic, *, shapes_key, shapes, fin_mut=(), move=None, message=""):
-    """Run _apply_forward_move on a deepcopy of a real draft shape."""
+    """Run _apply_forward_move on a deepcopy of a real draft shape.
+
+    RE-POINTED turn 5 (VS): the mover now returns a 4-tuple with the
+    D5 holds-turn flag; this helper tolerates both arities so the
+    turn-3 checks keep running unmodified at either commit."""
     fin = copy.deepcopy(shapes[shapes_key]["fin"])
     for f in fin_mut:
         fin.pop(f, None)
@@ -113,12 +117,13 @@ def _fwd(ic, *, shapes_key, shapes, fin_mut=(), move=None, message=""):
         "operating_model": copy.deepcopy(shapes[shapes_key]["ops"]),
         "people_capability": copy.deepcopy(shapes[shapes_key]["people"]),
     }
-    fin_out, shared_out, cp = ic._apply_forward_move(
+    _res = ic._apply_forward_move(
         move=dict(move), stage_shared_context=shared,
         next_financials=fin, financials_year1_json={},
         conn=None, intake_context={"draft_id": "redproof-cw033"},
         user_message=message, last_assistant="",
     )
+    fin_out, shared_out, cp = _res[0], _res[1], _res[2]
     return fin_out, shared_out, cp
 
 

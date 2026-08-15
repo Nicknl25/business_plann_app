@@ -1,0 +1,167 @@
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+COMPLETED_FOLD_PEOPLE_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10730, in _run_financials_turn_and_sync_inner
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+COMPLETED_FOLD_PEOPLE_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10730, in _run_financials_turn_and_sync_inner
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+
+=== baseline (no ablation) ===
+  (all green)
+  [PASS] baseline is fully green
+
+=== AB1: D1b guard dropped (turn_written_fields ignored) ===
+  RED: D1b the mover never overwrites this turn's own stage write
+  RED: D1b the refused move claims nothing
+  [PASS] AB1 reds exactly the D1b clobber checks
+
+=== AB2: D2 value-binding dropped (whole-message scan) ===
+  RED: D2a a cadence in ANOTHER sentence never binds (C1 -> unstated)
+  RED: D2e ', and we invoice monthly' clause never binds
+  [PASS] AB2 reds exactly the clause-binding checks
+
+=== AB3: D3 bypass blinded on the C3 wording ===
+  RED: D3a stated-cadence capacity figure SURVIVES the restatement filters (stored 40, '40 a week')
+  RED: D3b the surviving figure CONVERTS at the door (period 173.33)
+  [PASS] AB3 reds exactly the restatement-survival checks
+
+=== AB4: D4 rent label removed ===
+  RED: D4a the rent ack NAMES the landed value
+  [PASS] AB4 reds exactly the rent-ack check
+
+=== AB5: D5 holds-turn flag forced False ===
+  RED: _checks_d5 completed without error
+  [PASS] AB5 reds exactly the ask-holds coverage
+
+=== AB6: X2 reconciler passthrough (raw re-base returns) ===
+  RED: D3b the surviving figure CONVERTS at the door (period 173.33)
+  RED: D3b receipt speaks the client's cadence
+  RED: _checks_d5 completed without error
+  RED: X2a the xsec door CONVERTS '40 a week' on the contract row (period 173.33, never a raw 40)
+  RED: X2a the ack speaks the client's own cadence
+  RED: X2b an ambiguous cadence ASKS through the refusal path (no landing, report carries the ask)
+  RED: X2c the no-op edge converts too (stored 40, '40 a week' -> 173.33)
+  [PASS] AB6 reds the conversion checks at BOTH doors
+
+ABLATIONS: ALL PASS - none decorative

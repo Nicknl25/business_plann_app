@@ -1,0 +1,43 @@
+FORWARD_MOVE_OPS_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 10085, in _apply_forward_move
+    append_messages(
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+[PASS] D2a a cadence in ANOTHER sentence never binds (C1 -> unstated) -- ''
+[PASS] D2b same-sentence cadence still binds (X2 -> week) -- 'week'
+[PASS] D2c 'handle 26 jobs a month' -> month
+[PASS] D2d two cadences in the figure's own clause -> mixed -- 'mixed'
+[PASS] D2e ', and we invoice monthly' clause never binds -- ''
+[PASS] D2f digits absent -> whole-message scan stands (never a silent re-base)
+[PASS] D2g decimal is not its integer ('9.23 a week' has no figure 9... cadence falls back to whole-message) -- 'mixed'
+[PASS] D1b the mover never overwrites this turn's own stage write -- 2400.0
+[PASS] D1b the refused move claims nothing
+[PASS] D1c CONTROL: without the write-set the clobber is real (the guard does the work) -- 52000.0
+[PASS] D1a a dropped-field figure handed over as a reference never produces a move -- None
+[PASS] D3a stated-cadence capacity figure SURVIVES the restatement filters (stored 40, '40 a week') -- {'key': 'ops.units_per_period_capacity', 'value': 40.0, 'label': 'capacity', 'attributed': True}
+[PASS] D3b the surviving figure CONVERTS at the door (period 173.33) -- 173.3333
+[PASS] D3b receipt speaks the client's cadence -- Recorded: capacity 40 a week (about 173.3 per operating period (12 a year) as this line is modeled).
+[PASS] D3c CONTROL: a cadence-free restatement of the stored value still dies (no false motion) -- None
+[PASS] D4a the rent ack NAMES the landed value -- Got it - I'll use $2,000 for monthly rent.
+[PASS] D4b other scalar stages unchanged (cash on hand named as before) -- Got it - I'll use $52,000 for cash on hand.
+[PASS] D5a the mixed-cadence ASK ships -- Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it wit
+[PASS] D5b the ask HOLDS the turn (no 'intake is complete' behind it) -- Quick check on that capacity change so I don't record the wrong number: this line is modeled per operating period (12 a year) - tell me the capacity per operating period (12 a year) (or restate it with one clear cadence, like '40 a week') and I'll set it.
+[PASS] X2a the xsec door CONVERTS '40 a week' on the contract row (period 173.33, never a raw 40) -- 173.3333
+[PASS] X2a the ack speaks the client's own cadence -- Done - I've updated Property contract capacity to 40 a week (about 173.3 per operating period (12 a year) as this line is modeled). Your Property contract side now models at about $886,912 a year.
+[PASS] X2b an ambiguous cadence ASKS through the refusal path (no landing, report carries the ask) -- res=None rep_keys=['cadence_ask', 'consumed_figures', 'triggered_leaf']
+[PASS] X2c the no-op edge converts too (stored 40, '40 a week' -> 173.33) -- 173.3333
+[PASS] X2d CONTROL: a cadence-free correction lands raw as today (period 40) -- 40.0
+[PASS] X2e CONTROL: matching cadence is identity (weekly row, 40/wk) -- 40.0
+
+RESULT: GREEN - all 25 checks passed
