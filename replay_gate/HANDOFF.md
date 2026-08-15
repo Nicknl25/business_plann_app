@@ -1,67 +1,70 @@
-STATUS: awaiting-Nick
-TURN: 6/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
-  DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
-  four deal breakers, sequenced easy-first/big-last. This seed lays out
-  the WHOLE itinerary; each agent carries it forward in its outgoing
-  TASK block so the chain runs without re-seeding. The 20 WONT-FIX
-  closures STAND. The 10 FEATURE DECISIONS stay PARKED for Nick — no
-  one builds, pulls, or specs any of them.
-  TURN-TIMEOUT-MINUTES: 120
-  TURN A (VS, SPOT-CHECK tier — guards/copy/validation, none changes
-  shared high-fan-out code; grouped per the split law: repro red->green
-  per fix + artifact + single-line floor via --only, NO canary, NO full
-  prove). Three fixes, each with its deal breaker named (turn-plan law):
-    A1 (cands[-1] price/util branches): price/utilization corrections
-      use last-figure-wins — "price should be 650, I was thinking 520"
-      stores 520. DEAL BREAKER: the client's corrected price is
-      replaced by their discarded one in the delivered plan. Apply the
-      capacity branch's already-proven fix shape (sentence-scoped +
-      marked-candidate + refuse-on-ambiguity) to the price branch.
-    A2 (#134): "our terms are net 45" stores 45 as capacity. DEAL
-      BREAKER: a payment term becomes a production volume the model
-      builds on. Add the guard — REPRO FIRST (red on the real shape
-      before the fix).
-    A4 (#122): a below-market price is called "mid-market" in plan
-      copy. DEAL BREAKER: a false market-position claim in the
-      delivered plan. VERIFY FIRST (confirm the copy path still does
-      it), then fix the claim to speak the actual position.
-    Flip to mini with a TASK for turn B below.
-  TURN B (mini, SPOT-CHECK audit — minutes): the four confirmations on
-    A1/A2/A4: diff does what the plan said; artifact shows the right
-    value on each repro; VS's tier call was honest (a spot-check claim
-    on shared high-fan-out code escalates); floor held. Flip and write
-    VS's TASK for:
-  TURN C (VS, travels ALONE per the split law; SPOT-CHECK by default —
-    fix the viability check, repro that a plan can no longer pass on
-    volume above stated capacity, confirm the artifact, floor. Expand
-    to NEIGHBOR-CHECK only if the fix actually changes shared
-    viability/engine code other behaviors flow through — then check the
-    named neighbors on that path, not the universe. FULL apparatus only
-    if it is a core engine/money-math change; declare the call + why in
-    the TURN PLAN):
-    A3 (#101): a plan can PASS viability on volume ABOVE the client's
-      stated capacity. DEAL BREAKER: the delivered plan certifies
-      numbers the client told us they cannot produce. REPRO FIRST —
-      red on a real shape where stated capacity is exceeded and the
-      verdict still passes — then fix so the pass respects stated
-      capacity.
-    Flip to mini with a TASK for:
-  TURN D (mini): the OWED turn-5 audit, SPOT-CHECK EACH FIX — does each
-    landed fix (D1-D5+X2, a4dc230) show correctly in its artifact, was
-    each tier call honest. NOT a full re-audit of the system. Where a
-    turn-5 fix changed shared high-fan-out code (the forward mover did),
-    neighbor-check THAT fix's named neighbors — not the universe. Also
-    spot-check A3 at the tier VS declared (verify the call). Original context: — the original mini session
-    died mid-audit, so turn 5's five fixes (D1-D5+X2, a4dc230) were
-    never independently verified. Artifact-audit them now, plus A3.
-    On a genuinely clean table: VERDICT green — the watcher stops and
-    pings Nick. Feature decisions remain his to rule on after.
-  Standing laws apply every turn: TURN PLAN first (emit, then proceed),
-  context scoped to the task, SPOT-CHECK the fix by default (neighbor-
-  check only for shared high-fan-out code; full apparatus only for
-  engine-math/golden changes), single-line floor every turn,
-  declared-vs-actual confirmed in every RESULT.
+  STREAM DISCOVERY BUILD — Nick APPROVED docs/STREAM_DISCOVERY_SPEC.md
+  (2026-08-15, HEAD carries the approved text). Build it exactly as the
+  spec says. Deal-breaker board is CLEAN; this is the only work item.
+  TURN-TIMEOUT-MINUTES: 150
+  TURN 1 (VS, NEIGHBOR-CHECK tier — the insertion is the shared ops
+  wrap-up path; NO engine math, NO canary, NO full prove):
+    Build proactive stream discovery per the spec:
+    - stream_discovery_evidence_level (Python-gated: thin ⇒ no GPT call,
+      no ask; thin = no business_type / NAICS unresolved / pre-revenue /
+      empty client line list). Operating + early-stage only.
+    - ONE fenced GPT category judgment per draft in the demand-judge
+      pattern (forced tool call, seed, validator not prompt): inputs =
+      business_type, business_naics_6 + NAICS title, stage, geography,
+      the client's own lob_models/products + description. Returns
+      candidates[] of {label, commonality in most|many|some} — LABELS
+      ONLY, never a number. NO cohort/CBP data in the inputs.
+    - Validator: drop commonality=some; drop labels stem-resolving to an
+      existing line (_resolve_ops_product_line); drop labels carrying
+      addition verbs (add/expand/consider/start/launch/new); NO COUNT CAP
+      ANYWHERE (Nick's correction: the band IS the gate; the number
+      surfaced is a judgment). Empty ⇒ asked:false reason stored.
+    - The ask = ONE deterministic template constant, existence-framed
+      ("...a lot of <type>s also <A>, <B> or <C>. Is any of that part of
+      your business today? If not, just say so and we'll move on."),
+      fired ONCE at the end-of-ops seam intake_consult.py ~:20116 (after
+      _ops_ready_for_wrap_from_gate_obj is True, BEFORE the
+      competitive-advantage proposal) AND at the follow-up mirror ~:19080.
+      Holds the turn the established way (finalize_ready=False + return).
+    - Answer handling: yes per candidate ⇒ PYTHON appends the product row
+      deterministically (product_name=label, drivers null, origin=
+      discovery_confirmed) under the stem-matched LOB or a new LOB, with a
+      receipt that says exactly that; the existing cascade then captures
+      its five fields (never estimate a number for a discovered stream).
+      no ⇒ stored, never re-asked. unclear ⇒ NOT confirmed (ruled), stored
+      as unclear, never re-asked.
+    - Storage: operating_model_json.stream_discovery latch (asked,
+      asked_turn_index, business_type, naics_6, candidates w/ commonality
+      + answer, dropped w/ reason, version) — CARRIED FORWARD through
+      consultant_finalize at both ops_json=final_obj sites (the way
+      competitive_advantage / business_naics_6 are rescued) and `origin`
+      added to BOTH strict schemas (finalize + turn) so finalize keeps it.
+    Verify (declare in your TURN PLAN): SPOT-CHECK the discovery logic
+    (red-proof: thin ⇒ no ask; band-gate drops some; stem dedup drops a
+    paraphrase; addition-verb lint; forbidden-phrase grep on the emitted
+    ask; yes appends a row with origin that SURVIVES finalize; no/unclear
+    never re-asked) + NEIGHBOR-CHECK the named neighbors: consultant_
+    finalize latch-carry at both sites, both cascade hooks, the strict
+    schemas, competitive-advantage proposal still fires once after the
+    ask resolves, milestone question unchanged, a thin single-line draft
+    byte-identical to today (floor R31/R32 via --only). Live: one rewound
+    multi-line clone through propose -> yes -> cascade captures the new
+    line -> wrap clean; one thin clone with NO ask. Then flip to mini.
+  TURN 2 (mini, NEIGHBOR-CHECK audit): artifact-audit the finalize
+    latch-carry (origin + stream_discovery present AFTER ops finalize),
+    both hooks (main cascade + follow-up mirror both fire), the schemas,
+    the validator fences (grep: no count cap constant exists), the
+    template constant + forbidden phrases, VS's tier call. On a clean
+    table: VERDICT green -> the watcher stops and pings Nick, who then
+    drives the TWO confirming Cowork runs (garden centre that omits
+    design/consultation -> propose/yes/capture/wrap-clean; thin single-line
+    niche -> silence, byte-identical). Discovery is DONE only when both
+    runs prove out; new findings are triaged for Nick, never auto-fixed.
+  Standing laws every turn: TURN PLAN first, context scoped, spot-check
+  default / neighbor-check here, floor every turn, declared-vs-actual.
 RESULT:
   AGENT: VS
   VERDICT: progress
@@ -2246,55 +2249,9 @@ TASK:
   spot-check the fix, single-line floor every turn, declared-vs-actual in
   the RESULT.
 RESULT:
-  AGENT: mini
-  VERDICT: green
+  AGENT: none
+  VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: f6ea787 diff (git show f6ea787 --stat: 2 app files, 19+10
-    lines); _live_turnE_PRE_20260815.txt (RED 3/3 on HEAD 7473095) /
-    _live_turnE_POST_20260815.txt (GREEN, absence asserted); my own
-    re-runs on HEAD: Test Files/_redproof_turnE_receipt_saydo.py GREEN
-    (E1 receipt 'weekly capacity -> 40; monthly capacity -> 173', E2
-    declared call no tail / undeclared call still documents the pre-fix
-    tail); _prove_20260815_turnF_floor.txt R31+R32 GOLDEN, digests
-    72dfcb81/24e38de4/1d50e46a/cbd76463 identical to VS's read, 0 DRIFT.
-  SUMMARY: TURN F spot-check audit of turn E - CLEAN. (1) Diff confined
-    exactly as declared: capture_receipt._fmt cadence branch narrowed to
-    the units_per_period_capacity leaf (week twin falls to its static
-    'weekly capacity' _LABELS entry; the item-8 'capacity' fallback stays
-    on the period cell); intake_consult: converted_stated kwarg
-    (Optional, default None) + covered_vals extension in the (d) backstop
-    + two caller pass-throughs (xsec door 7091/7136, main capacity
-    reconciler 17701/17781/17853) + two locals. No legs.py, engine,
-    workbook, mover. The third _reconcile_stated_capacity_cadence site
-    (10112, guard path) does not call _reconcile_driver_correction - no
-    uncovered say-do path. (2) Artifact: POST reply carries 'weekly
-    capacity -> 40' and 'monthly capacity -> 173', NO 'monthly capacity ->
-    40', NO 'didn't end up using 40'; stored wk 40 / period 173.3333;
-    PRE on HEAD showed all three defects. (3) Tier honest: _fmt's change is
-    a leaf-name narrowing (only the week-twin path changes rendering); the
-    backstop extension is inert unless a caller passes converted_stated -
-    no shared high-fan-out behaviour changed; spot-check is the right
-    tier. (4) Floor held on my own run. (5) Redproof PRE red for the RIGHT
-    reason: E1 behavioural ('monthly capacity -> 40' rendered); E2
-    structural (kwarg) AND the undeclared call documents the pre-fix tail
-    on record. VS DECLARED-vs-ACTUAL: blast radius, verify plan, canary
-    skip, legs R31/R32 all match. ONE minor divergence, disclosed but not
-    named as one: VS's plan declared E2 as the xsec-door only
-    (intake_consult ~7960-8020) yet the fix also plumbed the MAIN capacity
-    reconciler caller (17701-17853) - the RESULT listed the wider ranges
-    honestly and the split law is unaffected (same radius, same file,
-    same fix shape), so a process note, not a finding. My
-    DECLARED-vs-ACTUAL: MATCHES - loaded exactly the plan's list, ran the
-    redproof harness + --only R31,R32, canary skipped, no app code or legs
-    touched. No new deal breakers surfaced this turn; the '40 and 40'
-    duplicate-figure yield in _message_figures stays on Nick's watch-list
-    (cosmetic-inert now that the figure is covered -> WONT-FIX unless it
-    resurfaces as a false claim).
-TASK:
-  TURN-TIMEOUT-MINUTES: 45
-  For Nick (plain English): the turn-E fixes are audited clean - the
-    reopen receipt now says "weekly capacity -> 40; monthly capacity ->
-    173" and no longer claims the 40 went unused. The deal-breaker batch
-    (A1/A2/A4, A3, E1/E2) is closed with a green table. Nothing is owed
-    to VS; the next TASK comes from your next ruling or the next Cowork
-    run. Nothing for you to edit - just say "go" with what's next.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
