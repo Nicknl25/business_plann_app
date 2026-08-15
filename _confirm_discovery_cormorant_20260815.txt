@@ -1,0 +1,39 @@
+DISCOVERY CONFIRMING RUN #1 - Cormorant Coffee Roasters (draft ec1e22ef, Coffee Roaster, NAICS 311920) - 2026-08-15
+Backend HEAD 56ad95c (discovery build 8315341). Single line: "5 lb bag of roasted coffee", 420/wk, 72%, $62.
+Client's opening (verbatim): "We roast coffee. I buy green beans from importers, roast them here on Cornwall Avenue, and sell
+whole bean wholesale - mostly to cafes and restaurants around Bellingham and down into Seattle, and some direct to people
+online. Been doing it since 2014. Everything goes out in five pound bags..."
+
+DECISION POINT (end of ops, seam :20384): DISCOVERY DID NOT ASK. Ops wrapped at turn 26 and moved to Target Market.
+=> KILL-EARLY condition per Nick's brief. Verified from operating_model_json.stream_discovery (not narration):
+
+  evidence: RICH (business_type + NAICS + client lines present) -> the judge WAS called (mechanism fired end-to-end)
+  judge returned 8 candidate labels; the VALIDATOR dropped ALL 8 -> asked:false, reason:no_common_candidates
+    "12 oz retail coffee bags"        dropped: label_carries_number      <- the most genuinely-common adjacent stream, killed by a lint
+    "wholesale coffee beans"          dropped: matches_existing_line     (correct - it IS the primary line)
+    "online coffee bean sales"        dropped: matches_existing_line     (correct - client mentioned online in the opening)
+    "office coffee supply accounts"   dropped: matches_existing_line     <- OVER-MATCH: shares only the token 'coffee'
+    "private label coffee roasting"   dropped: matches_existing_line     <- OVER-MATCH: shares only the token 'coffee'
+    "cold brew coffee"                dropped: commonality_some          (correct band-gate)
+    "single serve coffee pods"        dropped: commonality_some          (correct band-gate)
+    "merchandise and branded apparel" dropped: commonality_some          (correct band-gate)
+
+WHAT HELD: evidence gate (rich, correctly), the ONE fenced GPT call, band-gate (3 'some' dropped), the ask template never
+composed by GPT, latch stored with every drop reason (auditable exactly as specced), floor untouched, no upsell, nothing invented.
+WHAT DID NOT HOLD (the feature's purpose): silence on a business type that has common adjacent streams, caused by TWO validator
+fences being too aggressive on a category-noun-heavy type:
+  F1  STEM DEDUP OVER-MATCHES ON THE CATEGORY NOUN. _resolve_ops_product_line scores ANY shared stemmed token >=4 chars; for a
+      coffee roaster every adjacent stream contains 'coffee', so 'office coffee supply accounts' and 'private label coffee
+      roasting' resolve to the existing 'Roasted coffee' line on the single shared token. Dedup should require a distinguishing
+      match (a token that is not the business-type/category noun, or >=2 shared tokens), not any one-token hit.
+  F2  NUMBER-LINT DROPS SIZE QUALIFIERS. 'label_carries_number' (VS's numbers-only-from-client fence, not in the spec) killed
+      '12 oz retail coffee bags' - a size descriptor, not a revenue number. Strip numeric size qualifiers from the label
+      ('retail coffee bags') or instruct the judge to omit sizes; never drop the candidate for it.
+
+TRIAGE (deal-breaker law): NOT a deal breaker - no wrong number, no false claim, nothing fabricated; the plan simply reflects
+what the client said. It IS a feature-effectiveness gap that defeats discovery on this class of business. BUCKET: FEATURE
+DECISION for Nick - approve F1+F2 as a localized validator-only fix (spot-check tier: red on this exact latch -> green =
+'retail coffee bags' + 'private label roasting' + 'office coffee supply' survive; wholesale/online still deduped), then re-run
+the confirming run. Label GRAMMAR watch item: no ask rendered, so not observable this run.
+Run status: Cowork carried on into Target Market after the wrap (kill is Cowork's call per the brief); nothing further is
+learned about discovery from the rest of this run.
