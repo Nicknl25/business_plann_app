@@ -134,18 +134,29 @@ RULES
 
 ---
 
-## proactive-stream-discovery  (RESEARCH DONE 2026-08-15 — spec awaiting Nick)
+## proactive-stream-discovery  (BUILT 8315341, audited 56ad95c)
 
-    GATE:   n/a       — nothing built. docs/STREAM_DISCOVERY_SPEC.md is the
-                        resolved spec: source = fenced GPT category
-                        judgment (no held data describes streams),
-                        deterministic existence-only ask, end-of-ops seam
-                        intake_consult.py:20116 (+ mirror :19080), cap 2,
-                        operating/early-stage only, Python appends the row
-                        on yes, latch carried through finalize.
-    LIVE:   n/a
-    COWORK: blocked
-    NEXT STEP: Nick reviews the spec (3 decisions listed at the end).
-    On approval: build turn at NEIGHBOR-CHECK tier -> mini audit -> one
-    thin single-line confirming run (byte-identical) + one multi-line
-    run that gets an ask.
+    GATE:   blessed   — mini 2026-08-15 turn 2 (56ad95c) neighbor-check
+                        audit GREEN: latch-carry at both finalize sites +
+                        both model patches, both cascade hooks, origin in
+                        both strict schemas, validator fences w/ NO count
+                        cap (re-grepped), template + forbidden-phrase
+                        grep clean, deterministic reader cases, VS tier
+                        call honest, floor R31/R32 2/2 clear on committed
+                        code. WATCH: W1 needs-ruling (pre-existing), W2/W3
+                        wont-fix, label-grammar cosmetic.
+    LIVE:   passed    — VS 2026-08-15 (8315341), per the spot/neighbor law
+                        (no canary owed): live rewound clones GREEN —
+                        rich clone propose -> yes -> cascade captures the
+                        new line -> wrap CLEAN; thin clone => NO ask;
+                        backend restarted on HEAD 56ad95c 15:25, ONE :5050
+                        listener.
+    COWORK: cleared   — automatic: GATE=blessed + LIVE=passed. ONE
+                        confirming run (agenda rank 1, KILL-EARLY brief).
+
+    NEXT STEP: Nick's confirming Cowork run on a SINGLE-LOB business with
+    genuinely-common adjacent streams; decision point = end-of-ops (does
+    the judge propose?). Proposes -> play through -> multi-stream plan +
+    multiple COGS drivers. Doesn't propose -> KILL, report. New findings
+    triaged for Nick.
+

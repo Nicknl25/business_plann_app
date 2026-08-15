@@ -1,10 +1,18 @@
 {
- "version": 21,
- "updated": "2026-08-14T06:45:00Z",
- "notes": "CW-033 (Kestrelbrook Nursery and Garden, Sun Prairie - a healthy, crew-constrained four-line garden centre) was the scoped confirming run, and it was also the first run executed under the guided-path / question-set discipline. Every probe answered a question the app actually asked, in a shape that question invited. No off-path sequence was manufactured, and the A-113 shape was not attempted at all.\n\nFOUR OF THE FIVE DEAL-BREAKER CONFIRMATIONS HELD with artifact evidence. The cadence receipt read 'weekly capacity -> 40' with no monthly label anywhere. The mid-sentence price correction ('That should be 850, I was thinking 720') stored 850 and the abandoned 720 appears in no field of either JSON. 'Net 45', stated twice in two different stages, never became a capacity or production number. And per-line COGS held on every limb: four rates in ONE message all wrote and read back true, the collapse stored a real group with named members and basis 'declared', and the workbook carried the ruled layout - four COGS drivers on Model Inputs, exactly one P&L line, roll-up matching to eight decimal places.\n\nTHE FIFTH IS A JUDGMENT CALL I AM NOT SETTLING. The A3 capacity cap did not wall. The client stated 40 landscaping jobs a week at 95 pct utilization; the built workbook re-bases that to 54.3 a week at 70 pct under a utilization_ceiling 0.85 / post_expansion_utilization 0.7 policy, then runs mature quarters at 538-566 jobs against her stated 520 ceiling. Q1 is a pure re-expression - 519.8 x 0.95 and 705.5 x 0.70 are the same 493.8 jobs - and the expansion is more than funded, with volume up 9.0 pct across the projection against payroll up 35.5 pct. The Capacity row is also marked derived_driver payroll_supported_capacity, and section 6 says a stored-vs-workbook difference on a derived field is design. Against that: capacity and utilization are fields the client answered directly, the plan shows her numbers she never gave, and nothing in model_input or operating_model discloses the assumption. Whether a client-stated capacity may be silently re-based is a product decision the artifacts cannot decide, so it is filed and bucketed rather than asserted.\n\nThree CW-032 findings were retested and are clean: the capex override is fixed (identical answer shape, current_capex 0, the 890,000 correctly not harvested), the COGS-rate-as-unit-price retention gate did not recur, and payroll phantoms did not appear at any point. Section 6 scored 12/12 exact with zero DIFFs - the first perfect field check of the campaign.",
+ "version": 22,
+ "updated": "2026-08-15T15:27:00Z",
+ "notes": "CONFIRMATION MODE - DISCOVERY (operator directive 2026-08-15): next run is the SHORT kill-early discovery confirmation (rank 1). New findings triaged, never auto-fixed.\n\nCW-033 (Kestrelbrook Nursery and Garden, Sun Prairie - a healthy, crew-constrained four-line garden centre) was the scoped confirming run, and it was also the first run executed under the guided-path / question-set discipline. Every probe answered a question the app actually asked, in a shape that question invited. No off-path sequence was manufactured, and the A-113 shape was not attempted at all.\n\nFOUR OF THE FIVE DEAL-BREAKER CONFIRMATIONS HELD with artifact evidence. The cadence receipt read 'weekly capacity -> 40' with no monthly label anywhere. The mid-sentence price correction ('That should be 850, I was thinking 720') stored 850 and the abandoned 720 appears in no field of either JSON. 'Net 45', stated twice in two different stages, never became a capacity or production number. And per-line COGS held on every limb: four rates in ONE message all wrote and read back true, the collapse stored a real group with named members and basis 'declared', and the workbook carried the ruled layout - four COGS drivers on Model Inputs, exactly one P&L line, roll-up matching to eight decimal places.\n\nTHE FIFTH IS A JUDGMENT CALL I AM NOT SETTLING. The A3 capacity cap did not wall. The client stated 40 landscaping jobs a week at 95 pct utilization; the built workbook re-bases that to 54.3 a week at 70 pct under a utilization_ceiling 0.85 / post_expansion_utilization 0.7 policy, then runs mature quarters at 538-566 jobs against her stated 520 ceiling. Q1 is a pure re-expression - 519.8 x 0.95 and 705.5 x 0.70 are the same 493.8 jobs - and the expansion is more than funded, with volume up 9.0 pct across the projection against payroll up 35.5 pct. The Capacity row is also marked derived_driver payroll_supported_capacity, and section 6 says a stored-vs-workbook difference on a derived field is design. Against that: capacity and utilization are fields the client answered directly, the plan shows her numbers she never gave, and nothing in model_input or operating_model discloses the assumption. Whether a client-stated capacity may be silently re-based is a product decision the artifacts cannot decide, so it is filed and bucketed rather than asserted.\n\nThree CW-032 findings were retested and are clean: the capex override is fixed (identical answer shape, current_capex 0, the 890,000 correctly not harvested), the COGS-rate-as-unit-price retention gate did not recur, and payroll phantoms did not appear at any point. Section 6 scored 12/12 exact with zero DIFFs - the first perfect field check of the campaign.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "CONFIRM-DISCOVERY-1",
+   "persona": "P1 straight-shooter founder, EARLY-STAGE (operating), answers plainly, gives real numbers when asked",
+   "business": "a SINGLE-LOB business you KNOW usually also has 1-3 adjacent revenue streams - and DO NOT MENTION THEM in your description. Good picks: a garden centre that only describes 'we sell plants and garden supplies' (garden centres usually also do landscaping/design/delivery); a bike shop that only describes bike sales (usually also service/repair); an independent gym that only describes memberships (usually also personal training/classes). Pick one; describe ONLY the primary line.",
+   "why": "OPERATOR DIRECTIVE 2026-08-15 - CONFIRMING RUN for PROACTIVE STREAM DISCOVERY (built 8315341). SHORT, KILL-EARLY, not a full walkthrough. THE ONE DECISION POINT is END OF OPS: after the primary line's capacity/utilization/price are captured and just before the competitive-advantage question, the app should ask an EXISTENCE-framed question naming the streams businesses like yours usually also have ('...a lot of <type>s also X or Y. Is any of that part of your business today?'). (A) IF IT PROPOSES one or more adjacent streams: the mechanism works - say YES to at least one that your ground truth actually has (existence only - you HAVE it), then answer the follow-up numbers for that new line (capacity/utilization/price), let ops wrap, and PLAY THROUGH to completion so the built plan can be checked for MULTIPLE revenue streams and MULTIPLE per-line COGS drivers. Note the exact wording of the ask in the runlog (label GRAMMAR is a watch item - record it verbatim). (B) IF IT DOES NOT PROPOSE - no ask fires at end-of-ops, or it asks nothing on a business that clearly has common adjacent streams - KILL THE RUN RIGHT THERE. Do not walk it to completion. File 'discovery did not propose on a business that should have triggered it' with the business type + the exact turn where ops wrapped without an ask, and STOP. Existence rules for you as the persona: never volunteer the adjacent streams before the app asks; if the app asks about a stream your ground truth does NOT have, say no plainly. TRIAGE LAW: anything new is bucketed deal-breaker vs wont-fix for the operator's decision - filed, not chased.",
+   "operator_command_hint": "run P1 \"garden centre, plants and supplies only, been open 14 months\" focus: discovery confirming run - kill early if no proposal at end-of-ops; if it proposes, accept and play through"
+  },
+  {
+   "rank": 2,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -14,7 +22,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 3,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -25,7 +33,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -36,7 +44,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -46,7 +54,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 6,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -56,7 +64,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 7,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -64,7 +72,7 @@
    "retests": []
   },
   {
-   "rank": 7,
+   "rank": 8,
    "id": "A-116",
    "persona": "any",
    "business": "any",
