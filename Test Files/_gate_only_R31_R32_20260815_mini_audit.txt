@@ -1,0 +1,64 @@
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+BUILD    C:\dev\business_plann_app @ 7744a26
+SURFACE  completed-financials  (active stage = None)
+GOLDEN-SHA single_line_input 72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679
+GOLDEN-SHA workbook_formulas cbd764631e986196d6be8fab9940b029c3818f290a92a392f84da6d22a466cc0
+GOLDEN-SHA single_line_input 72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679
+GOLDEN-SHA model_input 1d50e46ab8e653a21c85a9114d6ca49186ab750b3135b831ee60c663af0739ff
+GOLDEN-SHA finmo 24e38de4dc9879f8ff2e0400f90d271e5c8db6819944f59bde45a2226c841583
+
+==============================================================================
+REPLAY GATE - every known issue
+  build under test: C:\dev\business_plann_app @ 7744a26
+==============================================================================
+[  ok  ] R32 INVARIANT  workbook-formula-grid [WS1b floor]
+          NEGATIVE CONTROL: the workbook formula grid does not move
+          HOLDS: 4185 formulas across 7 sheets; FINMO carries exactly one 'Cost of Goods Sold' row - 21 per-period cells of the legacy =<revenue cell>*'Model Inputs'!<row 12> shape plus 5 annual =SUM rollups, zero per-line rows; grid sha cbd764631e98; run artifacts frozen from draft 6feac758 stage post_intake_finalize_validation_completed; model inputs from FROZEN draft 89e5a622 (CareCompanions Home Health Services) - committed fixture, no DB query in this path
+[  ok  ] R31 INVARIANT  single-line-unchanged [WS1b floor]
+          NEGATIVE CONTROL: a single-line draft's persisted payloads do not move
+          HOLDS: single-line draft 89e5a622: 3 revenue rows, zero COGS % rows, legacy blend row intact; frozen inputs: anchor=2026-01-01, start_date=2020-01-01, ppe=15,000.0 (= initial_assets, the pair the engine enforces), maintenance_rate=0.05; build repeated -> identical digest; FROZEN draft 89e5a622 (CareCompanions Home Health Services) - committed fixture, no DB query in this path; model_input=1d50e46ab8e6 finmo=24e38de4dc98 (build + derived policies; the SOLVER stage is NOT reproduced here - VS's live-run script covers that)
+------------------------------------------------------------------------------
+2/2 legs clear
+
+  GREEN - every known issue that ran is clear.
+  Safe to spend a Cowork run.
+==============================================================================

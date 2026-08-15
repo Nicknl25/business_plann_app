@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 2/16
 TASK:
   STREAM DISCOVERY BUILD — Nick APPROVED docs/STREAM_DISCOVERY_SPEC.md
@@ -151,3 +151,93 @@ TASK:
   omits a common stream -> propose/yes/capture/wrap-clean; (b) thin single-line
   niche -> silence, byte-identical). New findings are triaged for Nick, never
   auto-fixed.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_gate_only_R31_R32_20260815_mini_audit.txt (floor re-run by
+    mini on HEAD 8315341/7744a26: 2/2 clear, SHAs identical to VS's run:
+    model_input 1d50e46a.. finmo 24e38de4.. workbook cbd76463..);
+    Test Files/_live_stream_discovery_clones_20260815.txt (rich + thin clones);
+    Test Files/_stream_discovery_redproof_20260815.txt (95/95)
+  SUMMARY: NEIGHBOR-CHECK audit of the stream-discovery build (8315341), all 8
+    items CONFIRMED against artifacts + source, no VS reasoning reused:
+    (1) latch-carry: rich clone post-finalize dump shows stream_discovery
+    asked:true w/ answers AND exactly one origin=discovery_confirmed row after
+    the draft reached market; intake_consult.py: `ops_json = final_obj` count
+    == 2 and `carry_stream_discovery(ops_json, final_obj)` count == 2 (:19435,
+    :20787), carry after both patch applications (:19265 _ops_before_fu,
+    :20067 _ops_before). (2) both hooks present: main seam :20376 inside
+    `if _ops_ready_for_wrap_from_gate_obj(gate_obj)`, before the
+    competitive-advantage injection at :20411, sets ops_ready_for_wrap=False +
+    finalize_ready=False; mirror :19292 fires when the follow-up attempts
+    finalize, before the follow-up CA proposal at :19326, persists w/
+    _finalize_flag_field("ops", False) and returns. Answer handler :16796
+    persists first, router skipped (continue_chat override), receipt LEADS
+    (:20449). (3) schemas: intake_consultant.py "origin" x4 = 2 properties +
+    2 required + 2 prompt lines. (4) fences: COMMONALITY_SURVIVES==("most",
+    "many"), ADDITION_VERBS six-word tuple, stem dedup via caller-passed
+    resolver (unique OR ambiguous => dropped); my own grep for MAX_/_CAP/[:N]/
+    max_candidates in the module: NONE (the only length fences are per-label
+    shape: >60 chars or >6 tokens). (5) STREAM_DISCOVERY_ASK_TEMPLATE is the
+    single constant; live emitted ask contains none of consider/add/expand/
+    could you also/would you (checked by eye on artifact section A line 1).
+    (6) reader: 16 cases incl. bare 'yes' w/ two candidates => unclear/unclear
+    (never guesses WHICH), 'The others no' => no, single-candidate bare yes =>
+    yes. (7) TIER CALL HONEST: the diff touches intake_consult.py (ops
+    wrap-up path), intake_consultant.py schemas, one new module, test scripts;
+    no engine/, no workbook builder, no golden; neighbor-check was the right
+    tier. VS DECLARED-vs-ACTUAL matches the 14:31 TURN PLAN (files loaded ==
+    files touched; canary skipped as declared; R31/R32 --only; both live
+    clones ran); the one addition (origin scrub in the carry helper) is a
+    guard on the same changed path, declared in RESULT, red-proofed x3
+    (scrub / real stamp survives / no-latch stamp scrubbed) - not a mixed
+    bundle. Floor re-run by me on the committed code: 2/2 clear.
+  TRIAGE of VS's WATCH items (Nick reads; nothing built):
+    W1 utilization proposed-then-agreed on a late row: the util probe artifact
+      shows the row is null-until-asked and the app RE-ASKS utilization when
+      the client answers only the price (0.6 was NOT stored in the probe);
+      runs 1-2 storing 0.6 came from a scripted responder that never
+      countered a bundled proposal. Pre-existing class for EVERY row (CW-017c
+      first-capture rule), not introduced by discovery. Verdict: not a
+      discovery defect; the general question "does a non-countering reply to
+      a bundled proposal count as agreement?" is a needs-ruling design item
+      for Nick, surfaced here, NOT queued as a fix.
+    W2 stem resolver drops shared-word labels as ambiguous ("...sales" vs
+      "Plant and nursery sale"): conservative by design, silence is free,
+      latched w/ reason - WONT-FIX (no wrong number, no false claim).
+    W3 ops GPT sometimes asks one more question before declaring
+      finalize-ready so the seam is reached a turn later: WONT-FIX (ordering
+      preserved, nothing lost).
+    NEW (mini, cosmetic-but-truthful, WONT-FIX under the triage law but Nick
+      should SEE it before the Cowork run): the judge returned noun-phrase
+      labels ("Bulk mulch and soil delivery fees") and the template joins them
+      after "also", so the live ask reads "a lot of garden centers also Bulk
+      mulch and soil delivery fees or Event and workshop fees" - grammatically
+      broken and mid-sentence capitalised, though the client understood it and
+      no number/claim is wrong. If Nick wants it fixed it is a copy decision
+      (verb-phrase labels via the judge schema, or "also offer <A>, <B>" in the
+      template) - his call, not auto-built. The cascade's follow-on "how many
+      Bulk mulch and soil delivery fees can you handle?" is the pre-existing
+      cascade phrasing with product_name and is unchanged by this build.
+  DECLARED-vs-ACTUAL (mini): matches my 15:13 TURN PLAN - neighbor-check tier,
+    loaded exactly the HANDOFF task, the 8315341 diff for the three app files,
+    the four artifacts + redproof script; re-ran R31,R32 --only myself (2/2);
+    canary skipped; no other legs.
+TASK:
+  For Nick (plain English): the stream-discovery build audited GREEN. Drive
+  the TWO confirming Cowork runs per docs/STREAM_DISCOVERY_SPEC.md:
+    (a) an operating garden centre that never mentions a common stream
+        (e.g. omits bulk delivery / workshops) -> expect ONE "Before we wrap up
+        operations: a lot of garden centres also ..." question at the end of
+        ops, say yes to one -> the app appends the line, asks its capacity /
+        price / utilization, competitive advantage once, milestone once, wrap
+        clean to market; the finished ops JSON carries the row w/ origin
+        discovery_confirmed;
+    (b) a thin single-line niche (or pre-revenue) -> NO such question, ops
+        wraps exactly as today.
+  Discovery is DONE only when both runs prove out. Anything new the runs
+  surface comes back here as a finding for triage, never auto-fixed. Open
+  decision for Nick (not blocking): W1 above - whether a bundled
+  proposal + non-countering reply should ever count as agreement (all rows,
+  pre-existing), and the cosmetic label grammar in the ask.
