@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
   (Nine Fathom Coffee Roasters, draft 6d2823db, record: _confirm_discovery_
