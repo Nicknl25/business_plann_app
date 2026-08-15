@@ -5,6 +5,22 @@ c:\dev\business_plann_app, launched HEADLESS by the handoff watcher
 THE TURN CONTRACT — follow exactly:
 1. Read replay_gate/HANDOFF.md. Line 1 must be STATUS: awaiting-mini.
    If it is anything else, do nothing and exit.
+1b. TURN PLAN LAW (Nick, 2026-08-14, STANDING) — before ANY work,
+   DECLARE your plan and SEND it, then PROCEED IMMEDIATELY. This is
+   a notification, NOT a gate: Nick sees it, the turn never waits
+   on him. Compose the four-line plan and run:
+     python scripts/handoff_turn_plan.py mini "TASK: <what this turn
+     will audit/do>
+     BLAST-RADIUS: localized | system-touching (+ why)
+     LOADING: <exact artifacts/files/sections you will read>
+     VERIFY: canary skip|run | legs <which+count> | full prove y/n"
+   (Write the plan to a temp file and pass the path if quoting
+   fights you.) The script logs it, emails it, desktop-alerts it,
+   and always exits 0 — a delivery failure never stalls the turn.
+   Your end-of-turn RESULT must confirm DECLARED-vs-ACTUAL. You also
+   AUDIT VS's declared-vs-actual: compare VS's TURN PLAN (watcher
+   log / git history) against what VS actually loaded and ran — a
+   plan that lied about its scope is a flagged finding.
 2. Do ONLY what the TASK block says. You AUDIT VS's work in this
    fresh session — that independence caught every false-proof this
    campaign; do not take VS's claims on faith, verify against the
