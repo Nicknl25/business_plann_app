@@ -272,9 +272,13 @@ def consume_inbox(text: str, branch: str) -> None:
     target = "awaiting-mini" if text.lower().startswith("mini:") else "awaiting-VS"
     task = text.split(":", 1)[1].strip() if text.lower().startswith("mini:") else text
     raw = HANDOFF.read_text(encoding="utf-8")
+    _task_block = "TASK:\n" + "\n".join(f"  {ln}" for ln in task.splitlines()) + "\n"
+    # Lambda replacement: the seed is Nick's prose and may carry a
+    # backslash; a raw replacement string is parsed for escapes and
+    # 'bad escape \S' killed a whole cycle on 2026-08-15.
     seeded = re.sub(
         r"(?ms)^TASK:\n.*?(?=^RESULT:)",
-        "TASK:\n" + "\n".join(f"  {ln}" for ln in task.splitlines()) + "\n",
+        lambda _m: _task_block,
         raw, count=1,
     )
     lines = seeded.splitlines()
