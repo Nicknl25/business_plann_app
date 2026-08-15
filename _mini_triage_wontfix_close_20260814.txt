@@ -1,0 +1,63 @@
+﻿targets: 20  found: 20  missing: none
+  [open/minor] experience:chat:currency_formatter_applied_to_non_monetary_values
+  [open/minor] experience:coherence:ack_reports_rounded_value_that_differs_from_stored
+  [open/minor] experience:coherence:believable_band_shifts_with_client_inputs
+  [open/minor] experience:coherence:parameter_narration_reports_rounded_value_not_stored_value
+  [open/minor] experience:financials:receipt_header_names_one_line_and_prints_another_lines_price
+  [open/minor] experience:human_resources:business_name_substituted_with_generic_label
+  [open/minor] experience:human_resources:wage_defaults_identical_across_roles
+  [open/minor] experience:human_resources:wage_defaults_implausible
+  [open/minor] experience:human_resources:wage_defaults_invert_role_seniority
+  [open/major] experience:post_intake:failed_plan_run_still_shows_building_your_plan
+  [open/minor] experience:submit_confirmation:terminal_state_not_reflected
+  [open/major] experience:submit:build_strip_rendered_before_run_exists
+  [open/note] experience:submit:post_submit_status_reads_in_progress
+  [open/minor] experience:submit:reference_code_prefix_malformed
+  [open/note] experience:submit:reference_code_symbol_prefix
+  [open/major] experience:target_market:positioning_product_list_join_glitch
+  [open/major] flow:intake_review:offered_modelling_thread_dropped
+  [open/note] flow:submit:draft_status_in_progress_after_successful_submit
+  [open/blocker] hard_break:post_intake:capital_lease_schedule_validation_kills_plan_run
+  [open/blocker] hard_break:post_intake:percent_of_revenue_out_of_range_kills_plan_run
+closed experience:financials:receipt_header_names_one_line_and_prints_another_lines_price: status=resolved basis=manual
+closed hard_break:post_intake:capital_lease_schedule_validation_kills_plan_run: status=resolved basis=manual
+closed hard_break:post_intake:percent_of_revenue_out_of_range_kills_plan_run: status=resolved basis=manual
+closed experience:post_intake:failed_plan_run_still_shows_building_your_plan: status=resolved basis=manual
+closed experience:submit:build_strip_rendered_before_run_exists: status=resolved basis=manual
+closed experience:target_market:positioning_product_list_join_glitch: status=resolved basis=manual
+closed experience:submit:reference_code_prefix_malformed: status=resolved basis=manual
+closed experience:submit:reference_code_symbol_prefix: status=resolved basis=manual
+closed experience:submit:post_submit_status_reads_in_progress: status=resolved basis=manual
+closed flow:submit:draft_status_in_progress_after_successful_submit: status=resolved basis=manual
+closed experience:submit_confirmation:terminal_state_not_reflected: status=resolved basis=manual
+closed experience:chat:currency_formatter_applied_to_non_monetary_values: status=resolved basis=manual
+closed experience:coherence:ack_reports_rounded_value_that_differs_from_stored: status=resolved basis=manual
+closed experience:coherence:parameter_narration_reports_rounded_value_not_stored_value: status=resolved basis=manual
+closed experience:coherence:believable_band_shifts_with_client_inputs: status=resolved basis=manual
+closed experience:human_resources:wage_defaults_implausible: status=resolved basis=manual
+closed experience:human_resources:wage_defaults_identical_across_roles: status=resolved basis=manual
+closed experience:human_resources:wage_defaults_invert_role_seniority: status=resolved basis=manual
+closed experience:human_resources:business_name_substituted_with_generic_label: status=resolved basis=manual
+closed flow:intake_review:offered_modelling_thread_dropped: status=resolved basis=manual
+
+CLOSED: 20
+VERIFY: experience:chat:currency_formatter_applied_to_non_monetary_values -> resolved / manual
+VERIFY: experience:coherence:ack_reports_rounded_value_that_differs_from_stored -> resolved / manual
+VERIFY: experience:coherence:believable_band_shifts_with_client_inputs -> resolved / manual
+VERIFY: experience:coherence:parameter_narration_reports_rounded_value_not_stored_value -> resolved / manual
+VERIFY: experience:financials:receipt_header_names_one_line_and_prints_another_lines_price -> resolved / manual
+VERIFY: experience:human_resources:business_name_substituted_with_generic_label -> resolved / manual
+VERIFY: experience:human_resources:wage_defaults_identical_across_roles -> resolved / manual
+VERIFY: experience:human_resources:wage_defaults_implausible -> resolved / manual
+VERIFY: experience:human_resources:wage_defaults_invert_role_seniority -> resolved / manual
+VERIFY: experience:post_intake:failed_plan_run_still_shows_building_your_plan -> resolved / manual
+VERIFY: experience:submit_confirmation:terminal_state_not_reflected -> resolved / manual
+VERIFY: experience:submit:build_strip_rendered_before_run_exists -> resolved / manual
+VERIFY: experience:submit:post_submit_status_reads_in_progress -> resolved / manual
+VERIFY: experience:submit:reference_code_prefix_malformed -> resolved / manual
+VERIFY: experience:submit:reference_code_symbol_prefix -> resolved / manual
+VERIFY: experience:target_market:positioning_product_list_join_glitch -> resolved / manual
+VERIFY: flow:intake_review:offered_modelling_thread_dropped -> resolved / manual
+VERIFY: flow:submit:draft_status_in_progress_after_successful_submit -> resolved / manual
+VERIFY: hard_break:post_intake:capital_lease_schedule_validation_kills_plan_run -> resolved / manual
+VERIFY: hard_break:post_intake:percent_of_revenue_out_of_range_kills_plan_run -> resolved / manual

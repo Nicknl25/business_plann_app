@@ -1,0 +1,210 @@
+================================================================================
+TRIAGE 2026-08-14 (mini) — Nick's deal-breaker law applied to the whole board
+================================================================================
+The test, applied to every open item: "Does this put a WRONG NUMBER or a
+FALSE CLAIM into a real client's DELIVERED PLAN, on the GUIDED PATH?"
+
+Inputs read: HANDOFF.md full history + the superseded turn-5 TASK (645504a),
+the turn-6 orphan artifacts (_mini_cw033_t5_*, see section E), VS_NOTES
+CW-033 turns 1-5 + CW-032 open notes, MINI_NOTES, STAGES.md, the issue
+registry (72 non-resolved rows dumped to _mini_triage_board_dump_20260814.txt),
+cowork_tester/agenda.json (A-079/A-106), and code reads for the two mechanism
+claims (intake_consult.py:6928-6940; repo grep for payment-term handling).
+
+No app code was touched. No prove, no canary. 20 registry rows were closed
+WONT-FIX via the registry's own manual door (resolve_manually, reason in each
+note; _mini_triage_wontfix_close_20260814.txt is the receipt). Closing is
+safe by design: resolved is not terminal — a failing probe re-files as a
+recurrence.
+
+================================================================================
+A. DEAL BREAKERS — candidate fix turns; Nick picks. Ranked. Each line names
+   the wrong number / false claim + the per-fix blast-radius call.
+================================================================================
+
+A1. cands[-1] LAST-FIGURE-WINS, unit_price AND utilization branches
+    (intake_consult.py:6932 and :6940, the cross-section driver applier).
+    WRONG NUMBER: an invited correction carrying two figures — "price should
+    be 650. I was thinking of 520 before" — stores 520, the OLD price, into
+    the delivered model; same for utilization. This is the EXACT class that
+    stored capacity 3 from the real Alderfen [47] sentence; the capacity
+    branch got the three-rule fix (sentence-scoped, not-N excluded, marked
+    figures, refuse-on-ambiguity) and the comment at :6951 documents the
+    wrong number it produced. The other two branches were left "for a later
+    round" (VS_NOTES:2496) — the later round never came.
+    BLAST-RADIUS: LOCALIZED — same function, two branches, fix shape proven
+    next door; targeted legs + golden floor via --only.
+
+A2. #134 hard_break:operations:payment_terms_number_captured_as_capacity
+    (blocker, open). WRONG NUMBER: "our terms are net 45" stores 45 as
+    capacity → revenue built from a payment term, on the guided ops path.
+    Repo grep finds ZERO payment-term handling in python/ — no guard was
+    ever built. CAVEAT: CW-030's back-filing verification may have covered
+    it ("net-45 mystery SOLVED"); the fix turn's first act is the repro —
+    if the class is dead, the turn collapses to the artifact check and the
+    row closes through the gate.
+    BLAST-RADIUS: LOCALIZED (ops capture value-selection / router layer).
+
+A3. #101 verdict:convergence:unviable_business_passes_on_volume_above_stated_
+    capacity (blocker, open). FALSE CLAIM: the delivered plan asserts
+    viability on sales volume above the capacity the client stated they can
+    serve. I cannot show this closed on paper: the two-tier coherence verdict
+    compares plan-vs-engine figures, not volume-vs-stated-capacity, and the
+    in-solve bound invariants (engine landing fidelity) are output bounds,
+    not a stated-capacity fence. Needs a repro before any build — but if
+    live, it is the CW-022 false-pass class in its rawest form.
+    BLAST-RADIUS: SYSTEM-TOUCHING (verdict/engine) — travels alone, full
+    apparatus.
+
+A4. #122 experience:positioning:below_market_price_described_as_mid_market
+    (minor, open). FALSE CLAIM: delivered positioning copy calls a
+    below-market price "mid-market". Likely the CW-027 distortion class
+    (distortions die at sources) already killed at source — verify on
+    artifact first; if the copy path postdates the fix, close through the
+    gate instead.
+    BLAST-RADIUS: LOCALIZED (one copy/judgment path).
+
+Split-law grouping if Nick takes them: A1+A2 can ride one LOCALIZED turn
+(targeted + floor legs); A3 rides ALONE (full apparatus); A4 is a
+verify-first stub that can join A1/A2's turn as a read-only check.
+
+================================================================================
+B. WONT-FIX — CLOSED in the registry this turn (20 rows, resolve_manually,
+   reason in each note). One line each; receipt in
+   _mini_triage_wontfix_close_20260814.txt.
+================================================================================
+
+Killed-run rows (a dead run delivers no plan; recovery design owns strands —
+hold-not-verdict, supervisor ladder, dead-letter):
+  #91  capital_lease_schedule_validation_kills_plan_run — trigger also
+       addressed by CW-016 derived-lease tolerance.
+  #69  percent_of_revenue_out_of_range_kills_plan_run — source class dead
+       (blend doors refuse non-fractions, CW-031 r8; 7 stored instances,
+       all one April business).
+
+Status/UI display rows (screen state, no stored number, no delivered claim;
+the four status rows are superseded into feature decision C3):
+  #92 failed-run shows "building" | #36 build strip early | #42 post-submit
+  in-progress | #39 draft status in-progress | #106 terminal state not
+  reflected | #13 product-list join glitch | #37/#40 reference-code
+  cosmetics.
+
+Truthful-display rows (stored value correct; display rounds or formats):
+  #52 currency formatter | #64 ack rounds | #72 narration rounds.
+
+Design-working rows:
+  #46 believable band shifts with inputs — the band DERIVES from inputs;
+       band identity has excluded knobs since CW-017.
+  #14/#56/#68 wage defaults implausible/identical/inverted — defaults are
+       anchors shown in the people stage and client-correctable
+       (anchor-vs-actual is the design); judged floors bound outcomes.
+
+Cosmetic/courtesy rows:
+  #90 generic business-name label | #267 receipt header (unreproducible;
+  stored state correct on VS's inspection) | #103 offered modelling thread
+  dropped (no number/claim corrupted; thread-keeping listed under C7).
+
+Non-registry findings closed WONT-FIX (no row exists; recorded here):
+  - D1 wall silent-kill edge (VS_NOTES turn 5): the write-set guard killing
+    a clobbering stray figure PRESERVES the correct number and speaks
+    nothing false; wall note machinery is new behavior → C4.
+  - D1 rule (a) mangled-figure edge (router turns 52,000 into 52 defeating
+    the reference): constructed shape, no reproduction of the mangling.
+  - Router same-value echo receipt noise (turn 1): words match state, and
+    the M1 changed-values filter now bounds the surface.
+  - Legacy-tier same-named-twin order edge + residual doc'd edges (rounds
+    12-13): census reach zero, principles ratified, documented.
+  - At-rest week-twin re-derive on ask turns: already ruled
+    documentation-only (canonical cell untouched).
+
+================================================================================
+C. FEATURE DECISIONS — new behavior dressed as fixes, or rulings only Nick
+   can make. NOTHING built. Listed for his ruling.
+================================================================================
+
+C1. THE NATURALIZATION RULING (standing, sharpened three times): may the
+    naturalizer touch a deterministic receipt on write-carrying turns?
+    Sharpest evidence yet (turn 5): it KEPT the numbers and INVERTED the
+    cadence word live ("40 a week" spoken as "40 a month"). Deterministic
+    layers already ship no-write turns and cadence receipts verbatim; the
+    ruling governs everything else.
+C2. STREAM DISCOVERY SPEC — five open questions in
+    docs/STREAM_DISCOVERY_SPEC.md (surface, knowledge-source ceiling,
+    cap 2v3, pre-revenue exclusion, re-run latch).
+C3. CLIENT-FACING RUN-STATUS HONESTY — one frontend truth-sync sweep
+    covering the #92/#42/#39/#106 class (failed/submitted states shown
+    truthfully). Rows closed WONT-FIX pending this decision.
+C4. WALL SAY-DO NOTE for silently-killed stray figures (D1 wall edge) —
+    the wall has no note machinery today; adding it is new behavior.
+C5. THE UNDERPRICED-BUSINESS PERSONA RUN — one designed run settles A-079
+    (underpriced verdict honesty) + A-106 (retention probe, priced-below-
+    market gate) + the #131 retest, per the agenda's own pairing. Nick
+    spends runs; this is the highest-yield one on the board.
+C6. PURE-LEGACY LABEL-PARSE TIER DELETION — census 0 label-only rows; VS
+    kept it lawful-and-order-free; deleting it per the remove-legacy law is
+    a three-line change awaiting the order.
+C7. OFFERED-THREAD KEEPING (#103's class) — only if Nick wants the
+    courtesy; otherwise it stays closed.
+C8. #50 concurrency_throughput_not_encoded — the model cannot represent
+    concurrent-job throughput; encoding it is a modeling FEATURE, not a
+    bug fix. Left open in the registry, flagged needs-ruling.
+C9. Q6 REVENUE CLIFF (#96's class) — already-queued design work
+    (smooth/stagger after determinism); stays queued, nothing new.
+C10. STAGES next steps standing: Nick's garden-centre Cowork run (per-line
+    COGS is CLEARED), then the inference scan, then discovery research.
+
+================================================================================
+D. FIXED-AWAITING-ARTIFACT — NOT fix turns, NOT closable by hand: the
+   artifact gate owns these rows and closes them on exercised clean runs;
+   a failing probe re-files as recurrence. Listed so nothing hides.
+================================================================================
+CW-033/CW-032/CW-031 batch rows: #286/#287 (A-115a/b, fixed turn 1),
+#139 (A-112 re-validation, fixed turn 1, live artifact still owed),
+#140/#141/#142/#143 (per-line COGS write door / workbook N-line / collapse
+storage / false receipts — CW-031 rounds), #131 (retention read-back gate),
+#265 (misroute guard), #266 (opening-PPE depreciation, R31 re-blessed),
+#128 owner_draw_ceiling — NOT actually an orphan: CW-026's honest-ceiling
+ruling is the fix and the row's own probe_json names the regression pin
+(_redproof_cw026_rulings.py Q8/Q9, RED on ff1da19); it needs a run that
+exercises the wall's draw exit, which C5's persona run can include.
+Older capture/verdict classes (#8, #24, #28, #31, #34, #47, #51, #53, #54,
+#57, #59, #61, #62, #63, #65, #66, #67, #71, #73, #74, #75, #83, #86, #93,
+#97, #98, #99, #102, #105, #129, #136, #12, #58, #45) map to shipped
+campaigns (capture-engine F1-F4/E, basis-capture, CW-026 value-selection,
+cadence M3/D2/X2, receipt F1(b) layers, coherence rebuild, demand judge,
+Fork A executive band); they stay open under the artifact gate until a run
+exercises them. No new build is owed on any of them today.
+
+================================================================================
+E. VERIFICATION DEBTS — owed under standing laws; Nick sequences them.
+================================================================================
+E1. THE BIG ONE: VS turn 5 (a4dc230 — D1-D5 + X2 + reopen-surface + R44
+    latent fix) is NOT artifact-audited. Turn 6 died (exit 1) mid-audit:
+    the pre-fix red rerun COMPLETED and confirmed all 10 reds for their own
+    reasons (_mini_cw033_t5_prefix_rerun_20260814.txt), but the live half
+    never ran (_mini_cw033_t5_live_20260814.txt is empty). The seven-item
+    audit task in git (645504a) is intact input for the next mini turn.
+    Until it runs, turn 5 is unverified under Nick's standing law.
+E2. A-112 live artifact: on the next real conversational run, grep replies
+    opening "(One note: I haven't recorded" and diff named fields against
+    that turn's writes.
+E3. Gate-leg debts (mine, retired-script replacements included): R46
+    extension teeth (D2 clause-binding + D3 disclosure), the t5 item-6 leg
+    calls (D1b mover-never-overwrites, D5 ask-holds, reopen-surface
+    conversion), and the CW-032 pin set (in-stage door, stage completion,
+    capacity door, misroute guard — red shapes live in the two
+    _live_cw032_* scripts and the router red-proof).
+
+================================================================================
+F. DECLARED-VS-ACTUAL AUDITS (turn-plan law)
+================================================================================
+VS turn 5: declaration emitted late for a disclosed reason (the law landed
+mid-bootstrap at 2da12be), before any edit; actual matched the declaration
+plus two additions the declared verification itself forced (reopen-surface
+fix, R44 latent fix), both disclosed; radius held system-touching and the
+full apparatus ran on final code. NO FINDING.
+mini (this turn): declared triage-only / localized / no code, no legs, no
+prove — actual matched: zero app-code and zero gate-code edits; work
+products are two registry scripts, two output files, this file, and the
+HANDOFF flip.
+================================================================================

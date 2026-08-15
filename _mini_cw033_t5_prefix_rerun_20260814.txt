@@ -1,0 +1,42 @@
+COMPLETED_FOLD_PEOPLE_PERSIST_FAILED
+Traceback (most recent call last):
+  File "C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\bc3e6171-1f1e-4542-8172-5ad466e16596\scratchpad\wt_prefix\python\api_handlers\intake_consult.py", line 10590, in _run_financials_turn_and_sync_inner
+    append_messages(
+  File "C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\bc3e6171-1f1e-4542-8172-5ad466e16596\scratchpad\wt_prefix\python\client_intake_and_finmo\intake_consult_draft.py", line 1901, in append_messages
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\bc3e6171-1f1e-4542-8172-5ad466e16596\scratchpad\wt_prefix\python\client_intake_and_finmo\intake_consult_draft.py", line 1630, in get_draft_runtime_row
+    ensure_table(conn)
+  File "C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\bc3e6171-1f1e-4542-8172-5ad466e16596\scratchpad\wt_prefix\python\client_intake_and_finmo\intake_consult_draft.py", line 999, in ensure_table
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\bc3e6171-1f1e-4542-8172-5ad466e16596\scratchpad\wt_prefix\python\client_intake_and_finmo\intake_consult_draft.py", line 886, in _acquire_named_lock
+    cur = conn.cursor()
+          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'cursor'
+[FAIL] _checks_d2 completed without error -- TypeError("_stated_capacity_cadence() got an unexpected keyword argument 'value'")
+[FAIL] _checks_d1 completed without error -- TypeError("_apply_forward_move() got an unexpected keyword argument 'turn_written_fields'")
+[FAIL] D3a stated-cadence capacity figure SURVIVES the restatement filters (stored 40, '40 a week') -- None
+[FAIL] D3b the surviving figure CONVERTS at the door (period 173.33) -- no move survived
+[PASS] D3c CONTROL: a cadence-free restatement of the stored value still dies (no false motion) -- None
+[FAIL] D4a the rent ack NAMES the landed value -- Got it.
+[PASS] D4b other scalar stages unchanged (cash on hand named as before) -- Got it - I'll use $52,000 for cash on hand.
+[FAIL] _checks_d5 completed without error -- AttributeError("'NoneType' object has no attribute 'cursor'")
+[FAIL] X2a the xsec door CONVERTS '40 a week' on the contract row (period 173.33, never a raw 40) -- 40.0
+[FAIL] X2a the ack speaks the client's own cadence -- Done - I've updated Property contract capacity to 40. Your Property contract side now models at about $204,672 a year. (I didn't end up using 34 and 34 - if that should change the model, tell me where
+[FAIL] X2b an ambiguous cadence ASKS through the refusal path (no landing, report carries the ask) -- res=landed rep_keys=['consumed_figures', 'triggered_leaf']
+[FAIL] X2c the no-op edge converts too (stored 40, '40 a week' -> 173.33) -- door declined
+[PASS] X2d CONTROL: a cadence-free correction lands raw as today (period 40) -- 40.0
+[PASS] X2e CONTROL: matching cadence is identity (weekly row, 40/wk) -- 40.0
+
+RESULT: RED - 10 failing check(s):
+  - _checks_d2 completed without error
+  - _checks_d1 completed without error
+  - D3a stated-cadence capacity figure SURVIVES the restatement filters (stored 40, '40 a week')
+  - D3b the surviving figure CONVERTS at the door (period 173.33)
+  - D4a the rent ack NAMES the landed value
+  - _checks_d5 completed without error
+  - X2a the xsec door CONVERTS '40 a week' on the contract row (period 173.33, never a raw 40)
+  - X2a the ack speaks the client's own cadence
+  - X2b an ambiguous cadence ASKS through the refusal path (no landing, report carries the ask)
+  - X2c the no-op edge converts too (stored 40, '40 a week' -> 173.33)

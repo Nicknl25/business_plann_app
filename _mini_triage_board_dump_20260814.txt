@@ -1,0 +1,102 @@
+﻿NON-RESOLVED ROWS: 72
+  {"issue_id": "140", "signature": "hard_break:financials:per_line_cogs_is_proposed_but_cannot_be_written_by_the_client", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "134", "signature": "hard_break:operations:payment_terms_number_captured_as_capacity", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "141", "signature": "hard_break:plan_build:workbook_carries_one_blended_cogs_row_at_n_equals_four", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "91", "signature": "hard_break:post_intake:capital_lease_schedule_validation_kills_plan_run", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "69", "signature": "hard_break:post_intake:percent_of_revenue_out_of_range_kills_plan_run", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "96", "signature": "hard_break:post_intake:planner_generated_ramp_violates_its_own_band_and_fails_fast", "category": "hard_break", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "101", "signature": "verdict:convergence:unviable_business_passes_on_volume_above_stated_capacity", "category": "verdict", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "8", "signature": "verdict:harborline_legal:converged-vs-parked", "category": "verdict", "severity": "blocker", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "92", "signature": "experience:post_intake:failed_plan_run_still_shows_building_your_plan", "category": "experience", "severity": "major", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "36", "signature": "experience:submit:build_strip_rendered_before_run_exists", "category": "experience", "severity": "major", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "13", "signature": "experience:target_market:positioning_product_list_join_glitch", "category": "experience", "severity": "major", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "66", "signature": "flow:coherence:reconciliation_claim_cites_figure_client_never_gave", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "51", "signature": "flow:coherence:stale_scaling_factor_survives_model_correction", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "61", "signature": "flow:coherence:structural_correction_ack_omits_reconciliation", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "286", "signature": "flow:financials:cogs_rate_read_as_unit_price_fires_a_spurious_retention_gate", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "142", "signature": "flow:financials:cogs_shared_collapse_acknowledged_but_not_stored", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "143", "signature": "flow:financials:two_false_receipts_in_one_turn_on_the_cogs_and_marketing_fields", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "103", "signature": "flow:intake_review:offered_modelling_thread_dropped", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "31", "signature": "flow:operations:annual_price_stored_at_monthly_cadence", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "74", "signature": "flow:operations:annual_to_monthly_conversion_arithmetic_wrong", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "28", "signature": "flow:operations:basis_misrecorded:per_unit_total_as_per_period", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "24", "signature": "flow:operations:basis_misrecorded:wholesale_price_weekly", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "50", "signature": "flow:operations:concurrency_throughput_not_encoded", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "71", "signature": "flow:operations:conflicting_figures_no_disclosure_and_silent_write_failure", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "65", "signature": "flow:operations:model_parameter_correction_acknowledged_but_not_persisted", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "136", "signature": "flow:operations:sibling_per_unit_figure_chosen_over_the_stated_team_total", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "67", "signature": "flow:operations:stated_unit_count_discarded_in_conflict_reconciliation", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "62", "signature": "flow:operations:structural_correction_over_applies_utilization", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "102", "signature": "flow:post_intake:remediation_options_all_report_closing_zero_of_the_gap", "category": "flow", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "265", "signature": "hard_break:financials:debt_schedule_figure_captured_as_marketing_over_a_corrected_value", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "287", "signature": "hard_break:financials:explicit_none_answer_overridden_by_a_contextual_figure", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "83", "signature": "hard_break:operations:agreed_annual_lob_period_basis_stored_weekly", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "93", "signature": "hard_break:operations:derived_value_from_one_product_leaks_into_the_other_product", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "129", "signature": "hard_break:operations:operating_periods_set_to_one_from_a_prose_year_mention", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "97", "signature": "hard_break:operations:utilized_volume_written_into_capacity_field_on_price_correction", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "34", "signature": "hard_break:post_intake:band_tier_vocabulary_drift", "category": "hard_break", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "99", "signature": "verdict:convergence:believable_band_reroll_on_unrelated_correction", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "86", "signature": "verdict:convergence:stress_margin_above_judged_ceiling_reported_as_pass", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "266", "signature": "verdict:plan_build:opening_ppe_never_depreciated_over_the_projection", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "105", "signature": "verdict:plan_build:price_increase_assumes_no_demand_loss", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "131", "signature": "verdict:plan_build:stated_retention_acknowledged_then_not_applied", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "98", "signature": "verdict:post_intake:built_plan_exceeds_the_band_the_completion_copy_promised_to_return_to", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "128", "signature": "verdict:wall:owner_draw_ceiling_offered_is_the_whole_team_payroll_ceiling", "category": "verdict", "severity": "major", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "52", "signature": "experience:chat:currency_formatter_applied_to_non_monetary_values", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "64", "signature": "experience:coherence:ack_reports_rounded_value_that_differs_from_stored", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "46", "signature": "experience:coherence:believable_band_shifts_with_client_inputs", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "72", "signature": "experience:coherence:parameter_narration_reports_rounded_value_not_stored_value", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "267", "signature": "experience:financials:receipt_header_names_one_line_and_prints_another_lines_price", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "139", "signature": "experience:financials:state_note_claims_a_field_is_unrecorded_in_the_turn_that_records_it", "category": "experience", "severity": "minor", "status": "recurring", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "288", "signature": "experience:financials:word_form_number_loses_its_thousands_component", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "90", "signature": "experience:human_resources:business_name_substituted_with_generic_label", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "68", "signature": "experience:human_resources:wage_defaults_identical_across_roles", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "14", "signature": "experience:human_resources:wage_defaults_implausible", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "56", "signature": "experience:human_resources:wage_defaults_invert_role_seniority", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "12", "signature": "experience:operations:competitive_advantage_invented_from_assumptions", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "58", "signature": "experience:operations:composed_differentiator_stored_without_showing_client", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "45", "signature": "experience:operations:narrative_correction_not_acknowledged", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "122", "signature": "experience:positioning:below_market_price_described_as_mid_market", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "106", "signature": "experience:submit_confirmation:terminal_state_not_reflected", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "37", "signature": "experience:submit:reference_code_prefix_malformed", "category": "experience", "severity": "minor", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "57", "signature": "flow:chat:not_yet_recorded_caveat_fires_for_already_stored_field", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "63", "signature": "flow:coherence:anchor_factor_persists_after_model_becomes_accurate", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "53", "signature": "flow:human_resources:normal_answer_misread_as_update_request", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "54", "signature": "flow:operations:confirmation_dropped_when_bundled_with_ui_complaint", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "59", "signature": "flow:operations:project_turnover_assumption_contradicts_stated_duration", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "73", "signature": "flow:operations:twelve_month_goal_recorded_as_current_state", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "75", "signature": "flow:target_market:stated_threshold_repeatedly_renegotiated", "category": "flow", "severity": "minor", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "41", "signature": "experience:financials:silent_basis_conversion_no_echo", "category": "experience", "severity": "note", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "42", "signature": "experience:submit:post_submit_status_reads_in_progress", "category": "experience", "severity": "note", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "40", "signature": "experience:submit:reference_code_symbol_prefix", "category": "experience", "severity": "note", "status": "open", "resolution_class": "soft", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "47", "signature": "flow:operations:stated_utilization_rounded_off", "category": "flow", "severity": "note", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+  {"issue_id": "39", "signature": "flow:submit:draft_status_in_progress_after_successful_submit", "category": "flow", "severity": "note", "status": "open", "resolution_class": "hard", "resolution_basis": "None", "resolution_confidence": "None"}
+
+COLUMNS: ['issue_id', 'signature', 'category', 'resolution_class', 'severity', 'title', 'status', 'first_seen_at', 'last_seen_at', 'occurrence_count', 'reopened_count', 'clean_exercise_count', 'runs_since_last_seen', 'resolved_detected_at', 'resolution_basis', 'resolution_confidence', 'probe_json', 'created_at', 'updated_at']
+
+OWNER_DRAW_CEILING ROW:
+{
+  "issue_id": "128",
+  "signature": "verdict:wall:owner_draw_ceiling_offered_is_the_whole_team_payroll_ceiling",
+  "category": "verdict",
+  "resolution_class": "hard",
+  "severity": "major",
+  "title": "The owner-draw ceiling the wall offers is the entire team payroll ceiling, so it points an underpaid owner the wrong way",
+  "status": "open",
+  "first_seen_at": "2026-08-11 10:22:04.726253",
+  "last_seen_at": "2026-08-11 10:22:04.726253",
+  "occurrence_count": "1",
+  "reopened_count": "0",
+  "clean_exercise_count": "0",
+  "runs_since_last_seen": "0",
+  "resolved_detected_at": "None",
+  "resolution_basis": "None",
+  "resolution_confidence": "None",
+  "probe_json": "honest and kind | regression_pin: Test Files/_redproof_cw026_rulings.py Q8/Q9 - _owner_draw_exit_tail: draw ceiling = payroll_to_clear - (staffed+phasable), floored; at zero the draw exit is NOT offered (revenue named). RED on ff1da19.",
+  "created_at": "2026-08-11 10:22:04.726253",
+  "updated_at": "2026-08-11 15:19:29.458412"
+}
+
+STATUS COUNT: open 71
+STATUS COUNT: recurring 1
+STATUS COUNT: resolved 64

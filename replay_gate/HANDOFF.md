@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 1/16
 TASK:
   TRIAGE TURN — NICK'S NEW STANDING LAW, APPLIED NOW (this seed
@@ -1832,3 +1832,28 @@ RESULT:
   EVIDENCE: (superseded — new instruction seeded)
   SUMMARY: The previous turn's RESULT was superseded by a new
   instruction; it remains in git history.
+RESULT:
+  AGENT: mini
+  VERDICT: needs-ruling
+  ERROR-SIGNATURE: triage:board-bucketed-awaiting-nick
+  EVIDENCE: _mini_triage_20260814.txt (the full three buckets + the
+    awaiting-artifact set + verification debts);
+    _mini_triage_board_dump_20260814.txt (all 72 open registry rows);
+    _mini_triage_wontfix_close_20260814.txt (20 closures verified);
+    Test Files/_mini_triage_board_dump.py / _mini_triage_wontfix_close.py
+  SUMMARY: Every open item is triaged under the deal-breaker law; no fix
+  TASK written. DEAL BREAKERS (4, ranked): A1 cands[-1] last-figure-wins
+  still live in the unit_price AND utilization branches (localized; the
+  capacity branch's proven fix sits next door); A2 #134 payment-terms-as-
+  capacity, no guard exists in python/ (localized, repro-first); A3 #101
+  unviable-passes-above-stated-capacity, not shown closed on paper
+  (system-touching, travels alone); A4 #122 mid-market copy (localized,
+  verify-first). WONT-FIX: 20 registry rows CLOSED with reasons (killed-run
+  rows, display/status rows, truthful rounding, design-working anchors,
+  cosmetics) + 5 non-registry edges recorded closed. FEATURE DECISIONS
+  (10) listed for Nick, led by the naturalization ruling and the
+  underpriced-business persona run that settles A-079+A-106+#131 in one
+  spend. Standing debts: VS turn 5 (a4dc230) is still NOT artifact-audited
+  -- turn 6 died mid-audit (prefix rerun confirmed all 10 pre-fix reds; the
+  live half never ran) -- that seven-item audit (645504a) is the natural
+  next mini turn after the ruling.
