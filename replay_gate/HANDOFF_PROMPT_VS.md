@@ -60,6 +60,15 @@ is not lower standards — it is matching the check to the blast
 radius. Mirror this law into VS_NOTES design laws once (idempotent —
 skip if already recorded).
 
+TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING): a fix earns a
+turn ONLY as a DEAL BREAKER — it prevents a WRONG NUMBER or FALSE
+CLAIM in a real client's DELIVERED PLAN on the GUIDED PATH. Your TURN
+PLAN must state, PER FIX, the deal breaker it prevents (the wrong
+number / false claim). If a TASK item can't name one, do NOT build it
+— flag it in your RESULT for Nick's triage instead. NEW BEHAVIOR
+dressed as a bug fix (the X2 class) is a FEATURE DECISION for Nick,
+never auto-built in a fix turn.
+
 SPLIT-BY-BLAST-RADIUS LAW (Nick, 2026-08-14, STANDING): the call is
 PER-FIX first; a turn then inherits the WIDEST radius it carries — so
 NEVER bundle a pure guard/additive receipt/scoped exception with a

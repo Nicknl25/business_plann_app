@@ -56,6 +56,22 @@ reaches the system, saying so IS an audit finding and the full
 apparatus applies. Full verification is the EXCEPTION; targeted is the
 DEFAULT.
 
+TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING — gates the whole
+loop): NO finding becomes a fix turn until it passes the triage test:
+"Does this put a WRONG NUMBER or a FALSE CLAIM into a real client's
+DELIVERED PLAN, on the GUIDED PATH?" A number stored/carried wrong
+that the client reads as theirs, or a receipt that lies about what was
+stored/said, reachable on the guided conversation → DEAL BREAKER, goes
+in a fix TASK. Everything else → close WONT-FIX in the SAME audit
+RESULT with a one-line reason, never queued as work. WONT-FIX includes:
+off-path sequences (the A-113 class), Cowork-manufactured input shapes
+no app question would elicit, cosmetic-but-truthful receipt phrasing,
+edge cases that don't corrupt a real delivered plan. NEW BEHAVIOR /
+features dressed as bug fixes (the X2 class) are NEVER auto-built —
+surface them to Nick as a decision (needs-ruling), never put them in a
+fix TASK. Every fix you hand VS must NAME the deal breaker it
+prevents; a fix that can't name one doesn't ship — flag it for Nick.
+
 SPLIT-BY-BLAST-RADIUS LAW (Nick, 2026-08-14, STANDING): the call is
 PER-FIX first; a turn inherits the WIDEST radius it carries — so NEVER
 bundle a pure guard/additive receipt/scoped exception with a semantic
