@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-fault
 TURN: 1/16
 TASK:
   DISCOVERY FIX F1+F2 — Nick's ruling after confirming run #1 (Cormorant
