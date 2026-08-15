@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 5/16
+TURN: 6/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
   NICK'S REVISION + STANDING ORDERS (2026-08-14 evening — this is the
