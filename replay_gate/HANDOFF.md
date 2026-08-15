@@ -1,5 +1,5 @@
-STATUS: awaiting-VS
-TURN: 1/16
+STATUS: awaiting-mini
+TURN: 2/16
 TASK:
   DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
   (Nine Fathom Coffee Roasters, draft 6d2823db, record: _confirm_discovery_
@@ -45,9 +45,38 @@ TASK:
   the Nine Fathom shape; numbers unchanged; floor. Green -> stop.
   (re-armed after the Cowork-tester dirty-tree fault; tree is clean now)
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: (superseded — new instruction seeded)
-  SUMMARY: The previous turn's RESULT was superseded by a new
-  instruction; it remains in git history.
+  EVIDENCE: Test Files/_discovery_lob_nesting_redproof_20260815_PRE.txt (9 red) / _POST.txt (GREEN); Test Files/_live_discovery_ninefathom_clone_20260815.txt (live GREEN); Test Files/_gate_only_R31_R32_20260815_lobnesting.txt (floor GOLDEN); VS_NOTES.md tail section
+  SUMMARY: 1a DONE - stem_match_lob_index deleted; a confirmed discovered stream
+  always gets its OWN LOB named for its label (append + carry re-append
+  branch, same module); the 'own line under <lob>' receipt variant is gone.
+  1b DONE - join_labels renders 'A, B, or C' for 3+ (2 = 'A or B', 1 = 'A').
+  Diff = gpt_stream_discovery.py only (17+/39-). PRE red 9 on the exact Nine
+  Fathom shape -> POST GREEN, numbers unchanged; existing discovery red-proofs
+  GREEN; floor R31/R32 GOLDEN; LIVE rewound Nine Fathom clone on the restarted
+  :5050 -> serial comma rendered, yes/yes/no/no -> two rows, two LOBs.
+  'Primary line of business' placeholder: NOT in the placement path - named
+  origin financials_year1._build_default_lobs (financials_year1.py:167) echoed
+  by the ops model into ops.lob_models; LEFT, flagged for Nick.
+  DECLARED-vs-ACTUAL: matches the plan (spot-check; loaded only HANDOFF +
+  gpt_stream_discovery.py sections 6-7/template/join_labels + the two
+  red-proof/clone runners + the Nine Fathom ops JSON read-only; canary skip).
+  One divergence, additive: a NEW live clone runner was written for Nine
+  Fathom (the plan said 'rewound Nine Fathom clone' - it did not exist, so it
+  was built from the Cormorant runner; same call chain).
+TASK:
+  TURN 2 (mini, SPOT-CHECK audit): (1) diff confined to
+  gpt_stream_discovery.py: stem_match_lob_index removed, both callers
+  collapsed to lobs.append(own LOB), join_labels serial comma - nothing
+  else; (2) PRE red / POST green on the Nine Fathom shape (Test
+  Files/_discovery_lob_nesting_redproof.py + the two txt captures);
+  numbers 19/260/.6, 13/140/.55, 58/380/.75 unchanged; (3) live clone
+  txt: ask carries ', or ' before the last label; each yes -> own LOB;
+  receipts 'is its own line;' with no 'under'; (4) floor R31/R32 GOLDEN
+  digests unchanged. Green -> stop (flip awaiting-Nick). Nick's triage
+  items carried in the RESULT: the 'Primary line of business' primary-LOB
+  placeholder origin (financials_year1.py:167 default echoed by the ops
+  model) - a naming rule for the primary LOB is a separate turn if he
+  wants it; the seam move to :16794 remains the next neighbor-check turn.

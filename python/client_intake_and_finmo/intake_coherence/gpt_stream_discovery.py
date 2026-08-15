@@ -568,7 +568,12 @@ def join_labels(labels: List[str]) -> str:
     return ""
   if len(labs) == 1:
     return labs[0]
-  return ", ".join(labs[:-1]) + " or " + labs[-1]
+  if len(labs) == 2:
+    return labs[0] + " or " + labs[1]
+  # Serial comma (Nick, 2026-08-15): 'A, B, or C' - two multi-word labels
+  # ran together live ('wholesale coffee sales to grocery stores or brew
+  # gear and merchandise sales').
+  return ", ".join(labs[:-1]) + ", or " + labs[-1]
 
 
 def compose_stream_discovery_ask(business_type: str, labels: List[str]) -> str:
@@ -687,21 +692,14 @@ def _mention_hits(candidate_tokens: List[str], clause_tokens: set) -> int:
 # 6. Landing a yes: PYTHON appends the row (receipt law: words == state).
 # ---------------------------------------------------------------------------
 
-def stem_match_lob_index(ops_json: Dict[str, Any], label: str) -> Optional[int]:
-  """The LOB a confirmed stream belongs under: the unique LOB whose name
-  shares a stem with the label; None (=> new LOB named for the label)
-  when none or several match."""
-  ltoks = [t for t in _label_tokens(label) if len(t) >= 4]
-  if not ltoks:
-    return None
-  hits: List[int] = []
-  for li, lob in enumerate((ops_json or {}).get("lob_models") or []):
-    if not isinstance(lob, dict):
-      continue
-    ntoks = {t for t in _label_tokens(lob.get("lob_name")) if len(t) >= 4}
-    if _mention_hits(ltoks, ntoks) > 0:
-      hits.append(li)
-  return hits[0] if len(hits) == 1 else None
+# LOB PLACEMENT (Nick, 2026-08-15): a confirmed discovered stream ALWAYS
+# gets its OWN LOB named for its label. Discovery surfaces PEER streams by
+# definition (the validator already dropped anything that is the client's
+# own line or a paraphrase of it), so a discovered stream is never nested
+# under another line. The former stem-match placement nested 'wholesale
+# coffee sales to grocery stores' under 'retail coffee bags' on the shared
+# category noun 'coffee' (Nine Fathom run #2) - the same class F1 closed
+# for dedup, one step downstream. There is no placement decision left.
 
 
 def new_discovered_row(label: str) -> Dict[str, Any]:
@@ -753,20 +751,8 @@ def append_confirmed_stream_rows(
     if found:
       receipts.append(f"Noted - {label} is its own line; a few quick numbers for it next.")
       continue
-    li = stem_match_lob_index(ops, label)
-    if li is None:
-      lobs.append({"lob_name": label, "products": [new_discovered_row(label)]})
-      receipts.append(f"Noted - {label} is its own line; a few quick numbers for it next.")
-    else:
-      prods = lobs[li].get("products")
-      if not isinstance(prods, list):
-        prods = []
-        lobs[li]["products"] = prods
-      prods.append(new_discovered_row(label))
-      lob_name = str(lobs[li].get("lob_name") or "").strip() or "that line of business"
-      receipts.append(
-        f"Noted - {label} is its own line under {lob_name}; a few quick numbers for it next."
-      )
+    lobs.append({"lob_name": label, "products": [new_discovered_row(label)]})
+    receipts.append(f"Noted - {label} is its own line; a few quick numbers for it next.")
   return ops, receipts
 
 
@@ -855,15 +841,7 @@ def carry_stream_discovery(
       if restored is not None:
         break
     row = restored if restored is not None else new_discovered_row(label)
-    li = stem_match_lob_index(after, label)
-    if li is None:
-      lobs.append({"lob_name": label, "products": [row]})
-    else:
-      prods = lobs[li].get("products")
-      if not isinstance(prods, list):
-        prods = []
-        lobs[li]["products"] = prods
-      prods.append(row)
+    lobs.append({"lob_name": label, "products": [row]})
   # Empty LOBs left by duplicate removal are dropped.
   after["lob_models"] = [
     lob for lob in lobs

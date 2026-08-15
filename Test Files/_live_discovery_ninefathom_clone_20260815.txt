@@ -1,0 +1,39 @@
+clone sdnine33b2f484f49b4d7a8bf33e177a of 6d2823db rewound to messages[:23]
+  primary rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] clone starts with the primary line only
+
+  > [23] Finding more orders to fill the roaster I've already got. The machine isn't the problem, the accounts are.
+  < [200] Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] turn 0 200: 200
+  [PASS] discovery ASKED live on the Nine Fathom clone (asked:true): {"version": 1, "business_type": "Coffee Roaster", "naics_6": "311920", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 23, "ask_text": "Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe whole
+  [PASS] the ask rendered (template prefix present)
+  proposed: ['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts']
+
+  ASK VERBATIM:
+  Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] forbidden phrases absent: before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee suppl
+  [PASS] revenue-line clause present
+  [PASS] 3+ labels: SERIAL COMMA rendered live (A, B, or C): direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts
+
+  > Yes, we do direct-to-consumer online coffee sales and we do restaurant and cafe wholesale accounts. No, we don't do recurring coffee subscriptions or office coffee supply accounts.
+  < [200] Noted - direct-to-consumer online coffee sales is its own line; a few quick numbers for it next.
+Noted - restaurant and cafe wholesale accounts is its own line; a few quick numbers for it next.
+
+To make planning realistic for direct-to-consumer online coffee sales, in a fully busy week, about how many direct-to-consumer online coffee sales can you handle?
+  [PASS] answer turn 200: 200
+  answers: {"direct-to-consumer online coffee sales": "yes", "restaurant and cafe wholesale accounts": "yes", "recurring coffee subscriptions": "no", "office coffee supply accounts": "no"}
+  rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["direct-to-consumer online coffee sales", "direct-to-consumer online coffee sales", "discovery_confirmed", null, null, null], ["restaurant and cafe wholesale accounts", "restaurant and cafe wholesale accounts", "discovery_confirmed", null, null, null]]
+  [PASS] at least one yes landed (reader read the yes): {"direct-to-consumer online coffee sales": "yes", "restaurant and cafe wholesale accounts": "yes", "recurring coffee subscriptions": "no", "office coffee supply accounts": "no"}
+  [PASS] [direct-to-consumer online coffee sales] -> exactly one row, origin=discovery_confirmed: [["direct-to-consumer online coffee sales", "direct-to-consumer online coffee sales", "discovery_confirmed", null, null, null]]
+  [PASS] [direct-to-consumer online coffee sales] -> its OWN LOB named for the label (never nested): direct-to-consumer online coffee sales
+  [PASS] [restaurant and cafe wholesale accounts] -> exactly one row, origin=discovery_confirmed: [["restaurant and cafe wholesale accounts", "restaurant and cafe wholesale accounts", "discovery_confirmed", null, null, null]]
+  [PASS] [restaurant and cafe wholesale accounts] -> its OWN LOB named for the label (never nested): restaurant and cafe wholesale accounts
+  [PASS] no LOB carries two discovered rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["direct-to-consumer online coffee sales", "direct-to-consumer online coffee sales", "discovery_confirmed", null, null, null], ["restaurant and cafe wholesale accounts", "restaurant and cafe wholesale accounts", "discovery_confirmed", null, null, null]]
+  [PASS] no row landed for a declined label: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["direct-to-consumer online coffee sales", "direct-to-consumer online coffee sales", "discovery_confirmed", null, null, null], ["restaurant and cafe wholesale accounts", "restaurant and cafe wholesale accounts", "discovery_confirmed", null, null, null]]
+  [PASS] primary row untouched (LOB + drivers 58/380/.75): [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] receipt says its own line and never under <line>: Noted - direct-to-consumer online coffee sales is its own line; a few quick numbers for it next.
+Noted - restaurant and cafe wholesale accounts is its own line; a few quick numbers for it next.
+
+To make planning realistic for direct-to-consumer online coffee sales, in a fully busy week, about how ma
+
+GREEN: live Nine Fathom discovery clone passed (own LOB per stream + serial comma)

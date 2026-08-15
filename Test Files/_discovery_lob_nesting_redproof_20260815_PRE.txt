@@ -1,0 +1,32 @@
+== 1a LOB NESTING: append_confirmed_stream_rows on the Nine Fathom shape ==
+   rows: [["Primary line of business", "5 lb bag roasted coffee", null], ["retail coffee bags", "retail coffee bags", "discovery_confirmed"], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed"]]
+   receipts: ["Noted - retail coffee bags is its own line; a few quick numbers for it next.", "Noted - wholesale coffee sales to grocery stores is its own line under retail coffee bags; a few quick numbers for it next."]
+  [PASS] primary row untouched under its own LOB
+  [PASS] retail coffee bags -> its OWN LOB named for the label
+  [FAIL] wholesale grocery -> its OWN LOB named for the label (NOT nested under retail coffee bags): retail coffee bags
+  [FAIL] three LOBs total, one row each
+  [PASS] both discovered rows stamped origin=discovery_confirmed
+  [FAIL] receipt says 'its own line' and never 'under <other line>' (receipt == state): ["Noted - retail coffee bags is its own line; a few quick numbers for it next.", "Noted - wholesale coffee sales to grocery stores is its own line under retail coffee bags; a few quick numbers for it next."]
+  [PASS] idempotent: second append does not duplicate
+== 1a same shape through carry_stream_discovery (a model patch dropped both rows) ==
+   rows: [["Primary line of business", "5 lb bag roasted coffee", null], ["retail coffee bags", "retail coffee bags", "discovery_confirmed"], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed"]]
+  [FAIL] carry: wholesale grocery restored to its OWN LOB (not nested): retail coffee bags
+  [PASS] carry: retail bags restored to its OWN LOB
+  [PASS] carry: drivers untouched (19/260/.6 and 13/140/.55): {"5 lb bag roasted coffee": [58, 380, 0.75], "retail coffee bags": [19, 260, 0.6], "wholesale coffee sales to grocery stores": [13, 140, 0.55]}
+  [PASS] carry: primary drivers untouched (58/380/.75)
+  [PASS] carry idempotent
+== 1a stem-match LOB placement is GONE (a discovered stream is a peer by definition) ==
+  [FAIL] no stem_match_lob_index in the module
+  [FAIL] no 'own line under' receipt variant
+== 1b SERIAL COMMA in the ask template ==
+   ask3: Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [FAIL] 3 labels: 'A, B, or C': Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] 2 labels: 'A or B': retail coffee bags or wholesale coffee sales to grocery stores
+  [PASS] 1 label: 'A'
+  [FAIL] 4 labels: 'A, B, C, or D': a, b, c or d
+  [PASS] ask == the ONE template constant
+  [PASS] revenue-line clause stays
+  [PASS] forbidden-phrase grep clean: Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [FAIL] clarify template renders the same comma: Just so I record it right: is retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales part of your business today? A yes means I'll include it as a revenue line in your plan; if not, just say no and we'll move on.
+
+RESULT: RED (9 failing): wholesale grocery -> its OWN LOB named for the label (NOT nested under retail coffee bags); three LOBs total, one row each; receipt says 'its own line' and never 'under <other line>' (receipt == state); carry: wholesale grocery restored to its OWN LOB (not nested); no stem_match_lob_index in the module; no 'own line under' receipt variant; 3 labels: 'A, B, or C'; 4 labels: 'A, B, C, or D'; clarify template renders the same comma

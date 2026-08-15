@@ -3337,3 +3337,45 @@ Known residuals (flagged, not built - triage law):
   ("where a single input is the cause, the system should name it" -
   #101 expected). Feature decision for Nick; the verdict itself is now
   honest.
+
+## DISCOVERY PRESENTATION FIXES, TURN 1 (VS, 2026-08-15): own LOB per stream + serial comma
+Nick's ruling after Nine Fathom run #2 (draft 6d2823db, record
+_confirm_discovery_ninefathom_20260815.txt). SPOT-CHECK, discovery path
+only; judge/validator/reader/seam/gate/capture/engine untouched. Diff =
+gpt_stream_discovery.py ONLY (17+/39-):
+ 1a  stem_match_lob_index DELETED (2 callers, both in this module:
+     append_confirmed_stream_rows + carry_stream_discovery's re-append
+     branch). A confirmed discovered stream ALWAYS gets its own LOB named
+     for its label - discovery surfaces PEER streams by definition (the
+     validator already dropped the client's own lines/paraphrases), so
+     there is no placement decision left. The "is its own line under
+     <lob>" receipt variant is gone with it (receipt == state: one
+     sentence, one shape).
+     'Primary line of business' placeholder: NOT authored in the
+     placement path. Named origin: financials_year1._build_default_lobs
+     (financials_year1.py:167, `business_type or "Primary line of
+     business"`) + quarter_grid.py:512/528/535 same fallback; the ops
+     model then echoes the year1 LOB name into ops.lob_models (strict
+     schema lob_name, intake_consultant.py:87). Nine Fathom's stored ops
+     carried it on the primary LOB with business_type='Coffee Roaster'
+     set - so the year1 default was built when business_type was still
+     empty and the name stuck. LEFT, flagged for Nick (a fix there is
+     the year1 builder / a naming rule for the primary LOB = a different
+     radius, not this turn).
+ 1b  join_labels: 3+ labels 'A, B, or C' (serial comma), 2 'A or B', 1
+     'A'. Template constants untouched; the clarify template inherits it.
+     Forbidden-phrase grep clean; revenue-line clause stays.
+Proof: Test Files/_discovery_lob_nesting_redproof.py PRE 9 red (nesting
+under 'retail coffee bags' in append AND carry; comma missing on 3 + 4
+labels; clarify) -> POST GREEN (numbers 19/260/.6, 13/140/.55, 58/380/.75
+do not move). Existing _stream_discovery_redproof / _f123 / _f4 GREEN.
+Floor R31/R32 --only GOLDEN (_gate_only_R31_R32_20260815_lobnesting.txt).
+LIVE: Test Files/_live_discovery_ninefathom_clone.py - rewound Nine
+Fathom clone (messages[:23], discovered rows + latch stripped) on the
+RESTARTED :5050 (one listener): live judge proposed 4 -> ask rendered
+'..., recurring coffee subscriptions, or office coffee supply accounts';
+yes/yes/no/no -> two rows, TWO LOBs each named for its label, primary
+row untouched, receipts 'is its own line;' x2, no 'under'. Canary SKIP
+(spot-check tier). Note: draft 8196d410 (0 messages, 18:12:28) is the
+known vite/.env.local phantom from the backend restart, not a live
+intake.
