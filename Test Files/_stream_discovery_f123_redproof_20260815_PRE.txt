@@ -1,0 +1,65 @@
+=== 1. Cormorant (draft ec1e22ef) exact judge output through _stream_discovery_ask_if_due ===
+   ASK: None
+   LATCH: {
+ "version": 1,
+ "business_type": "Coffee Roaster",
+ "naics_6": "311920",
+ "evidence": {
+  "level": "rich",
+  "reasons": []
+ },
+ "asked": false,
+ "reason": "no_common_candidates",
+ "dropped": [
+  {
+   "label": "12 oz retail coffee bags",
+   "reason": "label_carries_number"
+  },
+  {
+   "label": "wholesale coffee beans",
+   "reason": "matches_existing_line"
+  },
+  {
+   "label": "office coffee supply accounts",
+   "reason": "matches_existing_line"
+  },
+  {
+   "label": "private label coffee roasting",
+   "reason": "matches_existing_line"
+  },
+  {
+   "label": "online coffee bean sales",
+   "reason": "matches_existing_line"
+  },
+  {
+   "label": "cold brew coffee",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "single serve coffee pods",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "merchandise and branded apparel",
+   "reason": "commonality_some"
+  }
+ ]
+}
+[FAIL] Cormorant: discovery ASKS (asked:true)  -- {"version": 1, "business_type": "Coffee Roaster", "naics_6": "311920", "evidence": {"level": "rich", "reasons": []}, "asked": false, "reason": "no_common_candidates", "dropped": [{"label": "12 oz retail coffee bags", "reason": "label_carries_number"}, {"label": "wholesale coffee beans", "reason": "m
+[FAIL] F2: '12 oz retail coffee bags' -> 'retail coffee bags' SURVIVES (size stripped, not dropped)  -- []{"12 oz retail coffee bags": "label_carries_number", "wholesale coffee beans": "matches_existing_line", "office coffee supply accounts": "matches_existing_line", "private label coffee roasting": "matches_existing_line", "online coffee bean sales": "matches_existing_line", "cold brew coffee": "commonality_some", "single serve coffee pods": "commonality_some", "merchandise and branded apparel": "commonality_some"}
+[FAIL] F2: the survivor records the judge's original label
+[FAIL] F1: 'private label coffee roasting' SURVIVES (shared only the category noun 'coffee')  -- []{"12 oz retail coffee bags": "label_carries_number", "wholesale coffee beans": "matches_existing_line", "office coffee supply accounts": "matches_existing_line", "private label coffee roasting": "matches_existing_line", "online coffee bean sales": "matches_existing_line", "cold brew coffee": "commonality_some", "single serve coffee pods": "commonality_some", "merchandise and branded apparel": "commonality_some"}
+[FAIL] F1: 'office coffee supply accounts' SURVIVES (shared only the category noun 'coffee')  -- []{"12 oz retail coffee bags": "label_carries_number", "wholesale coffee beans": "matches_existing_line", "office coffee supply accounts": "matches_existing_line", "private label coffee roasting": "matches_existing_line", "online coffee bean sales": "matches_existing_line", "cold brew coffee": "commonality_some", "single serve coffee pods": "commonality_some", "merchandise and branded apparel": "commonality_some"}
+[PASS] F1: 'wholesale coffee beans' STAYS deduped (the primary - client described it)
+[PASS] F1: 'online coffee bean sales' STAYS deduped (mentioned in the client's description)
+[PASS] band gate: 'cold brew coffee' stays dropped commonality_some
+[PASS] band gate: 'single serve coffee pods' stays dropped commonality_some
+[PASS] band gate: 'merchandise and branded apparel' stays dropped commonality_some
+[FAIL] exactly the three survive, in judge order (most first: retail is most; the two many follow)  -- []
+[FAIL] latch stores survivors AND proposed (F3 auditability)  -- {"version": 1, "business_type": "Coffee Roaster", "naics_6": "311920", "evidence": {"level": "rich", "reasons": []}, "asked": false, "reason": "no_common_candidates", "dropped": [{"label": "12 oz retail coffee bags", "reason": "label_carries_number"}, {"label": "wholesale coffee beans", "reason": "matches_existing_line"}, {"label": "office coffee supply accounts", "reason": "matches_existing_line"
+=== 2. F1 generalization ===
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\Test Files\_stream_discovery_f123_redproof.py", line 173, in <module>
+    cat = sd.discovery_category_tokens(cormorant_ops(), NAICS_311920_TITLE)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'client_intake_and_finmo.intake_coherence.gpt_stream_discovery' has no attribute 'discovery_category_tokens'

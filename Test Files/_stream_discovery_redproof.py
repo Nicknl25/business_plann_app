@@ -132,7 +132,7 @@ judgment = {"candidates": [
   {"label": "Delivery Service", "commonality": "most"},               # duplicate
   {"label": "3 extra services", "commonality": "most"},              # number
 ]}
-railed = sd.validate_stream_candidates(judgment=judgment, ops_json=o, resolve_line=ic._resolve_ops_product_line)
+railed = sd.validate_stream_candidates(judgment=judgment, ops_json=o, naics_title="Nursery, Garden Center, and Farm Supply Stores")
 labels = [c["label"] for c in railed["candidates"]]
 reasons = {d["label"]: d["reason"] for d in railed["dropped"]}
 check("band gate drops 'some'", reasons.get("gift shop sales") == "commonality_some", json.dumps(reasons))
@@ -141,9 +141,13 @@ check("addition-verb lint drops 'consider adding'", reasons.get("consider adding
 check("addition-verb lint drops 'new'", reasons.get("new plant hire") == "addition_verb", json.dumps(reasons))
 check("duplicate label dropped", reasons.get("Delivery Service") == "duplicate_label", json.dumps(reasons))
 check("numeric label dropped", reasons.get("3 extra services") == "label_carries_number", json.dumps(reasons))
-check("NO COUNT CAP: all 4 band-gated survivors kept", labels == ["delivery service", "garden design", "seasonal workshops", "bulk mulch and soil"], json.dumps(labels))
+check("NO COUNT CAP ON THE BAND: all 4 band-gated survivors kept and proposed (<= cap)", labels == ["delivery service", "garden design", "seasonal workshops", "bulk mulch and soil"], json.dumps(labels))
+check("survivors == candidates when <= the proposal cap", [c["label"] for c in railed["survivors"]] == labels)
+# F3 (Nick, 2026-08-15): the ONLY cap is the proposal cap of 4 on the ASK
+# (most-first slice of the survivors); the band itself is uncapped. See
+# _stream_discovery_f123_redproof.py for the slice red-proof.
 src = (ROOT / "python/client_intake_and_finmo/intake_coherence/gpt_stream_discovery.py").read_text(encoding="utf-8")
-check("no count-cap constant exists in the module", not re.search(r"MAX_CANDIDATES|_CAP\b|\[:\s*[23]\]", src))
+check("no band-side count cap in the module (only STREAM_DISCOVERY_PROPOSAL_CAP on the ask)", not re.search(r"MAX_CANDIDATES|\[:\s*[23]\]", src) and sd.STREAM_DISCOVERY_PROPOSAL_CAP == 4)
 
 # --------------------------------------------------------------------------
 # 3. THE ASK: template constant, forbidden phrases absent, fires ONCE.

@@ -20,14 +20,40 @@ THE FENCE (the demand-judge pattern, applied to a category question):
      ONLY. It has no channel for a number, a price, a volume or a
      sentence, so it cannot fabricate revenue.
   3. THE VALIDATOR IS THE FENCE, not the prompt: drop commonality=some;
-     drop labels that stem-resolve to an existing line (the caller's
-     resolver - the ack-contradiction class in question form); drop
-     labels carrying addition verbs (add/expand/consider/start/launch/
-     new) so the upsell shape is unrepresentable. NO COUNT CAP ANYWHERE
-     (Nick's correction): the band IS the gate; the number surfaced is
-     a judgment, never a constant.
+     drop labels that are a paraphrase of a line the client already
+     captured or a stream the client already described (the DISCOVERY
+     dedup, F1 below - the ack-contradiction class in question form);
+     drop labels carrying addition verbs (add/expand/consider/start/
+     launch/new) so the upsell shape is unrepresentable. NO COUNT CAP ON
+     THE BAND (Nick's correction): the band IS the gate; how many streams
+     SURVIVE is a judgment, never a constant.
+     F1 (Nick, 2026-08-15, Cormorant): dedup requires a DISTINGUISHING
+     match. One shared token that is the business-type / NAICS-title
+     category noun ('coffee' for a coffee roaster, 'dental', 'landscaping')
+     is NOT a duplicate - every adjacent stream of a category-noun-heavy
+     type carries that noun. A candidate is deduped only when it shares a
+     NON-category token with a captured line, or >=2 tokens with one, or
+     when its distinguishing tokens are what the client already described
+     ('wholesale ... online' in the confirmed description => the primary
+     and the mentioned stream stay deduped). This lives HERE, in
+     discovery; the caller's line resolver (corrections rely on it) is
+     untouched.
+     F2 (Nick, 2026-08-15): the number lint stops fabricated FINANCIAL
+     figures ($, per week, 40 units). A numeric SIZE qualifier ('12 oz
+     retail coffee bags', '5 lb') is a descriptor, not a revenue number:
+     it is STRIPPED from the label ('retail coffee bags'), never a reason
+     to drop the candidate.
+  3b. F3 PROPOSAL CAP (Nick, 2026-08-15): a UX / cognitive-load limit on
+     the QUESTION, not a business heuristic - a client cannot answer a
+     laundry-list ask in one breath. The band-gate surfaces however many
+     genuinely-common streams it finds (all stored on the latch as
+     `survivors`); the ASK proposes AT MOST 4 - all `most` first, then
+     `many` - so the four asked about are the four most likely to apply,
+     never an arbitrary four. 4 or fewer survive => all proposed, no
+     padding. Still ONE ask, one turn. The cap is on the PROPOSAL ONLY:
+     what the client volunteers through the normal flow is never blocked.
   4. The ask is ONE deterministic template constant, existence-framed;
-     GPT never composes it. Only the surviving labels are interpolated.
+     GPT never composes it. Only the proposed labels are interpolated.
   5. The client is the authority: nothing enters the model until the
      client says yes; unclear is NOT a yes (ruled); no is never re-asked.
   6. Inputs are exactly: business type, NAICS + title, stage, geography,
@@ -51,9 +77,27 @@ STREAM_DISCOVERY_ORIGIN = "discovery_confirmed"
 
 # The band: only genuinely common streams survive. "some" is dropped by the
 # validator, whatever the judge argued. There is deliberately NO cap on how
-# many survivors are surfaced - the band is the gate.
+# many survivors the band surfaces - the band is the gate. The ASK proposes
+# at most STREAM_DISCOVERY_PROPOSAL_CAP of them (F3: a limit on the
+# question's size, most-first, never on what the client may volunteer).
 COMMONALITY_ENUM = ("most", "many", "some")
 COMMONALITY_SURVIVES = ("most", "many")
+STREAM_DISCOVERY_PROPOSAL_CAP = 4
+
+# F2: numeric SIZE qualifiers are descriptors, not revenue numbers - they
+# are stripped from a label, never a reason to drop it. Anything numeric
+# that is NOT a size (money, rates, volumes, counts) still fails the lint.
+_SIZE_UNITS = (
+  "oz|ounce|ounces|fl oz|lb|lbs|pound|pounds|kg|kgs|kilo|kilos|kilogram|kilograms|"
+  "g|gram|grams|mg|ml|l|liter|liters|litre|litres|gal|gallon|gallons|qt|quart|quarts|"
+  "pt|pint|pints|cup|cups|inch|inches|in|ft|foot|feet|yd|yard|yards|cm|mm|m|meter|"
+  "meters|metre|metres|sq ft|sqft|square foot|square feet|ct|count|pk|pack|packs|"
+  "piece|pieces|pc|pcs"
+)
+_SIZE_QUALIFIER_RE = re.compile(
+  r"(?<![\w$])\d+(?:[.,/]\d+)?\s*-?\s*(?:" + _SIZE_UNITS + r")\b\.?",
+  re.IGNORECASE,
+)
 
 # Addition-verb lint: a label carrying any of these is the upsell shape and
 # is dropped before it can reach the template.
@@ -332,31 +376,123 @@ def _clean_label(raw: Any) -> str:
   return s
 
 
+def strip_size_qualifiers(label: str) -> str:
+  """F2: remove numeric SIZE descriptors ('12 oz', '5 lb', '500ml',
+  '2-pack') from a label. Returns the cleaned label; anything numeric that
+  is NOT a size is left in place for the number lint to catch."""
+  out = _SIZE_QUALIFIER_RE.sub(" ", str(label or ""))
+  out = re.sub(r"\s+", " ", out).strip(" -,/")
+  return _clean_label(out)
+
+
+def _tokens4(text: Any) -> set:
+  return {t for t in _label_tokens(text) if len(t) >= 4}
+
+
+def _tok_hit(a: str, b: str) -> bool:
+  # The caller's resolver rule, unchanged: stem-prefix either way.
+  return a == b or a.startswith(b) or b.startswith(a)
+
+
+def _shared(label_toks: set, other_toks: set) -> set:
+  return {lt for lt in label_toks if any(_tok_hit(lt, ot) for ot in other_toks)}
+
+
+def discovery_category_tokens(ops_json: Optional[Dict[str, Any]], naics_title: str = "") -> set:
+  """F1: the CATEGORY nouns of this business - the stems of the client-
+  selected business_type and the NAICS title, plus the token of each LOB
+  name that is one of them ('coffee' in 'Roasted coffee'). Sharing ONE of
+  these with a captured line is not a duplicate; every adjacent stream of
+  a category-noun-heavy type carries it."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  cat = _tokens4(ops.get("business_type")) | _tokens4(naics_title)
+  for lob in ops.get("lob_models") or []:
+    if isinstance(lob, dict):
+      cat |= _shared(_tokens4(lob.get("lob_name")), cat)
+  return cat
+
+
+def discovery_dedup_reason(
+  label: str,
+  ops_json: Optional[Dict[str, Any]],
+  *,
+  category_tokens: set,
+) -> Optional[str]:
+  """F1 - the DISCOVERY dedup (the resolver used for corrections is not
+  touched). Returns the drop reason or None (survives).
+
+  matches_existing_line: the label shares a DISTINGUISHING token (one that
+    is not a category noun) with a captured row's product/unit/LOB name,
+    or >=2 tokens with one row.
+  mentioned_by_client: the label's distinguishing tokens are what the
+    client already described (the client-confirmed business description
+    and the rows' unit descriptions): all of them when there are one or
+    two, at least two and a majority otherwise. The primary line and a
+    stream the client named in passing ('wholesale ... online') stay
+    deduped without the category noun doing the work."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  ltoks = _tokens4(label)
+  if not ltoks:
+    return None
+  distinguishing = {t for t in ltoks if not any(_tok_hit(t, c) for c in category_tokens)}
+  desc_toks: set = _tokens4(ops.get("business_description_summary"))
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for p in lob.get("products") or []:
+      if not isinstance(p, dict):
+        continue
+      row_toks = _tokens4(p.get("product_name")) | _tokens4(p.get("unit_name")) | _tokens4(lob.get("lob_name"))
+      shared = _shared(ltoks, row_toks)
+      if shared & distinguishing or len(shared) >= 2:
+        return "matches_existing_line"
+      desc_toks |= _tokens4(p.get("unit_description"))
+  if distinguishing:
+    hits = _shared(distinguishing, desc_toks)
+    n, k = len(hits), len(distinguishing)
+    if (k <= 2 and n == k) or (k > 2 and n >= 2 and n * 2 > k):
+      return "mentioned_by_client"
+  return None
+
+
+def propose_from_survivors(survivors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  """F3: the proposed slice - ALL `most` first (in judge order), then
+  `many`, at most STREAM_DISCOVERY_PROPOSAL_CAP. <= cap => all, no padding."""
+  most = [c for c in survivors if c.get("commonality") == "most"]
+  many = [c for c in survivors if c.get("commonality") != "most"]
+  return (most + many)[:STREAM_DISCOVERY_PROPOSAL_CAP]
+
+
 def validate_stream_candidates(
   *,
   judgment: Optional[Dict[str, Any]],
   ops_json: Optional[Dict[str, Any]],
-  resolve_line: Callable[[Dict[str, Any], str], Tuple[Any, str]],
+  naics_title: str = "",
 ) -> Dict[str, Any]:
-  """Rail the raw judgment into {candidates, dropped}. Every rule is
-  mechanical: enum band (some dropped), stem-dedup against the client's
-  own lines via the caller's resolver (a unique OR ambiguous match is a
-  paraphrase of something already captured - dropped either way, silence
-  is free), addition-verb lint, empty/duplicate/over-long labels. There
-  is deliberately no cap on the number of survivors."""
+  """Rail the raw judgment into {candidates, survivors, dropped}. Every
+  rule is mechanical: enum band (some dropped), F2 size-strip then the
+  number lint, addition-verb lint, empty/duplicate/over-long labels, F1
+  discovery dedup against the client's own lines and description.
+  `survivors` = everything the band-gate let through (no cap);
+  `candidates` = the F3 proposed slice (most-first, at most
+  STREAM_DISCOVERY_PROPOSAL_CAP) - the labels the ask names."""
   j = judgment if isinstance(judgment, dict) else {}
   raw = j.get("candidates")
-  candidates: List[Dict[str, Any]] = []
+  survivors: List[Dict[str, Any]] = []
   dropped: List[Dict[str, Any]] = []
   seen: set = set()
   if not isinstance(raw, list):
-    return {"candidates": candidates, "dropped": dropped}
+    return {"candidates": [], "survivors": survivors, "dropped": dropped}
+  category_tokens = discovery_category_tokens(ops_json, naics_title)
   for item in raw:
     if not isinstance(item, dict):
       continue
-    label = _clean_label(item.get("label"))
+    judge_label = _clean_label(item.get("label"))
+    label = strip_size_qualifiers(judge_label)
     commonality = str(item.get("commonality") or "").strip().lower()
     if not label:
+      if judge_label:
+        dropped.append({"label": judge_label, "reason": "label_not_a_short_phrase"})
       continue
     if len(label) > 60 or len(_label_tokens(label)) > 6:
       dropped.append({"label": label, "reason": "label_not_a_short_phrase"})
@@ -377,19 +513,17 @@ def validate_stream_candidates(
     if key in seen:
       dropped.append({"label": label, "reason": "duplicate_label"})
       continue
-    try:
-      resolved, why = resolve_line(ops_json or {}, label)
-    except Exception:
-      resolved, why = None, "none"
-    if resolved is not None:
-      dropped.append({"label": label, "reason": "matches_existing_line"})
-      continue
-    if str(why or "") == "ambiguous":
-      dropped.append({"label": label, "reason": "matches_existing_line_ambiguous"})
+    why = discovery_dedup_reason(label, ops_json, category_tokens=category_tokens)
+    if why:
+      dropped.append({"label": label, "reason": why})
       continue
     seen.add(key)
-    candidates.append({"label": label, "commonality": commonality, "answer": None})
-  return {"candidates": candidates, "dropped": dropped}
+    cand: Dict[str, Any] = {"label": label, "commonality": commonality, "answer": None}
+    if label != judge_label:
+      cand["judge_label"] = judge_label
+    survivors.append(cand)
+  proposed = propose_from_survivors(survivors)
+  return {"candidates": proposed, "survivors": survivors, "dropped": dropped}
 
 
 # ---------------------------------------------------------------------------

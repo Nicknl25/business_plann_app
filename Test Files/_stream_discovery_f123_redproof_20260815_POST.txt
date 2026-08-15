@@ -1,0 +1,129 @@
+=== 1. Cormorant (draft ec1e22ef) exact judge output through _stream_discovery_ask_if_due ===
+   ASK: Before we wrap up operations: a lot of coffee roasters also retail coffee bags, office coffee supply accounts or private label coffee roasting. Is any of that part of your business today? If not, just say so and we'll move on.
+   LATCH: {
+ "version": 1,
+ "business_type": "Coffee Roaster",
+ "naics_6": "311920",
+ "evidence": {
+  "level": "rich",
+  "reasons": []
+ },
+ "asked": true,
+ "asked_turn_index": 20,
+ "candidates": [
+  {
+   "label": "retail coffee bags",
+   "commonality": "most",
+   "answer": null,
+   "judge_label": "12 oz retail coffee bags"
+  },
+  {
+   "label": "office coffee supply accounts",
+   "commonality": "many",
+   "answer": null
+  },
+  {
+   "label": "private label coffee roasting",
+   "commonality": "many",
+   "answer": null
+  }
+ ],
+ "proposed": [
+  "retail coffee bags",
+  "office coffee supply accounts",
+  "private label coffee roasting"
+ ],
+ "survivors": [
+  {
+   "label": "retail coffee bags",
+   "commonality": "most"
+  },
+  {
+   "label": "office coffee supply accounts",
+   "commonality": "many"
+  },
+  {
+   "label": "private label coffee roasting",
+   "commonality": "many"
+  }
+ ],
+ "proposal_cap": 4,
+ "dropped": [
+  {
+   "label": "wholesale coffee beans",
+   "reason": "mentioned_by_client"
+  },
+  {
+   "label": "online coffee bean sales",
+   "reason": "mentioned_by_client"
+  },
+  {
+   "label": "cold brew coffee",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "single serve coffee pods",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "merchandise and branded apparel",
+   "reason": "commonality_some"
+  }
+ ]
+}
+[PASS] Cormorant: discovery ASKS (asked:true)
+[PASS] F2: '12 oz retail coffee bags' -> 'retail coffee bags' SURVIVES (size stripped, not dropped)
+[PASS] F2: the survivor records the judge's original label
+[PASS] F1: 'private label coffee roasting' SURVIVES (shared only the category noun 'coffee')
+[PASS] F1: 'office coffee supply accounts' SURVIVES (shared only the category noun 'coffee')
+[PASS] F1: 'wholesale coffee beans' STAYS deduped (the primary - client described it)
+[PASS] F1: 'online coffee bean sales' STAYS deduped (mentioned in the client's description)
+[PASS] band gate: 'cold brew coffee' stays dropped commonality_some
+[PASS] band gate: 'single serve coffee pods' stays dropped commonality_some
+[PASS] band gate: 'merchandise and branded apparel' stays dropped commonality_some
+[PASS] exactly the three survive, in judge order (most first: retail is most; the two many follow)
+[PASS] latch stores survivors AND proposed (F3 auditability)
+[PASS] ask is the template, existence-framed
+[PASS] ask forbidden-phrase grep clean
+[PASS] ask names no digit (size stripped)
+[PASS] ask == compose(business_type, proposed)
+=== 2. F1 generalization ===
+[PASS] category tokens = business_type + NAICS title stems (+ the LOB name's category word)
+[PASS] F1: 'roasted coffee delivery' shares 'roasted' (non-category) with the line -> matches_existing_line
+[PASS] F1: 'coffee catering' shares only 'coffee' -> survives
+[PASS] F1: 'coffee' alone (bare category noun) -> survives the dedup (no distinguishing tokens; the judge would not send it)
+[PASS] dental: 'dental implants' survives (only the category noun shared)
+[PASS] dental: 'hygiene cleaning visits' deduped (non-category token 'cleaning'/'visit' shared with the row)
+[PASS] dental: 'routine exams' deduped as mentioned_by_client (the client described exams)
+[PASS] garden centre: 'landscape installation' still deduped (>=2 shared, non-category)
+[PASS] garden centre: 'garden design' survives ('garden' is the category noun)
+=== 3. F2 size-strip vs number lint ===
+[PASS] strip_size_qualifiers('12 oz retail coffee bags') == 'retail coffee bags'
+[PASS] strip_size_qualifiers('5 lb wholesale bags') == 'wholesale bags'
+[PASS] strip_size_qualifiers('500ml cold brew bottles') == 'cold brew bottles'
+[PASS] strip_size_qualifiers('2-pack gift boxes') == 'gift boxes'
+[PASS] strip_size_qualifiers('1.5 kg bulk bags') == 'bulk bags'
+[PASS] strip_size_qualifiers('delivery service') == 'delivery service'
+[PASS] F2: money figure still dropped
+[PASS] F2: volume figure still dropped
+[PASS] F2: count figure still dropped
+[PASS] F2: rate figure still dropped
+[PASS] F2: a bare size with nothing left is dropped, not asked
+=== 4. F3 proposal cap ===
+[PASS] F3: all 6 survive the band-gate (no cap on survivors)
+[PASS] F3: proposed = the 2 most + the first 2 many, exactly 4
+   ASK(6): Before we wrap up operations: a lot of coffee roasters also barista training, farmers market stall, espresso catering or brewing equipment resale. Is any of that part of your business today? If not, just say so and we'll move on.
+[PASS] F3 latch: survivors=6, proposed=4, candidates (asked) = proposed
+[PASS] F3 ask names exactly the 4 proposed labels and none of the other 2
+[PASS] F3 ask has one question mark
+[PASS] F3: 3 survivors -> all 3 proposed, no padding, most first
+[PASS] F3: cap constant is 4
+[PASS] answer path: yes lands on the proposed label, the other 3 proposed are no
+[PASS] answer path: the confirmed row appended with origin
+[PASS] answer path: pending False afterwards
+=== 5. resolver untouched ===
+[PASS] discovery seam no longer calls _resolve_ops_product_line
+[PASS] resolver still has its correction callers
+[PASS] resolver behaviour unchanged: 'coffee' still resolves the single line for a correction
+
+GREEN: F1+F2+F3 red-proof passed

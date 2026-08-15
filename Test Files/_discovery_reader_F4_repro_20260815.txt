@@ -1,0 +1,4 @@
+'No, none of those. We just do the five pound wholesale bags.' -> {'wholesale subscription contracts': 'yes', 'retail coffee bags': 'no', 'single-origin limited release coffees': 'no', 'direct-to-consumer coffee subscriptions': 'no'}
+'No, none of those.' -> {'wholesale subscription contracts': 'no', 'retail coffee bags': 'no', 'single-origin limited release coffees': 'no', 'direct-to-consumer coffee subscriptions': 'no'}
+'None of those - we only sell wholesale bags to cafes.' -> {'wholesale subscription contracts': 'no', 'retail coffee bags': 'no', 'single-origin limited release coffees': 'no', 'direct-to-consumer coffee subscriptions': 'no'}
+'No. Retail bags no, subscriptions no. Just wholesale to cafes.' -> {'wholesale subscription contracts': 'yes', 'retail coffee bags': 'no', 'single-origin limited release coffees': 'no', 'direct-to-consumer coffee subscriptions': 'no'}

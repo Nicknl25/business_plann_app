@@ -11728,11 +11728,18 @@ def _stream_discovery_ask_if_due(
     }
     logger.warning("STREAM_DISCOVERY judge unavailable: %s", raw.get("error"))
     return None
+  # F1/F2/F3 (Nick, 2026-08-15): the DISCOVERY dedup lives inside the
+  # validator (category-noun aware, against the client's lines AND
+  # description) - _resolve_ops_product_line is the corrections resolver
+  # and is not called here. `survivors` = every band-gated stream (no
+  # cap); `candidates` = the proposed slice the ask names (most-first,
+  # at most STREAM_DISCOVERY_PROPOSAL_CAP). Both are latched, auditable.
   railed = _sdisc.validate_stream_candidates(
     judgment=raw.get("judgment"), ops_json=ops_json,
-    resolve_line=_resolve_ops_product_line,
+    naics_title=str(inputs.get("naics_title") or ""),
   )
   candidates = railed.get("candidates") or []
+  survivors = railed.get("survivors") or []
   dropped = railed.get("dropped") or []
   if not candidates:
     ops_json["stream_discovery"] = {
@@ -11747,11 +11754,17 @@ def _stream_discovery_ask_if_due(
     "asked": True,
     "asked_turn_index": int(turn_index),
     "candidates": candidates,
+    "proposed": [c["label"] for c in candidates],
+    "survivors": [
+      {"label": c["label"], "commonality": c["commonality"]} for c in survivors
+    ],
+    "proposal_cap": int(_sdisc.STREAM_DISCOVERY_PROPOSAL_CAP),
     "dropped": dropped,
   }
   logger.info(
-    "STREAM_DISCOVERY asked labels=%s dropped=%s",
-    [c["label"] for c in candidates], [d.get("label") for d in dropped],
+    "STREAM_DISCOVERY asked labels=%s survivors=%s dropped=%s",
+    [c["label"] for c in candidates], [c["label"] for c in survivors],
+    [d.get("label") for d in dropped],
   )
   return ask
 

@@ -114,7 +114,14 @@ Cormorant Coffee Roasters: judge fired (rich, 8 labels), validator
 dropped all 8. Ruled fixes, validator-only:
 - **F1** dedup requires a DISTINGUISHING match — a shared token that is
   not the business-type/category noun, or >=2 shared tokens; one shared
-  category noun ("coffee") is not a duplicate.
+  category noun ("coffee") is not a duplicate. SHIPPED (VS turn 1): the
+  dedup lives inside discovery (`discovery_dedup_reason`), the
+  corrections resolver is untouched; category nouns = business_type +
+  NAICS-title stems (+ the LOB name's category word); a candidate whose
+  distinguishing tokens are what the client already described (the
+  confirmed description / unit descriptions) is dropped as
+  `mentioned_by_client` — the primary ("wholesale coffee beans") and
+  the mentioned ("online coffee bean sales") stay deduped that way.
 - **F2** the number-lint stops fabricated FINANCIAL numbers only; a size
   qualifier ("12 oz") is stripped from the label, never a drop.
 - **F3 PROPOSAL CAP OF 4** — a UX/cognitive-load limit on the QUESTION,
