@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: stopped-fault
 TURN: 6/16
 TASK:
   TURN-TIMEOUT-MINUTES: 240
