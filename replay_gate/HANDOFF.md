@@ -1,4 +1,4 @@
-STATUS: stopped-fault
+STATUS: awaiting-VS
 TURN: 0/16
 TASK:
   DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
@@ -43,6 +43,7 @@ TASK:
   TURN 2 (mini, SPOT-CHECK audit): diff confined to append_confirmed_
   stream_rows placement + the template constant; PRE red / POST green on
   the Nine Fathom shape; numbers unchanged; floor. Green -> stop.
+  (re-armed after the Cowork-tester dirty-tree fault; tree is clean now)
 RESULT:
   AGENT: none
   VERDICT: progress
