@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   DISCOVERY FIX F1+F2+F3 (RE-SEEDED: the first launch was killed at 4 min to fold in F3 — start fresh; a partial edit was discarded) — Nick's ruling after confirming run #1 (Cormorant
   Coffee Roasters, draft ec1e22ef; record: _confirm_discovery_cormorant_
