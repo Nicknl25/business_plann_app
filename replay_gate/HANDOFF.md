@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-fault
 TURN: 0/16
 TASK:
   DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
