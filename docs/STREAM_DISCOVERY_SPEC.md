@@ -1,8 +1,9 @@
-# Proactive Stream Discovery — RESOLVED design spec (research complete, NOTHING BUILT)
+# Proactive Stream Discovery — APPROVED design spec (Nick 2026-08-15, build authorized)
 
-Status: **refined spec for Nick's review, 2026-08-15.** The five open
-questions are resolved below with code citations. Build starts only on
-Nick's approval. Blast-radius when built: the insertion point is the
+Status: **APPROVED by Nick 2026-08-15 with ONE correction — NO HARDCODED
+CAP (see Q3): the commonality band IS the gate; the number surfaced is a
+judgment, never a constant.** The five open questions are resolved below
+with code citations. Blast-radius when built: the insertion point is the
 shared ops wrap-up path (`intake_consult.py` gate cascade), so the build
 turn is **NEIGHBOR-CHECK** tier under the verification law (neighbors:
 competitive-advantage proposal, milestone question, ops-finalize
@@ -13,8 +14,8 @@ canary, no full prove.
 
 Surface revenue streams the client's business type USUALLY has but the
 client didn't mention, so real revenue is not left out of the plan.
-DISCOVERY not upsell; EXISTENCE not addition; only the 2–3 streams
-genuinely common for THIS business type; ask ONCE and believe the answer;
+DISCOVERY not upsell; EXISTENCE not addition; only the streams
+genuinely common for THIS business type (band-judged, never a count); ask ONCE and believe the answer;
 a yes lands as a real LOB through the confidence gate.
 
 ---
@@ -58,20 +59,21 @@ model's category sense; **the grounding is everything around it**:
    business is pre-revenue (see Q4), or when the client's own line list
    is empty. Silence is free; the generic checklist is the disease.
 3. **The judge may only choose LABELS.** Its tool schema returns
-   `candidates[≤3]` of `{label, commonality}` where `commonality ∈
+   `candidates[]` of `{label, commonality}` (no fixed count) where `commonality ∈
    {"most","many","some"}` and `label` is a short client-plain noun
    phrase. It never returns a number, a price, a volume, or a sentence.
    The one GPT call per draft cannot fabricate revenue because it has no
    channel to.
 4. **The validator is the fence, not the prompt** (`validate_demand_response`
    :267-334 pattern): drop `commonality == "some"` (only genuinely common
-   streams survive — this is the "2–3 genuinely common, not a checklist"
+   streams survive — this is the "genuinely common, not a checklist"
    rule made mechanical); drop any label that stem-resolves to an
    existing line via `_resolve_ops_product_line` (`intake_consult.py:6787-6837`,
    bidirectional stem match on product/unit/lob tokens, refuses on tie);
    drop labels containing addition verbs (add / expand / consider / start
    / launch / new) — a lint that makes the upsell shape unrepresentable
-   even before the template does; cap at 2 (Q3). Empty after railing ⇒
+   even before the template does; NO count cap — the band is the gate (Q3).
+   Empty after railing ⇒
    `{"asked": false, "reason": "no_common_candidates"}`.
 5. **The client is the authority.** The judge produces a QUESTION, never
    a fact; nothing enters the model until the client says yes, and even
@@ -119,10 +121,17 @@ Three mechanisms, all in Python:
    enforced again in Python by the stem resolver so a paraphrase of an
    existing line never reaches the client (the ack-contradiction class in
    question form).
-3. **Cap = 2** (resolves open question 3). The template reads as one
-   natural sentence with two; three reads as a checklist. A third
-   candidate is kept only if all three are `most` AND the client has ≤2
-   lines (a thin single-line business is where discovery earns the most).
+3. **NO HARDCODED CAP — the band IS the gate (Nick's correction, ruled
+   2026-08-15).** No "at most 3", no "2 unless ≤2 lines". The judge rates
+   each candidate's commonality for THIS business; every candidate that
+   clears the genuine-commonality bar (`most` / `many`) is surfaced, in
+   ONE ask; if none clear it, nothing is asked. A garden centre may
+   genuinely have several adjacent streams; a niche consultancy may have
+   zero — the band-gate scales to the business, a constant does not.
+   Same doctrine as no-NAICS-hardcoding and verdicts-from-judgment-not-
+   constants: we do not ship heuristics. The template lists all
+   survivors ("also <A>, <B> or <C>") — one turn, one ask, band-gated
+   survivors.
 
 ## Q4 — WHERE it fires (resolved: END OF OPS, confirmed, exact seam)
 
@@ -224,7 +233,8 @@ carry `origin: "discovery_confirmed"` (schemas updated in both places).
 ## Artifact verification shape (mini, when built — neighbor-check tier)
 
 1. Ask fires at most once per draft, at the `:20116` seam (and mirror),
-   text == the template constant; forbidden-phrase grep finds nothing.
+   text == the template constant listing exactly the band-gated survivors
+   (no count cap anywhere in code); forbidden-phrase grep finds nothing.
 2. A candidate matching an existing line (stemmed) is never asked.
 3. A declined/unclear stream never reappears (ask, proposals, model).
 4. A confirmed stream is a full product row: five fields client-stated,
@@ -239,12 +249,16 @@ carry `origin: "discovery_confirmed"` (schemas updated in both places).
 
 ## Decisions requested from Nick (the spec is not self-ratifying)
 
-1. Approve the resolved answers above (source = fenced GPT category
-   judgment; end-of-ops seam; cap 2; operating/early-stage only; Python
-   appends the row on yes).
-2. Confirm "unclear ⇒ not confirmed, no re-ask" is the intended UX.
-3. Approve the one-extra-turn cost on drafts that get an ask.
-On approval: build turn (VS, neighbor-check tier) → mini audit at the
-shape above → one confirming Cowork run on a thin single-line business
-(must be byte-identical) and one on a multi-line business that gets an
-ask.
+RULED 2026-08-15: (1) architecture APPROVED as designed, with the
+no-hardcoded-cap correction above; (2) "unclear ⇒ not confirmed, no
+re-ask" YES — existence needs a yes, we never INFER a stream from an
+ambiguous answer; (3) one extra turn on drafts that get an ask YES (zero
+cost where nothing is genuinely common). BUILD authorized at
+NEIGHBOR-CHECK tier → mini audit (finalize latch-carry + both hooks) →
+TWO confirming Cowork runs: (a) a business with genuinely-common adjacent
+streams the client did not mention — propose → yes → the cascade
+captures the new line's five fields → wrap CLEAN (first-class check: the
+append-during-wrap-up-and-re-enter-capture sequence); (b) a thin
+single-line niche business — discovery asks NOTHING, draft byte-identical
+to no-discovery. Triage law applies to anything new. Discovery is DONE
+when (a) proves propose→yes→capture→wrap-clean and (b) proves silence.
