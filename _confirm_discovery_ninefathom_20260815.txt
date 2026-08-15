@@ -1,0 +1,36 @@
+DISCOVERY CONFIRMING RUN #2 - Nine Fathom Coffee Roasters (draft 6d2823db, run 10a81085, Coffee Roaster 311920) - 2026-08-15
+Backend HEAD 2f8718f (F1/F2/F3 validator fix 800c855 + F4 intent-routed reader 040ce0f, both mini-audited GREEN).
+Client described ONE line: 5 lb bag roasted coffee (380/wk, 75%, $58). Intake 50 turns, coherence CONVERGED, system run
+COMPLETED 247s, 0 errors, 0 stalls, registry 0 recurred, Cowork filings: 0. Verified from stored artifacts + workbook.
+
+CHECK                                          RESULT   EVIDENCE
+Discovery PROPOSES at end-of-ops seam          HELD     latch asked=true, asked_turn_index 23; evidence rich; 3 survivors (1 most + 2 many), cap 4, all 3 proposed
+Ask text (verbatim, turn 24)                   HELD     "Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to
+                                                        grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll
+                                                        include it as a revenue line.) If not, just say so and we'll move on."  -> why-clause present, "also offer"
+                                                        grammar reads naturally (label-grammar WATCH closed), "12 oz" stripped (judge_label kept), <=4, existence-framed
+F1 category-noun dedup                         HELD     "wholesale coffee sales to grocery stores" survived (shares only 'coffee' with the primary line)
+F2 size-qualifier strip                        HELD     "12 oz retail coffee bags" -> "retail coffee bags" proposed, not dropped
+F3 proposal cap                                HELD     3 survivors -> 3 proposed (no padding), most first
+F4 answer read by INTENT (no keyword match)    HELD     turn 25 natural reply: yes retail bags, yes grocery wholesale, "no, we don't do brew gear and merchandise sales"
+                                                        -> answers yes/yes/NO; NO phantom row for brew gear despite the stream words inside the decline
+Yes -> real LOB rows via the gate              HELD     2 rows origin=discovery_confirmed appended with drivers null, receipt named exactly what was written
+Cascade captures the discovered lines          HELD     retail bags $19 / 260/wk / 60%; grocery wholesale $13 / 140/wk / 55% - all client-stated, distinct per row
+Latch + rows survive ops finalize              HELD     stream_discovery + origin present after ops -> market flip (the carry-forward hazard closed live)
+Per-line COGS on discovered lines              HELD     0.62 / 0.38 / 0.55 proposed + stored per row at the cogs stage (ordinary rows, zero new write paths)
+Built plan: multiple revenue lines             HELD     Revenue Drivers + Model Inputs: 3 unit-price rows + 3 COGS % driver rows (A11/A18/A25; MI A10/A15/A20)
+Built plan: ONE P&L COGS roll-up               HELD     FINMO A9 Cost of Goods Sold = 'Model Inputs'!C11*C10 + C16*C15 + C21*C20 (three-term roll-up)
+Post-intake neighbors                          HELD     coherence converged, capacity wall stamp capped_by_stated_capacity=True (A3 still working), 0 issues
+
+WATCH ITEM (bucketed for Nick, NOT auto-fixed): LOB PLACEMENT of the 2nd discovered row. Both discovered rows sit under ONE LOB
+named "retail coffee bags" - "wholesale coffee sales to grocery stores" was placed under the first discovered LOB by the
+LOB-placement stem match on the shared category noun 'coffee' (the same class F1 fixed for dedup, one step later). Distinct
+PRODUCTS with distinct drivers - the numbers are right; the receipt was truthful ("its own line under retail coffee bags");
+only the LOB LABEL in the workbook reads "retail coffee bags / wholesale coffee sales to grocery stores". Triage: not a wrong
+number, not a false claim -> not a deal breaker; a labeling/organization nit. Fix shape if wanted (spot-check, discovery path
+only): apply the F1 distinguishing-token rule to LOB placement too, else default a discovered row to its OWN LOB named for the
+label. Nick's call.
+
+DISCOVERY STATUS: run #2 proves propose -> natural yes/no by intent -> capture -> wrap-clean -> multi-line plan at the CURRENT
+seam. Run #1's silence-on-thin half is proven by the F1/F2/F3 red-proofs + the thin clone (VS turn 1) - a live thin Cowork run
+remains optional. NEXT per Nick's ruling: the SEAM MOVE to :16794 as a separate neighbor-check turn, then run #3.
