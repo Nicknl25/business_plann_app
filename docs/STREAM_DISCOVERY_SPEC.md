@@ -108,6 +108,22 @@ the labels are interpolated:
   phrase list (consider / add / expand / could you also / would you) —
   must find nothing on every draft; the template lives in one constant.
 
+## Q3b — Validator fixes after confirming run #1 (Nick 2026-08-15)
+
+Cormorant Coffee Roasters: judge fired (rich, 8 labels), validator
+dropped all 8. Ruled fixes, validator-only:
+- **F1** dedup requires a DISTINGUISHING match — a shared token that is
+  not the business-type/category noun, or >=2 shared tokens; one shared
+  category noun ("coffee") is not a duplicate.
+- **F2** the number-lint stops fabricated FINANCIAL numbers only; a size
+  qualifier ("12 oz") is stripped from the label, never a drop.
+- **F3 PROPOSAL CAP OF 4** — a UX/cognitive-load limit on the QUESTION,
+  not a business heuristic (a presentation constant): the band-gate may
+  surface any number; the ASK proposes at most 4 — all `most` first,
+  then `many`; <=4 survivors -> all; one ask; the client may still
+  volunteer more (never capped). Latch stores `survivors` and
+  `proposed`.
+
 ## Q3 — "Genuinely common for THIS business" (resolved)
 
 Three mechanisms, all in Python:
@@ -133,7 +149,32 @@ Three mechanisms, all in Python:
    survivors ("also <A>, <B> or <C>") — one turn, one ask, band-gated
    survivors.
 
-## Q4 — WHERE it fires (resolved: END OF OPS, confirmed, exact seam)
+## Q4 — WHERE it fires — RE-RULED 2026-08-15: MOVE TO THE PRE-CAPTURE SEAM
+
+**Nick's seam ruling (2026-08-15, after confirming run #1):** research
+established the ops flow is DESCRIBE-ALL-LINES-THEN-CAPTURE-LINE-BY-LINE
+(prompt: the restatement is a hard barrier naming every line before any
+driver; "one product at a time" after; Kestrelbrook msgs 2/3/8 and
+Cormorant 2/3/8 confirm it empirically). So a clean "all lines named,
+nothing captured" seam exists at **`intake_consult.py:16794`** — the end
+of the `restatement_confirmed_this_turn` block, where `ops_json` already
+holds the locked `business_type`, the fresh `business_naics_6` (:16774),
+and `lob_models` with every product NAMED and all five drivers null.
+All four judge GATING inputs (type, NAICS, stage, >=1 named line) are
+present there; geography + description summary are non-gating and
+empty at that point — the judge proposes on type + NAICS title + stage
++ the client's line names. RULED: MOVE the ask to :16794 so stated AND
+discovered lines flow through capture together, in order, once — no
+backtrack, no append-during-wrap. SEQUENCE: (1) F1/F2/F3 validator fix
+lands + mini audit + Cormorant re-run at the CURRENT seam (validator
+verified alone); (2) THEN the seam move as a SEPARATE neighbor-check
+turn (neighbors: business-type lock, NAICS attach,
+persist_ops_from_restatement, the first capture question) + re-run
+(seam verified alone). Never confound the two in one re-run.
+
+The original end-of-ops analysis follows for the record:
+
+### (superseded) END OF OPS, exact seam
 
 **Confirmed end-of-ops**, and the code has exactly one right seam:
 `intake_consult.py:20116-20118` — the moment `_ops_ready_for_wrap_from_gate_obj(gate_obj)`
