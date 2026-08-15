@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 6/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -2245,3 +2245,56 @@ TASK:
   Standing laws apply: TURN PLAN first, context scoped to the task,
   spot-check the fix, single-line floor every turn, declared-vs-actual in
   the RESULT.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: f6ea787 diff (git show f6ea787 --stat: 2 app files, 19+10
+    lines); _live_turnE_PRE_20260815.txt (RED 3/3 on HEAD 7473095) /
+    _live_turnE_POST_20260815.txt (GREEN, absence asserted); my own
+    re-runs on HEAD: Test Files/_redproof_turnE_receipt_saydo.py GREEN
+    (E1 receipt 'weekly capacity -> 40; monthly capacity -> 173', E2
+    declared call no tail / undeclared call still documents the pre-fix
+    tail); _prove_20260815_turnF_floor.txt R31+R32 GOLDEN, digests
+    72dfcb81/24e38de4/1d50e46a/cbd76463 identical to VS's read, 0 DRIFT.
+  SUMMARY: TURN F spot-check audit of turn E - CLEAN. (1) Diff confined
+    exactly as declared: capture_receipt._fmt cadence branch narrowed to
+    the units_per_period_capacity leaf (week twin falls to its static
+    'weekly capacity' _LABELS entry; the item-8 'capacity' fallback stays
+    on the period cell); intake_consult: converted_stated kwarg
+    (Optional, default None) + covered_vals extension in the (d) backstop
+    + two caller pass-throughs (xsec door 7091/7136, main capacity
+    reconciler 17701/17781/17853) + two locals. No legs.py, engine,
+    workbook, mover. The third _reconcile_stated_capacity_cadence site
+    (10112, guard path) does not call _reconcile_driver_correction - no
+    uncovered say-do path. (2) Artifact: POST reply carries 'weekly
+    capacity -> 40' and 'monthly capacity -> 173', NO 'monthly capacity ->
+    40', NO 'didn't end up using 40'; stored wk 40 / period 173.3333;
+    PRE on HEAD showed all three defects. (3) Tier honest: _fmt's change is
+    a leaf-name narrowing (only the week-twin path changes rendering); the
+    backstop extension is inert unless a caller passes converted_stated -
+    no shared high-fan-out behaviour changed; spot-check is the right
+    tier. (4) Floor held on my own run. (5) Redproof PRE red for the RIGHT
+    reason: E1 behavioural ('monthly capacity -> 40' rendered); E2
+    structural (kwarg) AND the undeclared call documents the pre-fix tail
+    on record. VS DECLARED-vs-ACTUAL: blast radius, verify plan, canary
+    skip, legs R31/R32 all match. ONE minor divergence, disclosed but not
+    named as one: VS's plan declared E2 as the xsec-door only
+    (intake_consult ~7960-8020) yet the fix also plumbed the MAIN capacity
+    reconciler caller (17701-17853) - the RESULT listed the wider ranges
+    honestly and the split law is unaffected (same radius, same file,
+    same fix shape), so a process note, not a finding. My
+    DECLARED-vs-ACTUAL: MATCHES - loaded exactly the plan's list, ran the
+    redproof harness + --only R31,R32, canary skipped, no app code or legs
+    touched. No new deal breakers surfaced this turn; the '40 and 40'
+    duplicate-figure yield in _message_figures stays on Nick's watch-list
+    (cosmetic-inert now that the figure is covered -> WONT-FIX unless it
+    resurfaces as a false claim).
+TASK:
+  TURN-TIMEOUT-MINUTES: 45
+  For Nick (plain English): the turn-E fixes are audited clean - the
+    reopen receipt now says "weekly capacity -> 40; monthly capacity ->
+    173" and no longer claims the 40 went unused. The deal-breaker batch
+    (A1/A2/A4, A3, E1/E2) is closed with a green table. Nothing is owed
+    to VS; the next TASK comes from your next ruling or the next Cowork
+    run. Nothing for you to edit - just say "go" with what's next.
