@@ -1,0 +1,36 @@
+Proving 8 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R19   retention-consumed               18f5ca5   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'. Honest but NOT behavioural - the capability did not exist at this commit. SETTLED ON SOURCE, not on the grep alone. At 18f5ca5 the frame DOES exist (retention_pending is written at section.py:2082 with prices + retained_used) and a consumer DOES exist - but only INLINE inside the coherence round-resolution path, keyed on a router patch 'coherence.retention_answer' (section.py:1115-1160). What is entirely absent is the link from the client's PROSE to that value: _parse_retention_answer = 0 occurrences, and apply_retention_answer = 0 (af791ec extracted the inline consumer into a callable AND added the parser AND wired it at any surface). So there is no behavioural red available: a leg aimed at the consumer would go GREEN on 18f5ca5 (the consumer worked - that was never the bug), and the bug's actual behaviour - a retention answer arriving at the done-focus surface and moving nothing - is only exercised inside post_intake_consult_handler, which the gate does not drive (its surface is _run_financials_turn_and_sync). PROMOTION PATH: if the deterministic resolve is ever lifted out of the HTTP handler into the turn chain, re-fixture to drive MSG_97 through ctx.turn with the frame stamped and assert stored utilization 0.78 -> 0.702.
+R21   reconciliation-hold-consumes     af791ec   RED         GREEN    PROVEN
+U02   fernhill-round-trip              909f66f   RED         GREEN    PROVEN
+U05   pin-escalation                   909f66f   RED         GREEN    PROVEN
+R25   goal-anchor-roadmap              539fb17   RED         GREEN    PROVEN
+R32   workbook-formula-grid            9d2c41c   SAME        GREEN    GOLDEN
+      -> 2 surface(s) identical on both commits: single_line_input=72dfcb81f6f3, workbook_formulas=cbd764631e98 (negative control - green on both sides is the pass)
+R31   single-line-unchanged            5716ba4   SAME        GREEN    GOLDEN
+      -> 3 surface(s) identical on both commits: finmo=24e38de4dc98, model_input=1d50e46ab8e6, single_line_input=72dfcb81f6f3 (negative control - green on both sides is the pass)
+R30   price-change-stamps-retention    9d2c41c   RED         GREEN    PROVEN
+------------------------------------------------------------------------------
+COUNT   5 proven BEHAVIOURALLY (red shows the bug behaving)
+        1 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        2 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        8 legs total
+
+  STRUCTURAL-ABSENCE (1) - honest, declared, NOT behavioural:
+    - R19 retention-consumed @ 18f5ca5: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+    The capability did not exist at these commits, so no behavioural
+    red was available. They guard the CURRENT build (their green side
+    is behavioural); they do not prove the broken side.
+
+  CLEAN - 5 legs go red BEHAVIOURALLY on the commit where
+  their bug was live and green on the fix; 1 are declared
+  STRUCTURAL-ABSENCE. No unearned proofs. The gate is on the real chain.

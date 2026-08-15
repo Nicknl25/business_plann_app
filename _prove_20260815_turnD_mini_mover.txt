@@ -1,0 +1,38 @@
+Proving 12 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R07   ask-then-ignore                  7b9f481   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'. Honest but NOT behavioural - the capability did not exist at this commit. _acceptance_mismatch_hold = 0 occurrences anywhere under python/ at 7b9f481 - the guard did not exist, so no behavioural red was available through it. Its green side IS behavioural. Promote to BEHAVIOURAL by driving the contradictory acceptance through the turn chain and asserting the value recorded, the way R01/I01-I06 do.
+U04   no-op-never-receipts             13fae7c   RED         GREEN    PROVEN
+R30   price-change-stamps-retention    9d2c41c   RED         GREEN    PROVEN
+R44   reply-never-acks-unlanded-ops-fi 6d38c54   RED         GREEN    PROVEN
+R45   midinterview-ops-landing-impossi 6d38c54   RED         GREEN    PROVEN
+R46   stated-cadence-never-rebased     6d38c54   RED         GREEN    PROVEN
+I01   forward-move:price               5b5ffbb   RED         GREEN    PROVEN
+I02   forward-move:payroll             c3d83a9   RED         GREEN    PROVEN
+I03   forward-move:cogs                5b5ffbb   RED         GREEN    PROVEN
+I04   forward-move:volume              5b5ffbb   RED         GREEN    PROVEN
+I05   forward-move:marketing           5b5ffbb   RED         GREEN    PROVEN
+I06   forward-move:AMBIGUOUS/garbage   5b5ffbb   RED         GREEN    PROVEN
+------------------------------------------------------------------------------
+COUNT   11 proven BEHAVIOURALLY (red shows the bug behaving)
+        1 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        12 legs total
+
+  STRUCTURAL-ABSENCE (1) - honest, declared, NOT behavioural:
+    - R07 ask-then-ignore @ 7b9f481: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'
+    The capability did not exist at these commits, so no behavioural
+    red was available. They guard the CURRENT build (their green side
+    is behavioural); they do not prove the broken side.
+
+  CLEAN - 11 legs go red BEHAVIOURALLY on the commit where
+  their bug was live and green on the fix; 1 are declared
+  STRUCTURAL-ABSENCE. No unearned proofs. The gate is on the real chain.

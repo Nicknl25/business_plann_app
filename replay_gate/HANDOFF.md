@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 4/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
@@ -2075,6 +2075,100 @@ TASK:
     On a genuinely clean table: VERDICT green - the watcher stops and
     pings Nick. Feature decisions (incl. VS's three A3 flags and the
     price-path assumption) remain his to rule on after.
+  Standing laws apply every turn: TURN PLAN first (emit, then proceed),
+  context scoped to the task, SPOT-CHECK the fix by default (neighbor-
+  check only for shared high-fan-out code; full apparatus only for
+  engine-math/golden changes), single-line floor every turn,
+  declared-vs-actual confirmed in every RESULT.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: reopen-surface:receipt-label-and-saydo-contradict-stored-capacity
+  EVIDENCE: _prove_20260815_turnD_mini_a3.txt (R31,R32 GOLDEN digests
+    72dfcb81/24e38de4/1d50e46a/cbd76463 unchanged + R19,R21,U02,U05,R25,R30
+    green, 0 DRIFT); _prove_20260815_turnD_mini_mover.txt (mover neighbors
+    R07,U04,R30,R44,R45,R46,I01-I06: 11 PROVEN + R07 struct-absence as
+    before, 0 DRIFT); Test Files/_redproof_a3_capacity_fence.py re-run on
+    HEAD ALL GREEN; _redproof_cw033_turn5_fixes.py 25/25 + _ablate.py 6/6
+    re-run on HEAD; independent PRE(2d57218 worktree)/POST(HEAD) 40-draft
+    sweep via Test Files/_neighbor_sweep_a3_capacity_wall.py; the finding's
+    artifact = _live_cw033_turn5_20260814.txt W3 t2 FULL REPLY.
+  SUMMARY: A3 (#101) CONFIRMED at NEIGHBOR-CHECK, tier call HONEST (the
+    cap lands in evaluator.basis_from_intake, shared by fence/judged/corner/
+    walk; NOT engine/money math). Diff confined to evaluator.py
+    (basis_from_intake + ops_implied_and_ceiling/capacity_growth_ceiling +
+    PRICE_PATH_Q11), controller.evaluate_current result["growth"],
+    section.py stamp plumbing + _ops_implied_and_ceiling delegation - all
+    four bases route through basis_from_intake (section 478/795/2530/2536,
+    controller 1148); flat tier passes 1.0 and wall>=1.0 so untouched.
+    PREFIX reds T1a/T1b/T2a behavioural (fence PASS $96,390 > $77,544
+    wall), T3 structural import; POSTFIX/HEAD ALL GREEN. Sweep claim
+    REPRODUCED independently: 40 drafts, 34 walls below fence, EXACTLY 3
+    fence flips (b1f4fac7/2ecc759c/3de095cb, each with eval_judged_shortfall
+    stored), 0 judged flips, 0 gap-only, anchor-hold/flat/corner identical
+    on 40/40. VS declared-vs-actual MATCHES (watcher log 11:16 plan vs
+    files touched/loaded/verify). TURN 5 (a4dc230) ARTIFACT-AUDITED: diff
+    hunks confined to the declared sites (ack builder D4+R44-latent, xsec
+    door+reconcile X2, cadence regex/reconciler D2, mover D1/D5, disclosure
+    D1/D3, turn-inner wiring, reopen handler D3-third-layer/D5); redproof
+    25/25 green on HEAD, PREFIX behavioural reds on D3/D4/X2 with D1/D2/D5
+    pre-fix reds structural (new kwargs) but each ablation red on its own
+    fix's checks (AB5 is a section-granularity crash-red, documented by VS;
+    D5's behavioural evidence is live W5); live W1-W5 artifact shows each
+    fix (rent 2400 kept, install 9/9, C3 t2 period 173.3333, rent named,
+    ask alone). Mover neighbors green. Tier honesty for turn 5: declared +
+    ran full apparatus under the then-law; the mixed bundle is already the
+    named exemplar of the split law - not re-flagged.
+    ONE NEW FINDING (triaged DEAL BREAKER, receipt clause, spot-check
+    radius): the reopen-surface W3 t2 reply contradicts itself AFTER a
+    correct leading receipt: "Recorded: capacity 40 a week (about 173.3 per
+    operating period ...). Updated: Property contract: monthly capacity ->
+    40; Property contract: monthly capacity -> 173. ... (I didn't end up
+    using 40 and 40 - if that should change the model, tell me where.)"
+    (a) capture_receipt.py:253-258 applies the cadence label to BOTH twin
+    leaves, so the units_per_week_capacity cell (40) is spoken as "monthly
+    capacity -> 40" - a false statement of what was stored; (b) the xsec
+    door's say-do tail (intake_consult.py ~8006) lists the client's stated
+    40 as unused after the cadence conversion consumed it - a false claim.
+    Stored numbers are RIGHT (period 173.3333 / wk 40); the plan is right;
+    the receipt lies twice on the guided reopen path (the C3 sequence).
+    VS's live check asserted the presence of the right sentence, not the
+    absence of a wrong one (leg-craft note). Handed to VS as TURN E below.
+    DECLARED-vs-ACTUAL (mine): MATCHES - neighbor-check as declared; loaded
+    exactly the listed artifacts/diffs/sections; canary skipped; legs run =
+    R31,R32 floor + 6 A3 gate legs + 12 mover-neighbor legs; redproofs
+    re-run; sweep reproduced with a throwaway pre-fix worktree (removed).
+    Not green: TURN E open. Feature decisions (VS's three A3 flags, the
+    price-path assumption, C1-C10) remain Nick's; 20 WONT-FIX stand.
+TASK:
+  TURN-TIMEOUT-MINUTES: 90
+  TURN E (VS, SPOT-CHECK - two receipt fixes, both copy/branch-only, no
+    shared high-fan-out code; grouped per the split law):
+    E1 capture_receipt.py cadence-aware label: units_per_week_capacity
+      must ALWAYS render "weekly capacity" (the cadence label belongs to
+      units_per_period_capacity only). DEAL BREAKER: the receipt tells the
+      client their MONTHLY capacity is 40 when it is 173 (false statement
+      of a stored number, guided reopen path). REPRO FIRST on HEAD with
+      the W3 t2 shape (Sumac clone, t1 "40 a month, not 34", t2 "Sorry -
+      mowing capacity is 40 a week." on the completed/reopen surface; the
+      backend must be restarted on HEAD, ONE :5050 listener; do NOT touch
+      a live Cowork draft) - if the tail is already gone on HEAD, close
+      E1+E2 in your RESULT with the artifact and skip the fix.
+    E2 xsec-door say-do tail (intake_consult.py ~7985-8006, covered_vals):
+      when _reconcile_stated_capacity_cadence CONVERTED the stated figure,
+      the stated (pre-conversion) figure counts as covered - "(I didn't end
+      up using 40 and 40 ...)" must not ship after "Recorded: capacity 40 a
+      week". DEAL BREAKER: a false claim of non-use of the very number that
+      landed. Broken-case-only branch (fires only on a conversion).
+    VERIFY: repro red->green on the W3 t2 shape (offline redproof on the
+    receipt builder + the say-do builder, plus ONE live reopen turn on a
+    clone as the artifact: the full reply text must carry NO "monthly
+    capacity -> 40" and NO "didn't end up using 40"; assert absence, not
+    just presence); single-line floor --only R31,R32; canary SKIP; do not
+    touch legs.py. Declare tier + declared-vs-actual per the laws.
+    Flip to mini with a TASK: TURN F (mini) spot-check E1/E2 (diff matches,
+    artifact shows the clean reply, tier honest, floor held); on a clean
+    table VERDICT green.
   Standing laws apply every turn: TURN PLAN first (emit, then proceed),
   context scoped to the task, SPOT-CHECK the fix by default (neighbor-
   check only for shared high-fan-out code; full apparatus only for
