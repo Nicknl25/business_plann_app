@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   go — re-arm the STREAM DISCOVERY BUILD task exactly as seeded at 14:17
   (it is in git history at the previous seed commit and in HANDOFF.md's
