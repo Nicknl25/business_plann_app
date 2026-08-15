@@ -109,11 +109,27 @@ ADDITION_VERBS = ("add", "expand", "consider", "start", "launch", "new")
 DISCOVERY_STAGES = ("operating", "early-stage")
 
 # THE ASK - one constant, existence-framed. GPT never writes this sentence.
+# F4 (Nick, 2026-08-15): the client is told WHY they are asked - a yes ADDS
+# A REVENUE LINE to their plan - in one clause, so they answer knowingly;
+# the template verb ("also offer") makes the noun-phrase labels read
+# naturally (closes the label-grammar WATCH item).
 STREAM_DISCOVERY_ASK_PREFIX = "Before we wrap up operations: a lot of "
 STREAM_DISCOVERY_ASK_TEMPLATE = (
   STREAM_DISCOVERY_ASK_PREFIX
-  + "{business_type_plural} also {labels}. Is any of that part of your "
-  "business today? If not, just say so and we'll move on."
+  + "{business_type_plural} also offer {labels} - is any of that part of your "
+  "business today? (If so I'll include it as a revenue line.) If not, just say "
+  "so and we'll move on."
+)
+
+# THE ONE CLARIFY (F4): when the reader cannot tell what the client meant for
+# a stream, it asks ONCE - one closed question, same constant shape, only the
+# still-open labels interpolate. The clarify answer is read the same way;
+# still-unclear after it => not confirmed, never asked again.
+STREAM_DISCOVERY_CLARIFY_PREFIX = "Just so I record it right: "
+STREAM_DISCOVERY_CLARIFY_TEMPLATE = (
+  STREAM_DISCOVERY_CLARIFY_PREFIX
+  + "is {labels} part of your business today? A yes means I'll include it as a "
+  "revenue line in your plan; if not, just say no and we'll move on."
 )
 
 # Words the emitted ask must never contain (mini's forbidden-phrase grep).
@@ -562,36 +578,101 @@ def compose_stream_discovery_ask(business_type: str, labels: List[str]) -> str:
   )
 
 
+def compose_stream_discovery_clarify(labels: List[str]) -> str:
+  labs = [str(x).strip() for x in labels if str(x or "").strip()]
+  phrase = join_labels(labs) if len(labs) <= 1 else "any of " + join_labels(labs)
+  return STREAM_DISCOVERY_CLARIFY_TEMPLATE.format(labels=phrase)
+
+
 def is_stream_discovery_ask(text: str) -> bool:
-  return STREAM_DISCOVERY_ASK_PREFIX.lower() in str(text or "").lower()
+  """True when the assistant text is the discovery window - the ask itself
+  or its ONE clarify (the reply to either is read as a discovery answer)."""
+  low = str(text or "").lower()
+  return (
+    STREAM_DISCOVERY_ASK_PREFIX.lower() in low
+    or STREAM_DISCOVERY_CLARIFY_PREFIX.lower() in low
+  )
 
 
 # ---------------------------------------------------------------------------
-# 5. Reading the answer - deterministic, per candidate: yes / no / unclear.
+# 5. Reading the answer - INTENT, per candidate, through the app's existing
+#    intent door. F4 (Nick, 2026-08-15): the token/keyword scoring that lived
+#    here read 'No, none of those. We just do the five pound wholesale bags.'
+#    as a YES for 'wholesale subscription contracts' (a word inside a decline
+#    is not a yes) - string-matching heuristics are not how this app reads a
+#    client. The reply is now routed, per proposed stream, through the SAME
+#    ACCEPT/REJECT/CLARIFY reader the ops turn already uses for a reply to a
+#    proposal (intake_consult._classify_restatement_response) - the caller
+#    hands that door in; this module holds NO keyword logic. ACCEPT => yes,
+#    REJECT => no, CLARIFY (or a door failure) => unclear => the caller asks
+#    ONE clarify; still unclear => not confirmed, never re-asked.
 # ---------------------------------------------------------------------------
 
-_NEG_RE = re.compile(
-  r"\b(no|not|nope|nah|never|none|neither|nor|without|don't|dont|doesn't|doesnt|"
-  r"didn't|didnt|isn't|isnt|aren't|arent|haven't|havent|hasn't|hasnt|can't|cant|"
-  r"won't|wont|nothing)\b|n't\b"
-)
-_AFFIRM_RE = re.compile(
-  r"\b(yes|yeah|yep|yup|sure|correct|right|absolutely|definitely|indeed|"
-  r"we do|i do|do that|do those|do both|both|all of (them|those|that)|"
-  r"all three|all of these|part of (it|our|the|my)|of course|that's right|"
-  r"we offer|we also|as well|too)\b"
-)
-_ALL_RE = re.compile(r"\b(both|all|either|each|everything|all of (them|those|that|these))\b")
-_ONLY_RE = re.compile(r"\b(just|only)\b")
-_OTHERS_RE = re.compile(r"\b(the others?|the rest|others|rest of (them|those|these)|everything else|anything else|the other ones?)\b")
+def stream_discovery_intent_frame(ask_text: str, labels: List[str], label: str) -> str:
+  """The proposition the intent door checks the reply against, for ONE
+  stream. Deterministic text: the ask, the streams it named, the stream
+  under judgment, and the reading rules (a yes adds a revenue line, so a
+  confirmation must be real; a word inside a decline is not a yes; a hedge
+  or a bare yes to a several-stream question is CLARIFY; each stream is
+  confirmed on its own words only)."""
+  labs = [str(x).strip() for x in labels if str(x or "").strip()]
+  return (
+    "CONTEXT. The app asked the client ONE question about their business as it "
+    f"exists TODAY, naming {len(labs)} possible revenue stream(s):\n\"{str(ask_text or '').strip()}\"\n"
+    f"Streams named in the question: {', '.join(labs)}.\n"
+    "A stream the client confirms becomes a revenue line in their business plan, so a "
+    "confirmation must be real: this is NOT a restatement the client is agreeing with in "
+    "general - it is a yes/no about ONE named stream.\n"
+    f"RESTATEMENT TO CHECK: \"{str(label or '').strip()}\" is part of the client's business today.\n"
+    "Rules for THIS ONE stream:\n"
+    "- ACCEPT only if the reply clearly confirms THIS stream: by name, by an unmistakable "
+    "reference to it, by confirming all of the streams (\"all of those\", \"yes to everything\"), "
+    "or - when the question named only one stream - by a plain yes.\n"
+    "- REJECT if the reply declines it: explicitly, by declining all of them (\"no\", \"none of "
+    "those\"), by naming only OTHER streams from the list as theirs, or by describing what they "
+    "do instead. A word from this stream's name appearing inside a decline is NOT a yes.\n"
+    "- CLARIFY if you cannot tell for this stream: a hedge (\"sort of\", \"sometimes\", \"maybe\", "
+    "\"kind of\"), a bare \"yes\"/\"yeah\" to a question that named several streams without saying "
+    "WHICH, a question back, or an off-topic reply. Nuance or a caveat is NOT agreement here - "
+    "when unsure, CLARIFY, never ACCEPT.\n"
+    "- Each stream stands on its own words. Being related to, similar to, or commonly bundled "
+    "with a stream the reply DID confirm is NOT confirmation of THIS one - if the reply confirms "
+    "other streams and does not name or unmistakably refer to this one, REJECT."
+  )
 
 
-def _clauses(message: str) -> List[str]:
+_DOOR_TO_ANSWER = {"ACCEPT": "yes", "REJECT": "no", "CLARIFY": "unclear"}
+
+
+def read_stream_discovery_answer(
+  message: str,
+  labels: List[str],
+  *,
+  classify: Callable[..., Optional[str]],
+  ask_text: str,
+) -> Dict[str, str]:
+  """Per-candidate INTENT reading through the app's existing intent door.
+  `classify(restatement=..., user_reply=...)` is the ACCEPT/REJECT/CLARIFY
+  reader (production: intake_consult._classify_restatement_response); it is
+  called once per proposed stream with the stream's frame. Returns
+  {label: yes|no|unclear}. No keyword, phrase or token logic lives here:
+  if the door cannot read the reply (CLARIFY, None, or an exception), the
+  answer is 'unclear' and the caller asks - it never guesses."""
+  labs = [str(x).strip() for x in labels if str(x or "").strip()]
+  out: Dict[str, str] = {lab: "unclear" for lab in labs}
   text = str(message or "").strip()
-  if not text:
-    return []
-  parts = re.split(r"[.;!?\n]+|,\s*|\b(?:but|however|although|though|and)\b", text, flags=re.I)
-  return [p.strip() for p in parts if p and p.strip()]
+  if not labs or not text:
+    return out
+  for lab in labs:
+    try:
+      verdict = classify(
+        restatement=stream_discovery_intent_frame(ask_text, labs, lab),
+        user_reply=text,
+      )
+    except Exception:
+      verdict = None
+    out[lab] = _DOOR_TO_ANSWER.get(str(verdict or "").strip().upper(), "unclear")
+  return out
 
 
 def _mention_hits(candidate_tokens: List[str], clause_tokens: set) -> int:
@@ -600,83 +681,6 @@ def _mention_hits(candidate_tokens: List[str], clause_tokens: set) -> int:
     if any(ct == mt or ct.startswith(mt) or mt.startswith(ct) for mt in clause_tokens):
       n += 1
   return n
-
-
-def read_stream_discovery_answer(message: str, labels: List[str]) -> Dict[str, str]:
-  """Deterministic per-item reading. A candidate named in a clause is YES
-  unless that clause is negated (then NO). A reply naming no candidate is
-  read whole: bare affirmative => YES for a single candidate, UNCLEAR for
-  several (we never guess WHICH); bare negative / 'neither' / 'none' =>
-  NO for all; 'both'/'all' with no negation => YES for all. 'just X' /
-  'only X' => the others are NO. Anything else => UNCLEAR (ruled: unclear
-  is NOT confirmed; never re-asked)."""
-  labs = [str(x).strip() for x in labels if str(x or "").strip()]
-  out: Dict[str, str] = {lab: "unclear" for lab in labs}
-  text = str(message or "").strip()
-  if not labs or not text:
-    return out
-  cand_tokens = {
-    lab: [t for t in _label_tokens(lab) if len(t) >= 4] or _label_tokens(lab)
-    for lab in labs
-  }
-  mentioned_any = False
-  for clause in _clauses(text):
-    ctoks = {t for t in _label_tokens(clause) if len(t) >= 3}
-    if not ctoks:
-      continue
-    scores = {lab: _mention_hits(cand_tokens[lab], ctoks) for lab in labs}
-    top = max(scores.values()) if scores else 0
-    if top <= 0:
-      continue
-    winners = [lab for lab, s in scores.items() if s == top]
-    # A clause that hits several candidates equally on a shared word
-    # ('service') names none of them uniquely - unless it hits ALL of a
-    # candidate's tokens, in which case it does name that one.
-    named = [
-      lab for lab in winners
-      if len(winners) == 1 or scores[lab] >= len(cand_tokens[lab])
-    ]
-    if not named:
-      continue
-    negated = bool(_NEG_RE.search(clause.lower()))
-    for lab in named:
-      mentioned_any = True
-      out[lab] = "no" if negated else "yes"
-  low = text.lower()
-  if not mentioned_any:
-    negated = bool(_NEG_RE.search(low))
-    affirm = bool(_AFFIRM_RE.search(low))
-    if negated and not affirm:
-      return {lab: "no" for lab in labs}
-    if negated and affirm and re.search(r"\b(no|nope|nah|neither|none|nothing)\b", low):
-      # 'no, neither of those' / 'nothing like that, no' - the negation wins.
-      return {lab: "no" for lab in labs}
-    if affirm and not negated:
-      if len(labs) == 1 or _ALL_RE.search(low):
-        return {lab: "yes" for lab in labs}
-      return out  # several candidates, no name: unclear WHICH - not confirmed
-    return out
-  # Some candidate was named. A clause about 'the others' / 'the rest'
-  # settles the unnamed ones by its own polarity ('the others no' => NO,
-  # 'and the rest too' => YES); 'just/only X' means the rest are NO; a
-  # whole-reply 'both/all' with no negation lifts the unnamed to YES.
-  for clause in _clauses(text):
-    cl = clause.lower()
-    if _OTHERS_RE.search(cl):
-      polarity = "no" if _NEG_RE.search(cl) else ("yes" if _AFFIRM_RE.search(cl) else None)
-      if polarity:
-        for lab in labs:
-          if out[lab] == "unclear":
-            out[lab] = polarity
-  if _ONLY_RE.search(low):
-    for lab in labs:
-      if out[lab] == "unclear":
-        out[lab] = "no"
-  elif _ALL_RE.search(low) and not _NEG_RE.search(low):
-    for lab in labs:
-      if out[lab] == "unclear":
-        out[lab] = "yes"
-  return out
 
 
 # ---------------------------------------------------------------------------

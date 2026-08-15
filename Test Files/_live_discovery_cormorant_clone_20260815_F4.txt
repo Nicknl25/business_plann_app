@@ -1,0 +1,141 @@
+clone sdcorm8031dce8b0aa430bb0babbfb23 of ec1e22ef rewound to messages[:19]
+
+  > [19] Adding more wholesale accounts. That's where the volume is.
+  < [200] Before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] turn 0 200: 200
+
+  LATCH: {
+ "version": 1,
+ "business_type": "Coffee Roaster",
+ "naics_6": "311920",
+ "evidence": {
+  "level": "rich",
+  "reasons": []
+ },
+ "asked": true,
+ "asked_turn_index": 19,
+ "ask_text": "Before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.",
+ "candidates": [
+  {
+   "label": "wholesale subscription contracts",
+   "commonality": "most",
+   "answer": null
+  },
+  {
+   "label": "retail coffee bags",
+   "commonality": "many",
+   "answer": null,
+   "judge_label": "12 oz retail coffee bags"
+  },
+  {
+   "label": "single-origin limited release coffees",
+   "commonality": "many",
+   "answer": null
+  },
+  {
+   "label": "direct-to-consumer coffee subscriptions",
+   "commonality": "many",
+   "answer": null
+  }
+ ],
+ "proposed": [
+  "wholesale subscription contracts",
+  "retail coffee bags",
+  "single-origin limited release coffees",
+  "direct-to-consumer coffee subscriptions"
+ ],
+ "survivors": [
+  {
+   "label": "retail coffee bags",
+   "commonality": "many"
+  },
+  {
+   "label": "single-origin limited release coffees",
+   "commonality": "many"
+  },
+  {
+   "label": "wholesale subscription contracts",
+   "commonality": "most"
+  },
+  {
+   "label": "direct-to-consumer coffee subscriptions",
+   "commonality": "many"
+  },
+  {
+   "label": "private label roasting for other brands",
+   "commonality": "many"
+  },
+  {
+   "label": "office coffee supply accounts",
+   "commonality": "many"
+  },
+  {
+   "label": "coffee equipment sales to wholesale accounts",
+   "commonality": "many"
+  },
+  {
+   "label": "branded merchandise",
+   "commonality": "many"
+  },
+  {
+   "label": "brewing gear and accessories",
+   "commonality": "many"
+  },
+  {
+   "label": "gift boxes and sampler sets",
+   "commonality": "many"
+  }
+ ],
+ "proposal_cap": 4,
+ "dropped": [
+  {
+   "label": "retail coffee bags",
+   "reason": "duplicate_label"
+  },
+  {
+   "label": "green coffee resales to other roasters",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "cold brew coffee concentrate",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "kegged cold brew for caf\u00e9s and offices",
+   "reason": "label_not_a_short_phrase"
+  },
+  {
+   "label": "coffee equipment service packages",
+   "reason": "commonality_some"
+  },
+  {
+   "label": "wholesale training and consulting fees",
+   "reason": "commonality_some"
+  }
+ ]
+}
+  [PASS] discovery ASKED live on the Cormorant clone (asked:true): {"version": 1, "business_type": "Coffee Roaster", "naics_6": "311920", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 19, "ask_text": "Before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-orig
+  [PASS] the ask rendered (template prefix present)
+
+  ASK VERBATIM:
+  Before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] ask is existence-framed
+  [PASS] forbidden phrases absent: before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions
+  [PASS] ask carries no digit (size stripped)
+  proposed: ['wholesale subscription contracts', 'retail coffee bags', 'single-origin limited release coffees', 'direct-to-consumer coffee subscriptions']
+  survivors: ['retail coffee bags', 'single-origin limited release coffees', 'wholesale subscription contracts', 'direct-to-consumer coffee subscriptions', 'private label roasting for other brands', 'office coffee supply accounts', 'coffee equipment sales to wholesale accounts', 'branded merchandise', 'brewing gear and accessories', 'gift boxes and sampler sets']
+  dropped: {"retail coffee bags": "duplicate_label", "green coffee resales to other roasters": "commonality_some", "cold brew coffee concentrate": "commonality_some", "kegged cold brew for caf\u00e9s and offices": "label_not_a_short_phrase", "coffee equipment service packages": "commonality_some", "wholesale training and consulting fees": "commonality_some"}
+  [PASS] proposed <= 4: 4
+  [PASS] proposed is a prefix-slice of survivors ordered most-first: [{"label": "retail coffee bags", "commonality": "many"}, {"label": "single-origin limited release coffees", "commonality": "many"}, {"label": "wholesale subscription contracts", "commonality": "most"}, {"label": "direct-to-consumer coffee subscriptions", "commonality": "many"}, {"label": "private label roasting for other brands", "commonality": "many"}, {"label": "office coffee supply accounts", "commonality": "many"}, {"label": "coffee equipment sales to wholesale accounts", "commonality": "many"}, {"label": "branded merchandise", "commonality": "many"}, {"label": "brewing gear and accessories", "commonality": "many"}, {"label": "gift boxes and sampler sets", "commonality": "many"}]
+  [PASS] no proposed label carries a digit: ["wholesale subscription contracts", "retail coffee bags", "single-origin limited release coffees", "direct-to-consumer coffee subscriptions"]
+  [PASS] no proposed label is a bare category-noun duplicate of the primary (wholesale/online stay deduped if judged): ["wholesale subscription contracts", "retail coffee bags", "single-origin limited release coffees", "direct-to-consumer coffee subscriptions"]
+
+  > No, none of those...
+  < [200] Understood - none of those, we'll move on.
+
+Here's my working read of your competitive advantage: This business seems to compete by being deliberately narrow and operationally simple—only 5 lb wholesale bags, no retail formats, no subscriptions or side offerings—which lets the owner and small in‑house team run roasting, packing, and twice‑weekly routes in a tight, repeatable rhythm. That deliberate focus likely lowers complexity and error risk for busy cafés and restaurants (fewer SKUs, predicta
+  answers: {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+  [PASS] answer path: every proposed label answered no: {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+  [PASS] no origin rows written on a no
+
+GREEN: live Cormorant discovery clone passed

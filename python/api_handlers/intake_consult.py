@@ -11753,6 +11753,7 @@ def _stream_discovery_ask_if_due(
     **base,
     "asked": True,
     "asked_turn_index": int(turn_index),
+    "ask_text": ask,
     "candidates": candidates,
     "proposed": [c["label"] for c in candidates],
     "survivors": [
@@ -11774,19 +11775,25 @@ def _apply_stream_discovery_answer(
   ops_json: Dict[str, Any],
   message: str,
   last_assistant: str,
-) -> Tuple[Dict[str, Any], str, str]:
-  """The turn after the ask. Reads the client's reply per candidate
-  (yes / no / unclear, deterministic), stores every answer on the latch
-  (nothing is ever re-asked), and for each YES appends the product row
-  itself - the receipt describes exactly that write. Returns
-  (ops_json, receipt_text, controller_note_for_the_consultant)."""
+  classify=None,
+) -> Tuple[Dict[str, Any], str, str, str]:
+  """The turn after the ask (and, at most once, the turn after its
+  clarify). F4 (Nick, 2026-08-15): the reply is read per candidate by
+  INTENT through the app's existing ACCEPT/REJECT/CLARIFY door
+  (`_classify_restatement_response`, the same reader this ops turn uses
+  for a reply to a proposal) - never by keyword. yes => Python appends the
+  product row itself and the receipt describes exactly that write; no =>
+  stored, never re-asked; unclear => ONE clarify (returned as the 4th
+  element; the caller renders it and holds the turn), whose answer is
+  read the same way; still unclear => not confirmed, no further ask.
+  Returns (ops_json, receipt_text, controller_note, clarify_question)."""
   latch = ops_json.get("stream_discovery") if isinstance(ops_json, dict) else None
   if not isinstance(latch, dict) or not latch.get("asked"):
-    return ops_json, "", ""
+    return ops_json, "", "", ""
   cands = [c for c in (latch.get("candidates") or []) if isinstance(c, dict)]
   pending = [c for c in cands if c.get("answer") is None]
   if not pending:
-    return ops_json, "", ""
+    return ops_json, "", "", ""
   labels = [str(c.get("label") or "").strip() for c in pending]
   if not _sdisc.is_stream_discovery_ask(last_assistant):
     # The ask was not the last thing said (an unexpected path) - the
@@ -11794,18 +11801,46 @@ def _apply_stream_discovery_answer(
     for c in pending:
       c["answer"] = "unclear"
       c["answer_reason"] = "ask_not_last_assistant"
-    return ops_json, "", ""
-  answers = _sdisc.read_stream_discovery_answer(message, labels)
+    return ops_json, "", "", ""
+  door = classify if classify is not None else _classify_restatement_response
+  ask_text = str(latch.get("ask_text") or "").strip() or _sdisc.compose_stream_discovery_ask(
+    str(ops_json.get("business_type") or ""), [str(c.get("label") or "") for c in cands],
+  )
+  clarify_round = bool(latch.get("clarify_asked"))
+  answers = _sdisc.read_stream_discovery_answer(
+    message, labels, classify=door, ask_text=ask_text,
+  )
+  clarify_labels: List[str] = []
   for c in pending:
-    c["answer"] = answers.get(str(c.get("label") or "").strip(), "unclear")
-    c["answered_from"] = str(message or "")[:300]
+    lab = str(c.get("label") or "").strip()
+    a = answers.get(lab, "unclear")
+    if a == "unclear" and not clarify_round:
+      # ONE clarify: hold this candidate open for exactly one more reply.
+      c["first_read"] = "unclear"
+      c["first_answered_from"] = str(message or "")[:300]
+      clarify_labels.append(lab)
+      continue
+    c["answer"] = a
+    if clarify_round:
+      c["clarify_answered_from"] = str(message or "")[:300]
+      if a == "unclear":
+        c["answer_reason"] = "unclear_after_clarify"
+    else:
+      c["answered_from"] = str(message or "")[:300]
   yes_labels = [c["label"] for c in pending if c.get("answer") == "yes"]
   no_labels = [c["label"] for c in pending if c.get("answer") == "no"]
   unclear_labels = [c["label"] for c in pending if c.get("answer") == "unclear"]
+  clarify_question = ""
+  if clarify_labels:
+    latch["clarify_asked"] = True
+    latch["clarify_labels"] = list(clarify_labels)
+    clarify_question = _sdisc.compose_stream_discovery_clarify(clarify_labels)
   receipts: List[str] = []
   if yes_labels:
     ops_json, receipts = _sdisc.append_confirmed_stream_rows(ops_json, yes_labels)
-  if not yes_labels and not no_labels:
+  if clarify_labels:
+    pass  # the clarify is the turn's question; no closing receipt yet
+  elif not yes_labels and not no_labels:
     receipts.append(
       "On the extra lines I mentioned - I'll take that as none of them for now; "
       "if one is part of your business, tell me its name any time and we'll add it."
@@ -11830,9 +11865,11 @@ def _apply_stream_discovery_answer(
       "NOT CONFIRMED (treat as absent, do not re-ask): " + ", ".join(unclear_labels) + "."
     )
   logger.info(
-    "STREAM_DISCOVERY answered yes=%s no=%s unclear=%s", yes_labels, no_labels, unclear_labels,
+    "STREAM_DISCOVERY answered yes=%s no=%s unclear=%s clarify=%s round=%s",
+    yes_labels, no_labels, unclear_labels, clarify_labels,
+    "clarify" if clarify_round else "ask",
   )
-  return ops_json, "\n".join(receipts).strip(), " ".join(note_parts)
+  return ops_json, "\n".join(receipts).strip(), " ".join(note_parts), clarify_question
 
 
 def _is_guardrail_acknowledgement(message: str) -> bool:
@@ -16815,17 +16852,18 @@ def post_intake_consult_handler(*, app, request):
     discovery_intent_override: Optional[Dict[str, Any]] = None
     _discovery_ack = ""
     _discovery_note = ""
+    _discovery_clarify = ""
     if (
       str(focus).strip().lower() == "ops"
       and _sdisc.stream_discovery_pending(ops_json)
     ):
       try:
-        ops_json, _discovery_ack, _discovery_note = _apply_stream_discovery_answer(
+        ops_json, _discovery_ack, _discovery_note, _discovery_clarify = _apply_stream_discovery_answer(
           ops_json=ops_json, message=str(message or ""), last_assistant=last_assistant,
         )
       except Exception:
         logger.exception("STREAM_DISCOVERY_ANSWER_FAILED")
-        _discovery_ack, _discovery_note = "", ""
+        _discovery_ack, _discovery_note, _discovery_clarify = "", "", ""
       try:
         shared_context["operating_model"] = ops_json
       except Exception:
@@ -16841,6 +16879,31 @@ def post_intake_consult_handler(*, app, request):
         )
       except Exception:
         logger.exception("STREAM_DISCOVERY_PERSIST_FAILED")
+      if _discovery_clarify:
+        # F4: the reader could not tell for some stream(s) - ask ONCE and
+        # hold the turn (the clarify IS this turn's one question; any rows
+        # already confirmed lead it as the receipt). The clarify reply is
+        # read the same way next turn; still unclear => not confirmed.
+        assistant_text = f"{_discovery_ack}\n\n{_discovery_clarify}".strip()
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          operating_model_json=ops_json,
+          active_focus=focus,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "confirm_clarify",
+            "assistant_message": assistant_text,
+          }
+        )
       discovery_intent_override = {"action": "continue_chat", "router_msg": "", "patch": None}
     pending_competitive_advantage = _extract_competitive_advantage_prompt(last_assistant)
     competitive_intent_override: Optional[Dict[str, Any]] = None

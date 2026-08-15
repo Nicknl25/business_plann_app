@@ -1,0 +1,61 @@
+=== 1. the template (F4 part 2): why they are asked, template verb ===
+   ASK: Before we wrap up operations: a lot of coffee roasters also wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions. Is any of that part of your business today? If not, just say so and we'll move on.
+[FAIL] ask carries the revenue-line clause  -- Before we wrap up operations: a lot of coffee roasters also wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions. Is any of that part of your business today? If not, just say so and we'll move on.
+[FAIL] ask uses the template verb 'also offer' (labels read naturally)  -- Before we wrap up operations: a lot of coffee roasters also wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions. Is any of that part of your business today? If not, just say so and we'll move on.
+[PASS] ask is one question
+[PASS] forbidden-phrase grep clean
+[PASS] ask == the ONE template constant
+   CLARIFY: 
+[FAIL] clarify exists, one question, says revenue line, forbidden grep clean
+=== 2. the reader has NO keyword logic ===
+[FAIL] no _NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses in the module
+[FAIL] reader routes through an intent frame (stream_discovery_intent_frame present)
+[FAIL] production caller hands the app's existing door (_classify_restatement_response) to the reader
+=== 3. the six replies (stubbed door) ===
+   (PRE build: old keyword reader, no intent door)
+   'No, none of those. We just do the five pound wholesale bags.' -> {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[FAIL] reader: 'No, none of those. We just do the five pound wholesale bags.'  -- {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+   (PRE build: old keyword reader, no intent door)
+   'No. Retail bags no, subscriptions no. Just wholesale to cafes.' -> {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[FAIL] reader: 'No. Retail bags no, subscriptions no. Just wholesale to cafes.'  -- {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+   (PRE build: old keyword reader, no intent door)
+   'yeah we do the retail bags' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "yes", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+[FAIL] reader: 'yeah we do the retail bags'  -- {"wholesale subscription contracts": "unclear", "retail coffee bags": "yes", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+   (PRE build: old keyword reader, no intent door)
+   'no retail bags, but yes direct to consumer subscriptions' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "no", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "yes"}
+[FAIL] reader: 'no retail bags, but yes direct to consumer subscriptions'  -- {"wholesale subscription contracts": "unclear", "retail coffee bags": "no", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "yes"}
+   (PRE build: old keyword reader, no intent door)
+   'sort of, sometimes' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "unclear", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+[PASS] reader: 'sort of, sometimes'
+   (PRE build: old keyword reader, no intent door)
+   'yes' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "unclear", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+[PASS] reader: 'yes'
+   (PRE build: old keyword reader, no intent door)
+   'yeah we have a small cafe' -> {"retail coffee bags": "unclear", "a cafe": "yes", "coffee subscriptions": "unclear"}
+[FAIL] reader (cafe set): 'yeah we have a small cafe'  -- {"retail coffee bags": "unclear", "a cafe": "yes", "coffee subscriptions": "unclear"}
+   (PRE build: old keyword reader, no intent door)
+   "no, we don't do a cafe" -> {"retail coffee bags": "unclear", "a cafe": "no", "coffee subscriptions": "unclear"}
+[FAIL] reader (cafe set): "no, we don't do a cafe"  -- {"retail coffee bags": "unclear", "a cafe": "no", "coffee subscriptions": "unclear"}
+   (PRE build: old keyword reader, no intent door)
+   'no retail bags, but yes subscriptions' -> {"retail coffee bags": "no", "a cafe": "unclear", "coffee subscriptions": "yes"}
+[FAIL] reader (cafe set): 'no retail bags, but yes subscriptions'  -- {"retail coffee bags": "no", "a cafe": "unclear", "coffee subscriptions": "yes"}
+=== 4. the answer path end-to-end (Cormorant shape, stubbed door) ===
+   answers: {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+   receipt: Noted - wholesale subscription contracts is its own line under Wholesale; a few quick numbers for it next.
+[FAIL] BUG PATH: every proposed label answered no  -- {"wholesale subscription contracts": "yes", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[FAIL] BUG PATH: no origin rows written on a no
+[FAIL] BUG PATH: receipt does not claim any line is its own line  -- Noted - wholesale subscription contracts is its own line under Wholesale; a few quick numbers for it next.
+[PASS] BUG PATH: no clarify
+[PASS] affirmative: exactly one row appended, named for the label
+[PASS] affirmative: receipt names the line (words == state)
+[PASS] affirmative: no clarify
+[PASS] mixed: only the confirmed stream appended
+   clarify: 
+[FAIL] hedge: ONE clarify rendered
+[FAIL] hedge: nothing appended, no receipt
+[FAIL] hedge: still pending for the clarify reply
+[PASS] second unclear: NO further clarify
+[PASS] second unclear: not confirmed, nothing appended, not pending
+[FAIL] second unclear: honest receipt, no question
+
+RED: 20 failing: ['ask carries the revenue-line clause', "ask uses the template verb 'also offer' (labels read naturally)", 'clarify exists, one question, says revenue line, forbidden grep clean', 'no _NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses in the module', 'reader routes through an intent frame (stream_discovery_intent_frame present)', "production caller hands the app's existing door (_classify_restatement_response) to the reader", "reader: 'No, none of those. We just do the five pound wholesale bags.'", "reader: 'No. Retail bags no, subscriptions no. Just wholesale to cafes.'", "reader: 'yeah we do the retail bags'", "reader: 'no retail bags, but yes direct to consumer subscriptions'", "reader (cafe set): 'yeah we have a small cafe'", 'reader (cafe set): "no, we don\'t do a cafe"', "reader (cafe set): 'no retail bags, but yes subscriptions'", 'BUG PATH: every proposed label answered no', 'BUG PATH: no origin rows written on a no', 'BUG PATH: receipt does not claim any line is its own line', 'hedge: ONE clarify rendered', 'hedge: nothing appended, no receipt', 'hedge: still pending for the clarify reply', 'second unclear: honest receipt, no question']

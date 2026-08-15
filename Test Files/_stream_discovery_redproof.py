@@ -67,6 +67,34 @@ def garden_centre_ops():
   }
 
 
+# F4: the reader routes every reply through the app's existing intent door
+# (intake_consult._classify_restatement_response). Offline that door is
+# stubbed with a per-(label, reply) table - the plumbing is proven here, the
+# real door is proven live in _stream_discovery_f4_redproof.py --live.
+DOOR_TABLE = {}
+DOOR_CALLS = []
+
+
+def stub_door(*, restatement, user_reply):
+  DOOR_CALLS.append((restatement, user_reply))
+  m = re.search(r'RESTATEMENT TO CHECK: "([^"]+)" is part of', restatement)
+  label = m.group(1) if m else None
+  return (DOOR_TABLE.get(user_reply) or {}).get(label)
+
+
+def door_answers(reply, mapping):
+  """mapping: {label: yes|no|unclear|None|error}."""
+  DOOR_TABLE[reply] = {}
+  for lab, a in mapping.items():
+    DOOR_TABLE[reply][lab] = {"yes": "ACCEPT", "no": "REJECT", "unclear": "CLARIFY"}.get(a, a)
+
+
+def apply_answer(ops_json, message, last_assistant):
+  return ic._apply_stream_discovery_answer(
+    ops_json=ops_json, message=message, last_assistant=last_assistant, classify=stub_door,
+  )
+
+
 def fake_http_factory(candidates):
   class _Resp:
     status_code = 200
@@ -165,6 +193,7 @@ check("rich => ask fires", bool(ask))
 check("exactly ONE judge call", _JUDGE_CALLS["n"] == 1)
 check("ask == template with band-gated survivors", ask == sd.compose_stream_discovery_ask("Garden centre", ["delivery service", "garden design"]))
 check("ask is existence-framed", "part of your business today" in ask)
+check("F4 ask tells the client why (revenue line clause) + uses the template verb", "revenue line" in ask and "also offer" in ask, ask)
 low = ask.lower()
 check("forbidden-phrase grep finds nothing", not any(p in low for p in sd.FORBIDDEN_ASK_PHRASES), low)
 check("ask has exactly one question mark", ask.count("?") == 1)
@@ -199,30 +228,32 @@ check("pluralize bicycle shop", sd.pluralize_business_type("Bicycle shop") == "b
 check("pluralize law practice", sd.pluralize_business_type("Law practice") == "law practices")
 
 # --------------------------------------------------------------------------
-# 4. THE READER: yes/no/unclear per candidate, deterministic.
+# 4. THE READER (F4): per-candidate INTENT through the existing door - no
+#    keyword/phrase/token logic in the module; the door's verdict maps
+#    ACCEPT/REJECT/CLARIFY -> yes/no/unclear; a door failure is unclear.
 # --------------------------------------------------------------------------
 L = ["delivery service", "garden design"]
-cases = [
-  ("yes to design, no to delivery", {"delivery service": "no", "garden design": "yes"}),
-  ("we do design but not deliveries", {"delivery service": "no", "garden design": "yes"}),
-  ("no, neither of those", {"delivery service": "no", "garden design": "no"}),
-  ("nope", {"delivery service": "no", "garden design": "no"}),
-  ("no", {"delivery service": "no", "garden design": "no"}),
-  ("yes both", {"delivery service": "yes", "garden design": "yes"}),
-  ("yes we do all of that", {"delivery service": "yes", "garden design": "yes"}),
-  ("just the design work", {"delivery service": "no", "garden design": "yes"}),
-  ("we do garden design", {"delivery service": "unclear", "garden design": "yes"}),
-  ("yes", {"delivery service": "unclear", "garden design": "unclear"}),   # several candidates, no name: never guess WHICH
-  ("what do you mean by that", {"delivery service": "unclear", "garden design": "unclear"}),
-  ("we don't do delivery", {"delivery service": "no", "garden design": "unclear"}),
-  ("Yes, garden design is part of it. The others no.", {"delivery service": "no", "garden design": "yes"}),
-  ("garden design yes, and the rest too", {"delivery service": "yes", "garden design": "yes"}),
-]
-for msg, want in cases:
-  got = sd.read_stream_discovery_answer(msg, L)
-  check(f"reader: {msg!r}", got == want, json.dumps(got))
-check("reader single candidate bare yes => yes", sd.read_stream_discovery_answer("yes", ["delivery service"]) == {"delivery service": "yes"})
-check("reader single candidate bare no => no", sd.read_stream_discovery_answer("no we don't", ["delivery service"]) == {"delivery service": "no"})
+ASK_L = sd.compose_stream_discovery_ask("Garden centre", L)
+door_answers("yes to design, no to delivery", {"delivery service": "no", "garden design": "yes"})
+door_answers("no, neither of those", {"delivery service": "no", "garden design": "no"})
+door_answers("hmm maybe, depends", {"delivery service": "unclear", "garden design": "unclear"})
+door_answers("what do you mean by that", {"delivery service": None, "garden design": None})
+DOOR_CALLS.clear()
+got = sd.read_stream_discovery_answer("yes to design, no to delivery", L, classify=stub_door, ask_text=ASK_L)
+check("reader: mixed reply -> per-candidate verdicts from the door", got == {"delivery service": "no", "garden design": "yes"}, json.dumps(got))
+check("reader: exactly one door call per candidate", len(DOOR_CALLS) == 2 and [c[1] for c in DOOR_CALLS] == ["yes to design, no to delivery"] * 2)
+check("reader: each frame carries the ask text + the one label under judgment",
+      all(ASK_L in c[0] for c in DOOR_CALLS) and 'RESTATEMENT TO CHECK: "delivery service"' in DOOR_CALLS[0][0] and 'RESTATEMENT TO CHECK: "garden design"' in DOOR_CALLS[1][0])
+check("reader: frame says a yes adds a revenue line", all("revenue line" in c[0] for c in DOOR_CALLS))
+check("reader: all-no reply -> no for all", sd.read_stream_discovery_answer("no, neither of those", L, classify=stub_door, ask_text=ASK_L) == {"delivery service": "no", "garden design": "no"})
+check("reader: CLARIFY -> unclear", sd.read_stream_discovery_answer("hmm maybe, depends", L, classify=stub_door, ask_text=ASK_L) == {"delivery service": "unclear", "garden design": "unclear"})
+check("reader: door returns None -> unclear (never guesses)", sd.read_stream_discovery_answer("what do you mean by that", L, classify=stub_door, ask_text=ASK_L) == {"delivery service": "unclear", "garden design": "unclear"})
+def _boom(**kw):
+  raise RuntimeError("door down")
+check("reader: door raises -> unclear (never guesses)", sd.read_stream_discovery_answer("yes", L, classify=_boom, ask_text=ASK_L) == {"delivery service": "unclear", "garden design": "unclear"})
+check("reader: empty reply -> unclear, door not called", sd.read_stream_discovery_answer("", L, classify=_boom, ask_text=ASK_L) == {"delivery service": "unclear", "garden design": "unclear"})
+reader_src = src[src.index("def stream_discovery_intent_frame"):src.index("def _mention_hits")]
+check("reader: ZERO keyword/regex logic (no re., no word lists) in the reader", "re." not in reader_src and "_NEG_RE" not in src and "_AFFIRM_RE" not in src and "_clauses" not in src, reader_src[:200])
 
 # --------------------------------------------------------------------------
 # 5. LANDING: yes appends a null-driver row with origin; receipt == write;
@@ -234,8 +265,9 @@ _JUDGE_CANDS["value"] = [
   {"label": "garden design", "commonality": "many"},
 ]
 ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
-o_after, ack, note = ic._apply_stream_discovery_answer(ops_json=o, message="yes to design, no to delivery", last_assistant=ask)
+o_after, ack, note, clar = apply_answer(o, "yes to design, no to delivery", ask)
 print("   RECEIPT:", ack)
+check("mixed reply: no clarify (every candidate read)", clar == "")
 rows = [(lob["lob_name"], p) for lob in o_after["lob_models"] for p in lob["products"]]
 disc_rows = [(ln, p) for ln, p in rows if p.get("origin") == "discovery_confirmed"]
 check("yes => exactly one appended row", len(disc_rows) == 1, json.dumps(disc_rows))
@@ -250,26 +282,58 @@ check("no longer pending (never re-asked)", not sd.stream_discovery_pending(o_af
 check("second ask_if_due after answers is silent", ic._stream_discovery_ask_if_due(conn=None, ops_json=o_after, turn_index=50, stage_hint=None) is None)
 check("note names confirmed + declined for the consultant", "garden design" in note and "DECLINED" in note and "delivery service" in note, note)
 # a second reply never re-lands / re-asks
-o_again, ack2, note2 = ic._apply_stream_discovery_answer(ops_json=o_after, message="yes delivery too", last_assistant=ask)
+o_again, ack2, note2, _ = apply_answer(o_after, "yes delivery too", ask)
 check("post-answer reply => no second landing, no ack", ack2 == "" and note2 == "" and {c["label"]: c["answer"] for c in o_again["stream_discovery"]["candidates"]} == answers)
 
 # no => stored, nothing appended
 o = garden_centre_ops()
 ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
 n_before = sum(len(l["products"]) for l in o["lob_models"])
-o_after, ack, note = ic._apply_stream_discovery_answer(ops_json=o, message="no, neither", last_assistant=ask)
+door_answers("no, neither", {"delivery service": "no", "garden design": "no"})
+o_after, ack, note, clar = apply_answer(o, "no, neither", ask)
+check("no => no clarify", clar == "")
 check("no => nothing appended", sum(len(l["products"]) for l in o_after["lob_models"]) == n_before)
 check("no => stored no for all", all(c["answer"] == "no" for c in o_after["stream_discovery"]["candidates"]))
 check("no => honest move-on receipt", "move on" in ack, ack)
 
-# unclear => NOT confirmed, stored unclear, nothing appended, honest receipt
+# unclear => ONE clarify (F4), read the same way; still unclear => NOT
+# confirmed, stored unclear, nothing appended, honest receipt, no re-ask
 o = garden_centre_ops()
 ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
-o_after, ack, note = ic._apply_stream_discovery_answer(ops_json=o, message="hmm maybe, depends", last_assistant=ask)
+o_after, ack, note, clar = apply_answer(o, "hmm maybe, depends", ask)
+check("unclear => ONE clarify rendered (the template constant, both labels)", clar == sd.compose_stream_discovery_clarify(L), clar)
+check("unclear => clarify has one question mark, says revenue line", clar.count("?") == 1 and "revenue line" in clar)
 check("unclear => nothing appended", sum(len(l["products"]) for l in o_after["lob_models"]) == n_before)
-check("unclear => stored unclear", all(c["answer"] == "unclear" for c in o_after["stream_discovery"]["candidates"]))
-check("unclear => honest receipt offers the door, no re-ask", "tell me its name" in ack and "?" not in ack, ack)
-check("unclear => not pending", not sd.stream_discovery_pending(o_after))
+check("unclear => no receipt claims anything", ack == "", ack)
+check("unclear => candidates STILL pending (held for the clarify reply)", sd.stream_discovery_pending(o_after))
+check("unclear => latch marks clarify_asked + first_read", o_after["stream_discovery"].get("clarify_asked") is True and all(c.get("first_read") == "unclear" and c["answer"] is None for c in o_after["stream_discovery"]["candidates"]))
+check("clarify IS the discovery window", sd.is_stream_discovery_ask(clar))
+# second unclear => not confirmed, no further ask
+door_answers("still not sure", {"delivery service": "unclear", "garden design": "unclear"})
+o_after2, ack2, note2, clar2 = apply_answer(o_after, "still not sure", clar)
+check("second unclear => NO further clarify", clar2 == "", clar2)
+check("second unclear => nothing appended", sum(len(l["products"]) for l in o_after2["lob_models"]) == n_before)
+check("second unclear => stored unclear w/ reason", all(c["answer"] == "unclear" and c.get("answer_reason") == "unclear_after_clarify" for c in o_after2["stream_discovery"]["candidates"]))
+check("second unclear => honest receipt offers the door, no re-ask", "tell me its name" in ack2 and "?" not in ack2, ack2)
+check("second unclear => not pending", not sd.stream_discovery_pending(o_after2))
+check("second unclear => note says NOT CONFIRMED", "NOT CONFIRMED" in note2)
+# clarify answered YES for one => appended, the other no
+o = garden_centre_ops()
+ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
+o_after, ack, note, clar = apply_answer(o, "hmm maybe, depends", ask)
+door_answers("oh - the design yes, deliveries no", {"delivery service": "no", "garden design": "yes"})
+o_after2, ack2, note2, clar2 = apply_answer(o_after, "oh - the design yes, deliveries no", clar)
+disc2 = [p for l in o_after2["lob_models"] for p in l["products"] if p.get("origin") == "discovery_confirmed"]
+check("clarify reply yes => appended exactly one row + receipt", len(disc2) == 1 and disc2[0]["product_name"] == "garden design" and "garden design" in ack2 and clar2 == "")
+check("clarify reply => answers stored, not pending", {c["label"]: c["answer"] for c in o_after2["stream_discovery"]["candidates"]} == {"delivery service": "no", "garden design": "yes"} and not sd.stream_discovery_pending(o_after2))
+# mixed first reply where ONE is unclear: the yes lands NOW, the clarify asks only the open one
+o = garden_centre_ops()
+ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
+door_answers("design yes... delivery, sort of", {"delivery service": "unclear", "garden design": "yes"})
+o_after, ack, note, clar = apply_answer(o, "design yes... delivery, sort of", ask)
+disc = [p for l in o_after["lob_models"] for p in l["products"] if p.get("origin") == "discovery_confirmed"]
+check("partial: the yes appended now, receipt names it", len(disc) == 1 and disc[0]["product_name"] == "garden design" and "garden design" in ack)
+check("partial: clarify names ONLY the open label", clar == sd.compose_stream_discovery_clarify(["delivery service"]), clar)
 
 # --------------------------------------------------------------------------
 # 6. FINALIZE CARRY (neighbor): a wholesale replacement (finalize / model
@@ -278,7 +342,7 @@ check("unclear => not pending", not sd.stream_discovery_pending(o_after))
 # --------------------------------------------------------------------------
 o = garden_centre_ops()
 ask = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=41, stage_hint=None)
-o, _, _ = ic._apply_stream_discovery_answer(ops_json=o, message="yes to design, no to delivery", last_assistant=ask)
+o, _, _, _ = apply_answer(o, "yes to design, no to delivery", ask)
 # the client then gave its numbers (as the cascade captures them)
 for lob in o["lob_models"]:
   for p in lob["products"]:

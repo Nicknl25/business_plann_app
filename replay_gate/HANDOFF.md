@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   DISCOVERY F4 — Nick's ruling: DEAL BREAKER, fix it — but NOT with the
@@ -67,9 +67,14 @@ TASK:
   Cormorant to verify the validator fix + reader live at the CURRENT
   seam (the seam move is a later, separate turn).
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: (superseded — new instruction seeded)
-  SUMMARY: The previous turn's RESULT was superseded by a new
-  instruction; it remains in git history.
+  EVIDENCE: Test Files/_stream_discovery_f4_redproof.py (+ _20260815_PRE.txt RED 20 right-reason / _POST_offline.txt GREEN / _POST_live.txt GREEN with the REAL door); Test Files/_live_discovery_cormorant_clone_20260815_F4.txt GREEN (both prior FAILs); Test Files/_gate_only_R31_R32_20260815_F4.txt 2/2; docs/STREAM_DISCOVERY_SPEC.md Q2+Q5
+  SUMMARY: F4 shipped, SPOT-CHECK, declared == actual (one honest widening: the caller's discovery answer block in intake_consult.py changed too - it must render the ONE clarify and hold the turn, and it hands the door in; declared in the plan's BLAST-RADIUS line).
+    (1) THE DOOR = intake_consult._classify_restatement_response (the app's existing ACCEPT/REJECT/CLARIFY intent reader, already used by this same ops turn for the reply to the business-type restatement). read_stream_discovery_answer now calls it ONCE PER PROPOSED STREAM with a deterministic frame (gpt_stream_discovery.stream_discovery_intent_frame: the ask, the streams named, the ONE stream under judgment, the reading rules incl. a-word-inside-a-decline-is-not-a-yes, hedge/bare-yes-to-several => CLARIFY, each stream on its own words). ACCEPT=>yes REJECT=>no CLARIFY/None/exception=>unclear. ALL token/keyword/regex scoring deleted from the reader (_NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses gone; grep is in the red-proof). unclear => ONE clarify (new template constant STREAM_DISCOVERY_CLARIFY_TEMPLATE, rendered by the caller as confirm_clarify, turn held; yes-items on the same reply land NOW and lead it); clarify reply read the same way; still unclear => not confirmed, answer_reason unclear_after_clarify, never asked again. is_stream_discovery_ask recognizes the clarify as the window; the latch stores ask_text.
+    (2) TEMPLATE: '...a lot of <type>s also offer <A>, <B> or <C> - is any of that part of your business today? (If so I will include it as a revenue line.) If not, just say so and we will move on.' - one constant, labels only interpolate, forbidden-phrase grep clean, one question mark.
+    PROOF: PRE (old build via stash) RED for the RIGHT reason - phantom yes on the wholesale decline + receipt 'wholesale subscription contracts is its own line'. POST offline GREEN (stubbed door, plumbing). POST LIVE GREEN with the REAL door on nine replies: the two Cormorant declines => all no; 'yeah we do the retail bags' => only that yes; mixed => only the named stream; 'sort of, sometimes' and bare 'yes' (4 streams) => all unclear => ONE clarify, nothing appended, second unclear => not confirmed, no further ask; cafe set incl. 'no, we don't do a cafe' => no. Live Cormorant clone against restarted :5050 (ONE listener): ask renders with the clause + verb, answer path all-no, zero origin rows - both former FAILs green. _stream_discovery_redproof.py 106/106, f123 GREEN. Floor R31/R32 2/2 digests unchanged. Canary skipped (spot-check).
+    NOTE for Nick's triage (not built): the door's ACCEPT default (its system prompt treats nuance as agreement) is what the frame text counters; the door itself was NOT edited. Cost: up to 4 door calls per discovery reply (+4 on a clarify), each a short classification.
+TASK:
+  TURN 2 (mini, SPOT-CHECK audit): (a) diff confined - git diff 51de964..HEAD: gpt_stream_discovery.py (template constants, clarify composer, is_stream_discovery_ask, reader section 5 replaced), intake_consult.py (_stream_discovery_ask_if_due stores ask_text; _apply_stream_discovery_answer 4-tuple + classify param + clarify hold; the call block renders the clarify as confirm_clarify), the two redproof suites + new f4 suite, spec Q2/Q5. Nothing in the judge, validator, seam, gate, capture, router, engine. (b) grep the reader for keyword/token logic: expect none (the f4 suite asserts it - verify independently). (c) PRE red right reason / POST green: rerun `python "Test Files/_stream_discovery_f4_redproof.py"` (offline) and `--live` (real door; needs .env key); the PRE txt is committed. (d) the door IS the app's existing intent door: name it (_classify_restatement_response) and confirm it is called, not edited (git diff shows no change to that function). (e) receipt law: no receipt without an append - the all-no receipt is 'Understood - none of those, we'll move on.'; the clarify turn carries no closing receipt. (f) floor: R31/R32 via --only. GREEN -> stop -> Nick re-runs Cormorant to verify validator fix + reader live at the CURRENT seam (seam move is a later, separate turn).

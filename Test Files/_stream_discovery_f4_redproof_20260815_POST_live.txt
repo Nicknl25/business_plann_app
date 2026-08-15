@@ -1,0 +1,52 @@
+=== 1. the template (F4 part 2): why they are asked, template verb ===
+   ASK: Before we wrap up operations: a lot of coffee roasters also offer wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+[PASS] ask carries the revenue-line clause
+[PASS] ask uses the template verb 'also offer' (labels read naturally)
+[PASS] ask is one question
+[PASS] forbidden-phrase grep clean
+[PASS] ask == the ONE template constant
+   CLARIFY: Just so I record it right: is retail coffee bags part of your business today? A yes means I'll include it as a revenue line in your plan; if not, just say no and we'll move on.
+[PASS] clarify exists, one question, says revenue line, forbidden grep clean
+=== 2. the reader has NO keyword logic ===
+[PASS] no _NEG_RE/_AFFIRM_RE/_ALL_RE/_ONLY_RE/_OTHERS_RE/_clauses in the module
+[PASS] reader section has no re./regex/word-list scoring
+[PASS] production caller hands the app's existing door (_classify_restatement_response) to the reader
+=== 3. the six replies (LIVE door) ===
+   'No, none of those. We just do the five pound wholesale bags.' -> {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[PASS] reader: 'No, none of those. We just do the five pound wholesale bags.'
+   'No. Retail bags no, subscriptions no. Just wholesale to cafes.' -> {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[PASS] reader: 'No. Retail bags no, subscriptions no. Just wholesale to cafes.'
+   'yeah we do the retail bags' -> {"wholesale subscription contracts": "no", "retail coffee bags": "yes", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+[PASS] reader: 'yeah we do the retail bags'
+   'no retail bags, but yes direct to consumer subscriptions' -> {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "yes"}
+[PASS] reader: 'no retail bags, but yes direct to consumer subscriptions'
+   'sort of, sometimes' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "unclear", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+[PASS] reader: 'sort of, sometimes'
+   'yes' -> {"wholesale subscription contracts": "unclear", "retail coffee bags": "unclear", "single-origin limited release coffees": "unclear", "direct-to-consumer coffee subscriptions": "unclear"}
+[PASS] reader: 'yes'
+   'yeah we have a small cafe' -> {"retail coffee bags": "no", "a cafe": "yes", "coffee subscriptions": "no"}
+[PASS] reader (cafe set): 'yeah we have a small cafe'
+   "no, we don't do a cafe" -> {"retail coffee bags": "no", "a cafe": "no", "coffee subscriptions": "no"}
+[PASS] reader (cafe set): "no, we don't do a cafe"
+   'no retail bags, but yes subscriptions' -> {"retail coffee bags": "no", "a cafe": "no", "coffee subscriptions": "yes"}
+[PASS] reader (cafe set): 'no retail bags, but yes subscriptions'
+=== 4. the answer path end-to-end (Cormorant shape, LIVE door) ===
+   answers: {"wholesale subscription contracts": "no", "retail coffee bags": "no", "single-origin limited release coffees": "no", "direct-to-consumer coffee subscriptions": "no"}
+   receipt: Understood - none of those, we'll move on.
+[PASS] BUG PATH: every proposed label answered no
+[PASS] BUG PATH: no origin rows written on a no
+[PASS] BUG PATH: receipt does not claim any line is its own line
+[PASS] BUG PATH: no clarify
+[PASS] affirmative: exactly one row appended, named for the label
+[PASS] affirmative: receipt names the line (words == state)
+[PASS] affirmative: no clarify
+[PASS] mixed: only the confirmed stream appended
+   clarify: Just so I record it right: is any of wholesale subscription contracts, retail coffee bags, single-origin limited release coffees or direct-to-consumer coffee subscriptions part of your business today? A yes means I'll include it as a revenue line in your plan; if not, just say no and we'll move on.
+[PASS] hedge: ONE clarify rendered
+[PASS] hedge: nothing appended, no receipt
+[PASS] hedge: still pending for the clarify reply
+[PASS] second unclear: NO further clarify
+[PASS] second unclear: not confirmed, nothing appended, not pending
+[PASS] second unclear: honest receipt, no question
+
+GREEN: F4 red-proof passed (LIVE door)

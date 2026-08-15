@@ -93,14 +93,28 @@ root cause (hand-maintained allowed-fields list) all over again.
 The ask is **deterministic template text**; GPT never composes it. Only
 the labels are interpolated:
 
-> "Before we wrap up operations: a lot of <business type>s also
-> <label A> or <label B>. Is either of those part of your business
-> today? If not, just say so and we'll move on."
+> "Before we wrap up operations: a lot of <business type>s also offer
+> <label A>, <label B> or <label C> - is any of that part of your
+> business today? (If so I'll include it as a revenue line.) If not,
+> just say so and we'll move on."
 
+- **F4 (Nick, 2026-08-15): the client is told WHY they are asked** - a
+  yes ADDS A REVENUE LINE to their plan - in ONE clause, so they answer
+  knowingly. No back-and-forth, no lecture: one question, context
+  included, move on.
+- **Template verb "also offer"** so the noun-phrase labels read
+  naturally ("coffee roasters also offer retail coffee bags ..."; the
+  earlier "coffee roasters also <noun phrase>" read verb-less - the
+  label-grammar WATCH item is closed by the template, not by the labels).
 - "part of your business TODAY" is the existence frame; "have you
   considered adding" is unrepresentable because no model output reaches
   the sentence except a noun phrase that already passed the
   addition-verb lint.
+- **The ONE clarify (F4, see Q5)** is a second template constant of the
+  same shape - "Just so I record it right: is <label(s)> part of your
+  business today? A yes means I'll include it as a revenue line in your
+  plan; if not, just say no and we'll move on." - only the still-open
+  labels interpolate; it renders at most once per draft.
 - Exactly ONE ask per draft, covering all surviving candidates in one
   sentence, holding the turn the established way (`finalize_ready =
   False` + return, `intake_consult.py:20148, 20161`).
@@ -239,10 +253,27 @@ Research confirmed the landing machinery already exists:
   asks every other row.**
 
 The flow after the ask:
-1. Client answers in their own words. The reply is classified per
-   candidate as yes / no / unclear by the same deterministic
-   yes-no-per-item reading the app uses elsewhere (a "yes to design, no
-   to delivery" splits cleanly).
+1. Client answers in their own words. **F4 (Nick, 2026-08-15,
+   ruled DEAL BREAKER - the keyword reader read "No, none of those. We
+   just do the five pound wholesale bags." as a YES for "wholesale
+   subscription contracts", appended a phantom `discovery_confirmed`
+   row and shipped a false "is its own line" receipt): the reply is
+   read by INTENT, never by keyword.** Per proposed candidate it goes
+   through the app's EXISTING intent door -
+   `intake_consult._classify_restatement_response`, the
+   ACCEPT/REJECT/CLARIFY reader this same ops turn already uses for a
+   reply to a proposal - with a deterministic per-stream frame
+   (`gpt_stream_discovery.stream_discovery_intent_frame`: the ask, the
+   streams it named, the ONE stream under judgment, and the reading
+   rules: a yes adds a revenue line so a confirmation must be real; a
+   word inside a decline is not a yes; a hedge or a bare "yes" to a
+   several-stream question is CLARIFY; each stream is confirmed on its
+   own words, never inferred from a related stream). ACCEPT => yes,
+   REJECT => no, CLARIFY / door failure => unclear. The reader module
+   holds ZERO keyword, phrase or token logic; if the door cannot
+   understand the answer, the app asks (step 4). "Scrap the keyword /
+   affirmative-phrase approach - that's a string-matching heuristic and
+   we don't do those." (Nick)
 2. **On yes — Python appends the row deterministically** (receipt law:
    the app's words match the app's state). Do NOT rely on the GPT patch
    to have added it: append `{product_name: <label>, all drivers null,
@@ -254,10 +285,19 @@ The flow after the ask:
    if the client can't supply its numbers, the line does not model (same
    rule as any line, CW-017(c) derivability unchanged).
 3. **On no** — stored, never re-asked, never proposed, never modelled.
-4. **On unclear** — treated as NOT confirmed (existence needs a yes;
-   silence is not a yes), stored `answer: "unclear"`, never re-asked. The
+4. **On unclear — ONE clarify (F4, supersedes the earlier
+   "unclear => not confirmed, never re-asked")**: the app asks exactly
+   one closed question naming only the still-open stream(s) (the
+   clarify template, Q2) and holds the turn (`action: confirm_clarify`;
+   the latch stamps `clarify_asked: true`, `clarify_labels`, and each
+   held candidate's `first_read: "unclear"`). Any stream already read
+   yes on that same reply is appended NOW and its receipt leads the
+   clarify. The clarify reply is read the same way (same door, same
+   frame); **still unclear after it => NOT confirmed** (existence needs a
+   yes; silence is not a yes), stored `answer: "unclear"`,
+   `answer_reason: "unclear_after_clarify"`, no further ask ever. The
    client can still name the line any time in ops through the normal
-   path — that is the guided flow working, not a re-probe.
+   path - that is the guided flow working, not a re-probe.
 5. Per-line COGS proposes for the discovered row at the cogs stage like
    any row (it is an ordinary product row); collapse/separation/
    corrections all work unchanged.

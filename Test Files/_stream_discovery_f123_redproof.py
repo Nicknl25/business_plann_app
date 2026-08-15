@@ -271,7 +271,12 @@ check("F3: cap constant is 4", sd.STREAM_DISCOVERY_PROPOSAL_CAP == 4)
 o = cormorant_ops()
 _JUDGE_CANDS["value"] = six
 ask6 = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=20, stage_hint="operating")
-o, receipt, note = ic._apply_stream_discovery_answer(ops_json=o, message="Barista training yes, the rest no.", last_assistant=ask6)
+# F4: the reader goes through the app's intent door - stubbed offline here.
+def _door(*, restatement, user_reply):
+  m = re.search(r'RESTATEMENT TO CHECK: "([^"]+)" is part of', restatement)
+  return "ACCEPT" if m and m.group(1) == "barista training" else "REJECT"
+o, receipt, note, clar = ic._apply_stream_discovery_answer(ops_json=o, message="Barista training yes, the rest no.", last_assistant=ask6, classify=_door)
+check("answer path: no clarify on a fully-read reply", clar == "")
 ans = {c["label"]: c["answer"] for c in o["stream_discovery"]["candidates"]}
 check("answer path: yes lands on the proposed label, the other 3 proposed are no",
       ans == {"barista training": "yes", "farmers market stall": "no", "espresso catering": "no", "brewing equipment resale": "no"}, json.dumps(ans))
