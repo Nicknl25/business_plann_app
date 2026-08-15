@@ -1,0 +1,72 @@
+
+=== B. THIN clone (pre-revenue) ===
+  < [200] Here's my working read of your competitive advantage: Thornfield’s edge likely comes from running an integrated design‑through‑install workflow with a stable, returning team, so that the same owner who walks the property and creates the plan is closely tied into how crews execute it on site. Operationally, this shows up in the choice to keep design capacity in‑house (your time) and pair it with in
+  [PASS] B live turn 200: 200
+  latch: {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "thin", "reasons": ["stage_not_discoverable:pre-revenue"]}, "asked": false, "reason": "thin"}
+  [PASS] B NO ask (thin): Here's my working read of your competitive advantage: Thornfield’s edge likely comes from running an integrated design‑t
+  [PASS] B latched asked:false reason:thin: {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "thin", "reasons": ["stage_not_discoverable:pre-revenue"]}, "asked": false, "reason": "thin"}
+  [PASS] B thin reason names the stage: {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "thin", "reasons": ["stage_not_discoverable:pre-revenue"]}, "asked": false, "reason": "thin"}
+  [PASS] B competitive-advantage proposal fires exactly as today: Here's my working read of your competitive advantage: Thornfield’s edge likely comes from running an integrated design‑through‑install workflow with a stable, r
+  [PASS] B no origin rows
+
+=== A. RICH clone (operating garden centre, 4 lines) ===
+  < [200] Before we wrap up operations: a lot of garden centers also Bulk mulch and soil delivery fees or Event and workshop fees. Is any of that part of your business today? If not, just say so and we'll move on.
+  [PASS] A live turn 200: 200
+  [PASS] A latch written at the seam: {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 31, "candidates": [{"label": "Bulk mulch and soil delivery fees", "commonality": "many", "answer": null}, {"label": "Event and workshop fees", "commo
+  latch: {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 31, "candidates": [{"label": "Bulk mulch and soil delivery fees", "commonality": "many", "answer": null}, {"label": "Event and workshop fees", "commonality": "many", "answer": null}], "dropped": [{"label": "Holiday greenery and seasonal decor sales", "reason": "matches_existing_line_ambiguous"}, {"label": "Bagged fertilizer and chemical sales", "reason": "matches_existing_line_ambiguous"}, {"label": "Pottery and outdoor decor sales", "reason": "
+  [PASS] A reply IS the template ask: Before we wrap up operations: a lot of garden centers also Bulk mulch and soil delivery fees or Event and workshop fees. Is any of that part of your business to
+  [PASS] A ask lists exactly the latched candidates: Before we wrap up operations: a lot of garden centers also Bulk mulch and soil delivery fees or Event and workshop fees. Is any of that part of your business today? If not, just say so and we'll move on.
+  [PASS] A forbidden-phrase grep on the emitted ask finds nothing: before we wrap up operations: a lot of garden centers also bulk mulch and soil delivery fees or event and workshop fees. is any of that part of your business today? if not, just say so and we'll move on.
+  [PASS] A ask held the turn (no competitive advantage yet)
+  [PASS] A NO row appended before the answer
+  > Yes, Bulk mulch and soil delivery fees is part of it. The others no.
+  < [200] Noted - Bulk mulch and soil delivery fees is its own line; a few quick numbers for it next.
+
+To make planning realistic for Bulk mulch and soil delivery fees, in a fully busy week, about how many Bulk mulch and soil delivery fees can you handle?
+  [PASS] A answer turn 200: 200
+  [PASS] A latch stores yes for the named candidate: {"Bulk mulch and soil delivery fees": "yes", "Event and workshop fees": "no"}
+  [PASS] A other candidates stored no (never re-asked): {"Bulk mulch and soil delivery fees": "yes", "Event and workshop fees": "no"}
+  [PASS] A EXACTLY ONE row carries origin=discovery_confirmed: [["Bulk mulch and soil delivery fees", "Bulk mulch and soil delivery fees"]]
+  [PASS] A the row is named for the label: Bulk mulch and soil delivery fees
+  [PASS] A row count grew by exactly one: 4 -> 5
+  [PASS] A receipt LEADS the reply: Noted - Bulk mulch and soil delivery fees is its own line; a few quick numbers for it next.
+
+To make planning realistic for Bulk mulch and soil delivery fees, i
+  [PASS] A reply asks the next question (no dead end)
+  > About 3 Bulk mulch and soil delivery fees jobs a week at full stretch.
+  < [200] Thanks, that gives a clean capacity number for the delivery-fee side.
+
+For these Bulk mulch and soil delivery fee jobs, what do you typically collect per delivery on average just for the fee itself (not counting the mulch/soil product on the ticket)—is there a rough dollar amount you usually charge per delivery?
+
+(Noted: Bulk mulch and soil delivery fees: weekly capacity → 3; operating periods per year → 52.)
+  > About $400 per Bulk mulch and soil delivery fees job.
+  < [200] Got it: for the bulk mulch and soil line we’ll treat one unit as a single delivery-fee job at about $400 per delivery, with practical capacity around 3 of those delivery-fee jobs in a fully busy week.
+
+Given your current truck, driver, and seasonal patterns, does it feel reasonable to expect you’ll actually use about 60% of that weekly delivery capacity on average over the next year (so a bit under 2 deliveries per week on average), or would you put that usage noticeably higher or lower?
+
+(Noted: unit price → $400; operating periods per year → 52.)
+  > Call it 70%.
+  < [200] Here's my working read of your competitive advantage: Thornfield’s edge likely comes from its tightly integrated design–install–retail setup, where the same owner who designs gardens on-site with customers also oversees in‑house crews and a nursery that increasingly grows its own stock. Because you’ve chosen to keep design, plant supply, and installation under one roof (rather than separating them or outsourcing plants), customers get plans that are grounded in what will actually thrive and be installed reliably on their properties, reducing risk of failed plantings and change orders compared with more fragmented competitors.
+
+Does that match what truly sets you apart, or is it something else?
+  > That's a fair read.
+  < [200] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+  > Buy the two-acre parcel behind us and have a heated propagation greenhouse standing on it within twelve months.
+  < [200] Great, let's move on to Target Market.
+
+We’ll start with gender focus for your consumer customers. For the homeowners and individual retail buyers you most want to attract, do you see your marketing and offer as:
+- Primarily aimed at women,
+- Primarily aimed at men,
+- Or genuinely balanced with no real gender focus either way?
+  [PASS] A draft reached market (wrap clean): market
+  [PASS] A competitive-advantage proposal fired exactly once after the ask resolved: 1
+  [PASS] A milestone question asked (unchanged neighbor): 1
+  [PASS] A latch SURVIVED finalize (ops_json = final_obj): {"version": 1, "business_type": "Garden Center", "naics_6": "444240", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 31, "candidates": [{"label": "Bulk mulch and soil
+  [PASS] A origin SURVIVED finalize on exactly one row: [["Bulk mulch and soil delivery fees", "Bulk mulch and soil delivery fees"]]
+  discovered row after finalize: {"product_name": "Bulk mulch and soil delivery fees", "unit_name": "Bulk delivery fee", "unit_description": "One delivery fee for transporting bulk mulch or soil to a customer property, excluding the product cost itself", "unit_cadence": "weekly", "units_per_week_capacity": 3, "units_per_period_capacity": 3, "operating_periods_per_year": 52, "utilization_rate": 0.7, "unit_price": 400, "cogs_percent_of_line_revenue": null, "origin": "discovery_confirmed"}
+  [PASS] A discovered row's price + capacity are the client's stated figures (400 / 3): {"product_name": "Bulk mulch and soil delivery fees", "unit_name": "Bulk delivery fee", "unit_description": "One delivery fee for transporting bulk mulch or soil to a customer property, excluding the product cost itself", "unit_cadence": "weekly", "units_per_week_capacity": 3, "units_per_period_capacity": 3, "operating_periods_per_year": 52, "utilization_rate": 0.7, "unit_price": 400, "cogs_percent_of_line_revenue": null, "origin": "discovery_confirmed"}
+  utilization on the discovered row (proposed-then-agreed, existing law): 0.7
+  [PASS] A stream_discovery_pending is False after wrap
+  [PASS] A the four original rows kept: 5
+
+GREEN: live stream-discovery clones passed

@@ -102,6 +102,7 @@ def _final_schema() -> Dict[str, Any]:
                     "utilization_rate": {"type": ["number", "null"]},
                     "unit_price": {"type": "number"},
                     "cogs_percent_of_line_revenue": {"type": ["number", "null"]},
+                    "origin": {"type": ["string", "null"]},
                   },
                   "required": [
                     "product_name",
@@ -114,6 +115,7 @@ def _final_schema() -> Dict[str, Any]:
                     "utilization_rate",
                     "unit_price",
                     "cogs_percent_of_line_revenue",
+                    "origin",
                   ],
                 },
               },
@@ -423,6 +425,7 @@ Output rules:
   - If a fact is still unknown or unchanged, return null for that field.
   - For multi-product flows, lob_models must be the full current structured snapshot of the known products so far; carry forward already-known products from the context JSON and do not drop them.
   - For not-yet-known fields inside a product, return null for those product fields.
+  - origin (per product): carry forward the existing value from the context JSON for that product verbatim (for example discovery_confirmed); null for products that have none. Never invent it.
   - For business-wide answers like legal_entity, capacity_driver, primary_growth_lever, shipping_method, sales_modality, and geographic fields, always populate those top-level patch fields as soon as the client answers them.
   - Once a business-wide top-level field is known, keep carrying it forward; do not reset it to null just because the current turn is about a product.
   - Normalize enums where known:
@@ -516,6 +519,7 @@ Output rules:
                       "utilization_rate": {"type": ["number", "null"]},
                       "unit_price": {"type": ["number", "null"]},
                       "cogs_percent_of_line_revenue": {"type": ["number", "null"]},
+                      "origin": {"type": ["string", "null"]},
                     },
                     "required": [
                       "product_name",
@@ -528,6 +532,7 @@ Output rules:
                       "utilization_rate",
                       "unit_price",
                       "cogs_percent_of_line_revenue",
+                      "origin",
                     ],
                   },
                 },
@@ -657,6 +662,7 @@ unit_cadence must be exactly one of: weekly, monthly, contract, based on how the
 units_per_period_capacity must be provided for each product; for monthly or contract cadence, mirror that value into units_per_week_capacity for compatibility.
 operating_periods_per_year must be included for each product as a number. For weekly/monthly cadence, use the implied annual value unless the client explicitly changed it. For contract cadence, carry forward the confirmed turns-per-year assumption unless the edit request clearly changes it.
 utilization_rate must be included for each product as a decimal fraction of practical Year-1 utilization (for example 0.7 for 70%). In edit_mode, carry forward the baseline value unless the edit request clearly changes it.
+origin must be included for each product: carry forward the existing value from the context JSON for that product verbatim (for example discovery_confirmed); null for products that have none. Never invent it.
 
 The business_description_summary must include a concrete fulfillment model narrative consistent with the conversation (who fulfills the work, typical timing/lead time, and what primarily constrains capacity: labor/system/demand) and a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.

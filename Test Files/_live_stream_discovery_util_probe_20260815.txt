@@ -1,0 +1,51 @@
+T1 < Before we wrap up operations: a lot of garden centers also Bulk mulch and soil delivery fees or Event and workshop fees. Is any of that part of your business today? If not, just say so and we'll move on.
+
+> Yes, Bulk mulch and soil delivery fees is part of it. The others no.
+< Noted - Bulk mulch and soil delivery fees is its own line; a few quick numbers for it next.
+
+To make planning realistic for Bulk mulch and soil delivery fees, in a fully busy week, about how many Bulk mulch and soil delivery fees can you handle?
+ROW: {"product_name": "Bulk mulch and soil delivery fees", "unit_name": null, "unit_description": null, "unit_cadence": null, "units_per_week_capacity": null, "units_per_period_capacity": null, "operating_periods_per_year": null, "utilization_rate": null, "unit_price": null, "cogs_percent_of_line_revenue": null, "origin": "discovery_confirmed"}
+
+> About 3 Bulk mulch and soil delivery fees jobs a week at full stretch.
+< Got it, about 3 bulk mulch/soil delivery jobs per fully booked week.
+
+Thinking about the next 12 months, on average across the year (including slower periods), what share of that 3‑per‑week capacity do you realistically expect to use for bulk delivery work—more like half (around 50%), about two‑thirds (around 65%), or closer to nearly full (around 80%)?
+
+(Noted: Bulk mulch and soil delivery fees: weekly capacity → 3; operating periods per year → 52.)
+ROW: {"product_name": "Bulk mulch and soil delivery fees", "unit_name": "Bulk mulch/soil delivery job", "unit_description": "One bulk mulch or soil delivery run to a customer property, typically using the delivery truck and covering one drop location per job", "unit_cadence": "weekly", "units_per_week_capacity": 3, "units_per_period_capacity": 3, "operating_periods_per_year": 52, "utilization_rate": null, "unit_price": null, "cogs_percent_of_line_revenue": null, "origin": "discovery_confirmed"}
+
+> About $400 per Bulk mulch and soil delivery fees job.
+< Thanks, that $400 per bulk mulch/soil delivery job is clear.
+
+Given you can handle about 3 of those jobs a week at full stretch, over the next year how full do you realistically expect that delivery capacity to run on average — closer to about half (around 50%), about two‑thirds (around 65%), or more like 80% of that 3‑per‑week capacity?
+
+(Noted: unit price → $400.)
+ROW: {"product_name": "Bulk mulch and soil delivery fees", "unit_name": "Bulk mulch/soil delivery job", "unit_description": "One bulk mulch or soil delivery run to a customer property, typically using the delivery truck and covering one drop location per job", "unit_cadence": "weekly", "units_per_week_capacity": 3, "units_per_period_capacity": 3, "operating_periods_per_year": 52, "utilization_rate": null, "unit_price": 400, "cogs_percent_of_line_revenue": null, "origin": "discovery_confirmed"}
+
+FULL TAIL OF TRANSCRIPT:
+[user] Hiring a third install crew is the big one. And the other thing I want inside the next twelve months is to buy the two-acre parcel behind us and put up a heated propagation greenhouse so we grow more of our own stock instead of buying everything in. I'd want that greenhouse standing before the spring of the year after.
+
+[assistant] Before we wrap up operations: a lot of garden centers also Bulk mulch and soil delivery fees or Event and workshop fees. Is any of that part of your business today? If not, just say so and we'll move on.
+
+[user] Yes, Bulk mulch and soil delivery fees is part of it. The others no.
+
+[assistant] Noted - Bulk mulch and soil delivery fees is its own line; a few quick numbers for it next.
+
+To make planning realistic for Bulk mulch and soil delivery fees, in a fully busy week, about how many Bulk mulch and soil delivery fees can you handle?
+
+[user] About 3 Bulk mulch and soil delivery fees jobs a week at full stretch.
+
+[assistant] Got it, about 3 bulk mulch/soil delivery jobs per fully booked week.
+
+Thinking about the next 12 months, on average across the year (including slower periods), what share of that 3‑per‑week capacity do you realistically expect to use for bulk delivery work—more like half (around 50%), about two‑thirds (around 65%), or closer to nearly full (around 80%)?
+
+(Noted: Bulk mulch and soil delivery fees: weekly capacity → 3; operating periods per year → 52.)
+
+[user] About $400 per Bulk mulch and soil delivery fees job.
+
+[assistant] Thanks, that $400 per bulk mulch/soil delivery job is clear.
+
+Given you can handle about 3 of those jobs a week at full stretch, over the next year how full do you realistically expect that delivery capacity to run on average — closer to about half (around 50%), about two‑thirds (around 65%), or more like 80% of that 3‑per‑week capacity?
+
+(Noted: unit price → $400.)
+

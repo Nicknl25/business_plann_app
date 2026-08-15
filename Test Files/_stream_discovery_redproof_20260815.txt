@@ -1,0 +1,100 @@
+STREAM_DISCOVERY judge unavailable: http_status_500
+[PASS] thin:no_business_type => no ask
+[PASS] thin:no_business_type => ZERO judge calls
+[PASS] thin:no_business_type => latched asked:false reason:thin
+[PASS] thin:naics_unresolved => no ask
+[PASS] thin:naics_unresolved => ZERO judge calls
+[PASS] thin:naics_unresolved => latched asked:false reason:thin
+[PASS] thin:pre_revenue => no ask
+[PASS] thin:pre_revenue => ZERO judge calls
+[PASS] thin:pre_revenue => latched asked:false reason:thin
+[PASS] thin:no_client_lines => no ask
+[PASS] thin:no_client_lines => ZERO judge calls
+[PASS] thin:no_client_lines => latched asked:false reason:thin
+[PASS] stage_hint fallback => rich
+[PASS] no stage anywhere => thin
+[PASS] band gate drops 'some'
+[PASS] stem dedup drops the paraphrase of an existing line
+[PASS] addition-verb lint drops 'consider adding'
+[PASS] addition-verb lint drops 'new'
+[PASS] duplicate label dropped
+[PASS] numeric label dropped
+[PASS] NO COUNT CAP: all 4 band-gated survivors kept
+[PASS] no count-cap constant exists in the module
+   ASK: Before we wrap up operations: a lot of garden centres also delivery service or garden design. Is any of that part of your business today? If not, just say so and we'll move on.
+[PASS] rich => ask fires
+[PASS] exactly ONE judge call
+[PASS] ask == template with band-gated survivors
+[PASS] ask is existence-framed
+[PASS] forbidden-phrase grep finds nothing
+[PASS] ask has exactly one question mark
+[PASS] latch asked:true w/ turn index
+[PASS] latch candidates carry commonality + answer:null
+[PASS] latch dropped carries reason
+[PASS] stream_discovery_pending
+[PASS] second call => no ask (latched)
+[PASS] second call => no judge call
+[PASS] no survivors => no ask + reason no_common_candidates
+[PASS] judge unavailable => no ask, latched with reason
+[PASS] pluralize garden centre
+[PASS] pluralize bakery
+[PASS] pluralize bicycle shop
+[PASS] pluralize law practice
+[PASS] reader: 'yes to design, no to delivery'
+[PASS] reader: 'we do design but not deliveries'
+[PASS] reader: 'no, neither of those'
+[PASS] reader: 'nope'
+[PASS] reader: 'no'
+[PASS] reader: 'yes both'
+[PASS] reader: 'yes we do all of that'
+[PASS] reader: 'just the design work'
+[PASS] reader: 'we do garden design'
+[PASS] reader: 'yes'
+[PASS] reader: 'what do you mean by that'
+[PASS] reader: "we don't do delivery"
+[PASS] reader: 'Yes, garden design is part of it. The others no.'
+[PASS] reader: 'garden design yes, and the rest too'
+[PASS] reader single candidate bare yes => yes
+[PASS] reader single candidate bare no => no
+   RECEIPT: Noted - garden design is its own line; a few quick numbers for it next.
+[PASS] yes => exactly one appended row
+[PASS] appended row named for the label, all drivers null
+[PASS] appended under stem-matched LOB or new LOB named for label
+[PASS] receipt names the line + says numbers next
+[PASS] receipt has no jargon
+[PASS] latch answers stored
+[PASS] no longer pending (never re-asked)
+[PASS] second ask_if_due after answers is silent
+[PASS] note names confirmed + declined for the consultant
+[PASS] post-answer reply => no second landing, no ack
+[PASS] no => nothing appended
+[PASS] no => stored no for all
+[PASS] no => honest move-on receipt
+[PASS] unclear => nothing appended
+[PASS] unclear => stored unclear
+[PASS] unclear => honest receipt offers the door, no re-ask
+[PASS] unclear => not pending
+[PASS] carry: latch re-attached after finalize replace
+[PASS] carry: origin re-stamped on the confirmed row, drivers kept
+[PASS] carry: other rows untouched (origin stays null)
+[PASS] carry: duplicate mint collapsed to ONE row (the one with drivers)
+[PASS] carry: dropped confirmed row restored WITH its client-given drivers
+[PASS] carry: idempotent
+[PASS] carry: no latch => byte-identical passthrough
+[PASS] carry: model-invented origin values scrubbed to null
+[PASS] carry: the real stamp survives the scrub
+[PASS] carry: no latch + model-stamped discovery_confirmed => scrubbed
+[PASS] carry: thin latch carried, rows untouched
+[PASS] hook: main gate cascade seam
+[PASS] hook: follow-up mirror seam
+[PASS] carry at BOTH ops_json = final_obj sites
+[PASS] carry after BOTH model-patch applications
+[PASS] origin in BOTH strict schemas
+[PASS] ordering: discovery -> competitive advantage -> milestone (unchanged)
+[PASS] competitive-advantage proposal untouched
+[PASS] milestone question constant unchanged
+[PASS] ask holds the turn (finalize_ready False)
+[PASS] template constant carries no forbidden phrase
+[PASS] template is the ONE constant (single definition)
+
+GREEN: every stream-discovery check passed
