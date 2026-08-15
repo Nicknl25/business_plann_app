@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 4/16
+TURN: 5/16
 TASK:
   DEAL-BREAKER BATCH — Nick APPROVED the triage (2026-08-14 night). All
   four deal breakers, sequenced easy-first/big-last. This seed lays out
