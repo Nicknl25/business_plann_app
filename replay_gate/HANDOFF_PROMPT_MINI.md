@@ -56,6 +56,19 @@ reaches the system, saying so IS an audit finding and the full
 apparatus applies. Full verification is the EXCEPTION; targeted is the
 DEFAULT.
 
+SPLIT-BY-BLAST-RADIUS LAW (Nick, 2026-08-14, STANDING): the call is
+PER-FIX first; a turn inherits the WIDEST radius it carries — so NEVER
+bundle a pure guard/additive receipt/scoped exception with a semantic
+re-scope or new cross-section behavior in the same TASK: the guard
+pays the re-scope's full-apparatus price (CW-033 turn 5: four
+contained guards rode with two semantic changes and all five paid full
+canary+prove). When WRITING a TASK block for VS: group the defects you
+hand over by per-fix radius — localized group as its own turn
+(targeted + floor), system-touching group as a separate turn (full
+apparatus). When AUDITING: a mixed bundle in one turn is itself a
+process finding — name it. Cheap fixes travel cheap; expensive fixes
+travel alone.
+
 CONTEXT SCOPING LAW (Nick, 2026-08-14, STANDING): load ENOUGH to do
 the task — not the whole world. Each turn loads: (1) the task
 (HANDOFF), (2) the standing design laws (the short list — client-

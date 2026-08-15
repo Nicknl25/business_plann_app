@@ -60,6 +60,21 @@ is not lower standards — it is matching the check to the blast
 radius. Mirror this law into VS_NOTES design laws once (idempotent —
 skip if already recorded).
 
+SPLIT-BY-BLAST-RADIUS LAW (Nick, 2026-08-14, STANDING): the call is
+PER-FIX first; a turn then inherits the WIDEST radius it carries — so
+NEVER bundle a pure guard/additive receipt/scoped exception with a
+semantic re-scope or new cross-section behavior: the guard pays the
+re-scope's full-apparatus price (CW-033 turn 5: D1/D3/D4/D5 were
+contained guards, D2/X2 semantic — bundled, all five paid full
+canary+prove when four could have traveled targeted). In practice:
+- When WRITING a TASK block for the other agent: group fixes by
+  radius. Localized group → its own turn (targeted + floor, cheap).
+  System-touching group → a separate turn (full apparatus, earned).
+- When RECEIVING a mixed TASK: don't make the guards pay — execute
+  ONE radius group this turn (by task priority), hand the remainder
+  back explicitly in your outgoing TASK block. Say the split in your
+  TURN PLAN. Cheap fixes travel cheap; expensive fixes travel alone.
+
 CONTEXT SCOPING LAW (Nick, 2026-08-14, STANDING): scope what you LOAD
 the same way verification is scoped to the fix. A fresh session loads
 ENOUGH to do its task correctly — not the whole world. Each turn
