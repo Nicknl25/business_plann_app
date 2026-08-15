@@ -134,12 +134,18 @@ RULES
 
 ---
 
-## proactive-stream-discovery  (NOT STARTED — research first)
+## proactive-stream-discovery  (RESEARCH DONE 2026-08-15 — spec awaiting Nick)
 
-    GATE:   n/a       — nothing built.
+    GATE:   n/a       — nothing built. docs/STREAM_DISCOVERY_SPEC.md is the
+                        resolved spec: source = fenced GPT category
+                        judgment (no held data describes streams),
+                        deterministic existence-only ask, end-of-ops seam
+                        intake_consult.py:20116 (+ mirror :19080), cap 2,
+                        operating/early-stage only, Python appends the row
+                        on yes, latch carried through finalize.
     LIVE:   n/a
     COWORK: blocked
-    NEXT STEP: research the shape (where category knowledge comes from,
-    how to ask about EXISTENCE without proposing new revenue, how a
-    discovered stream lands as a real LOB through the confidence gate).
-    Report before building. Scoped AFTER per-line COGS lands live.
+    NEXT STEP: Nick reviews the spec (3 decisions listed at the end).
+    On approval: build turn at NEIGHBOR-CHECK tier -> mini audit -> one
+    thin single-line confirming run (byte-identical) + one multi-line
+    run that gets an ask.
