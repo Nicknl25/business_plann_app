@@ -93,6 +93,34 @@ RULES
 
 ---
 
+## deal-breaker-batch  (A1 price/util last-figure-wins, A2 net-N-as-capacity, A3 stated-capacity wall, A4 mid-market copy, E1/E2 cadence receipt + say-do)
+
+    GATE:   blessed   — mini 2026-08-15, turn F VERDICT green (ca0c072):
+                        A1/A2/A4 spot-check audit (turn B), A3
+                        neighbor-check audit CONFIRMED w/ independent
+                        40-draft PRE/POST sweep + 12 mover-neighbor legs
+                        (turn D, f39a051), E1/E2 spot-check audit (turn
+                        F); floor R31+R32 GOLDEN on every turn.
+    LIVE:   passed    — VS 2026-08-15, per the spot-check verification
+                        law (no canary owed): live PRE red -> POST green
+                        artifacts on the real shapes — A3 F&F turn-96
+                        137%-of-capacity PASS -> FAIL at 1.58x + 40-draft
+                        live sweep (4cf365f); E1/E2 live PRE/POST on a
+                        Sumac clone (f6ea787, _live_turnE_PRE/_POST);
+                        A1/A2/A4 red-proof on stored ops values / rendered
+                        summary (Test Files/_redproof_dealbreaker_turnA.py);
+                        backend restarted on HEAD ca0c072 12:00, ONE
+                        :5050 listener.
+    COWORK: cleared   — automatic: GATE=blessed + LIVE=passed
+                        (2026-08-15). ONE confirming run scoped to the
+                        fixes (agenda rank 1), then discovery.
+
+    NEXT STEP: Nick's confirming Cowork run (verify A1/A2/A3/receipt
+    live + per-line COGS still end-to-end). New findings get TRIAGED
+    (deal breaker vs wont-fix) for Nick — not auto-fixed.
+
+---
+
 ## handoff-watcher  (VS<->mini loop automation)
 
     GATE:   blessed   — mini's audit 9/9 behaviours + 5/5 probes, re-run
