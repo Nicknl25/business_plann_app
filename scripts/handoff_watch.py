@@ -284,9 +284,16 @@ def consume_inbox(text: str, branch: str) -> None:
     # instruction seeded after a GREEN stop was force-stopped again on the
     # stale VERDICT: green the moment it flipped — re-arming after the most
     # common stop could never work. The old RESULT stays in git history.
-    idx = seeded.rfind("RESULT:")
-    if idx >= 0:
-        seeded = seeded[:idx] + (
+    # A SEED TRUNCATES HISTORY TO THE HEAD (2026-08-15 fix): the file used
+    # to keep every prior TASK/RESULT block below the seed, and _field()
+    # reads the LAST match - so a seed's TURN-TIMEOUT-MINUTES at the top
+    # was shadowed by whatever stale agent-written TASK sat lowest (turn A
+    # ran on 240 not 120; a build turn launched with 45). History is in
+    # git by doctrine; after a seed the file is exactly STATUS / TURN /
+    # the seeded TASK / one neutral RESULT, so first-match, last-match and
+    # "the TASK block" all mean the same thing.
+    _mt = re.search(r"(?ms)^TASK:\n.*?(?=^RESULT:)", seeded)
+    seeded = (seeded[: _mt.end()] if _mt else seeded) + (
             "RESULT:\n"
             "  AGENT: none\n"
             "  VERDICT: progress\n"
