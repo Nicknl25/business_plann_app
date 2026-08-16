@@ -1,18 +1,48 @@
 {
  "version": 24,
- "updated": "2026-08-16T18:40:00Z",
- "notes": "CW-035 (Nine Fathom Coffee Roasters, Missoula) re-ran the CW-034 probe on the F1-F4 build and STREAM DISCOVERY WORKS END TO END. Same vertical, same single-line description, same guided-path discipline - and this time the ask fired at the ops wrap with evidence_level 'rich'.\n\nThe ask verbatim: 'Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.' It states the revenue-line consequence explicitly and offers a clean exit. One grammar nit: no serial comma before 'or', so items 2 and 3 run together.\n\nTHE READER TEST PASSES BOTH WAYS. Two YES answers became real lines carrying origin: discovery_confirmed. The explicit NO - 'But no, we don't do brew gear and merchandise sales' - repeated the stream's own keywords and was still read as no; the persisted candidates array records answer 'no' and no such product exists anywhere. A keyword reader would have flipped that; the intent reader did not.\n\nAT THE BUILT-WORKBOOK LEVEL: twelve revenue rows (three lines x four drivers), three per-line COGS drivers at 0.62 / 0.38 / 0.55 exactly as stated in one message, and exactly one P&L Cost of Goods Sold line that is their exact revenue-weighted roll-up (0.58187216 derived vs 0.581872 booked). Quarterly revenue reconciles to the stated 1,065,000 exactly. Section 6 11/11 exact, accounting equation 0.\n\nF1-F4 also added a fully persisted stream_discovery record - business_type, naics, evidence level, asked flag, ask text, per-candidate answers and dropped candidates with reasons. That is exactly the diagnostic asked for in the CW-034 runlog, and it makes silence-versus-firing directly distinguishable from now on.",
+ "updated": "2026-08-15T10:05:00Z",
+ "notes": "CW-036 (Corvid Press and Litho, Peoria - a marginal thin-margin print shop with 360,000 of owned presses) was built to exercise the acceptance gate and restructure net. IT NEVER REACHED THEM, and why it did not is the finding.\n\nDiscovery proposed four adjacent streams. I answered all four in one message; the three explicit NOs were read correctly. The first clause - 'Digital printing is already part of our commercial print line, it is the same jobs, not a separate thing' - was recorded as answer: yes, creating a third LOB with unit_name, capacity, price, utilization and periods all null. Two explicit removal requests failed: the first drew no acknowledgement at all, the second (using the app's own invited collapse move) gave the phantom line a cost rate but did not remove it. The phantom contributed zero revenue weight all through intake so it looked inert - and then killed the build. planning_run_status failed with 'INTAKE->POST_INTAKE: field operating_model_json.lob_models.2.products.0.unit_name expected Input should be a valid string (and 5 more errors), got None'. lob_models.2 is the phantom.\n\nON THE ACTUAL QUESTION: no acceptance verdict was produced and the restructure net never engaged - acceptance_verdict, restructure, RestructureNetDead, evals and rescue are all ABSENT from the draft. The failure is upstream of acceptance. It did fail LOUD at the backend, with a precise field path, and nothing shipped.\n\nTHE STRUCTURAL LEARNING WORTH ACTING ON: for a marginal business the operative control is a PRE-SUBMIT gate, not the post-build net. When the plan did not work on paper Submit was disabled outright and a remediation ladder ran, with a 'Save it for now' park exit that stated plainly 'nothing goes out saying the business does not work'. A marginal plan therefore cannot reach the builder. To exercise the restructure net a persona must CLEAR the pre-submit gate and only then fall below the floor at Q11 - which means the squeeze has to come from build-time depreciation and interest rather than from intake-level gross margin. That is a different persona shape and the next attempt should be designed for it.\n\nTwo genuine closures came out of the same run. A-106 was finally reached after seven unreachable runs and the retention number was applied EXACTLY - an 80 pct keep-rate moved commercial print utilization 0.66 to 0.528 and wide-format 0.55 to 0.44, both exact. And the long-unverified CW-021 item is now confirmed live: a failed run still tells the client 'We are building your plan now', with no error anywhere on the page.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "RUN-POST-DEADNET-1",
-   "persona": "your pick from the agenda - a real founder, natural answers, real numbers",
-   "business": "your pick - any business; MULTI-LINE or a single-line type with common adjacent streams both exercise the new machinery. Preferably one NOT run before (fresh business name).",
-   "why": "OPERATOR: general run on the fixed build (HEAD e661dfc). What is new since your last run: (1) proactive STREAM DISCOVERY is live - at end-of-ops the app may ask ONE existence-framed question naming streams businesses like yours usually also offer ('...is any of that part of your business today? (If so I'll include it as a revenue line.)'); answer naturally per stream, yes only to what your ground truth has, plain no otherwise; a yes becomes its own peer line and the app asks its numbers. (2) The post-intake RESTRUCTURE rescue is alive again on per-line-COGS drafts and the cascade + acceptance gate now judge net income by the same executive floor - so a plan that fails viability is either rescued or fails LOUD (Nick gets the internal failure email + workbook; you may see the run end as failed - that is correct behaviour now, file what you observe). (3) Discovered streams land as their OWN LOB and the ask uses a serial comma. Everything else unchanged. Play through to completion. TRIAGE LAW: new findings bucketed deal-breaker vs wont-fix for the operator, filed not chased.",
-   "operator_command_hint": "run yours"
+   "id": "A-119",
+   "persona": "any",
+   "business": "any business asked the discovery question about an activity it already performs inside an existing line",
+   "why": "BLOCKER, and it costs the client the entire plan. The discovery reader treats 'we do that, but it is already part of an existing line and not separate' as a YES and creates a new line of business with every field null. That line then fails schema validation at the INTAKE->POST_INTAKE boundary and the plan run dies: field operating_model_json.lob_models.2.products.0.unit_name got None, and lob_models.2 is exactly the phantom. Two things make this worse than a reader nit. First, the client cannot undo it: an explicit, unambiguous removal request ('do not make digital printing a separate line... you would be counting the same work twice. Please drop that line') drew NO acknowledgement whatsoever, and a second attempt through the app's own invited collapse move at the COGS stage assigned the phantom a cost rate instead of removing it. There is no path back. Second, it is invisible until it is fatal - the phantom carried zero revenue weight through the whole intake, so the COGS blend and every receipt looked correct right up to submission. This is the same intent-reader that CW-035 proved handles a keyword-bearing NO correctly, so the fix is narrow: the already-captured case needs to be a distinct classification from yes and no. Cheapest belt-and-braces alongside it: refuse to persist a line whose required fields are all null, so a reader miss degrades to a missing line rather than a dead build.",
+   "retests": [
+    "hard_break:operations:discovery_yes_on_an_already_captured_stream_creates_a_null_line_that_kills_the_build"
+   ]
   },
   {
    "rank": 2,
+   "id": "A-120",
+   "persona": "any",
+   "business": "any business whose plan run fails",
+   "why": "MAJOR, and now VERIFIED after sitting unverified since CW-021. CW-036 is the first failed plan run in thirteen runs and it confirms the behaviour live: planning_run_status is failed with a precise diagnostic, and the client-facing page still reads 'Submitted. Intake submitted successfully. Reference code QJFYJVW77168301424. We are building your plan now - we will review it and follow up with next steps.' A sweep of the rendered page for fail, error, problem and went wrong returns nothing. Stated as two sentences: the BACKEND fails loud and correctly; the CLIENT-FACING SURFACE shows unqualified success. So the strict silent-ship-failed bug did not occur - nothing shipped - but the client is told a plan is being built that is never coming, which is the same harm from their seat. Pairs naturally with A-119: the client who hits that blocker experiences it as an indefinite wait with no signal.",
+   "retests": [
+    "experience:post_intake:failed_plan_run_still_shows_building_your_plan"
+   ]
+  },
+  {
+   "rank": 3,
+   "id": "A-121",
+   "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
+   "business": "any capital-heavy business with thin net margin",
+   "why": "DESIGN THE NEXT RUN FOR THIS - the restructure net is still untested and CW-036 shows why. For a marginal business the operative control is a PRE-SUBMIT gate: Submit is disabled while the plan does not work on paper, a remediation ladder runs, and a 'Save it for now' exit parks the draft with 'nothing goes out saying the business does not work'. A marginal plan therefore never reaches the builder, so being marginal at intake cannot exercise the post-build net. The persona that can: one whose intake-level economics CLEAR the gate comfortably, with the squeeze arriving only from build-time depreciation and debt service - heavy owned equipment against a business that looks fine on gross margin. Aim for a Q11 net income margin just under the executive floor while the pre-submit quarter-keeps figure stays healthy. Until such a run exists, the answers to does restructure rescue and does it fail loud remain unknown.",
+   "retests": []
+  },
+  {
+   "rank": 4,
+   "id": "A-106",
+   "persona": "any",
+   "business": "any business that takes a price or rate lever and then builds",
+   "why": "REACHED AT LAST, and the retention number was APPLIED EXACTLY - this closes the intake/remediation half after seven unreachable runs. CW-036 got there legitimately: accepting price rises to the market ceiling triggered the app's own question, 'do you think your current customers would mostly stay with you? If you believe some would leave, tell me how many you realistically think you would keep.' I answered 80 percent and it landed to three decimals - commercial print utilization 0.66 to 0.528, wide-format 0.55 to 0.44, retention factor 0.8 stored, revenue falling 272,353 to 212,817 a quarter accordingly. WHAT REMAINS: the BUILD-level half is still untested, because CW-036 never built. The open question is whether a retention-adjusted utilization survives into the workbook. Fold this into the A-121 run rather than designing a separate one.",
+   "retests": [
+    "verdict:plan_build:stated_retention_acknowledged_then_not_applied"
+   ]
+  },
+  {
+   "rank": 5,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -22,7 +52,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 6,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -33,7 +63,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 7,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -44,17 +74,7 @@
    ]
   },
   {
-   "rank": 5,
-   "id": "A-106",
-   "persona": "any",
-   "business": "any business that takes a price or rate lever and then builds",
-   "why": "PROBE STILL NEVER LEGITIMATELY REACHED, seven attempts running, and CW-033 confirms why: a sixth consecutive healthy business passed without needing a lever, so the retention flow was never entered. It remains a fully ON-PATH flow the app itself offers that has never been exercised end to end. It needs a business priced below its market that clears its wall on a price lever and goes on to build. Design the next run around that single requirement and pair it with A-079 - one well-built underpriced persona settles both.",
-   "retests": [
-    "verdict:plan_build:stated_retention_acknowledged_then_not_applied"
-   ]
-  },
-  {
-   "rank": 6,
+   "rank": 8,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -64,7 +84,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 9,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -72,7 +92,7 @@
    "retests": []
   },
   {
-   "rank": 8,
+   "rank": 10,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -81,10 +101,9 @@
   }
  ],
  "closed_this_cycle": [
-  "CONFIRM-DISCOVERY-2 (Nine Fathom Coffee 6d2823db): ALL HELD - propose/intent-read/capture/wrap/multi-line plan; surfaced the failed-acceptance-delivered thread -> DEAD RESTRUCTURE NET fixed (FIX 1/2/2b/3 + n1/n4 hygiene, 08-16, all audited green).",
-  "A-118 CLOSED. Stream discovery fired and worked end to end on the exact vertical and description that produced silence in CW-034: three candidates proposed, revenue-line consequence stated, yes/yes/no all read correctly, both accepted streams modeled as real workbook lines with their own per-line COGS rolling up to one P&L line.",
-  "flow:operations:stream_discovery_silent_at_the_ops_wrap_on_a_common_multi_stream_vertical (CW-034) RESOLVED on c63d27a.",
-  "The CW-034 diagnostic request is satisfied - a full stream_discovery record is now persisted to operating_model_json (evidence level, asked flag, ask text, per-candidate answers, dropped candidates with reasons, proposal_cap).",
-  "Two new findings, both bucketed WONT-FIX and neither reaching a number in the delivered plan: the second discovered stream nests under the first as its LOB (receipt says 'its own line under retail coffee bags'), and a root-level unit_price holds 140.0, a capacity value from the last line captured."
+  "A-106's intake half CLOSED - stated retention of 80 pct applied exactly to both lines' utilization. Build-level half still open, folded into A-121.",
+  "verdict:remediation:stated_retention_number_not_used and verdict:plan_build:stated_retention_acknowledged_then_not_applied are resolved at the remediation layer by CW-036.",
+  "experience:post_intake:failed_plan_run_still_shows_building_your_plan VERIFIED live after being unverified since CW-021.",
+  "Positive behaviours confirmed and not filed: the pre-submit gate refuses to ship a plan that does not work ('nothing goes out saying the business does not work'); the remediation gap tracker reports real percentages rather than the CW-022 all-options-close-zero shape; the volume lever honestly reported it would WIDEN the gap instead of presenting it as a fix; both volume proposals stayed inside the stated capacity ceilings; and the capex question produced an honest refusal rather than harvesting a contextual figure."
  ]
 }

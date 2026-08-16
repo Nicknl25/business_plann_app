@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-08-15T07:55:00Z",
+ "updated": "2026-08-15T10:05:00Z",
  "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. As of CW-035 stream discovery is confirmed working end to end on the vertical that produced silence in CW-034.",
  "business_types": {
   "professional_services": {
@@ -180,6 +180,15 @@
     "CW-035"
    ],
    "note": "Wholesale coffee roaster, used twice as the stream-discovery probe. CW-034 silent (killed at the seam); CW-035 fired and worked end to end after F1-F4."
+  },
+  "commercial_printing": {
+   "examples": [
+    "offset and digital commercial print shop with wide-format"
+   ],
+   "runs": [
+    "CW-036"
+   ],
+   "note": "NEW vertical. Marginal thin-margin shop with heavy owned equipment, used to probe the acceptance gate and restructure net."
   }
  },
  "friction_conditions": {
@@ -753,6 +762,24 @@
     "CW-035"
    ],
    "note": "NEW and PASSING. 'But no, we don't do brew gear and merchandise sales' - a refusal repeating the stream's own name - was read as no by the intent reader and created no line. A keyword reader would have flipped it."
+  },
+  "marginal_business_below_the_viability_line": {
+   "runs": [
+    "CW-036"
+   ],
+   "note": "NEW. Thin gross margin plus ~72,000/yr depreciation on 360,000 of owned presses plus equipment-loan interest. KEY LEARNING: the operative control is a PRE-SUBMIT gate - Submit is disabled and a remediation ladder runs until the gap closes, with a Save it for now park exit. A marginal plan therefore never reaches the builder, so the post-build restructure net is NOT reachable by being marginal at intake."
+  },
+  "retention_answer_applied_to_utilization": {
+   "runs": [
+    "CW-036"
+   ],
+   "note": "NEW and PASSING. A-106 finally reached after seven unreachable runs. Stated 80 pct keep-rate applied exactly: commercial print utilization 0.66 -> 0.528, wide-format 0.55 -> 0.44, retention factor 0.8 stored."
+  },
+  "discovery_yes_on_an_already_captured_activity": {
+   "runs": [
+    "CW-036"
+   ],
+   "note": "NEW and FAILING - blocker. 'Already part of our commercial print line, not a separate thing' read as YES, creating an all-null third LOB that survived two explicit removal requests and then failed schema validation, killing the plan build."
   }
  },
  "verdict_classes_reached": {
@@ -1430,6 +1457,27 @@
    "headline": "Discovery works end to end. Proposed three streams at the ops wrap with the revenue-line consequence stated, intent reader got yes/yes/no right including a keyword-bearing NO, and both accepted streams became real workbook lines with their own per-line COGS (0.62/0.38/0.55) rolling up exactly to one P&L line. Closes the CW-034 finding.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-036": {
+   "persona": "Hollis Vandergrift - marginal commercial print shop, heavy owned equipment",
+   "business": "Corvid Press and Litho",
+   "city": "Peoria IL",
+   "type": "commercial_printing",
+   "draft_id": "e3af1f2463c7493f8e5cf91e9decebb9",
+   "stack": "b9b0b93",
+   "reference_code": "QJFYJVW77168301424 (submission #79)",
+   "outcome": "CONVERGED and SUBMITTED but PLAN RUN FAILED at INTAKE->POST_INTAKE schema validation. No workbook produced. Failure surfaced loudly at the backend with a precise field path; client-facing page still says 'We are building your plan now'.",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "marginal_business_below_the_viability_line",
+    "retention_answer_applied_to_utilization",
+    "discovery_yes_on_an_already_captured_activity",
+    "heavy_owned_equipment_depreciation",
+    "remediation_ladder_exercised"
+   ],
+   "headline": "Never reached the acceptance/restructure test it was built for. A discovery answer meaning 'already inside an existing line' was read as YES, creating an all-null third LOB that two removal requests could not clear; it failed schema validation and killed the build. No acceptance_verdict, restructure, evals or rescue state exists. Two real closures alongside: A-106 retention reached and applied exactly, and the pre-submit gate proven to refuse shipping a plan that does not work.",
+   "issues_filed": 3,
+   "blockers": 1
   }
  },
  "verdict_classes": {
@@ -1478,7 +1526,8 @@
   },
   "plan_run_failed": {
    "runs": [
-    "CW-013"
+    "CW-013",
+    "CW-036"
    ],
    "note": "converged and submitted but the planning run died"
   },
