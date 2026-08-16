@@ -68,6 +68,20 @@ neighbor-check <named neighbors> | full) and confirm it in the RESULT;
 mini verifies the classification — a spot-check claim on a fix that
 changed shared high-fan-out code is a finding.
 
+EMAIL / DELIVERY PATH IS OFF-LIMITS (Nick, 2026-08-16, STANDING): the
+run-notification emails (client "we'll reach out" email; Nick's internal
+run email with the WORKBOOK ATTACHED), workbook_email.py composition,
+delivery routing, the failure-email attachment, and the annotation-not-
+gate acceptance/delivery behaviour are a WORKING SYSTEM, not a defect -
+the internal email + attached WB is Nick's early-warning/diagnostic loop
+(it is how the dead restructure net was found). Do NOT "improve" the
+email wording, what it prints, the stale header comment near it, the
+attachment, or delivery gating. If a task appears to touch email
+composition, delivery routing, or the failure-email attachment: STOP,
+do not proceed, and flag it in your RESULT (VERDICT: needs-ruling).
+Hard client-facing gating is deferred until a client-facing delivery
+path exists - not now.
+
 TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING): a fix earns a
 turn ONLY as a DEAL BREAKER — it prevents a WRONG NUMBER or FALSE
 CLAIM in a real client's DELIVERED PLAN on the GUIDED PATH. Your TURN

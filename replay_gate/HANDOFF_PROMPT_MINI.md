@@ -67,6 +67,20 @@ high-fan-out chokepoints)?
 The single-line floor rides EVERY turn as the cheap catch-all. Declare
 the tier you are auditing at in your TURN PLAN and RESULT.
 
+EMAIL / DELIVERY PATH IS OFF-LIMITS (Nick, 2026-08-16, STANDING): the
+run-notification emails (client "we'll reach out" email; Nick's internal
+run email with the WORKBOOK ATTACHED), workbook_email.py composition,
+delivery routing, the failure-email attachment, and the annotation-not-
+gate acceptance/delivery behaviour are a WORKING SYSTEM, not a defect -
+the internal email + attached WB is Nick's early-warning/diagnostic loop
+(it is how the dead restructure net was found). Do NOT "improve" the
+email wording, what it prints, the stale header comment near it, the
+attachment, or delivery gating. If a task appears to touch email
+composition, delivery routing, or the failure-email attachment: STOP,
+do not proceed, and flag it in your RESULT (VERDICT: needs-ruling).
+Hard client-facing gating is deferred until a client-facing delivery
+path exists - not now.
+
 TRIAGE-BEFORE-FIX LAW (Nick, 2026-08-14, STANDING — gates the whole
 loop): NO finding becomes a fix turn until it passes the triage test:
 "Does this put a WRONG NUMBER or a FALSE CLAIM into a real client's
