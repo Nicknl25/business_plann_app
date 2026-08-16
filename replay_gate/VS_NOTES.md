@@ -3379,3 +3379,42 @@ row untouched, receipts 'is its own line;' x2, no 'under'. Canary SKIP
 (spot-check tier). Note: draft 8196d410 (0 messages, 18:12:28) is the
 known vite/.env.local phantom from the backend restart, not a live
 intake.
+
+## DEAD RESTRUCTURE NET (Nick 08-16 ruling; 246a53d) - FIX 1 + FIX 2 landed, FIX 3 split off
+FIX 1: searcher.synthesize_new_line_rows emits a contract-valid 'COGS %'
+row on every synthesized new line WHEN the base draft carries per-line
+COGS (single-line/blend drafts byte-identical). Value = _new_line_cogs_pct:
+1 - executive-authored gross_margin_pct (what blended_cogs_ratio already
+charges the new line), else the draft's revenue-weighted per-line blend;
+never a constant. Row shape = finmo_bridge's real per-line row
+(controller_write=False, derived_driver=per_line_cogs_source, lever_id
+revenue::lob::product::COGS %, ratio/percent_of_line_revenue, constant
+across the horizon incl. the stub so an overlay re-resolve keeps it).
+THREE callers pass gross_margin_pct: searcher.apply_candidate,
+joint_solver._prepare_restructure_model, AND the real re-run's grid
+loader (post_intake_initial_grid/runner.py ~1960) - the third caller is
+the one the approved design flows through; missing it would have killed
+the rescue one stage later on the same contract.
+FIX 2: joint_solver.RestructureNetDeadError (RuntimeError, to_dict) raised
+by run_restructure_joint_solve when evals==0 AND every rung raised AND one
+identical signature. Honest exhaustion (no updates) and mixed errors stay
+quiet (trace 'dead_search_mixed'). intake_consult: catch at the search
+call -> repair_guidance history gets a dead_net record, directive
+cleared, planning_runs.run_status=failed (failure_reason = the violation),
+RE-RAISE past the restructure block's swallow-all (explicit except
+RestructureNetDeadError: raise ahead of it; the class is imported ABOVE
+the try so the clause is always bound) -> handler RuntimeError path ->
+FAILED diagnostics row + failure email + HTTP 500. Nothing ships.
+PROOF: _rs_deadnet_repro.py (PRE evals=0 identical ContractViolation on
+Nine Fathom 6d2823db from persisted model_input + bounds; POST contract
+valid, evals=8, found=True), _rs_deadnet_failloud_proof.py A-E,
+_rs_deadnet_class_sweep.py 8/8 (structural bounds via
+validate_restructure_bounds where no executive bounds persisted),
+LIVE Nine Fathom re-run: f44ff3f1 failed -> restructure evals=8 ->
+review approved -> e8a03731 PASSED 18/18 (Q11 NI 12.05% vs 8%). Floor
+R31/R32 digests identical pre/post (1d50e46ab8e6 / 24e38de4dc98 /
+cbd764631e98).
+OPEN: FIX 3 (one ruler in the cascade) = next VS turn, neighbor-check.
+Observation: _prepare_restructure_model also flips EXISTING COGS % rows to
+controller_write=True/derived_driver=None (pre-existing, harmless, not
+the real-row shape) - triage.
