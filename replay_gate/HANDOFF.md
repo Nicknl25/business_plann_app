@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 3/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
@@ -268,3 +268,84 @@ TASK:
   MINI next: audit TURN A at spot-check - read the catch diff, the live
   dead-net artifacts (planning_runs, diagnostics row, email outcome), rerun
   the fail-loud proof (B quiet), floor R31/R32.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none
+  EVIDENCE: 59ca304 (code + proofs) ; Test Files/_rs_deadnet_live_failure_surface.py
+    (LIVE proof, rewind-clone of Nine Fathom + POST system-run + 17 artifact
+    checks) with _rs_deadnet_live_failure_surface_20260816_PRE.txt (RED 7:
+    HTML 500, planning_runs df5e3e90 COMPLETED w/ no failure_reason, NO
+    diagnostics row, NO email; clone rsdeadfdad36d9) and _POST.txt (ALL GREEN
+    17/17; clone rsdeadd25e105a, planning_run 3970304a failed + failure_reason
+    names ContractViolation, FAILED diagnostics row class RestructureNetDeadError,
+    failure email sent subject 'POST-INTAKE FAILURE: Nine Fathom Coffee Roasters
+    [DEADNET PROOF CLONE] - RestructureNetDeadError', HTTP 500 JSON body
+    error=system_run_failed restructure_net_dead=true, repair_guidance dead_net
+    record + search_1 evals=0 dead_net=True, workbook_deliveries 0) ;
+    Test Files/_rs_deadnet_live_server.py (the test-only :5050 launcher that
+    strips the synthesized COGS row - no test hook in app code) ; server logs
+    _logs_deadnet_PRE_20260816.txt / _logs_deadnet_POST2_20260816.txt (lines
+    1438-1448: 'planning_run ... flipped to failed', 'System run failed ...
+    (planning_run 3970304a...)', REQ -> 500) ;
+    _rs_deadnet_failloud_proof_20260816_fix2b.txt (A-E ALL GREEN on the fresh
+    clone rsdeadd25e; B honest exhaustion QUIET, C mixed quiet) ;
+    _gate_only_R31_R32_20260816_fix2b.txt (2/2 GREEN, digests
+    model_input=1d50e46ab8e6 finmo=24e38de4dc98 grid=cbd764631e98 IDENTICAL).
+  SUMMARY: FIX 2b LANDED (spot-check tier, as declared). Chosen shape: the
+    outer except-RestructureNetDeadError in the restructure block (formerly a
+    bare re-raise -> Flask default 500) is now the explicit failure surface -
+    resolve the run row, _persist_failed_system_run_snapshot(to_dict()),
+    re-persist the repair_guidance dead_net record, _dispatch_post_intake_
+    failure_alert (FAILED diagnostics row + failure email), return the
+    RuntimeError-branch HTTP 500 JSON body (+restructure_net_dead:true). NOT
+    moved inside the 14489 try: that would re-route every restructure-stage
+    exception; this touches only the dead-net branch. TWO things the LIVE
+    PRE proof found that code-reading missed: (1) FIX 2's inner run_status
+    flip was SILENTLY SKIPPED live - acceptance_planning_run_id is EMPTY on
+    this path (result.planning_run_json carries no planning_run_id), so the
+    run stayed COMPLETED with no failure_reason (mini's 'what DOES land:
+    run_status=failed' was by structure, not live). Fixed by resolving the
+    run by id else the draft's latest run, in BOTH catches. (2) the failed
+    snapshot's persist_post_intake_execution_state rewrites repair_guidance_
+    json to {} - the dead_net audit record vanished on the first POST run;
+    the record now rides the exception (repair_guidance_record) and is
+    re-persisted after the snapshot. Honest exhaustion stays quiet (B).
+    Backend restarted on the real launcher after the proofs, ONE :5050
+    listener (pid 30500). DECLARED-vs-ACTUAL: matched - spot-check, live
+    dead-net run, proof rerun, R31/R32, canary skipped; ONE addition: a PRE
+    live run (red-proof) before the POST, plus a second POST run after (2)
+    was found - three system runs total on tagged clones (rsdead*), all
+    left in the DB as audit artifacts. Two failure emails hit the internal
+    inbox with the [DEADNET PROOF CLONE] subject - not client-facing.
+    Observation for triage (not built): acceptance_planning_run_id empty
+    means verify_run_acceptance ran with planning_run_id=None on this path
+    (latest-run fallback) - pre-existing, worked, but worth a look under
+    the one-authority law.
+TASK:
+  MINI - audit FIX 2b at spot-check (verify the call: additive code in the
+  dead-net catches only; no engine/forward-mover/workbook/golden change;
+  floor digests identical): (a) read the diff in 59ca304 (intake_consult.py
+  inner catch ~14933-14975 run resolution + repair_guidance_record; outer
+  catch ~15218-15320) and confirm the surface reaches FAILED diagnostics
+  row + failure email + HTTP 500 JSON + planning_runs failed + repair_
+  guidance dead_net, and that NO non-dead-net path changed; (b) verify the
+  live artifacts on clone rsdeadd25e105a6a354559afe822c31e (run
+  _rs_deadnet_run_state.py rsdeadd25e; planning_runs 3970304a failed,
+  post_intake_run_diagnostics FAILED row, workbook_deliveries 0) against
+  the PRE clone rsdeadfdad36d96733474782ed442d40 (completed, no diag row);
+  (c) rerun the fail-loud proof on the fresh clone
+  (PYTHONIOENCODING=utf-8 python "Test Files/_rs_deadnet_failloud_proof.py"
+  rsdeadd25e) - B quiet; (d) floor R31/R32 via --only. Do NOT rerun the
+  live proof unless you doubt the artifacts (each run = one full system
+  run + one internal failure email). Then WRITE THE NEXT VS TASK = TURN B:
+  FIX 3 ONE RULER (post_intake_amalgamated/evaluate_plan.py ~:763 fn(fj)
+  in _evaluate_in_cascade evaluates net_income_trajectory_viable finmo-only
+  -> 2pp default; pass model_input so the executive floor governs the
+  cascade as it governs the gate) as its OWN turn, NEIGHBOR-CHECK at
+  minimum (name every check flowing through _evaluate_in_cascade;
+  enumerate + adjudicate every fixture/canary/leg flip; do not auto-bless).
+  Queue for Nick's triage (not built): the acceptance_planning_run_id-empty
+  observation above; R4 email lies by omission + R5 stale header
+  (spot-check turn); R1 delivery of a failed plan (policy); prepare-model
+  COGS-row flag; duplicate-identity candidate watch-list.
