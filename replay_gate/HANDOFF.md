@@ -1,127 +1,84 @@
-STATUS: awaiting-Nick
-TURN: 3/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
-  DISCOVERY PRESENTATION FIXES — Nick's ruling after confirming run #2
-  (Nine Fathom Coffee Roasters, draft 6d2823db, record: _confirm_discovery_
-  ninefathom_20260815.txt). SPOT-CHECK tier, discovery-path only. Judge,
-  validator (F1-F3), reader (F4), seam, gate, capture, engine untouched.
-  (The seam move to :16794 is a SEPARATE neighbor-check turn that follows
-  this one — do not do it here.)
-  TURN-TIMEOUT-MINUTES: 75
-  TURN 1 (VS, SPOT-CHECK):
-   1a LOB NESTING. A discovered stream nested UNDER another line's LOB:
-      Model Inputs reads "retail coffee bags / wholesale coffee sales to
-      grocery stores" — grocery wholesale is a PEER stream, not a
-      sub-product of retail bags. Root: the LOB-PLACEMENT step in
-      append_confirmed_stream_rows stem-matched on the category noun
-      "coffee" (F1's class, one step downstream). FIX (semantic, not a
-      heuristic): a confirmed discovered stream ALWAYS gets its OWN LOB,
-      named for its label — discovery surfaces PEER streams by
-      definition, so a discovered stream is never nested under another
-      line. Delete the LOB stem-match placement. Also: if the generic
-      "Primary line of business" placeholder LOB label originates in the
-      same placement/naming path, fix it there (the primary LOB should
-      carry the client's own line name, e.g. "Roasted coffee"); if it
-      comes from elsewhere, NAME where and leave it (flag for Nick).
-   1b SERIAL COMMA in the ask template: "wholesale coffee sales to
-      grocery stores or brew gear and merchandise sales" ran two items
-      together. For 3+ labels render "A, B, or C" (serial comma before
-      the "or"); 2 labels "A or B"; 1 label "A". Template constant only;
-      forbidden-phrase grep stays clean; the revenue-line clause stays.
-   DEAL BREAKER (turn-plan law): none in the strict sense — Nick ruled
-   both as presentation fixes on his read of the delivered workbook
-   (a mislabelled LOB in the client's plan; an ambiguous question).
-   SPOT-CHECK: red-proof the mis-nesting on the exact Nine Fathom shape
-   (primary '5 lb bag roasted coffee' + confirmed 'retail coffee bags' +
-   'wholesale coffee sales to grocery stores') -> PRE: 2nd row under LOB
-   'retail coffee bags'; POST: each discovered stream its own LOB, drivers
-   untouched (numbers 19/260/.6 and 13/140/.55 do not move); template
-   renders the serial comma for 3 labels; rerun the discovery red-proofs
-   GREEN; floor R31/R32 via --only; canary skip. Live: rewound Nine
-   Fathom clone -> ask renders with the comma -> yes/yes/no -> two rows,
-   two LOBs. Flip to mini.
-  TURN 2 (mini, SPOT-CHECK audit): diff confined to append_confirmed_
-  stream_rows placement + the template constant; PRE red / POST green on
-  the Nine Fathom shape; numbers unchanged; floor. Green -> stop.
-  (re-armed after the Cowork-tester dirty-tree fault; tree is clean now)
+  FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
+  docs/FAILED_ACCEPTANCE_DELIVERY_RESEARCH.md (read it: it carries the
+  code citations and the Nine Fathom evidence). DEAL BREAKER: a plan that
+  FAILED acceptance (net_income_trajectory_viable, Q11 NI 4.04% vs the
+  executive floor 8%) shipped to the client because the restructure
+  rescue died silently (evals=0 on an identical ContractViolation every
+  rung). Root cause CONFIRMED: synthesize_new_line_rows
+  (post_intake_restructure/searcher.py ~:59-118, templates :301-306)
+  builds only Unit Price / Capacity / Utilization and never a COGS % row;
+  the WS1 all-or-nothing validator (post_intake_contracts/
+  finmo_model_input_contract.py:676-695, c77094a) then rejects every
+  candidate on any draft carrying per-line COGS. Dead on essentially every
+  per-line-COGS draft since e26af21 made per-line COGS common. FIX THE
+  CLASS, NOT THE INSTANCE. Verify at artifact level.
+  TURN-TIMEOUT-MINUTES: 180
+  THREE FIXES. Declare the blast-radius tier PER FIX in your TURN PLAN
+  with reasoning (mini audits the call); the turn takes the widest. If
+  the tiers differ, APPLY THE SPLIT LAW: land FIX 1 + FIX 2 (the dead net
+  - the urgent one, restructure module) as THIS turn and hand FIX 3 back
+  as the next VS turn in your outgoing TASK; if you judge all three the
+  same tier, land all three here. Do not make the narrow fixes pay for
+  the wide one, and do not delay the net for it.
+  FIX 1 - SEARCHER EMITS A CONTRACT-VALID COGS ROW. Every synthesized new
+    line must carry a COGS % row so it satisfies the all-or-nothing
+    contract exactly like every real line. Determine the value THE WAY THE
+    SYSTEM DOES: inherit the draft's declared/blended per-line basis when
+    it has one, else a judged value consistent with how the new line's
+    economics are authored by the executive (the restructure designer
+    authors the line - the COGS basis rides with it). NOT a hardcoded
+    constant. Match the existing per-line COGS row structure exactly
+    (label shape "LOB / Product - COGS %", controller_write=False,
+    derived_driver per_line_cogs_source, slot naming) so the new line is
+    born contract-valid with the full driver set and can never be
+    rejected by all-or-nothing.
+  FIX 2 - FAIL LOUD ON A DEAD SEARCH. A restructure search that ends
+    evals=0 / found=False because EVERY rung raised the SAME
+    ContractViolation must RAISE (fail-loud), not return quietly.
+    Distinguish "searched and found nothing" (honest exhaustion, quiet)
+    from "100% rejection on an identical structural error" (a broken net
+    - raise, name the violation, and it must reach the run's failure
+    surface: run_status / diagnostics / email). PREVENT DON'T CATCH: the
+    silence is how this shipped; kill the silence.
+  FIX 3 - ONE RULER. The in-loop cascade evaluates
+    net_income_trajectory_viable with finmo only (post_intake_amalgamated/
+    evaluate_plan.py ~:763 fn(fj) in _evaluate_in_cascade) -> 2pp default
+    -> passes, while the final gate gets model_input -> executive floor ->
+    fails. Pass model_input into the cascade evaluation so the SAME
+    executive floor governs both; the cascade must see the gap the gate
+    will fail. Expect this to change cascade behaviour on plans that
+    previously cleared 2pp - that is the point; adjudicate flips, do not
+    auto-bless them.
+  RED-PROOF on the exact Nine Fathom draft 6d2823db (rewind/clone the
+  persisted state; the failing verdict and repair_guidance_json are in
+  the DB): PRE - restructure dies evals=0 with the identical
+  ContractViolation on every rung and the plan ships failed (reproduce
+  from the persisted model_input + finmo through the restructure search
+  entry, offline); POST - the searcher emits COGS-valid new lines, the
+  contract validator accepts them, the search EVALUATES candidates
+  (evals>0), and the run either lands a rescued plan (acceptance passed)
+  OR fails LOUD - never silently ships failed. Then RE-RUN THE DB SWEEP
+  across completed per-line-COGS drafts (Kestrelbrook fd3d1b02, Thornfield
+  d9b17850, Alderfen, Nine Fathom, and any other multi-line draft): show
+  the restructure search now evaluates candidates on each (evals>0)
+  instead of dying - the class is restored, not the instance. Verify at
+  artifact level (repair_guidance_json trace, planning_runs verdict,
+  _rs_loader_trace.log lines, diagnostics payload). Standing laws: TURN
+  PLAN first, restart backend + ONE :5050 listener after edits, floor
+  R31/R32 every turn, declared-vs-actual in the RESULT. Flip to mini.
+  MINI: audit at the tier VS declared (verify the call); on FIX 1 confirm
+  the emitted COGS row is structurally identical to a real per-line row
+  and its value is derived not constant; on FIX 2 confirm the raise
+  reaches the failure surface and honest exhaustion stays quiet; on FIX 3
+  (if landed) confirm both evaluations read the same floor and enumerate
+  any fixture/canary flips for Nick. Green -> stop -> Nick.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: Test Files/_discovery_lob_nesting_redproof_20260815_PRE.txt (9 red) / _POST.txt (GREEN); Test Files/_live_discovery_ninefathom_clone_20260815.txt (live GREEN); Test Files/_gate_only_R31_R32_20260815_lobnesting.txt (floor GOLDEN); VS_NOTES.md tail section
-  SUMMARY: 1a DONE - stem_match_lob_index deleted; a confirmed discovered stream
-  always gets its OWN LOB named for its label (append + carry re-append
-  branch, same module); the 'own line under <lob>' receipt variant is gone.
-  1b DONE - join_labels renders 'A, B, or C' for 3+ (2 = 'A or B', 1 = 'A').
-  Diff = gpt_stream_discovery.py only (17+/39-). PRE red 9 on the exact Nine
-  Fathom shape -> POST GREEN, numbers unchanged; existing discovery red-proofs
-  GREEN; floor R31/R32 GOLDEN; LIVE rewound Nine Fathom clone on the restarted
-  :5050 -> serial comma rendered, yes/yes/no/no -> two rows, two LOBs.
-  'Primary line of business' placeholder: NOT in the placement path - named
-  origin financials_year1._build_default_lobs (financials_year1.py:167) echoed
-  by the ops model into ops.lob_models; LEFT, flagged for Nick.
-  DECLARED-vs-ACTUAL: matches the plan (spot-check; loaded only HANDOFF +
-  gpt_stream_discovery.py sections 6-7/template/join_labels + the two
-  red-proof/clone runners + the Nine Fathom ops JSON read-only; canary skip).
-  One divergence, additive: a NEW live clone runner was written for Nine
-  Fathom (the plan said 'rewound Nine Fathom clone' - it did not exist, so it
-  was built from the Cormorant runner; same call chain).
-TASK:
-  TURN 2 (mini, SPOT-CHECK audit): (1) diff confined to
-  gpt_stream_discovery.py: stem_match_lob_index removed, both callers
-  collapsed to lobs.append(own LOB), join_labels serial comma - nothing
-  else; (2) PRE red / POST green on the Nine Fathom shape (Test
-  Files/_discovery_lob_nesting_redproof.py + the two txt captures);
-  numbers 19/260/.6, 13/140/.55, 58/380/.75 unchanged; (3) live clone
-  txt: ask carries ', or ' before the last label; each yes -> own LOB;
-  receipts 'is its own line;' with no 'under'; (4) floor R31/R32 GOLDEN
-  digests unchanged. Green -> stop (flip awaiting-Nick). Nick's triage
-  items carried in the RESULT: the 'Primary line of business' primary-LOB
-  placeholder origin (financials_year1.py:167 default echoed by the ops
-  model) - a naming rule for the primary LOB is a separate turn if he
-  wants it; the seam move to :16794 remains the next neighbor-check turn.
-RESULT:
-  AGENT: mini
-  VERDICT: green
-  ERROR-SIGNATURE: none
-  EVIDENCE: Test Files/_gate_only_R31_R32_20260815_mini_lobnesting.txt (mini's own --only R31,R32 rerun, all 4 GOLDEN-SHA identical to the pre-turn F4 capture); git show 39d1c17 -- gpt_stream_discovery.py; Test Files/_discovery_lob_nesting_redproof_20260815_PRE.txt/_POST.txt; Test Files/_live_discovery_ninefathom_clone_20260815.txt
-  SUMMARY: SPOT-CHECK audit GREEN. (1) App diff = gpt_stream_discovery.py ONLY
-  (56 lines): stem_match_lob_index deleted, both callers (append_confirmed_
-  stream_rows + carry_stream_discovery re-append) collapsed to lobs.append(own
-  LOB), 'own line under <lob>' receipt variant gone, join_labels 3+ -> ', or '.
-  Nothing else in python/ touched; no leg or app file references the deleted
-  helper (grep). (2) PRE red 9 for the RIGHT reasons (nested LOB, 'under'
-  receipt, missing serial comma incl. clarify template) -> POST GREEN; I re-ran
-  the red-proof myself: GREEN; drivers 19/260/.6, 13/140/.55, 58/380/.75
-  unchanged in both branches. Also re-ran _stream_discovery_redproof, _f123,
-  _f4 (stubbed door): all GREEN. (3) Live clone txt: ask carries ', or '
-  before the last of 4 labels; yes/yes/no/no -> two rows, two own LOBs,
-  receipts 'is its own line;' with no 'under', primary untouched. (4) Floor:
-  my own --only R31,R32 rerun rc=0, single_line_input 72dfcb81 / model_input
-  1d50e46a / finmo 24e38de4 / workbook_formulas cbd76463 == pre-turn digests.
-  VS TIER CALL honest (spot-check; discovery-only module, no high-fan-out
-  code). VS DECLARED-vs-ACTUAL: watcher-log plan 18:10:52 matches the commit;
-  the one divergence (new _live_discovery_ninefathom_clone.py runner) was
-  declared additive in VS's RESULT - not a finding. 'Primary line of business'
-  origin confirmed at financials_year1._build_default_lobs (line 167 fallback
-  when business_type is empty), outside the placement path - correctly LEFT.
-  HOUSEKEEPING (not a defect, WONT-FIX as a fix turn): _mention_hits in
-  gpt_stream_discovery.py:683 is now dead (its only caller was the deleted
-  helper) - delete it as a rider on the next turn that touches this file.
-  mini DECLARED-vs-ACTUAL: matches the plan (loaded HANDOFF, the 39d1c17 diff,
-  the three txt captures, financials_year1.py:167; re-ran red-proof + floor;
-  canary skip; legs R31+R32). Extra beyond plan: re-ran the three existing
-  discovery red-proofs (cheap, offline).
-  FOR NICK (needs-ruling, not queued): (a) primary-LOB naming rule - the
-  primary LOB reads 'Primary line of business' when the ops model carries no
-  business_type; if you want it to carry the client's own line name (e.g.
-  'Roasted coffee') that is a separate spot-check turn, say so; (b) the seam
-  move to :16794 remains the next NEIGHBOR-CHECK turn as already scheduled.
-TASK:
-  (gated on Nick - STATUS awaiting-Nick) NEXT VS TURN when Nick releases it:
-  the seam move to :16794 (NEIGHBOR-CHECK tier as previously scoped, its own
-  turn, nothing bundled). Rider allowed on that turn only because it is the
-  same file family: delete dead _mention_hits in gpt_stream_discovery.py. If
-  Nick rules (a) primary-LOB naming, that is a SEPARATE spot-check turn in
-  financials_year1._build_default_lobs / the ops-model echo - do not bundle
-  with the seam move.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
