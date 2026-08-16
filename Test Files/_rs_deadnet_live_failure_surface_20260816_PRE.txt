@@ -1,0 +1,26 @@
+  [PASS] backend answers on :5050: HTTP 200
+clone draft rsdeadfdad36d96733474782ed442d40 client RSDEAD03A8433ED4
+HTTP 500 after 200s
+non-JSON body: <!doctype html> <html lang=en> <title>500 Internal Server Error</title> <h1>Internal Server Error</h1> <p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p> 
+body: {"error": null, "detail": null, "restructure_net_dead": null, "failure_email": null}
+  [PASS] HTTP 500
+  [FAIL] JSON body error=system_run_failed + restructure_net_dead flag
+  [FAIL] detail names the violation
+  [FAIL] failure email SENT (body.failure_email.sent): {}
+planning_runs: [('df5e3e90', 'completed', '')]
+  [FAIL] exactly one planning_run, run_status=failed
+  [FAIL] planning_runs.failure_reason names ContractViolation
+diagnostics rows: []
+  [FAIL] FAILED diagnostics row present (label FAILED, class RestructureNetDeadError)
+  [PASS] NO passed diagnostics row
+draft: planning_run_status completed | failure 
+repair_guidance.restructure: dead_net {"violation": "ContractViolation: AMALGAMATED_SESSION\u2192MODEL_INPUT: field 'sections' expected Value error, per-line COGS is all-or-nothing: slots ['lob_3_product_1', 'lob_4_product_1'] lack the 'C | final_passed False | active_directive None
+  history stages: [('bounds', None, None, None), ('search_1', False, 0, True)]
+  [PASS] repair_guidance dead_net record (violation named, rungs>0)
+  [PASS] repair_guidance final_passed False, active_directive None
+  [PASS] search stage evals=0 dead_net=True
+  [FAIL] draft planning_run_status=failed: planning_run_json.run_status=completed
+  [PASS] NO workbook delivery record: workbook_deliveries rows=0
+
+clone draft: rsdeadfdad36d96733474782ed442d40
+RESULT: RED (7): ['JSON body error=system_run_failed + restructure_net_dead flag', 'detail names the violation', 'failure email SENT (body.failure_email.sent)', 'exactly one planning_run, run_status=failed', 'planning_runs.failure_reason names ContractViolation', 'FAILED diagnostics row present (label FAILED, class RestructureNetDeadError)', 'draft planning_run_status=failed']

@@ -1,0 +1,15 @@
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=14749.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=32160.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=28473.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=24786.0
+finmo_std_layer1_trace q=19 window=[20] value=21099.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+draft: rsdeadd25e105a6a354559afe822c31e Nine Fathom Coffee Roasters [DEADNET PROOF CLONE]
+A DEAD NET: RAISED RestructureNetDeadError | rungs 2 | ok True
+   msg: restructure_net_dead: every rung (2/2) raised the identical exception with zero candidate evaluations — ContractViolation: AMALGAMATED_SESSION→MODEL_INPUT: field 'sections' expected Value error, per-l
+   to_dict keys: ['failure_reason', 'failure_stage', 'rungs', 'trace', 'violation']
+B EXHAUSTION: quiet found False evals 0 | ok True | tail rung 2: state=no_solution updates=0
+C MIXED: quiet | ok True | tail dead_search_mixed: 2/2 rungs raised (2 distinct), evals=0
+D IDENTICAL OTHER: RAISED | ok True
+E FIXED NET: found True evals 8 | ok True
+ALL GREEN

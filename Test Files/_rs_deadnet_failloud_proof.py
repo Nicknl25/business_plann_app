@@ -7,7 +7,14 @@ import sys, importlib.util
 sys.path.insert(0, "C:/dev/business_plann_app/python")
 spec = importlib.util.spec_from_file_location("r", "C:/dev/business_plann_app/Test Files/_rs_deadnet_repro.py")
 r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)
-conn = r._conn(); row, mi, rt, ops, fin, bounds = r._load(conn, "6d2823db"); conn.close()
+# Draft prefix: default the original Nine Fathom; pass a fresh (unmutated)
+# clone with persisted bounds instead once 6d2823db holds the rescued plan
+# (case E replays the persisted candidates - on the mutated draft they
+# collide with lob_3/lob_4 and raise). FIX 2b: the dead-net live-proof
+# clones (rsdead...) carry the 3-line base + persisted bounds.
+_prefix = sys.argv[1] if len(sys.argv) > 1 else "6d2823db"
+conn = r._conn(); row, mi, rt, ops, fin, bounds = r._load(conn, _prefix); conn.close()
+print("draft:", row["draft_id"], row["business_name"])
 
 from client_intake_and_finmo.post_intake_restructure import joint_solver as js
 from client_intake_and_finmo.post_intake_restructure.joint_solver import RestructureNetDeadError

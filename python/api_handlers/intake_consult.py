@@ -14923,28 +14923,66 @@ def post_intake_consult_system_run_handler(*, app, request):
               "rungs": _rs_dead.rungs,
               "trace": list(_rs_dead.trace),
             })
-            _rs_persist_guidance({
+            _rs_dead_guidance = {
               "restructure": {
                 "active_directive": None,
                 "final_passed": False,
                 "dead_net": {"violation": _rs_dead.violation, "rungs": _rs_dead.rungs},
                 "history": _rs_iterations,
               }
-            })
+            }
+            _rs_persist_guidance(_rs_dead_guidance)
+            # Carried on the exception so the outer catch can RE-PERSIST it
+            # after the failed-run snapshot (persist_post_intake_execution_
+            # state rewrites repair_guidance_json with a default {} - the
+            # live POST proof lost the dead_net record that way).
+            setattr(_rs_dead, "repair_guidance_record", copy.deepcopy(_rs_dead_guidance))
             _rs_clear_active(result_draft_id)
-            if acceptance_planning_run_id:
+            # FIX 2b (2026-08-16): resolve the run row to flip the way the
+            # rest of the handler does - by acceptance_planning_run_id when
+            # it names a row, else the draft's LATEST planning run. The
+            # live PRE proof showed acceptance_planning_run_id EMPTY on this
+            # path (result.planning_run_json carries no planning_run_id), so
+            # the flip below was silently skipped and the run stayed
+            # 'completed' with no failure_reason.
+            _rs_dead_run_id = ""
+            try:
+              _rs_dead_row = None
+              if str(acceptance_planning_run_id or "").strip():
+                _rs_dead_row = get_planning_run(
+                  conn, planning_run_id=str(acceptance_planning_run_id).strip(),
+                )
+              if not isinstance(_rs_dead_row, dict):
+                _rs_dead_row = get_planning_run(conn, draft_id=result_draft_id)
+              if isinstance(_rs_dead_row, dict):
+                _rs_dead_run_id = str(_rs_dead_row.get("planning_run_id") or "").strip()
+            except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
+              app.logger.error(
+                "restructure_net_dead: run lookup failed for draft %s: %s",
+                result_draft_id, _rs_mark_exc,
+              )
+            if _rs_dead_run_id:
               try:
                 clear_planning_run_action(
                   conn,
-                  planning_run_id=str(acceptance_planning_run_id),
+                  planning_run_id=_rs_dead_run_id,
                   run_status="failed",
                   failure_reason=str(_rs_dead)[:1000],
+                )
+                app.logger.error(
+                  "restructure_net_dead: planning_run %s flipped to failed for draft %s",
+                  _rs_dead_run_id, result_draft_id,
                 )
               except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
                 app.logger.error(
                   "restructure_net_dead: run_status flip failed for draft %s: %s",
                   result_draft_id, _rs_mark_exc,
                 )
+            else:
+              app.logger.error(
+                "restructure_net_dead: NO planning_run row resolved for draft %s (acceptance_planning_run_id=%r)",
+                result_draft_id, acceptance_planning_run_id,
+              )
             app.logger.error(
               "restructure_net_dead for draft %s: %s", result_draft_id, _rs_dead,
             )
@@ -15188,8 +15226,109 @@ def post_intake_consult_system_run_handler(*, app, request):
               "history": _rs_iterations,
             }
           })
-    except RestructureNetDeadError:
-      raise  # dead net: already recorded + marked failed above; the handler failure path carries it
+    except RestructureNetDeadError as _rs_dead_exc:
+      # FAIL LOUD, PART 2 (dead-net FIX 2b, 2026-08-16): the restructure
+      # block is a SIBLING of the try whose except-RuntimeError owns the
+      # failure surface, so a bare re-raise here only produced Flask's
+      # default 500 (planning_runs flipped failed above, but NO FAILED
+      # diagnostics row and NO failure email -> the run sat failed until
+      # the supervisor ladder burned four identical re-runs). Land the
+      # same surface the RuntimeError branch gives every other failure,
+      # here, on the dead-net branch only. Nothing below this block runs
+      # (no diagnostics/workbook/passed-email for a dead net).
+      _rs_dead_detail = str(_rs_dead_exc).strip() or "restructure_net_dead"
+      _rs_dead_payload = (
+        _rs_dead_exc.to_dict() if hasattr(_rs_dead_exc, "to_dict") else {}
+      )
+      _rs_dead_run: Optional[Dict[str, Any]] = None
+      try:
+        if str(acceptance_planning_run_id or "").strip():
+          _rs_dead_run = get_planning_run(
+            conn, planning_run_id=str(acceptance_planning_run_id).strip(),
+          )
+        if not isinstance(_rs_dead_run, dict):
+          # Same fallback as the inner catch: the draft's LATEST run.
+          _rs_dead_run = get_planning_run(conn, draft_id=result_draft_id)
+      except Exception as _rs_dead_lookup_exc:  # noqa: BLE001 - surface still lands without the row
+        app.logger.error(
+          "restructure_net_dead: run lookup failed for draft %s: %s",
+          result_draft_id, _rs_dead_lookup_exc,
+        )
+      _rs_dead_run = _rs_dead_run if isinstance(_rs_dead_run, dict) else None
+      if _rs_dead_run is not None and str(_rs_dead_run.get("run_status") or "") != "failed":
+        # Belt-and-braces: the inner catch normally flips it; make the
+        # row honest even if that flip failed.
+        try:
+          clear_planning_run_action(
+            conn,
+            planning_run_id=str(_rs_dead_run.get("planning_run_id") or "").strip(),
+            run_status="failed",
+            failure_reason=_rs_dead_detail[:1000],
+          )
+        except Exception:
+          pass
+      try:
+        _persist_failed_system_run_snapshot(
+          conn=conn,
+          draft_id=result_draft_id,
+          detail=_rs_dead_detail,
+          active_run=_rs_dead_run,
+          failure_diagnostics=_rs_dead_payload if isinstance(_rs_dead_payload, dict) else None,
+          failure_details=None,
+        )
+      except Exception as _rs_dead_snap_exc:  # noqa: BLE001 - the email + 500 still go out
+        app.logger.error(
+          "restructure_net_dead: failed-snapshot persist failed for draft %s: %s",
+          result_draft_id, _rs_dead_snap_exc,
+        )
+      # The snapshot's persist rewrites repair_guidance_json with a default
+      # payload; put the dead-net audit record back (permanent record for
+      # the supervisor / post-mortem).
+      _rs_dead_record = getattr(_rs_dead_exc, "repair_guidance_record", None)
+      if isinstance(_rs_dead_record, dict) and _rs_dead_record:
+        try:
+          _rs_dead_cur = conn.cursor()
+          try:
+            _rs_dead_cur.execute(
+              "UPDATE intake_consult_drafts SET repair_guidance_json=%s WHERE draft_id=%s",
+              (json.dumps(_rs_dead_record, ensure_ascii=False), result_draft_id),
+            )
+            conn.commit()
+          finally:
+            _rs_dead_cur.close()
+        except Exception as _rs_dead_rg_exc:  # noqa: BLE001
+          app.logger.error(
+            "restructure_net_dead: repair_guidance re-persist failed for draft %s: %s",
+            result_draft_id, _rs_dead_rg_exc,
+          )
+      app.logger.exception(
+        "System run failed for draft %s (planning_run %s): %s | restructure_net_dead=%s",
+        result_draft_id,
+        (_rs_dead_run or {}).get("planning_run_id") if _rs_dead_run else "(unresolved)",
+        _rs_dead_detail, _rs_dead_payload,
+      )
+      # Never-raises by contract: FAILED diagnostics row + failure email.
+      _rs_dead_email = _dispatch_post_intake_failure_alert(
+        app=app,
+        conn=conn,
+        draft_id=result_draft_id,
+        active_run=_rs_dead_run,
+        exception=_rs_dead_exc,
+        failure_detail=_rs_dead_detail,
+        failure_details_payload=None,
+        failure_diagnostics_payload=_rs_dead_payload if isinstance(_rs_dead_payload, dict) else None,
+      )
+      return (
+        jsonify({
+          "error": "system_run_failed",
+          "detail": _rs_dead_detail,
+          "diagnostics": _rs_dead_payload if isinstance(_rs_dead_payload, dict) else {},
+          "details": {},
+          "failure_email": _rs_dead_email,
+          "restructure_net_dead": True,
+        }),
+        500,
+      )
     except Exception as _rs_exc:  # noqa: BLE001 â€” the pre-restructure verdict stands
       app.logger.exception(
         "restructure_stage failed for draft %s: %s", result_draft_id, _rs_exc
