@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 4/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
@@ -349,3 +349,94 @@ TASK:
   observation above; R4 email lies by omission + R5 stale header
   (spot-check turn); R1 delivery of a failed plan (policy); prepare-model
   COGS-row flag; duplicate-identity candidate watch-list.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: none
+  EVIDENCE: 59ca304 diff (intake_consult.py inner catch 14933-14975 run
+    resolution + repair_guidance_record; outer catch 15229-15331 snapshot +
+    re-persist + _dispatch_post_intake_failure_alert + JSON 500) ; my
+    independent re-reads this turn: _rs_deadnet_run_state.py rsdeadd25e
+    (planning_runs 3970304a failed + failure_reason names ContractViolation,
+    diagnostics row FAILED class RestructureNetDeadError, draft
+    planning_run_status failed, repair_guidance dead_net rungs=2 evals=0)
+    vs rsdeadfdad (PRE: df5e3e90 completed, failure None, no diagnostics
+    row) ; server log _logs_deadnet_POST2_20260816.txt:1438/1440/1448
+    (flipped to failed / System run failed / REQ -> 500) ; POST proof
+    body.failure_email.sent=true subject 'POST-INTAKE FAILURE: ...
+    RestructureNetDeadError', workbook_deliveries 0 ; fail-loud proof rerun
+    A-E ALL GREEN (B exhaustion quiet, C mixed quiet) ; replay_gate --only
+    R31,R32 2/2 GREEN digests model_input=1d50e46ab8e6 finmo=24e38de4dc98
+    grid=cbd764631e98 (identical to VS's and pre-fix) ; ONE :5050 listener
+    pid 30500 (real launcher, matches VS).
+  SUMMARY: FIX 2b CONFIRMED at spot-check. TIER CALL HONEST: the app-code
+    diff is 151 lines in intake_consult.py, all inside the two
+    except-RestructureNetDeadError catches (inner: run resolution by id else
+    the draft's latest run + record carried on the exception; outer: flip
+    belt-and-braces, _persist_failed_system_run_snapshot, repair_guidance
+    re-persist, _dispatch_post_intake_failure_alert, RuntimeError-shape JSON
+    500 + restructure_net_dead:true); the following except-Exception
+    (pre-restructure verdict stands) and everything after the restructure
+    block are untouched; the early return exits through the handler's
+    benign finally (deadline reset + conn.close). No engine / forward-mover /
+    workbook-builder / contract / golden change; floor digests identical.
+    Test hook lives only in Test Files/_rs_deadnet_live_server.py (monkeypatch
+    of joint_solver.synthesize_new_line_rows in the test process), not in app
+    code - verified via the commit's file list. VS DECLARED-vs-ACTUAL:
+    matched (plan 15:56 said outer-catch surface, live dead-net run, proof
+    rerun, R31/R32, canary skip; the PRE red run + second POST run were
+    disclosed). The two live-only findings VS reports (acceptance_planning_
+    run_id empty on this path; snapshot wipes repair_guidance_json) are
+    real: the PRE clone shows exactly that shape (completed, no reason,
+    dead_net record present only because no snapshot ran) and the POST clone
+    shows both fixed. Honest exhaustion stays quiet (B). Did NOT rerun the
+    live system-run (artifacts not in doubt; each run = an internal email).
+    DECLARED-vs-ACTUAL (mini): matched - diff read, live artifacts re-read
+    on both clones, proof rerun, R31/R32 (2 legs), canary skipped; no
+    additions.
+    TRIAGE (mini): DEAD RESTRUCTURE NET FIX 1 + FIX 2 + FIX 2b = CLOSED
+    (deal breaker: silently shipped failed plan -> now rescued or LOUD).
+    NEEDS-RULING for Nick (queued, not built): (n1) acceptance_planning_
+    run_id empty on the restructure path -> verify_run_acceptance ran with
+    planning_run_id=None (latest-run fallback), pre-existing, one-authority
+    smell; (n2) R4 email lies by omission + R5 stale header comment
+    (spot-check turn if ruled); (n3) R1 delivery of a failed plan (policy);
+    (n4) _prepare_restructure_model flips EXISTING per-line COGS % rows to
+    controller_write=True/derived_driver=None (not the real-row shape,
+    solve green); (n5) duplicate-identity candidate -> loud fail via FIX 2
+    (watch-list). WONT-FIX: HTML-vs-JSON 500 shape difference is gone;
+    nothing else surfaced.
+TASK:
+  VS - TURN B: FIX 3 ONE RULER, its OWN turn (do NOT bundle anything else).
+  Deal breaker it prevents: the in-loop cascade evaluates
+  net_income_trajectory_viable finmo-only (post_intake_amalgamated/
+  evaluate_plan.py ~:763 fn(fj) in _evaluate_in_cascade) -> the 2pp default
+  -> PASSES, while the final gate reads model_input -> the executive floor
+  (8% on Nine Fathom) -> FAILS: the cascade blesses a plan the gate then
+  rejects, so the restructure net (now alive) is aimed by one ruler and
+  judged by another - a client can be handed a plan the executive floor
+  never approved, or denied a rescue the cascade could have found. FIX:
+  pass model_input into the cascade evaluation so the SAME executive floor
+  governs both readings; the cascade must see the gap the gate will fail.
+  TIER: NEIGHBOR-CHECK at minimum - _evaluate_in_cascade is shared
+  evaluation semantics. In your TURN PLAN NAME every check that flows
+  through _evaluate_in_cascade (enumerate the fn(fj) table) and state for
+  each whether it reads model_input today; after the change confirm each
+  NEIGHBOR still reads exactly what it read before (only
+  net_income_trajectory_viable's floor source may change). ENUMERATE every
+  fixture / canary / leg / golden flip the change produces (run the legs
+  that exercise the cascade + the sweep drafts: Nine Fathom 6d2823db (now
+  rescued), Kestrelbrook fd3d1b02, Thornfield d9b17850, Alderfen, and the
+  fail-loud clone rsdeadd25e for the dead-net path) and ADJUDICATE each
+  flip in the RESULT (a plan that previously cleared 2pp and now fails the
+  executive floor is THE POINT - it must then be rescued or fail loud, never
+  auto-blessed; a plan that flips the other way is a finding). If the
+  change touches the engine/money math or a golden, STOP and escalate to
+  full apparatus (canary Sunny_V3 first) - say so in the plan. Floor
+  R31/R32 via --only, restart backend + ONE :5050 listener after edits,
+  declared-vs-actual in the RESULT. Flip to mini.
+  MINI next: audit TURN B at neighbor-check - confirm both evaluations
+  read the same floor (trace the floor source in cascade and gate on one
+  draft), independently re-run the named neighbor checks, verify every
+  flip VS enumerated is real and adjudicated (no auto-bless), floor
+  R31/R32. Carry the needs-ruling list (n1-n5) forward to Nick unchanged.
