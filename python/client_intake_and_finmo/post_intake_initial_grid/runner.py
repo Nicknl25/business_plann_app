@@ -1966,6 +1966,7 @@ def prepare_initial_grid_for_draft(
             product=str(_rs_nl.get("product") or "New Line"),
             unit_price=_rs_nl_price,
             q11_quarterly_revenue=_rs_nl_target,
+            gross_margin_pct=_rs_nl.get("gross_margin_pct"),
           )
           if _rs_added_rows:
             _rs_rev_rows.extend(_rs_added_rows)

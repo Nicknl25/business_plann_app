@@ -52,6 +52,34 @@ _TARGET_LADDER = (
 )
 
 
+class RestructureNetDeadError(RuntimeError):
+  """FAIL-LOUD (dead-net fix 2026-08-16): the restructure search ended
+  with ZERO candidate evaluations because EVERY rung raised the SAME
+  exception — a broken net, not an honest exhaustion. Honest exhaustion
+  (rungs that solved and verified non-viable, or returned no updates)
+  stays quiet; this raises so the failure reaches the run's failure
+  surface (run_status / diagnostics / failure email) instead of
+  shipping a failed plan silently (Nine Fathom 6d2823db)."""
+
+  def __init__(self, *, violation: str, rungs: int, trace: List[str]) -> None:
+    self.violation = str(violation or "")
+    self.rungs = int(rungs)
+    self.trace = list(trace or [])
+    super().__init__(
+      f"restructure_net_dead: every rung ({self.rungs}/{self.rungs}) raised the identical "
+      f"exception with zero candidate evaluations — {self.violation}"
+    )
+
+  def to_dict(self) -> Dict[str, Any]:
+    return {
+      "failure_stage": "restructure_joint_solve",
+      "failure_reason": "restructure_net_dead",
+      "violation": self.violation,
+      "rungs": self.rungs,
+      "trace": list(self.trace),
+    }
+
+
 def _num(value: Any) -> Optional[float]:
   try:
     v = float(value)
@@ -106,6 +134,7 @@ def _prepare_restructure_model(
       product=str(nl.get("product") or "New Line"),
       unit_price=price,
       q11_quarterly_revenue=rev_max,
+      gross_margin_pct=nl.get("gross_margin_pct"),
     )
     # Adjustable cell semantics: the line EXISTS at a nominal 1% of its
     # market cap (the capacity-shaping policy requires positive
@@ -280,7 +309,14 @@ def run_restructure_joint_solve(
     _judged_band = None
     judged_ebitda_floor_for_quarter = None  # type: ignore[assignment]
 
+  # Dead-net detection: one signature per rung that RAISED (an
+  # exception, not a no-update return); a rung that ran and produced
+  # updates records nothing here.
+  rung_raise_signatures: List[str] = []
+  rungs_attempted = 0
+
   for ladder_ix, rung in enumerate(_TARGET_LADDER, start=1):
+    rungs_attempted += 1
     targets = []
     for q in _TARGET_QUARTERS:
       rev_q = _base_quarter_revenue(prepared, q)
@@ -404,8 +440,9 @@ def run_restructure_joint_solve(
         numeric_solver_contract=contract,
         fallback_exact_updates=[],
       )
-    except Exception as exc:  # noqa: BLE001 — a crashed rung just fails
+    except Exception as exc:  # noqa: BLE001 — a crashed rung fails; ALL rungs crashing identically raises below
       trace.append(f"rung {ladder_ix}: solve_raised {type(exc).__name__}: {str(exc)[:160]}")
+      rung_raise_signatures.append(f"{type(exc).__name__}: {str(exc)[:400]}")
       continue
     exact_updates = solve.get("exact_updates") or []
     trace.append(
@@ -660,7 +697,30 @@ def run_restructure_joint_solve(
       break
 
   result["trace"] = trace
+  # FAIL LOUD ON A DEAD SEARCH: zero evaluations AND every rung raised
+  # AND one identical signature = a structurally broken net (the
+  # Nine Fathom shape: an identical ContractViolation on every rung).
+  # Distinct from honest exhaustion — rungs that solved (evals>0), or
+  # returned no updates, or raised DIFFERENT errors — which stays quiet.
+  if (
+    not result.get("found")
+    and int(result.get("evals") or 0) == 0
+    and rungs_attempted > 0
+    and len(rung_raise_signatures) == rungs_attempted
+    and len(set(rung_raise_signatures)) == 1
+  ):
+    trace.append(
+      f"dead_net: {rungs_attempted}/{rungs_attempted} rungs raised the identical exception, evals=0 — raising"
+    )
+    raise RestructureNetDeadError(
+      violation=rung_raise_signatures[0], rungs=rungs_attempted, trace=trace,
+    )
+  if not result.get("found") and int(result.get("evals") or 0) == 0 and rung_raise_signatures:
+    trace.append(
+      f"dead_search_mixed: {len(rung_raise_signatures)}/{rungs_attempted} rungs raised "
+      f"({len(set(rung_raise_signatures))} distinct), evals=0"
+    )
   return result
 
 
-__all__ = ["run_restructure_joint_solve"]
+__all__ = ["RestructureNetDeadError", "run_restructure_joint_solve"]

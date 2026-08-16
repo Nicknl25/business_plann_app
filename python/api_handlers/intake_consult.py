@@ -14714,6 +14714,11 @@ def post_intake_consult_system_run_handler(*, app, request):
     # Either outcome is final and honest; the restructured forecast, when
     # viable, simply IS the forecast.
     _rs_attempt_workbook_path: str = ""
+    # Imported ahead of the block so the fail-loud except clause below is
+    # always bound (the dead-net raise must never degrade to a NameError).
+    from client_intake_and_finmo.post_intake_restructure.joint_solver import (  # type: ignore
+      RestructureNetDeadError,
+    )
     try:
       _rs_iterations: List[Dict[str, Any]] = []
       _rs_search: Optional[Dict[str, Any]] = None
@@ -14892,14 +14897,58 @@ def post_intake_consult_system_run_handler(*, app, request):
             # pre-restructure verdict then stands untouched).
             break
           _rs_base_mi = _rs_draft_json("model_input_json")
-          _rs_search = run_restructure_joint_solve(
-            base_model_input=_rs_base_mi,
-            bounds=_rs_bounds,
-            business_naics_6=_rs_naics,
-            ops_json=_rs_ops_json,
-            financials_json=_rs_fin,
-            planning_mode=_rs_planning_mode,
-          )
+          try:
+            _rs_search = run_restructure_joint_solve(
+              base_model_input=_rs_base_mi,
+              bounds=_rs_bounds,
+              business_naics_6=_rs_naics,
+              ops_json=_rs_ops_json,
+              financials_json=_rs_fin,
+              planning_mode=_rs_planning_mode,
+            )
+          except RestructureNetDeadError as _rs_dead:
+            # FAIL LOUD (dead-net fix 2026-08-16): the net is structurally
+            # broken (every rung raised the identical exception, zero
+            # evaluations). The silence is how a FAILED plan shipped to
+            # Nine Fathom — persist the record, mark the run FAILED with
+            # the violation named, and re-raise so the handler's failure
+            # path (FAILED diagnostics row + failure email + HTTP 500)
+            # carries it. Nothing ships.
+            _rs_iterations.append({
+              "stage": f"search_{_rs_i}",
+              "found": False,
+              "evals": 0,
+              "dead_net": True,
+              "violation": _rs_dead.violation,
+              "rungs": _rs_dead.rungs,
+              "trace": list(_rs_dead.trace),
+            })
+            _rs_persist_guidance({
+              "restructure": {
+                "active_directive": None,
+                "final_passed": False,
+                "dead_net": {"violation": _rs_dead.violation, "rungs": _rs_dead.rungs},
+                "history": _rs_iterations,
+              }
+            })
+            _rs_clear_active(result_draft_id)
+            if acceptance_planning_run_id:
+              try:
+                clear_planning_run_action(
+                  conn,
+                  planning_run_id=str(acceptance_planning_run_id),
+                  run_status="failed",
+                  failure_reason=str(_rs_dead)[:1000],
+                )
+              except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
+                app.logger.error(
+                  "restructure_net_dead: run_status flip failed for draft %s: %s",
+                  result_draft_id, _rs_mark_exc,
+                )
+            app.logger.error(
+              "restructure_net_dead for draft %s: %s", result_draft_id, _rs_dead,
+            )
+            raise
           _rs_iterations.append({
             "stage": f"search_{_rs_i}",
             "found": _rs_search.get("found"),
@@ -15139,6 +15188,8 @@ def post_intake_consult_system_run_handler(*, app, request):
               "history": _rs_iterations,
             }
           })
+    except RestructureNetDeadError:
+      raise  # dead net: already recorded + marked failed above; the handler failure path carries it
     except Exception as _rs_exc:  # noqa: BLE001 â€” the pre-restructure verdict stands
       app.logger.exception(
         "restructure_stage failed for draft %s: %s", result_draft_id, _rs_exc

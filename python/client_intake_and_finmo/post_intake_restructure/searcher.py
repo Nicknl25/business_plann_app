@@ -56,6 +56,55 @@ def _level_glide(q: int, start: float, target: float, land_q: int) -> float:
   return start + (target - start) * ((q - 1) / float(land_q - 1))
 
 
+def _new_line_cogs_pct(
+  rev_rows: List[Any],
+  cogs_template: Dict[str, Any],
+  gross_margin_pct: Optional[float],
+) -> Optional[float]:
+  """The COGS % a NEW line is born with — derived THE WAY THE SYSTEM
+  DOES, never a constant:
+
+  1. The executive AUTHORS the new line's economics (designer /
+     constraint_author ``gross_margin_pct``, rails-clamped); the
+     line's COGS % is 1 - that margin — exactly the value
+     ``blended_cogs_ratio`` already charges the new line in the honest
+     verify ("new lines carry their authored margin absolutely").
+  2. When no margin was authored, the new line inherits the draft's
+     own stated per-line basis: the revenue-weighted blend of the
+     existing lines' COGS % rows at the first quarter with revenue
+     (the same weighting the engine's per-line variant and the
+     lockstep reconcile use).
+  Returns None only when neither exists (caller emits no row)."""
+  try:
+    gm = float(gross_margin_pct) if gross_margin_pct is not None else None
+  except (TypeError, ValueError):
+    gm = None
+  if gm is not None and gm == gm and 0.0 < gm < 1.0:
+    return round(max(0.0, min(1.0, 1.0 - gm)), 6)
+  by_slot: Dict[str, Dict[str, List[Any]]] = {}
+  for row in rev_rows:
+    if isinstance(row, dict):
+      slot = str(row.get("revenue_slot_key") or "")
+      by_slot.setdefault(slot, {})[str(row.get("driver") or "").strip()] = row.get("values") or []
+  n = len(cogs_template.get("values") or []) or 21
+  for q in range(n):
+    total = 0.0
+    weighted = 0.0
+    for drv in by_slot.values():
+      if "COGS %" not in drv:
+        continue
+      try:
+        rev_q = float(drv["Capacity"][q]) * float(drv["Unit Price"][q]) * float(drv["Utilization"][q])
+        pct_q = float(drv["COGS %"][q])
+      except (KeyError, TypeError, ValueError, IndexError):
+        continue
+      total += rev_q
+      weighted += rev_q * pct_q
+    if total > 0.0:
+      return round(max(0.0, min(1.0, weighted / total)), 6)
+  return None
+
+
 def synthesize_new_line_rows(
   templates: Dict[str, Dict[str, Any]],
   rev_rows: List[Any],
@@ -64,14 +113,26 @@ def synthesize_new_line_rows(
   product: str,
   unit_price: float,
   q11_quarterly_revenue: float,
+  gross_margin_pct: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
-  """Build a contract-valid driver-row triple for a NEW revenue line.
+  """Build a contract-valid driver-row set for a NEW revenue line.
 
   The FinmoModelInputContract groups revenue rows by revenue_slot_key
   (lob_N_product_M, exactly one row per canonical driver) — the new
   line needs its OWN slot, its own identity fields, and none of the
   template's derived-driver metadata (a payroll-derived Capacity row
-  must not make the new line born-derived)."""
+  must not make the new line born-derived).
+
+  PER-LINE COGS (WS1(b) all-or-nothing, dead-net fix 2026-08-16): when
+  the base draft carries per-line ``COGS %`` rows, EVERY slot must — so
+  the new line is born with its own ``COGS %`` row, shaped exactly like
+  a real per-line row (finmo_bridge: driver "COGS %",
+  controller_write=False, derived_driver "per_line_cogs_source",
+  lever_id revenue::lob::product::COGS %, ratio /
+  percent_of_line_revenue, constant across the horizon) and valued by
+  ``_new_line_cogs_pct`` (authored margin, else the draft's blend).
+  Single-line / blend-only drafts (no COGS % row anywhere) are
+  byte-identical to before: the triple only."""
   if unit_price <= 0.0 or q11_quarterly_revenue <= 0.0 or len(templates) != 3:
     return []
   max_lob = 0
@@ -116,6 +177,32 @@ def synthesize_new_line_rows(
       if idx_key in new_row:
         new_row[idx_key] = idx_val
     out.append(new_row)
+  cogs_template = next(
+    (r for r in rev_rows if isinstance(r, dict) and str(r.get("driver") or "").strip() == "COGS %"),
+    None,
+  )
+  if cogs_template is not None:
+    cogs_pct = _new_line_cogs_pct(rev_rows, cogs_template, gross_margin_pct)
+    if cogs_pct is not None:
+      cogs_row = copy.deepcopy(cogs_template)
+      cogs_row["lob"] = lob or "New"
+      cogs_row["product"] = product or "New Line"
+      cogs_row["revenue_slot_key"] = slot_key
+      cogs_row["placeholder_lob"] = lob or "New"
+      cogs_row["placeholder_product"] = product or "New Line"
+      cogs_row["driver"] = "COGS %"
+      cogs_row["controller_write"] = False
+      cogs_row["derived_driver"] = "per_line_cogs_source"
+      cogs_row["payroll_supported_capacity"] = None
+      cogs_row["capacity_shaping"] = None
+      cogs_row["value_kind"] = "ratio"
+      cogs_row["input_semantics"] = "percent_of_line_revenue"
+      cogs_row["lever_id"] = f"revenue::{lob or 'New'}::{product or 'New Line'}::COGS %"
+      cogs_row["values"] = [cogs_pct for _ in range(n_slots)]
+      for idx_key, idx_val in (("lob_slot_index", max_lob), ("product_slot_index", 0)):
+        if idx_key in cogs_row:
+          cogs_row[idx_key] = idx_val
+      out.append(cogs_row)
   return out
 
 
@@ -311,6 +398,7 @@ def apply_candidate(
         product=str(nl.get("product") or "New Line"),
         unit_price=float(nl.get("unit_price") or 0.0),
         q11_quarterly_revenue=float(nl.get("q11_quarterly_revenue") or 0.0),
+        gross_margin_pct=nl.get("gross_margin_pct"),
       ))
 
   # Expense rows. Ratios (COGS/Marketing/G&A) glide to the candidate
