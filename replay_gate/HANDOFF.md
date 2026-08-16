@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 3/16
+TURN: 4/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
   docs/FAILED_ACCEPTANCE_DELIVERY_RESEARCH.md (read it: it carries the
