@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   RESTRUCTURE-PATH HYGIENE n1 + n4 — Nick's ruling 2026-08-16. Small
   cleanups, NOWHERE NEAR the email/delivery path (that path is OFF-LIMITS
