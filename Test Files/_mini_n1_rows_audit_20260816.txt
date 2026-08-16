@@ -1,0 +1,9 @@
+== PRE rsn1au667fdc90de234a2d8faad8cbc8
+  e3276f9ed358 status=completed created=2026-08-16 17:20:14.250989 fr=None verdict.passed=None snap.run_id=None
+  decoy1a6821b status=failed created=2026-08-17 17:20:11.640593 fr='restructure_net_dead: every rung (2/2) raised the identical ' verdict.passed=False snap.run_id=decoy1a6821b
+  diagnostics: [('decoy1a6821b', 0)]
+== POST rsn1au0dcd915fefbf4fc8ba527762a9
+  225ca67ede99 status=failed created=2026-08-16 17:24:47.058860 fr='restructure_net_dead: every rung (2/2) raised the identical ' verdict.passed=False snap.run_id=225ca67ede99
+  b5a5ea13fb64 status=failed created=2026-08-16 17:28:26.220603 fr='restructure_net_dead: every rung (2/2) raised the identical ' verdict.passed=None snap.run_id=None
+  decoy1e810fa status=completed created=2026-08-17 17:24:45.200617 fr='N1 DECOY ROW - must never be written by the run' verdict.passed=None snap.run_id=None
+  diagnostics: [('225ca67ede99', 0)]

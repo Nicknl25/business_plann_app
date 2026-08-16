@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 2/16
 TASK:
   RESTRUCTURE-PATH HYGIENE n1 + n4 — Nick's ruling 2026-08-16. Small
@@ -92,3 +92,60 @@ TASK:
    4. Floor R31/R32 via --only, ONE :5050 listener.
    5. Carry the persist_post_intake_execution_state phantom-row finding to
       Nick's triage list (needs-ruling: n9). Green -> awaiting-Nick.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_mini_gate_only_R31_R32_20260816_turn2.txt (2/2 clear, digests grid cbd764631e98 / model_input 1d50e46ab8e6 / finmo 24e38de4dc98 == VS); Test Files/_mini_n1_rows_audit.py + _mini_n1_rows_audit_20260816.txt (independent DB read of the PRE/POST clone rows); n4 proof re-run this session (Test Files/_rs_n4_shape_proof.py, PRE RED 8/8 flipped -> POST GREEN 8/8 identical/one-shape/found=True evals=8); git show 97189a0 -- python/
+  SUMMARY: SPOT-CHECK AUDIT of 97189a0 - CLEAN. (1) Diff: two python files only
+  (intake_consult.py 66 lines, joint_solver.py 17 lines); grep email|attach|deliver
+  over the CODE diff = ZERO hits (the only match is the commit-message text itself);
+  no touch to workbook_email.py / delivery / attachment. n1 = additive stamp of the
+  grid-build-created run id into result.planning_run_json.planning_run_id + id-only
+  resolution in the restructure block (both dead-net catches, restamp, rerun verdict);
+  the two get_planning_run(draft_id=) fallbacks and the draft-row re-read are GONE
+  (grep of 14600-15400: the only draft_id= lookup left is the pre-existing OUTER
+  generic-exception catch at 14627, not the restructure path). n4 = one `continue`.
+  (2) n1 rows read independently from the DB: PRE clone rsn1au667f real e3276f9e
+  completed/no-verdict, decoy failed+verdict+diagnostics; POST clone rsn1au0dcd real
+  225ca67e failed + verdict (field_snapshot.planning_run_id == 225ca67e) + diagnostics
+  keyed by it, decoy completed/untouched. gate.py resolves an explicit id first
+  (_planning_run_row) - so the stamped id is honoured. (3) n4 re-run here: identical
+  table to VS's; the PRE fixture _rs_n4_joint_solver_PRE.py is byte-identical to
+  97189a0^ joint_solver.py (real pre-fix source, not a mock); 6d2823db post-rescue
+  disclosure present in the script (rsdeadd25e stands in). (4) Floor R31/R32 --only
+  GREEN 2/2, digests identical to VS's; ONE :5050 listener (pid 38436).
+  TIER CALL: spot-check accepted for both, with ONE NOTE for the record - VS's plan
+  said the n1 stamp fires "inside the restructure block only"; in fact the STAMP
+  itself (14341-14355) rides EVERY unified run and changes the acceptance gate's
+  input on the normal path from planning_run_id=None (latest-row fallback) to the
+  explicit created row. Behaviour on the guided path is identical BY CONSTRUCTION
+  (one row per run => created == latest; VS's FIX 2b re-run landed exactly ONE row)
+  and the floor does not traverse the gate, so this is a wording imprecision in the
+  radius statement, not a false tier - but the next live GREEN run is the organic
+  confirmation of the stamp on a passing path (watch item, no turn owed).
+  DECLARED-vs-ACTUAL (VS): matched on files loaded/touched and verify steps; one
+  disclosed method deviation - n1 red-proof used a future-dated DECOY row instead of
+  the planned "stripped-COGS test server" observation; disclosed, and the decoy is
+  the only way to make a latest-row guess observable. Not a finding.
+  DECLARED-vs-ACTUAL (mini): matched - diff+grep, PRE/POST txts, DB rows, restructure
+  block grep, n4 re-run foreground, R31/R32 --only foreground, listener count; canary
+  skipped as declared; legs R31+R32 (2).
+  TRIAGE: n1/n4 named deal breakers (verdict against a guessed row = false claim on
+  which run failed; two COGS-row shapes in one solve = wrong per-line COGS for the
+  class) - both hold; both CLOSED GREEN.
+  NEEDS-RULING (n9, Nick): persist_post_intake_execution_state
+  (intake_consult_draft.py ~2793-2807) accepts the payload's planning_run_id only
+  when it equals the latest active/any row, else MINTS a fresh uuid row - decoy proof
+  showed a phantom second row b5a5ea13 (status=failed, no verdict). Deal-breaker
+  test TODAY: NO - guided path lands exactly one row (rerun's own row is the latest
+  active); the phantom needs a foreign newer row (decoy / concurrent double-submit).
+  Latent two-rows-of-truth class in SHARED persist (initial-grid + state runners
+  flow through it) => neighbor-check radius if built. Nick's call: queue a
+  neighbor-check turn (make persist honour the payload's id when it names an
+  existing row for this draft, mint only when absent) or WONT-FIX until a real
+  concurrent-run case appears.
+TASK:
+  VS: nothing queued from this audit. STATUS awaiting-Nick - Nick rules on n9
+  (neighbor-check turn vs WONT-FIX) in plain English; the watcher seeds the next
+  TASK from his reply. Off-limits fence unchanged: no email/delivery/attachment work.
