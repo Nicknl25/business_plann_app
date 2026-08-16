@@ -1,10 +1,18 @@
 {
- "version": 23,
- "updated": "2026-08-15T07:55:00Z",
+ "version": 24,
+ "updated": "2026-08-16T18:40:00Z",
  "notes": "CW-035 (Nine Fathom Coffee Roasters, Missoula) re-ran the CW-034 probe on the F1-F4 build and STREAM DISCOVERY WORKS END TO END. Same vertical, same single-line description, same guided-path discipline - and this time the ask fired at the ops wrap with evidence_level 'rich'.\n\nThe ask verbatim: 'Before we wrap up operations: a lot of coffee roasters also offer retail coffee bags, wholesale coffee sales to grocery stores or brew gear and merchandise sales - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.' It states the revenue-line consequence explicitly and offers a clean exit. One grammar nit: no serial comma before 'or', so items 2 and 3 run together.\n\nTHE READER TEST PASSES BOTH WAYS. Two YES answers became real lines carrying origin: discovery_confirmed. The explicit NO - 'But no, we don't do brew gear and merchandise sales' - repeated the stream's own keywords and was still read as no; the persisted candidates array records answer 'no' and no such product exists anywhere. A keyword reader would have flipped that; the intent reader did not.\n\nAT THE BUILT-WORKBOOK LEVEL: twelve revenue rows (three lines x four drivers), three per-line COGS drivers at 0.62 / 0.38 / 0.55 exactly as stated in one message, and exactly one P&L Cost of Goods Sold line that is their exact revenue-weighted roll-up (0.58187216 derived vs 0.581872 booked). Quarterly revenue reconciles to the stated 1,065,000 exactly. Section 6 11/11 exact, accounting equation 0.\n\nF1-F4 also added a fully persisted stream_discovery record - business_type, naics, evidence level, asked flag, ask text, per-candidate answers and dropped candidates with reasons. That is exactly the diagnostic asked for in the CW-034 runlog, and it makes silence-versus-firing directly distinguishable from now on.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "RUN-POST-DEADNET-1",
+   "persona": "your pick from the agenda - a real founder, natural answers, real numbers",
+   "business": "your pick - any business; MULTI-LINE or a single-line type with common adjacent streams both exercise the new machinery. Preferably one NOT run before (fresh business name).",
+   "why": "OPERATOR: general run on the fixed build (HEAD e661dfc). What is new since your last run: (1) proactive STREAM DISCOVERY is live - at end-of-ops the app may ask ONE existence-framed question naming streams businesses like yours usually also offer ('...is any of that part of your business today? (If so I'll include it as a revenue line.)'); answer naturally per stream, yes only to what your ground truth has, plain no otherwise; a yes becomes its own peer line and the app asks its numbers. (2) The post-intake RESTRUCTURE rescue is alive again on per-line-COGS drafts and the cascade + acceptance gate now judge net income by the same executive floor - so a plan that fails viability is either rescued or fails LOUD (Nick gets the internal failure email + workbook; you may see the run end as failed - that is correct behaviour now, file what you observe). (3) Discovered streams land as their OWN LOB and the ask uses a serial comma. Everything else unchanged. Play through to completion. TRIAGE LAW: new findings bucketed deal-breaker vs wont-fix for the operator, filed not chased.",
+   "operator_command_hint": "run yours"
+  },
+  {
+   "rank": 2,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -14,7 +22,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 3,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -25,7 +33,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -36,7 +44,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -46,7 +54,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 6,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -56,7 +64,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 7,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -64,7 +72,7 @@
    "retests": []
   },
   {
-   "rank": 7,
+   "rank": 8,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -73,6 +81,7 @@
   }
  ],
  "closed_this_cycle": [
+  "CONFIRM-DISCOVERY-2 (Nine Fathom Coffee 6d2823db): ALL HELD - propose/intent-read/capture/wrap/multi-line plan; surfaced the failed-acceptance-delivered thread -> DEAD RESTRUCTURE NET fixed (FIX 1/2/2b/3 + n1/n4 hygiene, 08-16, all audited green).",
   "A-118 CLOSED. Stream discovery fired and worked end to end on the exact vertical and description that produced silence in CW-034: three candidates proposed, revenue-line consequence stated, yes/yes/no all read correctly, both accepted streams modeled as real workbook lines with their own per-line COGS rolling up to one P&L line.",
   "flow:operations:stream_discovery_silent_at_the_ops_wrap_on_a_common_multi_stream_vertical (CW-034) RESOLVED on c63d27a.",
   "The CW-034 diagnostic request is satisfied - a full stream_discovery record is now persisted to operating_model_json (evidence level, asked flag, ask text, per-candidate answers, dropped candidates with reasons, proposal_cap).",
