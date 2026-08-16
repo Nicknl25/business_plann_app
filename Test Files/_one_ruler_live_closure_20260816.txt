@@ -1,0 +1,6 @@
+finmo_std_layer1_trace q=18 window=[19, 20] value=33750.0
+finmo_std_layer1_trace q=19 window=[20] value=16875.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+rsdeadd2 Nine Fathom Coffee Roast in-loop NI passed=False floor=0.08 src=executive_margin_band_judgment dist=-0.0396 | gate passed=False floor=0.08 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic
+6d2823db Nine Fathom Coffee Roast in-loop NI passed=True floor=0.08 src=executive_margin_band_judgment dist=None | gate passed=True floor=0.08 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic
+fd3d1b02 Kestrelbrook Nursery and in-loop NI passed=True floor=0.03 src=executive_margin_band_judgment dist=None | gate passed=True floor=0.03 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic

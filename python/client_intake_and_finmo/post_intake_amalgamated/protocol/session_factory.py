@@ -424,6 +424,10 @@ def _build_evaluate_plan_fn(
         anchors=None,
         operating_context=operating_context,
         finmo_json=live_finmo,
+        # FIX 3 ONE RULER: the same LIVE model_input the finmo was rebuilt
+        # from (carries solver_input.margin_band_judgment) so the in-loop
+        # NI check reads the executive floor the final gate reads.
+        model_input_json=live_mi,
         business_naics_6=business_naics_6,
       )
 

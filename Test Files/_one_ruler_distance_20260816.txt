@@ -1,0 +1,515 @@
+NI distance PRE (floor unread -> 0.0) vs POST (floor-aware) on every draft where the cascade NI check FAILS:
+  rsdeadd2 Nine Fathom Coffee Roaster run=failed    q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)  PRE dist=-0.0113 -> POST dist=-0.0396
+  rsdeadb6 Nine Fathom Coffee Roaster run=failed    q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)  PRE dist=-0.0113 -> POST dist=-0.0396
+  rsdeadfd Nine Fathom Coffee Roaster run=completed q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)  PRE dist=-0.0113 -> POST dist=-0.0396
+  39847baf Maple Grove Family Dental  run=failed    q11=-0.0082 delta=0.1242 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0082 -> POST dist=-0.0282
+  80c20a03 Sunny Glaze Donuts         run=completed q11=-0.0401 delta=0.2422 floor=0.05 (executive_margin_band_judgment)  PRE dist=-0.0401 -> POST dist=-0.0901
+  195d85e4 Sunny Glaze Donuts         run=completed q11=-16.8807 delta=6.894 floor=0.03 (executive_margin_band_judgment)  PRE dist=-16.8807 -> POST dist=-16.9107
+  22f9567f Sunny Glaze Donuts         run=completed q11=-16.9038 delta=6.88 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.9038 -> POST dist=-16.9238
+  3df196d0 Meridian Motorcars, LLC    run=running   q11=-0.1613 delta=0.0024 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1613 -> POST dist=-0.1813
+  b08703cf Sunny Glaze Donuts         run=completed q11=-16.8443 delta=6.8397 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.8443 -> POST dist=-16.8643
+  37b6a30f Meridian Motorcars, LLC    run=completed q11=-0.0352 delta=0.2721 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0352 -> POST dist=-0.0552
+  35896083 Sunny Glaze Donuts         run=completed q11=-16.8495 delta=6.8365 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.8495 -> POST dist=-16.8695
+  0cf684f3 Meridian Motorcars, LLC    run=completed q11=-0.094 delta=0.2434 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0940 -> POST dist=-0.1140
+  bee6cb71 Sunny Glaze Donuts         run=completed q11=-16.8495 delta=6.8365 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.8495 -> POST dist=-16.8695
+  9d4439f0 Northwind Systems, Inc.    run=failed    q11=-0.0822 delta=0.075 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0822 -> POST dist=-0.1022
+  4159c635 CarePath Home Health       run=completed q11=-0.2819 delta=0.0762 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2819 -> POST dist=-0.3019
+  7389333b Sunny Glaze Donuts         run=completed q11=-16.909 delta=6.8768 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.9090 -> POST dist=-16.9290
+  28a9a880 Sunny Glaze Donuts         run=completed q11=-16.909 delta=6.8768 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.9090 -> POST dist=-16.9290
+  cc8b7081 Sunny Glaze Donuts         run=completed q11=-16.909 delta=6.8768 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.9090 -> POST dist=-16.9290
+  2ff196de Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  a7487faa Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  ce6b858c Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  5dd5a321 Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  6674464f Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  fd448457 Understory Mushroom Co.    run=running   q11=-0.4272 delta=0.0344 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4272 -> POST dist=-0.4472
+  4395f97c Understory Mushroom Co.    run=completed q11=-0.0634 delta=0.0983 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0634 -> POST dist=-0.0834
+  65768e1c Understory Mushroom Co.    run=running   q11=-0.4188 delta=-0.0019 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4188 -> POST dist=-0.4388
+  ff2ee40e Understory Mushroom Co.    run=running   q11=-0.4272 delta=0.0344 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4272 -> POST dist=-0.4472
+  3464962b Understory Mushroom Co.    run=running   q11=-0.4272 delta=0.0344 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4272 -> POST dist=-0.4472
+  8bd179a9 Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  16beccc6 Understory Mushroom Co.    run=completed q11=-0.0802 delta=0.0868 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0802 -> POST dist=-0.1002
+  7042ce1a Understory Mushroom Co.    run=completed q11=-0.2265 delta=0.1446 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2265 -> POST dist=-0.2465
+  4043c5d9 Sunny Glaze Donuts         run=completed q11=-16.0083 delta=9.8207 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.0083 -> POST dist=-16.0283
+  2a0aa269 Sunny Glaze Donuts         run=completed q11=-16.0083 delta=9.8207 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.0083 -> POST dist=-16.0283
+  5b71c2be Sunny Glaze Donuts         run=completed q11=-20.4096 delta=8.2644 floor=0.02 (doctrine_default_2pp)  PRE dist=-20.4096 -> POST dist=-20.4296
+  836eedab Sunny Glaze Donuts         run=completed q11=-20.4096 delta=8.2644 floor=0.02 (doctrine_default_2pp)  PRE dist=-20.4096 -> POST dist=-20.4296
+  1e257da0 Sunny Glaze Donuts         run=completed q11=-20.4096 delta=8.2644 floor=0.02 (doctrine_default_2pp)  PRE dist=-20.4096 -> POST dist=-20.4296
+  4e844f9f Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  222cc4f1 Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  2e9c44c2 Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  4018fcd5 Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  da8b859f Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  537ac448 Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  c940a778 Sharp Line Barber Co.      run=failed    q11=-0.2798 delta=0.0163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2798 -> POST dist=-0.2998
+  904cf56a Meridian Motorcars, LLC    run=completed q11=-0.0062 delta=0.0328 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0062 -> POST dist=-0.0262
+  5a1ab130 Meridian Motorcars, LLC    run=completed q11=-0.0062 delta=0.0328 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0062 -> POST dist=-0.0262
+  e6185913 Meridian Motorcars, LLC    run=completed q11=-0.0062 delta=0.0328 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0062 -> POST dist=-0.0262
+  09a52822 Meridian Motorcars, LLC    run=completed q11=-0.0129 delta=0.0364 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0129 -> POST dist=-0.0329
+  635ae083 Meridian Motorcars, LLC    run=completed q11=-0.0072 delta=0.0371 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0072 -> POST dist=-0.0272
+  b87a8e4a Meridian Motorcars, LLC    run=completed q11=-0.0032 delta=0.0407 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0032 -> POST dist=-0.0232
+  366f5f4d Meridian Motorcars, LLC    run=completed q11=-0.0159 delta=0.036 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0159 -> POST dist=-0.0359
+  ad38128d Meridian Motorcars, LLC    run=completed q11=-0.0231 delta=0.0294 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0231 -> POST dist=-0.0431
+  ce0154e1 Sunny Glaze Donuts         run=completed q11=-20.7453 delta=8.2933 floor=0.02 (doctrine_default_2pp)  PRE dist=-20.7453 -> POST dist=-20.7653
+  11a8fdf5 Blueprint & Ledger Advisor run=running   q11=-0.2641 delta=-0.1242 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2641 -> POST dist=-0.2841
+  7045bf85 Riverbend Auto Sales, LLC  run=completed q11=-0.0039 delta=0.0354 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0039 -> POST dist=-0.0239
+  4046318a Riverbend Auto Sales, LLC  run=completed q11=-0.1434 delta=0.053 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1434 -> POST dist=-0.1634
+  079044a9 Riverbend Auto Sales, LLC  run=completed q11=-0.1239 delta=0.065 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1239 -> POST dist=-0.1439
+  91f00e72 Sunny Glaze Donuts         run=completed q11=-19.8319 delta=8.6476 floor=0.02 (doctrine_default_2pp)  PRE dist=-19.8319 -> POST dist=-19.8519
+  fdc8870d Sunny Glaze Donuts         run=completed q11=-19.9117 delta=8.6801 floor=0.02 (doctrine_default_2pp)  PRE dist=-19.9117 -> POST dist=-19.9317
+  ad2c9469 Sunny Glaze Donuts         run=running   q11=-19.7993 delta=9.2677 floor=0.02 (doctrine_default_2pp)  PRE dist=-19.7993 -> POST dist=-19.8193
+  15354f93 Sunny Glaze Donuts         run=completed q11=-15.2989 delta=10.0293 floor=0.02 (doctrine_default_2pp)  PRE dist=-15.2989 -> POST dist=-15.3189
+  ff895550 Sunny Glaze Donuts         run=completed q11=-15.2989 delta=10.0293 floor=0.02 (doctrine_default_2pp)  PRE dist=-15.2989 -> POST dist=-15.3189
+  5a5a12b2 Sunny Glaze Donuts         run=completed q11=-16.3937 delta=9.6928 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.3937 -> POST dist=-16.4137
+  9fe26f46 Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  931e0569 Sunny Glaze Donuts         run=completed q11=-16.3937 delta=9.6928 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.3937 -> POST dist=-16.4137
+  50d737fd Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  fb4f41b7 Sunny Glaze Donuts         run=completed q11=-16.3937 delta=9.6928 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.3937 -> POST dist=-16.4137
+  77560d5b Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  6782e047 Sunny Glaze Donuts         run=completed q11=-16.3937 delta=9.6928 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.3937 -> POST dist=-16.4137
+  242b2aee Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  2167a545 Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  e932bddb Sunny Glaze Donuts         run=completed q11=-16.3937 delta=9.6928 floor=0.02 (doctrine_default_2pp)  PRE dist=-16.3937 -> POST dist=-16.4137
+  9e73eb3c Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  50561de3 Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  dbe16846 Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  537e824e Sunny Glaze Donuts         run=completed q11=-0.0637 delta=0.1601 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0637 -> POST dist=-0.0837
+  9ce7c68c Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  79b2c725 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  4b621a24 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  3e201176 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  a868e348 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  cf5f3884 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  2e8cfbf1 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  fb236a0a Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  9acdabc2 Sunny Glaze Donuts         run=failed    q11=-0.2598 delta=-0.0017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2598 -> POST dist=-0.2798
+  18d344e9 Sunny Glaze Donuts         run=completed q11=-0.1761 delta=0.2204 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1761 -> POST dist=-0.1961
+  b6bf6bc6 Sunny Glaze Donuts         run=completed q11=-0.1761 delta=0.2204 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1761 -> POST dist=-0.1961
+  bebb94a7 Sunny Glaze Donuts         run=completed q11=-15.9919 delta=9.8293 floor=0.02 (doctrine_default_2pp)  PRE dist=-15.9919 -> POST dist=-16.0119
+  f9504303 Ironwood Precision Machini run=completed q11=-0.0803 delta=0.061 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0803 -> POST dist=-0.1003
+  9a680951 Maple Grove Family Dental  run=running   q11=-0.343 delta=0.0491 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3430 -> POST dist=-0.3630
+  d76f4e41 Luna Boutique              run=completed q11=-0.2196 delta=0.0969 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2196 -> POST dist=-0.2396
+  c17b1f0b Luna Boutique              run=completed q11=-0.2196 delta=0.0969 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2196 -> POST dist=-0.2396
+  01b793fa Maple Grove Family Dental  run=running   q11=-0.343 delta=0.0491 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3430 -> POST dist=-0.3630
+  f9267507 Luna Boutique              run=completed q11=-0.2261 delta=0.0882 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2261 -> POST dist=-0.2461
+  ccbcd872 Luna Boutique              run=completed q11=-0.2261 delta=0.0882 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2261 -> POST dist=-0.2461
+  dd3e0049 Ironwood Precision Machini run=completed q11=-0.1197 delta=-0.0152 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1197 -> POST dist=-0.1397
+  e6f88bc0 Luna Boutique              run=completed q11=-0.2261 delta=0.0882 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2261 -> POST dist=-0.2461
+  ad986c29 Luna Boutique              run=completed q11=-0.1941 delta=0.0895 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1941 -> POST dist=-0.2141
+  cad57571 Luna Boutique              run=completed q11=-0.1941 delta=0.0895 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1941 -> POST dist=-0.2141
+  ab026d90 Luna Boutique              run=completed q11=-0.231 delta=0.0767 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2310 -> POST dist=-0.2510
+  569a216f Luna Boutique              run=completed q11=-0.231 delta=0.0767 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2310 -> POST dist=-0.2510
+  19cc1665 Maple Grove Family Dental  run=running   q11=-0.0229 delta=0.1018 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0229 -> POST dist=-0.0429
+  55f5a927 Luna Boutique              run=completed q11=-0.2516 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2516 -> POST dist=-0.2716
+  654f7826 Maple Grove Family Dental  run=completed q11=-0.0241 delta=0.0058 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0241 -> POST dist=-0.0441
+  b0f28537 Ironwood Precision Machini run=completed q11=-0.0205 delta=0.0137 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0205 -> POST dist=-0.0405
+  0e61d3b7 Luna Boutique              run=completed q11=-0.2516 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2516 -> POST dist=-0.2716
+  95351e1a Luna Boutique              run=completed q11=-0.2516 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2516 -> POST dist=-0.2716
+  6c73c357 Maple Grove Family Dental  run=completed q11=-0.0241 delta=0.0058 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0241 -> POST dist=-0.0441
+  1032f2fc Luna Boutique              run=completed q11=-0.2516 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2516 -> POST dist=-0.2716
+  3ab8718c Maple Grove Family Dental  run=completed q11=-0.0241 delta=0.0058 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0241 -> POST dist=-0.0441
+  578ee6e1 Luna Boutique              run=completed q11=-0.2516 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2516 -> POST dist=-0.2716
+  77795c8a Maple Grove Family Dental  run=completed q11=-0.026 delta=0.0633 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0260 -> POST dist=-0.0460
+  552c0fa6 Luna Boutique              run=completed q11=-0.2075 delta=0.0146 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2075 -> POST dist=-0.2275
+  01eafb8f Luna Boutique              run=completed q11=-0.2075 delta=0.0146 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2075 -> POST dist=-0.2275
+  01671f36 Maple Grove Family Dental  run=completed q11=-0.026 delta=0.0633 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0260 -> POST dist=-0.0460
+  a5195ffc Luna Boutique              run=completed q11=-0.0632 delta=0.0698 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0632 -> POST dist=-0.0832
+  6a2e7d02 Golden Ring Donuts         run=failed    q11=-0.0261 delta=-0.0028 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0261 -> POST dist=-0.0461
+  2c780fc3 Luna Boutique              run=completed q11=-0.2032 delta=0.107 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2032 -> POST dist=-0.2232
+  fc6cd1f1 Sunny Glaze Donuts         run=completed q11=-23.3613 delta=6.6171 floor=0.02 (doctrine_default_2pp)  PRE dist=-23.3613 -> POST dist=-23.3813
+  750f0c9f Sunny Glaze Donuts         run=completed q11=-23.2233 delta=6.6901 floor=0.02 (doctrine_default_2pp)  PRE dist=-23.2233 -> POST dist=-23.2433
+  e751b6da Maple Grove Family Dental  run=failed    q11=-0.0082 delta=0.1242 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0082 -> POST dist=-0.0282
+  03a47cb5 Maple Grove Family Dental  run=running   q11=-0.0382 delta=0.1326 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0382 -> POST dist=-0.0582
+  785850a9 Maple Grove Family Dental  run=completed q11=-0.778 delta=0.3141 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7780 -> POST dist=-0.7980
+  bf6ffbc8 Maple Grove Family Dental  run=failed    q11=-0.0964 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0964 -> POST dist=-0.1164
+  a3128aa9 Maple Grove Family Dental  run=completed q11=-0.5129 delta=0.396 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5129 -> POST dist=-0.5329
+  42197a56 Maple Grove Family Dental  run=completed q11=-0.1915 delta=0.1821 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1915 -> POST dist=-0.2115
+  fa76e570 Maple Grove Family Dental  run=completed q11=-0.273 delta=0.2273 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2730 -> POST dist=-0.2930
+  0db287f8 Maple Grove Family Dental  run=failed    q11=-0.6653 delta=0.2123 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6653 -> POST dist=-0.6853
+  c94d64e0 Maple Grove Family Dental  run=completed q11=-0.8187 delta=0.1107 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8187 -> POST dist=-0.8387
+  85773ee6 Maple Grove Family Dental  run=completed q11=-0.5306 delta=0.0612 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5306 -> POST dist=-0.5506
+  a26719f9 Maple Grove Family Dental  run=completed q11=-0.6411 delta=0.2356 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6411 -> POST dist=-0.6611
+  41499dc6 Maple Grove Family Dental  run=completed q11=-0.8127 delta=0.2119 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8127 -> POST dist=-0.8327
+  5fcf6554 Maple Grove Family Dental  run=completed q11=-0.7595 delta=0.0839 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7595 -> POST dist=-0.7795
+  4a7efa5f Maple Grove Family Dental  run=completed q11=-0.6145 delta=0.1477 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6145 -> POST dist=-0.6345
+  a274730f Apex Indoor Climbing Gym   run=completed q11=-0.8042 delta=0.492 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8042 -> POST dist=-0.8242
+  00e2f96d Sunny Glaze Donuts         run=completed q11=-1.1597 delta=0.092 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1597 -> POST dist=-1.1797
+  36ac0f04 Sunny Glaze Donuts         run=completed q11=-0.804 delta=0.1006 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8040 -> POST dist=-0.8240
+  a451e386 Luna Boutique              run=completed q11=-0.1862 delta=0.0066 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1862 -> POST dist=-0.2062
+  ccdc24c6 Sunny Glaze Donuts         run=running   q11=-0.7792 delta=0.1464 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7792 -> POST dist=-0.7992
+  a869b1d8 Luna Boutique              run=completed q11=-0.156 delta=0.025 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1560 -> POST dist=-0.1760
+  771c7755 Sunny Glaze Donuts         run=failed    q11=-1.4794 delta=0.0558 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.4794 -> POST dist=-1.4994
+  57df2b3a Sunny Glaze Donuts         run=failed    q11=-0.3958 delta=0.3307 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3958 -> POST dist=-0.4158
+  c89188fb Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  8e11efb1 Sunny Glaze Donuts         run=failed    q11=-0.7554 delta=0.475 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7554 -> POST dist=-0.7754
+  390c4a65 Sunny Glaze Donuts         run=failed    q11=-0.6408 delta=0.2742 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6408 -> POST dist=-0.6608
+  1b0f2dbb Sunny Glaze Donuts         run=failed    q11=-0.8256 delta=0.1928 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8256 -> POST dist=-0.8456
+  e4cf2eed Sunny Glaze Donuts         run=failed    q11=-0.5811 delta=0.26 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5811 -> POST dist=-0.6011
+  f47e4d07 Sunny Glaze Donuts         run=failed    q11=-0.583 delta=0.2957 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5830 -> POST dist=-0.6030
+  fa23013e Sunny Glaze Donuts         run=failed    q11=-0.6408 delta=0.501 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6408 -> POST dist=-0.6608
+  d4dd20c2 Sunny Glaze Donuts         run=failed    q11=-0.5691 delta=0.4337 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5691 -> POST dist=-0.5891
+  404e75ac Sunny Glaze Donuts         run=failed    q11=-1.2534 delta=-0.0498 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2534 -> POST dist=-1.2734
+  0a9089cb Sunny Glaze Donuts         run=failed    q11=-1.2534 delta=-0.0498 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2534 -> POST dist=-1.2734
+  87c3b26e Sunny Glaze Donuts         run=failed    q11=-1.2534 delta=-0.0498 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2534 -> POST dist=-1.2734
+  45554250 Sunny Glaze Donuts         run=failed    q11=-1.1966 delta=-0.0482 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1966 -> POST dist=-1.2166
+  d8409406 Luna Boutique              run=completed q11=-0.2316 delta=-0.0043 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2316 -> POST dist=-0.2516
+  0f4b0cd9 Luna Boutique              run=failed    q11=-0.2435 delta=-0.0049 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2435 -> POST dist=-0.2635
+  6d2b4fed Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  f1ec7f2f Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  4a538e79 Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  7f2f388b Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  1b5b49cd Sunny Glaze Donuts         run=failed    q11=-1.2534 delta=-0.0498 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2534 -> POST dist=-1.2734
+  e90bb1d4 Sunny Glaze Donuts         run=failed    q11=-1.2534 delta=-0.0498 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2534 -> POST dist=-1.2734
+  22f2fd09 Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  aa52ddd8 Luna Boutique              run=failed    q11=-0.0027 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0259 -> POST dist=-0.0259
+  67f8226a Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  bae48d9a Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  2ef6bfcc Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  6bb93cde Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  6b727efa Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  3cfc60b7 Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  7ea04041 Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  bee2f10b Sunny Glaze Donuts         run=failed    q11=-1.1763 delta=-0.0476 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1763 -> POST dist=-1.1963
+  9169d68c Sunny Glaze Donuts         run=completed q11=-0.0503 delta=0.2779 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0503 -> POST dist=-0.0703
+  55c3a4b9 Sunny Glaze Donuts         run=failed    q11=-0.1297 delta=0.3036 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1297 -> POST dist=-0.1497
+  cbf7f31e Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  8713ddce Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  3b0ca6fb North Ridge Auto Care      run=failed    q11=-0.0293 delta=0.2073 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0293 -> POST dist=-0.0493
+  bfbe982f Elegant Threads Boutique   run=failed    q11=-0.0711 delta=-0.0002 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0711 -> POST dist=-0.0911
+  960b2657 Elegant Threads Boutique   run=failed    q11=-0.0079 delta=0.1094 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0079 -> POST dist=-0.0279
+  4abf34b5 CareFirst Home Health Serv run=failed    q11=-0.7033 delta=-0.0005 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7033 -> POST dist=-0.7233
+  e3fc5436 Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  cba21e6c Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  30ac751a Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  f3519519 Sunny Glaze Donuts         run=completed q11=-0.1006 delta=0.1732 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1006 -> POST dist=-0.1206
+  31337125 Sunny Glaze Donuts         run=failed    q11=-0.0433 delta=0.283 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0433 -> POST dist=-0.0633
+  8c1f38d3 Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  870ee804 Sunny Glaze Donuts         run=completed q11=-0.002 delta=0.2603 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0020 -> POST dist=-0.0220
+  0caeb5ad CareFirst Home Health Serv run=completed q11=-40.2641 delta=49.2834 floor=0.02 (doctrine_default_2pp)  PRE dist=-40.2641 -> POST dist=-40.2841
+  9f8eed5c Pinnacle Logistics Inc.    run=failed    q11=-0.1287 delta=-0.0084 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1287 -> POST dist=-0.1487
+  d8dd340a ValueMart Superstores      run=failed    q11=-28476.9228 delta=7631.3636 floor=0.02 (doctrine_default_2pp)  PRE dist=-28476.9228 -> POST dist=-28476.9428
+  13ad4484 Elegant Threads Boutique   run=completed q11=-0.0523 delta=0.489 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0523 -> POST dist=-0.0723
+  22df9968 CareFirst Home Health Serv run=completed q11=-0.0165 delta=0.4169 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0165 -> POST dist=-0.0365
+  9fb8017e CareFirst Home Health Serv run=completed q11=-67.2798 delta=33.6536 floor=0.02 (doctrine_default_2pp)  PRE dist=-67.2798 -> POST dist=-67.2998
+  7456b1ee CareFirst Home Health Serv run=failed    q11=-0.4212 delta=-0.0186 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4212 -> POST dist=-0.4412
+  0b4658b8 ExpressLogix Shipping Serv run=failed    q11=-0.0267 delta=-0.0052 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0267 -> POST dist=-0.0467
+  3f7fd829 ExpressLogix Shipping Serv run=completed q11=-0.0023 delta=0.3502 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0023 -> POST dist=-0.0223
+  c036319f Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  e3340a7e Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  1834ea5a ValueMart Superstores      run=failed    q11=-33599.0089 delta=11948.3363 floor=0.02 (doctrine_default_2pp)  PRE dist=-33599.0089 -> POST dist=-33599.0289
+  5414c474 SwiftLogix Shipping Soluti run=failed    q11=-0.1813 delta=-0.0061 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1813 -> POST dist=-0.2013
+  e74178f3 Pinnacle Logistics Inc.    run=failed    q11=-0.2433 delta=-0.0088 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2433 -> POST dist=-0.2633
+  2f0cde73 SwiftShip Logistics Inc.   run=failed    q11=-0.5722 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5722 -> POST dist=-0.5922
+  7eab6936 SwiftLogix Shipping Soluti run=failed    q11=-0.1813 delta=-0.0061 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1813 -> POST dist=-0.2013
+  3ef4311f SwiftLogix Shipping Soluti run=failed    q11=-0.164 delta=-0.0059 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1640 -> POST dist=-0.1840
+  c9a9fd47 SwiftShip Logistics Inc.   run=failed    q11=-0.0602 delta=0.0536 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0602 -> POST dist=-0.0802
+  c0ad862c ValueMax Superstores       run=failed    q11=-67.1473 delta=25.4095 floor=0.02 (doctrine_default_2pp)  PRE dist=-67.1473 -> POST dist=-67.1673
+  9a9ff513 ValueMart Superstores      run=completed q11=-0.0028 delta=0.1378 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0028 -> POST dist=-0.0228
+  3e855cb0 North Ridge Auto Care      run=failed    q11=-0.2908 delta=-0.0225 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2908 -> POST dist=-0.3108
+  a12908c7 ValueMart Superstores      run=failed    q11=-0.0056 delta=0.0327 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0056 -> POST dist=-0.0256
+  50650d6d North Ridge Auto Care      run=failed    q11=-0.2492 delta=-0.0214 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2492 -> POST dist=-0.2692
+  d7a95153 Nationwide Value Mart      run=failed    q11=-0.097 delta=0.039 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0970 -> POST dist=-0.1170
+  1a6add76 Nationwide Value Mart      run=failed    q11=-0.0721 delta=0.0382 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0721 -> POST dist=-0.0921
+  54d8e14a Nationwide Value Mart      run=failed    q11=-0.0315 delta=0.0281 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0315 -> POST dist=-0.0515
+  0d94bbff Pioneer Value Mart         run=completed q11=-0.0242 delta=0.2376 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0242 -> POST dist=-0.0442
+  60663140 Pioneer Value Mart         run=failed    q11=-0.2633 delta=0.0575 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2633 -> POST dist=-0.2833
+  9c41715c Pioneer Value Mart         run=failed    q11=-0.23 delta=-0.0069 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2300 -> POST dist=-0.2500
+  58dc3c05 North Ridge Auto Care      run=failed    q11=-0.369 delta=-0.0239 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3690 -> POST dist=-0.3890
+  bd3ee0b9 North Ridge Auto Care      run=failed    q11=-0.3165 delta=-0.0234 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3165 -> POST dist=-0.3365
+  e0fca916 Revitalize Mobile IV Thera run=failed    q11=-0.3301 delta=-0.0006 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3301 -> POST dist=-0.3501
+  0d343a88 Revitalize Mobile IV Thera run=failed    q11=-0.3301 delta=-0.0006 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3301 -> POST dist=-0.3501
+  6ee97b1e Revitalize Mobile IV Thera run=failed    q11=-0.3301 delta=-0.0006 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3301 -> POST dist=-0.3501
+  3c563a37 Sunny Glaze Donuts         run=completed q11=-0.0071 delta=0.2651 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0071 -> POST dist=-0.0271
+  4f8f1017 Pinnacle Logistics Inc.    run=failed    q11=-0.4826 delta=0.0151 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4826 -> POST dist=-0.5026
+  4d12497e NexGen Software Solutions  run=failed    q11=-0.0741 delta=-0.0165 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0741 -> POST dist=-0.0941
+  096f291f ExpressLogix Shipping Serv run=failed    q11=-0.0072 delta=-0.0049 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0249 -> POST dist=-0.0272
+  afe6c998 Sunny Glaze Donuts         run=failed    q11=-0.1286 delta=-0.0209 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1286 -> POST dist=-0.1486
+  e51c5fae ExpressLogix Shipping Serv run=failed    q11=-0.0691 delta=-0.0055 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0691 -> POST dist=-0.0891
+  adb6f9bd Sunny Glaze Donuts         run=failed    q11=-0.1336 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1336 -> POST dist=-0.1536
+  01f163c4 Sunny Glaze Donuts         run=failed    q11=-0.1336 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1336 -> POST dist=-0.1536
+  f665d7db ExpressLogix Shipping Serv run=failed    q11=-0.0158 delta=-0.0052 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0252 -> POST dist=-0.0358
+  38bfd382 Sunny Glaze Donuts         run=failed    q11=-0.1391 delta=-0.0212 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1391 -> POST dist=-0.1591
+  18e1d01b Sunny Glaze Donuts         run=completed q11=-0.4916 delta=-0.0174 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4916 -> POST dist=-0.5116
+  2e832026 Sunny Glaze Donuts         run=completed q11=-0.0136 delta=0.3357 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0136 -> POST dist=-0.0336
+  f89e3517 Sunny Glaze Donuts         run=completed q11=-0.0815 delta=0.3451 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0815 -> POST dist=-0.1015
+  ac34fc34 Sunny Glaze Donuts         run=completed q11=-0.9195 delta=0.0756 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.9195 -> POST dist=-0.9395
+  4d7476b6 Sunny Glaze Donuts         run=completed q11=-0.0281 delta=0.3859 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0281 -> POST dist=-0.0481
+  dd23c6a0 Sunny Glaze Donuts         run=completed q11=-0.0729 delta=0.337 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0729 -> POST dist=-0.0929
+  abdf5e25 Sunny Glaze Donuts         run=completed q11=-0.0256 delta=0.508 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0256 -> POST dist=-0.0456
+  7e112079 Sunny Glaze Donuts         run=completed q11=-0.0049 delta=0.4949 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0049 -> POST dist=-0.0249
+  dd84c2e6 Sunny Glaze Donuts         run=completed q11=-0.4929 delta=-0.0173 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4929 -> POST dist=-0.5129
+  339f43b6 Sunny Glaze Donuts         run=completed q11=-0.4909 delta=-0.0173 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4909 -> POST dist=-0.5109
+  cfde971c Sunny Glaze Donuts         run=completed q11=-0.5119 delta=-0.0177 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5119 -> POST dist=-0.5319
+  0780e701 Sunny Glaze Donuts         run=completed q11=-0.4901 delta=-0.0173 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4901 -> POST dist=-0.5101
+  ed8ba89e Sunny Glaze Donuts         run=completed q11=-0.4926 delta=-0.0173 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4926 -> POST dist=-0.5126
+  d31f721d Sunny Glaze Donuts         run=completed q11=-0.5029 delta=-0.0174 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5029 -> POST dist=-0.5229
+  3ac24b8d Sunny Glaze Donuts         run=completed q11=-0.5029 delta=-0.0174 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5029 -> POST dist=-0.5229
+  a44897d6 ExpressLogix Shipping Serv run=completed q11=-0.2615 delta=0.0305 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2615 -> POST dist=-0.2815
+  a9c27dee Sunny Glaze Donuts         run=completed q11=-0.5397 delta=-0.0184 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5397 -> POST dist=-0.5597
+  1b6303a6 Sunny Glaze Donuts         run=completed q11=-0.5027 delta=-0.0174 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5027 -> POST dist=-0.5227
+  5379b0f1 Sunny Glaze Donuts         run=completed q11=-0.1687 delta=-0.0087 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1687 -> POST dist=-0.1887
+  8c2d3834 Sunny Glaze Donuts         run=completed q11=-0.1532 delta=-0.0083 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1532 -> POST dist=-0.1732
+  e3a7fbc0 ExpressLogix Shipping Serv run=completed q11=0.0161 delta=0.0038 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0162 -> POST dist=-0.0162
+  8847f4d7 ExpressLogix Shipping Serv run=completed q11=-0.1357 delta=0.0175 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1357 -> POST dist=-0.1557
+  d36bbb09 ExpressLogix Shipping Serv run=completed q11=-0.1757 delta=0.0153 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1757 -> POST dist=-0.1957
+  8e294e36 ExpressLogix Shipping Serv run=completed q11=-0.1161 delta=0.0156 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1161 -> POST dist=-0.1361
+  d1119330 ExpressLogix Shipping Serv run=completed q11=-0.2081 delta=0.0209 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2081 -> POST dist=-0.2281
+  b5af518c ExpressLogix Shipping Serv run=completed q11=-0.2408 delta=0.0224 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2408 -> POST dist=-0.2608
+  a2d598a1 NexGen Software Solutions  run=completed q11=-0.2088 delta=0.007 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2088 -> POST dist=-0.2288
+  75539f73 Sunny Glaze Donuts         run=completed q11=-0.2644 delta=0.0015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2644 -> POST dist=-0.2844
+  d0107dc4 NexGen Software Solutions  run=completed q11=-0.2089 delta=0.0136 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2089 -> POST dist=-0.2289
+  c2151635 Sunny Glaze Donuts         run=completed q11=-0.3503 delta=0.016 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3503 -> POST dist=-0.3703
+  d29db1c8 NexGen Software Solutions  run=completed q11=-0.2047 delta=0.0135 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2047 -> POST dist=-0.2247
+  dee45c99 Sunny Glaze Donuts         run=completed q11=-0.2788 delta=0.014 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2788 -> POST dist=-0.2988
+  bc617558 NexGen Software Solutions  run=completed q11=-0.1692 delta=0.0131 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1692 -> POST dist=-0.1892
+  a1c6273c Sunny Glaze Donuts         run=completed q11=-0.2713 delta=0.0138 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2713 -> POST dist=-0.2913
+  70a79c2a NexGen Software Solutions  run=completed q11=-0.0901 delta=0.0128 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0901 -> POST dist=-0.1101
+  130d9625 Sunny Glaze Donuts         run=completed q11=-0.257 delta=0.0133 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2570 -> POST dist=-0.2770
+  3eb3526c ExpressLogix Shipping Serv run=completed q11=-0.0837 delta=-0.2141 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2341 -> POST dist=-0.2341
+  c403a7ae NexGen Software Solutions  run=completed q11=-0.5286 delta=-0.1624 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5286 -> POST dist=-0.5486
+  a308cf3e Sunny Glaze Donuts         run=completed q11=-0.6547 delta=-0.176 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6547 -> POST dist=-0.6747
+  8f6213dd Sunny Glaze Donuts         run=completed q11=-0.6625 delta=-0.1784 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6625 -> POST dist=-0.6825
+  1ee7be44 ExpressLogix Shipping Serv run=completed q11=-0.0401 delta=-0.2198 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2398 -> POST dist=-0.2398
+  0cc87c80 NexGen Software Solutions  run=completed q11=-0.0397 delta=-0.0448 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0648 -> POST dist=-0.0648
+  27e08c21 Sunny Glaze Donuts         run=completed q11=-0.6571 delta=-0.1768 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6571 -> POST dist=-0.6771
+  c4594db1 NexGen Software Solutions  run=completed q11=-0.4914 delta=-0.114 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.4914 -> POST dist=-0.5114
+  183e34bd Sunny Glaze Donuts         run=completed q11=-0.7847 delta=-0.1612 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7847 -> POST dist=-0.8047
+  2be44c21 Sunny Glaze Donuts         run=completed q11=-1.732 delta=-0.4035 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7320 -> POST dist=-1.7520
+  9066a143 Sunny Glaze Donuts         run=completed q11=-1.7058 delta=-0.3974 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7058 -> POST dist=-1.7258
+  5048d1fb Sunny Glaze Donuts         run=completed q11=-1.699 delta=-0.395 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.6990 -> POST dist=-1.7190
+  d6bd517a Sunny Glaze Donuts         run=completed q11=-1.732 delta=-0.4035 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7320 -> POST dist=-1.7520
+  97189afb Sunny Glaze Donuts         run=completed q11=-1.708 delta=-0.3975 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7080 -> POST dist=-1.7280
+  d85f5b1a Sunny Glaze Donuts         run=completed q11=-1.8394 delta=-0.4163 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.8394 -> POST dist=-1.8594
+  ab25d904 Sunny Glaze Donuts         run=completed q11=0.0122 delta=-0.0165 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0365 -> POST dist=-0.0365
+  6743e574 Sunny Glaze Donuts         run=completed q11=-0.6202 delta=-0.0819 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6202 -> POST dist=-0.6402
+  deb559ab Sunny Glaze Donuts         run=completed q11=-0.6124 delta=-0.0795 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6124 -> POST dist=-0.6324
+  859bb190 Sunny Glaze Donuts         run=completed q11=-2.7271 delta=-1.7255 floor=0.02 (doctrine_default_2pp)  PRE dist=-2.7271 -> POST dist=-2.7471
+  2bfa1e3c Sunny Glaze Donuts         run=completed q11=-0.0721 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0721 -> POST dist=-0.0921
+  b7f565d9 Sunny Glaze Donuts         run=completed q11=-0.6769 delta=0.1018 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6769 -> POST dist=-0.6969
+  d7963acc Sunny Glaze Donuts         run=completed q11=-1.9404 delta=0.011 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.9404 -> POST dist=-1.9604
+  bb91db5c Sunny Glaze Donuts         run=completed q11=-1.3703 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.3703 -> POST dist=-1.3903
+  00f3645b Sunny Glaze Donuts         run=completed q11=-0.084 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0840 -> POST dist=-0.1040
+  3ba0cdf1 Sunny Glaze Donuts         run=completed q11=-0.0654 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0654 -> POST dist=-0.0854
+  252abf7a Sunny Glaze Donuts         run=completed q11=-0.1026 delta=0.01 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1026 -> POST dist=-0.1226
+  8b585828 Sunny Glaze Donuts         run=failed    q11=-0.2615 delta=0.038 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2615 -> POST dist=-0.2815
+  92b2d24f Sunny Glaze Donuts         run=failed    q11=-0.076 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0760 -> POST dist=-0.0960
+  cf8cdd38 Sunny Glaze Donuts         run=failed    q11=-0.2514 delta=0.0631 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2514 -> POST dist=-0.2714
+  001dbbb6 Sunny Glaze Donuts         run=failed    q11=-0.2474 delta=0.063 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2474 -> POST dist=-0.2674
+  565234b7 Sunny Glaze Donuts         run=failed    q11=-0.2765 delta=0.033 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2765 -> POST dist=-0.2965
+  3c627b5e Sunny Glaze Donuts         run=failed    q11=-0.113 delta=0.0101 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1130 -> POST dist=-0.1330
+  43794c94 Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  9b1d215d Sunny Glaze Donuts         run=failed    q11=-0.1336 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1336 -> POST dist=-0.1536
+  23d67f80 Sunny Glaze Donuts         run=running   q11=-0.283 delta=0.0331 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2830 -> POST dist=-0.3030
+  07610b55 Sunny Glaze Donuts         run=running   q11=-0.2584 delta=0.0381 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2584 -> POST dist=-0.2784
+  bee38aee Sunny Glaze Donuts         run=failed    q11=-1.5445 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5445 -> POST dist=-1.5645
+  ef72bdf3 Sunny Glaze Donuts         run=running   q11=-0.0805 delta=0.015 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0805 -> POST dist=-0.1005
+  14ceb2a6 Sunny Glaze Donuts         run=failed    q11=-0.249 delta=0.0615 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2490 -> POST dist=-0.2690
+  36cbec94 Sunny Glaze Donuts         run=failed    q11=-0.0994 delta=-0.0204 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0994 -> POST dist=-0.1194
+  ac0428cf Sunny Glaze Donuts         run=failed    q11=-0.1326 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1326 -> POST dist=-0.1526
+  97121f60 Sunny Glaze Donuts         run=failed    q11=-0.1363 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1363 -> POST dist=-0.1563
+  841c2e34 Sunny Glaze Donuts         run=failed    q11=-0.1238 delta=-0.021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1238 -> POST dist=-0.1438
+  30e442be Sunny Glaze Donuts         run=completed q11=-0.1372 delta=0.1116 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1372 -> POST dist=-0.1572
+  8886ba1c Sunny Glaze Donuts         run=running   q11=-0.1124 delta=-0.1895 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2095 -> POST dist=-0.2095
+  9168f2a4 Sunny Glaze Donuts         run=failed    q11=-0.0448 delta=-0.0219 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0448 -> POST dist=-0.0648
+  24fa0003 Sunny Glaze Donuts         run=failed    q11=-0.121 delta=-0.0209 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1210 -> POST dist=-0.1410
+  5460b059 Sunny Glaze Donuts         run=failed    q11=-1.5472 delta=-0.0013 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5472 -> POST dist=-1.5672
+  e7e5f2e9 Sunny Glaze Donuts         run=failed    q11=-0.001 delta=0.0177 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0023 -> POST dist=-0.0210
+  d7f0d2fc Sunny Glaze Donuts         run=failed    q11=-0.0487 delta=0.1206 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0487 -> POST dist=-0.0687
+  ddb38a71 Sunny Glaze Donuts         run=failed    q11=-0.1373 delta=-0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1373 -> POST dist=-0.1573
+  57032e4d Evergreen Superstores Inc. run=failed    q11=-0.0518 delta=-0.0049 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0518 -> POST dist=-0.0718
+  97eaea3b NexGen Software Solutions  run=failed    q11=-0.0445 delta=0.071 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0445 -> POST dist=-0.0645
+  99e4b815 NexGen Software Solutions  run=failed    q11=-0.0141 delta=0.1039 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0141 -> POST dist=-0.0341
+  1e963a79 Sunny Glaze Donuts         run=failed    q11=-1.55 delta=-0.0029 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5500 -> POST dist=-1.5700
+  73e4831f Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  034c7c47 Sunny Glaze Donuts         run=failed    q11=-1.5495 delta=-0.0026 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5495 -> POST dist=-1.5695
+  d03c7aca Sunny Glaze Donuts         run=failed    q11=-1.7003 delta=-0.0648 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7003 -> POST dist=-1.7203
+  67f66a72 Sunny Glaze Donuts         run=failed    q11=-1.55 delta=-0.0029 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5500 -> POST dist=-1.5700
+  2f2ee865 Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  9ee9d673 Sunny Glaze Donuts         run=completed q11=-1.1837 delta=0.1711 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1837 -> POST dist=-1.2037
+  0c7efc32 Sunny Glaze Donuts         run=failed    q11=-1.4879 delta=-0.0413 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.4879 -> POST dist=-1.5079
+  23403d4d Sunny Glaze Donuts         run=failed    q11=-1.471 delta=-0.0579 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.4710 -> POST dist=-1.4910
+  2249dcc8 Sunny Glaze Donuts         run=failed    q11=-0.9222 delta=0.0828 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.9222 -> POST dist=-0.9422
+  f5d22de7 Sunny Glaze Donuts         run=failed    q11=-1.2988 delta=0.129 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.2988 -> POST dist=-1.3188
+  9bc08d74 Sunny Glaze Donuts         run=failed    q11=-0.9761 delta=-0.0441 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.9761 -> POST dist=-0.9961
+  ac830860 Sunny Glaze Donuts         run=failed    q11=-0.7184 delta=0.2709 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7184 -> POST dist=-0.7384
+  6c298bfe Sunny Glaze Donuts         run=failed    q11=-0.842 delta=0.2066 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.8420 -> POST dist=-0.8620
+  dbc45511 Sunny Glaze Donuts         run=failed    q11=-1.55 delta=-0.0029 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5500 -> POST dist=-1.5700
+  9f429a91 Sunny Glaze Donuts         run=failed    q11=-0.7354 delta=0.0657 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7354 -> POST dist=-0.7554
+  bb8e72bf Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  5215f969 Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  66f83b88 Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  1c563443 Sunny Glaze Donuts         run=failed    q11=-0.7556 delta=0.0818 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.7556 -> POST dist=-0.7756
+  caab8d1f Sunny Glaze Donuts         run=failed    q11=-1.1815 delta=0.0933 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.1815 -> POST dist=-1.2015
+  75df6b69 Sunny Glaze Donuts         run=failed    q11=-0.6364 delta=0.5273 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.6364 -> POST dist=-0.6564
+  e2fc245e Sunny Glaze Donuts         run=failed    q11=-0.9383 delta=0.1539 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.9383 -> POST dist=-0.9583
+  28d08ffa Sunny Glaze Donuts         run=failed    q11=-1.5495 delta=-0.0026 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5495 -> POST dist=-1.5695
+  dc435faf Sunny Glaze Donuts         run=failed    q11=-1.549 delta=-0.0023 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5490 -> POST dist=-1.5690
+  e71e5114 Sunny Glaze Donuts         run=failed    q11=-1.551 delta=-0.0034 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5510 -> POST dist=-1.5710
+  872374b8 Sunny Glaze Donuts         run=failed    q11=-1.5505 delta=-0.0031 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.5505 -> POST dist=-1.5705
+  2864922e ExpressLogix Shipping Serv run=completed q11=-0.0273 delta=0.1014 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0273 -> POST dist=-0.0473
+  6f15096e Radiant Grove Aesthetics G run=failed    q11=-0.0363 delta=0.0703 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0363 -> POST dist=-0.0563
+  94c07b7b Radiant Grove Aesthetics G run=failed    q11=-0.024 delta=0.0748 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0240 -> POST dist=-0.0440
+  55411eb9 ExpressLogix Shipping Serv run=failed    q11=-1.1154 delta=-1.297 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.3170 -> POST dist=-1.3170
+  8b3fa73b Radiant Grove Aesthetics G run=failed    q11=-0.1286 delta=-0.0689 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1286 -> POST dist=-0.1486
+  02556a24 IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  68694939 IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  d0c7c9e1 IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  c9f4fb2d IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  48ede7d6 IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  5e05edb4 IronLeaf Specialty Packagi run=failed    q11=-0.0084 delta=0.0912 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0084 -> POST dist=-0.0284
+  b2392ccf Sunrise Ring Donuts        run=failed    q11=-2.1389 delta=-0.1032 floor=0.02 (doctrine_default_2pp)  PRE dist=-2.1389 -> POST dist=-2.1589
+  ac699fa9 Sunrise Ring Donuts        run=failed    q11=-2.1111 delta=-0.0871 floor=0.02 (doctrine_default_2pp)  PRE dist=-2.1111 -> POST dist=-2.1311
+  6368ebb1 MetroLine Auto Group       run=failed    q11=-0.0601 delta=-0.0064 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0601 -> POST dist=-0.0801
+  47569b54 MetroLine Auto Group       run=failed    q11=-0.0601 delta=-0.0064 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0601 -> POST dist=-0.0801
+  05f9d91d MetroLine Auto Group       run=failed    q11=-0.0601 delta=-0.0064 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0601 -> POST dist=-0.0801
+  06862a5d MetroLine Auto Group       run=failed    q11=-0.0573 delta=0.0506 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0573 -> POST dist=-0.0773
+  6db59be4 Sunrise Ring Donuts        run=failed    q11=-2.1111 delta=-0.0871 floor=0.02 (doctrine_default_2pp)  PRE dist=-2.1111 -> POST dist=-2.1311
+  e1141eeb IronLeaf Specialty Packagi run=failed    q11=-0.0954 delta=0.0608 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0954 -> POST dist=-0.1154
+  d84598da IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  72c90e9b IronLeaf Specialty Packagi run=failed    q11=-0.0783 delta=0.0664 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0783 -> POST dist=-0.0983
+  36bb7e6f IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  505c8c5a IronLeaf Specialty Packagi run=completed q11=-0.0956 delta=0.0622 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0956 -> POST dist=-0.1156
+  2a403a7a IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  01aec4a5 IronLeaf Specialty Packagi run=failed    q11=-0.2434 delta=-0.018 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2434 -> POST dist=-0.2634
+  47301ed1 IronLeaf Specialty Packagi run=failed    q11=-0.2142 delta=-0.0213 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2142 -> POST dist=-0.2342
+  c3103715 IronLeaf Specialty Packagi run=failed    q11=-0.0797 delta=0.0251 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0797 -> POST dist=-0.0997
+  3ed10662 IronLeaf Specialty Packagi run=failed    q11=-0.1256 delta=0.0103 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1256 -> POST dist=-0.1456
+  9a8fee63 IronLeaf Specialty Packagi run=failed    q11=-0.1691 delta=0.0114 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1691 -> POST dist=-0.1891
+  f148e312 IronLeaf Specialty Packagi run=failed    q11=-0.1333 delta=0.0183 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1333 -> POST dist=-0.1533
+  1161c40a IronLeaf Specialty Packagi run=failed    q11=-0.243 delta=0.0469 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2430 -> POST dist=-0.2630
+  c137b96c IronLeaf Specialty Packagi run=failed    q11=-0.1659 delta=-0.0487 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1659 -> POST dist=-0.1859
+  b72f6316 IronLeaf Specialty Packagi run=failed    q11=-0.2064 delta=-0.0146 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2064 -> POST dist=-0.2264
+  df49131e IronLeaf Specialty Packagi run=failed    q11=-0.0704 delta=0.0447 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0704 -> POST dist=-0.0904
+  367ff146 IronLeaf Specialty Packagi run=failed    q11=-0.1689 delta=-0.0171 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1689 -> POST dist=-0.1889
+  84a25075 IronLeaf Specialty Packagi run=completed q11=-0.1403 delta=0.0087 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1403 -> POST dist=-0.1603
+  751c0571 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  93f499de IronLeaf Specialty Packagi run=completed q11=-0.0769 delta=0.0572 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0769 -> POST dist=-0.0969
+  915279d7 IronLeaf Specialty Packagi run=completed q11=-0.1896 delta=0.0313 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1896 -> POST dist=-0.2096
+  4a062a60 IronLeaf Specialty Packagi run=completed q11=-0.2611 delta=0.0125 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2611 -> POST dist=-0.2811
+  10e5122a IronLeaf Specialty Packagi run=failed    q11=-0.1962 delta=-0.0042 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1962 -> POST dist=-0.2162
+  5a0fe12d IronLeaf Specialty Packagi run=failed    q11=-0.2734 delta=0.0218 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2734 -> POST dist=-0.2934
+  8d280450 IronLeaf Specialty Packagi run=failed    q11=-0.0822 delta=0.0411 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0822 -> POST dist=-0.1022
+  d29fa4dc IronLeaf Specialty Packagi run=failed    q11=-0.1873 delta=0.0071 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1873 -> POST dist=-0.2073
+  47592ed4 IronLeaf Specialty Packagi run=failed    q11=-0.0195 delta=-0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0417 -> POST dist=-0.0417
+  9ba504c5 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  78067ceb IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  6db191db IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  9fd65956 IronLeaf Specialty Packagi run=failed    q11=-0.0408 delta=0.0761 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0408 -> POST dist=-0.0608
+  eaed9f9a IronLeaf Specialty Packagi run=failed    q11=-0.032 delta=0.0421 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0320 -> POST dist=-0.0520
+  2e86a858 IronLeaf Specialty Packagi run=running   q11=-0.0148 delta=0.004 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0160 -> POST dist=-0.0348
+  6b201178 IronLeaf Specialty Packagi run=failed    q11=-0.0429 delta=0.1836 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0429 -> POST dist=-0.0629
+  07e1fa02 IronLeaf Specialty Packagi run=failed    q11=-0.2478 delta=0.0139 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2478 -> POST dist=-0.2678
+  884faf04 IronLeaf Specialty Packagi run=failed    q11=-0.2147 delta=0.0078 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2147 -> POST dist=-0.2347
+  b8f0be2f IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  0725335a IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  85127acf IronLeaf Specialty Packagi run=failed    q11=-0.2365 delta=0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2365 -> POST dist=-0.2565
+  3aa7f11b IronLeaf Specialty Packagi run=failed    q11=-0.2242 delta=0.0283 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2242 -> POST dist=-0.2442
+  b678275a IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  533b2629 IronLeaf Specialty Packagi run=failed    q11=-0.1182 delta=0.0115 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1182 -> POST dist=-0.1382
+  5742bf33 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  77d1f3b5 IronLeaf Specialty Packagi run=failed    q11=-0.0059 delta=0.0315 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0059 -> POST dist=-0.0259
+  1748d92a IronLeaf Specialty Packagi run=failed    q11=-0.2534 delta=0.0202 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2534 -> POST dist=-0.2734
+  876da47b IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  173f57c9 IronLeaf Specialty Packagi run=failed    q11=-0.222 delta=0.0104 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2220 -> POST dist=-0.2420
+  188acf74 IronLeaf Specialty Packagi run=failed    q11=-0.0195 delta=-0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0417 -> POST dist=-0.0417
+  52c7640d IronLeaf Specialty Packagi run=failed    q11=-0.2676 delta=0.0175 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2676 -> POST dist=-0.2876
+  482ac127 IronLeaf Specialty Packagi run=failed    q11=-0.2761 delta=-0.0045 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2761 -> POST dist=-0.2961
+  02ab7fd1 IronLeaf Specialty Packagi run=failed    q11=-0.2222 delta=-0.0295 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2222 -> POST dist=-0.2422
+  3aef465a IronLeaf Specialty Packagi run=failed    q11=-0.1147 delta=0.0733 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1147 -> POST dist=-0.1347
+  3be6d908 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  39e43a33 IronLeaf Specialty Packagi run=failed    q11=-0.1645 delta=-0.163 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1830 -> POST dist=-0.1845
+  7c0f12a6 IronLeaf Specialty Packagi run=failed    q11=-0.2378 delta=-0.0073 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2378 -> POST dist=-0.2578
+  6e0cfb4b IronLeaf Specialty Packagi run=failed    q11=-0.2072 delta=0.0047 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2072 -> POST dist=-0.2272
+  1d4394cd IronLeaf Specialty Packagi run=failed    q11=-0.2267 delta=0.0545 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2267 -> POST dist=-0.2467
+  e03c7dd5 IronLeaf Specialty Packagi run=failed    q11=-0.1674 delta=-0.0291 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1674 -> POST dist=-0.1874
+  e476576e IronLeaf Specialty Packagi run=failed    q11=-0.1555 delta=-0.0197 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1555 -> POST dist=-0.1755
+  49be8ec2 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  ff29d0ed IronLeaf Specialty Packagi run=failed    q11=-0.122 delta=0.0024 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1220 -> POST dist=-0.1420
+  76ea3f01 IronLeaf Specialty Packagi run=failed    q11=-0.1525 delta=0.0193 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1525 -> POST dist=-0.1725
+  57e58b2f IronLeaf Specialty Packagi run=failed    q11=-0.2766 delta=0.0242 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2766 -> POST dist=-0.2966
+  8ffdcaf4 IronLeaf Specialty Packagi run=failed    q11=-0.2787 delta=-0.0021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2787 -> POST dist=-0.2987
+  86d46be1 IronLeaf Specialty Packagi run=failed    q11=-0.1118 delta=0.0196 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1118 -> POST dist=-0.1318
+  848aea26 IronLeaf Specialty Packagi run=failed    q11=-0.1004 delta=0.0204 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1004 -> POST dist=-0.1204
+  5700eb57 IronLeaf Specialty Packagi run=failed    q11=-0.1711 delta=0.0859 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1711 -> POST dist=-0.1911
+  3769a344 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  6f557f4e IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  75ca928f IronLeaf Specialty Packagi run=failed    q11=-0.177 delta=0.0028 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1770 -> POST dist=-0.1970
+  e374e3ba IronLeaf Specialty Packagi run=failed    q11=-0.1782 delta=0.0362 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1782 -> POST dist=-0.1982
+  0c3a4e3a IronLeaf Specialty Packagi run=failed    q11=-0.1853 delta=0.0423 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1853 -> POST dist=-0.2053
+  62d94be3 IronLeaf Specialty Packagi run=failed    q11=-0.0229 delta=-0.0237 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0437 -> POST dist=-0.0437
+  992d92da IronLeaf Specialty Packagi run=failed    q11=-0.058 delta=0.0076 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0580 -> POST dist=-0.0780
+  d59449ff IronLeaf Specialty Packagi run=failed    q11=-0.2655 delta=-0.0073 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2655 -> POST dist=-0.2855
+  64df76c4 IronLeaf Specialty Packagi run=failed    q11=-0.046 delta=-0.0066 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0460 -> POST dist=-0.0660
+  75d8b2ca IronLeaf Specialty Packagi run=failed    q11=-0.2354 delta=-0.005 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2354 -> POST dist=-0.2554
+  b2b41c08 IronLeaf Specialty Packagi run=failed    q11=-0.1391 delta=-0.0247 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1391 -> POST dist=-0.1591
+  d396ba69 IronLeaf Specialty Packagi run=failed    q11=-0.0195 delta=-0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0417 -> POST dist=-0.0417
+  b49d65e7 IronLeaf Specialty Packagi run=failed    q11=-0.0195 delta=-0.0217 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0417 -> POST dist=-0.0417
+  97367aaa IronLeaf Specialty Packagi run=failed    q11=-0.138 delta=-0.0021 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1380 -> POST dist=-0.1580
+  f75e21b4 IronLeaf Specialty Packagi run=failed    q11=-0.0146 delta=-0.0037 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0237 -> POST dist=-0.0346
+  863bfc2d IronLeaf Specialty Packagi run=failed    q11=-0.116 delta=0.0851 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1160 -> POST dist=-0.1360
+  e5f1c4e2 IronLeaf Specialty Packagi run=failed    q11=-0.0164 delta=0.0587 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0164 -> POST dist=-0.0364
+  615a45c8 IronLeaf Specialty Packagi run=failed    q11=-0.1724 delta=-0.0167 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1724 -> POST dist=-0.1924
+  2dc254b1 IronLeaf Specialty Packagi run=failed    q11=-0.076 delta=0.1073 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0760 -> POST dist=-0.0960
+  31f941ba IronLeaf Specialty Packagi run=failed    q11=-0.2208 delta=-0.0055 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2208 -> POST dist=-0.2408
+  c3b0b456 IronLeaf Specialty Packagi run=failed    q11=-0.0264 delta=-0.0257 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0457 -> POST dist=-0.0464
+  337870ba ClearPaw Veterinary Urgent run=failed    q11=-0.5602 delta=-0.0509 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5602 -> POST dist=-0.5802
+  1cdd5c75 ClearPaw Veterinary Urgent run=failed    q11=-0.5602 delta=-0.0509 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.5602 -> POST dist=-0.5802
+  48beb1d3 ForgeBite Robotics Kitchen run=failed    q11=-0.332 delta=-0.051 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3320 -> POST dist=-0.3520
+  be7c4470 ForgeBite Robotics Kitchen run=failed    q11=-0.3482 delta=-0.0604 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3482 -> POST dist=-0.3682
+  2eead1d2 ForgeBite Robotics Kitchen run=failed    q11=-0.332 delta=-0.051 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3320 -> POST dist=-0.3520
+  9f95290b ForgeBite Robotics Kitchen run=failed    q11=-0.332 delta=-0.051 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3320 -> POST dist=-0.3520
+  a2a05588 ForgeBite Robotics Kitchen run=failed    q11=-0.3482 delta=-0.0604 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3482 -> POST dist=-0.3682
+  d20dc1ab ForgeBite Robotics Kitchen run=failed    q11=-0.3482 delta=-0.0604 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3482 -> POST dist=-0.3682
+  36aa87c8 ForgeBite Robotics Kitchen run=failed    q11=-0.0827 delta=0.5143 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0827 -> POST dist=-0.1027
+  b1f6bb5a ForgeBite Robotics Kitchen run=failed    q11=-0.086 delta=0.4988 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0860 -> POST dist=-0.1060
+  cc7d89d1 ForgeBite Robotics Kitchen run=failed    q11=-0.0019 delta=0.5137 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0019 -> POST dist=-0.0219
+  6c5d8660 ForgeBite Robotics Kitchen run=failed    q11=-0.0431 delta=0.5452 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0431 -> POST dist=-0.0631
+  881b4f8f ForgeBite Robotics Kitchen run=failed    q11=-0.0842 delta=0.4706 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0842 -> POST dist=-0.1042
+  9a563520 ForgeBite Robotics Kitchen run=failed    q11=-0.0777 delta=0.56 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0777 -> POST dist=-0.0977
+  5de67a6b ForgeBite Robotics Kitchen run=completed q11=-0.0349 delta=0.3923 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0349 -> POST dist=-0.0549
+  00974ced ForgeBite Robotics Kitchen run=failed    q11=-0.0299 delta=0.4629 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0299 -> POST dist=-0.0499
+  3e2f6096 ForgeBite Robotics Kitchen run=failed    q11=-0.3104 delta=-0.051 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3104 -> POST dist=-0.3304
+  00050e6d ForgeBite Robotics Kitchen run=failed    q11=-0.3266 delta=-0.0604 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3266 -> POST dist=-0.3466
+  fb0a0cb6 Summit Health Network 1    run=failed    q11=-1.7409 delta=-0.2807 floor=0.02 (doctrine_default_2pp)  PRE dist=-1.7409 -> POST dist=-1.7609
+  b3977be6 Summit Health Network 1    run=failed    q11=-0.0548 delta=0.0408 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0548 -> POST dist=-0.0748
+  f0ed52ae Summit Health Network 1    run=running   q11=-0.0291 delta=-0.0027 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0291 -> POST dist=-0.0491
+  1be1356f Summit Health Network 1    run=failed    q11=-0.0683 delta=0.0432 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0683 -> POST dist=-0.0883
+  de711295 Summit Health Network 1    run=failed    q11=0.0085 delta=-0.1046 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1246 -> POST dist=-0.1246
+  574abd0f Summit Health Network 1    run=completed q11=-0.0701 delta=-0.1031 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1231 -> POST dist=-0.1231
+  efd1ee55 SwiftLogix Shipping Soluti run=completed q11=-0.1681 delta=-0.1493 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1693 -> POST dist=-0.1881
+  cbe88b30 Skyward Express Airlines   run=completed q11=-0.0527 delta=0.0119 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0527 -> POST dist=-0.0727
+  a1d98b85 Skyward Express Airlines   run=failed    q11=0.0122 delta=0.017 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0030 -> POST dist=-0.0078
+  589d38cb ExpressLogix Shipping Serv run=running   q11=-43.625 delta=0.0 floor=0.02 (doctrine_default_2pp)  PRE dist=-43.6250 -> POST dist=-43.6450
+  55ff704e ExpressLogix Shipping Serv run=failed    q11=-43.5963 delta=0.0485 floor=0.02 (doctrine_default_2pp)  PRE dist=-43.5963 -> POST dist=-43.6163
+  d24759e7 ExpressLogix Shipping Serv run=None      q11=-0.1572 delta=0.0755 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1572 -> POST dist=-0.1772
+  0dde01b3 Atlas Express Logistics    run=None      q11=-0.016 delta=0.2652 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0160 -> POST dist=-0.0360
+  fe935909 SwiftShip Logistics Inc.   run=None      q11=-0.0915 delta=-0.2925 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3125 -> POST dist=-0.3125
+  49411178 Rapid Freight Logistics In run=None      q11=-3.1647 delta=-1.7794 floor=0.02 (doctrine_default_2pp)  PRE dist=-3.1647 -> POST dist=-3.1847
+  8eb3a878 Express Global Logistics I run=None      q11=-0.2038 delta=0.0696 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2038 -> POST dist=-0.2238
+  f589dfc6 SwiftLogistics Express Inc run=None      q11=0.0156 delta=-0.0209 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0409 -> POST dist=-0.0409
+  891cb629 Nationwide Freight Logisti run=None      q11=-0.1339 delta=-0.007 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1339 -> POST dist=-0.1539
+  1d5ad246 SwiftShip Logistics Inc.   run=None      q11=-0.0797 delta=0.0084 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0797 -> POST dist=-0.0997
+  c0831f40 SwiftWave Logistics Inc.   run=None      q11=0.007 delta=0.02 floor=0.02 (doctrine_default_2pp)  PRE dist=+0.0000 -> POST dist=-0.0130
+  99ba6e9a North Ridge Auto Care      run=None      q11=-0.0102 delta=0.0444 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0102 -> POST dist=-0.0302
+  7eceea31 ValueMart Superstores      run=None      q11=-0.1097 delta=-0.02 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1097 -> POST dist=-0.1297
+  0bda87ac ValueMart Superstores      run=None      q11=-0.3378 delta=0.0867 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.3378 -> POST dist=-0.3578
+  0b02d75e Pioneer Value Mart         run=None      q11=-0.0659 delta=0.0628 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0659 -> POST dist=-0.0859
+  af3d9554 ValueMart Superstores      run=None      q11=-0.0356 delta=0.0446 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0356 -> POST dist=-0.0556
+  c4613bfe North Ridge Auto Care      run=None      q11=-0.0281 delta=-0.0606 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0806 -> POST dist=-0.0806
+  ba10a26d North Ridge Auto Care      run=None      q11=-0.0621 delta=-0.1355 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1555 -> POST dist=-0.1555
+  9a393312 North Ridge Auto Care      run=None      q11=-0.2267 delta=-0.0057 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.2267 -> POST dist=-0.2467
+  0459723b Harborview Kitchen & Co.   run=None      q11=0.0179 delta=-0.0047 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0247 -> POST dist=-0.0247
+  7a7ff118 Harborview Bistro          run=None      q11=0.0169 delta=-0.0179 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0379 -> POST dist=-0.0379
+  d3dca93a Precision Aesthetics Lab   run=None      q11=-0.111 delta=0.0035 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.1110 -> POST dist=-0.1310
+  2767f16d Precision Aesthetics Lab   run=None      q11=-0.0242 delta=-0.0133 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0333 -> POST dist=-0.0442
+  a122afe5 Precision Aesthetics Lab   run=None      q11=0.0159 delta=-0.0251 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0451 -> POST dist=-0.0451
+  6d33a74c Precision Aesthetics Lab   run=None      q11=-0.065 delta=0.1088 floor=0.02 (doctrine_default_2pp)  PRE dist=-0.0650 -> POST dist=-0.0850
+  2ce63dfa Precision Aesthetics Lab   run=None      q11=-3.0859 delta=0.2682 floor=0.02 (doctrine_default_2pp)  PRE dist=-3.0859 -> POST dist=-3.1059
+  797e29e5 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  cc52c8d1 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  f29e8f26 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  1bc7c874 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  cf85474a NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  d0e2d9b8 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+  970ca219 NI fails on missing_q5_or_q11_revenue (no margins) dist=None
+failing-NI drafts with margins: 506 (executive floor on 5); no-margin reason rows: 7; SIGN FLIPS: 1

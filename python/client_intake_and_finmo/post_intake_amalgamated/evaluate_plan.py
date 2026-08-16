@@ -198,9 +198,14 @@ def _gate_distance(check_name: str, detail: Dict[str, Any]) -> Tuple[Optional[fl
       _NI_TRAJECTORY_MIN_DELTA_Q5_TO_Q11 as _GATE_NI_DELTA_THR,
     )
     q11 = _n("q11_ni_margin", "q11_margin")
-    req_q11 = _n("min_required_q11_margin")
+    # FIX 3 ONE RULER: the gate emits min_required_q11_margin_flat (the
+    # executive ni_margin_floor_q11 when authored, else the 2pp doctrine
+    # default) and min_required_delta_ramping. Reading the gate's actual
+    # keys makes the cascade's distance THE gap the gate will fail (the
+    # older bare names never existed -> floor read as 0.0).
+    req_q11 = _n("min_required_q11_margin_flat", "min_required_q11_margin")
     delta = _n("q5_to_q11_delta")
-    req_delta = _n("min_required_delta")
+    req_delta = _n("min_required_delta_ramping", "min_required_delta")
     candidates = []
     if q11 is not None:
       candidates.append(q11 - (req_q11 if req_q11 is not None else 0.0))
@@ -740,19 +745,33 @@ _IN_CASCADE_VIABILITY_CHECKS: Tuple[str, ...] = (
 def _evaluate_in_cascade(
   *,
   finmo_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]] = None,
   emit_diagnostic_fn=None,
 ) -> Tuple[List[CheckResult], List[QuarterTrajectory], Dict[str, Any], int]:
   """Run the restructurable economic checks on the LIVE finmo. Reuses the
   Fix #1 acceptance-gate finmo check functions (single source of truth) so
   the in-loop standard and the final gate agree on what 'economically
-  failing' means; the in-loop set just omits the post-hoc + cash checks."""
+  failing' means; the in-loop set just omits the post-hoc + cash checks.
+
+  FIX 3 ONE RULER (Nick 2026-08-16): ``model_input_json`` is the LIVE
+  per-round model_input the caller rebuilt ``finmo_json`` from. It carries
+  solver_input.margin_band_judgment (stamped by the grid runner BEFORE the
+  session), so net_income_trajectory_viable reads the SAME executive
+  ni_margin_floor_q11 the final gate reads (gate.py verify_run_acceptance
+  passes the draft's model_input_json). Before this the cascade evaluated
+  finmo-only -> the 2pp doctrine default -> blessed plans the gate then
+  failed on the executive floor (Nine Fathom: Q11 NI 4.04% cleared 2pp in
+  the loop, failed 8% at the gate). revenue_not_flat_q1_q10 deliberately
+  stays finmo-only here (its gate-side judged_growth relaxation is a
+  separate ruling - the cascade is STRICTER there, never a false pass)."""
   from client_intake_and_finmo.post_intake_acceptance.gate import (  # type: ignore
     _check_net_income_trajectory_viable,
     _check_revenue_not_flat,
   )
   fj = finmo_json if isinstance(finmo_json, dict) else {}
+  mi = model_input_json if isinstance(model_input_json, dict) else None
   runners = {
-    "net_income_trajectory_viable": _check_net_income_trajectory_viable,
+    "net_income_trajectory_viable": (lambda _fj: _check_net_income_trajectory_viable(_fj, mi)),
     "revenue_not_flat_q1_q10": _check_revenue_not_flat,
   }
   results: List[CheckResult] = []
@@ -851,6 +870,9 @@ def evaluate_plan(
   operating_context: Optional[Dict[str, Any]] = None,
   # Input the full-gate trajectory wants:
   finmo_json: Optional[Dict[str, Any]] = None,
+  # FIX 3 ONE RULER: the LIVE model_input finmo_json was built from, so the
+  # in-cascade NI check reads the executive floor the final gate reads.
+  model_input_json: Optional[Dict[str, Any]] = None,
   # Optional diagnostic emit closure (B4 — for per-check exception rows).
   emit_diagnostic_fn=None,
 ) -> EvaluatePlanResult:
@@ -899,7 +921,8 @@ def evaluate_plan(
     # Fork A Wall A — the in-LOOP standard: restructurable economic checks
     # on the LIVE finmo (rebuilt by the caller from the mirror each round).
     checks, trajectory, _, check_exception_count = _evaluate_in_cascade(
-      finmo_json=finmo_json, emit_diagnostic_fn=emit_diagnostic_fn,
+      finmo_json=finmo_json, model_input_json=model_input_json,
+      emit_diagnostic_fn=emit_diagnostic_fn,
     )
     total_check_attempts = len(checks)
   elif strictness == "mini_finmo":
