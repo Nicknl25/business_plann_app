@@ -1,5 +1,17 @@
 # Net-income trajectory research — Nine Fathom (draft 6d2823db, run 10a81085)
 
+
+> **CORRECTION 2026-08-16 (see docs/FAILED_ACCEPTANCE_DELIVERY_RESEARCH.md):**
+> this note's claim that Nine Fathom PASSED the acceptance gate on the
+> flat-healthy branch is WRONG. It read the code default (2pp) and the
+> in-loop cascade's behaviour. The PERSISTED verdict for run 10a81085 is
+> `passed=false`, `failed_checks=['net_income_trajectory_viable']` — Q11
+> NI margin 0.0404 against the EXECUTIVE floor 0.08
+> (`flat_floor_source=executive_margin_band_judgment`, wired 2026-07-22).
+> The trajectory numbers and the stub-basis finding stand; the pass/fail
+> claim and the "escape hatch" framing are retracted. Nick has parked the
+> stub question (the stub is the client's real state; A1 is wrong).
+
 Status: RESEARCH for Nick's ruling (2026-08-15). Nothing built. When it
 becomes a fix it is engine / acceptance-gate / golden-floor territory —
 FULL APPARATUS (canary + full prove + golden re-bless where the stub
