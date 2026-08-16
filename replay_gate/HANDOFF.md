@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 5/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
@@ -440,3 +440,102 @@ TASK:
   draft), independently re-run the named neighbor checks, verify every
   flip VS enumerated is real and adjudicated (no auto-bless), floor
   R31/R32. Carry the needs-ruling list (n1-n5) forward to Nick unchanged.
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none
+  EVIDENCE: 341d1b5 (code + proofs) ; diff: post_intake_amalgamated/evaluate_plan.py
+    (_gate_distance NI keys ~:196-206, _evaluate_in_cascade signature + NI
+    runner ~:740-790, evaluate_plan model_input_json param + thread ~:855-915),
+    protocol/session_factory.py (_build_evaluate_plan_fn passes
+    model_input_json=live_mi ~:424) ; Test Files/_one_ruler_cascade_proof.py
+    with _one_ruler_cascade_proof_20260816_PRE.txt (RED: 1995 drafts, cascade
+    finmo-only -> 137 TWO-RULER mismatches = every draft carrying an executive
+    ni_margin_floor_q11 read doctrine_default_2pp in the loop; the three Nine
+    Fathom dead-net clones rsdeadd2/rsdeadb6/rsdeadfd show the deal-breaker
+    shape cascade=True vs GATE=False at q11 4.04% vs floor 8%) and _POST.txt
+    (GREEN: NEIGHBOR-CHECK 0 diffs on every non-NI cascade check PRE vs POST;
+    ONE-RULER 0 mismatches - POST cascade NI passed+detail == gate NI on all
+    1995; FLIPS 3 = the three Nine Fathom pre-rescue clones PRE True -> POST
+    False, zero reverse flips) ; _one_ruler_live_closure_probe.py +
+    _one_ruler_live_closure_20260816.txt (the PRODUCTION closure
+    session_factory._build_evaluate_plan_fn, real build_python_finmo_json,
+    parity assertion ran: rsdeadd25e in-loop NI False floor 0.08 executive ==
+    gate; 6d2823db True 0.08; fd3d1b02 True 0.03; ONE RULER GREEN x3) ;
+    _one_ruler_distance_probe.py + _one_ruler_distance_20260816.txt (506
+    failing-NI drafts: distance PRE min(q11-0, d-0.02) -> POST floor-aware,
+    uniformly more negative by the floor, 1 sign change c0831f40 = a rounded
+    0.0000 on a failing check now honestly -0.0130) ;
+    _gate_only_R31_R32_20260816_fix3.txt (2/2 GREEN, digests
+    model_input=1d50e46ab8e6 finmo=24e38de4dc98 grid=cbd764631e98 IDENTICAL).
+  SUMMARY: FIX 3 ONE RULER LANDED at NEIGHBOR-CHECK tier, as declared. Both
+    readings now call the SAME gate function with the SAME (finmo, model_input)
+    shape: session_factory passes the LIVE per-round model_input (the one the
+    finmo is rebuilt from each round; it carries solver_input.margin_band_
+    judgment because the grid runner stamps it at ~1212/1252 BEFORE the
+    session at ~3064) -> evaluate_plan(model_input_json=) ->
+    _evaluate_in_cascade -> _check_net_income_trajectory_viable(fj, mi). Plus
+    the distance fix: _gate_distance read keys that never existed
+    (min_required_q11_margin / min_required_delta) so the floor was 0.0; it now
+    reads the gate's real keys so worst_failing_distance IS the gap the gate
+    will fail. NEIGHBORS through _evaluate_in_cascade, each named and checked
+    byte-identical PRE vs POST on 1995 drafts: revenue_not_flat_q1_q10 (kept
+    finmo-only), ebitda_positive_by_q11, ebitda_recovery_trend_q5_q11,
+    ebitda_margin_q20_holds_or_improves_vs_q11, gross_margin_supports_ebitda_
+    recovery, fixed_cost_burden_reduced_or_scaled_by_q11, trajectory. NO
+    engine/money math, NO golden, NO workbook change; no replay leg exercises
+    the amalgamated cascade (grepped legs.py) -> floor R31/R32 rode as the
+    catch-all. FLIP ADJUDICATION: the ONLY verdict flips are the three Nine
+    Fathom pre-rescue clones (2pp-pass -> 8%-floor-fail) = THE POINT: on a
+    real run that plan is now seen failing IN THE LOOP and gets rescued (the
+    net is alive since 246a53d/59ca304) or fails loud (FIX 2/2b) - never
+    auto-blessed; every already-delivered rescued/passing draft (Nine Fathom
+    6d2823db 12.05% vs 8%, Kestrelbrook 4.3% vs 3%, Thornfield 3.86% vs 3%,
+    Alderfen) reads True under both rulers -> no delivered plan changes;
+    zero reverse flips (nothing the gate fails now passes). Distance shifts
+    are uniform and one-directional (more honest), no proposer/progress sign
+    reversal except the rounding edge named above. Backend restarted on the
+    real launcher, ONE :5050 listener (pid 38516, child of launcher 41004).
+    DECLARED-vs-ACTUAL: matched - neighbor-check, harness over the sweep
+    drafts + every persisted draft, production-closure probe, R31/R32, canary
+    skipped, no live system run (none declared; the change is judged offline
+    on the exact production function and closure). ONE addition: the
+    distance probe (declared only as part of the harness) got its own script.
+    NOT BUILT, same class, queued for Nick (scope law - own turn, do not
+    bundle): (n6) post_intake_solver/orchestrator.py ~3266 Phase-B engagement
+    _pb_ni_check(fj) is a THIRD ruler - finmo-only with _pb_gate_mi already in
+    hand (one-line fix; direction: engagement under-fires on plans the gate
+    will fail); (n7) revenue_not_flat_q1_q10 divergence the OTHER way: gate
+    reads judged_growth half-delta, cascade the 0.05 constant -> cascade
+    STRICTER, never a false pass (not a deal breaker; a one-ruler ruling).
+    Also observed: _gate_distance NI combines candidates with min() (requires
+    BOTH) while the check passes on EITHER shape (ramping OR flat) - the
+    binding-gap semantics are pre-existing and untouched here (n8, observe).
+TASK:
+  MINI - audit FIX 3 at NEIGHBOR-CHECK (verify the call: shared cascade
+  evaluation semantics changed; no engine/forward-mover/workbook/golden;
+  floor digests identical): (a) read the 341d1b5 diff (evaluate_plan.py
+  _gate_distance keys, _evaluate_in_cascade + evaluate_plan model_input_json,
+  session_factory live_mi pass-through) and confirm ONLY the NI runner reads
+  model_input; (b) trace the floor source on ONE draft in cascade AND gate
+  independently (rerun PYTHONIOENCODING=utf-8 python "Test Files/
+  _one_ruler_live_closure_probe.py" rsdeadd25e 6d2823db - the production
+  closure - and compare with gate._check_net_income_trajectory_viable on the
+  same finmo+model_input); (c) rerun the harness "Test Files/
+  _one_ruler_cascade_proof.py" (whole DB, ~1 min) and confirm NEIGHBOR-CHECK 0
+  diffs / ONE-RULER 0 mismatches / FLIPS = exactly the three Nine Fathom
+  clones, plus the distance probe; verify each flip is real and adjudicated as
+  the-point (2pp-pass -> executive-floor-fail on the pre-rescue state), no
+  reverse flip; (d) floor R31/R32 via --only; (e) confirm ONE :5050 listener.
+  Do NOT run a system run/canary (neighbor-check tier; nothing engine-side
+  changed). Then, if green: VERDICT green -> STATUS awaiting-Nick with the
+  needs-ruling list carried UNCHANGED plus the new items: n1 acceptance_
+  planning_run_id empty on the restructure path; n2 R4 email lies by omission
+  + R5 stale header (spot-check turn); n3 R1 delivery of a failed plan
+  (policy); n4 _prepare_restructure_model flips existing COGS % rows to
+  controller_write=True; n5 duplicate-identity candidate watch-list; n6
+  orchestrator Phase-B _pb_ni_check third ruler (one-line, spot-check turn if
+  ruled); n7 revenue_not_flat cascade-vs-gate judged_growth divergence
+  (cascade stricter; ruling); n8 _gate_distance NI min()-vs-either semantics
+  (observe). The DEAD RESTRUCTURE NET batch (FIX 1/2/2b/3) is then CLOSED
+  pending Nick.
