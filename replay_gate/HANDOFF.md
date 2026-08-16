@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 TURN: 2/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
@@ -151,3 +151,120 @@ TASK:
   lies by omission + R5 stale header comment (spot-check turn), R1 delivery of
   a failed plan (policy ruling), and the prepare-model COGS-row flag
   observation above.
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: RestructureNetDeadError:failure-surface-partial
+  EVIDENCE: 246a53d diff (searcher.py:59-205, joint_solver.py:55-80/700-723,
+    intake_consult.py:14717-14951/15191-15192, initial_grid/runner.py:1969);
+    intake_consult.py try/except ladder 14488(try)->14489(try)->14528(except
+    RuntimeError)->14609 ; 14722(try, restructure block)->15191 re-raise ->
+    15607(finally) -> Flask default 500 ; python/api.py:210-214 (no
+    errorhandler) ; api_handlers/financials.py:19-34 (submit thread logs the
+    500 only) ; scripts/run_supervisor.py:296-415 (rerun ladder is the only
+    downstream surface for a run_status=failed row) ; re-runs this turn:
+    _rs_deadnet_failloud_proof.py A/B/C/D GREEN, _rs_deadnet_repro.py
+    6d2823db CONTRACT VALID, _rs_deadnet_run_state.py 6d2823db (e8a03731
+    completed, verdict passed 18/18, final_passed True, search_1 evals=8),
+    _rs_deadnet_class_sweep.py 7/8 + my unique-name probe on Nine Fathom
+    (found=True evals=8), replay_gate --only R31,R32 GREEN digests
+    model_input=1d50e46ab8e6 finmo=24e38de4dc98 grid=cbd764631e98 (identical
+    to VS's and to pre-fix).
+  SUMMARY: TIER CALL HONEST (spot-check): FIX 1 lives only in
+    synthesize_new_line_rows (restructure-only; three callers all on the
+    restructure branch), FIX 2 is a raise on the evals==0-and-identical-error
+    branch + a catch in the restructure block; no engine/forward-mover/
+    workbook-builder/golden change; floor digests identical. VS's
+    DECLARED-vs-ACTUAL matched (the added live Nine Fathom run was disclosed;
+    it mutated 6d2823db and sent a PASSED internal email + workbook).
+    (a) FIX 1 CONFIRMED: emitted COGS % row = real per-line row on every
+    meaningful field (driver, controller_write=False,
+    derived_driver=per_line_cogs_source, value_kind ratio, input_semantics
+    percent_of_line_revenue, lever_id revenue::lob::product::COGS %, constant
+    across the horizon); ONLY cosmetic diff = two extra keys carried from the
+    triple template (capacity_shaping/payroll_supported_capacity = None) that
+    finmo_bridge's row lacks - contract accepts, not a finding. Value DERIVED:
+    gm 0.45 -> 0.55, gm 0.5 -> 0.5 (Nine Fathom candidates), no/invalid
+    margin (None, 1.7, 'abc') -> the draft's revenue-weighted blend 0.581872;
+    no-COGS draft -> triple only (3 rows). Sweep: 7/8 drafts POST evals=8
+    found=True; Nine Fathom POST now raises RestructureNetDeadError
+    (ValueError revenue_driver_formula_contract_failed) ONLY because the
+    sweep replays the persisted candidates against the ALREADY-RESCUED draft
+    (same lob/product names as lob_3/lob_4 -> duplicate lever identity);
+    same candidates renamed unique -> found=True evals=8. VS's 8/8 was true
+    pre-mutation; the class is restored.
+    (b) FIX 2 HALF-CONFIRMED - FINDING: A/B/C/D green (dead net raises naming
+    the violation; exhaustion + mixed stay quiet; identical non-contract
+    error raises). BUT the re-raise does NOT reach the surface VS claimed:
+    the restructure block (14722) is a SIBLING of the try (14489) whose
+    except-RuntimeError (14528) owns _persist_failed_system_run_snapshot +
+    _dispatch_post_intake_failure_alert (FAILED diagnostics row + failure
+    email). The raise exits via 14488's bare finally (15607) -> unhandled ->
+    Flask default 500; the submit thread only logs the status. What DOES
+    land: planning_runs.run_status=failed + failure_reason naming the
+    violation, repair_guidance_json dead_net record, HTTP 500. No failure
+    email, no FAILED diagnostics row; the only human surface is the
+    supervisor rerun ladder (10m/1h/6h/24h re-runs that will die identically,
+    then dead-letter escalation) - not silent, but not the loud/immediate
+    surface the TASK demanded ("run_status / diagnostics / email"). VS's
+    RESULT claim of the RuntimeError path is FALSE-BY-STRUCTURE (never
+    live-exercised; only proven offline through the joint solver). Not a
+    shipped wrong number (nothing ships) -> not a deal breaker; it IS an
+    unfinished FIX 2 -> next VS turn, spot-check (see TASK FIX 2b).
+    (c) Live artifacts on Nine Fathom CONFIRMED (run_state dump above);
+    floor R31/R32 GREEN, digests identical.
+    TRIAGE (mini, per triage law): WONT-FIX/observe: (i) duplicate-identity
+    candidate (designer proposes a lob+product identical to an existing line)
+    -> lever identity collision -> revenue_driver_formula_contract_failed on
+    every rung -> now LOUD via FIX 2 (fails, does not ship) - off-path today,
+    watch-list; (ii) two cosmetic extra None keys on the synthesized COGS row.
+    NEEDS-RULING for Nick (not built): _prepare_restructure_model flips
+    EXISTING per-line COGS % rows to controller_write=True/derived_driver=None
+    (visible in the repro dump for lob_1..lob_4) - not the real-row shape,
+    solve ran green; R4 email lies by omission + R5 stale header (spot-check
+    turn); R1 delivery of a failed plan (policy).
+    DECLARED-vs-ACTUAL (mini): matched - loaded exactly the declared diff +
+    artifacts, ran the declared scripts + R31/R32 (2 legs), canary skipped;
+    ONE addition: two probe scripts in scratchpad (unique-name replay,
+    row-shape/blend probe) to explain the sweep 7/8 and verify derivation.
+TASK:
+  VS - TWO TURNS, split by radius (do NOT bundle):
+  TURN A (this one) - FIX 2b: FINISH THE FAILURE SURFACE. spot-check tier
+  (adds to the restructure block's dead-net catch only). Deal breaker it
+  prevents: a dead net that fails a client's run with NO immediate human
+  signal (no email, no FAILED diagnostics row) - the run sits failed until
+  the supervisor ladder burns four identical re-runs. In the
+  except-RestructureNetDeadError catch (intake_consult.py ~14907-14950),
+  before the re-raise: persist the FAILED snapshot
+  (_persist_failed_system_run_snapshot with active_run = the run row you
+  just flipped, failure_diagnostics = _rs_dead.to_dict()) and dispatch
+  _dispatch_post_intake_failure_alert (exception=_rs_dead,
+  failure_detail=str(_rs_dead), failure_diagnostics_payload=to_dict()) - or
+  route the raise into the 14528 RuntimeError branch by moving the
+  restructure block inside that try; pick the one that does not change any
+  non-dead-net behaviour and say why. Then PROVE IT LIVE: rewind/clone a
+  per-line-COGS draft (Nine Fathom clone or Kestrelbrook), monkeypatch or
+  strip the COGS row so the net is dead, POST system-run against a
+  restarted :5050 (ONE listener) and show at artifact level: planning_runs
+  run_status=failed + failure_reason names ContractViolation, FAILED
+  diagnostics row present, failure email sent (log line/outcome), HTTP 500,
+  NO workbook, NO passed email, repair_guidance dead_net record. Honest
+  exhaustion (proof case B) must still be quiet - rerun
+  _rs_deadnet_failloud_proof.py (note: it now needs PYTHONIOENCODING=utf-8
+  on this console, and case E replays stale candidates against the mutated
+  6d2823db - point E at a fresh clone or unique-name the candidates). Floor
+  R31/R32 via --only. Flip to mini.
+  TURN B (the following VS turn, its OWN turn) - FIX 3 ONE RULER
+  (post_intake_amalgamated/evaluate_plan.py ~:763 fn(fj) in
+  _evaluate_in_cascade evaluates net_income_trajectory_viable finmo-only ->
+  2pp default -> passes, while the final gate reads model_input -> executive
+  floor -> fails; pass model_input into the cascade evaluation so the SAME
+  executive floor governs both). NEIGHBOR-CHECK at minimum: it changes shared
+  cascade evaluation semantics - NAME every check that flows through
+  _evaluate_in_cascade and confirm each still reads what it read before;
+  enumerate every fixture/canary/leg flip and ADJUDICATE each (a plan that
+  previously cleared 2pp and now fails the executive floor is the point) -
+  do not auto-bless; hand the flip list to mini/Nick.
+  MINI next: audit TURN A at spot-check - read the catch diff, the live
+  dead-net artifacts (planning_runs, diagnostics row, email outcome), rerun
+  the fail-loud proof (B quiet), floor R31/R32.
