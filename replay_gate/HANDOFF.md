@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 6/16
 TASK:
   FIX THE DEAD RESTRUCTURE NET — Nick's ruling 2026-08-16, research in
@@ -539,3 +539,85 @@ TASK:
   (cascade stricter; ruling); n8 _gate_distance NI min()-vs-either semantics
   (observe). The DEAD RESTRUCTURE NET batch (FIX 1/2/2b/3) is then CLOSED
   pending Nick.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_one_ruler_mini_audit_20260816.txt (my independent
+    reruns, tails); 341d1b5 diff (evaluate_plan.py + session_factory.py);
+    VS artifacts _one_ruler_cascade_proof_20260816_PRE/POST.txt,
+    _one_ruler_live_closure_20260816.txt, _one_ruler_distance_20260816.txt,
+    _gate_only_R31_R32_20260816_fix3.txt.
+  SUMMARY: FIX 3 ONE RULER CONFIRMED at NEIGHBOR-CHECK. (a) Diff read: 33
+    lines evaluate_plan.py + 4 session_factory.py; ONLY the NI runner reads
+    model_input (lambda -> gate._check_net_income_trajectory_viable(fj, mi));
+    revenue_not_flat_q1_q10 stays fj-only, the five REQ1 viability checks
+    call _eval_viability_checks(fj) untouched, trajectory unchanged;
+    _gate_distance now reads the gate's real detail keys
+    (min_required_q11_margin_flat / min_required_delta_ramping - confirmed
+    those are the keys gate.py:525-526 emits; the old bare names never
+    existed). No engine/money math, no workbook, no golden touched -> VS's
+    NEIGHBOR-CHECK tier call is HONEST. Production path traced independently:
+    grid runner stamps solver_input.margin_band_judgment at runner.py:1212/
+    1252 -> applied_model_input_json deepcopy :2686 -> session seed :3074 ->
+    live_model_input_ref["mi"] (session_factory:536) -> live_mi -> evaluate_
+    plan(model_input_json=) -> cascade; the gate reads draft.model_input_json
+    (gate.py:965). Same floor source both ends. (b) Live closure probe rerun
+    by me: rsdeadd25e in-loop NI False floor 0.08 executive dist -0.0396 ==
+    gate False 0.08; 6d2823db True 0.08 both; fd3d1b02 True 0.03 both - ONE
+    RULER GREEN x3. (c) Harness rerun by me over 1995 drafts: NEIGHBOR-CHECK
+    0 diffs, ONE-RULER 0 mismatches, FLIPS exactly 3 = rsdeadd2/rsdeadb6/
+    rsdeadfd (Nine Fathom pre-rescue clones, q11 4.04% delta 0.87pp: cleared
+    2pp doctrine PRE, fails 8% executive floor POST) - ADJUDICATED the-point:
+    rsdeadfd is the PRE dead-net clone that 'completed' under two rulers,
+    exactly the deal breaker; every rescued/delivered draft (6d2823db,
+    fd3d1b02, Thornfield, Alderfen) True under both; the harness enumerates
+    PRE!=POST in either direction and all 3 are True->False, so ZERO reverse
+    flips. Distance probe rerun: 506 failing-NI rows, POST distance never
+    greater than PRE (uniform floor shift), 1 sign change c0831f40 (PRE
+    +0.0000 rounding on a failing check -> POST -0.0130, honest). (d) Floor
+    R31/R32 via -m replay_gate.run_gate --only: 2/2 clear, digests
+    model_input=1d50e46ab8e6 finmo=24e38de4dc98 grid=cbd764631e98 IDENTICAL.
+    (e) ONE :5050 listener pid 38516. VS DECLARED-vs-ACTUAL audited: plan
+    (watcher.log 16:27:19) named the tier, enumerated the fn(fj) table
+    (5 items) and the loaded ranges; actual = same files, harness ran
+    BROADER than declared (all 1995 persisted drafts, not just completed) and
+    added the distance + closure probes - disclosed in the RESULT, not a
+    scope lie. Bundle check: single fix, own turn, nothing else rode. n6
+    verified real by me (orchestrator.py:3267 _pb_ni_check(fj) finmo-only
+    with _pb_gate_mi in hand at :3228) - engagement under-fires only, no
+    delivered number; stays needs-ruling. fast_evaluator.py:130 already
+    passes model_input_json (not a fourth ruler). My DECLARED-vs-ACTUAL:
+    matched (neighbor-check, harness+closure+distance reruns, R31/R32, canary
+    skipped, no app code touched). DEAD RESTRUCTURE NET batch FIX 1/2/2b/3
+    CLOSED pending Nick.
+TASK:
+  NICK - rulings needed (plain English answers; nothing here needs you to
+  touch code or files). The dead-restructure-net batch (FIX 1/2/2b/3) is
+  closed green; the next VS turn is whichever of these you rule in:
+  n1 acceptance_planning_run_id is EMPTY on the restructure path (FIX 2b
+     works around it by resolving the draft's latest run) - rule: fix the
+     source so the id is stamped (spot-check turn) or leave the workaround.
+  n2 R4 failure email lies by omission + R5 stale header - spot-check turn
+     if you want the copy fixed.
+  n3 R1 delivery of a FAILED plan - policy: today a failed run ships no
+     workbook (human-mediated inbox); confirm that stays the rule.
+  n4 _prepare_restructure_model flips existing COGS % rows to
+     controller_write=True - rule whether that is intended (a client-stated
+     COGS % row could be overwritten by the restructure).
+  n5 duplicate-identity candidate watch-list (observe only).
+  n6 orchestrator Phase-B _pb_ni_check is a THIRD ruler (finmo-only, 2pp
+     default) - it only decides whether Phase B ENGAGES, so it under-fires
+     on plans the executive floor will fail; one-line fix, spot-check turn
+     if ruled. Recommend: yes, same fix shape as FIX 3.
+  n7 revenue_not_flat_q1_q10: gate uses the judged-growth half-delta, the
+     in-loop cascade uses the 0.05 constant -> cascade STRICTER, never a
+     false pass. Rule: unify (one-ruler) or leave.
+  n8 _gate_distance NI combines the two shapes with min() (needs BOTH)
+     while the check passes on EITHER - the reported gap can overstate the
+     distance; observe only unless you want the proposer to see the binding
+     gap exactly.
+  VS - no turn until Nick rules; if Nick rules n6 in, it is its own
+  spot-check turn: pass _pb_gate_mi into _pb_ni_check at
+  post_intake_solver/orchestrator.py:3267, prove PRE/POST on rsdeadd25e
+  (engagement fires) + Kestrelbrook fd3d1b02 (unchanged), floor R31/R32.

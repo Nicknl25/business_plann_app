@@ -1,0 +1,40 @@
+=== mini independent rerun 2026-08-16: _one_ruler_cascade_proof.py (tail) ===
+cf85474a CareFirst Home Health Servic run=None      q11=None     d=None     PRE cascade=False floor=None (None) | GATE=False floor=None (None) | POST cascade=False floor=None (None) dist=None
+d0e2d9b8 CareFirst Home Health Servic run=None      q11=None     d=None     PRE cascade=False floor=None (None) | GATE=False floor=None (None) | POST cascade=False floor=None (None) dist=None
+970ca219 CareFirst Home Health Servic run=None      q11=None     d=None     PRE cascade=False floor=None (None) | GATE=False floor=None (None) | POST cascade=False floor=None (None) dist=None
+
+drafts evaluated: 1995
+NEIGHBOR-CHECK: GREEN - every non-NI cascade check identical PRE vs POST (0 diffs)
+ONE-RULER: GREEN - POST cascade NI == gate NI on every draft (0 mismatches)
+FLIPS (PRE cascade verdict != POST cascade verdict): 3
+   rsdeadd2 Nine Fathom Coffee Roasters  run=failed PRE=True -> POST=False  q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)
+   rsdeadb6 Nine Fathom Coffee Roasters  run=failed PRE=True -> POST=False  q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)
+   rsdeadfd Nine Fathom Coffee Roasters  run=completed PRE=True -> POST=False  q11=0.0404 delta=0.0087 floor=0.08 (executive_margin_band_judgment)
+VERDICT: GREEN
+
+=== _one_ruler_live_closure_probe.py rsdeadd25e 6d2823db fd3d1b02 ===
+rsdeadd2 Nine Fathom Coffee Roast in-loop NI passed=False floor=0.08 src=executive_margin_band_judgment dist=-0.0396 | gate passed=False floor=0.08 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic
+6d2823db Nine Fathom Coffee Roast in-loop NI passed=True floor=0.08 src=executive_margin_band_judgment dist=None | gate passed=True floor=0.08 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic
+fd3d1b02 Kestrelbrook Nursery and in-loop NI passed=True floor=0.03 src=executive_margin_band_judgment dist=None | gate passed=True floor=0.03 src=executive_margin_band_judgment | ONE RULER GREEN | checks=7 strictness=in_cascade_economic
+
+=== _one_ruler_distance_probe.py (summary) ===
+failing-NI drafts with margins: 506 (executive floor on 5); no-margin reason rows: 7; SIGN FLIPS: 1
+  c0831f40 SwiftWave Logistics Inc.   run=None      q11=0.007 delta=0.02 floor=0.02 (doctrine_default_2pp)  PRE dist=+0.0000 -> POST dist=-0.0130
+POST distance never greater than PRE on 506 rows (awk check): 0 rows
+
+=== replay_gate.run_gate --only R31,R32 (tail) ===
+[  ok  ] R32 INVARIANT  workbook-formula-grid [WS1b floor]
+          NEGATIVE CONTROL: the workbook formula grid does not move
+          HOLDS: 4185 formulas across 7 sheets; FINMO carries exactly one 'Cost of Goods Sold' row - 21 per-period cells of the legacy =<revenue cell>*'Model Inputs'!<row 12> shape plus 5 annual =SUM rollups, zero per-line rows; grid sha cbd764631e98; run artifacts frozen from draft 6feac758 stage post_intake_finalize_validation_completed; model inputs from FROZEN draft 89e5a622 (CareCompanions Home Health Services) - committed fixture, no DB query in this path
+[  ok  ] R31 INVARIANT  single-line-unchanged [WS1b floor]
+          NEGATIVE CONTROL: a single-line draft's persisted payloads do not move
+          HOLDS: single-line draft 89e5a622: 3 revenue rows, zero COGS % rows, legacy blend row intact; frozen inputs: anchor=2026-01-01, start_date=2020-01-01, ppe=15,000.0 (= initial_assets, the pair the engine enforces), maintenance_rate=0.05; build repeated -> identical digest; FROZEN draft 89e5a622 (CareCompanions Home Health Services) - committed fixture, no DB query in this path; model_input=1d50e46ab8e6 finmo=24e38de4dc98 (build + derived policies; the SOLVER stage is NOT reproduced here - VS's live-run script covers that)
+------------------------------------------------------------------------------
+2/2 legs clear
+
+  GREEN - every known issue that ran is clear.
+  Safe to spend a Cowork run.
+==============================================================================
+
+=== :5050 listeners ===
+127.0.0.1:5050 pid 38516 (ONE)
