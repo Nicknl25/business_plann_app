@@ -103,20 +103,9 @@ def _prepare_restructure_model(
       holder.pop("expenses::Payroll", None)
   rev_rows = ((mi.get("sections") or {}).get("revenue") or [])
   for row in rev_rows:
-    if not isinstance(row, dict):
-      continue
-    if str(row.get("driver") or "").strip() == "COGS %":
-      # n4 ONE ROW SHAPE (Nick 2026-08-16): an existing per-line COGS %
-      # row keeps its REAL finmo_bridge shape (controller_write=False,
-      # derived_driver=per_line_cogs_source, its lever id) - exactly the
-      # shape FIX 1 synthesizes for a new line. It is never a lever
-      # (_lever_plan admits Unit Price / Capacity only); flipping it to
-      # controller_write=True / derived_driver=None made two shapes of
-      # the same row class inside one solve (existing lines frozen, new
-      # lines lockstep behind expenses::Cost of Goods Sold).
-      continue
-    row["controller_write"] = True
-    row["derived_driver"] = None
+    if isinstance(row, dict):
+      row["controller_write"] = True
+      row["derived_driver"] = None
   # The restructure's adjustable cells include the cost structure — the
   # expense rows ship controller_write=False (owned by their handlers in
   # normal runs) and would silently vanish from the solver's lever map.

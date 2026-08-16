@@ -14314,10 +14314,11 @@ def _run_planning_system_for_draft_unified(
   except Exception:
     pass
 
-  return _run_unified_post_grid_system_run(
+  _unified_run_id = str(initial_grid_state.get("planning_run_id") or "").strip()
+  _unified_result = _run_unified_post_grid_system_run(
     conn=conn,
     draft_id=str(draft_id).strip(),
-    planning_run_id=str(initial_grid_state.get("planning_run_id") or "").strip(),
+    planning_run_id=_unified_run_id,
     business_facts=copy.deepcopy(initial_grid_state.get("business_facts") or {}),
     planning_context_summary_json=copy.deepcopy(initial_grid_state.get("planning_context_summary_json") or {}),
     ops_json=copy.deepcopy(initial_grid_state.get("ops_json") or {}),
@@ -14337,6 +14338,22 @@ def _run_planning_system_for_draft_unified(
     stage_ramp_contract=copy.deepcopy(initial_grid_state.get("stage_ramp_contract") or {}),
     payroll_headcount=copy.deepcopy(initial_grid_state.get("payroll_headcount") or {}),
   )
+  # ONE AUTHORITY for the run id (Nick n1, 2026-08-16): the planning_runs
+  # row this invocation CREATED (begin_planning_run inside the grid build)
+  # is THE run. Stamp it into the result payload's planning_run_json -
+  # the key the handler already reads first for the acceptance gate and
+  # the restructure path (it was never populated: the orchestrator's
+  # payload carries no planning_run_id, so the gate ran with
+  # planning_run_id=None and resolved the draft's LATEST row - a guess).
+  # planning_run_json is an opaque Dict in SolverOutputContract; the
+  # top level is extra=forbid, so the id rides inside it.
+  if isinstance(_unified_result, dict) and _unified_run_id:
+    _prj = _unified_result.get("planning_run_json")
+    if not isinstance(_prj, dict):
+      _prj = {}
+      _unified_result["planning_run_json"] = _prj
+    _prj["planning_run_id"] = _unified_run_id
+  return _unified_result
 def _run_planning_system_for_draft(
   *,
   conn,
@@ -14938,13 +14955,12 @@ def post_intake_consult_system_run_handler(*, app, request):
             # live POST proof lost the dead_net record that way).
             setattr(_rs_dead, "repair_guidance_record", copy.deepcopy(_rs_dead_guidance))
             _rs_clear_active(result_draft_id)
-            # FIX 2b (2026-08-16): resolve the run row to flip the way the
-            # rest of the handler does - by acceptance_planning_run_id when
-            # it names a row, else the draft's LATEST planning run. The
-            # live PRE proof showed acceptance_planning_run_id EMPTY on this
-            # path (result.planning_run_json carries no planning_run_id), so
-            # the flip below was silently skipped and the run stayed
-            # 'completed' with no failure_reason.
+            # FIX 2b (2026-08-16) + n1 ONE AUTHORITY (Nick 2026-08-16): the
+            # run row to flip is THE run - acceptance_planning_run_id, which
+            # the unified runner now stamps from the row the grid build
+            # created (result.planning_run_json.planning_run_id). No
+            # latest-run fallback: a guessed row is a false claim about
+            # which run failed. Empty id = loud log, no flip.
             _rs_dead_run_id = ""
             try:
               _rs_dead_row = None
@@ -14952,8 +14968,6 @@ def post_intake_consult_system_run_handler(*, app, request):
                 _rs_dead_row = get_planning_run(
                   conn, planning_run_id=str(acceptance_planning_run_id).strip(),
                 )
-              if not isinstance(_rs_dead_row, dict):
-                _rs_dead_row = get_planning_run(conn, draft_id=result_draft_id)
               if isinstance(_rs_dead_row, dict):
                 _rs_dead_run_id = str(_rs_dead_row.get("planning_run_id") or "").strip()
             except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
@@ -15092,10 +15106,19 @@ def post_intake_consult_system_run_handler(*, app, request):
             result.get("planning_context_summary_json")
             if isinstance(result.get("planning_context_summary_json"), dict) else {}
           )
+          # n1 ONE AUTHORITY: the re-run's own row (stamped by the unified
+          # runner from the grid build that created it) is THE run from
+          # here - the gate, the restamp and every failure surface read it.
           acceptance_planning_run_id = (
             str(planning_run_json.get("planning_run_id") or "").strip()
             or acceptance_planning_run_id
           )
+          if not str(planning_run_json.get("planning_run_id") or "").strip():
+            app.logger.error(
+              "restructure_rerun: result carries NO planning_run_id for draft %s "
+              "(single-authority stamp missing); falling back to %r",
+              result_draft_id, acceptance_planning_run_id,
+            )
           # The re-run creates a second planning-run row whose id becomes
           # authoritative in planning_run_json, while the unified-run tail
           # stamps plan_confidence / cascade tier onto the GRID-BUILD's
@@ -15106,12 +15129,9 @@ def post_intake_consult_system_run_handler(*, app, request):
             from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
               persist_adaptation_cascade_outcome as _rs_persist_cascade,
             )
-            # The DRAFT ROW's planning_run_json carries the id the gate
-            # will resolve (the run switches ids mid-flight; the result
-            # payload can carry the superseded one).
-            _rs_stamp_run_id = str(
-              (_rs_draft_json("planning_run_json") or {}).get("planning_run_id") or ""
-            ).strip() or (acceptance_planning_run_id or "")
+            # The row to restamp IS the row the gate resolves: the single
+            # authority above (n1) - no second read of the draft row.
+            _rs_stamp_run_id = str(acceptance_planning_run_id or "").strip()
             _rs_stamp_out = _rs_persist_cascade(
               conn,
               draft_id=result_draft_id,
@@ -15124,7 +15144,6 @@ def post_intake_consult_system_run_handler(*, app, request):
                 if isinstance(result, dict) else None
               ) or {"tier_landed": 0, "source": "restructure_rerun_restamp"},
             )
-            acceptance_planning_run_id = _rs_stamp_run_id or acceptance_planning_run_id
             try:
               with open("C:/dev/business_plann_app/_rs_loader_trace.log", "a", encoding="utf-8") as _rs_fh:
                 _rs_fh.write(f"draft={result_draft_id} restamp={_rs_stamp_out}\n")
@@ -15242,13 +15261,18 @@ def post_intake_consult_system_run_handler(*, app, request):
       )
       _rs_dead_run: Optional[Dict[str, Any]] = None
       try:
+        # n1 ONE AUTHORITY: the same row the inner catch flipped - by id
+        # only, never the draft's latest run.
         if str(acceptance_planning_run_id or "").strip():
           _rs_dead_run = get_planning_run(
             conn, planning_run_id=str(acceptance_planning_run_id).strip(),
           )
-        if not isinstance(_rs_dead_run, dict):
-          # Same fallback as the inner catch: the draft's LATEST run.
-          _rs_dead_run = get_planning_run(conn, draft_id=result_draft_id)
+        else:
+          app.logger.error(
+            "restructure_net_dead: NO run id on the restructure path for draft %s "
+            "(single-authority stamp missing) - failure surface lands without the row",
+            result_draft_id,
+          )
       except Exception as _rs_dead_lookup_exc:  # noqa: BLE001 - surface still lands without the row
         app.logger.error(
           "restructure_net_dead: run lookup failed for draft %s: %s",

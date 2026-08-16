@@ -1,0 +1,22 @@
+  [PASS] backend answers on :5050: HTTP 200
+[POST] clone draft rsn1au0dcd915fefbf4fc8ba527762a9 client RSN1AUE3D7107DC3 decoy run decoy1e810faacac5494093ab1b08d5f
+HTTP 500 after 224s
+body: {"error": "system_run_failed", "detail": "restructure_net_dead: every rung (2/2) raised the identical exception with zero candidate evaluations \u2014 ContractViolation: AMALGAMATED_SESSION\u2192MODEL_INPUT: field 'sections' expected Value error, per-line COGS is all-or-nothing: slots ['lob_3_product_1', 'lob_4_product_1'] lack the 'COGS %' row while others carry it, got {'revenue': [{'named_range': 'model_input_revenue', 'controller_write': True, 'placeholder_lob': 'Primary line of business', 'placeholder_product': '5 lb bag roasted coffee', 'lob_slot_index': 0, '...", "restructure_net_dead":
+  [PASS] HTTP 500 dead-net failure surface
+planning_runs: [('225ca67ede', 'failed', 'restructure_net_dead: every rung (2/2) raised the identical ', 'verdict'), ('b5a5ea13fb', 'failed', 'restructure_net_dead: every rung (2/2) raised the identical ', 'no-verdict'), ('decoy1e810', 'completed', 'N1 DECOY ROW - must never be written by the run', 'no-verdict')]
+  [FAIL] exactly ONE real run row created by the grid build (plus the decoy)
+  [PASS] REAL row run_status=failed, failure_reason names ContractViolation: real=failed reason=restructure_net_dead: every rung (2/2) raised the 
+  [PASS] REAL row carries the acceptance verdict (gate resolved THIS row): verdict.passed=False snapshot.run_id=225ca67ede
+  [PASS] verdict.field_snapshot.planning_run_id == REAL row id
+  [PASS] DECOY untouched: run_status still completed: decoy=completed
+  [PASS] DECOY untouched: no acceptance verdict stamped on it
+  [PASS] DECOY untouched: failure_reason still the decoy marker
+diagnostics rows: [('225ca67ede', 0)]
+  [PASS] FAILED diagnostics row keyed by the REAL run id (never the decoy)
+response planning_run_json.planning_run_id: (none)
+  [PASS] repair_guidance dead_net record present
+
+[POST] clone draft: rsn1au0dcd915fefbf4fc8ba527762a9  real run: 225ca67ede9947a49409a46f9e716cce  decoy: decoy1e810faacac5494093ab1b08d5f
+[POST] RESULT: RED (1): ['exactly ONE real run row created by the grid build (plus the decoy)']
+
+[NOTE 2026-08-16 VS] The single FAIL above (exactly ONE real run row) is the decoy-induced PHANTOM row b5a5ea13 minted by persist_post_intake_execution_state latest-run resolution (shared persist, outside the n1 restructure path; flagged for triage). Harness updated to report it as WARN. Same build without a decoy: exactly ONE row - see _rs_deadnet_live_failure_surface_20260816_n1POST.txt (ALL GREEN).

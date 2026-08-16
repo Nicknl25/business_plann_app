@@ -1,0 +1,20 @@
+  [PASS] backend answers on :5050: HTTP 200
+[PRE] clone draft rsn1au667fdc90de234a2d8faad8cbc8 client RSN1AUEB3CED7888 decoy run decoy1a6821bc79184b1b97c0d7d92ae
+HTTP 500 after 243s
+body: {"error": "system_run_failed", "detail": "restructure_net_dead: every rung (2/2) raised the identical exception with zero candidate evaluations \u2014 ContractViolation: AMALGAMATED_SESSION\u2192MODEL_INPUT: field 'sections' expected Value error, per-line COGS is all-or-nothing: slots ['lob_3_product_1', 'lob_4_product_1'] lack the 'COGS %' row while others carry it, got {'revenue': [{'named_range': 'model_input_revenue', 'controller_write': True, 'placeholder_lob': 'Primary line of business', 'placeholder_product': '5 lb bag roasted coffee', 'lob_slot_index': 0, '...", "restructure_net_dead":
+  [PASS] HTTP 500 dead-net failure surface
+planning_runs: [('e3276f9ed3', 'completed', '', 'no-verdict'), ('decoy1a682', 'failed', 'restructure_net_dead: every rung (2/2) raised the identical ', 'verdict')]
+  [PASS] exactly ONE real run row created by the grid build (plus the decoy)
+  [FAIL] REAL row run_status=failed, failure_reason names ContractViolation: real=completed reason=
+  [FAIL] REAL row carries the acceptance verdict (gate resolved THIS row): verdict.passed=None snapshot.run_id=
+  [FAIL] verdict.field_snapshot.planning_run_id == REAL row id
+  [FAIL] DECOY untouched: run_status still completed: decoy=failed
+  [FAIL] DECOY untouched: no acceptance verdict stamped on it
+  [FAIL] DECOY untouched: failure_reason still the decoy marker
+diagnostics rows: [('decoy1a682', 0)]
+  [FAIL] FAILED diagnostics row keyed by the REAL run id (never the decoy)
+response planning_run_json.planning_run_id: (none)
+  [PASS] repair_guidance dead_net record present
+
+[PRE] clone draft: rsn1au667fdc90de234a2d8faad8cbc8  real run: e3276f9ed35842cfb71b5cc2f56ae798  decoy: decoy1a6821bc79184b1b97c0d7d92ae
+[PRE] RESULT: RED (7): ['REAL row run_status=failed, failure_reason names ContractViolation', 'REAL row carries the acceptance verdict (gate resolved THIS row)', 'verdict.field_snapshot.planning_run_id == REAL row id', 'DECOY untouched: run_status still completed', 'DECOY untouched: no acceptance verdict stamped on it', 'DECOY untouched: failure_reason still the decoy marker', 'FAILED diagnostics row keyed by the REAL run id (never the decoy)']

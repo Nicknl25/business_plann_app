@@ -1,0 +1,25 @@
+  [PASS] backend answers on :5050: HTTP 200
+clone draft rsdead7b4a61e96009442ea49cbdcf8d client RSDEADA49ECC497D
+HTTP 500 after 141s
+body: {"error": "system_run_failed", "detail": "restructure_net_dead: every rung (2/2) raised the identical exception with zero candidate evaluations \u2014 ContractViolation: AMALGAMATED_SESSION\u2192MODEL_INPUT: field 'sections' expected Value error, per-line COGS is all-or-nothing: slots ['lob_3_product_1', 'lob_4_product_1'] lack the 'COGS %' row while others carry it, got {'revenue': [{'named_range': 'model_input_revenue', 'controller_write': True, 'placeholder_lob': 'Primary line of business', 'placeholder_product': '5 lb bag roasted coffee', 'lob_slot_index': 0, '...", "restructure_net_dead": true, "failure_email": {"attached": [], "recipient": "ignatius.henry@tithefinancial.com", "sent": true, "skipped": [], "subject": "POST-INTAKE FAILURE: Nine Fathom Coffee Roasters [DEADNET PROOF CLONE] - RestructureNetDeadError"}}
+  [PASS] HTTP 500
+  [PASS] JSON body error=system_run_failed + restructure_net_dead flag
+  [PASS] detail names the violation: restructure_net_dead: every rung (2/2) raised the identical exception with zero candidate evaluations — ContractViolatio
+  [PASS] failure email SENT (body.failure_email.sent): {"attached": [], "recipient": "ignatius.henry@tithefinancial.com", "sent": true, "skipped": [], "subject": "POST-INTAKE FAILURE: Nine Fathom Coffee Roasters [DEADNET PROOF CLONE] - RestructureNetDeadError"}
+planning_runs: [('72d40681', 'failed', 'restructure_net_dead: every rung (2/2) raised the identical exception with zero ')]
+  [PASS] exactly one planning_run, run_status=failed
+  [PASS] planning_runs.failure_reason names ContractViolation
+diagnostics rows: [('72d40681', 0, 'FAILED', 'RestructureNetDeadError', 'restructure_net_dead: every rung (2/2) raised the identical ')]
+  [PASS] FAILED diagnostics row present (label FAILED, class RestructureNetDeadError)
+  [PASS] NO passed diagnostics row
+draft: planning_run_status failed | failure restructure_net_dead: every rung (2/2) raised the identical exception with zero 
+repair_guidance.restructure: dead_net {"violation": "ContractViolation: AMALGAMATED_SESSION\u2192MODEL_INPUT: field 'sections' expected Value error, per-line COGS is all-or-nothing: slots ['lob_3_product_1', 'lob_4_product_1'] lack the 'C | final_passed False | active_directive None
+  history stages: [('bounds', None, None, None), ('search_1', False, 0, True)]
+  [PASS] repair_guidance dead_net record (violation named, rungs>0)
+  [PASS] repair_guidance final_passed False, active_directive None
+  [PASS] search stage evals=0 dead_net=True
+  [PASS] draft planning_run_status=failed: planning_run_json.run_status=failed
+  [PASS] NO workbook delivery record: workbook_deliveries rows=0
+
+clone draft: rsdead7b4a61e96009442ea49cbdcf8d
+RESULT: ALL GREEN
