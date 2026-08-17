@@ -191,6 +191,33 @@ def _normalize_legal_entity(value: Any) -> str:
   return "Sole proprietor"
 
 
+# UNIVERSAL ENGINE phase 4 (A-122, completing 539fb17): the flat driver
+# cells are RETIRED whenever product rows exist (_derive_ops_cells strips
+# them at every canonical pass), so the submit validator - the LAST
+# flat-first reader - resolves the drivers ROW-FIRST exactly like
+# _ops_driver_value in api_handlers/intake_consult.py: the first non-None
+# across lob_models[*].products[*], the flat key surviving only as the
+# fallback for rowless legacy drafts (the only drafts that still carry it).
+_ROW_FIRST_DRIVER_FIELDS = (
+  "unit_name",
+  "unit_description",
+  "units_per_week_capacity",
+  "unit_price",
+)
+
+
+def _row_first_driver(payload: Dict[str, Any], lob_models: Any, field: str) -> Any:
+  """Row-first driver read (mirror of intake_consult._ops_driver_value):
+  first non-None value across lob_models[*].products[*][field]; the flat
+  payload key is the fallback for exactly the rowless legacy drafts."""
+  if isinstance(lob_models, list):
+    for _lm in lob_models:
+      for _pr in ((_lm or {}).get("products") if isinstance(_lm, dict) else None) or []:
+        if isinstance(_pr, dict) and _pr.get(field) is not None:
+          return _pr.get(field)
+  return payload.get(field)
+
+
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
 
@@ -225,6 +252,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
           is_multi_lob = True
       except Exception:
         pass
+  if not is_multi_lob:
+    # Single-line (one row) or rowless legacy: the validated driver cells
+    # and the intake_submissions unit_* columns carry the ROW values (the
+    # one home); the flat key is read only when no row supplies the field.
+    for _field in _ROW_FIRST_DRIVER_FIELDS:
+      payload[_field] = _row_first_driver(payload, lob_models, _field)
 
   revenue_value = _parse_float(payload.get("current_revenue"))
   if revenue_value is None:

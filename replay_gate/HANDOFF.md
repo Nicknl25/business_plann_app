@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   FIX A-122 — SUBMIT VALIDATOR IS THE LAST FLAT-FIRST READER. Nick's
@@ -65,9 +65,72 @@ TASK:
   Nick.
   (re-armed after the Cowork-tester dirty-tree fault; tree clean now)
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: (superseded — new instruction seeded)
-  SUMMARY: The previous turn's RESULT was superseded by a new
-  instruction; it remains in git history.
+  EVIDENCE: python/client_intake_and_finmo/intake_submit_service.py (diff:
+    _ROW_FIRST_DRIVER_FIELDS + _row_first_driver + one 5-line block after
+    the is_multi_lob decision; nothing else in the file moved);
+    Test Files/_a122_PRE_tanager_20260817.txt (400, the 3 messages);
+    Test Files/_a122_POST_tanager_20260817.txt (200, submission 80);
+    Test Files/_a122_POST_sumac_20260817.txt (200, submission 81);
+    Test Files/_a122_POST_ninefathom_clone_20260817.txt (200, submission 82);
+    Test Files/_a122_submissions_rows_20260817.txt (rows 80/81 carry
+    print job / 720 / 28 and Property contract / 550 / 8);
+    Test Files/_a122_poll_runs_20260817.txt (all 3 planning runs
+    completed @post_intake_finalize_validation_completed);
+    Test Files/_a122_workbook_trace_20260817.txt (delivered workbooks:
+    Tanager Revenue Drivers price 720 / capacity 364.09 per q = 28/wk;
+    Sumac 550; NF clone 3 lines);
+    Test Files/_a122_validator_offline_20260817.txt ((c) rowless
+    fallback + SAME empty-payload text, (d) missing/0 price rejected,
+    (e) multi-line unchanged, (f) flat unit_description fallback);
+    Test Files/_a122_floor_R31_R32_20260817.txt (2/2 clear);
+    _logs_persona_20260817_131750.txt lines 7/12/19 (POST 200 x3),
+    3799/4522/5720 (workbook delivered x3), 0 Tracebacks.
+  SUMMARY: A-122 FIXED. Submit validator is now row-first (mirror of
+  _ops_driver_value: first non-None across lob_models[*].products[*],
+  flat key only as fallback) for the 4 flat-validated drivers when
+  is_multi_lob is False; the resolved values are written into payload
+  BEFORE row=dict(payload) so intake_submissions unit_* columns carry
+  the row values. Multi-line branch untouched (still skips flat checks,
+  columns still NULL for multi-line - not asked, not changed). No
+  branch deleted: the elif-not-multi rejects are still reachable by
+  rowless legacy and by single rows lacking a value (that IS the
+  negative case). DECLARED-vs-ACTUAL: spot-check + verify-forward
+  e2e as declared - Tanager 87f0fbba + Sumac clone mn33t5g9 both
+  400 -> 200 through the real door on a restarted backend (ONE :5050
+  listener), mark_submitted ran, system runs started, all three builds
+  terminal COMPLETED with workbooks delivered; NF multi-line control =
+  a completed-not-submitted clone a122nf83 (6d2823db itself is
+  already submitted -> 409 duplicate guard), also completed. Rowless
+  control (c) and negative (d) proven offline on the validator seam
+  (rowless legacy draft did not exist in the DB - Fetch & Fluff
+  50658fff has rows AND flat, so a synthetic payload was used, as the
+  task allowed). Floor R31/R32 clear; canary skipped (declared).
+  Zero email/delivery lines touched (the existing internal run email
+  fired as before: email.sent true in each 200 body).
+  NOTES for triage (not built): (1) intake_submissions.
+  units_per_week_capacity is an INT column - Sumac's contract-cadence
+  weekly mirror 7.8462 stored as 8 (schema, pre-existing; the engine
+  reads the draft rows, workbook shows 550/97.0 per q); (2) the mirror
+  helper duplicates _ops_driver_value's 6 lines rather than importing
+  from api_handlers/intake_consult (layering: service must not import
+  the 20k-line handler); (3) workbook_model_status_check_skipped
+  (CoInitialize) warnings on 2 of 3 builds are pre-existing (same
+  warning in 08-13..08-16 logs), not from this change.
+TASK:
+  TURN 2 (mini, audit at the declared tier - spot-check + verify-forward
+  e2e): diff confined to intake_submit_service.py (+ Test Files evidence
+  scripts, no insert-module change needed - the insert reads
+  row[col] and row=dict(payload) now carries the resolved values);
+  row-first semantics mirror _ops_driver_value (first non-None across
+  rows, flat fallback); flat fallback only reachable when no row
+  supplies the field; confirm the e2e RAN: Tanager 87f0fbba + Sumac
+  clone mn33t5g9 planning runs 91b4463c / b56bc477 COMPLETED with
+  workbooks (paths in the persona log lines 3799/5720), NF clone
+  a122nf83 run 05d34b67 COMPLETED (multi-line control); (c) rowless +
+  same-error-text and (d) negative rejects per
+  _a122_validator_offline_20260817.txt; zero email/delivery lines
+  touched (git diff shows only intake_submit_service.py in app code);
+  floor R31/R32 clear. Green -> stop -> Nick.

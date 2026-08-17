@@ -1,0 +1,8 @@
+  [PASS] (a-seam) single row w/ drivers -> no unit_* errors: {}
+  [PASS] (d) single row lacking unit_price -> rejected: {'unit_price': 'unit_price must be a number'}
+  [PASS] (d2) single row unit_price 0 -> rejected: {'unit_price': 'unit_price must be greater than 0'}
+  [PASS] (c) rowless legacy flat -> no unit_* errors: {}
+  [PASS] (c) empty rowless -> SAME error text (4 unit_* keys): {'unit_name': 'unit_name is required', 'unit_description': 'unit_description is required', 'units_per_week_capacity': 'units_per_week_capacity must be a number', 'unit_price': 'unit_price must be a number'}
+  [PASS] (e) multi-line -> unit_* checks skipped (unchanged): {}
+  [PASS] (f) row lacks unit_description, flat carries it (Tanager shape pre-Aug12 desc) -> accepted: {}
+RESULT: GREEN

@@ -1,0 +1,10 @@
+STATUS 200
+{
+ "client_id": "MN33T5GEBFC4D6E76",
+ "email": {
+  "sent": true
+ },
+ "intake_submission_id": 81,
+ "naics_code": "561730",
+ "status": "ok"
+}

@@ -1,0 +1,9 @@
+STATUS 400
+{
+ "error": "invalid_request",
+ "errors": {
+  "unit_name": "unit_name is required",
+  "unit_price": "unit_price must be a number",
+  "units_per_week_capacity": "units_per_week_capacity must be a number"
+ }
+}
