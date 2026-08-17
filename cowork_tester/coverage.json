@@ -1,7 +1,7 @@
 {
- "version": 1,
- "updated": "2026-08-17T07:20:00Z",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48.",
+ "version": 2,
+ "updated": "2026-08-17",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -187,9 +187,10 @@
    ],
    "runs": [
     "CW-036",
-    "CW-037"
+    "CW-037",
+    "CW-038"
    ],
-   "note": "Commercial print shop, used twice. CW-036 exposed the discovery already-captured blocker; CW-037 confirms it fixed but hits a new submit-validation blocker."
+   "note": "Commercial print shop, used three times. CW-036 exposed the discovery already-captured blocker; CW-037 confirmed it fixed but hit a submit-validation blocker; CW-038 built end to end and became the first run in the campaign to verify a delivered P and L against client-captured inputs."
   }
  },
  "friction_conditions": {
@@ -298,7 +299,8 @@
     "CW-030",
     "CW-031",
     "CW-032",
-    "CW-033"
+    "CW-033",
+    "CW-038"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -754,7 +756,8 @@
   },
   "discovered_stream_becomes_a_modeled_lob": {
    "runs": [
-    "CW-035"
+    "CW-035",
+    "CW-038"
    ],
    "note": "NEW and PASSING. Two streams accepted from a discovery ask carried origin: discovery_confirmed through capture, finalize and the build, ending as real workbook lines with Capacity / Unit Price / Utilization / COGS pct drivers each."
   },
@@ -785,9 +788,34 @@
   },
   "submit_validation_blocks_a_valid_model": {
    "runs": [
-    "CW-037"
+    "CW-037",
+    "CW-038"
    ],
-   "note": "NEW and FAILING - blocker. Submit is hard-blocked by a banner naming unit_name, unit_price and units_per_week_capacity as missing while all three are correctly populated on the model's only product. Client stranded with no actionable fix. Reproduced twice."
+   "note": "FIXED and CONFIRMED. CW-037 reproduced the block twice on a single-line model whose three named fields were correctly populated. CW-038 on HEAD d26a0e8 cleared submit on the first click for the same shape and built a workbook. Closed on evidence."
+  },
+  "discovery_mixed_four_way_answer_in_one_turn": {
+   "runs": [
+    "CW-038"
+   ],
+   "note": "NEW and PASSING. Four candidates answered in a single turn with three different dispositions - one plain no, two 'already part of the same jobs', one yes. Latched declined / merged_into:print job x2 / added, each echoed back separately and correctly, no phantom minted for either merge."
+  },
+  "discovered_stream_created_then_explicitly_dropped": {
+   "runs": [
+    "CW-038"
+   ],
+   "note": "NEW and PASSING - the drop door, untested live until now (A-123). Large-format was accepted, minted as its own line with origin discovery_confirmed, captured unit name and price, then explicitly dropped mid-capture. Latch moved to removed, the row left operating_model_json at once, and it was absent from financials, from finalize and from model_input_json.sections.revenue in the built model."
+  },
+  "forecast_interest_rate_diverges_from_client_stated": {
+   "runs": [
+    "CW-038"
+   ],
+   "note": "NEW and FAILING - major, filed. Client stated 120000 debt and 9000 annual interest, both acknowledged. Baseline period uses 0.01875 per quarter (7.5 pct APR); all 20 forecast quarters use 0.0225 (9.0 pct APR). Y1 interest 9900 against 9000 stated, rising in forecast Q1 while debt issuance is 0."
+  },
+  "workbook_verified_against_client_captured_inputs": {
+   "runs": [
+    "CW-038"
+   ],
+   "note": "NEW and MOSTLY PASSING - first run to reach a built P and L and balance sheet. Opening balance sheet exact to the dollar on all seven client-stated items; rent, COGS pct, capex and lease exact; opening PPE depreciation correct on a 5 year life; books balance in 21 of 21 periods. Two divergences found in the forecast layer, both filed."
   }
  },
  "verdict_classes_reached": {
@@ -1504,6 +1532,25 @@
    "headline": "Discovery-reader fix HOLDS - 'already part of our commercial print line, not a separate thing' recorded as merged_into:print job with no phantom minted, closing the CW-036 blocker. But a NEW submit-validation blocker prevented the build, so the workbook checks could not run.",
    "issues_filed": 2,
    "blockers": 1
+  },
+  "CW-038": {
+   "persona": "Deshawn Vantrease - single-line commercial print shop",
+   "business": "Millgate Press",
+   "city": "Dubuque IA",
+   "type": "commercial_printing",
+   "draft_id": "2e198cbfadb0457893bc38d9048bd7bf",
+   "stack": "e270426 on HEAD d26a0e8",
+   "outcome": "COMPLETE BUILD. Intake converged healthy, submit cleared first click, workbook built and balanced. Reference SOSCUTF06796651038, submission #83.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "single_line_business_with_common_adjacent_streams",
+    "discovery_mixed_four_way_answer_in_one_turn",
+    "discovered_stream_created_then_explicitly_dropped",
+    "forecast_interest_rate_diverges_from_client_stated"
+   ],
+   "headline": "First clean end-to-end print-shop build. Discovery handled a four-way mixed answer exactly (declined / merged x2 / added) and the drop door held from ops through finalize into the built model. A-122 and A-123 both closed on evidence. Two new findings, both in the forecast layer rather than flow - a silent interest re-rating from 7.5 to 9.0 pct APR, and a payroll narrative/statement disagreement.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1527,7 +1574,8 @@
     "CW-031",
     "CW-032",
     "CW-033",
-    "CW-035"
+    "CW-035",
+    "CW-038"
    ]
   },
   "parked": {

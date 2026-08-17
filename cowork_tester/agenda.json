@@ -1,36 +1,30 @@
 {
  "version": 26,
- "updated": "2026-08-17T14:50:00Z",
- "notes": "CW-037 (Tanager Print Works, Rockford) re-ran the CW-036 shape on 6b6a5ca to confirm the discovery-reader convergence. THE FIX HOLDS, and a new blocker appeared downstream of it.\n\nMOMENT 1 HELD. 'Bindery and finishing services is already part of our commercial print line, it's the same jobs, not a separate thing' (with plain NOs on the other three) was recorded as merged_into:print job - not as a yes. No phantom line was minted, the receipt said 'Noted - bindery and finishing services stays inside print job, not a separate line', and operating_model_json held exactly ONE lob_model with ONE product through the ops wrap and the rest of the intake. The other three candidates recorded declined, all read_by consultant_chat_turn. That is the CW-036 blocker closed with client-side evidence.\n\nMOMENT 2 WAS NOT REACHABLE, for the right reason - no discovery line was ever created for me to drop. The explicit drop door and the R48 removed-never-resurrected leg therefore remain unexercised from the client side, and need a run where a stream is genuinely accepted and then dropped.\n\nTHE NEW BLOCKER: the intake converged clean with a healthy verdict and no remediation, and then SUBMISSION IS HARD-BLOCKED. Confirm and submit returns a banner reading 'unit_name: unit_name is required | unit_price: unit_price must be a number | units_per_week_capacity: units_per_week_capacity must be a number'. All three are correctly populated on the model's only product - unit_name 'print job', unit_price 720, units_per_week_capacity 28 - and a sweep of the parsed operating model finds exactly one valid occurrence of each. No null row, no phantom. The client is stranded with an error naming fields that are already right. Reproduced twice. Because nothing built, the workbook, per-line-COGS and boundary checks could not run.",
+ "updated": "2026-08-17",
+ "notes": "CW-038 (Millgate Press, Dubuque) was the first complete end-to-end build of the print-shop shape and it closed the two frontier items in a single run. A-122's submit validator cleared on the first click and A-123's drop door held from ops all the way into the built model, so the discovery mechanism - propose, merge, decline, add, and now remove - is confirmed working from the client side across every disposition it offers.\n\nTHE FRONTIER HAS MOVED. Thirty-seven runs tested the CONVERSATION: whether the app asks the right questions, records the answers honestly, and reaches a defensible verdict. That layer is now in good shape. CW-038 got past it and looked at the DELIVERED FORECAST for the first time, and that is where both of this run's findings are. The opening balance sheet was exact to the dollar on all seven client-stated balances, rent, COGS percentage, capex and lease were exact, opening PPE depreciated correctly on a five-year life, and the books balanced in every one of 21 periods - so this is not a broken layer. But the forecast quietly re-rates the client's interest cost from 7.5 to 9.0 pct APR (A-124) and pays 1.1 pct less payroll than the HR narrative names person by person (A-125).\n\nThe useful discriminator this run surfaced: levers that move carry an applied_by_target_solver_quarters annotation when the movement is intended and disclosed. General and Administrative was trimmed by the margin solver and the app had already told the client in plain language that the build would temper the stress figure back to the believable band - disclosed, so not filed. The interest rate moved with no annotation and no disclosure. That distinction should drive the next few runs, and A-126 makes the built-workbook field check standing rather than ad hoc.\n\nStill open from earlier cycles and unaffected by this run: A-120 (a failed plan run still shows the client an unqualified 'we are building your plan now') and A-121 (the restructure net, which needs a persona that clears the pre-submit gate and only falls below the floor once build-time depreciation and debt service land - Millgate passed too comfortably to enter it).",
  "recommendations": [
   {
    "rank": 1,
-   "id": "RUN-POST-A122-1",
-   "persona": "your pick - a real founder, natural answers, real numbers",
-   "business": "your pick, FRESH name. A SINGLE-LINE business is the most valuable test right now (single-line submit was broken since Aug 12 and just got fixed) - e.g. a one-service shop, a single-product maker, a solo practice. Multi-line is fine too. Answer the discovery ask naturally as before.",
-   "why": "OPERATOR: run on HEAD d26a0e8. Since Tanager: A-122 fixed - the SUBMIT door now reads the model rows (row-first) like the rest of the app, so a single-line model submits (Tanager and a Sumac clone were re-submitted and BUILT end-to-end as proof; multi-line and legacy controls still pass). Also live from earlier today: discovery answers comprehended by the ordinary reader (merged-into-existing stays inside, genuine yes = peer line, drop = removed and stays removed). Play through to completion INCLUDING SUBMIT - the plan must submit (reference code) and build. TRIAGE LAW: new findings bucketed deal-breaker vs wont-fix for the operator, filed not chased.",
-   "operator_command_hint": "run yours"
+   "id": "A-124",
+   "persona": "any business that states a debt balance and an interest cost",
+   "business": "any business carrying debt into the plan",
+   "why": "NEW and the sharpest finding CW-038 produced. The client stated 120000 of debt and 9000 of annual interest and the app acknowledged both in plain language - 'I will use 9000 for annual interest payment'. The built model then uses the client-implied 7.5 pct APR (0.01875 per quarter) for the BASELINE period only and 9.0 pct APR (0.0225 per quarter) for every one of the twenty forecast quarters. Forecast Y1 interest is 9900 against the 9000 stated, and the tell is that interest RISES in forecast Q1 while debt issuance is 0 in all periods and the balance is falling - the only thing that can do that is a rate change. This is not a rounding artifact and it is not annotated as a solver lever the way General and Administrative is. Two readings and VS should settle which: either it is an intentional prudent-rate policy, in which case the client should be told at the point it is applied, exactly as the margin tempering is disclosed at intake close; or the forecast should carry the cost the client stated. Worth checking whether 0.0225 is a floor applied whenever the client-implied rate falls below it, because a client who states a cheap or subsidised loan would then silently get a plan that overstates their interest burden - and the same mechanism would understate it for a client on expensive credit.",
+   "retests": [
+    "Re-run a debt-carrying persona stating an interest cost well BELOW 9 pct APR and one well ABOVE it, and compare the forecast rate row against the client-implied rate in each. If both land on 0.0225 it is a hard-coded default; if only the low one moves it is a floor; if neither moves the CW-038 case needs a different explanation."
+   ]
   },
   {
    "rank": 2,
-   "id": "A-122",
-   "persona": "any",
-   "business": "any business reaching the submit door",
-   "why": "BLOCKER, NEW, and it strands the client with nothing to act on. A completed single-line intake with a healthy verdict cannot be submitted: Confirm and submit returns 'unit_name: unit_name is required | unit_price: unit_price must be a number | units_per_week_capacity: units_per_week_capacity must be a number', no reference code is issued and planning_run_status stays pending. Reproduced twice, once by script and once clicking through the UI. THE NAMED FIELDS ARE ALL CORRECT. Parsing operating_model_json gives exactly one lob_model with exactly one product carrying unit_name 'print job', unit_price 720, units_per_week_capacity 28, utilization_rate 0.7. One valid occurrence of each named field in the whole model; no null-driver row and no phantom. So the validator is reading state that does not match the persisted model, and there is no action the client can take to clear it. DISTINCT FROM CW-036: there the row genuinely was null and the build died at the backend INTAKE->POST_INTAKE boundary; here the row is valid and the submit validator disagrees. HYPOTHESIS TO CHECK, NOT ASSERTED: this run exercised the new merged_into path, so it is worth checking whether a merge leaves a residual empty row in the frontend or shared model that the submit validator reads while the persisted model is correctly clean. From the client side I cannot tell that apart from an unrelated submit-validator regression.",
+   "id": "A-125",
+   "persona": "any business whose HR section names individual salaries",
+   "business": "any business with named people and a stated payroll total",
+   "why": "NEW, minor, and worth a decision rather than a fix. The client named 66000 for himself, 48000 for his lead press operator and 52000 for a three-person crew; the app echoed a payroll target of 166000 and stored payroll_total_year1 166000; the delivered HR narrative names the 66000 and the 48000 explicitly. The built P and L pays 41026 per forecast quarter - 164104 for Y1 - because payroll is headcount_schedule_derived with ending_fte 2.5. The seed at the baseline period is exactly 41500, so the app clearly knows the stated figure and the schedule then diverges from it by 1.1 pct. The contract's section 6 says derived means the workbook is truth and that is defensible here; what is not obviously defensible is that two sections of ONE delivered plan state different payroll, and a lender adding the salaries the narrative names will not get the financials. Secondary observation for the same decision: ending_fte 2.5 against a client-stated headcount of 5. Decide whether the named-salary narrative is a contract with the reader or merely colour; the answer determines whether this is a fix or a wont-fix.",
    "retests": [
-    "hard_break:submit:validation_blocks_submission_naming_fields_that_are_correctly_populated"
+    "Any run with two or more named people. Sum the salaries the HR narrative states and compare against finmo_json.pl Payroll for forecast Y1, and compare ending_fte against financials_json.current_num_employees."
    ]
   },
   {
    "rank": 3,
-   "id": "A-123",
-   "persona": "any",
-   "business": "any business that accepts a discovered stream and then changes its mind",
-   "why": "THE DROP DOOR AND R48 ARE STILL UNEXERCISED FROM THE CLIENT SIDE. CW-037 could not test them, for the right reason: Moment 1 worked, so no discovery line was ever created to drop. The convergence work added a removed latch state and claims resurrection is gone, and the offline proof used my CW-036 clones - but no live run has yet accepted a stream, asked for it to be dropped, and then verified it stays gone through the COGS stage, finalize and the build. Design the run for it: a vertical where discovery fires reliably (coffee roaster and commercial print both do), say YES to one candidate, let it capture a couple of numbers so the row is real, then say plainly 'drop that line, you'd be double-counting'. Confirm the receipt acknowledges the removal, the row is gone from operating_model_json, it is not re-proposed at the COGS stage, and it is absent from the built workbook. That closes the last untested leg of the discovery reader.",
-   "retests": []
-  },
-  {
-   "rank": 4,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -40,12 +34,22 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 4,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
    "why": "DESIGN THE NEXT RUN FOR THIS - the restructure net is still untested and CW-036 shows why. For a marginal business the operative control is a PRE-SUBMIT gate: Submit is disabled while the plan does not work on paper, a remediation ladder runs, and a 'Save it for now' exit parks the draft with 'nothing goes out saying the business does not work'. A marginal plan therefore never reaches the builder, so being marginal at intake cannot exercise the post-build net. The persona that can: one whose intake-level economics CLEAR the gate comfortably, with the squeeze arriving only from build-time depreciation and debt service - heavy owned equipment against a business that looks fine on gross margin. Aim for a Q11 net income margin just under the executive floor while the pre-submit quarter-keeps figure stays healthy. Until such a run exists, the answers to does restructure rescue and does it fail loud remain unknown.",
    "retests": []
+  },
+  {
+   "rank": 5,
+   "id": "A-126",
+   "persona": "any business that reaches a built workbook",
+   "business": "any business, as a standing check rather than a single run",
+   "why": "NEW - a PROGRAMME GAP, not a defect. CW-038 is the first run in thirty-eight to verify a delivered P and L and balance sheet against the numbers the client actually stated, because every prior run either parked, was blocked, or died before the builder. That single pass produced both of this run's findings, and both live in the forecast layer that no earlier run could see. The opening balance sheet was exact to the dollar on all seven client-stated items and the books balanced in 21 of 21 periods, so the layer is broadly sound - but the sample is one. Make the built-workbook check a standing part of the per-run cycle wherever a build completes: opening balance sheet against every stated balance, each expense line against its stated basis for forecast Y1 as well as the baseline period, and an explicit look at which levers carry an applied_by_target_solver_quarters annotation versus which move without one. The solver annotation turned out to be the honest signal that separated the General and Administrative trim, which was disclosed and not filed, from the interest re-rating, which was not.",
+   "retests": [
+    "Every future run that builds. This replaces spot-checking the built plan with a fixed field list."
+   ]
   },
   {
    "rank": 6,
@@ -117,10 +121,8 @@
   }
  ],
  "closed_this_cycle": [
-  "RUN-POST-READER-CONVERGENCE-1 (Tanager Print Works 87f0fbba): discovery reader HELD live (merged answer kept inside print job, no phantom); run stranded at SUBMIT -> A-122 (validator was the last flat-first reader since 539fb17). FIXED 4d554c9 + audit d26a0e8; Tanager itself submitted+built as the proof.",
-  "hard_break:operations:discovery_yes_on_an_already_captured_stream_creates_a_null_line_that_kills_the_build (CW-036 blocker) RESOLVED on 6b6a5ca and confirmed live from the client side by CW-037: the same answer shape now records merged_into:<line>, mints no phantom, and the receipt states the merge in the client's own terms.",
-  "A-119 closes with it.",
-  "Recorded as a passing confirmation with evidence attached: flow:operations:discovery_already_part_of_an_existing_line_is_merged_not_minted (note).",
-  "NOT closed and explicitly still open: the explicit drop door and the R48 removed-never-resurrected leg, which CW-037 could not reach because Moment 1 worked. Tracked as A-123."
+  "A-122 CLOSED ON EVIDENCE. CW-038 submitted a completed single-line commercial-print intake on HEAD d26a0e8 and Confirm and submit cleared on the FIRST click - reference code SOSCUTF06796651038, submission #83 - then built through to a completed workbook. This is the exact shape that was hard-blocked twice in CW-037, so the row-first validator fix is confirmed live from the client side.",
+  "A-123 CLOSED ON EVIDENCE - the drop door and the removed latch are exercised live for the first time. CW-038 said yes to large-format printing, the app minted it as its own line with origin discovery_confirmed, it captured unit name 'signage order' and price 480, and the client then said plainly to drop it. The latch moved to removed, the row left operating_model_json immediately, ops finalized without it, and it was absent from the financials stage, from finalize, and from model_input_json.sections.revenue in the built model - which contains exactly three rows, all on the single real print line. No resurrection at any boundary.",
+  "The discovery reader is now confirmed on a MIXED answer as well as single-disposition ones: four candidates answered in one turn produced declined / merged_into:print job / merged_into:print job / added, each echoed back separately and correctly, with no phantom minted for either merge."
  ]
 }
