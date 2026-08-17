@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 2/16
 TASK:
   FIX A-124 STATE PLUMBING — Nick's ruling 2026-08-17 (research:
@@ -114,3 +114,52 @@ RESULT:
   ONE :5050 listener. DECLARED-vs-ACTUAL: matches - neighbor-check with the named
   neighbors (1)-(6), canary skipped as declared (goldens unmoved), one extra: realism
   check reported skipped (generic tier) rather than in_band; no scope beyond the TASK.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_redproof_a124_state_plumbing.py (re-run by mini: GREEN on HEAD; RED (5 failing: Q1..Q20 0.0225, state=None n=895) on a throwaway worktree at 725b374^ with the same script - red for the RIGHT reason); replay_gate --only R31,R32 re-run by mini @ 79a4011: 2/2 clear, digests model_input 1d50e46ab8e6 / finmo 24e38de4dc98 / workbook cbd764631e98 byte-identical to 08-16; Test Files/_prove_frozen_input_no_db.py PROVEN; git show 725b374 (finmo_bridge.py +22/-3, _run_artifacts.py); _handoff/logs/watcher.log:16654-16657 (VS TURN PLAN)
+  SUMMARY: A-124 audited at NEIGHBOR-CHECK (VS's tier call honest: an INPUT to the resolver
+  changed, not the cascade/median/window/stub/engine math; goldens unmoved). (1) Single
+  authority: resolver reads business_facts.address_state first (kw), then the three
+  pre-existing never-populated reads; ONE call site (_build_model_input_overlay) passes
+  business_facts; production chain confirmed: post_intake_initial_grid/runner.py:296-306
+  packs draft.address_state -> sync_planning_state_to_finmo -> build_python_model_input_json
+  -> overlay -> resolver (tripwire intake_consult.py:6543 same). No third read added.
+  (2) Normalization: _STATE_ABBREV = 51 entries (50+DC), 51 distinct codes; 'Iowa'/'iowa'/
+  ' IA '->'IA'; 'Puerto Rico'/'Washington DC'/'Foo'/''/None -> None -> national; 2-letter
+  passthrough accepts ANY 2 alpha chars ('PR','XX') -> resolver's own no-rows fallback -> national.
+  (3) Provenance on Millgate replay: state='IA', n=9, median 6.0, q 0.015, stub 0.01875 - reproduced.
+  (4) No-state path: 2-positional call == address_state=None build (state=None, n=895, 9.0);
+  R31/R32 byte-identical. (5) Fixture re-record legitimate: mini diffed old vs new
+  _run_artifacts.py by module - 8 replayed fns, the ONLY key that changed is the SBA
+  resolver's (new business_facts kwarg {business_name,start_date}), ALL values identical
+  incl. the SBA value (0.1, n=2750, state=null); PROVENANCE differs only in the lookup sha.
+  (6) Neighbors: VS's _a124_neighbor_check_20260817.txt read (policy reader 0.06/0.015,
+  cash contract row==policy, realism skipped generic-tier, workbook Interest Rate row
+  0.01875 then 0.015). (7) ONE :5050 listener pid 7288. VS DECLARED-vs-ACTUAL: matches
+  (plan lines 16654-16657 = neighbor-check, neighbors (1)-(6), canary skip; actual RESULT
+  identical, no scope creep). MINI DECLARED-vs-ACTUAL: matches (re-ran red-proof both
+  sides, R31/R32 --only, state-map count, fixture values-only diff; canary skipped).
+  Tree note: 79a4011 (docs/STUB_PURITY_AND_ANNOTATIONS_RESEARCH.md, docs-only) landed
+  between VS's commit and this audit - not app code, does not affect the verdict.
+  TRIAGE of the residuals: (a) NO thin-cohort guard exists (VS correct) - Iowa n=9 used
+  as designed; new behavior = Nick's decision, not built (needs-ruling flag only).
+  (b) PRE-EXISTING provenance imprecision now reachable: when the state cohort has ZERO
+  rows for a match_basis the resolver falls back to national for that basis but stamps
+  source_detail.state=<code> anyway (finmo_bridge.py ~1240) - internal model_input
+  provenance only (never printed in the workbook: only 'Source rate' label), no delivered
+  number/claim affected -> WONT-FIX under triage; noted for Nick. (c) Goldens do not
+  exercise the state path (frozen facts carry only business_name/start_date) - a pinned
+  leg for the state-keyed rate would need a fixture that carries address_state, which
+  re-baselines the goldens -> Nick's call, not auto-built. (d) Live confirm: the next
+  system-run of any draft with a stated state stamps source_detail.state - same standing
+  next step as A-122 (Cowork run). GREEN -> stop.
+TASK (to VS, when Nick re-arms - NOT a fix turn):
+  Nothing to build for A-124. Open decisions for Nick (plain English, no machinery):
+  1. Should thin state cohorts (Iowa n=9) be trusted as-is, or should the state rate need a
+     minimum sample before it replaces national? Today: no minimum, by design.
+  2. Should the golden fixture carry a state so the gate pins the state-keyed rate? That
+     moves the golden digests (a legitimate re-baseline turn with the R31 purity protocol).
+  3. Next Cowork/system run of any draft with a state = live confirm of A-124
+     (source_detail.state stamped in model_input).
