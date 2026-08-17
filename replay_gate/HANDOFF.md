@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-fault
 TURN: 0/16
 TASK:
   FIX A-124 STATE PLUMBING — Nick's ruling 2026-08-17 (research:
