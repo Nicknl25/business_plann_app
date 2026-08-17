@@ -1,4 +1,4 @@
-STATUS: stopped-fault
+STATUS: awaiting-VS
 TURN: 0/16
 TASK:
   FIX A-124 STATE PLUMBING — Nick's ruling 2026-08-17 (research:
@@ -54,6 +54,7 @@ TASK:
   byte-identical to before, and if goldens moved: purity proven
   (interest row + descendants ONLY) before re-bless; ONE :5050 listener;
   declared-vs-actual. Green -> stop.
+  (re-armed after the Cowork-tester dirty-tree fault; tree clean now)
 RESULT:
   AGENT: none
   VERDICT: progress
