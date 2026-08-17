@@ -1,151 +1,116 @@
-STATUS: awaiting-Nick
-TURN: 2/16
+STATUS: awaiting-VS
+TURN: 0/16
 TASK:
-  RESTRUCTURE-PATH HYGIENE n1 + n4 — Nick's ruling 2026-08-16. Small
-  cleanups, NOWHERE NEAR the email/delivery path (that path is OFF-LIMITS
-  per the standing fence in your bootstrap - if anything you touch looks
-  like email composition, delivery routing, or the failure-email
-  attachment, STOP and needs-ruling). Not engine math, not goldens.
-  TURN-TIMEOUT-MINUTES: 75
-  TURN 1 (VS; declare the tier per fix - both look restructure-path
-  SPOT-CHECK; mini audits the call):
-   n1 ONE AUTHORITY for the run id on the restructure path:
-      acceptance_planning_run_id is empty there, so verify_run_acceptance
-      runs with planning_run_id=None and a latest-run fallback (guessing).
-      Resolve the run id PROPERLY on that path (FIX 2b already resolves the
-      row for the failure surface - use the same resolution as the single
-      authority) so no latest-run guessing remains. Red-proof: on the Nine
-      Fathom rewind clone the verdict is persisted against the exact run
-      row, never a fallback.
-   n4 ROW-SHAPE TWO SOURCES OF TRUTH: _prepare_restructure_model flips
-      EXISTING per-line COGS % rows to controller_write=True /
-      derived_driver=None - not the real per-line row shape. Fix so
-      existing per-line COGS rows keep the byte-identical real shape FIX 1
-      already uses for synthesized lines (controller_write=False,
-      derived_driver=per_line_cogs_source, same lever id / label). Solve
-      stays green. Red-proof: prepared model rows for a per-line-COGS draft
-      are shape-identical to finmo_bridge's real rows PRE/POST; joint solve
-      still finds candidates on the class sweep drafts.
-   Floor R31/R32 via --only. Canary skip. Flip to mini.
-  TURN 2 (mini, spot-check audit): diff confined to the restructure path;
-  zero touches to workbook_email.py / delivery / attachment (grep the
-  diff); n1 single authority; n4 shape identity; solve green; floor.
-  Green -> stop.
+  FIX THE DISCOVERY READER THE RIGHT WAY — Nick's ruling 2026-08-17:
+  OPTION A, CONVERGE ONTO THE SHARED READER AND DELETE THE PARALLEL ONE
+  (delete, do not demote). Research with every citation:
+  docs/DISCOVERY_READER_DIVERGENCE_RESEARCH.md (read it first; the code
+  map and the Corvid evidence are there). DEAL BREAKER: on Corvid Press
+  (draft e3af1f24) "digital printing is already part of our commercial
+  print line, not a separate thing" made a phantom own-LOB line with a
+  false receipt, and "drop that line, you'd be double-counting" was
+  ignored - the null-driver row survived finalize via the carry-forward
+  and killed the run at the boundary. Root: discovery built its OWN
+  per-candidate yes/no reader instead of using consultant_chat_turn - the
+  reader the whole rest of the intake uses, which already has
+  merge/collapse authority. The good reader was there and got overridden.
+  Use it. Delete the garbage. FIX THE CLASS.
+  TURN-TIMEOUT-MINUTES: 180
+  DELETE (the actual defect - a parallel comprehension engine):
+   1. read_stream_discovery_answer + the per-candidate ACCEPT/REJECT/
+      CLARIFY loop through _classify_restatement_response
+      (gpt_stream_discovery.py ~:652-680, stream_discovery_intent_frame
+      ~:616-646, _DOOR_TO_ANSWER :649; the door use in intake_consult.py
+      _apply_stream_discovery_answer ~:11773-11866). Discovery no longer
+      runs its own per-candidate boolean pass. _classify_restatement_
+      response has other (restatement) callers - leave it for them; stop
+      discovery calling it. If any discovery-only helper becomes dead,
+      delete it (remove-don't-route-around law).
+   2. append_confirmed_stream_rows (~:725-756) - the unconditional own-LOB
+      minting. Delete the bespoke applier. Whatever the SHARED reading
+      actually added gets origin=discovery_confirmed stamped (stamp only;
+      the shared patch adds the row).
+  CONVERGE:
+   3. consultant_chat_turn (intake_consultant.py) is the PRIMARY reader of
+      the discovery-window reply. It already receives the full conversation
+      + the latch (+ stream_discovery_note) and returns a full lob_models
+      snapshot; its prompt already carries "THE CLIENT IS THE FINAL
+      AUTHORITY ... 'treat them as one' collapses a proposed split - honor
+      it immediately" (:276). Let it comprehend natively: "stays inside
+      commercial print" -> no new row; a genuine new stream -> real line
+      added (product row w/ null drivers, then the normal cascade captures
+      it); "drop that line" -> row removed. Give the shared reader the
+      discovery context it needs to do this WELL (the note/latch already
+      ride in intake_context; make sure the prompt/context tell it, in
+      plain terms, that the ask just proposed these labels as possible
+      revenue lines, that a yes means add a line, and that the client may
+      say a proposed stream is already inside an existing line - keep it
+      inside; may decline; may retract a line just added - remove it) and
+      that its lob_models snapshot is authoritative for those decisions.
+      Reconcile :426 "do not drop them" so an explicit client removal of a
+      discovery-added (or any client-retracted) line is honored - the
+      client is the authority (parent law) - without turning carry-forward
+      of legitimately-known products into silent drops.
+  JUSTIFY-OR-DELETE:
+   4. carry_stream_discovery (~:764-850, called at ~:20357 every ops turn
+      and at both finalize sites :19725 / :21077). Its legitimate job is
+      surviving consultant_finalize's wholesale ops_json replacement (like
+      competitive_advantage's rescue); its bug is rebuilding "confirmed"
+      from answer=="yes" alone and resurrecting dropped rows (:779-783,
+      :830-844). DETERMINE: if the shared reader's snapshot now carries
+      discovery lines correctly through finalize, DELETE it. If finalize
+      still erases a legitimately-added discovery line, FIX it - carry
+      forward ONLY what the shared model actually contains (respect
+      removals/merges), NEVER resurrect from a stale yes-latch. State which
+      (delete vs fix) and why in the RESULT.
+  ALSO FIX (the second-order bug that produced the exact failure):
+   5. The wrap gate (~:20501-20509 gate_obj from a fresh consultant_finalize
+      snapshot never passed through carry-forward) must evaluate the SAME
+      row set that gets persisted - gate on the persisted ops_json, or
+      carry the same state through the gate snapshot - so the gate and the
+      persisted state can never disagree. No null-driver discovery row can
+      reach validate_intake_draft_at_boundary (the phantom-line class is
+      dead by construction).
+  KEEP untouched: the proposal/judge side (evidence gate, judge, band-gate,
+  F1 dedup, F2 size-strip, F3 cap-4, template + why-clause + serial
+  comma, the ask at the seam) - that is discovery working. The LATCH as
+  an auditable record stays - but its per-label answer now records what
+  the SHARED reader did (added / merged_into:<line> / declined /
+  removed), written from the shared model's outcome, not a boolean door.
+  D3 (judge proposing a sub-category of a stated line) is SEPARATE and
+  PARKED - not this turn. EMAIL / DELIVERY PATH OFF-LIMITS (fence).
+  VERIFY at artifact level - red-proof on the EXACT Corvid transcript
+  (e3af1f24, msgs 22-26) BOTH failing cases: (a) "already part of our
+  commercial print line, not a separate thing" -> NO phantom line, honest
+  receipt (stays inside the existing line), model has 2 lines not 3,
+  latch records merged_into; (b) "drop that line, you'd be double-
+  counting" (on a clone where a line WAS created) -> row removed, NOT
+  resurrected at the next turn or at finalize, latch records removed, no
+  null-driver row at the boundary. AND the WORKING case still works -
+  Nine Fathom shape (6d2823db, "Yeah, we do sell retail coffee bags ...
+  And yes, we do wholesale ... But no, we don't do brew gear") -> the two
+  genuine yeses land as real discovery_confirmed rows captured through
+  the cascade, the no is not added; deleting the second reader must NOT
+  break the case that already works. Live: rewound Corvid + Nine Fathom
+  clones through the real handler on a restarted backend (ONE :5050
+  listener). Floor R31/R32 via --only. Declare the tier per fix in your
+  TURN PLAN (this sits on the finalize/carry-forward/wrap-gate seam -
+  likely NEIGHBOR-CHECK; the reader-primacy delete vs the carry-forward/
+  gate change may be different radii - SPLIT per the law if so, land the
+  reader convergence first) and confirm declared-vs-actual. Flip to mini.
+  MINI: audit at the tier VS declared (verify the call): the parallel
+  reader is GONE (grep: no per-candidate classify loop, no
+  append_confirmed_stream_rows, no discovery call into
+  _classify_restatement_response); the shared reader is the one binding
+  authority; carry_stream_discovery deleted-or-fixed with the reason
+  stated and, if kept, never resurrects a removed row; the wrap gate and
+  persisted state agree on the Corvid clone; the three artifact cases
+  (merged / removed / genuine yes) PRE red POST green; zero email lines
+  touched; floor. Green -> stop -> Nick re-runs Cowork.
 RESULT:
-  AGENT: VS
+  AGENT: none
   VERDICT: progress
   ERROR-SIGNATURE: none
-  EVIDENCE: commit 97189a0; Test Files/_rs_n1_single_authority_proof_20260816_PRE.txt (RED 7/7) + _POST.txt (single authority GREEN, one labeled WARN); Test Files/_rs_deadnet_live_failure_surface_20260816_n1POST.txt (ALL GREEN, ONE row); Test Files/_rs_n4_shape_proof_out.txt (PRE RED / POST GREEN 8/8); Test Files/_gate_only_R31_R32_20260816_n1n4.txt; server logs _logs_deadnet_N1PRE_20260816.txt / _logs_deadnet_N1POST_20260816.txt
-  SUMMARY: n1 + n4 LANDED at spot-check, both red-proofed. n1: the unified runner
-  stamps the planning_runs row the grid build CREATED into
-  result.planning_run_json.planning_run_id (the key the handler already read
-  first - it was never populated, so the gate ran planning_run_id=None and read
-  the draft's LATEST row); every write on the restructure path (both dead-net
-  catches, rerun restamp, rerun verdict) resolves by that id ONLY - the
-  get_planning_run(draft_id=) fallbacks + the draft-row re-read are gone. LIVE
-  decoy proof (future-dated completed planning_runs row on a Nine Fathom rewind
-  clone, HEAD worktree server vs this build): PRE the DECOY took the failed flip
-  + verdict + FAILED diagnostics row and the real row stayed completed with no
-  verdict; POST the real row carries all three (verdict.field_snapshot.
-  planning_run_id == real row), decoy untouched. n4: existing per-line COGS %
-  rows are no longer flipped in _prepare_restructure_model - byte-identical to
-  the base rows and shape-identical to FIX 1's synthesized row on 8/8 drafts,
-  joint solve found=True evals=8 on all 8 (PRE and POST alike). Floor R31/R32
-  GREEN, digests identical; ONE :5050 listener (normal backend restarted, pid
-  38436); zero email/delivery/attachment lines in the diff.
-  DECLARED-vs-ACTUAL: matched. Tier spot-check for both as declared. Two
-  disclosures: (a) the n1 proof used a DECOY row (a contrivance to make the
-  latest-run guess observable - the FIX 2b PRE proof had already shown the id
-  EMPTY on this path, so the fallback WAS the operative resolution); (b) 6d2823db
-  (Nine Fathom live draft) is now the POST-RESCUE state (20 rows) so its
-  persisted bounds re-add the two new lines and it dead-nets on the revenue
-  formula contract under PRE and POST alike - a test-input artifact; the
-  pre-rescue clone rsdeadd25e stood in for it in the n4 sweep (disclosed in the
-  script). LIVE FINDING for triage (NOT fixed - shared persist, outside the
-  restructure path): persist_post_intake_execution_state (intake_consult_draft.py
-  ~2793-2807) accepts the payload's planning_run_id only when it equals the
-  latest active/any row, else MINTS a fresh uuid row - the decoy exposed it as
-  a phantom second row (b5a5ea13, WARN in the POST txt). Without a decoy the
-  same build lands exactly ONE row (FIX 2b harness re-run ALL GREEN). Deal-
-  breaker test: no wrong number in a delivered plan today; it is a latent
-  two-rows-of-truth class - Nick's call whether it earns a neighbor-check turn.
-TASK:
-  mini, TURN 2 (spot-check audit of 97189a0):
-   1. diff confined to the restructure path + the unified runner stamp:
-      `git show 97189a0 -- python/` - two files; grep the diff for
-      email|attach|deliver -> zero lines (I did: NO matches). Tier call:
-      the stamp is additive on an opaque dict (SolverOutputContract top level
-      is extra=forbid, planning_run_json is Dict[str,Any]); the id resolution
-      lives inside the NON-VIABLE-only restructure block; n4 is one `continue`
-      in _prepare_restructure_model. Say if you disagree that this is
-      spot-check.
-   2. n1 single authority: read _rs_n1_single_authority_proof_20260816_PRE.txt
-      vs _POST.txt - decoy vs real row; then read the planning_runs rows for
-      the two clones yourself (rsn1au667f… PRE: real e3276f9e completed/no
-      verdict, decoy failed+verdict; rsn1au0dcd… POST: real 225ca67e
-      failed+verdict, decoy completed/no verdict). Confirm no
-      get_planning_run(draft_id=) remains inside the restructure block
-      (grep intake_consult.py 14700-15300).
-   3. n4 shape identity: run `python "Test Files/_rs_n4_shape_proof.py"`
-      (8 drafts, ~3 min) - PRE RED / POST GREEN; note the 6d2823db
-      post-rescue disclosure.
-   4. Floor R31/R32 via --only, ONE :5050 listener.
-   5. Carry the persist_post_intake_execution_state phantom-row finding to
-      Nick's triage list (needs-ruling: n9). Green -> awaiting-Nick.
-RESULT:
-  AGENT: mini
-  VERDICT: green
-  ERROR-SIGNATURE: none
-  EVIDENCE: Test Files/_mini_gate_only_R31_R32_20260816_turn2.txt (2/2 clear, digests grid cbd764631e98 / model_input 1d50e46ab8e6 / finmo 24e38de4dc98 == VS); Test Files/_mini_n1_rows_audit.py + _mini_n1_rows_audit_20260816.txt (independent DB read of the PRE/POST clone rows); n4 proof re-run this session (Test Files/_rs_n4_shape_proof.py, PRE RED 8/8 flipped -> POST GREEN 8/8 identical/one-shape/found=True evals=8); git show 97189a0 -- python/
-  SUMMARY: SPOT-CHECK AUDIT of 97189a0 - CLEAN. (1) Diff: two python files only
-  (intake_consult.py 66 lines, joint_solver.py 17 lines); grep email|attach|deliver
-  over the CODE diff = ZERO hits (the only match is the commit-message text itself);
-  no touch to workbook_email.py / delivery / attachment. n1 = additive stamp of the
-  grid-build-created run id into result.planning_run_json.planning_run_id + id-only
-  resolution in the restructure block (both dead-net catches, restamp, rerun verdict);
-  the two get_planning_run(draft_id=) fallbacks and the draft-row re-read are GONE
-  (grep of 14600-15400: the only draft_id= lookup left is the pre-existing OUTER
-  generic-exception catch at 14627, not the restructure path). n4 = one `continue`.
-  (2) n1 rows read independently from the DB: PRE clone rsn1au667f real e3276f9e
-  completed/no-verdict, decoy failed+verdict+diagnostics; POST clone rsn1au0dcd real
-  225ca67e failed + verdict (field_snapshot.planning_run_id == 225ca67e) + diagnostics
-  keyed by it, decoy completed/untouched. gate.py resolves an explicit id first
-  (_planning_run_row) - so the stamped id is honoured. (3) n4 re-run here: identical
-  table to VS's; the PRE fixture _rs_n4_joint_solver_PRE.py is byte-identical to
-  97189a0^ joint_solver.py (real pre-fix source, not a mock); 6d2823db post-rescue
-  disclosure present in the script (rsdeadd25e stands in). (4) Floor R31/R32 --only
-  GREEN 2/2, digests identical to VS's; ONE :5050 listener (pid 38436).
-  TIER CALL: spot-check accepted for both, with ONE NOTE for the record - VS's plan
-  said the n1 stamp fires "inside the restructure block only"; in fact the STAMP
-  itself (14341-14355) rides EVERY unified run and changes the acceptance gate's
-  input on the normal path from planning_run_id=None (latest-row fallback) to the
-  explicit created row. Behaviour on the guided path is identical BY CONSTRUCTION
-  (one row per run => created == latest; VS's FIX 2b re-run landed exactly ONE row)
-  and the floor does not traverse the gate, so this is a wording imprecision in the
-  radius statement, not a false tier - but the next live GREEN run is the organic
-  confirmation of the stamp on a passing path (watch item, no turn owed).
-  DECLARED-vs-ACTUAL (VS): matched on files loaded/touched and verify steps; one
-  disclosed method deviation - n1 red-proof used a future-dated DECOY row instead of
-  the planned "stripped-COGS test server" observation; disclosed, and the decoy is
-  the only way to make a latest-row guess observable. Not a finding.
-  DECLARED-vs-ACTUAL (mini): matched - diff+grep, PRE/POST txts, DB rows, restructure
-  block grep, n4 re-run foreground, R31/R32 --only foreground, listener count; canary
-  skipped as declared; legs R31+R32 (2).
-  TRIAGE: n1/n4 named deal breakers (verdict against a guessed row = false claim on
-  which run failed; two COGS-row shapes in one solve = wrong per-line COGS for the
-  class) - both hold; both CLOSED GREEN.
-  NEEDS-RULING (n9, Nick): persist_post_intake_execution_state
-  (intake_consult_draft.py ~2793-2807) accepts the payload's planning_run_id only
-  when it equals the latest active/any row, else MINTS a fresh uuid row - decoy proof
-  showed a phantom second row b5a5ea13 (status=failed, no verdict). Deal-breaker
-  test TODAY: NO - guided path lands exactly one row (rerun's own row is the latest
-  active); the phantom needs a foreign newer row (decoy / concurrent double-submit).
-  Latent two-rows-of-truth class in SHARED persist (initial-grid + state runners
-  flow through it) => neighbor-check radius if built. Nick's call: queue a
-  neighbor-check turn (make persist honour the payload's id when it names an
-  existing row for this draft, mint only when absent) or WONT-FIX until a real
-  concurrent-run case appears.
-TASK:
-  VS: nothing queued from this audit. STATUS awaiting-Nick - Nick rules on n9
-  (neighbor-check turn vs WONT-FIX) in plain English; the watcher seeds the next
-  TASK from his reply. Off-limits fence unchanged: no email/delivery/attachment work.
+  EVIDENCE: (superseded — new instruction seeded)
+  SUMMARY: The previous turn's RESULT was superseded by a new
+  instruction; it remains in git history.
