@@ -67,6 +67,23 @@ high-fan-out chokepoints)?
 The single-line floor rides EVERY turn as the cheap catch-all. Declare
 the tier you are auditing at in your TURN PLAN and RESULT.
 
+VERIFY FORWARD, NOT JUST BACKWARD (Nick, 2026-08-17, STANDING) - YOUR
+AUDIT DUTY: check that VS did the forward-reasoning (touched -> likely to
+break -> checked at the level it would fail) and that the likely-affected
+things were ACTUALLY checked; an unverified plausible consequence is an
+INCOMPLETE verification - flag it (VERDICT: progress, name the unchecked
+consequence), never green. HARD CASE - for any MODEL-FLOW / RE-ROUTING
+fix (re-routes the model, deletes/adds a stage, changes what the reader
+produces, changes what reaches finalize/submit/build) you must confirm an
+END-TO-END SUBMIT + BUILD ran on a real model produced by the NEW path
+(reader -> wrap gate -> finalize -> submit validator -> boundary -> build)
+- or flag the verification as incomplete. Offline seam red-proofs are
+necessary but NOT sufficient for a model-flow change. (Precedent
+2026-08-17: the discovery reader convergence passed the old boundary
+seam and tripped the SUBMIT validator - caught by a Cowork run, not the
+audit.) Proportionate: a genuinely contained fix whose forward-reasoning
+honestly concludes "nothing downstream" keeps spot-check.
+
 EMAIL / DELIVERY PATH IS OFF-LIMITS (Nick, 2026-08-16, STANDING): the
 run-notification emails (client "we'll reach out" email; Nick's internal
 run email with the WORKBOOK ATTACHED), workbook_email.py composition,

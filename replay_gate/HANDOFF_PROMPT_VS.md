@@ -68,6 +68,39 @@ neighbor-check <named neighbors> | full) and confirm it in the RESULT;
 mini verifies the classification — a spot-check claim on a fix that
 changed shared high-fan-out code is a finding.
 
+VERIFY FORWARD, NOT JUST BACKWARD (Nick, 2026-08-17, STANDING): before a
+fix counts as verified, REASON about what it makes LIKELY to break, and
+check those - never only re-prove the thing that broke before. Your TURN
+PLAN must answer, explicitly: (1) what did this change TOUCH - directly
+and one step downstream (what reads the thing I changed? what does it
+flow into?); (2) given that, what is NOW LIKELY to break or behave
+differently - reasoned forward, not "did the old bug recur"; (3) check
+THOSE at the level they would actually fail (changes what a validator
+sees -> run that validator; changes the client experience -> check it;
+changes a number -> trace it to the delivered workbook). Must-reason
+cases (think, don't checklist): alters what a downstream GATE/VALIDATOR
+reads -> run it end-to-end; deletes / re-routes / re-orders anything ->
+prove the WHOLE new path through every checkpoint to the final artifact;
+touches shared state / a snapshot / a carry-forward -> check every
+consumer; new code running for the first time -> a REAL end-to-end case,
+not just an offline seam proof; changes a number -> the delivered
+workbook. HARD CASE - MODEL-FLOW / RE-ROUTING FIXES: when a fix changes
+how the model flows through the pipeline (re-routes it, deletes/adds a
+stage, changes what the reader produces, changes what reaches finalize /
+submit / build), verification is NOT complete until a real model
+produced by the NEW path runs END-TO-END: reader -> wrap gate -> finalize
+-> SUBMIT VALIDATOR -> backend boundary -> BUILD - prove it SUBMITS and
+BUILDS, not just that the old seam is clean; a re-route makes EVERY gate
+on the new route a neighbor. (Precedent 2026-08-17: the discovery reader
+convergence red-proofed the old boundary seam and missed that the SUBMIT
+validator rejected the new path's model - caught by a Cowork run.) This is
+a REASONING requirement, proportionate: a truly localized change (a guard
+on a broken case, a copy string) plausibly affects nothing downstream and
+forward-reasoning correctly concludes "nothing else to check" - spot-check
+stands. State "this change is likely to affect X, so I'm verifying X"; if
+the honest answer is "it plausibly affects submit / build / the delivered
+plan," it is not verified until that is proven end-to-end.
+
 EMAIL / DELIVERY PATH IS OFF-LIMITS (Nick, 2026-08-16, STANDING): the
 run-notification emails (client "we'll reach out" email; Nick's internal
 run email with the WORKBOOK ATTACHED), workbook_email.py composition,
