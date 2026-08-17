@@ -1126,11 +1126,30 @@ def _median(values: List[float]) -> Optional[float]:
 def _sba_business_loan_interest_rate_and_source(
   ops_json: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, Dict[str, Any]]:
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
+  facts = business_facts if isinstance(business_facts, dict) else {}
   naics_value = re.sub(r"[^0-9]", "", str(ops.get("business_naics_6") or "").strip())
-  state_value = str(financials.get("state") or ops.get("address_state") or ops.get("state") or "").strip().upper()
+  # A-124 (2026-08-17): the lookup is keyed NAICS + STATE by design, but the
+  # state never reached it - it read financials.state / ops.address_state /
+  # ops.state, none of which intake populates, so every draft got the NATIONAL
+  # median. The ONE authority the app holds is intake_consult_drafts.address_state,
+  # packed into business_facts by the runner and the tripwire (the same field
+  # post_intake_headcount trusts). It arrives as a full name ('Iowa') where the
+  # SBA table keys ProjectState by 2-letter code, so it goes through the same
+  # deterministic name->code map post_intake_headcount uses (no address parsing:
+  # that helper's token scan is a heuristic, and this is a lookup key).
+  from client_intake_and_finmo.people_roles import _normalize_state_abbrev  # type: ignore
+  state_raw = (
+    facts.get("address_state")
+    or financials.get("state")
+    or ops.get("address_state")
+    or ops.get("state")
+    or ""
+  )
+  state_value = str(_normalize_state_abbrev(state_raw, None) or "").strip().upper()
   cache_key = f"{naics_value or '__fallback__'}::{state_value or '__any_state__'}"
   cached = _SBA_BUSINESS_LOAN_RATE_CACHE.get(cache_key)
   if cached:
@@ -3610,6 +3629,7 @@ def _build_model_input_overlay(
   interest_rate_baseline, interest_rate_source = _sba_business_loan_interest_rate_and_source(
     ops_json,
     financials_json,
+    business_facts=business_facts,
   )
   intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
   tax_rate_forecast: Optional[float] = intake_tax_rate

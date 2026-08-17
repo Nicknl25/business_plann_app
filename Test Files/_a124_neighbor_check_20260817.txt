@@ -1,0 +1,12 @@
+  debt-schedule reader: 0.06 0.015 IA 9
+  ok   sba_forecast_interest_rate_policy accepts and returns 0.06 / 0.015
+  cash contract: source sba_loan_7a_raw row values [0.015, 0.015, 0.015] n 20
+  ok   cash contract: policy is sba-backed
+  ok   cash contract: live Interest Rate row == policy quarterly 0.015
+  realism band 323111: {'metric_key': 'sba_initial_interest_rate', 'benchmark_min': 0.06, 'benchmark_target': 0.085, 'benchmark_max': 0.12, 'naics_code_used': '*', 'naics_level_used': 0, 'data_source': 'expert_default', 'source_year': None, 'sample_size': None, 'confidence_tier': 'generic_default', 'raw_confidence_tier': 'generic_default', 'trust_flag': 'generic_default', 'fallback_chain_attempted': ['naics_6:323111:primary_source=SBA_7A', 'naics_5:32311', 'naics_4:3231', 'naics_3:323', 'naics_2:32', 'naics_0:*']}
+  realism result: {'status': 'skipped', 'actual': None, 'effective_min': None, 'effective_max': None, 'reason': 'band_or_tolerance_unavailable'}
+  ok   realism debt-rate status skipped (warn-only check; out_of_band_warn would be a flag not a block)
+  workbook Debt Schedule 'Interest Rate' row: ('Debt Schedule', ['Interest Rate', 'Source rate', 0.01875, 0.015, 0.015, 0.015, 0.015, 0.015])
+  ok   workbook Debt Schedule Interest Rate cells carry 0.015 (state-keyed)
+  saved C:\dev\business_plann_app\Test Files\_a124_millgate_replay_workbook.xlsx
+GREEN - A-124 neighbor check

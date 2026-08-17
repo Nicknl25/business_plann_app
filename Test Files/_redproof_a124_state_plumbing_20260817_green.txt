@@ -1,0 +1,15 @@
+draft 2e198cbfadb0457893bc38d9048bd7bf Millgate Press address_state='Iowa'
+  policy: {"source": "sba_loan_7a_raw", "match_basis": "exact_naics_6", "naics": "323111", "state": "IA", "sample_count": 9, "median_rate_pct": 6.0, "annual_rate_decimal": 0.06} quarterly 0.015
+  ok   source is sba_loan_7a_raw
+  ok   source_detail.state == 'IA' (got 'IA')
+  ok   Iowa cohort n == 9 (got 9)
+  ok   median_rate_pct == 6.0 (got 6.0)
+  ok   quarterly_rate_decimal == 0.015 (got 0.015)
+  Interest Rate row values: [0.01875, 0.015, 0.015, 0.015, 0.015, 0.015] ...
+  ok   stub Q0 stays the stated rate 0.01875 (got 0.01875)
+  ok   Q1..Q20 == 0.015
+  Y1 sum(avg balances)=440,010.50  x0.0225=9,900.24 (old)  x0.015=6,600.16 (new)  x0.01875=8,250.20 (stated)
+  no-state policy: {"state": null, "sample_count": 895, "median_rate_pct": 9.0, "annual_rate_decimal": 0.09}
+  ok   no-state draft resolves national (state=None, n=895, 9.0)
+  ok   2-arg call == no-state result (byte-identical no-state path)
+GREEN - A-124 state plumbing
