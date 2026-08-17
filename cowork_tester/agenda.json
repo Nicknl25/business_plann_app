@@ -1,10 +1,18 @@
 {
- "version": 25,
- "updated": "2026-08-17T07:20:00Z",
+ "version": 26,
+ "updated": "2026-08-17T14:50:00Z",
  "notes": "CW-037 (Tanager Print Works, Rockford) re-ran the CW-036 shape on 6b6a5ca to confirm the discovery-reader convergence. THE FIX HOLDS, and a new blocker appeared downstream of it.\n\nMOMENT 1 HELD. 'Bindery and finishing services is already part of our commercial print line, it's the same jobs, not a separate thing' (with plain NOs on the other three) was recorded as merged_into:print job - not as a yes. No phantom line was minted, the receipt said 'Noted - bindery and finishing services stays inside print job, not a separate line', and operating_model_json held exactly ONE lob_model with ONE product through the ops wrap and the rest of the intake. The other three candidates recorded declined, all read_by consultant_chat_turn. That is the CW-036 blocker closed with client-side evidence.\n\nMOMENT 2 WAS NOT REACHABLE, for the right reason - no discovery line was ever created for me to drop. The explicit drop door and the R48 removed-never-resurrected leg therefore remain unexercised from the client side, and need a run where a stream is genuinely accepted and then dropped.\n\nTHE NEW BLOCKER: the intake converged clean with a healthy verdict and no remediation, and then SUBMISSION IS HARD-BLOCKED. Confirm and submit returns a banner reading 'unit_name: unit_name is required | unit_price: unit_price must be a number | units_per_week_capacity: units_per_week_capacity must be a number'. All three are correctly populated on the model's only product - unit_name 'print job', unit_price 720, units_per_week_capacity 28 - and a sweep of the parsed operating model finds exactly one valid occurrence of each. No null row, no phantom. The client is stranded with an error naming fields that are already right. Reproduced twice. Because nothing built, the workbook, per-line-COGS and boundary checks could not run.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "RUN-POST-A122-1",
+   "persona": "your pick - a real founder, natural answers, real numbers",
+   "business": "your pick, FRESH name. A SINGLE-LINE business is the most valuable test right now (single-line submit was broken since Aug 12 and just got fixed) - e.g. a one-service shop, a single-product maker, a solo practice. Multi-line is fine too. Answer the discovery ask naturally as before.",
+   "why": "OPERATOR: run on HEAD d26a0e8. Since Tanager: A-122 fixed - the SUBMIT door now reads the model rows (row-first) like the rest of the app, so a single-line model submits (Tanager and a Sumac clone were re-submitted and BUILT end-to-end as proof; multi-line and legacy controls still pass). Also live from earlier today: discovery answers comprehended by the ordinary reader (merged-into-existing stays inside, genuine yes = peer line, drop = removed and stays removed). Play through to completion INCLUDING SUBMIT - the plan must submit (reference code) and build. TRIAGE LAW: new findings bucketed deal-breaker vs wont-fix for the operator, filed not chased.",
+   "operator_command_hint": "run yours"
+  },
+  {
+   "rank": 2,
    "id": "A-122",
    "persona": "any",
    "business": "any business reaching the submit door",
@@ -14,7 +22,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 3,
    "id": "A-123",
    "persona": "any",
    "business": "any business that accepts a discovered stream and then changes its mind",
@@ -22,7 +30,7 @@
    "retests": []
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -32,7 +40,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -40,7 +48,7 @@
    "retests": []
   },
   {
-   "rank": 5,
+   "rank": 6,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -50,7 +58,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 7,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -60,7 +68,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 8,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -71,7 +79,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 9,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -82,7 +90,7 @@
    ]
   },
   {
-   "rank": 9,
+   "rank": 10,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -92,7 +100,7 @@
    ]
   },
   {
-   "rank": 10,
+   "rank": 11,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -100,7 +108,7 @@
    "retests": []
   },
   {
-   "rank": 11,
+   "rank": 12,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -109,6 +117,7 @@
   }
  ],
  "closed_this_cycle": [
+  "RUN-POST-READER-CONVERGENCE-1 (Tanager Print Works 87f0fbba): discovery reader HELD live (merged answer kept inside print job, no phantom); run stranded at SUBMIT -> A-122 (validator was the last flat-first reader since 539fb17). FIXED 4d554c9 + audit d26a0e8; Tanager itself submitted+built as the proof.",
   "hard_break:operations:discovery_yes_on_an_already_captured_stream_creates_a_null_line_that_kills_the_build (CW-036 blocker) RESOLVED on 6b6a5ca and confirmed live from the client side by CW-037: the same answer shape now records merged_into:<line>, mints no phantom, and the receipt states the merge in the client's own terms.",
   "A-119 closes with it.",
   "Recorded as a passing confirmation with evidence attached: flow:operations:discovery_already_part_of_an_existing_line_is_merged_not_minted (note).",
