@@ -1,4 +1,4 @@
-STATUS: stopped-fault
+STATUS: awaiting-VS
 TURN: 0/16
 TASK:
   FIX A-122 — SUBMIT VALIDATOR IS THE LAST FLAT-FIRST READER. Nick's
@@ -63,6 +63,7 @@ TASK:
   produced), the multi-line and rowless controls ran, the negative case
   rejects; zero email/delivery lines touched; floor. Green -> stop ->
   Nick.
+  (re-armed after the Cowork-tester dirty-tree fault; tree clean now)
 RESULT:
   AGENT: none
   VERDICT: progress
