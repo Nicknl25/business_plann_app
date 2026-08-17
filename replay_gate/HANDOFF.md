@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 2/16
 TASK:
   FIX A-122 — SUBMIT VALIDATOR IS THE LAST FLAT-FIRST READER. Nick's
@@ -134,3 +134,53 @@ TASK:
   _a122_validator_offline_20260817.txt; zero email/delivery lines
   touched (git diff shows only intake_submit_service.py in app code);
   floor R31/R32 clear. Green -> stop -> Nick.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: git diff 4d554c9~1..4d554c9 (app code = intake_submit_service.py
+    ONLY, +33 lines: _ROW_FIRST_DRIVER_FIELDS, _row_first_driver, one
+    5-line block after the is_multi_lob decision; zero email/delivery
+    lines); Test Files/_a122_validator_offline.py re-run by mini: GREEN
+    on committed source, RED (4) on the 4d554c9~1 baseline for the
+    RIGHT reason (single row w/ drivers -> 4 unit_* 'required' errors,
+    the exact Tanager 400 shape); independent DB read of
+    intake_consult_drafts: 87f0fbba/mn33t5g9/a122nf83 all submitted_at
+    13:18:01/13:18:12/13:18:33, planning runs 91b4463c/b56bc477/05d34b67
+    planning_run_status=completed @post_intake_finalize_validation_completed;
+    intake_submissions 80/81 carry print job/720/28 and Property
+    contract/550/8, 82 (multi-line NF) NULL as before; three workbooks
+    ON DISK (Financial Models/ Tanager 13-23-13, NF 13-23-50, Sumac
+    13-27-51), mini opened Tanager+Sumac Revenue Drivers: price 720 /
+    550, capacity 364.09 / 97.01 per q; persona log 0 Tracebacks;
+    floor R31/R32 re-run by mini via --only: 2/2 clear; VS TURN PLAN
+    (watcher.log 13:15:44) vs actual: MATCH.
+  SUMMARY: A-122 audited GREEN at spot-check + verify-forward e2e (the
+  tier VS declared; honest - one validator branch + the values it hands
+  the insert, no engine math / forward mover / builder touched).
+  Row-first semantics are a faithful mirror of _ops_driver_value (first
+  non-None across lob_models[*].products[*], flat key as fallback); the
+  4 fields cover every flat-validated driver in the function (checked
+  lines 350-397: no other flat driver is validated). Flat fallback
+  reachable only when no row supplies the field; empty-legacy error
+  text byte-identical (5 seam checks incl. rowless/negative/multi-line
+  unchanged). VERIFY-FORWARD duty: e2e submit+build genuinely RAN on the
+  NEW path for both stranded single-line drafts + the multi-line control,
+  confirmed from DB + disk, not from VS's artifacts. VS notes triaged:
+  (1) intake_submissions.units_per_week_capacity INT rounding 7.85->8:
+  WONT-FIX - the table has NO readers in python/ (fetch_* helpers
+  unused), the engine/workbook read the draft rows (Sumac WB 97.01/q
+  correct) -> nothing reaches a delivered plan; (2) 6-line helper
+  duplication vs importing the 20k-line handler: WONT-FIX, layering is
+  right; (3) CoInitialize status-check-skipped warning: pre-existing
+  (08-13 logs), only effect = uncached formula values in the xlsx
+  (formulas intact, =C8*C9*C10), not a wrong number.
+  DECLARED-vs-ACTUAL (mini): as declared - loaded HANDOFF, the diff,
+  _ops_driver_value, the _a122_* artifacts, DB rows, workbook cells;
+  reran seam + floor; canary skipped.
+TASK:
+  NONE - A-122 CLOSED GREEN. Every single-line business since 539fb17
+  now submits and builds on the guided path. Nick: the next Cowork run
+  (any single-line business) is the live confirmation; nothing for VS
+  until then. Untracked _ablate/_debug scripts in Test Files predate
+  this turn (Cowork-tester leftovers) - not part of A-122.
