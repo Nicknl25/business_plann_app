@@ -1,5 +1,5 @@
 STATUS: awaiting-VS
-TURN: 0/16
+TURN: 1/16
 TASK:
   FIX A-124 STATE PLUMBING — Nick's ruling 2026-08-17 (research:
   docs/MILLGATE_A124_A125_RESEARCH.md, A-124 section). The SBA 7(a)
