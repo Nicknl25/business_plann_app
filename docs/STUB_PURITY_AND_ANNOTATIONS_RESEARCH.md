@@ -4,6 +4,17 @@ NOTHING BUILT. Traced against code, Millgate's persisted model_input /
 finmo (draft 2e198cbf, run 3d4e1de9), Kestrelbrook's workbook + run
 6055904d, the restructuring log, and Cowork's runlog. Cited.
 
+
+> **CORRECTION 2026-08-17 (see docs/STUB_CELLS_WHY_RESEARCH.md):** Part 2's
+> claim that the G&A stub is a "stale operator-rescaled band" is WRONG —
+> the `_rescaled_target` branch is unreachable in production; the stub
+> value 0.027701 is the CLIENT'S OWN 31,200 divided by the wrong
+> denominator (the 95%-capacity ceiling 1,126,320 that `513778e` put into
+> the shared `revenue_total_year1`), not any band. Corollary: the
+> `marketing_ratio_baseline` UnboundLocalError is latent (else-branch
+> always runs today), not a live crash risk. The verdict "G&A stub is
+> a real problem" stands, for a different reason.
+
 ## PART 2 — IS THE STUB CLEAN?
 
 **Verdict: STUB ADJUSTED — but NOT by any post-intake / executive step.
