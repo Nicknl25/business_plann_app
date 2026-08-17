@@ -1,7 +1,7 @@
 {
  "version": 1,
- "updated": "2026-08-15T10:05:00Z",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. Gaps drive the agenda. As of CW-035 stream discovery is confirmed working end to end on the vertical that produced silence in CW-034.",
+ "updated": "2026-08-17T07:20:00Z",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -186,9 +186,10 @@
     "offset and digital commercial print shop with wide-format"
    ],
    "runs": [
-    "CW-036"
+    "CW-036",
+    "CW-037"
    ],
-   "note": "NEW vertical. Marginal thin-margin shop with heavy owned equipment, used to probe the acceptance gate and restructure net."
+   "note": "Commercial print shop, used twice. CW-036 exposed the discovery already-captured blocker; CW-037 confirms it fixed but hits a new submit-validation blocker."
   }
  },
  "friction_conditions": {
@@ -777,9 +778,16 @@
   },
   "discovery_yes_on_an_already_captured_activity": {
    "runs": [
-    "CW-036"
+    "CW-036",
+    "CW-037"
    ],
-   "note": "NEW and FAILING - blocker. 'Already part of our commercial print line, not a separate thing' read as YES, creating an all-null third LOB that survived two explicit removal requests and then failed schema validation, killing the plan build."
+   "note": "CW-036: 'already part of our line' read as YES, minting an all-null LOB that killed the build. CW-037 on 6b6a5ca: the SAME answer shape is recorded as merged_into:<line>, no phantom minted, receipt says 'stays inside print job, not a separate line'. FIXED."
+  },
+  "submit_validation_blocks_a_valid_model": {
+   "runs": [
+    "CW-037"
+   ],
+   "note": "NEW and FAILING - blocker. Submit is hard-blocked by a banner naming unit_name, unit_price and units_per_week_capacity as missing while all three are correctly populated on the model's only product. Client stranded with no actionable fix. Reproduced twice."
   }
  },
  "verdict_classes_reached": {
@@ -1478,6 +1486,24 @@
    "headline": "Never reached the acceptance/restructure test it was built for. A discovery answer meaning 'already inside an existing line' was read as YES, creating an all-null third LOB that two removal requests could not clear; it failed schema validation and killed the build. No acceptance_verdict, restructure, evals or rescue state exists. Two real closures alongside: A-106 retention reached and applied exactly, and the pre-submit gate proven to refuse shipping a plan that does not work.",
    "issues_filed": 3,
    "blockers": 1
+  },
+  "CW-037": {
+   "persona": "Ephraim Castellanos - single-line commercial print shop",
+   "business": "Tanager Print Works",
+   "city": "Rockford IL",
+   "type": "commercial_printing",
+   "draft_id": "87f0fbbaed544d7bae6695cc6f1e6236",
+   "stack": "151a346 on HEAD 6b6a5ca",
+   "outcome": "Intake CONVERGED clean with a healthy verdict and no remediation. SUBMISSION HARD-BLOCKED by a validation banner naming three fields that are correctly populated. No plan built.",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "discovery_yes_on_an_already_captured_activity",
+    "submit_validation_blocks_a_valid_model",
+    "single_line_business_with_common_adjacent_streams"
+   ],
+   "headline": "Discovery-reader fix HOLDS - 'already part of our commercial print line, not a separate thing' recorded as merged_into:print job with no phantom minted, closing the CW-036 blocker. But a NEW submit-validation blocker prevented the build, so the workbook checks could not run.",
+   "issues_filed": 2,
+   "blockers": 1
   }
  },
  "verdict_classes": {
@@ -1520,7 +1546,8 @@
     "CW-014",
     "CW-024",
     "CW-025",
-    "CW-026"
+    "CW-026",
+    "CW-037"
    ],
    "note": "run could not reach a verdict"
   },
