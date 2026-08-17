@@ -1,0 +1,30 @@
+COWORK RUN — Millgate Press (draft 2e198cbf, run 3d4e1de9, HEAD d26a0e8) — 2026-08-17
+Single-line commercial print shop (print job $760 / 30 wk / 72%). 49 turns, converged, SUBMITTED, system run COMPLETED 170s,
+acceptance PASSED (failed_checks []), cascade tier 0, 0 errors. Verified from DB + workbook, not narration.
+
+CHECK                                                RESULT   EVIDENCE
+Discovery ask at seam                                HELD     turn 24: 4 labels (graphic design, binding/finishing, digital, large-format), why-clause, serial comma
+Reader on a FOUR-WAY mixed answer (turn 25)          HELD     "binding and digital are already part of our commercial print work... Graphic design, no... Large-format, yes"
+   - merged-into-existing (x2)                       HELD     receipts "binding... stays inside print job" / "digital printing stays inside print job"; NO rows minted; latch merged_into:print job
+   - declined                                        HELD     graphic design not added; latch declined
+   - genuine yes                                     HELD     large-format added as its own line, cascade asked its numbers ($480/order captured), latch added
+Explicit DROP of an added line (turn 29)             HELD     "drop that line... keep the one print line" -> "Noted - large-format printing is dropped as a separate line";
+                                                              row removed, latch removed, NOT resurrected at the next turn or at ops finalize (R48 live)
+Ops -> market flip                                   HELD     model = exactly one row; no null-driver row anywhere
+A-122 SUBMIT on a single-line model                  HELD     POST /api/financials -> 200 (1750ms); intake_submissions #83 carries ROW values unit_name 'print job',
+                                                              unit_price 760, capacity 30; mark_submitted ran; system run started (Tanager's exact failure point, now passing)
+Boundary contract + build                            HELD     post_intake_initialize_validation_completed -> ... -> post_intake_finalize_validation_completed, run completed
+Workbook (single-line legacy layout)                 HELD     FINMO Cost of Goods Sold = C8*'Model Inputs'!C12 (legacy single-line formula), 0 per-line driver rows - correct
+                                                              for one line (Nick's layout ruling: single-line = exact legacy layout)
+
+COWORK FILING (1) - TRIAGED: flow:financials:two_line_business_gets_one_blended_cogs_and_the_question_goes_unanswered marked
+  RECURRED by the registry's artifact detector: "ops_per_line_cogs: not_applicable - 1 product row(s) < min_lines=2;
+  workbook_cogs_rows: fail - Model Inputs carries 0 per-line COGS driver row(s), expected >= ..."  -> FALSE RECURRENCE. The
+  probe ran on a SINGLE-LINE draft, where 0 driver rows + the legacy formula IS the ruled layout; the workbook_cogs_rows
+  assertion is not single-line-aware (it demands >= N driver rows unconditionally). No app defect; the delivered plan is
+  correct. Registry-integrity item (a mis-scoped probe fabricates recurrences): recommend mini scopes the probe to
+  multi-line drafts (min_lines guard on BOTH assertions) - spot-check, registry-side, mini-owned. Bucketed for Nick.
+
+WATCH (not a defect): the shared reader placed the (later-dropped) large-format row as a product under the primary LOB and the
+primary LOB still carries the placeholder name "Primary line of business" (workbook label organization only; numbers right).
+D3 (judge proposing sub-categories - digital/large-format to a printer) still parked; the reader now handles it gracefully.
