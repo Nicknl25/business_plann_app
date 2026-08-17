@@ -1,0 +1,56 @@
+clone sdnineabcbe8b43989442099cdc162ba of 6d2823db rewound to messages[:25]; rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] clone starts with the primary line only, latch pending on the 3 real labels
+  [PASS] last assistant is the REAL ask
+  > [25] Yeah, we do sell retail coffee bags - there's a little shelf out front and a few shops take them. And yes, we do wholesale coffee sales to grocery stores, two co-ops carry us. But no, we don't do brew gear and merchandise sales, I've never wanted to deal with stocking equipment.
+  < [200] Noted - retail coffee bags is its own line; a few quick numbers for it next.
+Noted - wholesale coffee sales to grocery stores is its own line; a few quick numbers for it next.
+
+To make planning realistic for retail coffee bags, in a fully busy week, about how many retail coffee bags can you handle?
+  [PASS] answer turn 200: 200
+  rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null, null, null], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  latch: {"retail coffee bags": "added", "wholesale coffee sales to grocery stores": "added", "brew gear and merchandise sales": "declined"}
+  [PASS] two genuine yeses -> latch added, the no -> declined: {"retail coffee bags": "added", "wholesale coffee sales to grocery stores": "added", "brew gear and merchandise sales": "declined"}
+  [PASS] [retail coffee bags] -> exactly one row, origin=discovery_confirmed (SHARED reader added it, Python stamped it): [["retail coffee bags", "retail coffee bags", "discovery_confirmed", null, null, null]]
+  [PASS] [wholesale coffee sales to grocery stores] -> exactly one row, origin=discovery_confirmed (SHARED reader added it, Python stamped it): [["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  [PASS] no row for the declined label: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null, null, null], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  [PASS] primary row untouched (58/380/.75): [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null, null, null], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  [PASS] exactly 3 rows (primary + two discovered): 3
+  [PASS] receipts from the state: each added line 'is its own line; a few quick numbers': Noted - retail coffee bags is its own line; a few quick numbers for it next.
+Noted - wholesale coffee sales to grocery stores is its own line; a few quick numbers for it next.
+
+To make planning realistic for retail coffee bags, in a fully busy week, about how many retail coffee bags can you handle?
+  [PASS] receipt never mentions the declined stream: Noted - retail coffee bags is its own line; a few quick numbers for it next.
+Noted - wholesale coffee sales to grocery stores is its own line; a few quick numbers for it next.
+
+To make planning realistic for retail coffee bags, in a fully busy week, about how many retail coffee bags can you handle?
+  [PASS] the cascade asks for the new line's numbers (a question follows the receipts): ee sales to grocery stores is its own line; a few quick numbers for it next.
+
+To make planning realistic for retail coffee bags, in a fully busy week, about how many retail coffee bags can you handle?
+  > [27] Twelve ounce bags, whole bean, sold one at a time off the shelf or to a shop.
+  < [200] Perfect, 12 oz whole-bean bags sold individually off the shelf or to a shop is clear.
+
+Let’s treat that as its own standard unit: one 12 oz retail bag of roasted whole-bean coffee, sold either at your own shelf or to a small retail partner, on a weekly rhythm.
+
+Thinking about a fully busy but sustainable week, about how many of those 12 oz retail bags could you realistically produce and get out th
+  [PASS] turn [27] 200: 200
+  [PASS] after [27] both discovered rows still present, still stamped: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null, null, null], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  > [29] About 260 of the twelve ounce bags a week, and we run maybe 60 percent of that. They go for 19 dollars each.
+  < [200] Great, so for the 12 oz retail bags we’ll plan on a weekly capacity of about 260 bags, running at roughly 60% of that on average, at a price of $19 per bag.
+
+For the grocery/co‑op wholesale line: these are also 12 oz bags going out to the co‑ops. In a fully busy but sustainable week, about how many 12 oz grocery bags could you realistically produce and ship to grocery/coop customers (separate from
+  [PASS] turn [29] 200: 200
+  [PASS] after [29] both discovered rows still present, still stamped: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", 19, 260, 0.6], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", null, null, null]]
+  > [31] The co-ops take about 140 bags a week when we're full up, and we're running around 55 percent of that. Those go out at 13 dollars a bag wholesale.
+  < [200] Here's my working read of your competitive advantage: Nine Fathom’s plausible edge is that you’ve built a tightly routed, owner-run wholesale model that treats roasting and twice‑weekly delivery as one integrated weekly production cycle, rather than as separate functions. Because you personally control both the roaster schedule and the delivery route (and have deliberately avoided distractions lik
+  [PASS] turn [31] 200: 200
+  [PASS] after [31] both discovered rows still present, still stamped: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", 19, 260, 0.6], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", 13, 140, 0.55]]
+  > [33] That's fair. I'd add that I've been buying from the same three farms for years so the cup is consistent, and cafes here know me personally.
+  < [200] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+  [PASS] turn [33] 200: 200
+  [PASS] after [33] both discovered rows still present, still stamped: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", 19, 260, 0.6], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", 13, 140, 0.55]]
+  final rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", 19, 260, 0.6], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", 13, 140, 0.55]]
+  [PASS] cascade captured numbers on the discovered rows (price + capacity present on at least one; the client gave 19/260 and 13/140): [["retail coffee bags", "retail coffee bags", "discovery_confirmed", 19, 260, 0.6], ["retail coffee bags", "wholesale coffee sales to grocery stores", "discovery_confirmed", 13, 140, 0.55]]
+  [PASS] latch still added/added/declined after the cascade turns: {"retail coffee bags": "added", "wholesale coffee sales to grocery stores": "added", "brew gear and merchandise sales": "declined"}
+
+  (185s)
+GREEN: live Nine Fathom genuine-yes clone passed - the working case still works through the SHARED reader

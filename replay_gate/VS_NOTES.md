@@ -3192,6 +3192,11 @@ forward-only, receipt law, naturalization, verification-scoping, this
 law), (3) ONLY the files/code the task touches. Full-context load is
 EARNED only by genuinely system-spanning work. Mini independence = an
 artifact audit without VS reasoning, not a reload of the world.
+EMAIL / DELIVERY PATH IS OFF-LIMITS (Nick 2026-08-16): the run-notification
+emails, workbook_email.py composition, delivery routing, the failure-email
+attachment and annotation-not-gate delivery are a WORKING SYSTEM (Nick's
+early-warning loop) - never improved in a fix turn; a task touching them
+stops with VERDICT: needs-ruling.
 
 ### CANARY + PROVE (turn 5)
 Sunny_V3 on listener PID 29768 (started 20:33:06, postdates every
@@ -3418,3 +3423,138 @@ OPEN: FIX 3 (one ruler in the cascade) = next VS turn, neighbor-check.
 Observation: _prepare_restructure_model also flips EXISTING COGS % rows to
 controller_write=True/derived_driver=None (pre-existing, harmless, not
 the real-row shape) - triage.
+
+## DISCOVERY READER CONVERGENCE (VS, 2026-08-17, Nick's Option A ruling): the parallel reader DELETED, consultant_chat_turn is THE reader
+DEAL BREAKER (Corvid Press e3af1f24): the per-candidate existence door read
+"already part of our commercial print line, not a separate thing" as ACCEPT
+(true under the proposition asked) -> phantom own-LOB null-driver line +
+false "is its own line" receipt; "drop that line" had no door; carry-forward
+re-attached the row from answer=="yes" every turn; the wrap gate judged a
+fresh finalize snapshot without the row and fired the wrap; the persisted
+phantom reached the boundary -> ContractViolation, run killed.
+DELETED (remove-don't-route-around): gpt_stream_discovery.read_stream_
+discovery_answer, stream_discovery_intent_frame, _DOOR_TO_ANSWER,
+append_confirmed_stream_rows, new_discovered_row, _mention_hits (dead
+since F4); intake_consult._apply_stream_discovery_answer (and with it
+every discovery call into _classify_restatement_response - that door keeps
+its restatement callers). Test Files/_stream_discovery_f4_redproof.py and
+_discovery_lob_nesting_redproof.py (reader/applier-only) deleted; the
+reader/applier sections of _stream_discovery_redproof.py and the
+answer-path block of _stream_discovery_f123_redproof.py cut (proposer /
+judge / F1-F3 / template checks kept and still GREEN).
+CONVERGED: intake_consult._open_stream_discovery_window = window detection
+ONLY (ask or its ONE clarify was the last assistant message; else the latch
+closes honestly as unclear/ask_not_last_assistant, persisted now). On the
+window turn the reply flows to consultant_chat_turn as continue_chat with
+gpt_stream_discovery.stream_discovery_controller_note in
+intake_context.stream_discovery_note (yes=add a null-driver row as its own
+line; already-inside-X = add nothing, keep inside; decline; unclear;
+snapshot authoritative; app composes the receipt). Prompt: new "Stream
+discovery" section + REMOVAL rule (explicit client retraction of ANY line
+= omit the row that turn - the ONE exception to :426 "do not drop"; the
+parent law). Schema: patch.stream_discovery_outcomes [{label, outcome in
+added|merged_into|declined|unclear, line}] (null on other turns; NOT an
+_apply_model_ops_patch key - read from turn.patch only).
+BOOKKEEPING FROM STATE (record_stream_discovery_outcomes, after the patch
+lands): new row named for the label (or the model's 'added' paired to a
+new row by token overlap, or the single unpaired new row) -> origin=
+discovery_confirmed stamped, latch 'added' + row_product_name; model
+'merged_into' -> latch 'merged_into:<client's line>' (line resolved to
+the real product/LOB name); 'unclear' first round -> ONE clarify (template
+unchanged, holds the turn, shared reader reads the reply next turn);
+else 'declined' (a model that says added but wrote no row: declined +
+answer_reason model_reported_added_but_wrote_no_row - never a false
+receipt). Receipts composed from what landed and LEAD the reply (the
+existing re-lead block at the gate-cascade end still re-leads if the
+cascade replaced assistant_text). Latch persisted immediately (xsec).
+carry_stream_discovery FIXED, NOT DELETED (reason: the latch lives on
+ops_json outside every GPT schema and is erased by consultant_finalize's
+wholesale replace; the origin stamp is provenance Python owns; the model
+still invents origin values on ordinary rows -> scrub stays). Resurrection
+GONE: ordinary ops turn (restore_dropped=False) never re-appends - the
+shared snapshot IS the model; note_stream_discovery_removals records
+answer 'removed' + removed_from and says "Noted - <row> is dropped as a
+separate line." Finalize seams (restore_dropped=True, both sites + the
+follow-up carry site) carry a discovery row ONLY from the shared model's
+own before-row and ONLY when it carries client-given drivers - never
+minted from the latch, never null-driver. Confirmed set = answers in
+(added, legacy yes); a removed label is not confirmed anywhere.
+WRAP GATE == PERSISTED (align_gate_rows_with_persisted right after
+gate_obj = consultant_finalize(...)): every persisted discovery row is
+forced into the gate snapshot with the persisted drivers (a null-driver
+discovery row cannot pass wrap-readiness while persisted -> the cascade
+asks its numbers) and any discovery row the persisted model lacks is
+removed from the gate (a re-derivation cannot resurrect it). Non-discovery
+rows untouched. Phantom-line-at-the-boundary dead by construction.
+Latch vocabulary now: added | merged_into:<line> | declined | unclear |
+removed (+ read_by=consultant_chat_turn, row_product_name, removed_from);
+pre-08-17 drafts carry yes/no - yes read as added, never written again.
+PROOF (all on the final build, ONE :5050 listener pid 35424 restarted
+after the last edit; PRE runs on HEAD b8f2697 via git stash):
+- Test Files/_discovery_reader_convergence_redproof.py (offline, no GPT):
+  source-level deletion greps, A merged, C genuine-yes incl. renamed-row
+  pairing / not-believed-added / one-clarify, B removed incl. next-turn,
+  gate alignment both directions, finalize restore-from-filled-row-only,
+  yes-latch-with-no-row mints nothing, window opener - GREEN
+  (_discovery_reader_convergence_redproof_20260817_POST.txt).
+- Test Files/_live_discovery_corvid_clone.py A: EXACT msg 23 on a
+  messages[:23] clone (latch pending, phantom stripped): PRE RED 7 (phantom
+  minted, latch yes, false receipt, capacity asked for the phantom) ->
+  POST GREEN (2 lines, latch merged_into:Standard commercial print job +
+  3 declined, receipt "stays inside Standard commercial print job, not a
+  separate line", wrap went straight to the competitive-advantage
+  proposal). Files _live_discovery_corvid_clone_20260817_PRE_A / POST_A
+  / POST_A_final.
+- _live_discovery_corvid_clone.py B: EXACT msg 25 on the messages[:25]
+  clone AS PERSISTED (phantom present, latch yes): PRE RED 11 (row
+  resurrected on the drop turn and every turn after, latch yes, still
+  ops with the null-driver row after 3 turns) -> POST GREEN (row removed
+  on the drop turn, latch removed, receipt "is dropped as a separate
+  line", NOT resurrected across 5 further ops turns nor at finalize, ops
+  handed off to market, zero null-driver rows, both real lines intact
+  690/30/.528 + 420/9/.44, latch record survived finalize). PRE_B / POST_B.
+- _live_discovery_ninefathom_answer_clone.py: EXACT 6d2823db msg 25 on the
+  messages[:25] clone (real ask last, latch pending, discovered rows
+  stripped): the SHARED reader added retail coffee bags + wholesale coffee
+  sales to grocery stores (both stamped discovery_confirmed by Python),
+  brew gear declined, receipts x2 "is its own line; a few quick numbers",
+  cascade asked + captured 19/260/.6 and 13/140/.55 through msgs 27-33,
+  latch added/added/declined stable - GREEN (POST.txt). Note: the shared
+  reader nested the wholesale row under the retail LOB (placement is the
+  reader's now; the deleted applier's own-LOB rule went with it) - the
+  rows are what the engine consumes; watch item only.
+- _live_discovery_ninefathom_clone.py (live judge -> ask -> answer, updated
+  to the converged contract words==state): judge proposed d2c online /
+  cafe wholesale / subscriptions / office; the shared reader read the two
+  synthetic "yes we do" as merged_into the 5 lb bag line - CORRECT for
+  Nine Fathom (its primary line IS wholesale to cafes + online, the client
+  said so at msg 1; these labels are the F1 paraphrase class the validator
+  let through). Under the old reader they would have been two phantom
+  own-LOB lines double-counting the primary. GREEN. Serial comma still
+  rendered.
+- Floor R31/R32 via --only: 2/2 GREEN, digests unchanged
+  (1d50e46ab8e6 / 24e38de4dc98 / cbd764631e98).
+NEIGHBORS (declared neighbor-check; named + checked): (a) ordinary ops-turn
+carry-forward of legitimately-known rows: 3 rows stable across msgs 27-33
+on Nine Fathom, 2 rows stable across 5 turns on Corvid B (a discovery row
+the model omits is now a recorded, SAID removal - never silent); (b) the
+finalize rescue path: latch re-attached + real lines intact through ops
+finalize on Corvid B, filled discovery row restored from the before-row
+offline; (c) wrap gate on a non-discovery/pre-ask draft: align is a no-op
+without an asked latch (early return) - the judge-driven clone's wrap
+fired the ask normally.
+DECLARED vs ACTUAL: matched. neighbor-check as declared; no split needed
+(reader convergence + carry/gate change landed together because the gate
+alignment is discovery-row-only and the carry change is the same seam);
+canary skipped per the verification law (no engine/money math, no golden
+change); email/delivery path untouched (zero lines).
+TRIAGE FLAGS (not built, outside the task): (T1) on the Corvid drop turn
+the shared reader wrote unit_price=30.0 onto BOTH real lines (from "30
+commercial print jobs a week") - PRE and POST alike, so pre-existing; the
+"(Noted: ...)" echo for that write was lost because the gate cascade
+replaced assistant_text wholesale (the re-lead block only re-leads the
+discovery ack, not the numeric echo); the model then re-confirmed 690/420
+on the following turns. A wrong-number-on-a-correction-turn + lost-echo
+class -> Nick's triage. (T2) stored 862.5/567 vs client-stated 690/420 on
+the source Corvid draft (a 1.25x factor) - pre-existing, separate.
+

@@ -5,8 +5,9 @@ the end-of-ops seam, driven against the live :5050 backend + live GPT judge.
 PRODUCTION CALL CHAIN: POST /api/intake-consult (focus=ops) ->
 consultant_chat_turn -> gate cascade -> _ops_ready_for_wrap_from_gate_obj
 -> _stream_discovery_ask_if_due (judge -> validator -> compose_stream_
-discovery_ask/join_labels -> latched ask) -> next POST -> _apply_stream_
-discovery_answer -> append_confirmed_stream_rows (OWN LOB per stream).
+discovery_ask/join_labels -> latched ask) -> next POST -> _open_stream_
+discovery_window -> consultant_chat_turn (THE reader, converged 2026-08-17)
+-> record_stream_discovery_outcomes (origin stamp + latch + receipt).
 
 Clone = messages[:23] of 6d2823db (message [23] is the client's real
 growth-lever answer, the turn that fired the ask live). Discovered rows and
@@ -196,26 +197,32 @@ def main() -> int:
       print("  answers:", json.dumps(answers))
       rows = rows_of(ops)
       print("  rows:", json.dumps(rows))
-      confirmed = [l for l, a in answers.items() if a == "yes"]
-      check("at least one yes landed (reader read the yes)", len(confirmed) >= 1, json.dumps(answers))
+      confirmed = [l for l, a in answers.items() if a in ("added", "yes")]
+      row_names = {c.get("label"): (c.get("row_product_name") or c.get("label")) for c in latch2.get("candidates") or []}
+      # CONVERGED CONTRACT (2026-08-17): the SHARED reader decides per label
+      # (added / merged_into:<line> / declined / unclear); the live judge's
+      # labels vary per run and may paraphrase the client's own line (F1
+      # class) - so the check is words == state, not 'a yes must land'.
+      check("every label answered by the shared reader in the converged vocabulary", all(a in ("added", "declined", "unclear") or str(a).startswith("merged_into:") for a in answers.values()) and all(a is not None for a in answers.values()), json.dumps(answers))
       for label in confirmed:
-        hits = [r for r in rows if r[1] == label]
-        check(f"[{label}] -> exactly one row, origin=discovery_confirmed", len(hits) == 1 and hits[0][2] == "discovery_confirmed", json.dumps(hits))
-        check(f"[{label}] -> its OWN LOB named for the label (never nested)", bool(hits) and hits[0][0] == label, hits[0][0] if hits else "")
-      lob_names = {r[0] for r in rows}
-      check("no LOB carries two discovered rows", all(sum(1 for r in rows if r[0] == ln and r[2] == "discovery_confirmed") <= 1 for ln in lob_names), json.dumps(rows))
-      declined = [l for l, a in answers.items() if a != "yes"]
-      check("no row landed for a declined label", not any(r[1] in declined for r in rows), json.dumps(rows))
+        hits = [r for r in rows if r[1] == row_names.get(label, label)]
+        check(f"[{label}] added -> exactly one row, origin=discovery_confirmed", len(hits) == 1 and hits[0][2] == "discovery_confirmed", json.dumps(hits))
+        check(f"[{label}] added -> receipt 'is its own line'", f"{row_names.get(label, label)} is its own line;" in reply, reply[:300])
+      not_added = [l for l, a in answers.items() if a not in ("added", "yes")]
+      check("no row landed for a merged/declined/unclear label", not any(r[1] == row_names.get(l, l) for l in not_added for r in rows) and sum(1 for r in rows if r[2] == "discovery_confirmed") == len(confirmed), json.dumps(rows))
+      for l, a in answers.items():
+        if str(a).startswith("merged_into:"):
+          check(f"[{l}] merged -> receipt says stays inside", f"{l} stays inside" in reply, reply[:300])
+      check("no receipt claims 'its own line' for a label without a row", reply.count("is its own line;") == len(confirmed), reply[:300])
       prim = [r for r in rows if r[1] == "5 lb bag roasted coffee"]
       check("primary row untouched (LOB + drivers 58/380/.75)", prim == [rows0[0]], json.dumps(prim))
-      check("receipt says its own line and never under <line>", "is its own line;" in reply and " own line under " not in reply, reply[:300])
   finally:
     cleanup(conn, cid)
   print()
   if FAILURES:
     print(f"RED: {len(FAILURES)} failing: {FAILURES}")
     return 1
-  print("GREEN: live Nine Fathom discovery clone passed (own LOB per stream + serial comma)")
+  print("GREEN: live Nine Fathom discovery clone passed (live judge -> ask -> SHARED reader; words == state)")
   return 0
 
 

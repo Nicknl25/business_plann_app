@@ -1,6 +1,6 @@
 # Does the discovery-answer reader use the app's shared comprehension? — RESEARCH (Nick, 2026-08-17)
 
-Status: research for Nick's ruling. NOTHING BUILT. Draft e3af1f24 (Corvid
+Status: RULED 2026-08-17 (Option A) and BUILT the same day - see docs/STREAM_DISCOVERY_SPEC.md Q5 (re-ruled section) and Test Files/_discovery_reader_convergence_redproof.py. Research text below is preserved as written (line numbers are pre-fix). Draft e3af1f24 (Corvid
 Press and Litho) is the evidence; every claim below is cited to code and
 to the persisted transcript/latch.
 

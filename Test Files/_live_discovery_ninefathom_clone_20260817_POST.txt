@@ -1,0 +1,60 @@
+clone sdnineeed8dcde9ee5453ca4001eabff of 6d2823db rewound to messages[:23]
+  primary rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] clone starts with the primary line only
+
+  > [23] Finding more orders to fill the roaster I've already got. The machine isn't the problem, the accounts are.
+  < [200] Understood—so the primary growth lever is adding and deepening accounts so you can run your existing roasting and delivery capacity closer to full.
+
+Before we wrap up operations on my side, there’s one more context point: among the levers we’ve talked about (labor time on the roaster/delivery, your current systems/roaster setup, or actual demand/orders), you’re saying demand is what really constrains growth right now, not the roaster or systems themselves—correct?
+
+(Noted: operating periods per year → 52; utilization → 75.0%; unit price → $58.)
+  [PASS] turn 0 200: 200
+
+  > [25] Consistency, mostly. Cafes know the roast will taste the same in March as it did in September, and I'll answer the phone.
+  < [200] Thanks for that—that consistency and reliability are a real edge in roasting.
+
+On the constraint question: right now, is the main thing limiting how much revenue you do the lack of enough steady orders (demand), rather than maxing out your own or your crew’s labor hours or hitting a hard limit on your roaster/equipment or ordering systems?
+
+(Noted: operating periods per year → 52; utilization → 75.0%; unit price → $58.)
+  [PASS] turn 1 200: 200
+
+  > [27] I want to be at 360 bags a week average within twelve months.
+  < [200] Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] turn 2 200: 200
+  [PASS] discovery ASKED live on the Nine Fathom clone (asked:true): {"version": 1, "business_type": "Coffee Roaster", "naics_6": "311920", "evidence": {"level": "rich", "reasons": []}, "asked": true, "asked_turn_index": 27, "ask_text": "Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe whole
+  [PASS] the ask rendered (template prefix present)
+  proposed: ['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts']
+
+  ASK VERBATIM:
+  Before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+  [PASS] forbidden phrases absent: before we wrap up operations: a lot of coffee roasters also offer direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee suppl
+  [PASS] revenue-line clause present
+  [PASS] 3+ labels: SERIAL COMMA rendered live (A, B, or C): direct-to-consumer online coffee sales, restaurant and cafe wholesale accounts, recurring coffee subscriptions, or office coffee supply accounts
+
+  > Yes, we do direct-to-consumer online coffee sales and we do restaurant and cafe wholesale accounts. No, we don't do recurring coffee subscriptions or office coffee supply accounts.
+  < [200] Noted - direct-to-consumer online coffee sales stays inside 5 lb bag roasted coffee, not a separate line.
+Noted - restaurant and cafe wholesale accounts stays inside 5 lb bag roasted coffee, not a separate line.
+
+Got it: online direct-to-consumer and your restaurant/cafe wholesale accounts are already part of how you sell today, but you’re not running separate subscriptions or office-coffee programs.
+
+One last clarification before I hand this off: when you say you want to be at 360 bags a week on average within twelve months, that’s your target “typical week” volume (not your physical maximum)
+  [PASS] answer turn 200: 200
+  answers: {"direct-to-consumer online coffee sales": "merged_into:5 lb bag roasted coffee", "restaurant and cafe wholesale accounts": "merged_into:5 lb bag roasted coffee", "recurring coffee subscriptions": "declined", "office coffee supply accounts": "declined"}
+  rows: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] every label answered by the shared reader in the converged vocabulary: {"direct-to-consumer online coffee sales": "merged_into:5 lb bag roasted coffee", "restaurant and cafe wholesale accounts": "merged_into:5 lb bag roasted coffee", "recurring coffee subscriptions": "declined", "office coffee supply accounts": "declined"}
+  [PASS] no row landed for a merged/declined/unclear label: [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+  [PASS] [direct-to-consumer online coffee sales] merged -> receipt says stays inside: Noted - direct-to-consumer online coffee sales stays inside 5 lb bag roasted coffee, not a separate line.
+Noted - restaurant and cafe wholesale accounts stays inside 5 lb bag roasted coffee, not a separate line.
+
+Got it: online direct-to-consumer and your restaurant/cafe wholesale accounts are alrea
+  [PASS] [restaurant and cafe wholesale accounts] merged -> receipt says stays inside: Noted - direct-to-consumer online coffee sales stays inside 5 lb bag roasted coffee, not a separate line.
+Noted - restaurant and cafe wholesale accounts stays inside 5 lb bag roasted coffee, not a separate line.
+
+Got it: online direct-to-consumer and your restaurant/cafe wholesale accounts are alrea
+  [PASS] no receipt claims 'its own line' for a label without a row: Noted - direct-to-consumer online coffee sales stays inside 5 lb bag roasted coffee, not a separate line.
+Noted - restaurant and cafe wholesale accounts stays inside 5 lb bag roasted coffee, not a separate line.
+
+Got it: online direct-to-consumer and your restaurant/cafe wholesale accounts are alrea
+  [PASS] primary row untouched (LOB + drivers 58/380/.75): [["Primary line of business", "5 lb bag roasted coffee", null, 58, 380, 0.75]]
+
+GREEN: live Nine Fathom discovery clone passed (live judge -> ask -> SHARED reader; words == state)

@@ -1,0 +1,30 @@
+
+=== CASE A (merged): 'already part of our commercial print line, not a separate thing' ===
+  clone sdcorva83a8fe0bd3f84fbb94dcaa26a rewound to messages[:23]; rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 567.0, 9, 0.44]]
+  [PASS] A: clone starts with the two real lines, latch pending
+  [PASS] A: last assistant is the ask
+  > [23] Digital printing is already part of our commercial print line, it's the same jobs, not a separate thing. No copying and duplicating services, that's not us. No graphic design and prepress services either, customers send us print ready files. And no bindery and finishing services as a line, we job the big finishing out.
+  < [200] Noted - Digital printing services is its own line; a few quick numbers for it next.
+
+To make planning realistic for Digital printing services, in a fully busy month, about how many Digital printing services can you handle?
+  [PASS] A: answer turn 200: 200
+  rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 567.0, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", null, null, null]]
+  latch: {"Digital printing services": "yes", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [FAIL] A: NO phantom line (no digital-printing row, no discovery_confirmed row): [["Digital printing services", "Digital printing services", "discovery_confirmed", null, null, null]]
+  [FAIL] A: model has 2 lines, not 3: 3
+  [PASS] A: the two real lines untouched: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 567.0, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", null, null, null]]
+  [FAIL] A: latch records merged_into:<line> for digital printing: yes
+  [FAIL] A: latch records declined for the other three: {"Digital printing services": "yes", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [FAIL] A: receipt is honest - never 'is its own line': Noted - Digital printing services is its own line; a few quick numbers for it next.
+
+To make planning realistic for Digital printing services, in a fully busy month, about how many Digital printing se
+  [FAIL] A: receipt says it stays inside the existing line: Noted - Digital printing services is its own line; a few quick numbers for it next.
+
+To make planning realistic for Digital printing services, in a fully busy month, about how many Digital printing se
+  [FAIL] A: no capacity question for the phantom: Noted - Digital printing services is its own line; a few quick numbers for it next.
+
+To make planning realistic for Digital printing services, in a fully busy month, about how many Digital printing se
+  [PASS] A: no longer pending (never re-asked): {"Digital printing services": "yes", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+
+  (25s)
+RED: 7 failing: ['A: NO phantom line (no digital-printing row, no discovery_confirmed row)', 'A: model has 2 lines, not 3', 'A: latch records merged_into:<line> for digital printing', 'A: latch records declined for the other three', "A: receipt is honest - never 'is its own line'", 'A: receipt says it stays inside the existing line', 'A: no capacity question for the phantom']

@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 TURN: 1/16
 TASK:
   FIX THE DISCOVERY READER THE RIGHT WAY — Nick's ruling 2026-08-17:
@@ -108,9 +108,65 @@ TASK:
   (merged / removed / genuine yes) PRE red POST green; zero email lines
   touched; floor. Green -> stop -> Nick re-runs Cowork.
 RESULT:
-  AGENT: none
+  AGENT: VS
   VERDICT: progress
-  ERROR-SIGNATURE: none
-  EVIDENCE: (superseded — new instruction seeded)
-  SUMMARY: The previous turn's RESULT was superseded by a new
-  instruction; it remains in git history.
+  ERROR-SIGNATURE: none-discovery-convergence-landed-awaiting-mini-audit
+  EVIDENCE: replay_gate/VS_NOTES.md (section DISCOVERY READER CONVERGENCE, 2026-08-17); Test Files/_discovery_reader_convergence_redproof_20260817_POST.txt; Test Files/_live_discovery_corvid_clone_20260817_PRE_A.txt / PRE_B.txt (RED) and POST_A.txt / POST_B.txt / POST_A_final.txt (GREEN); Test Files/_live_discovery_ninefathom_answer_clone_20260817_POST.txt (GREEN); Test Files/_live_discovery_ninefathom_clone_20260817_POST.txt (GREEN); _handoff/tmp/floor_R31_R32_20260817.txt (2/2 GREEN); docs/STREAM_DISCOVERY_SPEC.md Q5 (re-ruled section)
+  SUMMARY: Option A BUILT. The parallel per-candidate reader and the own-LOB
+  applier are DELETED (read_stream_discovery_answer / intent frame /
+  _DOOR_TO_ANSWER / append_confirmed_stream_rows / new_discovered_row /
+  _apply_stream_discovery_answer; discovery no longer calls
+  _classify_restatement_response); consultant_chat_turn is the ONE reader
+  (window opener only decides the reply IS the answer; note + prompt section
+  + removal rule + patch.stream_discovery_outcomes; snapshot authoritative);
+  Python records the outcome FROM STATE (origin stamp, latch added /
+  merged_into:<line> / declined / unclear / removed, receipt). carry_stream_
+  discovery FIXED not deleted (latch + provenance survive finalize's wholesale
+  replace; resurrection gone; finalize carries only the shared model's own
+  FILLED row); wrap gate aligned to the persisted discovery row set. Corvid
+  A+B PRE RED -> POST GREEN on the exact transcript through the real handler,
+  Nine Fathom genuine-yes still lands + cascade captures, floor R31/R32 GREEN,
+  declared neighbor-check == actual, zero email lines. Two triage flags
+  (T1 drop-turn price clobber + lost numeric echo; T2 862.5 vs 690 stored
+  price) recorded in VS_NOTES - not built.
+TASK:
+  MINI - audit at NEIGHBOR-CHECK (VS's declared tier; verify the call):
+  1. The parallel reader is GONE: grep python/ for read_stream_discovery_answer,
+     stream_discovery_intent_frame, _DOOR_TO_ANSWER, append_confirmed_stream_rows,
+     new_discovered_row, _apply_stream_discovery_answer -> zero hits; the only
+     _classify_restatement_response callers are the restatement ones (:11906 def,
+     :16938 call); no per-label classify loop anywhere in the discovery window
+     (_open_stream_discovery_window .. _is_guardrail_acknowledgement).
+  2. The shared reader is the one binding authority: intake_consultant.py carries
+     the Stream discovery prompt section, the removal rule (ONE exception to
+     "do not drop"), stream_discovery_outcomes in schema + required; intake_consult
+     ops patch block calls record_stream_discovery_outcomes AFTER
+     _apply_model_ops_patch, then carry_stream_discovery (no restore) +
+     note_stream_discovery_removals; the receipt is composed from state and
+     leads the reply; the clarify path (ONE clarify) still holds the turn.
+  3. carry_stream_discovery: kept-and-fixed with the reason stated (latch outside
+     every GPT schema + provenance); confirm on the Corvid B clone artifact
+     (POST_B.txt) that a removed row never returns across 5 turns + finalize and
+     that finalize restore only fires from a FILLED before-row (offline redproof
+     section 4: null-driver before-row -> nothing; yes-latch-no-row -> nothing).
+  4. Wrap gate == persisted: align_gate_rows_with_persisted right after
+     consultant_finalize in the gate; offline redproof sections 2/3/4 show both
+     directions; on the Corvid B live artifact the wrap fired only after the row
+     was gone (competitive advantage on the drop turn), and no null-driver row
+     reached the boundary (focus market, rows 690/30 + 420/9).
+  5. Three artifact cases PRE red POST green: Corvid A (merged) PRE_A 7 red ->
+     POST_A green; Corvid B (removed) PRE_B 11 red -> POST_B green; Nine Fathom
+     genuine yes (6d2823db msg 25) POST green with cascade capture 19/260/.6 +
+     13/140/.55. Re-run any of them yourself against the running :5050 (final
+     build) if you want a fresh artifact - clones self-delete.
+  6. Zero email/delivery lines touched (git diff names no workbook_email /
+     notify / delivery file). Floor R31/R32 GREEN via --only.
+  7. Consider a gate leg for this class if it fits your leg law: the offline
+     redproof (Test Files/_discovery_reader_convergence_redproof.py) is the shape -
+     a NEGATIVE control that a persisted null-driver discovery row cannot pass
+     wrap-readiness and that a removed row is never re-appended by carry.
+  Nick's triage (NOT built, named in VS_NOTES): T1 the drop-turn unit_price=30
+  clobber on both real lines + lost numeric echo when the gate cascade replaces
+  assistant_text (PRE and POST alike - pre-existing); T2 stored 862.5/567 vs
+  client-stated 690/420 on Corvid. D3 (judge sub-category) stays PARKED.
+  Green -> awaiting-Nick -> Nick re-runs Cowork on Corvid Press.

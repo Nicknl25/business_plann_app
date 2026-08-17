@@ -11658,11 +11658,15 @@ def _ops_ready_for_wrap_from_gate_obj(obj: Any) -> bool:
 
 # ---------------------------------------------------------------------------
 # PROACTIVE STREAM DISCOVERY (docs/STREAM_DISCOVERY_SPEC.md, Nick-approved
-# 2026-08-15). The controller side: WHEN to ask (once, at the end-of-ops
-# seam, after wrap-readiness and before the competitive-advantage
-# proposal), HOW the answer lands (Python appends the confirmed rows,
-# receipt == write), and the latch that makes both auditable. The
-# judgment, validator, template and reader live in
+# 2026-08-15; reader CONVERGED 2026-08-17 by Nick's ruling). The controller
+# side: WHEN to ask (once, at the end-of-ops seam, after wrap-readiness and
+# before the competitive-advantage proposal), the WINDOW in which the reply
+# is the answer, and the latch that makes it auditable. The reply itself is
+# read by the SHARED reader (consultant_chat_turn) - never by a discovery-
+# owned reader - and what that reading did per label (added /
+# merged_into:<line> / declined / unclear / removed) is recorded from the
+# resulting STATE. The judgment, validator, template, bookkeeping and
+# carry-forward live in
 # client_intake_and_finmo/intake_coherence/gpt_stream_discovery.py.
 # ---------------------------------------------------------------------------
 from client_intake_and_finmo.intake_coherence import gpt_stream_discovery as _sdisc  # type: ignore  # noqa: E402
@@ -11770,106 +11774,43 @@ def _stream_discovery_ask_if_due(
   return ask
 
 
-def _apply_stream_discovery_answer(
+def _open_stream_discovery_window(
   *,
   ops_json: Dict[str, Any],
-  message: str,
   last_assistant: str,
-  classify=None,
-) -> Tuple[Dict[str, Any], str, str, str]:
-  """The turn after the ask (and, at most once, the turn after its
-  clarify). F4 (Nick, 2026-08-15): the reply is read per candidate by
-  INTENT through the app's existing ACCEPT/REJECT/CLARIFY door
-  (`_classify_restatement_response`, the same reader this ops turn uses
-  for a reply to a proposal) - never by keyword. yes => Python appends the
-  product row itself and the receipt describes exactly that write; no =>
-  stored, never re-asked; unclear => ONE clarify (returned as the 4th
-  element; the caller renders it and holds the turn), whose answer is
-  read the same way; still unclear => not confirmed, no further ask.
-  Returns (ops_json, receipt_text, controller_note, clarify_question)."""
+) -> Tuple[Dict[str, Any], str, List[str], bool]:
+  """The turn after the ask (and, at most once, the turn after its clarify).
+  CONVERGED (Nick's ruling 2026-08-17, Option A): discovery does NOT read
+  the reply. This only decides whether the reply IS the discovery answer
+  (the ask or its clarify was literally the last assistant message) and,
+  if so, hands the SHARED reader (consultant_chat_turn) the discovery
+  context it needs - the note rides in intake_context.stream_discovery_note
+  and the reply flows to it as an ordinary continue_chat turn. What the
+  shared reading did per label is recorded AFTER its patch lands
+  (`_sdisc.record_stream_discovery_outcomes`, ops patch block). If the ask
+  was not the last thing said, the window is closed honestly (unclear,
+  ask_not_last_assistant) - a reply to something else is never read as an
+  answer to it. Returns (ops_json, note, pending_labels, clarify_round)."""
   latch = ops_json.get("stream_discovery") if isinstance(ops_json, dict) else None
   if not isinstance(latch, dict) or not latch.get("asked"):
-    return ops_json, "", "", ""
+    return ops_json, "", [], False
   cands = [c for c in (latch.get("candidates") or []) if isinstance(c, dict)]
   pending = [c for c in cands if c.get("answer") is None]
   if not pending:
-    return ops_json, "", "", ""
+    return ops_json, "", [], False
   labels = [str(c.get("label") or "").strip() for c in pending]
   if not _sdisc.is_stream_discovery_ask(last_assistant):
-    # The ask was not the last thing said (an unexpected path) - the
-    # reply cannot be read as an answer to it. Close the window honestly.
     for c in pending:
       c["answer"] = "unclear"
       c["answer_reason"] = "ask_not_last_assistant"
-    return ops_json, "", "", ""
-  door = classify if classify is not None else _classify_restatement_response
-  ask_text = str(latch.get("ask_text") or "").strip() or _sdisc.compose_stream_discovery_ask(
-    str(ops_json.get("business_type") or ""), [str(c.get("label") or "") for c in cands],
-  )
+    return ops_json, "", [], False
   clarify_round = bool(latch.get("clarify_asked"))
-  answers = _sdisc.read_stream_discovery_answer(
-    message, labels, classify=door, ask_text=ask_text,
-  )
-  clarify_labels: List[str] = []
-  for c in pending:
-    lab = str(c.get("label") or "").strip()
-    a = answers.get(lab, "unclear")
-    if a == "unclear" and not clarify_round:
-      # ONE clarify: hold this candidate open for exactly one more reply.
-      c["first_read"] = "unclear"
-      c["first_answered_from"] = str(message or "")[:300]
-      clarify_labels.append(lab)
-      continue
-    c["answer"] = a
-    if clarify_round:
-      c["clarify_answered_from"] = str(message or "")[:300]
-      if a == "unclear":
-        c["answer_reason"] = "unclear_after_clarify"
-    else:
-      c["answered_from"] = str(message or "")[:300]
-  yes_labels = [c["label"] for c in pending if c.get("answer") == "yes"]
-  no_labels = [c["label"] for c in pending if c.get("answer") == "no"]
-  unclear_labels = [c["label"] for c in pending if c.get("answer") == "unclear"]
-  clarify_question = ""
-  if clarify_labels:
-    latch["clarify_asked"] = True
-    latch["clarify_labels"] = list(clarify_labels)
-    clarify_question = _sdisc.compose_stream_discovery_clarify(clarify_labels)
-  receipts: List[str] = []
-  if yes_labels:
-    ops_json, receipts = _sdisc.append_confirmed_stream_rows(ops_json, yes_labels)
-  if clarify_labels:
-    pass  # the clarify is the turn's question; no closing receipt yet
-  elif not yes_labels and not no_labels:
-    receipts.append(
-      "On the extra lines I mentioned - I'll take that as none of them for now; "
-      "if one is part of your business, tell me its name any time and we'll add it."
-    )
-  elif not yes_labels:
-    receipts.append("Understood - none of those, we'll move on.")
-  note_parts = [
-    "CONTROLLER NOTE (stream discovery): the client was asked whether these "
-    "commonly-seen streams exist in their business today: " + ", ".join(labels) + ".",
-  ]
-  if yes_labels:
-    note_parts.append(
-      "CONFIRMED and ALREADY ADDED to lob_models as product rows with null drivers: "
-      + ", ".join(yes_labels)
-      + ". Do NOT add or duplicate rows for them; carry them forward and capture "
-      "each one's unit, cadence and price next like any product (ask, never estimate)."
-    )
-  if no_labels:
-    note_parts.append("DECLINED (never mention again): " + ", ".join(no_labels) + ".")
-  if unclear_labels:
-    note_parts.append(
-      "NOT CONFIRMED (treat as absent, do not re-ask): " + ", ".join(unclear_labels) + "."
-    )
+  note = _sdisc.stream_discovery_controller_note(labels, clarify_round=clarify_round)
   logger.info(
-    "STREAM_DISCOVERY answered yes=%s no=%s unclear=%s clarify=%s round=%s",
-    yes_labels, no_labels, unclear_labels, clarify_labels,
-    "clarify" if clarify_round else "ask",
+    "STREAM_DISCOVERY window open labels=%s round=%s reader=consultant_chat_turn",
+    labels, "clarify" if clarify_round else "ask",
   )
-  return ops_json, "\n".join(receipts).strip(), " ".join(note_parts), clarify_question
+  return ops_json, note, labels, clarify_round
 
 
 def _is_guardrail_acknowledgement(message: str) -> bool:
@@ -17057,68 +16998,44 @@ def post_intake_consult_handler(*, app, request):
         )
         persist_ops_from_restatement = True
     revenue_driver_patch = None
-    # STREAM DISCOVERY - the turn after the ask (spec Q5). Python reads the
-    # reply per candidate, stores every answer on the latch (never re-asked),
-    # appends the confirmed rows itself and composes the receipt that says
-    # exactly that; the reply then flows to the ops consultant as an ordinary
-    # continue_chat turn (router skipped - the answer is already landed) so
-    # the cascade captures the new line's five fields like any row.
+    # STREAM DISCOVERY - the turn after the ask (spec Q5), CONVERGED (Nick,
+    # 2026-08-17): the reply is read by the SHARED reader (consultant_chat_
+    # turn) as an ordinary continue_chat turn (router skipped) with the
+    # discovery note in its context; its lob_models snapshot is the
+    # decision. Python records what it did per label AFTER the patch lands
+    # (ops patch block below) and composes the receipt from the state.
     discovery_intent_override: Optional[Dict[str, Any]] = None
     _discovery_ack = ""
     _discovery_note = ""
-    _discovery_clarify = ""
+    _discovery_pending_labels: List[str] = []
+    _discovery_clarify_round = False
     if (
       str(focus).strip().lower() == "ops"
       and _sdisc.stream_discovery_pending(ops_json)
     ):
       try:
-        ops_json, _discovery_ack, _discovery_note, _discovery_clarify = _apply_stream_discovery_answer(
-          ops_json=ops_json, message=str(message or ""), last_assistant=last_assistant,
+        ops_json, _discovery_note, _discovery_pending_labels, _discovery_clarify_round = (
+          _open_stream_discovery_window(ops_json=ops_json, last_assistant=last_assistant)
         )
       except Exception:
-        logger.exception("STREAM_DISCOVERY_ANSWER_FAILED")
-        _discovery_ack, _discovery_note, _discovery_clarify = "", "", ""
+        logger.exception("STREAM_DISCOVERY_WINDOW_FAILED")
+        _discovery_note, _discovery_pending_labels, _discovery_clarify_round = "", [], False
       try:
         shared_context["operating_model"] = ops_json
       except Exception:
         pass
-      try:
-        # Persist the answers + appended rows NOW (the xsec pattern): a
-        # later early return can never lose the client's answer.
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[],
-          operating_model_json=ops_json,
-        )
-      except Exception:
-        logger.exception("STREAM_DISCOVERY_PERSIST_FAILED")
-      if _discovery_clarify:
-        # F4: the reader could not tell for some stream(s) - ask ONCE and
-        # hold the turn (the clarify IS this turn's one question; any rows
-        # already confirmed lead it as the receipt). The clarify reply is
-        # read the same way next turn; still unclear => not confirmed.
-        assistant_text = f"{_discovery_ack}\n\n{_discovery_clarify}".strip()
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          active_focus=focus,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": focus,
-            "awaiting_confirmation": True,
-            "done": False,
-            "action": "confirm_clarify",
-            "assistant_message": assistant_text,
-          }
-        )
-      discovery_intent_override = {"action": "continue_chat", "router_msg": "", "patch": None}
+      if _discovery_pending_labels:
+        discovery_intent_override = {"action": "continue_chat", "router_msg": "", "patch": None}
+      else:
+        try:
+          # The window closed honestly (ask was not the last thing said):
+          # persist the closed latch NOW so it is never re-opened by a
+          # later early return (the xsec pattern).
+          append_messages(
+            conn, draft_id=str(draft_id).strip(), new_messages=[], operating_model_json=ops_json,
+          )
+        except Exception:
+          logger.exception("STREAM_DISCOVERY_PERSIST_FAILED")
     pending_competitive_advantage = _extract_competitive_advantage_prompt(last_assistant)
     competitive_intent_override: Optional[Dict[str, Any]] = None
     if (
@@ -19553,6 +19470,7 @@ def post_intake_consult_handler(*, app, request):
             pass
           try:
             ops_json = _sdisc.carry_stream_discovery(_ops_before_fu, ops_json)
+            _sdisc.note_stream_discovery_removals(_ops_before_fu, ops_json, message=str(message or ""))
           except Exception:
             logger.exception("STREAM_DISCOVERY_CARRY_FAILED_FOLLOWUP_TURN")
           try:
@@ -19720,9 +19638,13 @@ def post_intake_consult_handler(*, app, request):
               pass
 
             _fin_before = json.loads(json.dumps(ops_json)) if ops_json else {}
-            # STREAM DISCOVERY latch + origin carry across the wholesale replace.
+            # STREAM DISCOVERY latch + origin carry across the wholesale replace;
+            # a discovery row the shared model holds with client-given drivers
+            # that the re-derivation lost is carried from that row (never
+            # minted from the latch); anything still missing is recorded.
             try:
-              final_obj = _sdisc.carry_stream_discovery(ops_json, final_obj)
+              final_obj = _sdisc.carry_stream_discovery(ops_json, final_obj, restore_dropped=True)
+              _sdisc.note_stream_discovery_removals(ops_json, final_obj, message="finalize")
             except Exception:
               logger.exception("STREAM_DISCOVERY_CARRY_FAILED_FOLLOWUP")
             ops_json = final_obj
@@ -20328,10 +20250,6 @@ def post_intake_consult_handler(*, app, request):
       # The deterministic driver receipt (or honest refusal) LEADS the
       # section's own reply - words match state, one source (#264).
       assistant_text = f"{_xsec_section_ack}\n\n{assistant_text}".strip()
-    if _discovery_ack and focus == "ops":
-      # STREAM DISCOVERY receipt LEADS the consultant's reply: the app's words
-      # describe the app's own write (the row Python appended), one source.
-      assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
     if focus == "financials":
       assistant_text = _append_constraints_snippet(
         assistant_text,
@@ -20353,10 +20271,78 @@ def post_intake_consult_handler(*, app, request):
         )
       except Exception:
         pass
+      _discovery_receipts: List[str] = []
+      _discovery_clarify_labels: List[str] = []
+      if _discovery_pending_labels:
+        # STREAM DISCOVERY answer turn: the shared reader's snapshot has
+        # landed; record what it did per label (origin stamp on the row it
+        # added, latch answer, receipt from the state). Never a second read.
+        try:
+          ops_json, _discovery_receipts, _discovery_clarify_labels = _sdisc.record_stream_discovery_outcomes(
+            _ops_before, ops_json,
+            message=str(message or ""),
+            pending_labels=_discovery_pending_labels,
+            model_outcomes=(turn.get("patch") or {}).get("stream_discovery_outcomes")
+            if isinstance(turn.get("patch"), dict) else None,
+            clarify_round=_discovery_clarify_round,
+          )
+        except Exception:
+          logger.exception("STREAM_DISCOVERY_RECORD_FAILED")
       try:
+        # Latch + provenance carry; a discovery row the shared reading
+        # omitted is a client removal - recorded and said, never resurrected.
         ops_json = _sdisc.carry_stream_discovery(_ops_before, ops_json)
+        _discovery_receipts.extend(
+          _sdisc.note_stream_discovery_removals(_ops_before, ops_json, message=str(message or ""))
+        )
       except Exception:
         logger.exception("STREAM_DISCOVERY_CARRY_FAILED_TURN")
+      if _discovery_receipts:
+        _discovery_ack = "\n".join(r for r in _discovery_receipts if r).strip()
+      if _discovery_pending_labels or _discovery_ack:
+        try:
+          # Persist the answers NOW (the xsec pattern): a later early return
+          # can never lose the client's answer.
+          append_messages(
+            conn, draft_id=str(draft_id).strip(), new_messages=[], operating_model_json=ops_json,
+          )
+        except Exception:
+          logger.exception("STREAM_DISCOVERY_PERSIST_FAILED")
+      if _discovery_clarify_labels:
+        # ONE clarify: the shared reader could not tell for some label(s) -
+        # the deterministic clarify IS this turn's one question and holds
+        # the turn; the reply is read by the shared reader next turn.
+        assistant_text = _sdisc.compose_stream_discovery_clarify(_discovery_clarify_labels)
+        if _discovery_ack:
+          assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
+        try:
+          shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          operating_model_json=ops_json,
+          active_focus=focus,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "confirm_clarify",
+            "assistant_message": assistant_text,
+          }
+        )
+      if _discovery_ack:
+        # STREAM DISCOVERY receipt LEADS the consultant's reply: the app's
+        # words describe the app's own state (the row the shared reading
+        # added / kept inside / dropped), one source.
+        assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
       _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
       if _ops_echo:
         # Layer 2: every numeric write is SAID, from the write-set - the
@@ -20507,6 +20493,16 @@ def post_intake_consult_handler(*, app, request):
         gate_context = dict(intake_context)
         gate_context["business_type_candidates"] = business_type_candidates
         gate_obj = consultant_finalize(intake_context=gate_context, conversation_messages=gate_messages)
+        try:
+          # STREAM DISCOVERY (Nick, 2026-08-17, item 5): the gate and the
+          # persisted state can never disagree on a discovery row - the
+          # gate snapshot carries exactly the discovery rows ops_json holds
+          # (with ops_json's drivers), so a null-driver discovery row can
+          # never pass wrap-readiness while it is persisted (Corvid: the
+          # gate saw no phantom, fired the wrap, the boundary killed the run).
+          gate_obj = _sdisc.align_gate_rows_with_persisted(ops_json, gate_obj)
+        except Exception:
+          logger.exception("STREAM_DISCOVERY_GATE_ALIGN_FAILED")
 
         def _missing_number(value: Any) -> bool:
           if value is None:
@@ -21072,9 +21068,13 @@ def post_intake_consult_handler(*, app, request):
           }
         )
 
-      # STREAM DISCOVERY latch + origin carry across the wholesale replace.
+      # STREAM DISCOVERY latch + origin carry across the wholesale replace;
+      # a discovery row the shared model holds with client-given drivers
+      # that the re-derivation lost is carried from that row (never minted
+      # from the latch); anything still missing is recorded.
       try:
-        final_obj = _sdisc.carry_stream_discovery(ops_json, final_obj)
+        final_obj = _sdisc.carry_stream_discovery(ops_json, final_obj, restore_dropped=True)
+        _sdisc.note_stream_discovery_removals(ops_json, final_obj, message="finalize")
       except Exception:
         logger.exception("STREAM_DISCOVERY_CARRY_FAILED")
       ops_json = final_obj

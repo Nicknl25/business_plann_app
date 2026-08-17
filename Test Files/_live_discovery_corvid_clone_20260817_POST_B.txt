@@ -1,0 +1,58 @@
+
+=== CASE B (removed): 'Please drop that line' on a clone where the line WAS created ===
+  clone sdcorvbd41cd85c889741c6952d9b370 rewound to messages[:25] AS PERSISTED; rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 567.0, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", null, null, 0.8]]
+  [PASS] B: clone starts WITH the phantom null-driver row (latch yes)
+  > [25] No, don't make digital printing a separate line. I already counted those jobs in the 30 commercial print jobs a week - it's the same presses and the same invoices. If you add it separately you'd be counting the same work twice. Please drop that line.
+  < [200] Noted - Digital printing services is dropped as a separate line.
+
+Here's my working read of your competitive advantage: Working hypothesis: Corvid’s edge is in running a lean, production‑only shop that focuses strictly on press and finishing work for print‑ready B2B customers, instead of bundling in design, copy/quick‑print, or in‑house complex bindery like many competitors. Because you require clients to send print‑ready files and job out “big finishing,” your labor and equipment are concentrated on scheduling and running offset/digital and wide‑format presses at efficient utilization, which can plausibly translate into more competitive unit economics (price and/or reliability on run times) for local Peoria businesses that already have design handled elsewhere.
+
+Does that match what truly sets you apart, or is it something else?
+  [PASS] B: drop turn 200: 200
+  rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 30.0, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 30.0, 9, 0.44]]
+  latch: {"Digital printing services": "removed", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [PASS] B: row REMOVED on the drop turn (not resurrected by carry-forward): []
+  [PASS] B: model has 2 lines: 2
+  [PASS] B: latch records removed: removed
+  [PASS] B: receipt says it is dropped: Noted - Digital printing services is dropped as a separate line.
+
+Here's my working read of your competitive advantage: Working hypothesis: Corvid’s edge is in running a lean, production‑only shop tha
+  > [+0] That's about right. We're a production shop, we turn work around fast and we don't miss deadlines. That's why people stay with us.
+  < [200] Thanks, that’s helpful—so your edge is being a focused production shop with reliable, fast turnaround and on‑time delivery, not a design or walk‑in copy center.
+
+For our planning numbers, I want to confirm the average prices so they’re exactly right. For your standard commercial print job line, can you confirm that we should use $690 as the single average price per job for planning?
+  [PASS] B: turn +0 200: 200
+  [PASS] B: after turn +0 the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 30.0, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 30.0, 9, 0.44]]
+  > [+1] I'd like to pick up eight or ten more steady commercial accounts over the next year. Nothing dramatic, just fill the presses a bit more.
+  < [200] Understood on the goal—adding a handful of steady accounts to keep the presses busier without changing the business model.
+
+To keep the financial side clean, I still need to lock in one specific average price to use for each type of job. For your standard commercial print jobs (brochures/forms/catalogs/labels), can you confirm that $690 is the single average price per job we should use for planning?
+
+(Noted: unit price → $690; operating periods per year → 52.)
+  [PASS] B: turn +1 200: 200
+  [PASS] B: after turn +1 the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 30.0, 9, 0.44]]
+  > [+2] Yes, that's right.
+  < [200] Thanks, we’ll use $690 as the planning average for each standard commercial print job.
+
+For your wide-format banners and signage, you mentioned they average about $420 per job—can you confirm $420 as the single average price per wide-format job for planning?
+  [PASS] B: turn +2 200: 200
+  [PASS] B: after turn +2 the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 30.0, 9, 0.44]]
+  > [+3] Yes, that's right.
+  < [200] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+  [PASS] B: turn +3 200: 200
+  [PASS] B: after turn +3 the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44]]
+  > [+4] Yes, that's right.
+  < [200] Great, let's move on to Target Market.
+
+For your commercial print and wide-format work around Peoria, what kinds of organizations are the best fit for you—are you mainly aiming at local businesses in general, or are there a few types you especially want more of (for example, manufacturers/industrial firms, professional offices like banks/insurers/medical, schools and nonprofits)?
+  [PASS] B: turn +4 200: 200
+  [PASS] B: after turn +4 the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44]]
+  final focus: market rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44]] latch: {"Digital printing services": "removed", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [PASS] B: ops finalized -> handed off (focus advanced past ops): market
+  [PASS] B: at finalize the row is NOT resurrected: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44]]
+  [PASS] B: NO null-driver row reaches the boundary: []
+  [PASS] B: latch still records removed after finalize (auditable record survived): removed
+  [PASS] B: two real lines intact with their drivers: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44]]
+
+  (95s)
+GREEN: live Corvid discovery clone(s) passed - merged stays inside, drop stays dropped, no phantom at the boundary

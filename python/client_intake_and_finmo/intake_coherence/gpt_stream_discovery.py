@@ -600,191 +600,369 @@ def is_stream_discovery_ask(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 5. Reading the answer - INTENT, per candidate, through the app's existing
-#    intent door. F4 (Nick, 2026-08-15): the token/keyword scoring that lived
-#    here read 'No, none of those. We just do the five pound wholesale bags.'
-#    as a YES for 'wholesale subscription contracts' (a word inside a decline
-#    is not a yes) - string-matching heuristics are not how this app reads a
-#    client. The reply is now routed, per proposed stream, through the SAME
-#    ACCEPT/REJECT/CLARIFY reader the ops turn already uses for a reply to a
-#    proposal (intake_consult._classify_restatement_response) - the caller
-#    hands that door in; this module holds NO keyword logic. ACCEPT => yes,
-#    REJECT => no, CLARIFY (or a door failure) => unclear => the caller asks
-#    ONE clarify; still unclear => not confirmed, never re-asked.
+# 5. Reading the answer - THE SHARED READER (Nick's ruling, 2026-08-17,
+#    Option A). Discovery does NOT read the client's reply. The reply flows,
+#    like every other ops-window reply, to consultant_chat_turn - the ONE
+#    reader the whole intake uses - which already receives the conversation,
+#    the latch and this module's controller note, already carries the
+#    client-authority / collapse-a-split law, and returns the full lob_models
+#    snapshot. THAT snapshot is authoritative: a genuine new stream is a new
+#    product row in it; a stream the client says is already inside an
+#    existing line adds nothing; a decline adds nothing; a line the client
+#    later retracts is omitted from it. Python then does bookkeeping ONLY -
+#    it stamps provenance on the row the shared reading added, writes what
+#    the shared reading did per label onto the latch (added /
+#    merged_into:<line> / declined / unclear / removed), and composes the
+#    receipt from the STATE (receipt law: words == write). The former
+#    per-candidate ACCEPT/REJECT/CLARIFY loop, its existence-proposition
+#    frame and the own-LOB minting applier are DELETED (Corvid Press
+#    e3af1f24: "already part of our commercial print line, not a separate
+#    thing" is TRUE under an existence proposition -> ACCEPT -> a phantom
+#    own-LOB line with a false receipt; "drop that line" had no door at all).
 # ---------------------------------------------------------------------------
 
-def stream_discovery_intent_frame(ask_text: str, labels: List[str], label: str) -> str:
-  """The proposition the intent door checks the reply against, for ONE
-  stream. Deterministic text: the ask, the streams it named, the stream
-  under judgment, and the reading rules (a yes adds a revenue line, so a
-  confirmation must be real; a word inside a decline is not a yes; a hedge
-  or a bare yes to a several-stream question is CLARIFY; each stream is
-  confirmed on its own words only)."""
+STREAM_DISCOVERY_OUTCOME_ADDED = "added"
+STREAM_DISCOVERY_OUTCOME_MERGED = "merged_into"
+STREAM_DISCOVERY_OUTCOME_DECLINED = "declined"
+STREAM_DISCOVERY_OUTCOME_UNCLEAR = "unclear"
+STREAM_DISCOVERY_OUTCOME_REMOVED = "removed"
+STREAM_DISCOVERY_MODEL_OUTCOMES = (
+  STREAM_DISCOVERY_OUTCOME_ADDED,
+  STREAM_DISCOVERY_OUTCOME_MERGED,
+  STREAM_DISCOVERY_OUTCOME_DECLINED,
+  STREAM_DISCOVERY_OUTCOME_UNCLEAR,
+)
+
+# Latch answers that mean "this label has a row of its own in the model".
+# 'yes' is the pre-convergence vocabulary of drafts latched before
+# 2026-08-17; it is read as 'added' and never written again.
+_CONFIRMED_ANSWERS = (STREAM_DISCOVERY_OUTCOME_ADDED, "yes")
+
+
+def stream_discovery_controller_note(labels: List[str], *, clarify_round: bool) -> str:
+  """The discovery context handed to the SHARED reader (consultant_chat_turn)
+  on the answer turn, in plain terms: what the app just proposed, that a yes
+  means a new revenue line, and the four things the client may do."""
   labs = [str(x).strip() for x in labels if str(x or "").strip()]
   return (
-    "CONTEXT. The app asked the client ONE question about their business as it "
-    f"exists TODAY, naming {len(labs)} possible revenue stream(s):\n\"{str(ask_text or '').strip()}\"\n"
-    f"Streams named in the question: {', '.join(labs)}.\n"
-    "A stream the client confirms becomes a revenue line in their business plan, so a "
-    "confirmation must be real: this is NOT a restatement the client is agreeing with in "
-    "general - it is a yes/no about ONE named stream.\n"
-    f"RESTATEMENT TO CHECK: \"{str(label or '').strip()}\" is part of the client's business today.\n"
-    "Rules for THIS ONE stream:\n"
-    "- ACCEPT only if the reply clearly confirms THIS stream: by name, by an unmistakable "
-    "reference to it, by confirming all of the streams (\"all of those\", \"yes to everything\"), "
-    "or - when the question named only one stream - by a plain yes.\n"
-    "- REJECT if the reply declines it: explicitly, by declining all of them (\"no\", \"none of "
-    "those\"), by naming only OTHER streams from the list as theirs, or by describing what they "
-    "do instead. A word from this stream's name appearing inside a decline is NOT a yes.\n"
-    "- CLARIFY if you cannot tell for this stream: a hedge (\"sort of\", \"sometimes\", \"maybe\", "
-    "\"kind of\"), a bare \"yes\"/\"yeah\" to a question that named several streams without saying "
-    "WHICH, a question back, or an off-topic reply. Nuance or a caveat is NOT agreement here - "
-    "when unsure, CLARIFY, never ACCEPT.\n"
-    "- Each stream stands on its own words. Being related to, similar to, or commonly bundled "
-    "with a stream the reply DID confirm is NOT confirmation of THIS one - if the reply confirms "
-    "other streams and does not name or unmistakably refer to this one, REJECT."
+    "CONTROLLER NOTE (stream discovery - THIS reply answers it): the app just "
+    + ("asked ONE clarifying question about" if clarify_round else "proposed, as POSSIBLE revenue lines,")
+    + " these streams commonly seen for this business type: "
+    + ", ".join(labs)
+    + ". The client's message is the answer. Read it as the client's whole "
+    "meaning, not word by word, and reflect the answer in patch.lob_models "
+    "(the full snapshot) AND in patch.stream_discovery_outcomes (one entry per "
+    "label above): "
+    "(1) a genuine YES for a label = ADD a new product row for it (product_name = "
+    "the label as its own line, unit/cadence/capacity/utilization/price all null - "
+    "you will capture them next like any product; never estimate them) -> outcome "
+    "'added'; "
+    "(2) the client says the stream is ALREADY INSIDE one of their existing lines "
+    "(same jobs, same invoices, part of X, not a separate thing) = add NOTHING, keep "
+    "it inside that line -> outcome 'merged_into' with line = that existing line's "
+    "product_name; "
+    "(3) a decline (no, none of those, not us, we job that out) = add nothing -> "
+    "'declined'; "
+    "(4) you genuinely cannot tell for a label (a hedge, a bare yes to several labels "
+    "without saying which, an off-topic reply) -> 'unclear' - add nothing for it. "
+    "A word from a label appearing inside a decline is NOT a yes. Your lob_models "
+    "snapshot is authoritative for these decisions: the app stamps provenance on the "
+    "row you added and writes the outcome you report onto its record; the app also "
+    "composes the receipt for what landed - do NOT restate which streams you added or "
+    "left out, just continue naturally (if you added a line, ask for its first "
+    "number). Never mention a declined or merged stream again."
   )
-
-
-_DOOR_TO_ANSWER = {"ACCEPT": "yes", "REJECT": "no", "CLARIFY": "unclear"}
-
-
-def read_stream_discovery_answer(
-  message: str,
-  labels: List[str],
-  *,
-  classify: Callable[..., Optional[str]],
-  ask_text: str,
-) -> Dict[str, str]:
-  """Per-candidate INTENT reading through the app's existing intent door.
-  `classify(restatement=..., user_reply=...)` is the ACCEPT/REJECT/CLARIFY
-  reader (production: intake_consult._classify_restatement_response); it is
-  called once per proposed stream with the stream's frame. Returns
-  {label: yes|no|unclear}. No keyword, phrase or token logic lives here:
-  if the door cannot read the reply (CLARIFY, None, or an exception), the
-  answer is 'unclear' and the caller asks - it never guesses."""
-  labs = [str(x).strip() for x in labels if str(x or "").strip()]
-  out: Dict[str, str] = {lab: "unclear" for lab in labs}
-  text = str(message or "").strip()
-  if not labs or not text:
-    return out
-  for lab in labs:
-    try:
-      verdict = classify(
-        restatement=stream_discovery_intent_frame(ask_text, labs, lab),
-        user_reply=text,
-      )
-    except Exception:
-      verdict = None
-    out[lab] = _DOOR_TO_ANSWER.get(str(verdict or "").strip().upper(), "unclear")
-  return out
-
-
-def _mention_hits(candidate_tokens: List[str], clause_tokens: set) -> int:
-  n = 0
-  for ct in candidate_tokens:
-    if any(ct == mt or ct.startswith(mt) or mt.startswith(ct) for mt in clause_tokens):
-      n += 1
-  return n
-
-
-# ---------------------------------------------------------------------------
-# 6. Landing a yes: PYTHON appends the row (receipt law: words == state).
-# ---------------------------------------------------------------------------
-
-# LOB PLACEMENT (Nick, 2026-08-15): a confirmed discovered stream ALWAYS
-# gets its OWN LOB named for its label. Discovery surfaces PEER streams by
-# definition (the validator already dropped anything that is the client's
-# own line or a paraphrase of it), so a discovered stream is never nested
-# under another line. The former stem-match placement nested 'wholesale
-# coffee sales to grocery stores' under 'retail coffee bags' on the shared
-# category noun 'coffee' (Nine Fathom run #2) - the same class F1 closed
-# for dedup, one step downstream. There is no placement decision left.
-
-
-def new_discovered_row(label: str) -> Dict[str, Any]:
-  return {
-    "product_name": str(label).strip(),
-    "unit_name": None,
-    "unit_description": None,
-    "unit_cadence": None,
-    "units_per_week_capacity": None,
-    "units_per_period_capacity": None,
-    "operating_periods_per_year": None,
-    "utilization_rate": None,
-    "unit_price": None,
-    "cogs_percent_of_line_revenue": None,
-    "origin": STREAM_DISCOVERY_ORIGIN,
-  }
 
 
 def _row_named(p: Dict[str, Any], label: str) -> bool:
   return " ".join(_label_tokens(p.get("product_name"))) == " ".join(_label_tokens(label))
 
 
-def append_confirmed_stream_rows(
-  ops_json: Dict[str, Any], labels: List[str],
-) -> Tuple[Dict[str, Any], List[str]]:
-  """Append one null-driver product row per confirmed label (idempotent:
-  a row already named for the label is stamped, not duplicated). Returns
-  (ops_json, receipt_lines) - the receipt says exactly what was written."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  lobs = ops.get("lob_models")
-  if not isinstance(lobs, list):
-    lobs = []
-    ops["lob_models"] = lobs
-  receipts: List[str] = []
-  for label in labels:
-    label = str(label or "").strip()
-    if not label:
+def _new_rows(before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]]) -> List[Tuple[int, int, Dict[str, Any]]]:
+  """Product rows present in `after` whose product_name is not in `before`."""
+  before_names = set()
+  for lob in ((before or {}).get("lob_models") or []) if isinstance(before, dict) else []:
+    if not isinstance(lob, dict):
       continue
-    found = False
-    for lob in lobs:
-      if not isinstance(lob, dict):
+    for p in lob.get("products") or []:
+      if isinstance(p, dict):
+        before_names.add(" ".join(_label_tokens(p.get("product_name"))))
+  out: List[Tuple[int, int, Dict[str, Any]]] = []
+  for li, lob in enumerate(((after or {}).get("lob_models") or []) if isinstance(after, dict) else []):
+    if not isinstance(lob, dict):
+      continue
+    for pi, p in enumerate(lob.get("products") or []):
+      if isinstance(p, dict) and " ".join(_label_tokens(p.get("product_name"))) not in before_names:
+        out.append((li, pi, p))
+  return out
+
+
+def _find_row(ops: Optional[Dict[str, Any]], label: str) -> Optional[Dict[str, Any]]:
+  for lob in ((ops or {}).get("lob_models") or []) if isinstance(ops, dict) else []:
+    if not isinstance(lob, dict):
+      continue
+    for p in lob.get("products") or []:
+      if isinstance(p, dict) and _row_named(p, label):
+        return p
+  return None
+
+
+def _overlap(a: str, b: str) -> int:
+  ta = {_stem(t) for t in _label_tokens(a)}
+  tb = {_stem(t) for t in _label_tokens(b)}
+  return len(ta & tb)
+
+
+def _line_display(ops: Optional[Dict[str, Any]], line: str) -> str:
+  """The client's own line name for a receipt: the product row or LOB the
+  model named (by name, else best token overlap), else the model's text."""
+  line = str(line or "").strip()
+  if not line:
+    return ""
+  best, best_n = "", 0
+  for lob in ((ops or {}).get("lob_models") or []) if isinstance(ops, dict) else []:
+    if not isinstance(lob, dict):
+      continue
+    for cand in [str(lob.get("lob_name") or "")] + [
+      str(p.get("product_name") or "") for p in (lob.get("products") or []) if isinstance(p, dict)
+    ]:
+      if not cand.strip():
         continue
-      for p in lob.get("products") or []:
-        if isinstance(p, dict) and _row_named(p, label):
-          p.setdefault("origin", STREAM_DISCOVERY_ORIGIN)
-          if not p.get("origin"):
-            p["origin"] = STREAM_DISCOVERY_ORIGIN
-          found = True
-    if found:
-      receipts.append(f"Noted - {label} is its own line; a few quick numbers for it next.")
+      if _row_named({"product_name": cand}, line):
+        return cand
+      n = _overlap(cand, line)
+      if n > best_n:
+        best, best_n = cand, n
+  return best or line
+
+
+def _model_outcomes_by_label(model_outcomes: Any, labels: List[str]) -> Dict[str, Tuple[str, str]]:
+  """{label: (outcome, line)} from the shared reader's own report; entries
+  are matched to the pending labels by name, then by token overlap; anything
+  the model did not report is absent (the state decides)."""
+  out: Dict[str, Tuple[str, str]] = {}
+  if not isinstance(model_outcomes, list):
+    return out
+  for item in model_outcomes:
+    if not isinstance(item, dict):
       continue
-    lobs.append({"lob_name": label, "products": [new_discovered_row(label)]})
-    receipts.append(f"Noted - {label} is its own line; a few quick numbers for it next.")
-  return ops, receipts
+    lab = str(item.get("label") or "").strip()
+    oc = str(item.get("outcome") or "").strip().lower()
+    line = str(item.get("line") or "").strip()
+    if not lab or oc not in STREAM_DISCOVERY_MODEL_OUTCOMES:
+      continue
+    target = None
+    for L in labels:
+      if _row_named({"product_name": lab}, L):
+        target = L
+        break
+    if target is None:
+      scored = sorted(((_overlap(lab, L), L) for L in labels), reverse=True)
+      if scored and scored[0][0] > 0:
+        target = scored[0][1]
+    if target is not None and target not in out:
+      out[target] = (oc, line)
+  return out
+
+
+def record_stream_discovery_outcomes(
+  before: Optional[Dict[str, Any]],
+  after: Dict[str, Any],
+  *,
+  message: str,
+  pending_labels: List[str],
+  model_outcomes: Any,
+  clarify_round: bool,
+) -> Tuple[Dict[str, Any], List[str], List[str]]:
+  """Bookkeeping AFTER the shared reader's patch landed on the answer turn.
+  Per pending label: a NEW row the shared reading added (named for the label,
+  or the model's 'added' report paired with a new row by token overlap) ->
+  origin stamped, latch 'added'; the model's 'merged_into' report ->
+  latch 'merged_into:<line>'; 'unclear' on the first round -> held for ONE
+  clarify (returned as the third element); everything else -> 'declined'
+  (a model that says 'added' but wrote no row is not believed - the state
+  is the truth). Returns (after, receipt_lines, clarify_labels). Receipts
+  are composed from what actually landed - words == write."""
+  ops = after if isinstance(after, dict) else {}
+  latch = ops.get("stream_discovery") if isinstance(ops.get("stream_discovery"), dict) else None
+  labels = [str(x).strip() for x in pending_labels if str(x or "").strip()]
+  if latch is None or not labels:
+    return after, [], []
+  cands = {
+    str(c.get("label") or "").strip(): c
+    for c in (latch.get("candidates") or []) if isinstance(c, dict)
+  }
+  reported = _model_outcomes_by_label(model_outcomes, labels)
+  new_rows = _new_rows(before, ops)
+  used: set = set()
+  receipts: List[str] = []
+  clarify: List[str] = []
+  added: List[str] = []
+  merged: List[Tuple[str, str]] = []
+  declined: List[str] = []
+  unclear: List[str] = []
+  for lab in labels:
+    c = cands.get(lab)
+    if c is None:
+      continue
+    oc, line = reported.get(lab, ("", ""))
+    row: Optional[Dict[str, Any]] = None
+    row_key: Optional[Tuple[int, int]] = None
+    # (1) a new row named for the label
+    for li, pi, p in new_rows:
+      if (li, pi) not in used and _row_named(p, lab):
+        row, row_key = p, (li, pi)
+        break
+    # (2) the model says it added it: pair with the best-overlapping new row
+    if row is None and oc == STREAM_DISCOVERY_OUTCOME_ADDED:
+      free = [(li, pi, p) for li, pi, p in new_rows if (li, pi) not in used]
+      scored = sorted(
+        ((_overlap(str(p.get("product_name") or ""), lab), li, pi) for li, pi, p in free),
+        reverse=True,
+      )
+      if scored and scored[0][0] > 0:
+        _, li, pi = scored[0]
+        row = ops["lob_models"][li]["products"][pi]
+        row_key = (li, pi)
+      elif len(free) == 1:
+        li, pi, p = free[0]
+        row, row_key = p, (li, pi)
+    if row is not None:
+      used.add(row_key)  # type: ignore[arg-type]
+      row["origin"] = STREAM_DISCOVERY_ORIGIN
+      c["answer"] = STREAM_DISCOVERY_OUTCOME_ADDED
+      c["row_product_name"] = str(row.get("product_name") or lab)
+      added.append(str(row.get("product_name") or lab))
+    elif oc == STREAM_DISCOVERY_OUTCOME_MERGED:
+      shown = _line_display(ops, line) or "your existing line"
+      c["answer"] = STREAM_DISCOVERY_OUTCOME_MERGED + ":" + shown
+      merged.append((lab, shown))
+    elif oc == STREAM_DISCOVERY_OUTCOME_UNCLEAR and not clarify_round:
+      c["first_read"] = STREAM_DISCOVERY_OUTCOME_UNCLEAR
+      c["first_answered_from"] = str(message or "")[:300]
+      clarify.append(lab)
+      continue
+    elif oc == STREAM_DISCOVERY_OUTCOME_UNCLEAR:
+      c["answer"] = STREAM_DISCOVERY_OUTCOME_UNCLEAR
+      c["answer_reason"] = "unclear_after_clarify"
+      unclear.append(lab)
+    else:
+      if oc == STREAM_DISCOVERY_OUTCOME_ADDED:
+        c["answer_reason"] = "model_reported_added_but_wrote_no_row"
+      c["answer"] = STREAM_DISCOVERY_OUTCOME_DECLINED
+      declined.append(lab)
+    if clarify_round:
+      c["clarify_answered_from"] = str(message or "")[:300]
+    else:
+      c["answered_from"] = str(message or "")[:300]
+    c["read_by"] = "consultant_chat_turn"
+  for name in added:
+    receipts.append(f"Noted - {name} is its own line; a few quick numbers for it next.")
+  for lab, shown in merged:
+    receipts.append(f"Noted - {lab} stays inside {shown}, not a separate line.")
+  if clarify:
+    latch["clarify_asked"] = True
+    latch["clarify_labels"] = list(clarify)
+  elif not added and not merged and not declined and unclear:
+    receipts.append(
+      "On the extra lines I mentioned - I'll take that as none of them for now; "
+      "if one is part of your business, tell me its name any time and we'll add it."
+    )
+  elif not added and not merged:
+    receipts.append("Understood - none of those, we'll move on.")
+  return after, receipts, clarify
+
+
+def note_stream_discovery_removals(
+  before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]], *, message: str = "",
+) -> List[str]:
+  """A discovery-added row that `before` held and the shared reading's
+  `after` snapshot no longer contains was REMOVED by the client (the shared
+  reader honors "drop that line" by omitting the row - the parent law). The
+  latch records it and the receipt says it. Nothing is restored - EVER - a
+  stale yes-latch never resurrects a row."""
+  if not isinstance(after, dict):
+    return []
+  latch = after.get("stream_discovery")
+  if not isinstance(latch, dict) or not latch.get("asked"):
+    return []
+  receipts: List[str] = []
+  for c in latch.get("candidates") or []:
+    if not isinstance(c, dict) or str(c.get("answer") or "") not in _CONFIRMED_ANSWERS:
+      continue
+    lab = str(c.get("row_product_name") or c.get("label") or "").strip()
+    if not lab:
+      continue
+    if _find_row(after, lab) is not None:
+      continue
+    if _find_row(before, lab) is None:
+      continue
+    c["answer"] = STREAM_DISCOVERY_OUTCOME_REMOVED
+    c["removed_from"] = str(message or "")[:300]
+    c["read_by"] = "consultant_chat_turn"
+    receipts.append(f"Noted - {lab} is dropped as a separate line.")
+  return receipts
 
 
 # ---------------------------------------------------------------------------
-# 7. Carry-forward: the latch and the origin stamp survive every wholesale
-#    lob_models replacement (model patch, finalize).
+# 6. Carry-forward: the latch (an auditable record that lives on ops_json,
+#    outside every GPT schema) and the origin stamp (provenance Python owns)
+#    survive a wholesale lob_models replacement. FIXED, not deleted (Nick's
+#    ruling 2026-08-17): the resurrection of a dropped row from
+#    answer=="yes" alone (Corvid: the client's "drop that line" was undone
+#    every turn) is GONE. Two seams, two rules:
+#    - an ORDINARY ops turn (restore_dropped=False): the shared reader's
+#      snapshot IS the model; a discovery row it omits is a client removal
+#      and is recorded as such (note_stream_discovery_removals). Nothing is
+#      re-appended.
+#    - a FINALIZE seam (restore_dropped=True): consultant_finalize is a
+#      re-derivation of the shared model that ops_json already holds; a
+#      discovery row that ops_json holds WITH client-given drivers and the
+#      re-derivation lost is carried forward FROM THAT ROW (what the shared
+#      model actually contains) - never minted fresh from the latch, never
+#      a null-driver row.
 # ---------------------------------------------------------------------------
+
+_DRIVER_KEYS = (
+  "unit_name", "unit_cadence", "units_per_week_capacity",
+  "units_per_period_capacity", "utilization_rate", "unit_price",
+)
+
+
+def _filled_count(row: Dict[str, Any]) -> int:
+  return sum(1 for k in _DRIVER_KEYS if row.get(k) not in (None, "", 0))
+
 
 def carry_stream_discovery(
   before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]],
+  *, restore_dropped: bool = False,
 ) -> Optional[Dict[str, Any]]:
-  """Idempotent. (1) The stream_discovery latch written on `before` is
-  re-attached to `after` if the replacement lost it. (2) Every confirmed
-  label has EXACTLY ONE product row carrying origin=discovery_confirmed:
-  the row named for it is re-stamped; a same-named duplicate minted by the
-  model is removed; a row the model dropped is re-appended (from the
-  before-row if it exists, else null-driver fresh)."""
+  """Idempotent. (1) The latch written on `before` is re-attached to
+  `after` if the replacement lost it. (2) Provenance: origin=
+  discovery_confirmed only on the row named for a label the client
+  confirmed (anything else the model wrote into origin is scrubbed); a
+  same-named duplicate the model minted is removed (the most-filled row
+  is kept). (3) A confirmed row that `after` lost: on an ordinary turn it
+  is recorded as removed; on a finalize seam (restore_dropped=True) it is
+  carried forward from the before-row when that row carries client-given
+  drivers. Never minted from the latch. The caller records what is still
+  missing afterwards with note_stream_discovery_removals."""
   if not isinstance(after, dict):
     return after
   latch = (before or {}).get("stream_discovery") if isinstance(before, dict) else None
   if isinstance(latch, dict) and not isinstance(after.get("stream_discovery"), dict):
     after["stream_discovery"] = json.loads(json.dumps(latch))
   latch = after.get("stream_discovery")
-  confirmed = [
-    str(c.get("label") or "").strip()
-    for c in ((latch.get("candidates") or []) if isinstance(latch, dict) and latch.get("asked") else [])
-    if isinstance(c, dict) and str(c.get("answer") or "") == "yes" and str(c.get("label") or "").strip()
+  cands = [
+    c for c in ((latch.get("candidates") or []) if isinstance(latch, dict) and latch.get("asked") else [])
+    if isinstance(c, dict) and str(c.get("answer") or "") in _CONFIRMED_ANSWERS
   ]
+  confirmed = [
+    str(c.get("row_product_name") or c.get("label") or "").strip() for c in cands
+  ]
+  confirmed = [x for x in confirmed if x]
   # PROVENANCE IS OURS, NEVER THE MODEL'S: the only defined origin value is
-  # discovery_confirmed and only a latched YES may carry it. Anything else
-  # the strict-schema model wrote into origin (live: it invented values on
-  # ordinary rows) is scrubbed to null. The stamp means one thing.
+  # discovery_confirmed and only a confirmed label's row may carry it.
   for lob in after.get("lob_models") or []:
     if not isinstance(lob, dict):
       continue
@@ -810,16 +988,9 @@ def carry_stream_discovery(
         if isinstance(p, dict) and _row_named(p, label):
           matches.append((li, pi))
     if matches:
-      # Keep the row that carries the most client-given values (a
-      # duplicate the model minted is the null one); ties keep the first.
-      def _filled(m: Tuple[int, int]) -> int:
-        row = lobs[m[0]]["products"][m[1]]
-        return sum(
-          1 for k in ("unit_name", "unit_cadence", "units_per_week_capacity",
-                      "units_per_period_capacity", "utilization_rate", "unit_price")
-          if row.get(k) not in (None, "", 0)
-        )
-      keep_li, keep_pi = max(matches, key=lambda m: (_filled(m), -matches.index(m)))
+      keep_li, keep_pi = max(
+        matches, key=lambda m: (_filled_count(lobs[m[0]]["products"][m[1]]), -matches.index(m)),
+      )
       lobs[keep_li]["products"][keep_pi]["origin"] = STREAM_DISCOVERY_ORIGIN
       for li, pi in sorted([m for m in matches if m != (keep_li, keep_pi)], reverse=True):
         try:
@@ -827,27 +998,79 @@ def carry_stream_discovery(
         except Exception:
           pass
       continue
-    # Dropped by the replacement: restore the before-row (drivers the client
-    # may already have given) or a fresh null row.
-    restored: Optional[Dict[str, Any]] = None
-    for lob in ((before or {}).get("lob_models") or []) if isinstance(before, dict) else []:
-      if not isinstance(lob, dict):
-        continue
-      for p in lob.get("products") or []:
-        if isinstance(p, dict) and _row_named(p, label):
-          restored = json.loads(json.dumps(p))
-          restored["origin"] = STREAM_DISCOVERY_ORIGIN
-          break
-      if restored is not None:
-        break
-    row = restored if restored is not None else new_discovered_row(label)
-    lobs.append({"lob_name": label, "products": [row]})
+    if restore_dropped:
+      prior = _find_row(before, label)
+      if prior is not None and _filled_count(prior) > 0:
+        restored = json.loads(json.dumps(prior))
+        restored["origin"] = STREAM_DISCOVERY_ORIGIN
+        lobs.append({"lob_name": label, "products": [restored]})
   # Empty LOBs left by duplicate removal are dropped.
   after["lob_models"] = [
     lob for lob in lobs
     if not (isinstance(lob, dict) and isinstance(lob.get("products"), list) and not lob["products"])
   ]
   return after
+
+
+def align_gate_rows_with_persisted(
+  persisted: Optional[Dict[str, Any]], gate_obj: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """THE WRAP GATE EVALUATES THE SAME DISCOVERY ROW SET THAT GETS PERSISTED
+  (Nick's ruling 2026-08-17, item 5). The gate snapshot is a fresh
+  consultant_finalize re-derivation; the persisted ops_json is the shared
+  model. Corvid: the gate saw no phantom row and fired the wrap while the
+  persisted state carried it -> a null-driver row reached the boundary.
+  Every discovery-confirmed row the persisted model holds is present in the
+  gate snapshot (copied from persisted, real drivers) and every discovery
+  row the persisted model does NOT hold is absent from it. Non-discovery
+  rows are untouched."""
+  if not isinstance(gate_obj, dict) or not isinstance(persisted, dict):
+    return gate_obj
+  latch = persisted.get("stream_discovery")
+  if not isinstance(latch, dict) or not latch.get("asked"):
+    return gate_obj
+  confirmed: List[str] = []
+  for c in latch.get("candidates") or []:
+    if isinstance(c, dict) and str(c.get("answer") or "") in _CONFIRMED_ANSWERS:
+      lab = str(c.get("row_product_name") or c.get("label") or "").strip()
+      if lab:
+        confirmed.append(lab)
+  glob = gate_obj.get("lob_models")
+  if not isinstance(glob, list):
+    glob = []
+    gate_obj["lob_models"] = glob
+  # Remove from the gate every discovery row the persisted model lacks.
+  for lob in glob:
+    if not isinstance(lob, dict) or not isinstance(lob.get("products"), list):
+      continue
+    lob["products"] = [
+      p for p in lob["products"]
+      if not (
+        isinstance(p, dict)
+        and (p.get("origin") == STREAM_DISCOVERY_ORIGIN or any(_row_named(p, c) for c in confirmed))
+        and _find_row(persisted, str(p.get("product_name") or "")) is None
+      )
+    ]
+  gate_obj["lob_models"] = [
+    lob for lob in glob
+    if not (isinstance(lob, dict) and isinstance(lob.get("products"), list) and not lob["products"])
+  ]
+  glob = gate_obj["lob_models"]
+  # Add to the gate every persisted discovery row it lacks (from persisted).
+  for label in confirmed:
+    prow = _find_row(persisted, label)
+    if prow is None:
+      continue
+    grow = _find_row(gate_obj, label)
+    if grow is None:
+      glob.append({"lob_name": label, "products": [json.loads(json.dumps(prow))]})
+    else:
+      # Same row set AND the same drivers for it: the persisted values rule.
+      for k in _DRIVER_KEYS + ("operating_periods_per_year",):
+        grow[k] = prow.get(k)
+      grow["origin"] = STREAM_DISCOVERY_ORIGIN
+  return gate_obj
+
 
 
 def stream_discovery_pending(ops_json: Optional[Dict[str, Any]]) -> bool:

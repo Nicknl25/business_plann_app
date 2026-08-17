@@ -267,28 +267,15 @@ check("F3: 3 survivors -> all 3 proposed, no padding, most first",
       json.dumps([c["label"] for c in r3["candidates"]]))
 check("F3: cap constant is 4", sd.STREAM_DISCOVERY_PROPOSAL_CAP == 4)
 
-# The answer path reads against the PROPOSED labels only (unchanged reader).
-o = cormorant_ops()
-_JUDGE_CANDS["value"] = six
-ask6 = ic._stream_discovery_ask_if_due(conn=None, ops_json=o, turn_index=20, stage_hint="operating")
-# F4: the reader goes through the app's intent door - stubbed offline here.
-def _door(*, restatement, user_reply):
-  m = re.search(r'RESTATEMENT TO CHECK: "([^"]+)" is part of', restatement)
-  return "ACCEPT" if m and m.group(1) == "barista training" else "REJECT"
-o, receipt, note, clar = ic._apply_stream_discovery_answer(ops_json=o, message="Barista training yes, the rest no.", last_assistant=ask6, classify=_door)
-check("answer path: no clarify on a fully-read reply", clar == "")
-ans = {c["label"]: c["answer"] for c in o["stream_discovery"]["candidates"]}
-check("answer path: yes lands on the proposed label, the other 3 proposed are no",
-      ans == {"barista training": "yes", "farmers market stall": "no", "espresso catering": "no", "brewing equipment resale": "no"}, json.dumps(ans))
-check("answer path: the confirmed row appended with origin", any(p.get("origin") == "discovery_confirmed" and p.get("product_name") == "barista training" for l in o["lob_models"] for p in l["products"]))
-check("answer path: pending False afterwards", not sd.stream_discovery_pending(o))
+# (answer-path block deleted 2026-08-17: the discovery reader converged onto
+#  consultant_chat_turn - see _discovery_reader_convergence_redproof.py)
 
 # ---------------------------------------------------------------------------
 # 5. Boundary: the corrections resolver is untouched (its callers unchanged).
 # ---------------------------------------------------------------------------
 print("=== 5. resolver untouched ===")
 src = (ROOT / "python/api_handlers/intake_consult.py").read_text(encoding="utf-8")
-seam = src[src.index("def _stream_discovery_ask_if_due"):src.index("def _apply_stream_discovery_answer")]
+seam = src[src.index("def _stream_discovery_ask_if_due"):src.index("def _open_stream_discovery_window")]
 check("discovery seam no longer calls _resolve_ops_product_line", "_resolve_ops_product_line(" not in seam and "resolve_line=" not in seam)
 check("resolver still has its correction callers", src.count("_resolve_ops_product_line(") >= 3, str(src.count("_resolve_ops_product_line(")))
 res, why = ic._resolve_ops_product_line(cormorant_ops(), "the coffee price is now 65")

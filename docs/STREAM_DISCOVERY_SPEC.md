@@ -252,52 +252,78 @@ Research confirmed the landing machinery already exists:
   row is asked its five fields automatically, by the same code that
   asks every other row.**
 
-The flow after the ask:
-1. Client answers in their own words. **F4 (Nick, 2026-08-15,
-   ruled DEAL BREAKER - the keyword reader read "No, none of those. We
-   just do the five pound wholesale bags." as a YES for "wholesale
-   subscription contracts", appended a phantom `discovery_confirmed`
-   row and shipped a false "is its own line" receipt): the reply is
-   read by INTENT, never by keyword.** Per proposed candidate it goes
-   through the app's EXISTING intent door -
-   `intake_consult._classify_restatement_response`, the
-   ACCEPT/REJECT/CLARIFY reader this same ops turn already uses for a
-   reply to a proposal - with a deterministic per-stream frame
-   (`gpt_stream_discovery.stream_discovery_intent_frame`: the ask, the
-   streams it named, the ONE stream under judgment, and the reading
-   rules: a yes adds a revenue line so a confirmation must be real; a
-   word inside a decline is not a yes; a hedge or a bare "yes" to a
-   several-stream question is CLARIFY; each stream is confirmed on its
-   own words, never inferred from a related stream). ACCEPT => yes,
-   REJECT => no, CLARIFY / door failure => unclear. The reader module
-   holds ZERO keyword, phrase or token logic; if the door cannot
-   understand the answer, the app asks (step 4). "Scrap the keyword /
-   affirmative-phrase approach - that's a string-matching heuristic and
-   we don't do those." (Nick)
-2. **On yes — Python appends the row deterministically** (receipt law:
-   the app's words match the app's state). Do NOT rely on the GPT patch
-   to have added it: append `{product_name: <label>, all drivers null,
-   origin: "discovery_confirmed"}` under the best-matching existing LOB
-   (stem resolver) or a new LOB named for the label. The receipt says
-   exactly that ("Noted — <label> is its own line; a few quick numbers
-   for it next."). Then the cascade asks its capacity/utilization/price
-   like any line. **No number is ever estimated for a discovered stream**;
-   if the client can't supply its numbers, the line does not model (same
-   rule as any line, CW-017(c) derivability unchanged).
-3. **On no** — stored, never re-asked, never proposed, never modelled.
-4. **On unclear — ONE clarify (F4, supersedes the earlier
-   "unclear => not confirmed, never re-asked")**: the app asks exactly
-   one closed question naming only the still-open stream(s) (the
-   clarify template, Q2) and holds the turn (`action: confirm_clarify`;
-   the latch stamps `clarify_asked: true`, `clarify_labels`, and each
-   held candidate's `first_read: "unclear"`). Any stream already read
-   yes on that same reply is appended NOW and its receipt leads the
-   clarify. The clarify reply is read the same way (same door, same
-   frame); **still unclear after it => NOT confirmed** (existence needs a
-   yes; silence is not a yes), stored `answer: "unclear"`,
-   `answer_reason: "unclear_after_clarify"`, no further ask ever. The
-   client can still name the line any time in ops through the normal
-   path - that is the guided flow working, not a re-probe.
+The flow after the ask — **RE-RULED 2026-08-17 (Nick, Option A: CONVERGE
+ONTO THE SHARED READER; the per-candidate reader below is DELETED)**.
+Corvid Press (e3af1f24): "Digital printing is already part of our
+commercial print line ... not a separate thing" is TRUE under the
+existence proposition the per-candidate door asked, so ACCEPT was the
+right verdict for the wrong question -> a phantom own-LOB line with a
+false "is its own line" receipt; "drop that line" had no door at all and
+the carry-forward re-attached the row from `answer == "yes"` every turn
+until the boundary killed the run. The question was the defect. Now:
+1. **The reply is read by the SHARED reader, `consultant_chat_turn`** -
+   the one reader every ops-window reply already flows through. On the
+   answer turn (the ask or its ONE clarify was literally the last
+   assistant message; `intake_consult._open_stream_discovery_window`
+   decides that and nothing else) it receives the full conversation, the
+   latch (in `operating_model_json.stream_discovery`) and a controller
+   note (`gpt_stream_discovery.stream_discovery_controller_note`) that
+   says in plain terms: these labels were just proposed as POSSIBLE
+   revenue lines; a genuine yes = a new product row (label as its own
+   line, drivers null); "already inside my X line" = add nothing, keep it
+   inside X; decline = nothing; unclear = nothing. Its `lob_models`
+   snapshot is authoritative; it also reports what it did per label in
+   `patch.stream_discovery_outcomes` (added | merged_into <line> |
+   declined | unclear). Its prompt now carries the discovery section and
+   the removal rule (an explicit client retraction of ANY line = omit the
+   row from the snapshot on that turn - the ONE exception to "carry
+   forward, do not drop"; the parent law).
+2. **Python does bookkeeping only, from the STATE**
+   (`gpt_stream_discovery.record_stream_discovery_outcomes`, after the
+   patch lands): a NEW row the shared reading added for a label gets
+   `origin: discovery_confirmed` stamped (provenance is ours) and the
+   latch records `added` (+ `row_product_name`); a `merged_into` report
+   records `merged_into:<the client's line>`; `unclear` on the first
+   round holds the label for the ONE clarify (unchanged template);
+   everything else records `declined`. A model that SAYS added but wrote
+   no row is not believed (`answer_reason:
+   model_reported_added_but_wrote_no_row`, recorded declined). The
+   receipt is composed from what landed and LEADS the reply: "Noted -
+   <row> is its own line; a few quick numbers for it next." / "Noted -
+   <label> stays inside <line>, not a separate line." / "Understood -
+   none of those, we'll move on." Then the cascade asks the added row's
+   numbers like any row. **No number is ever estimated for a discovered
+   stream.**
+3. **On no** - `declined`, never re-asked, never proposed, never modelled.
+4. **On unclear - ONE clarify** (template unchanged, `action:
+   confirm_clarify`, latch `clarify_asked/clarify_labels/first_read`);
+   the clarify reply is read by the same shared reader; still unclear =>
+   `answer: unclear`, `answer_reason: unclear_after_clarify`, no further
+   ask ever.
+4b. **Removal ("drop that line") - honored, never resurrected.** The
+   shared reader omits the row; `carry_stream_discovery` on an ordinary
+   ops turn NEVER re-appends (the shared snapshot is the model);
+   `note_stream_discovery_removals` records `answer: removed`
+   (+ `removed_from`) and the receipt says "Noted - <row> is dropped as a
+   separate line." At the two finalize seams `carry_stream_discovery(...,
+   restore_dropped=True)` carries a discovery row ONLY from the shared
+   model's own before-row and ONLY when that row carries client-given
+   drivers - never minted from the latch, never a null-driver row; the
+   latch (outside every GPT schema) is re-attached across the wholesale
+   replace as the auditable record. **The wrap gate evaluates the same
+   discovery row set that gets persisted**
+   (`align_gate_rows_with_persisted`): a persisted null-driver discovery
+   row is forced into the gate snapshot (so wrap cannot fire past it) and
+   a discovery row the persisted model lacks is removed from it (so a
+   re-derivation cannot resurrect it) - the gate and the persisted state
+   can never disagree; the phantom-line-at-the-boundary class is dead by
+   construction. Latch vocabulary: `added | merged_into:<line> |
+   declined | unclear | removed` (drafts latched before 2026-08-17 carry
+   `yes|no`; `yes` is read as `added`, never written again).
+   Proof: `Test Files/_discovery_reader_convergence_redproof.py`
+   (offline), `_live_discovery_corvid_clone.py` (A merged / B removed
+   through finalize, PRE red -> POST green), `_live_discovery_ninefathom_
+   answer_clone.py` (the genuine-yes case still works, cascade captures).
 5. Per-line COGS proposes for the discovered row at the cogs stage like
    any row (it is an ordinary product row); collapse/separation/
    corrections all work unchanged.

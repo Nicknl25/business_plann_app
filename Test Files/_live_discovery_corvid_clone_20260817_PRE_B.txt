@@ -1,0 +1,40 @@
+
+=== CASE B (removed): 'Please drop that line' on a clone where the line WAS created ===
+  clone sdcorvb21c4ac4f3deb4b5e98abb4fa5 rewound to messages[:25] AS PERSISTED; rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 567.0, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", null, null, 0.8]]
+  [PASS] B: clone starts WITH the phantom null-driver row (latch yes)
+  > [25] No, don't make digital printing a separate line. I already counted those jobs in the 30 commercial print jobs a week - it's the same presses and the same invoices. If you add it separately you'd be counting the same work twice. Please drop that line.
+  < [200] Thanks for flagging that — it makes sense not to double-count digital since it runs on the same presses and invoices as your core commercial print work. I’ll treat digital as fully baked into the commercial print line and drop it as a separate line item.
+
+To clean up one remaining detail: earlier you mentioned wide-format jobs averaging about $420, and commercial print jobs averaging about $690. For planning, can you confirm these as the single average prices we should use: $690 per standard commercial print job, and $420 per wide-format job?
+  [PASS] B: drop turn 200: 200
+  rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 30.0, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 30.0, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  latch: {"Digital printing services": "yes", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [FAIL] B: row REMOVED on the drop turn (not resurrected by carry-forward): [["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  [FAIL] B: model has 2 lines: 3
+  [FAIL] B: latch records removed: yes
+  [FAIL] B: receipt says it is dropped: Thanks for flagging that — it makes sense not to double-count digital since it runs on the same presses and invoices as your core commercial print work. I’ll treat digital as fully baked into the comm
+  > [27] That's about right. We're a production shop, we turn work around fast and we don't miss deadlines. That's why people stay with us.
+  < [200] Perfect, we’ll use $690 as the average price per commercial print job and $420 as the average price per wide-format job, and we’ll keep digital work rolled into that main commercial print line so we’re not double-counting.
+
+You also mentioned your edge: you’re a production-focused shop that turns work around fast and doesn’t miss deadlines, which is why customers stick with you. I’ll treat that reliability and turnaround speed as your main operational advantage.
+
+At this point, I have what I nee
+  [PASS] B: turn [27] 200: 200
+  [FAIL] B: after [27] the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  > [29] I'd like to pick up eight or ten more steady commercial accounts over the next year. Nothing dramatic, just fill the presses a bit more.
+  < [200] Got it, aiming to add 8–10 more steady commercial accounts over the next year to better fill the presses fits well with the growth plan we’ve set up.
+
+On the geographic side, to keep our “Peoria area” assumption aligned with how you actually operate: does that basically mean Peoria and nearby communities within Peoria County (and close-in towns like East Peoria, Pekin, etc.), rather than a broader Central Illinois region?
+
+(Noted: operating periods per year → 52.)
+  [PASS] B: turn [29] 200: 200
+  [FAIL] B: after [29] the row is STILL gone (no resurrection at the next turn): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  final focus: ops rows: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]] latch: {"Digital printing services": "yes", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [FAIL] B: ops finalized -> handed off (focus advanced past ops): ops
+  [FAIL] B: at finalize the row is NOT resurrected: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  [FAIL] B: NO null-driver row reaches the boundary: [["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+  [FAIL] B: latch still records removed after finalize (auditable record survived): yes
+  [FAIL] B: two real lines intact with their drivers: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 690, 30, 0.528], ["Wide-format banners and signage", "Wide-format job", null, 420, 9, 0.44], ["Digital printing services", "Digital printing services", "discovery_confirmed", 0, 30.0, 0.8]]
+
+  (62s)
+RED: 11 failing: ['B: row REMOVED on the drop turn (not resurrected by carry-forward)', 'B: model has 2 lines', 'B: latch records removed', 'B: receipt says it is dropped', 'B: after [27] the row is STILL gone (no resurrection at the next turn)', 'B: after [29] the row is STILL gone (no resurrection at the next turn)', 'B: ops finalized -> handed off (focus advanced past ops)', 'B: at finalize the row is NOT resurrected', 'B: NO null-driver row reaches the boundary', 'B: latch still records removed after finalize (auditable record survived)', 'B: two real lines intact with their drivers']

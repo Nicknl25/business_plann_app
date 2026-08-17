@@ -1,0 +1,69 @@
+=== 1. THE PARALLEL READER IS GONE (source-level) ===
+  [PASS] deleted from the module: read_stream_discovery_answer: read_stream_discovery_answer
+  [PASS] deleted from the module: stream_discovery_intent_frame: stream_discovery_intent_frame
+  [PASS] deleted from the module: _DOOR_TO_ANSWER: _DOOR_TO_ANSWER
+  [PASS] deleted from the module: append_confirmed_stream_rows: append_confirmed_stream_rows
+  [PASS] deleted from the module: new_discovered_row: new_discovered_row
+  [PASS] deleted from the module: _mention_hits: _mention_hits
+  [PASS] intake_consult: no _apply_stream_discovery_answer
+  [PASS] the discovery window never calls _classify_restatement_response (no per-candidate door)
+  [PASS] _classify_restatement_response still exists for its restatement callers: 2
+  [PASS] no discovery loop over labels calling classify anywhere in intake_consult
+  [PASS] shared reader schema carries stream_discovery_outcomes
+  [PASS] shared reader prompt: explicit client removal => omit the row (the :426 do-not-drop clause reconciled)
+  [PASS] shared reader prompt: discovery section (already inside => add nothing; yes => new row; never restate)
+  [PASS] wrap gate aligned to persisted discovery rows
+  [PASS] finalize sites carry with restore_dropped=True (from the shared model's own filled row only)
+  [PASS] ordinary ops turn carry has NO restore (model snapshot authoritative)
+  [PASS] email/delivery path untouched (workbook_email / notify lines not in diff scope)
+
+=== 2. CASE A (merged): the shared reader keeps digital printing inside commercial print ===
+  receipts: ['Noted - Digital printing services stays inside Standard commercial print job, not a separate line.']
+  latch: {"Digital printing services": "merged_into:Standard commercial print job", "Copying and duplicating services": "declined", "Graphic design and prepress services": "declined", "Bindery and finishing services": "declined"}
+  [PASS] A: no clarify
+  [PASS] A: model still has 2 lines (no phantom)
+  [PASS] A: latch merged_into:<the client's line>: merged_into:Standard commercial print job
+  [PASS] A: three declined
+  [PASS] A: receipt says stays inside, never 'is its own line': ['Noted - Digital printing services stays inside Standard commercial print job, not a separate line.']
+  [PASS] A: not pending afterwards
+  [PASS] A: carry does not mint the phantom (no confirmed label => nothing to carry)
+  [PASS] A: a phantom the gate re-derivation invented is REMOVED from the gate (gate == persisted): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5], ["Wide-format banners and signage", "Wide-format job", null, 567.0]]
+
+=== 3. CASE C (genuine yes, Nine Fathom shape): the shared reader adds a real row; Python stamps + records ===
+  receipts: ['Noted - retail coffee bags is its own line; a few quick numbers for it next.', 'Noted - Wholesale coffee to grocery stores is its own line; a few quick numbers for it next.']
+  latch: {"retail coffee bags": "added", "wholesale coffee sales to grocery stores": "added", "brew gear and merchandise sales": "declined"}
+  [PASS] C: two genuine yeses -> two rows stamped discovery_confirmed: [["Roasted coffee", "5 lb bag roasted coffee", null, 58], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null], ["Wholesale coffee to grocery stores", "Wholesale coffee to grocery stores", "discovery_confirmed", null]]
+  [PASS] C: exact-name row stamped
+  [PASS] C: renamed row paired to its label by overlap and stamped
+  [PASS] C: latch added / added / declined: {"retail coffee bags": "added", "wholesale coffee sales to grocery stores": "added", "brew gear and merchandise sales": "declined"}
+  [PASS] C: latch records the actual row name for the renamed one
+  [PASS] C: receipts name each added line + numbers next; no is not mentioned: ['Noted - retail coffee bags is its own line; a few quick numbers for it next.', 'Noted - Wholesale coffee to grocery stores is its own line; a few quick numbers for it next.']
+  [PASS] C: primary row untouched
+  [PASS] C: carry keeps both discovery rows and scrubs an invented origin on the primary
+  [PASS] C: gate snapshot now carries the two persisted discovery rows (null drivers) -> wrap cannot fire past them: [["Roasted coffee", "5 lb bag roasted coffee", null, 58], ["retail coffee bags", "retail coffee bags", "discovery_confirmed", null], ["Wholesale coffee to grocery stores", "Wholesale coffee to grocery stores", "discovery_confirmed", null]]
+  [PASS] C: model says added but wrote no row -> declined + reason (state is the truth), no false receipt: {"label": "retail coffee bags", "answer": "declined", "answer_reason": "model_reported_added_but_wrote_no_row", "answered_from": "m", "read_by": "consultant_chat_turn"}
+  [PASS] C: unclear first round -> held for ONE clarify, no answer yet
+  [PASS] C: unclear after clarify -> unclear, not confirmed, honest move-on receipt
+
+=== 4. CASE B (removed): 'drop that line' - the shared reader omits the row; NEVER resurrected ===
+  receipts: ['Noted - Digital printing services is dropped as a separate line.'] latch: {"Digital printing services": "removed", "Copying and duplicating services": "no", "Graphic design and prepress services": "no", "Bindery and finishing services": "no"}
+  [PASS] B: ordinary-turn carry does NOT resurrect the omitted row: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5], ["Wide-format banners and signage", "Wide-format job", null, 567.0]]
+  [PASS] B: latch records removed (from legacy 'yes')
+  [PASS] B: removal receipt: ['Noted - Digital printing services is dropped as a separate line.']
+  [PASS] B: removed_from stamped
+  [PASS] B: next turn: still gone, no second removal receipt
+  [PASS] B: wrap gate == persisted: the phantom is removed from the gate snapshot: [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5], ["Wide-format banners and signage", "Wide-format job", null, 567.0]]
+  [PASS] B: finalize carry does NOT resurrect (removed label is not confirmed; nothing minted): [["Commercial print (brochures/forms/catalogs/labels)", "Standard commercial print job", null, 862.5], ["Wide-format banners and signage", "Wide-format job", null, 567.0]]
+  [PASS] B: latch re-attached across the wholesale finalize replace (auditable record survives)
+  [PASS] B: a yes-latch with no row in the shared model mints NOTHING at finalize (never from the latch)
+  [PASS] B: finalize never restores a NULL-driver row (nothing to carry)
+  [PASS] B: finalize carries a FILLED discovery row the re-derivation lost, from the shared model's own row (price 300): [["Digital printing services", "Digital printing services", "discovery_confirmed", 300]]
+  [PASS] B: ordinary turn: the shared reader's omission of a filled discovery row is honored as a removal (never restored)
+
+=== 5. Window opener: window detection only, no reader ===
+  [PASS] window: ask was last -> note + all 4 pending labels + not clarify round
+  [PASS] window: note tells the shared reader yes=add / already-inside=merged_into / decline / unclear and that its snapshot is authoritative: CONTROLLER NOTE (stream discovery - THIS reply answers it): the app just proposed, as POSSIBLE revenue lines, these streams commonly seen for this business type: Digital printing services, Copying and
+  [PASS] window: ask NOT last -> closed honestly (unclear, ask_not_last_assistant), no note
+  [PASS] window: the clarify was last -> clarify round
+
+GREEN: discovery reader convergence red-proof passed

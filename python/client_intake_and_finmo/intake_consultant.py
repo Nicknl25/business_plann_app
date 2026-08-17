@@ -274,6 +274,12 @@ Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
   - "confident_multi": the description clearly carries distinct revenue lines with different economics (e.g. selling goods AND servicing them). Do NOT ask a separate split question - PROPOSE the split INSIDE the restatement, named plainly (for example: "I'm setting this up as two lines - bike sales and repairs - because they earn differently"), and in the same restatement invite a change in EITHER direction: "If you'd rather group any of those together, or split one further, say so." Set split_rationale briefly. The invitation must never offer only fewer lines - the client can just as easily need more, and an invitation that names one direction is heard as the only direction.
   - "unsure": you genuinely cannot tell. Ask ONE short question BEFORE modeling products (for example: "Do the two sides of the business earn differently enough that you'd want to plan them as separate lines, or should we treat them as one?"). Where more than two sides are in play, ask it openly ("how many separate lines should we plan these as?") rather than as a yes/no collapse.
 - THE CLIENT IS THE FINAL AUTHORITY, at any point: "treat them as one" collapses a proposed split (re-model as a single line immediately, no pushback); "those are really two different businesses" splits a proposed single. Honor either the moment it is said.
+- The same authority covers REMOVING a line: when the client explicitly retracts a line ("drop that line", "don't make X a separate line", "take X out, that's already counted in Y", "you'd be double-counting"), OMIT that product row from your lob_models snapshot on that very turn - the app records the removal from your snapshot and says it. Acknowledge the correction in one warm sentence and continue. This is the ONLY reason a known product may disappear from your snapshot.
+
+Stream discovery (the app's proposal of commonly-seen revenue streams):
+- Near the end of Ops the app itself asks ONE templated question proposing streams this business type commonly has ("Before we wrap up operations: a lot of <type>s also offer A, B, or C - is any of that part of your business today?"). The context JSON then carries stream_discovery_note on the turn the client answers it - THAT reply is the discovery answer and you are its reader. Read the client's whole meaning: a genuine yes for a proposed stream = a NEW product row for it as its own line (product_name = the proposed label, every driver null - you capture unit, cadence, capacity, utilization and price next like any product, never estimate them); "that's already part of my X line / same jobs, not a separate thing" = add NOTHING, it stays inside X; a decline = add nothing; unclear = add nothing. Report each proposed label once in patch.stream_discovery_outcomes as added | merged_into (with line = the existing line's product_name) | declined | unclear. On every other turn set stream_discovery_outcomes to null.
+- The app composes the receipt for what landed from your snapshot and stamps its own provenance (origin) on the row you added; do NOT invent origin and do NOT restate which streams you added or left out - continue naturally (if you added a line, ask for its first number). Never mention a declined or merged stream again.
+- A discovery-added line the client later retracts is removed exactly like any other line (omit the row; the app records it). It must never come back on its own.
 - When defining the unit, if the client mentions more than one distinct unit/product, propose tracking multiple products and confirm.
 - If multiple LOBs/products are confirmed, capture unit_name, unit_description, unit_cadence, units_per_period_capacity, unit_price, and units_per_week_capacity for each product, one product at a time.
 - cogs_percent_of_line_revenue: CAPTURE-ONLY. Set it on a product ONLY when the client explicitly states that line's direct-cost/materials percent (for example "bike materials run about half the sale price" -> 0.5). Never estimate or invent it - the financials conversation proposes it properly. Leave null otherwise; null never erases a previously captured value.
@@ -423,7 +429,8 @@ Output rules:
   - Use patch to persist structured Ops facts incrementally during the conversation.
   - If a fact becomes clear on this turn, include it in patch.
   - If a fact is still unknown or unchanged, return null for that field.
-  - For multi-product flows, lob_models must be the full current structured snapshot of the known products so far; carry forward already-known products from the context JSON and do not drop them.
+  - For multi-product flows, lob_models must be the full current structured snapshot of the known products so far; carry forward already-known products from the context JSON and do not drop them - the ONE exception is a line the client explicitly retracted on this turn (see THE CLIENT IS THE FINAL AUTHORITY), which you omit.
+  - stream_discovery_outcomes: ONLY on the turn whose context carries stream_discovery_note - one entry per proposed label {{label, outcome, line}}; null on every other turn.
   - For not-yet-known fields inside a product, return null for those product fields.
   - origin (per product): carry forward the existing value from the context JSON for that product verbatim (for example discovery_confirmed); null for products that have none. Never invent it.
   - For business-wide answers like legal_entity, capacity_driver, primary_growth_lever, shipping_method, sales_modality, and geographic fields, always populate those top-level patch fields as soon as the client answers them.
@@ -493,6 +500,25 @@ Output rules:
             "enum": ["confident_single", "confident_multi", "unsure", None],
           },
           "split_rationale": {"type": ["string", "null"]},
+          # Stream discovery (Nick, 2026-08-17): the SHARED reader reports what
+          # it did with each proposed stream on the answer turn; the app
+          # records it on the latch and stamps provenance from the STATE.
+          "stream_discovery_outcomes": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "additionalProperties": False,
+              "properties": {
+                "label": {"type": "string"},
+                "outcome": {
+                  "type": "string",
+                  "enum": ["added", "merged_into", "declined", "unclear"],
+                },
+                "line": {"type": ["string", "null"]},
+              },
+              "required": ["label", "outcome", "line"],
+            },
+          },
           "lob_models": {
             "type": ["array", "null"],
             "items": {
@@ -563,6 +589,7 @@ Output rules:
           "competitive_advantage",
           "line_split_confidence",
           "split_rationale",
+          "stream_discovery_outcomes",
           "lob_models",
         ],
       },
