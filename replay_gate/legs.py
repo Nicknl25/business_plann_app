@@ -3372,6 +3372,142 @@ def _r_carveout_survives_the_no(ctx):
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+def _r_discovery_removed_never_resurrected(ctx):
+    """R48 - a removed discovery line never comes back; the wrap gate sees
+    what is persisted.
+
+    THE BUG (Corvid Press e3af1f24, fixed bd1a541 - Nick's Option A ruling
+    2026-08-17). Discovery kept its own per-candidate yes/no reader and
+    carry_stream_discovery rebuilt "confirmed" from answer=="yes" alone: a
+    line the client said to DROP ("you'd be double-counting") was re-
+    appended from the stale yes-latch on every ops turn and again at
+    finalize - a null-driver row the wrap gate (a fresh finalize snapshot
+    that never carried it) never saw, so the wrap fired and the phantom
+    killed the run at the boundary.
+
+    Three teeth, all offline, no GPT, no DB:
+      (1) ORDINARY TURN: the shared reader's snapshot omits a latched
+          discovery row -> carry_stream_discovery must NOT re-append it
+          (the client's removal stands). Red at b8f2697 (row resurrected).
+      (2) FINALIZE SEAM: a yes-latch whose row is gone from the shared
+          model mints NOTHING (never from the latch); a null-driver
+          before-row is never restored. Red at b8f2697 (fresh null row).
+      (3) GATE == PERSISTED: align_gate_rows_with_persisted forces a
+          persisted null-driver discovery row INTO the gate snapshot and
+          strips a discovery row the persisted model lacks. Absent at
+          b8f2697 (named gap, secondary to the behavioural reds).
+    Positive controls: a discovery row present in both keeps its stamp; a
+    FILLED before-row lost by the finalize re-derivation is carried
+    forward from that row (the legitimate job carry-forward keeps).
+    """
+    import copy as _copy
+
+    from client_intake_and_finmo.intake_coherence import gpt_stream_discovery as sd
+
+    fails, seen = [], []
+    ORIGIN = getattr(sd, "STREAM_DISCOVERY_ORIGIN", "discovery_confirmed")
+
+    def _row(name, price=None, cap=None, origin=None):
+        return {"product_name": name, "unit_name": None, "unit_cadence": None,
+                "units_per_week_capacity": cap, "units_per_period_capacity": None,
+                "utilization_rate": None, "unit_price": price, "origin": origin}
+
+    def _names(ops):
+        return [str(p.get("product_name")) for lob in (ops.get("lob_models") or [])
+                for p in (lob.get("products") or [])]
+
+    def _latch(answer):
+        return {"asked": True, "candidates": [
+            {"label": "Digital printing services", "answer": answer},
+            {"label": "Copying and duplicating services", "answer": "no"}]}
+
+    def _has_digital(ops):
+        return any("digital" in n.lower() for n in _names(ops))
+
+    def _find(ops, label):
+        # local finder: the baseline module has no _find_row helper
+        for lob in (ops.get("lob_models") or []):
+            for p in (lob.get("products") or []):
+                if str(p.get("product_name") or "").strip().lower() == label.lower():
+                    return p
+        return None
+
+    real = [{"lob_name": "Commercial print", "products": [_row("Standard commercial print job", 690, 30)]},
+            {"lob_name": "Wide-format", "products": [_row("Wide-format job", 420, 9)]}]
+
+    def _with_digital(price=None, cap=None):
+        return _copy.deepcopy(real) + [
+            {"lob_name": "Digital printing services",
+             "products": [_row("Digital printing services", price, cap, origin=ORIGIN)]}]
+
+    # (1) ordinary turn - the shared reading dropped the discovery row.
+    for legacy in ("yes", "added"):
+        before = {"lob_models": _with_digital(), "stream_discovery": _latch(legacy)}
+        after = {"lob_models": _copy.deepcopy(real), "stream_discovery": _latch(legacy)}
+        out = sd.carry_stream_discovery(_copy.deepcopy(before), after)
+        seen.append("turn/%s: rows=%r" % (legacy, _names(out)))
+        if _has_digital(out):
+            fails.append("ordinary-turn carry re-appended the removed discovery row "
+                         "(latch answer %r) - the client's drop is undone" % legacy)
+
+    # (2) finalize seam - never minted from the latch, never a null-driver restore.
+    try:
+        before_null = {"lob_models": _with_digital(), "stream_discovery": _latch("yes")}
+        out = sd.carry_stream_discovery(_copy.deepcopy(before_null),
+                                        {"lob_models": _copy.deepcopy(real)}, restore_dropped=True)
+        seen.append("finalize/null-before: rows=%r" % _names(out))
+        if _has_digital(out):
+            fails.append("finalize carry restored a NULL-driver discovery row "
+                         "(a phantom reaches the boundary)")
+        no_row = {"lob_models": _copy.deepcopy(real), "stream_discovery": _latch("yes")}
+        out = sd.carry_stream_discovery(_copy.deepcopy(no_row),
+                                        {"lob_models": _copy.deepcopy(real)}, restore_dropped=True)
+        seen.append("finalize/yes-latch-no-row: rows=%r" % _names(out))
+        if _has_digital(out):
+            fails.append("finalize carry minted a discovery row from the yes-latch alone")
+        # positive control: a FILLED before-row lost by the re-derivation is carried.
+        before_filled = {"lob_models": _with_digital(300, 12), "stream_discovery": _latch("added")}
+        out = sd.carry_stream_discovery(_copy.deepcopy(before_filled),
+                                        {"lob_models": _copy.deepcopy(real)}, restore_dropped=True)
+        got = _find(out, "Digital printing services")
+        seen.append("finalize/filled-before: restored price=%r" % (got and got.get("unit_price"),))
+        if got is None or got.get("unit_price") != 300 or got.get("origin") != ORIGIN:
+            fails.append("finalize carry no longer carries a FILLED discovery row the "
+                         "re-derivation lost (positive control broken)")
+    except TypeError as exc:
+        fails.append("carry_stream_discovery has no finalize seam (restore_dropped): %s" % exc)
+
+    # positive control: present in both -> kept and stamped.
+    both = {"lob_models": _with_digital(300, 12), "stream_discovery": _latch("added")}
+    out = sd.carry_stream_discovery(_copy.deepcopy(both), _copy.deepcopy(both))
+    got = _find(out, "Digital printing services")
+    if got is None or got.get("origin") != ORIGIN:
+        fails.append("a discovery row present in both snapshots lost its stamp / row")
+
+    # (3) gate == persisted.
+    align = getattr(sd, "align_gate_rows_with_persisted", None)
+    if align is None:
+        fails.append("align_gate_rows_with_persisted is absent - the wrap gate can "
+                     "judge a snapshot the persisted state disagrees with")
+    else:
+        persisted = {"lob_models": _with_digital(), "stream_discovery": _latch("added")}
+        out = align(persisted, {"lob_models": _copy.deepcopy(real)})
+        got = _find(out, "Digital printing services")
+        seen.append("gate+persisted-null-row: gate row price=%r" % (got and got.get("unit_price"),))
+        if got is None or got.get("unit_price") is not None:
+            fails.append("the gate snapshot does not carry the persisted null-driver "
+                         "discovery row - the wrap can fire past a phantom")
+        persisted2 = {"lob_models": _copy.deepcopy(real), "stream_discovery": _latch("removed")}
+        out = align(persisted2, {"lob_models": _with_digital()})
+        seen.append("gate-phantom/persisted-removed: rows=%r" % _names(out))
+        if _find(out, "Digital printing services") is not None:
+            fails.append("a discovery row the persisted model lacks survived in the "
+                         "gate snapshot (a re-derivation resurrected it)")
+
+    return not fails, (
+        "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -3755,6 +3891,18 @@ REGRESSIONS = [
                     "extractor line is secondary evidence, not the red. "
                     "Positive controls: the plain explicit-no and the "
                     "'No wait' lookahead hold at both commits.")),
+    Leg("R48", "REGRESSION", "discovery-removed-never-resurrected",
+        "a removed discovery line never comes back; the wrap gate sees the persisted rows",
+        "bd1a541", "b8f2697", _r_discovery_removed_never_resurrected,
+        issue="Corvid e3af1f24", surface="stream discovery carry-forward + wrap gate",
+        proof_note=("At b8f2697 carry_stream_discovery rebuilt 'confirmed' from "
+                    "answer=='yes' and re-appended the row the shared reading "
+                    "omitted (ordinary turn) and minted a fresh null row at the "
+                    "finalize seam - red behaviourally on teeth (1)+(2); the "
+                    "absent align_gate_rows_with_persisted is the named gap "
+                    "for tooth (3), secondary. Positive controls: present-in-"
+                    "both keeps its stamp; a FILLED before-row lost at "
+                    "finalize is carried from that row.")),
     Leg("R13", "REGRESSION", "fitted-cogs-covered",
         "covered NAICS proposes materials-only with a band",
         "eb7529b", "613a19a", _r_fitted_cogs_covered, tier=LIVE),

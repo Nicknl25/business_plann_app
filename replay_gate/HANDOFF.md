@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 TURN: 2/16
 TASK:
   FIX THE DISCOVERY READER THE RIGHT WAY — Nick's ruling 2026-08-17:
@@ -170,3 +170,89 @@ TASK:
   assistant_text (PRE and POST alike - pre-existing); T2 stored 862.5/567 vs
   client-stated 690/420 on Corvid. D3 (judge sub-category) stays PARKED.
   Green -> awaiting-Nick -> Nick re-runs Cowork on Corvid Press.
+RESULT:
+  AGENT: mini
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: Test Files/_mini_audit_discovery_convergence_20260817.txt (R48 --prove PROVEN behaviourally: RED at b8f2697 "ordinary-turn carry re-appended the removed discovery row (latch answer 'yes')" -> GREEN at HEAD; R48+R31+R32 3/3 clear); replay_gate/legs.py R48 discovery-removed-never-resurrected (new, 66 legs); offline redproof re-run in the foreground GREEN (Test Files/_discovery_reader_convergence_redproof.py); artifacts read: _live_discovery_corvid_clone_20260817_PRE_A (7 red) / POST_A (green) / PRE_B (11 red) / POST_B (green), _live_discovery_ninefathom_answer_clone_20260817_POST (green); grep negatives on python/; git diff --name-only bd1a541~1..bd1a541 (no email/notify/delivery file)
+  SUMMARY: AUDIT AT NEIGHBOR-CHECK (VS's tier call verified honest: the change
+  sits on the ops-turn/finalize/wrap-gate seam + the shared reader's prompt;
+  no engine math, no golden -> not full; not spot-check because the prompt
+  removal rule + carry rides every ops turn). All 7 task items HOLD:
+  (1) parallel reader GONE - zero hits for read_stream_discovery_answer /
+  stream_discovery_intent_frame / _DOOR_TO_ANSWER / append_confirmed_stream_rows /
+  new_discovered_row / _apply_stream_discovery_answer; _classify_restatement_
+  response has exactly the two restatement sites (:11906 def, :16938 call).
+  (2) shared reader binding: prompt "Stream discovery" section + removal rule as
+  the ONE exception to do-not-drop; stream_discovery_outcomes in schema+required;
+  ops patch block: _apply_model_ops_patch -> record_stream_discovery_outcomes ->
+  carry_stream_discovery (no restore) -> note_stream_discovery_removals -> receipt
+  leads; ONE clarify holds the turn (:20313). (3) carry KEPT+FIXED, reason
+  stands (latch lives outside every GPT schema, erased by finalize's wholesale
+  replace; origin is Python's provenance); resurrection gone - confirmed on
+  POST_B (row gone on the drop turn, absent across 5 turns + finalize, latch
+  'removed' survives finalize) and offline (null before-row -> nothing; yes-latch-
+  no-row -> nothing; FILLED before-row carried from itself). (4) wrap gate ==
+  persisted via align_gate_rows_with_persisted right after consultant_finalize
+  (:20503); both directions proven offline; POST_B boundary rows 690/30 + 420/9,
+  no null-driver row. (5) three cases PRE red -> POST green read from the
+  artifacts (Corvid A merged_into:Standard commercial print job + honest receipt,
+  2 lines; Corvid B removed; Nine Fathom added/added/declined + cascade 19/260/.6
+  and 13/140/.55). (6) zero email lines; floor R31/R32 GREEN by my own --only.
+  (7) GATE LEG ADDED: R48 discovery-removed-never-resurrected (fast, offline, no
+  GPT/DB): ordinary-turn omission never re-appended (yes + added latch), finalize
+  seam mints nothing from the latch and never restores a null-driver row, gate
+  carries a persisted null-driver discovery row and strips one the persisted
+  model lacks; positive controls present-in-both stamp + filled-before-row carry.
+  Proved RED on b8f2697 for the RIGHT reason (first attempt was CRASH-RED on a
+  new-only helper - the prove harness caught it, re-fixtured to a local finder,
+  now PROVEN behaviourally). VS DECLARED-vs-ACTUAL: matched (watcher.log
+  10:34:35 plan = neighbor-check, named neighbors a/b/c all evidenced in
+  VS_NOTES; loaded files == declared). Bundle: reader delete + carry/gate change
+  in one turn is the SAME discovery-only seam (align early-returns without an
+  asked latch) - not a mixed-radius bundle, no process finding. MY DECLARED-vs-
+  ACTUAL: matched (neighbor-check; offline redproof + artifacts + greps + floor;
+  canary skipped; legs R31/R32 + new R48).
+  TRIAGE (this RESULT closes them; nothing queued as auto-work):
+  - T2 (stored 862.5/567 vs stated 690/420 on Corvid e3af1f24): WONT-FIX -
+    design working. Read the source transcript: msg 100 offered the market
+    ceiling ($862.50 / $567.00), msg 107 "Let's go with option 2 - the top of
+    what your market pays" - the client CHOSE those prices in the coherence
+    walk; utilization .528/.44 = .66/.55 x 80% retention the client gave at
+    msg 109. Not a wrong number.
+  - Nine Fathom placement (wholesale row nested under the retail LOB): WONT-FIX/
+    watch - the engine consumes product rows; LOB placement is the shared
+    reader's call now; no number moves.
+  - Ordinary-turn model OMISSION of a discovery row = recorded+said removal
+    (parity with every other line, which has only the prompt guard): WONT-FIX/
+    watch - the receipt is truthful ("dropped as a separate line") and the
+    client can correct; the ruling made the shared reader the authority.
+  - T1 (drop-turn unit_price 690->30.0 written onto BOTH real lines from "30
+    commercial print jobs a week", PRE and POST alike, echo lost when the gate
+    cascade replaced assistant_text): NEEDS-RULING - a wrong number WAS stored on
+    the guided path on a real client-shaped turn; it self-healed only because
+    the model happened to re-confirm $690/$420 over the next two turns; the
+    existing _guard_underivable_ops_lever_writes ran and let it through (the
+    figure "30" appears in the message). If it had not been re-confirmed a $30
+    price would have reached the plan. Named guard gap; see TASK.
+TASK:
+  NICK: the discovery reader convergence is AUDITED GREEN - Cowork can be
+  re-run on Corvid Press (fresh tab, :5173/business-plan-form). One decision
+  for you (plain English is enough): T1 above - a correction-turn snapshot
+  clobbered a captured price with a capacity figure and the underivable-lever
+  guard passed it. If you say "chase T1", the next VS turn is:
+  VS (T1, only if Nick says go) - NEIGHBOR-CHECK (touches
+  _guard_underivable_ops_lever_writes, which every ops turn flows through):
+  1. Reproduce deterministically: replay Corvid B clone drop-turn (msg 25 on
+     messages[:25], Test Files/_live_discovery_corvid_clone.py case B) and
+     assert unit_price stays 862.5/567.0 (or the client's stated 690/420) on
+     the two real lines after the turn - PRE red (30.0/30.0 per POST_B.txt).
+  2. Determine WHY the guard passed a price rewrite whose only "derivation" is
+     a capacity count in the message; fix at the guard (a captured unit_price
+     may only move on a turn whose message states a price/dollar figure or
+     an explicit price correction) - no new behavior, no engine math.
+  3. Deal breaker named: a $30 stored price for a $690 job reaches the
+     workbook if the model does not happen to re-ask. Neighbors: R30 price-
+     change-stamps-retention, I01/I07 forward-move:price/ack-matches-stored,
+     R44 via --only; floor R31/R32; canary skip. Flip to mini.
+  D3 (judge sub-category) stays PARKED. EMAIL/DELIVERY PATH OFF-LIMITS.
