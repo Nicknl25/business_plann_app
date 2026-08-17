@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 1/16
+TURN: 2/16
 TASK:
   FIX A-122 — SUBMIT VALIDATOR IS THE LAST FLAT-FIRST READER. Nick's
   ruling 2026-08-17. Research w/ citations: docs/SUBMIT_VALIDATOR_BLOCKER_
