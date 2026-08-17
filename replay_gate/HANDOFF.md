@@ -1,4 +1,4 @@
-STATUS: awaiting-Nick
+STATUS: stopped-fault
 TURN: 2/16
 TASK:
   FIX A-122 — SUBMIT VALIDATOR IS THE LAST FLAT-FIRST READER. Nick's
