@@ -733,3 +733,6 @@ none of W1/W2/W4/W5 touch engine math or intake, so goldens move only at
 the planned R32 re-bless in W2.
 
 Nothing built. Report for ruling.
+
+---
+> **Follow-on 2026-08-18:** `docs/WRITING_PHASE_RESEARCH_2.md` refines this design against Nick's six requirements (modular sections, charts in the doc, GPT expertise vs grounding boundary, premium bar, break-even below the P&L, tiered delivery) and revises W2/W4/W5.
