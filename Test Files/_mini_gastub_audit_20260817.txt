@@ -1,0 +1,44 @@
+mini AUDIT of G&A stub denominator fix 6b6f400 - 2026-08-17 (FULL tier as VS declared)
+== 1. red-proof HEAD --compare (Millgate 2e198cbf): GREEN 10 (stub 0.036534, Q0 G&A 7,800.01, Q1-Q20 identical, taxes/dep/capacity untouched)
+== 1b. red-proof on throwaway worktree @ 6b6f400^ (pre-fix app code, same script/capture): RED 4 - stub 0.027701, Q0 G&A 5,914.16
+== 2. leaf purity PRE(6b6f400^) vs HEAD, independent dumps:
+== model_input: 15249 leaves; changed 1 added 0 removed 0
+   [GA_STUB_CELL] sections.expenses[5].values[0]: 0.027701 -> 0.036534
+   tally: {'GA_STUB_CELL': 1}
+== finmo: 2824 leaves; changed 10 added 0 removed 0
+   [Q0_MIRROR(cash_flow:Net Income)] cash_flow[1].values[0]: 46175.856036 -> 44634.492275
+   [Q0_MIRROR(pl:General & Administrative)] pl[7].values[0]: 5914.163505 -> 7800.009007
+   [Q0_MIRROR(pl:EBITDA)] pl[8].values[0]: 58745.768599 -> 56859.923097
+   [Q0_MIRROR(pl:Taxes)] pl[11].values[0]: 10319.912563 -> 9975.430822
+   [Q0_MIRROR(pl:Net Income)] pl[12].values[0]: 46175.856036 -> 44634.492275
+   [Q0_DESCENDANT] quarter_rows[0].ebitda: 58745.768599 -> 56859.923097
+   [Q0_DESCENDANT] quarter_rows[0].g_and_a: 5914.163505 -> 7800.009007
+   [Q0_DESCENDANT] quarter_rows[0].general_and_administrative: 5914.163505 -> 7800.009007
+   [Q0_DESCENDANT] quarter_rows[0].net_income: 46175.856036 -> 44634.492275
+   [Q0_DESCENDANT] quarter_rows[0].taxes: 10319.912563 -> 9975.430822
+   tally: {'Q0_MIRROR(cash_flow:Net Income)': 1, 'Q0_MIRROR(pl:General & Administrative)': 1, 'Q0_MIRROR(pl:EBITDA)': 1, 'Q0_MIRROR(pl:Taxes)': 1, 'Q0_MIRROR(pl:Net Income)': 1, 'Q0_DESCENDANT': 5}
+PURITY: PURE - every moved leaf is the G&A stub cell or a Q0 descendant
+== 2b. purity NEGATIVE CONTROL (head dump with a forecast G&A leaf + the taxes stub mutated): IMPURE, 2 OTHER - the classifier does flag non-descendants
+== 3. multi-line draft Alderfen 158f6816 (4 capacity lines): PRE stub 0.187094 (forecast/band basis) -> HEAD 0.097405 = 146,400/1,503,000 = coherence gate value; Q0 G&A 70,300.57 -> 36,599.93; FORECAST Q1-Q20 byte-identical to pre-fix capture; taxes 0.20396/dep 0/capacity [5205.09,2168.79,72.29,43.38] untouched; RESULT GREEN on HEAD, RED 3 on 6b6f400^
+== 4. goldens: fixture SINGLE_LINE_DRAFT.fin has no current_revenue (and no other_opex_absolute) -> stub fallback path; digests 1d50e46a/24e38de4/cbd76463 unchanged
+== 4b. R31/R32 baselines re-pointed 5716ba4/9d2c41c -> 725b374 (mini, legs.py): --prove --only R31,R32:
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R32   workbook-formula-grid            725b374   SAME        GREEN    GOLDEN
+      -> 2 surface(s) identical on both commits: single_line_input=72dfcb81f6f3, workbook_formulas=cbd764631e98 (negative control - green on both sides is the pass)
+R31   single-line-unchanged            725b374   SAME        GREEN    GOLDEN
+      -> 3 surface(s) identical on both commits: finmo=24e38de4dc98, model_input=1d50e46ab8e6, single_line_input=72dfcb81f6f3 (negative control - green on both sides is the pass)
+------------------------------------------------------------------------------
+COUNT   0 proven BEHAVIOURALLY (red shows the bug behaving)
+        0 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        2 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        2 legs total
+
+== 5. e2e: Millgate 20-03-01.xlsx opened independently: Model Inputs row17 C=0.036534, Audit Source row14 Q0 G&A 7800.009007, Q1 7581.430389 (== pre-fix Q1); canary Sunny_V3 system_run_complete, stub 0.02849 MATCH; ONE :5050 listener pid 29652; email/smtp/attach lines in python/ diff: 0
+== 6. fast gate on the current build after the legs.py edit:
+62/62 legs clear
+  GREEN - every known issue that ran is clear.

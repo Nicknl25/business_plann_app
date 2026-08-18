@@ -3643,9 +3643,19 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "9d2c41c", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "725b374", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("The surface neither VS SHA covers - finmo_sheet.py moved "
+        proof_note=("RE-POINTED 2026-08-17 (baseline 9d2c41c -> 725b374, mini): "
+                    "the A-124 SBA rate resolver changed the replay KEY of "
+                    "_sba_business_loan_interest_rate_and_source and the "
+                    "fixture (VS's _run_artifacts.py) was re-recorded for the "
+                    "new key only, so every pre-A-124 baseline dies "
+                    "FrozenLookupMiss (UNEARNED, no hash) - the grid digest "
+                    "itself never moved (cbd76463 before and after A-124 and "
+                    "after the G&A stub split 6b6f400: the CareCompanions "
+                    "fixture states no current_revenue, so the stub takes the "
+                    "unchanged forecast-basis fallback). "
+                    "The surface neither VS SHA covers - finmo_sheet.py moved "
                     "45 lines in c77094a. Hashes sheet -> row label -> formula "
                     "strings, sorted; NOT the .xlsx bytes, which are "
                     "non-deterministic (zip metadata/timestamps) and would "
@@ -3656,9 +3666,23 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
-        "c77094a", "5716ba4", _r_single_line_unchanged, issue="WS1b floor",
+        "c77094a", "725b374", _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-14 (baseline 9d2c41c -> 5716ba4): the "
+        proof_note=("RE-POINTED 2026-08-17 (baseline 5716ba4 -> 725b374, mini): "
+                    "NOT a re-bless - the digests did not move (model_input "
+                    "1d50e46a / finmo 24e38de4 before A-124, after A-124, and "
+                    "after the G&A stub split 6b6f400). The A-124 SBA rate "
+                    "resolver changed the replay KEY of _sba_business_loan_"
+                    "interest_rate_and_source and the fixture was re-recorded "
+                    "for the new key only, so pre-A-124 baselines die "
+                    "FrozenLookupMiss (UNEARNED, no hash) instead of hashing. "
+                    "KNOWN BLIND SPOT: the CareCompanions fixture states no "
+                    "current_revenue, so the G&A STUB (stated/stated since "
+                    "6b6f400) takes the forecast-basis fallback here - this "
+                    "floor does not exercise the stub denominator; the "
+                    "red-proof Test Files/_redproof_ga_stub_denominator.py "
+                    "(Millgate) does. "
+                    "RE-BLESSED 2026-08-14 (baseline 9d2c41c -> 5716ba4): the "
                     "ruled opening-PPE 5y straight-line depreciation (7b26ff6, "
                     "Nick ratified) legitimately moved every business with "
                     "opening assets, incl. this fixture (ppe=15,000). Purity "
