@@ -1,5 +1,5 @@
 STATUS: awaiting-mini
-TURN: 1/16
+TURN: 2/16
 TASK:
   FIX THE G&A STUB DENOMINATOR — Nick's ruling 2026-08-17. Research w/
   citations: docs/STUB_CELLS_WHY_RESEARCH.md §1 (read it first). DEAL
