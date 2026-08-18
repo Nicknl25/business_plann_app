@@ -3,6 +3,7 @@ from __future__ import annotations
 from openpyxl.styles import Font, PatternFill
 
 from .checks_sheet import build_checks_sheet
+from .dashboard_sheet import build_dashboard_sheet
 from .data import DraftWorkbookData
 from .diagnostics_sheet import build_diagnostics_sheet
 from .excel_utils import (
@@ -71,6 +72,8 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   build_cash_equity_sheet(wb, data, ctx)
   build_model_inputs_sheet(wb, data, ctx)
   build_finmo_sheet(wb, data, ctx)
+  # W2 (2026-08-18): Dashboard sits right after FINMO; wb.active stays FINMO.
+  build_dashboard_sheet(wb, data, ctx)
   build_source_audit_sheet(wb, data, ctx)
   build_checks_sheet(wb, ctx)
 

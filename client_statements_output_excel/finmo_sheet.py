@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
+from .break_even_sheet import (
+  BREAK_EVEN_STATEMENT,
+  fill_break_even_formulas,
+  write_break_even_rows,
+  write_cvp_helper_and_chart,
+)
 from .data import DraftWorkbookData, text
 from .excel_utils import (
   ANNUAL_START_COL,
@@ -184,6 +190,11 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
 
   row = 7
   row = _write_statement_rows(ws, ctx, statement="Income Statement", lines=pl_lines, start_row=row)
+  # W2 (2026-08-18, docs/WRITING_PHASE_RESEARCH_2.md R5): the Break-Even
+  # Analysis block sits DIRECTLY BELOW the P&L. Rows are reserved here so
+  # the Balance Sheet / Cash Flow keep resolving by label through ctx;
+  # formulas are filled after the statement loop (they read P&L cells).
+  row = write_break_even_rows(ws, data, ctx, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Balance Sheet", lines=BS_LINES, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Cash Flow", lines=CF_LINES, start_row=row)
 
@@ -359,6 +370,8 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
     "Ending Cash",
   }
   for statement, line_map in ctx.finmo_rows.items():
+    if statement == BREAK_EVEN_STATEMENT:
+      continue  # W2: its own formulas + styling below
     use_year_end = statement == "Balance Sheet"
     for label, r in line_map.items():
       add_annual_formulas(ws, r, use_year_end=use_year_end)
@@ -370,3 +383,9 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
         number_format=CURRENCY_FORMAT,
         border_top=label in subtotal_rows,
       )
+
+  # W2: fill the break-even block (live formulas off the P&L cells above)
+  # and add the CVP helper range + native chart below the statements.
+  fill_break_even_formulas(ws, data, ctx)
+  last_statement_row = max(r for stmt, rows in ctx.finmo_rows.items() for r in rows.values())
+  write_cvp_helper_and_chart(ws, ctx, start_row=last_statement_row + 3)

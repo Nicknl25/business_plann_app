@@ -23,6 +23,7 @@ DEBT_SHEET = "Debt Schedule"
 CAPEX_SHEET = "CapEx Depreciation"
 WORKING_CAPITAL_SHEET = "Working Capital"
 CASH_EQUITY_SHEET = "Cash Equity Schedule"
+DASHBOARD_SHEET = "Dashboard"  # W2 (2026-08-18)
 
 PERIOD_START_COL = 3
 PERIOD_END_COL = PERIOD_START_COL + PERIOD_COUNT - 1
@@ -316,6 +317,7 @@ def set_tab_colors(wb: Workbook) -> None:
     CASH_EQUITY_SHEET: "4472C4",
     MODEL_INPUT_SHEET: "7030A0",
     FINMO_SHEET: "1F4E79",
+    DASHBOARD_SHEET: "00B050",
     CHECKS_SHEET: "C00000",
     SOURCE_SHEET: "808080",
   }

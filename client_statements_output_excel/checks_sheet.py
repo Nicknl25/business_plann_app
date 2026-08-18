@@ -837,12 +837,22 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
     ("Total Assets Q20", ("Balance Sheet", "Total Assets"), LAST_LIVE_COL),
     ("Total Liabilities & Equity Q20", ("Balance Sheet", "Total Liabilities & Equity"), LAST_LIVE_COL),
     ("Ending Cash Q20", ("Cash Flow", "Ending Cash"), LAST_LIVE_COL),
+    # W2 (2026-08-18): the live break-even block (FINMO, formulas off the
+    # P&L) vs the persisted W1 read-out (Audit Source). Rows only exist
+    # when finmo_json carries break_even, so pre-W1 drafts skip via the
+    # `continue` below. Tolerance is relative (persisted ratios are 6-dp).
+    ("Break-Even Revenue Q1", ("Break-Even Analysis", "Break-Even Revenue"), FIRST_LIVE_COL),
+    ("Cash Break-Even Revenue Q1", ("Break-Even Analysis", "Cash Break-Even Revenue"), FIRST_LIVE_COL),
+    ("Break-Even Revenue Q20", ("Break-Even Analysis", "Break-Even Revenue"), LAST_LIVE_COL),
   ]
   for name, expected_key, col in baseline_checks:
     actual_row = ctx.finmo_row(expected_key[0], expected_key[1])
     expected_row = ctx.source_row(expected_key[0], expected_key[1])
     if not actual_row or not expected_row:
       continue
+    tolerance_value = 1.0
+    if expected_key[0] == "Break-Even Analysis":
+      tolerance_value = f"=MAX(1,0.0005*ABS({ref(SOURCE_SHEET, expected_row, col)}))"
     _write_check(
       ws,
       row,
@@ -852,7 +862,7 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
       range_or_cell=ref(FINMO_SHEET, actual_row, col),
       actual=ref(FINMO_SHEET, actual_row, col),
       expected=ref(SOURCE_SHEET, expected_row, col),
-      tolerance=1.0,
+      tolerance=tolerance_value,
       status_formula=f'=IF(ABS(G{row})<=H{row},"MATCH","CHANGED")',
       notes="CHANGED means assumptions were edited from the persisted run; it is informational and does not fail Model Status.",
     )

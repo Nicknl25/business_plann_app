@@ -1,0 +1,55 @@
+W2 BREAK-EVEN WORKBOOK + DASHBOARD PROOF 2026-08-18 (working tree on 5c9a8b9)
+
+== Bellweather (single-line): block vs W1 persisted, CVP crossing, Checks status, tiles ==
+Excel COM recalc: OK
+Checks!B2 Model Status: OK
+FINMO block Q1: fixed 80362.89 var 0.416111 cm 0.583889 BE 137633.83 cash BE 126791.45 EBITDA BE 118390.2 MoS 0.2135 G&A-fixed 141061.36
+W1 block   Q1: fixed 80362.145153 var 0.416111 cm 0.583889 BE 137632.572549 cash BE 126790.18641 EBITDA BE 118388.940364 MoS 0.213528 G&A-fixed 141060.228315
+   Break-Even Units - Primary line of business / Auto repair service = 215.053
+Block == W1 persisted block (Q1 all rows, per-line units, Q20 BE): MATCH
+CVP xmax 262500.0001152 first pts [(0, 0, 80363), (26250, 26250, 91286), (52500, 52500, 102209)] ... BE point 137633.83345923305 137633.83345923305
+CVP: revenue line = x, cost line = fixed + ratio*x, cross = 137633.83 == BE marker: OK; planned marker x = 175000.0000768
+Dashboard tiles: [('Year 1 Revenue', 712250.019512778), ('Year 5 Revenue', 938201.153386156), ('Year 1 EBITDA', 138272.7356043081), ('Year 1 EBITDA Margin', 0.1941351096050443), ('Year 5 EBITDA Margin', 0.20299686523210403), ('First EBITDA-Positive Quarter', 'Q1'), ('Break-Even Revenue (Q1, pre-tax)', 137633.83345923305), ('Cash Break-Even Revenue (Q1)', 126791.44890852811), ('Margin of Safety (Q1)', 0.2135209520066774), ('Cash Low Point', 70972.10919467612), ('Cash Low Quarter', 'Q1'), ('Peak Debt Balance', 97737), ('Headcount Q1 (FTE)', 3.1), ('Headcount Q20 (FTE)', 3.71), ('Year 1 Net Income', 68184.67055992223), ('Year 5 Net Income', 108906.485094821), ('Year 1 Gross Margin', 0.6601268979167996), ('Ending Cash Q20', 251982.19579986896)]
+Dashboard charts: 7
+chart parts in file: 8
+
+== Kestrelbrook (4-line): per-line units at planned mix ==
+Excel COM recalc: OK
+Checks!B2 Model Status: OK
+FINMO block Q1: fixed 492417.29 var 0.45187 cm 0.54813 BE 898358.03 cash BE 848219.35 EBITDA BE 790216.89 MoS 0.043 G&A-fixed 902629.76
+W1 block   Q1: fixed 492416.438125 var 0.451869 cm 0.548131 BE 898355.389724 cash BE 848216.773226 EBITDA BE 790214.383058 MoS 0.04303 G&A-fixed 902627.726455
+   Break-Even Units at planned mix - Plant & nursery retail / Plant/nursery sale = 4805.557
+   Break-Even Units at planned mix - Hard-goods retail / Hard-goods sale = 2126.683
+   Break-Even Units at planned mix - Landscaping & installation services / Landscaping/installation job = 472.596
+   Break-Even Units at planned mix - Design & consultation services / Design/consultation engagement = 65.666
+Block == W1 persisted block (Q1 all rows, per-line units, Q20 BE): MATCH
+CVP xmax 1408124.9999333997 first pts [(0, 0, 492417), (140812, 140812, 556046), (281625, 281625, 619675)] ... BE point 898358.0312910536 898358.0312910536
+CVP: revenue line = x, cost line = fixed + ratio*x, cross = 898358.03 == BE marker: OK; planned marker x = 938749.9999555999
+Dashboard charts: 7
+chart parts in file: 8
+
+== ABSENT-TOLERANT (persisted pre-W1 Bellweather row, no break_even) ==
+Excel COM recalc: OK
+Checks!B2 Model Status: OK
+FINMO block Q1: fixed 80362.89 var 0.416111 cm 0.583889 BE 137633.83 cash BE 126791.45 EBITDA BE 118390.2 MoS 0.2135 G&A-fixed 141061.36
+CVP: revenue line = x, cost line = fixed + ratio*x, cross = 137633.83 == BE marker: OK; planned marker x = 175000.0000768
+Dashboard charts: 7
+
+== R32 drift purity (grid at 5c9a8b9 vs W2) ==
+detected FINMO row shift = +13 for rows >= 21 (P&L last row 47)
+identical rows: 108; renumbered-only rows: 42; new W2 rows: 99; removed: 0
+PURE: every moved leaf is a W2 row or a pure row-shift renumbering; nothing else moved.
+-- negative controls (tampered grids) --
+PROBLEMS:
+ - IMPURE MOVE Revenue Drivers :: 'Actual Revenue QoQ Growth'
+PROBLEMS:
+ - UNEXPECTED NEW ROW FINMO :: 'Sneaky Row'
+PROBLEMS:
+ - IMPURE CHECKS 'Persisted Baseline': missing=["='FINMO'!W61", "='FINMO'!W69", "='FINMO'!W81"] bad_extra=["='FINMO'!W74"]
+
+== Part D: Bellweather preview regeneration ==
+draft 46ae584a Bellweather Auto Works run 30657ccb
+rebuilt finmo == persisted on pl/bs/cf/periods/accounting_check: True | break_even present: True
+Excel recalc+save: OK | Model Status: OK
+W1 summary: BE Q1 137633 cash 126790 EBITDA-basis 118389 first EBITDA+ qtr 1 Y1 BE 552609
+OUT C:\dev\Cilient Plans\Bellweather Auto Works -- W2 PREVIEW break-even + dashboard 08-18-2026.xlsx
