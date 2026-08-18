@@ -304,3 +304,94 @@ table — the internal email fence is not touched.**
 - R6 `requested_tier` on the request row + `writing_phase_artifacts` table; internal email fence untouched; PDF via Word COM — confirm.
 
 Nothing built.
+
+---
+
+# ADDENDUM 2026-08-18 — R1-R6 APPROVED; three flow requirements confirmed
+
+**Ruling notes recorded:** density guard is CONFIGURABLE (start Lane-A ≥ 70% of
+factual sentences / Lane-B ≤ 30% per section; tune on real output); W5 builds
+ONE section first (§5 Products — the most fact-dense; §2 Business as fallback),
+proves split + verifier + density on its real output, then rolls the pattern.
+
+**Verdict on the three requirements: the approved design already supports all
+three; no change to R1-R6. Two things must be DESIGNED IN from W4 (not
+retrofitted): (a) versioning keys on the request/artifact tables, (b) the
+runner's "authoritative run" resolution + gate re-check. One flag: existing
+drafts predating W1/W3 lack `finmo_json.break_even` and the override registry.**
+
+## 1. Run on existing DB drafts — SUPPORTED
+- Runner `python -m writing_phase.run --draft-id <id> [--planning-run-id <id>]
+  [--sections …] [--dry-run]` reads rows only (the `export_client_workbook`
+  shape). Default target = the draft's authoritative run
+  (`intake_consult_drafts.planning_run_id`, which after a rescue/rerun IS the
+  latest); explicit `--planning-run-id` allowed for research on an older run.
+- **Gate re-check is in the runner, always:** `planning_runs.run_status=
+  'completed' AND JSON_EXTRACT(acceptance_verdict_json,'$.passed')=true` for
+  the resolved run — a request row is only a *hint*; a stale/forged row cannot
+  bypass it. Rescued runs pass (and are flagged for §9).
+- **FLAG (not a design change):** drafts run before W1/W3 have no
+  `finmo_json.break_even` and no `override_registry`. Options: (i) rerun
+  post-intake on the chosen dev drafts once (`lifecycle_mode=rerun`, existing
+  path — Millgate already has such a rerun, `5186501f`) so they carry both;
+  (ii) the brief assembler treats missing blocks as `Absent` and §8/§9 degrade
+  (sections still verify). Recommend (i) for the W5 tuning drafts, (ii) as
+  the permanent tolerance.
+
+## 2. Cowork runs flow end-to-end — SUPPORTED, with the switch defined
+- On pass, the system-run handler (after `record_workbook_delivery`) INSERTs
+  `writing_phase_requests {draft_id, planning_run_id, requested_by='auto_pass',
+  requested_tier='standard', status='pending'}` — a row, no LLM cost.
+- **Switch:** `WRITING_PHASE_AUTORUN` (default `0`). When `1`, the handler
+  spawns a daemon thread that invokes the runner for that request immediately
+  after the HTTP 200 (same pattern as `financials.py:9 _start_system_run_in_
+  background`), so intake → post-intake → workbook → DOCUMENT happens in one
+  Cowork run and the persona watcher/vitals can report `document: completed/
+  failed` (new `writing_phase_requests.status` is the signal it polls). When
+  `0`, rows sit `pending` and the production drain is the poller (extension of
+  `run_supervisor.py` or its own loop) — off in dev, on in prod.
+- Failure isolation holds: writing failure → request row `failed` + internal
+  notice; never alters the passed run or the workbook email.
+
+## 3. Regenerate on updated figures + versioning — SUPPORTED; design these keys NOW
+- **Trigger shape (built later by #21):** client edits → post-intake rerun
+  (existing `lifecycle_mode=rerun`; new `planning_runs` row, `source_planning_
+  run_id` = prior, draft pointer moves) → on pass the handler enqueues a NEW
+  request `{draft_id, planning_run_id=<new run>, requested_by ∈ {client_update,
+  paid_update}, requested_tier=<purchased>}`. Nothing in the writing phase
+  distinguishes v1 from vN except the keys below.
+- **Versioning (design now):**
+  `writing_phase_requests`: `request_id, draft_id, planning_run_id, version
+  INT, requested_by, requested_tier, deliverables_json, status, gate_snapshot_
+  json, supersedes_request_id, created_at, completed_at, error`; UNIQUE
+  `(draft_id, version)`; `version = 1 + MAX(version) for draft` assigned at
+  enqueue.
+  `writing_phase_artifacts`: `artifact_id, request_id, draft_id, version,
+  planning_run_id, kind ∈ {docx, pdf, xlsx, machine_copy, brief_json}, path,
+  sha256, tier_min, created_at` — INSERT-only, never overwritten; delivery
+  folder `…/<business>/v<version>/`; the workbook artifact points at the
+  `workbook_deliveries` row of the SAME planning_run_id (already timestamped,
+  INSERT-only). Old versions stay readable; the "current" plan = highest
+  completed version.
+- **Everything re-assembles from the new run:** the brief is a pure function
+  of `(draft row, planning_run row, joins by planning_run_id)` — new
+  `model_input_json/finmo_json/break_even/override_registry/acceptance_
+  verdict` → new Lane-A facts → new §8/§9. No section caches prior text; the
+  Exec Summary is rebuilt from the new exports. Optional later feature (not
+  now): a "what changed since v(N-1)" section — the artifacts table gives it
+  both machine copies.
+- **Idempotency:** the runner is re-runnable per (draft, run): a re-run for
+  the same planning_run_id (tuning) creates a new version; a request whose
+  planning_run_id is no longer the draft's authoritative run at execution time
+  is marked `skipped(superseded)` unless `--planning-run-id` was explicit
+  (research mode). `GPT_RESPONSE_LOCK` makes identical inputs replay byte-for-
+  byte, so version N regenerated on unchanged inputs is reproducible.
+
+## W-sequence effect
+W4 adds the two tables WITH `version`, `supersedes_request_id`, `requested_by`,
+`requested_tier`, the runner's authoritative-run resolution + gate re-check,
+and `WRITING_PHASE_AUTORUN`. W5 = §5 Products first, then roll. W6 = enable
+auto-enqueue; the first Cowork confirmation run sets `WRITING_PHASE_AUTORUN=1`.
+Build starts at W1 (break-even) on Nick's go.
+
+Nothing built.
