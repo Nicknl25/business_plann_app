@@ -1,0 +1,12 @@
+CONFIRM RUN 2026-08-17 21:34-21:37 - Bellweather Auto Works (auto repair, Sheboygan WI)
+draft 46ae584a7eaa42bb95ad03075def4c7a  run 30657ccb476a408e87779b4b6edf1b1b  HEAD f900a45
+48 turns / 107 gpt calls / 0 errors / 0 holds / build 128s / acceptance 19/19 / cascade tier 0
+
+HELD LIVE (backend artifacts):
+- discovery: rich evidence, 2 candidates asked; parts=merged_into:Auto repair service, tires=declined; 1 row survived; clean ops->market flip
+- A-122 row-first submit: 200 first try; intake_submissions #84 = repair order / 640 / 34
+- G&A stub: 42000/700000 = 0.06 MATCH; FINMO Q0 g_and_a 10500 = stated quarter; forecast twin Q1 0.05897
+- NI trajectory viable (Q5 9.98% -> Q11 11.6%)
+
+FILED #138 recurred=1 -> DETECTOR MISFIRE (one-line business; ops check not_applicable, workbook sub-check still demanded >=2 rows). No app defect. Registry-side guard gap (mini-owned).
+No new triage findings. Watch: capacity tidied 30->34 = bay capacity vs 21 actual/26 goal (utilization, design working).
