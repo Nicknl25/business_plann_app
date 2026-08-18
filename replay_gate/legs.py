@@ -3643,9 +3643,23 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "725b374", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "96133a7", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-POINTED 2026-08-17 (baseline 9d2c41c -> 725b374, mini): "
+        proof_note=("RE-BLESSED 2026-08-18 (baseline 725b374 -> 96133a7, VS, W2 "
+                    "break-even below the P&L + Dashboard; ONE planned re-bless "
+                    "bundled for A+B+C per docs/WRITING_PHASE_RESEARCH_2.md R5): "
+                    "the Break-Even Analysis block is inserted DIRECTLY BELOW "
+                    "the Income Statement on FINMO, so every Balance Sheet / "
+                    "Cash Flow formula string moved by ROW RENUMBERING (+13) "
+                    "and the grid gained the block rows, the CVP helper rows, "
+                    "the Dashboard sheet and the Checks rows for the new "
+                    "statement. Purity proven leaf-by-leaf BEFORE re-baselining "
+                    "(Test Files/_w2_r32_drift_purity.py on the grids at "
+                    "5c9a8b9 vs W2: 108 rows identical, 42 rows pure row-shift, "
+                    "99 new W2 rows, 0 removed, 0 impure; three tampered-grid "
+                    "negative controls all caught; record in "
+                    "_w2_break_even_workbook_proof_20260818.txt). "
+                    "RE-POINTED 2026-08-17 (baseline 9d2c41c -> 725b374, mini): "
                     "the A-124 SBA rate resolver changed the replay KEY of "
                     "_sba_business_loan_interest_rate_and_source and the "
                     "fixture (VS's _run_artifacts.py) was re-recorded for the "
