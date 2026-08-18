@@ -1,0 +1,16 @@
+== model_input: 15249 leaves; changed 1 added 0 removed 0
+   [GA_STUB_CELL] sections.expenses[5].values[0]: 0.027701 -> 0.036534
+   tally: {'GA_STUB_CELL': 1}
+== finmo: 2824 leaves; changed 10 added 0 removed 0
+   [Q0_MIRROR(cash_flow:Net Income)] cash_flow[1].values[0]: 46175.856036 -> 44634.492275
+   [Q0_MIRROR(pl:General & Administrative)] pl[7].values[0]: 5914.163505 -> 7800.009007
+   [Q0_MIRROR(pl:EBITDA)] pl[8].values[0]: 58745.768599 -> 56859.923097
+   [Q0_MIRROR(pl:Taxes)] pl[11].values[0]: 10319.912563 -> 9975.430822
+   [Q0_MIRROR(pl:Net Income)] pl[12].values[0]: 46175.856036 -> 44634.492275
+   [Q0_DESCENDANT] quarter_rows[0].ebitda: 58745.768599 -> 56859.923097
+   [Q0_DESCENDANT] quarter_rows[0].g_and_a: 5914.163505 -> 7800.009007
+   [Q0_DESCENDANT] quarter_rows[0].general_and_administrative: 5914.163505 -> 7800.009007
+   [Q0_DESCENDANT] quarter_rows[0].net_income: 46175.856036 -> 44634.492275
+   [Q0_DESCENDANT] quarter_rows[0].taxes: 10319.912563 -> 9975.430822
+   tally: {'Q0_MIRROR(cash_flow:Net Income)': 1, 'Q0_MIRROR(pl:General & Administrative)': 1, 'Q0_MIRROR(pl:EBITDA)': 1, 'Q0_MIRROR(pl:Taxes)': 1, 'Q0_MIRROR(pl:Net Income)': 1, 'Q0_DESCENDANT': 5}
+PURITY: PURE - every moved leaf is the G&A stub cell or a Q0 descendant

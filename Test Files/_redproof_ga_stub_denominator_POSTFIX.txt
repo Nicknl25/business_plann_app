@@ -1,0 +1,17 @@
+draft 2e198cbfadb0457893bc38d9048bd7bf Millgate Press
+  stated current_revenue=854,000 other_opex_absolute=31,200 -> expected stub 0.036534
+  G&A row values[0:4] = [0.036534, 0.027701, 0.027701, 0.027701]  ... len=21
+  finmo Q0: {"revenue": 213500.000189, "g_and_a": 7800.009007, "gna": null, "general_and_administrative": 7800.009007, "ebitda": 56859.923097, "taxes": 9975.430822, "net_income": 44634.492275}
+  coherence gate gna pct = 0.03653395784543326  (fields ['cogs_pct', 'depreciation_quarterly', 'gna_pct', 'growth_to_q11', 'interest_quarterly', 'marketing_pct', 'notes', 'payroll_quarterly', 'q1_revenue_quarterly', 'rent_quarterly']) 
+  ok   G&A row has stub + 20 live values
+  ok   stub == other_opex_absolute / stated current_revenue = 0.036534 (got 0.036534)
+  ok   stub is NOT the capacity-ceiling ratio 0.027701
+  ok   stub == coherence gate's own G&A pct 0.036534
+  finmo Q0 revenue=213,500.00 G&A=7,800.01 (stated quarterly = 7,800.00)
+  ok   FINMO Q0 G&A == stated quarterly dollars 7,800.00 (got 7,800.01)
+  ok   FORECAST Q1-Q20 G&A byte-identical to pre-fix capture
+  ok   taxes stub untouched (0.182667)
+  ok   depreciation stub untouched (0.0)
+  ok   capacity stubs untouched ([390.168129])
+  PRE stub 0.027701 -> POST stub 0.036534  (5,914.16/q -> 7,800.01/q at Q0 revenue 213,500.00)
+RESULT: GREEN

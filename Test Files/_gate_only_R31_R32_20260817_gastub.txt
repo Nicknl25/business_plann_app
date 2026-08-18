@@ -1,0 +1,35 @@
+Proving 2 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R32   workbook-formula-grid            9d2c41c   RED         GREEN    UNEARNED
+      -> golden-master leg printed no GOLDEN-SHA on the baseline - without hashes from BOTH sides there is nothing to compare and the control proves nothing
+R31   single-line-unchanged            5716ba4   RED         GREEN    UNEARNED
+      -> golden-master leg printed no GOLDEN-SHA on the baseline - without hashes from BOTH sides there is nothing to compare and the control proves nothing
+------------------------------------------------------------------------------
+COUNT   0 proven BEHAVIOURALLY (red shows the bug behaving)
+        0 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        2 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        2 legs total
+
+  UNEARNED (2) - the property was never evaluated:
+    - R32 workbook-formula-grid @ 9d2c41c
+        golden-master leg printed no GOLDEN-SHA on the baseline - without hashes from BOTH sides there is nothing to compare and the control proves nothing
+    - R31 single-line-unchanged @ 5716ba4
+        golden-master leg printed no GOLDEN-SHA on the baseline - without hashes from BOTH sides there is nothing to compare and the control proves nothing
+    A crash-red is not evidence. Each of these may be hiding a leg
+    that would go GREEN on its own broken baseline. Re-fixture to
+    the baseline's own call shape (see surface.call_compat), or
+    declare proof=STRUCTURAL_ABSENCE with the grep that justifies it.
+
+  QUARANTINED: R32, R31
+  These legs are NOT trusted and are excluded from the gate
+  verdict until they can go red on their own broken baseline.
+  Pass them to the gate with --quarantine to keep it honest:
+    ... --quarantine R32,R31

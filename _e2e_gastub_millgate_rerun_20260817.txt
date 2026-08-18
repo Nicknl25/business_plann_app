@@ -1,0 +1,48 @@
+triggering system run for 2e198cbfadb0457893bc38d9048bd7bf
+HTTP 200
+{'status': 'ok'}
+{'planning_run_status': 'completed', 'planning_failure_reason': None}
+draft 2e198cbfadb0457893bc38d9048bd7bf Millgate Press
+run status: completed
+stated current_revenue 854000.0 other_opex_absolute 31200.0 other_operating_expense 2600.0
+G&A values[0:3] [0.036534, 0.03551021256436964, 0.03534423968323759] len 21
+expected stub 0.036534 -> stub 0.036534 MATCH
+finmo Q0 revenue 213500.000189 g_and_a 7800.009007 stated quarterly 7800.0
+== NEW (post-fix rerun) C:\dev\Cilient Plans\Millgate Press -- 08-17-2026 20-03-01.xlsx
+   Model Inputs A11 ['Revenue', 'Revenue Drivers schedule', "='Revenue Drivers'!C14", "='Revenue Drivers'!D14"]
+   Model Inputs A17 ['General & Administrative', 'Direct model driver', 0.036534, 0.03551021256436964]
+   Model Inputs A22 ['Taxes', 'Direct model driver', 0.182667, 0.182667]
+   FINMO A8 ['Revenue', 'Formula', "='Model Inputs'!C11", "='Model Inputs'!D11"]
+   FINMO A15 ['General & Administrative', 'Formula', "=C8*'Model Inputs'!C17", "=D8*'Model Inputs'!D17"]
+   FINMO A16 ['EBITDA', 'Formula', '=C10-SUM(C11:C15)', '=D10-SUM(D11:D15)']
+   FINMO A19 ['Taxes', 'Formula', "=MAX(0,C16-C17-C18)*'Model Inputs'!C22", "=MAX(0,D16-D17-D18)*'Model Inputs'!D22"]
+   FINMO A20 ['Net Income', 'Formula', '=C16-SUM(C17:C19)', '=D16-SUM(D17:D19)']
+   FINMO A47 ['Net Income', 'Formula', '=0', '=D20']
+   Audit Source A7 ['Revenue', 'Persisted FINMO', 213500.000189, 213500.000189]
+   Audit Source A14 ['General & Administrative', 'Persisted FINMO', 7800.009007, 7581.430389]
+   Audit Source A15 ['EBITDA', 'Persisted FINMO', 56859.923097, 57552.569715]
+   Audit Source A18 ['Taxes', 'Persisted FINMO', 9975.430822, 7802.510339]
+   Audit Source A19 ['Net Income', 'Persisted FINMO', 44634.492275, 34911.884375]
+   Audit Source A46 ['Net Income', 'Persisted FINMO', 44634.492275, 34911.884375]
+== OLD (pre-fix, 15-47) C:\dev\Cilient Plans\Millgate Press -- 08-17-2026 15-47-36.xlsx
+   Model Inputs A11 ['Revenue', 'Revenue Drivers schedule', "='Revenue Drivers'!C14", "='Revenue Drivers'!D14"]
+   Model Inputs A17 ['General & Administrative', 'Direct model driver', 0.027701, 0.03551021256436964]
+   Model Inputs A22 ['Taxes', 'Direct model driver', 0.182667, 0.182667]
+   FINMO A8 ['Revenue', 'Formula', "='Model Inputs'!C11", "='Model Inputs'!D11"]
+   FINMO A15 ['General & Administrative', 'Formula', "=C8*'Model Inputs'!C17", "=D8*'Model Inputs'!D17"]
+   FINMO A16 ['EBITDA', 'Formula', '=C10-SUM(C11:C15)', '=D10-SUM(D11:D15)']
+   FINMO A19 ['Taxes', 'Formula', "=MAX(0,C16-C17-C18)*'Model Inputs'!C22", "=MAX(0,D16-D17-D18)*'Model Inputs'!D22"]
+   FINMO A20 ['Net Income', 'Formula', '=C16-SUM(C17:C19)', '=D16-SUM(D17:D19)']
+   FINMO A47 ['Net Income', 'Formula', '=0', '=D20']
+   Audit Source A7 ['Revenue', 'Persisted FINMO', 213500.000189, 213500.000189]
+   Audit Source A14 ['General & Administrative', 'Persisted FINMO', 5914.163505, 7581.430389]
+   Audit Source A15 ['EBITDA', 'Persisted FINMO', 58745.768599, 57552.569715]
+   Audit Source A18 ['Taxes', 'Persisted FINMO', 10319.912563, 7640.678794]
+   Audit Source A19 ['Net Income', 'Persisted FINMO', 46175.856036, 34187.778421]
+   Audit Source A46 ['Net Income', 'Persisted FINMO', 46175.856036, 34187.778421]
+NEW General & Administrative [7800.009007, 7581.430389, 7692.588712, 7799.280721, 7901.25115, 7998.275502]
+NEW Interest [2250, 1771.875, 1715.625, 1659.375, 1432.9275, 868.215]
+NEW Depreciation [0, 13066.3, 13129.793258, 13190.123555, 13247.502013, 13301.708541]
+OLD General & Administrative [5914.163505, 7581.430389, 7692.588712, 7799.280721, 7901.25115, 7998.275502]
+OLD Interest [2250, 2657.8125, 2573.4375, 2489.0625, 2179.92375, 1367.98875]
+OLD Depreciation [0, 13066.3, 13129.793258, 13190.123555, 13247.502013, 13301.708541]

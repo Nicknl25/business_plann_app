@@ -3603,14 +3603,33 @@ def _build_model_input_overlay(
     )
   quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
   non_rent_opex_year1 = _non_rent_g_and_a_year1(financials_json or {})
-  # Prefer the operator-rescaled G&A band (cohort shape at the business's level)
-  # over the cohort table seed -- the rescaled target is anchored to the
+  # G&A has TWO bases, like every other ratio row (cogs _baseline/_forecast,
+  # marketing _baseline/_forecast, taxes_percent/tax_rate_forecast):
+  #   g_and_a_ratio_forecast  -> the LIVE Q1-Q20 rows: capacity/band basis
+  #                              (revenue_total_year1 = authoritative
+  #                              capacity-driven revenue since 513778e).
+  #   g_and_a_ratio_baseline  -> the STUB (Q0 intake snapshot): CLIENT TRUTH,
+  #                              client dollars over client STATED revenue -
+  #                              the same basis the coherence gate uses
+  #                              (intake_coherence/evaluator.py BASIS
+  #                              DOCTRINE: other_opex_absolute /
+  #                              stated current_revenue).
+  # Until 2026-08-17 the two shared ONE variable, so the forecast-aimed
+  # denominator retarget (513778e) silently landed in the today cell:
+  # Millgate stated 31,200 / 854,000 = 0.036534, the stub carried
+  # 31,200 / 1,126,320 (capacity x price x 0.95) = 0.027701, -24% on the
+  # client's own current overhead ABOVE EBITDA (docs/STUB_CELLS_WHY_RESEARCH.md
+  # SS1). Split by name so a forecast-basis change can never reach the stub.
+  #
+  # FORECAST twin: the prior derivation, unchanged. Prefer the
+  # operator-rescaled G&A band (cohort shape at the business's level) over
+  # the cohort table seed -- the rescaled target is anchored to the
   # operator's filled overhead, so the actual finmo G&A sits at the real level.
   _rescaled_ga = _rescaled_target("sga_percent_of_revenue")
   if _rescaled_ga is not None and _rescaled_ga > 0.0:
-    g_and_a_ratio_baseline = _rescaled_ga
+    g_and_a_ratio_forecast = _rescaled_ga
   else:
-    g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
+    g_and_a_ratio_forecast = _table_seed_ratio_for_lever(
       "expenses::General & Administrative",
       financials_json=financials_json or {},
       annual_revenue=revenue_total_year1,
@@ -3619,9 +3638,27 @@ def _build_model_input_overlay(
   # CW-013 units seam: whichever source won above, the baseline enters
   # the live-quarter rows as a FRACTION - the same ladder the stub
   # already used (Stonewater: 1.868782 percent-points crashed submit).
-  g_and_a_ratio_baseline = _coerce_ratio_units(
-    g_and_a_ratio_baseline, revenue_year1=revenue_total_year1
+  g_and_a_ratio_forecast = _coerce_ratio_units(
+    g_and_a_ratio_forecast, revenue_year1=revenue_total_year1
   )
+  # STUB: the mapping row's own numerator (seed_source_paths ->
+  # financials.other_opex_absolute, the dedicated intake question) over the
+  # client's STATED annual revenue - the same anchor the capacity stub
+  # scales to above (stated_annual_revenue). No stated revenue (pre-revenue
+  # clients / rowless drafts): the stub falls back to the forecast basis,
+  # exactly what the row did before the split - no new fallback invented.
+  if stated_annual_revenue > 0.0:
+    g_and_a_ratio_baseline = _coerce_ratio_units(
+      _table_seed_ratio_for_lever(
+        "expenses::General & Administrative",
+        financials_json=financials_json or {},
+        annual_revenue=stated_annual_revenue,
+        default_value=_ratio(non_rent_opex_year1, stated_annual_revenue),
+      ),
+      revenue_year1=stated_annual_revenue,
+    )
+  else:
+    g_and_a_ratio_baseline = g_and_a_ratio_forecast
   intake_interest_rate_stub = _ratio(
     (financials_json or {}).get("annual_interest_payment"),
     (financials_json or {}).get("total_debt_outstanding"),
@@ -3782,7 +3819,8 @@ def _build_model_input_overlay(
       elif label == "Payroll":
         values.append(round(quarterly_payroll if not projection_mode else (_safe_float(slot.get("payroll")) or 0.0), 6))
       elif label == "General & Administrative":
-        values.append(round(max(0.0, g_and_a_ratio_baseline if not projection_mode else _ratio((_safe_float(slot.get("opex")) or 0.0) - lease_amount, revenue)), 6))
+        # LIVE rows read the FORECAST twin, never the stub variable.
+        values.append(round(max(0.0, g_and_a_ratio_forecast if not projection_mode else _ratio((_safe_float(slot.get("opex")) or 0.0) - lease_amount, revenue)), 6))
       elif label == "Interest Rate":
         # Phase 9 P3.19 — see note at intake_stub_value above.
         # Annual SBA rate -> per-quarter (annual / 4).

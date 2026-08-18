@@ -1,0 +1,4 @@
+R31   single-line-unchanged            5716ba4   RED         GREEN    UNEARNED
+      -> golden-master leg printed no GOLDEN-SHA on the baseline - without hashes from BOTH sides there is nothing to compare and the control proves nothing
+        0 GOLDEN-MASTER (negative control: output identical on both commits)
+        1 UNEARNED (crash-red / no hash: the property was never evaluated)
