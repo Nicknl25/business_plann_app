@@ -1,0 +1,874 @@
+{
+ "version": "break_even_v1",
+ "basis": {
+  "headline": "pre_tax_accounting",
+  "fixed_components": [
+   "payroll",
+   "lease",
+   "depreciation",
+   "interest"
+  ],
+  "variable_components": [
+   "cogs",
+   "marketing",
+   "r_and_d",
+   "g_and_a"
+  ],
+  "owner_compensation_in_payroll": true,
+  "line_standalone_break_even": false
+ },
+ "methodology": {
+  "notes": [
+   "Fixed costs = payroll + lease/rent + depreciation + interest, taken from the model's P&L amounts each quarter.",
+   "Variable costs = the expense ratios the model applies to revenue (cost of goods sold, marketing, research & development, general & administrative). They are treated as variable because the model treats them that way; general & administrative is shown as a fixed-cost sensitivity as well.",
+   "Owner compensation is inside payroll, so break-even includes it (lender-correct).",
+   "Depreciation and interest are balance-driven in the model; treating them as fixed within a quarter is an approximation.",
+   "Headline break-even revenue = fixed costs / contribution-margin ratio (pre-tax accounting basis). EBITDA-basis break-even excludes depreciation and interest; cash break-even excludes depreciation but adds scheduled principal payments.",
+   "Per-line break-even units use the plan's revenue mix (blended break-even revenue x mix share / unit price). No line-standalone break-even is computed because fixed costs are not attributable per line."
+  ]
+ },
+ "summary": {
+  "first_ebitda_positive_quarter": 1,
+  "q1": {
+   "be_revenue": 137632.572549,
+   "be_revenue_ebitda_basis": 118388.940364,
+   "cash_be_revenue": 126790.18641,
+   "planned_revenue": 175000.000077,
+   "margin_of_safety": 0.213528,
+   "be_revenue_g_and_a_fixed_sensitivity": 141060.228315
+  },
+  "y1_annualized": {
+   "quarters": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "fixed_costs": 323077.590774,
+   "cm_ratio": 0.58464,
+   "be_revenue": 552609.415837,
+   "be_revenue_ebitda_basis": 475737.173555,
+   "cash_be_revenue": 518179.765868,
+   "planned_revenue": 712250.019513,
+   "margin_of_safety": 0.224136
+  },
+  "y5_annualized": {
+   "quarters": [
+    17,
+    18,
+    19,
+    20
+   ],
+   "fixed_costs": 392815.345006,
+   "cm_ratio": 0.577729,
+   "be_revenue": 679929.652217,
+   "be_revenue_ebitda_basis": 608300.364295,
+   "cash_be_revenue": 608300.364295,
+   "planned_revenue": 938201.153386,
+   "margin_of_safety": 0.275284
+  },
+  "cash_be_revenue": 126790.18641
+ },
+ "quarters": [
+  {
+   "quarter_index": 1,
+   "fixed_costs": 80362.145153,
+   "fixed_components": {
+    "payroll": 56526.0,
+    "lease": 12600.0,
+    "depreciation": 9314.75,
+    "interest": 1921.395153
+   },
+   "variable_ratio": 0.416111,
+   "variable_components": {
+    "cogs": 0.34,
+    "marketing": 0.017143,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058968
+   },
+   "cm_ratio": 0.583889,
+   "be_revenue": 137632.572549,
+   "be_revenue_ebitda_basis": 118388.940364,
+   "cash_be_revenue": 126790.18641,
+   "scheduled_principal": 2984.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 141060.228315,
+   "planned_revenue": 175000.000077,
+   "ebitda": 33054.590008,
+   "margin_of_safety": 0.213528,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 640.0,
+     "units_planned": 273.4375,
+     "cogs_pct": 0.34,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 373.68896,
+     "mix_share": 1.0,
+     "be_units": 215.050895
+    }
+   ]
+  },
+  {
+   "quarter_index": 2,
+   "fixed_costs": 80364.760452,
+   "fixed_components": {
+    "payroll": 56526.0,
+    "lease": 12600.0,
+    "depreciation": 9376.561221,
+    "interest": 1862.199231
+   },
+   "variable_ratio": 0.4145,
+   "variable_components": {
+    "cogs": 0.339,
+    "marketing": 0.016929,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058571
+   },
+   "cm_ratio": 0.5855,
+   "be_revenue": 137258.344068,
+   "be_revenue_ebitda_basis": 118063.193851,
+   "cash_be_revenue": 136060.118243,
+   "scheduled_principal": 8675.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 140690.580762,
+   "planned_revenue": 174999.889996,
+   "ebitda": 33336.46656,
+   "margin_of_safety": 0.215666,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 646.4,
+     "units_planned": 270.730028,
+     "cogs_pct": 0.339,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 378.4672,
+     "mix_share": 1.0,
+     "be_units": 212.342735
+    }
+   ]
+  },
+  {
+   "quarter_index": 3,
+   "fixed_costs": 80307.825227,
+   "fixed_components": {
+    "payroll": 56526.0,
+    "lease": 12600.0,
+    "depreciation": 9435.705032,
+    "interest": 1746.120195
+   },
+   "variable_ratio": 0.412888,
+   "variable_components": {
+    "cogs": 0.338,
+    "marketing": 0.016714,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058174
+   },
+   "cm_ratio": 0.587112,
+   "be_revenue": 136784.50658,
+   "be_revenue_ebitda_basis": 117739.03446,
+   "cash_be_revenue": 125770.074866,
+   "scheduled_principal": 2969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 140229.852791,
+   "planned_revenue": 175000.129464,
+   "ebitda": 33618.54798,
+   "margin_of_safety": 0.218375,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 652.864,
+     "units_planned": 268.049899,
+     "cogs_pct": 0.338,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 383.304289,
+     "mix_share": 1.0,
+     "be_units": 209.514549
+    }
+   ]
+  },
+  {
+   "quarter_index": 4,
+   "fixed_costs": 82042.859942,
+   "fixed_components": {
+    "payroll": 58157.0,
+    "lease": 12600.0,
+    "depreciation": 9598.935669,
+    "interest": 1686.924273
+   },
+   "variable_ratio": 0.417772,
+   "variable_components": {
+    "cogs": 0.342321,
+    "marketing": 0.016761,
+    "r_and_d": 0.0,
+    "g_and_a": 0.05869
+   },
+   "cm_ratio": 0.582228,
+   "be_revenue": 140911.910698,
+   "be_revenue_ebitda_basis": 121527.99247,
+   "cash_be_revenue": 129524.729613,
+   "scheduled_principal": 2969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 145155.148105,
+   "planned_revenue": 187249.999976,
+   "ebitda": 38265.287056,
+   "margin_of_safety": 0.247466,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 659.39264,
+     "units_planned": 283.973446,
+     "cogs_pct": 0.342321,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 383.916858,
+     "mix_share": 1.0,
+     "be_units": 213.69955
+    }
+   ]
+  },
+  {
+   "quarter_index": 5,
+   "fixed_costs": 85539.559098,
+   "fixed_components": {
+    "payroll": 61581.0,
+    "lease": 12600.0,
+    "depreciation": 9730.830747,
+    "interest": 1627.728351
+   },
+   "variable_ratio": 0.418292,
+   "variable_components": {
+    "cogs": 0.343074,
+    "marketing": 0.016629,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058589
+   },
+   "cm_ratio": 0.581708,
+   "be_revenue": 147048.964597,
+   "be_revenue_ebitda_basis": 127522.74337,
+   "cash_be_revenue": 135424.866687,
+   "scheduled_principal": 2969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 151178.299386,
+   "planned_revenue": 192177.386724,
+   "ebitda": 37610.294772,
+   "margin_of_safety": 0.234827,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 665.986566,
+     "units_planned": 288.560455,
+     "cogs_pct": 0.343074,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 387.409713,
+     "mix_share": 1.0,
+     "be_units": 220.798695
+    }
+   ]
+  },
+  {
+   "quarter_index": 6,
+   "fixed_costs": 85940.866368,
+   "fixed_components": {
+    "payroll": 61990.0,
+    "lease": 12600.0,
+    "depreciation": 9782.333939,
+    "interest": 1568.532429
+   },
+   "variable_ratio": 0.418794,
+   "variable_components": {
+    "cogs": 0.343816,
+    "marketing": 0.016494,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058484
+   },
+   "cm_ratio": 0.581206,
+   "be_revenue": 147866.447298,
+   "be_revenue_ebitda_basis": 128336.596663,
+   "cash_be_revenue": 136143.695056,
+   "scheduled_principal": 2969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 152221.430186,
+   "planned_revenue": 195501.964148,
+   "ebitda": 39036.961738,
+   "margin_of_safety": 0.243657,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 672.646432,
+     "units_planned": 290.645954,
+     "cogs_pct": 0.343816,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 390.946142,
+     "mix_share": 1.0,
+     "be_units": 219.827892
+    }
+   ]
+  },
+  {
+   "quarter_index": 7,
+   "fixed_costs": 86488.155004,
+   "fixed_components": {
+    "payroll": 62548.0,
+    "lease": 12600.0,
+    "depreciation": 9830.818497,
+    "interest": 1509.336507
+   },
+   "variable_ratio": 0.419279,
+   "variable_components": {
+    "cogs": 0.344547,
+    "marketing": 0.016358,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058374
+   },
+   "cm_ratio": 0.580721,
+   "be_revenue": 148932.370285,
+   "be_revenue_ebitda_basis": 129404.65387,
+   "cash_be_revenue": 137116.337289,
+   "scheduled_principal": 2969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 153186.026153,
+   "planned_revenue": 195501.964056,
+   "ebitda": 38384.00789,
+   "margin_of_safety": 0.238205,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 679.372896,
+     "units_planned": 287.768272,
+     "cogs_pct": 0.344547,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 394.526108,
+     "mix_share": 1.0,
+     "be_units": 219.220359
+    }
+   ]
+  },
+  {
+   "quarter_index": 8,
+   "fixed_costs": 86314.779248,
+   "fixed_components": {
+    "payroll": 62548.0,
+    "lease": 12600.0,
+    "depreciation": 9876.142663,
+    "interest": 1290.636585
+   },
+   "variable_ratio": 0.419748,
+   "variable_components": {
+    "cogs": 0.345268,
+    "marketing": 0.016219,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058261
+   },
+   "cm_ratio": 0.580252,
+   "be_revenue": 148753.953882,
+   "be_revenue_ebitda_basis": 129509.247706,
+   "cash_be_revenue": 164424.485542,
+   "scheduled_principal": 18969.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 153019.33251,
+   "planned_revenue": 195501.860158,
+   "ebitda": 38292.309299,
+   "margin_of_safety": 0.239117,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 686.166625,
+     "units_planned": 284.918929,
+     "cogs_pct": 0.345268,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 398.149556,
+     "mix_share": 1.0,
+     "be_units": 216.789842
+    }
+   ]
+  },
+  {
+   "quarter_index": 9,
+   "fixed_costs": 87794.43414,
+   "fixed_components": {
+    "payroll": 64424.0,
+    "lease": 12600.0,
+    "depreciation": 9918.303958,
+    "interest": 852.130182
+   },
+   "variable_ratio": 0.4202,
+   "variable_components": {
+    "cogs": 0.345979,
+    "marketing": 0.016078,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058143
+   },
+   "cm_ratio": 0.5798,
+   "be_revenue": 151421.928493,
+   "be_revenue_ebitda_basis": 132845.8089,
+   "cash_be_revenue": 177464.867509,
+   "scheduled_principal": 25018.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 155439.376198,
+   "planned_revenue": 195501.844936,
+   "ebitda": 36327.977705,
+   "margin_of_safety": 0.225471,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 693.028292,
+     "units_planned": 282.097928,
+     "cogs_pct": 0.345979,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 401.817804,
+     "mix_share": 1.0,
+     "be_units": 218.493141
+    }
+   ]
+  },
+  {
+   "quarter_index": 10,
+   "fixed_costs": 87329.611684,
+   "fixed_components": {
+    "payroll": 64424.0,
+    "lease": 12600.0,
+    "depreciation": 9957.254948,
+    "interest": 348.356736
+   },
+   "variable_ratio": 0.420635,
+   "variable_components": {
+    "cogs": 0.346679,
+    "marketing": 0.015935,
+    "r_and_d": 0.0,
+    "g_and_a": 0.058021
+   },
+   "cm_ratio": 0.579365,
+   "be_revenue": 150733.323007,
+   "be_revenue_ebitda_basis": 132945.552458,
+   "cash_be_revenue": 177588.146913,
+   "scheduled_principal": 25516.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 155229.339243,
+   "planned_revenue": 200124.488802,
+   "ebitda": 38921.169537,
+   "margin_of_safety": 0.246802,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 699.958575,
+     "units_planned": 285.909047,
+     "cogs_pct": 0.346679,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 405.5315,
+     "mix_share": 1.0,
+     "be_units": 215.346062
+    }
+   ]
+  },
+  {
+   "quarter_index": 11,
+   "fixed_costs": 88795.041879,
+   "fixed_components": {
+    "payroll": 66155.0,
+    "lease": 12600.0,
+    "depreciation": 9993.048013,
+    "interest": 46.993866
+   },
+   "variable_ratio": 0.421052,
+   "variable_components": {
+    "cogs": 0.347368,
+    "marketing": 0.015789,
+    "r_and_d": 0.0,
+    "g_and_a": 0.057895
+   },
+   "cm_ratio": 0.578948,
+   "be_revenue": 153373.086839,
+   "be_revenue_ebitda_basis": 136031.215239,
+   "cash_be_revenue": 144254.741127,
+   "scheduled_principal": 4714.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 158642.924247,
+   "planned_revenue": 211342.076924,
+   "ebitda": 43600.939272,
+   "margin_of_safety": 0.27429,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 706.95816,
+     "units_planned": 298.945665,
+     "cogs_pct": 0.347368,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 409.292013,
+     "mix_share": 1.0,
+     "be_units": 216.947898
+    }
+   ]
+  },
+  {
+   "quarter_index": 12,
+   "fixed_costs": 91691.577772,
+   "fixed_components": {
+    "payroll": 68881.0,
+    "lease": 12600.0,
+    "depreciation": 10210.577772,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.421277,
+   "variable_components": {
+    "cogs": 0.34793,
+    "marketing": 0.015751,
+    "r_and_d": 0.0,
+    "g_and_a": 0.057596
+   },
+   "cm_ratio": 0.578723,
+   "be_revenue": 158437.763441,
+   "be_revenue_ebitda_basis": 140794.473349,
+   "cash_be_revenue": 140794.473349,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 163876.792343,
+   "planned_revenue": 218526.139126,
+   "ebitda": 44985.060642,
+   "margin_of_safety": 0.274971,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 714.027742,
+     "units_planned": 306.047127,
+     "cogs_pct": 0.34793,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 413.224277,
+     "mix_share": 1.0,
+     "be_units": 221.893008
+    }
+   ]
+  },
+  {
+   "quarter_index": 13,
+   "fixed_costs": 94976.097647,
+   "fixed_components": {
+    "payroll": 72135.0,
+    "lease": 12600.0,
+    "depreciation": 10241.097647,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.421483,
+   "variable_components": {
+    "cogs": 0.34848,
+    "marketing": 0.015711,
+    "r_and_d": 0.0,
+    "g_and_a": 0.057292
+   },
+   "cm_ratio": 0.578517,
+   "be_revenue": 164171.662452,
+   "be_revenue_ebitda_basis": 146469.334523,
+   "cash_be_revenue": 146469.334523,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 169069.629964,
+   "planned_revenue": 218526.2831,
+   "ebitda": 41686.160774,
+   "margin_of_safety": 0.248733,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 721.168019,
+     "units_planned": 303.017157,
+     "cogs_pct": 0.34848,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 417.207959,
+     "mix_share": 1.0,
+     "be_units": 227.646898
+    }
+   ]
+  },
+  {
+   "quarter_index": 14,
+   "fixed_costs": 95003.281516,
+   "fixed_components": {
+    "payroll": 72135.0,
+    "lease": 12600.0,
+    "depreciation": 10268.281516,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.42167,
+   "variable_components": {
+    "cogs": 0.349018,
+    "marketing": 0.01567,
+    "r_and_d": 0.0,
+    "g_and_a": 0.056982
+   },
+   "cm_ratio": 0.57833,
+   "be_revenue": 164271.750585,
+   "be_revenue_ebitda_basis": 146516.694621,
+   "cash_be_revenue": 146516.694621,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 169138.071404,
+   "planned_revenue": 218526.292966,
+   "ebitda": 41645.272673,
+   "margin_of_safety": 0.248275,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 728.379699,
+     "units_planned": 300.017001,
+     "cogs_pct": 0.349018,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 421.243831,
+     "mix_share": 1.0,
+     "be_units": 225.53038
+    }
+   ]
+  },
+  {
+   "quarter_index": 15,
+   "fixed_costs": 95026.996709,
+   "fixed_components": {
+    "payroll": 72135.0,
+    "lease": 12600.0,
+    "depreciation": 10291.996709,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.421839,
+   "variable_components": {
+    "cogs": 0.349544,
+    "marketing": 0.015628,
+    "r_and_d": 0.0,
+    "g_and_a": 0.056667
+   },
+   "cm_ratio": 0.578161,
+   "be_revenue": 164360.786544,
+   "be_revenue_ebitda_basis": 146559.522348,
+   "cash_be_revenue": 146559.522348,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 169195.655045,
+   "planned_revenue": 218526.045746,
+   "ebitda": 41608.325312,
+   "margin_of_safety": 0.247866,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 735.663496,
+     "units_planned": 297.0462,
+     "cogs_pct": 0.349544,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 425.331943,
+     "mix_share": 1.0,
+     "be_units": 223.418434
+    }
+   ]
+  },
+  {
+   "quarter_index": 16,
+   "fixed_costs": 95047.303386,
+   "fixed_components": {
+    "payroll": 72135.0,
+    "lease": 12600.0,
+    "depreciation": 10312.303386,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.421988,
+   "variable_components": {
+    "cogs": 0.350058,
+    "marketing": 0.015585,
+    "r_and_d": 0.0,
+    "g_and_a": 0.056345
+   },
+   "cm_ratio": 0.578012,
+   "be_revenue": 164438.287416,
+   "be_revenue_ebitda_basis": 146597.302478,
+   "cash_be_revenue": 146597.302478,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 169468.346253,
+   "planned_revenue": 221068.806007,
+   "ebitda": 43045.355472,
+   "margin_of_safety": 0.256167,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 743.020131,
+     "units_planned": 297.527344,
+     "cogs_pct": 0.350058,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 429.474552,
+     "mix_share": 1.0,
+     "be_units": 221.310676
+    }
+   ]
+  },
+  {
+   "quarter_index": 17,
+   "fixed_costs": 97228.101918,
+   "fixed_components": {
+    "payroll": 74299.0,
+    "lease": 12600.0,
+    "depreciation": 10329.101918,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.422119,
+   "variable_components": {
+    "cogs": 0.350561,
+    "marketing": 0.01554,
+    "r_and_d": 0.0,
+    "g_and_a": 0.056018
+   },
+   "cm_ratio": 0.577881,
+   "be_revenue": 168249.348772,
+   "be_revenue_ebitda_basis": 150375.250268,
+   "cash_be_revenue": 150375.250268,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 173535.737004,
+   "planned_revenue": 228071.910195,
+   "ebitda": 44899.355514,
+   "margin_of_safety": 0.262297,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 750.450333,
+     "units_planned": 303.913397,
+     "cogs_pct": 0.350561,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 433.670989,
+     "mix_share": 1.0,
+     "be_units": 224.197847
+    }
+   ]
+  },
+  {
+   "quarter_index": 18,
+   "fixed_costs": 97854.461357,
+   "fixed_components": {
+    "payroll": 74912.0,
+    "lease": 12600.0,
+    "depreciation": 10342.461357,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.422232,
+   "variable_components": {
+    "cogs": 0.351053,
+    "marketing": 0.015495,
+    "r_and_d": 0.0,
+    "g_and_a": 0.055684
+   },
+   "cm_ratio": 0.577768,
+   "be_revenue": 169366.35701,
+   "be_revenue_ebitda_basis": 151465.640188,
+   "cash_be_revenue": 151465.640188,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 175143.247035,
+   "planned_revenue": 235082.416368,
+   "ebitda": 48311.196522,
+   "margin_of_safety": 0.279545,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 757.954836,
+     "units_planned": 310.153594,
+     "cogs_pct": 0.351053,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 437.92205,
+     "mix_share": 1.0,
+     "be_units": 223.45178
+    }
+   ]
+  },
+  {
+   "quarter_index": 19,
+   "fixed_costs": 98639.263049,
+   "fixed_components": {
+    "payroll": 75687.0,
+    "lease": 12600.0,
+    "depreciation": 10352.263049,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.422325,
+   "variable_components": {
+    "cogs": 0.351532,
+    "marketing": 0.015448,
+    "r_and_d": 0.0,
+    "g_and_a": 0.055345
+   },
+   "cm_ratio": 0.577675,
+   "be_revenue": 170752.175616,
+   "be_revenue_ebitda_basis": 152831.609469,
+   "cash_be_revenue": 152831.609469,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 176590.008215,
+   "planned_revenue": 237523.480101,
+   "ebitda": 48924.341642,
+   "margin_of_safety": 0.281115,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 765.534384,
+     "units_planned": 310.271472,
+     "cogs_pct": 0.351532,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 442.230075,
+     "mix_share": 1.0,
+     "be_units": 223.049649
+    }
+   ]
+  },
+  {
+   "quarter_index": 20,
+   "fixed_costs": 99093.518682,
+   "fixed_components": {
+    "payroll": 76135.0,
+    "lease": 12600.0,
+    "depreciation": 10358.518682,
+    "interest": 0.0
+   },
+   "variable_ratio": 0.4224,
+   "variable_components": {
+    "cogs": 0.352,
+    "marketing": 0.0154,
+    "r_and_d": 0.0,
+    "g_and_a": 0.055
+   },
+   "cm_ratio": 0.5776,
+   "be_revenue": 171560.801042,
+   "be_revenue_ebitda_basis": 153627.077562,
+   "cash_be_revenue": 153627.077562,
+   "scheduled_principal": 0.0,
+   "be_revenue_g_and_a_fixed_sensitivity": 177295.767866,
+   "planned_revenue": 237523.346722,
+   "ebitda": 48458.485067,
+   "margin_of_safety": 0.27771,
+   "per_line": [
+    {
+     "slot_key": "lob_1_product_1",
+     "lob": "Primary line of business",
+     "product": "Auto repair service",
+     "price": 773.189728,
+     "units_planned": 307.199305,
+     "cogs_pct": 0.352,
+     "cogs_pct_source": "blended",
+     "cm_per_unit": 446.594387,
+     "mix_share": 1.0,
+     "be_units": 221.887067
+    }
+   ]
+  }
+ ]
+}

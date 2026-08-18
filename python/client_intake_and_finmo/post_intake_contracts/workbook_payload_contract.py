@@ -194,6 +194,14 @@ class FinmoOutputContract(BaseModel):
   #: Optional opaque.
   accounting_check: Optional[Dict[str, Any]] = None
 
+  #: W1 (2026-08-18) break-even derived read-out
+  #: (``finmo_break_even.compute_break_even_block``). OPTIONAL: drafts
+  #: built before W1 carry no block and remain valid; declared here so
+  #: the block survives ``DraftWorkbookData.from_contract`` (model_dump)
+  #: on replay/test paths instead of being dropped by ``extra="ignore"``.
+  #: Opaque at this boundary; W2 renders it below the P&L.
+  break_even: Optional[Dict[str, Any]] = None
+
   model_config = ConfigDict(extra="ignore")
 
   @model_validator(mode="after")

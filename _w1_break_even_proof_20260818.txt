@@ -1,0 +1,51 @@
+W1 BREAK-EVEN READ-OUT PROOF 2026-08-18 (working tree on 951a01c)
+== Bellweather (single-line) PRE/POST + hand check ==
+draft 46ae584a Bellweather Auto Works run 30657ccb
+PRE persisted finmo_json has break_even: False
+POST rebuilt finmo_json has break_even: True version break_even_v1
+Q1 hand: fixed=80,362.15 var_ratio=0.416111 cm=0.583889 BE=137,632.55 planned=175,000.00
+Q1 block: fixed=80,362.15 var_ratio=0.416111 cm=0.583889 BE=137,632.57 planned=175,000.00
+  fixed_components {'payroll': 56526.0, 'lease': 12600.0, 'depreciation': 9314.75, 'interest': 1921.395153}
+  variable_components {'cogs': 0.34, 'marketing': 0.017143, 'r_and_d': 0.0, 'g_and_a': 0.058968}
+  ebitda_basis BE=118,388.94 cash BE=126,790.19 (principal 2,984.00) G&A-fixed sens=141,060.23 MoS=0.2135
+first_ebitda_positive_quarter block: 1 hand: 1  ebitda Q1..Q4: [33055, 33336, 33619, 38265]
+per_line Q1:
+    {'slot_key': 'lob_1_product_1', 'lob': 'Primary line of business', 'product': 'Auto repair service', 'price': 640.0, 'units_planned': 273.4375, 'cogs_pct': 0.34, 'cogs_pct_source': 'blended', 'cm_per_unit': 373.68896, 'mix_share': 1.0, 'be_units': 215.050895}
+  sum(be_units*price)=137,632.57 vs be_revenue=137,632.57
+summary y1: {'quarters': [1, 2, 3, 4], 'fixed_costs': 323077.590774, 'cm_ratio': 0.58464, 'be_revenue': 552609.415837, 'be_revenue_ebitda_basis': 475737.173555, 'cash_be_revenue': 518179.765868, 'planned_revenue': 712250.019513, 'margin_of_safety': 0.224136}
+summary y5: {'quarters': [17, 18, 19, 20], 'fixed_costs': 392815.345006, 'cm_ratio': 0.577729, 'be_revenue': 679929.652217, 'be_revenue_ebitda_basis': 608300.364295, 'cash_be_revenue': 608300.364295, 'planned_revenue': 938201.153386, 'margin_of_safety': 0.275284}
+OK
+
+== Kestrelbrook (4-line) ==
+draft fd3d1b02 Kestrelbrook Nursery and Garden Company run 6055904d
+PRE persisted finmo_json has break_even: False
+POST rebuilt finmo_json has break_even: True version break_even_v1
+Q1 hand: fixed=492,416.44 var_ratio=0.451870 cm=0.548130 BE=898,356.48 planned=938,750.00
+Q1 block: fixed=492,416.44 var_ratio=0.451869 cm=0.548131 BE=898,355.39 planned=938,750.00
+  fixed_components {'payroll': 377641.0, 'lease': 55500.0, 'depreciation': 44746.53, 'interest': 14528.908125}
+  variable_components {'cogs': 0.370534, 'marketing': 0.016511, 'r_and_d': 0.0, 'g_and_a': 0.064824}
+  ebitda_basis BE=790,214.38 cash BE=848,216.77 (principal 17,264.00) G&A-fixed sens=902,627.73 MoS=0.0430
+first_ebitda_positive_quarter block: 1 hand: 1  ebitda Q1..Q4: [81416, 96514, 103077, 102198]
+per_line Q1:
+    {'slot_key': 'lob_1_product_1', 'lob': 'Plant & nursery retail', 'product': 'Plant/nursery sale', 'price': 48.0, 'units_planned': 5021.624105, 'cogs_pct': 0.58, 'cogs_pct_source': 'per_line', 'cm_per_unit': 16.25592, 'mix_share': 0.256765, 'be_units': 4805.542562}
+    {'slot_key': 'lob_2_product_1', 'lob': 'Hard-goods retail', 'product': 'Hard-goods sale', 'price': 105.0, 'units_planned': 2222.302593, 'cogs_pct': 0.58, 'cogs_pct_source': 'per_line', 'cm_per_unit': 35.559825, 'mix_share': 0.248566, 'be_units': 2126.676444}
+    {'slot_key': 'lob_3_product_1', 'lob': 'Landscaping & installation services', 'product': 'Landscaping/installation job', 'price': 850.0, 'units_planned': 493.845021, 'cogs_pct': 0.17, 'cogs_pct_source': 'per_line', 'cm_per_unit': 636.36525, 'mix_share': 0.447157, 'be_units': 472.594766}
+    {'slot_key': 'lob_4_product_1', 'lob': 'Design & consultation services', 'product': 'Design/consultation engagement', 'price': 650.0, 'units_planned': 68.618466, 'cogs_pct': 0.03, 'cogs_pct_source': 'per_line', 'cm_per_unit': 577.63225, 'mix_share': 0.047512, 'be_units': 65.665799}
+  sum(be_units*price)=898,355.39 vs be_revenue=898,355.39
+summary y1: {'quarters': [1, 2, 3, 4], 'fixed_costs': 1984398.79921, 'cm_ratio': 0.547417, 'be_revenue': 3625023.792531, 'be_revenue_ebitda_basis': 3187412.425239, 'cash_be_revenue': 3605231.866126, 'planned_revenue': 3887435.681164, 'margin_of_safety': 0.067503}
+summary y5: {'quarters': [17, 18, 19, 20], 'fixed_costs': 2431746.506635, 'cm_ratio': 0.540778, 'be_revenue': 4496756.673542, 'be_revenue_ebitda_basis': 4080203.929559, 'cash_be_revenue': 4246526.840665, 'planned_revenue': 4965381.469103, 'margin_of_safety': 0.094378}
+OK
+
+== contract round-trip / absent-tolerant / workbook build ==
+(A) absent-tolerant: old finmo_json validates, from_contract round-trip OK, break_even None
+(B) round-trip: break_even survives to_contract -> from_contract (model_dump); q1 be_revenue 137632.572549
+builder signature: (data: 'DraftWorkbookData')
+(C) workbook build with break_even present: OK, sheets: ['Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'FINMO', 'Audit Source', 'Checks', 'Diagnostics']
+    workbook build without break_even: OK, sheets: 11
+    formula grid identical with vs without break_even (W1 renders nothing) - verified
+
+== R31 move is ONLY the new key ==
+current finmo sha: c36bef7c5bdb
+finmo minus break_even sha: 24e38de4dc98 (baseline 24e38de4dc98)
+break_even keys: ['basis', 'methodology', 'quarters', 'summary', 'version'] quarters: 20
+q1: {'fixed_costs': 102883.125, 'variable_ratio': 0.796598, 'cm_ratio': 0.203402, 'be_revenue': 505811.766846, 'planned_revenue': 219375.0}

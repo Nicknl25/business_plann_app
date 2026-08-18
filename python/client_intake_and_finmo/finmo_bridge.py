@@ -26,6 +26,7 @@ from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
   default_payroll_headcount_policy,
 )
 from client_intake_and_finmo.post_intake_driver_formulas import apply_seed_formula  # type: ignore
+from client_intake_and_finmo.finmo_break_even import compute_break_even_block  # type: ignore
 from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
   baseline_seed_provenance,
   post_intake_baseline_applicability_for_naics2,
@@ -938,6 +939,12 @@ def build_python_finmo_json(
     "balance_sheet": balance_rows,
     "cash_flow": cfs_rows,
     "quarter_rows": quarter_rows,
+    # W1 (2026-08-18, docs/WRITING_PHASE_RESEARCH_2.md R5): break-even is a
+    # DERIVED READ-OUT of the finished model - computed here from the typed
+    # inputs + engine quarter rows, persisted with finmo_json, no feedback
+    # into any driver. Consumers treat the key as OPTIONAL (pre-W1 drafts
+    # have none).
+    "break_even": compute_break_even_block(book=book, quarter_rows_raw=quarter_rows_raw),
   }
 
 
