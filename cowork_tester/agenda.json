@@ -1,10 +1,18 @@
 {
- "version": 26,
- "updated": "2026-08-17",
+ "version": 27,
+ "updated": "2026-08-17T20:43:00Z",
  "notes": "CW-038 (Millgate Press, Dubuque) was the first complete end-to-end build of the print-shop shape and it closed the two frontier items in a single run. A-122's submit validator cleared on the first click and A-123's drop door held from ops all the way into the built model, so the discovery mechanism - propose, merge, decline, add, and now remove - is confirmed working from the client side across every disposition it offers.\n\nTHE FRONTIER HAS MOVED. Thirty-seven runs tested the CONVERSATION: whether the app asks the right questions, records the answers honestly, and reaches a defensible verdict. That layer is now in good shape. CW-038 got past it and looked at the DELIVERED FORECAST for the first time, and that is where both of this run's findings are. The opening balance sheet was exact to the dollar on all seven client-stated balances, rent, COGS percentage, capex and lease were exact, opening PPE depreciated correctly on a five-year life, and the books balanced in every one of 21 periods - so this is not a broken layer. But the forecast quietly re-rates the client's interest cost from 7.5 to 9.0 pct APR (A-124) and pays 1.1 pct less payroll than the HR narrative names person by person (A-125).\n\nThe useful discriminator this run surfaced: levers that move carry an applied_by_target_solver_quarters annotation when the movement is intended and disclosed. General and Administrative was trimmed by the margin solver and the app had already told the client in plain language that the build would temper the stress figure back to the believable band - disclosed, so not filed. The interest rate moved with no annotation and no disclosure. That distinction should drive the next few runs, and A-126 makes the built-workbook field check standing rather than ad hoc.\n\nStill open from earlier cycles and unaffected by this run: A-120 (a failed plan run still shows the client an unqualified 'we are building your plan now') and A-121 (the restructure net, which needs a persona that clears the pre-submit gate and only falls below the floor once build-time depreciation and debt service land - Millgate passed too comfortably to enter it).",
  "recommendations": [
   {
    "rank": 1,
+   "id": "RUN-POST-GA-STUB-1",
+   "persona": "your pick - a real founder, natural answers, real numbers",
+   "business": "your pick, FRESH name. Any business that will state a monthly 'other regular bills' figure (utilities/software/insurance) - i.e. every real business - is the test. Single- or multi-line both fine.",
+   "why": "OPERATOR: run on HEAD f900a45. New since Millgate: (1) the workbook's TODAY column for General & Administrative now equals what you actually told us divided by your stated revenue (it was understated ~24% before - engine denominator bug, fixed + audited full-tier); (2) the SBA interest-rate lookup now keys on your STATE (state median, not national). Everything else unchanged (discovery reader converged, A-122 submit fixed, restructure net alive). Play through INCLUDING SUBMIT so the plan builds. TRIAGE LAW: new findings bucketed for the operator, filed not chased.",
+   "operator_command_hint": "run yours"
+  },
+  {
+   "rank": 2,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
@@ -14,7 +22,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 3,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
@@ -24,7 +32,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -34,7 +42,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -42,7 +50,7 @@
    "retests": []
   },
   {
-   "rank": 5,
+   "rank": 6,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
@@ -52,7 +60,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 7,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -62,7 +70,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 8,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -72,7 +80,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 9,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -83,7 +91,7 @@
    ]
   },
   {
-   "rank": 9,
+   "rank": 10,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -94,7 +102,7 @@
    ]
   },
   {
-   "rank": 10,
+   "rank": 11,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -104,7 +112,7 @@
    ]
   },
   {
-   "rank": 11,
+   "rank": 12,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -112,7 +120,7 @@
    "retests": []
   },
   {
-   "rank": 12,
+   "rank": 13,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -121,6 +129,7 @@
   }
  ],
  "closed_this_cycle": [
+  "RUN-POST-A122-1 (Millgate Press 2e198cbf): ALL HELD e2e; A-124 state plumbing + G&A stub denominator both fixed and audited after.",
   "A-122 CLOSED ON EVIDENCE. CW-038 submitted a completed single-line commercial-print intake on HEAD d26a0e8 and Confirm and submit cleared on the FIRST click - reference code SOSCUTF06796651038, submission #83 - then built through to a completed workbook. This is the exact shape that was hard-blocked twice in CW-037, so the row-first validator fix is confirmed live from the client side.",
   "A-123 CLOSED ON EVIDENCE - the drop door and the removed latch are exercised live for the first time. CW-038 said yes to large-format printing, the app minted it as its own line with origin discovery_confirmed, it captured unit name 'signage order' and price 480, and the client then said plainly to drop it. The latch moved to removed, the row left operating_model_json immediately, ops finalized without it, and it was absent from the financials stage, from finalize, and from model_input_json.sections.revenue in the built model - which contains exactly three rows, all on the single real print line. No resurrection at any boundary.",
   "The discovery reader is now confirmed on a MIXED answer as well as single-disposition ones: four candidates answered in one turn produced declined / merged_into:print job / merged_into:print job / added, each echoed back separately and correctly, with no phantom minted for either merge."
