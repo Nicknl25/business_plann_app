@@ -3558,3 +3558,21 @@ on the following turns. A wrong-number-on-a-correction-turn + lost-echo
 class -> Nick's triage. (T2) stored 862.5/567 vs client-stated 690/420 on
 the source Corvid draft (a 1.25x factor) - pre-existing, separate.
 
+
+## G&A STUB DENOMINATOR (VS, 2026-08-17, commit 6b6f400) - the number AND the class
+Ruling: docs/STUB_CELLS_WHY_RESEARCH.md SS1. finmo_bridge._build_model_input_overlay
+now carries TWO G&A bases like every other ratio row: g_and_a_ratio_baseline = STUB
+= mapping-row numerator (other_opex_absolute) / STATED current_revenue (the anchor
+the capacity stub already scales to; the coherence gate's basis); g_and_a_ratio_forecast
+= the prior derivation verbatim (dead _rescaled_ga branch -> table seed over
+revenue_total_year1 -> coerce) and is the ONLY thing the live Q1-Q20 site reads.
+No stated revenue -> stub = forecast value (what the row did before; nothing new).
+Millgate: 0.027701 -> 0.036534, Q0 G&A 5,914 -> 7,800. Leaf purity on Millgate through
+the production builder: 1 model_input leaf + 10 finmo Q0 P&L leaves (G&A/EBITDA/
+taxes/NI + mirrors), nothing else; Q1-Q20 byte-identical. Goldens R31/R32 did NOT
+move (fixture has no current_revenue -> fallback path) - no re-bless.
+Instruments: Test Files/_redproof_ga_stub_denominator.py (--capture/--compare),
+_gastub_leaf_purity.py (--dump/--diff), _gastub_tripwire_check.py, _check_gastub_canary.py.
+Gate residual found (mini's): --prove R31/R32 UNEARNED on the BASELINE side since
+725b374 (fixture re-recorded for the A-124 replay key only; 5716ba4/9d2c41c ask with
+the old key -> FrozenLookupMiss). Same on the pre-fix tree. Re-point baselines.
