@@ -9,6 +9,7 @@ import copy
 import hashlib
 import inspect
 import json
+import re
 import uuid
 
 
@@ -528,31 +529,20 @@ class Surface(object):
             fin=copy.deepcopy(MULTI_FIN), year1=copy.deepcopy(MULTI_Y1),
             marketing={})
 
-    def workbook_formula_grid(self, builder=None, from_row=None, draft=None):
-        """{sheet: {row label: [formula strings]}} from the in-memory BUILDER.
+    def _build_workbook(self, builder, from_row, info=None):
+        """(workbook, gap) for ONE business, through the production builder.
 
-        Deterministic, unlike the exporter's .xlsx bytes (zip metadata and
-        timestamps), which would false-DRIFT on every run.
-
-        NOTE ON data_only: it is NOT in play here. build_client_financial_
-        model_workbook never saves or reloads - it returns a live openpyxl
-        Workbook, so the "=..." strings are still strings. The first attempt
-        produced nothing for a duller reason: the builder opens with a
-        CONSUMER-SIDE boundary gate over all five JSON payloads, and a bare
-        `except Exception: return {}` swallowed the ContractViolation whole.
-        The gap is now recorded and reported, because a leg that cannot say
-        WHY it produced nothing is a leg that wastes a whole prove cycle.
+        Extracted so the formula grid (R32) and the text surface (R33) enter
+        the builder by the SAME door. Two copies of this assembly would drift
+        apart, and the first symptom would be two goldens disagreeing about
+        what the workbook is.
         """
-        self.grid_gap = ""
         if builder is None or from_row is None:
-            self.grid_gap = "no builder/from_row supplied"
-            return {}
-        info = draft
+            return None, "no builder/from_row supplied"
         if not info:
             d, mij, finmo, note = self.single_line_payloads()
             if not d or mij is None or finmo is None:
-                self.grid_gap = note or "no single-line draft"
-                return {}
+                return None, (note or "no single-line draft")
             info = {"draft": d, "mij": mij, "finmo": finmo}
 
         # THE RUN ARTIFACTS. payroll_headcount is GPT-authored during the
@@ -570,14 +560,13 @@ class Surface(object):
         try:
             from . import _run_artifacts
         except ImportError:
-            self.grid_gap = (
+            return None, (
                 "no frozen run artifacts - payroll_headcount is GPT-authored "
                 "during a planning run and cannot be derived offline. Capture "
                 "it ONCE: python \"Test Files/_capture_workbook_fixture.py\" "
                 "6feac758   (writes replay_gate/_run_artifacts.py; commit it). "
                 "Deliberately NOT read live: a moving input makes a golden "
                 "master cry wolf.")
-            return {}
 
         src = dict((info.get("draft") or {}).get("row") or {})
         row = {"draft_id": (info.get("draft") or {}).get("id")}
@@ -590,25 +579,40 @@ class Surface(object):
         row["planning_run_json"] = copy.deepcopy(
             _run_artifacts.PLANNING_RUN_JSON)
         if not row["payroll_headcount"]:
-            self.grid_gap = ("the frozen payroll_headcount fixture is empty - "
-                             "re-capture from a draft that completed a run; a "
-                             "hollow payload hashes stably and proves nothing")
-            return {}
+            return None, ("the frozen payroll_headcount fixture is empty - "
+                          "re-capture from a draft that completed a run; a "
+                          "hollow payload hashes stably and proves nothing")
         self.artifact_provenance = getattr(_run_artifacts, "PROVENANCE", {})
         try:
             wb = builder(from_row(row))
         except Exception as exc:
-            self.grid_gap = (f"{type(exc).__name__}: {exc}"[:300]
-                             + " (builder refused the payload)")
-            return {}
-
-        # THE SPLITTER. Empty sheetnames means the BUILD produced nothing;
-        # populated sheetnames with no formulas means EXTRACTION is wrong.
-        # Recording which one it is turns a second blind round into a fact.
+            return None, (f"{type(exc).__name__}: {exc}"[:300]
+                          + " (builder refused the payload)")
         names = list(getattr(wb, "sheetnames", []) or [])
         if not names:
-            self.grid_gap = ("the builder returned a Workbook with NO sheets - "
-                             "this is a BUILD failure, not an extraction one")
+            return None, ("the builder returned a Workbook with NO sheets - "
+                          "this is a BUILD failure, not an extraction one")
+        return wb, ""
+
+    def workbook_formula_grid(self, builder=None, from_row=None, draft=None):
+        """{sheet: {row label: [formula strings]}} from the in-memory BUILDER.
+
+        Deterministic, unlike the exporter's .xlsx bytes (zip metadata and
+        timestamps), which would false-DRIFT on every run.
+
+        NOTE ON data_only: it is NOT in play here. build_client_financial_
+        model_workbook never saves or reloads - it returns a live openpyxl
+        Workbook, so the "=..." strings are still strings. The first attempt
+        produced nothing for a duller reason: the builder opens with a
+        CONSUMER-SIDE boundary gate over all five JSON payloads, and a bare
+        `except Exception: return {}` swallowed the ContractViolation whole.
+        The gap is now recorded and reported, because a leg that cannot say
+        WHY it produced nothing is a leg that wastes a whole prove cycle.
+        """
+        self.grid_gap = ""
+        wb, gap = self._build_workbook(builder, from_row, draft)
+        if gap:
+            self.grid_gap = gap
             return {}
 
         grid = {}
@@ -629,10 +633,98 @@ class Surface(object):
             if rows:
                 grid[ws.title] = rows
         if not grid:
+            names = list(getattr(wb, "sheetnames", []) or [])
             self.grid_gap = (f"the builder produced {len(names)} sheets "
                              f"({', '.join(names[:6])}) but NOT ONE '=' string "
                              f"- sheets built, so this is EXTRACTION, not build")
         return grid
+
+    #: Text that IS a date is never pinned. The valuation inputs carry live
+    #: as-of dates that refresh from FRED and Damodaran; pinning them would
+    #: turn a correct data refresh into a red leg, which teaches everyone to
+    #: re-bless without reading. Nick's ruling, 2026-08-19.
+    _DATE_TEXT = re.compile(
+        r"\d{4}-\d{2}-\d{2}"
+        r"|\d{1,2}/\d{1,2}/\d{2,4}"
+        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}")
+
+    def workbook_text_surface(self, builder=None, from_row=None):
+        """{sheet: {cell address: text}} of the workbook's STATIC text.
+
+        The surface R32 cannot see. R32 hashes FORMULAS, so a label that moves,
+        changes wording, or arrives garbled is invisible to it - which is how
+        the Valuation "As of" header moved from column E to column L inside a
+        re-blessed commit without any golden master noticing (mini, 2026-08-19).
+        On a document a client pays for, a misplaced or mojibake label is a real
+        defect, so it gets its own pin.
+
+        KEYED BY CELL ADDRESS, not by row label, because MOVING is the failure
+        mode that started this. A label-keyed hash would have called the As-of
+        move identical.
+
+        WHAT COUNTS AS STATIC IS EARNED, NOT DECLARED. A hand-written exclusion
+        list is a promise that someone will remember to maintain it; instead the
+        workbook is built for TWO DIFFERENT BUSINESSES and only text identical
+        in both, at the same address, is pinned. The client's name, its city,
+        the per-line revenue labels, every per-draft value - all drop out by
+        construction, because they differ. What survives is the chrome: section
+        titles, statement labels, column headers, static source and citation
+        text. Live dates are dropped by shape on top of that.
+        """
+        self.text_gap = ""
+        first, gap = self._build_workbook(builder, from_row)
+        if gap:
+            self.text_gap = gap
+            return {}
+        multi = self.multi_line_payload()
+        mij, finmo = multi[0], multi[1]
+        if mij is None or finmo is None:
+            self.text_gap = ("no multi-line payload - the static/dynamic split "
+                             "needs two businesses")
+            return {}
+        # A DELIBERATELY DIFFERENT BUSINESS: different name, different city,
+        # different number of revenue lines. The same fixture on both sides
+        # would make every per-draft string look static and would pin the
+        # client's own name into a golden master.
+        second, gap = self._build_workbook(builder, from_row, {
+            "draft": {"id": "text-surface-probe",
+                      "row": {"business_name": "Thistledown Cycles",
+                              "address_city": "Burlington",
+                              "address_state": "VT"}},
+            "mij": mij, "finmo": finmo})
+        if gap:
+            self.text_gap = f"second business would not build: {gap}"
+            return {}
+
+        def text_cells(wb):
+            out = {}
+            for ws in getattr(wb, "worksheets", []) or []:
+                cells = {}
+                for row_cells in ws.iter_rows():
+                    for cell in row_cells:
+                        val = cell.value
+                        if not isinstance(val, str):
+                            continue
+                        val = val.strip()
+                        if not val or val.startswith("="):
+                            continue
+                        cells[cell.coordinate] = val
+                if cells:
+                    out[ws.title] = cells
+            return out
+
+        a, b = text_cells(first), text_cells(second)
+        surface = {}
+        for sheet in sorted(set(a) & set(b)):
+            keep = {addr: txt for addr, txt in a[sheet].items()
+                    if b[sheet].get(addr) == txt and not self._DATE_TEXT.search(txt)}
+            if keep:
+                surface[sheet] = keep
+        if not surface:
+            self.text_gap = ("no text survived the two-business intersection - "
+                             "either the builds differ everywhere (wrong fixture) "
+                             "or extraction is broken")
+        return surface
 
     def assembled_year1(self, fin, people=None, ops=None):
         """The handler assembles year1 from live shared context every turn.

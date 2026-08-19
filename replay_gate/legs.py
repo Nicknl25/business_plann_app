@@ -1895,6 +1895,64 @@ def _r_workbook_formula_grid(ctx):
         if not fails else "; ".join(fails))
 
 
+def _r_workbook_text_surface(ctx):
+    """R49 - the STATIC TEXT of the workbook, the surface R32 cannot see.
+
+    R32 hashes FORMULAS. Labels, headers, section titles and static source
+    text are not formulas, so a label that MOVES, changes wording, or arrives
+    garbled is invisible to it. That is not hypothetical: 01fd627 moved the
+    Valuation "As of" header from column E to column L and the re-blessed
+    formula golden could not have noticed either way (mini, 2026-08-19). On a
+    document a client pays for, a misplaced or mojibake label is a real defect.
+
+    Deliberately a SEPARATE leg rather than a widening of R32 (Nick's ruling,
+    2026-08-19): the two surfaces change for different reasons and on different
+    schedules. Folding text into the formula grid would mean every wording
+    tweak re-blesses the math golden, and a golden that churns for cosmetics is
+    one nobody reads before blessing.
+
+    Keyed by cell ADDRESS, because MOVING is the failure mode that started it.
+    """
+    from client_statements_output_excel import data as wbdata
+    from client_statements_output_excel import workbook_builder
+
+    surface = ctx.workbook_text_surface(
+        builder=workbook_builder.build_client_financial_model_workbook,
+        from_row=wbdata.draft_data_from_row)
+    if not surface:
+        return False, (f"SETUP: no text surface - "
+                       f"{getattr(ctx, 'text_gap', '') or 'the builder rendered nothing'}")
+    cells = sum(len(v) for v in surface.values())
+    # FLOOR. A near-empty surface hashes stably and proves nothing; the real
+    # workbook carries ~1,900 static strings across 15 sheets, so anything
+    # under a few hundred means extraction broke rather than the sheets
+    # emptying out.
+    if cells < 400 or len(surface) < 10:
+        return False, (f"only {cells} static text cells across {len(surface)} "
+                       f"sheets - too thin to pin; a hollow surface hashes "
+                       f"stably and proves nothing")
+    blob = json.dumps(surface, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    print(f"GOLDEN-SHA single_line_input {ctx.draft_input_sha}")
+    print(f"GOLDEN-SHA workbook_text {digest}")
+
+    # A NAMED CANARY, not just a hash. The hash tells you something moved; this
+    # says the specific cell whose silent move created this leg is still where
+    # it belongs, so a red leg comes with one concrete thing to look at.
+    as_of = [(sheet, addr) for sheet, cells_ in surface.items()
+             for addr, text in cells_.items() if text.strip().lower() == "as of"]
+    if not as_of:
+        return False, ("the Valuation 'As of' header is not in the static text "
+                       "surface at all - it is the cell this leg exists for")
+
+    return True, (f"{cells} static text cells across {len(surface)} sheets, "
+                  f"keyed by address; static EARNED by intersecting two "
+                  f"different businesses, so the client name, city and per-line "
+                  f"labels are absent by construction and no live as-of date is "
+                  f"pinned; the 'As of' header is at {as_of[0][0]}!{as_of[0][1]}; "
+                  f"text sha {digest[:12]}")
+
+
 def _r_per_line_proposal(ctx):
     """R28 (Thistledown #138) - a two-line business gets TWO proposals.
 
@@ -3743,6 +3801,45 @@ REGRESSIONS = [
                     "prove.BASELINE_PATHS was widened for exactly this, since "
                     "otherwise the module resolves from the HOME repo and the "
                     "'baseline' hash is computed with CURRENT workbook code.")),
+    Leg("R49", "INVARIANT", "workbook-text-surface",
+        "NEGATIVE CONTROL: the workbook's static text does not move or change",
+        "01fd627", "66ce906", _r_workbook_text_surface, issue="X5 rider class",
+        surface="workbook static text", proof=GOLDEN_MASTER,
+        proof_note=("BLESSED 2026-08-19 at 66ce906 (VS, on Nick's ruling). The "
+                    "surface R32 cannot see: R32 hashes FORMULAS, so labels, "
+                    "headers, section titles and static source text are outside "
+                    "it entirely. 01fd627 moved the Valuation 'As of' header "
+                    "from column E to column L inside a RE-BLESSED commit and no "
+                    "golden master could have noticed - mini caught it by "
+                    "reading the diff, which is exactly the kind of catch that "
+                    "should not depend on someone reading a diff. On a document "
+                    "a client pays for, a misplaced or mojibake label is a real "
+                    "defect. "
+                    "SEPARATE FROM R32 BY RULING, not by accident: the two "
+                    "surfaces change for different reasons, so folding text into "
+                    "the formula grid would re-bless the math golden on every "
+                    "wording tweak, and a golden that churns for cosmetics is one "
+                    "nobody reads before blessing. Each re-blesses on its own "
+                    "terms. "
+                    "KEYED BY CELL ADDRESS because MOVING is the failure mode "
+                    "that created the leg; a label-keyed hash would have called "
+                    "the As-of move identical. "
+                    "WHAT COUNTS AS STATIC IS EARNED, NOT DECLARED: the workbook "
+                    "is built for TWO DIFFERENT BUSINESSES (the frozen "
+                    "single-line fixture and the multi-line one, different name "
+                    "and city) and only text identical at the same address in "
+                    "both is pinned - so the client's name, its city, per-line "
+                    "revenue labels and every per-draft value drop out by "
+                    "construction rather than by a hand-written exclusion list "
+                    "somebody has to remember to maintain. Live as-of dates, "
+                    "which refresh from FRED and Damodaran, are dropped by shape "
+                    "on top of that: pinning them would turn a correct data "
+                    "refresh into a red leg and teach everyone to bless without "
+                    "reading. Verified at bless time: 1,935 cells over 15 sheets, "
+                    "zero date-shaped cells, and none of Bellweather / "
+                    "Thistledown / Madison / Burlington present anywhere. "
+                    "R32's digest is UNCHANGED at 8878c405e17d across the "
+                    "shared-door refactor that added this leg.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
         "c77094a", "5c9a8b9", _r_single_line_unchanged, issue="WS1b floor",
