@@ -31,6 +31,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"c:/dev/business_plann_app\" && ./.venv/Scripts/python.exe scripts/handoff_supervisor.py --tick",
+            "shell": "bash",
+            "timeout": 60
+          }
+        ]
       }
     ]
   }

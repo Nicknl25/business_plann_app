@@ -39,6 +39,22 @@ AGENT_PID = STATE_DIR / "agent.pid"
 STATE_PATH = STATE_DIR / "state.json"
 STOP_REQUEST = STATE_DIR / "watcher.stop_request"
 
+#: TRACKED FILES THAT ARE RECORDS, NOT CODE. The Cowork tester is a different
+#: session with its own job, and it edits these as it works; they were then
+#: sitting uncommitted at the next launch boundary, where a dirty tracked tree
+#: is a hard stop. That fired twice on 2026-08-17 and each time it ended the
+#: hands-off loop and pinged Nick to go commit somebody else's notes.
+#:
+#: Data only, never code: these are committed on their own, clearly labelled,
+#: so nothing rides into an agent turn's commit. A dirty .py - or anything not
+#: on this list - still stops the loop hard, which is the point of the check.
+RECORD_PATHS = (
+    "cowork_tester/agenda.json",
+    "cowork_tester/coverage.json",
+    "cowork_tester/runlog.jsonl",
+    "cowork_tester/console.html",
+)
+
 AGENT_STATUSES = {"awaiting-VS": "VS", "awaiting-mini": "mini"}
 STOP_STATUSES = {"awaiting-Nick", "stopped-stuck", "stopped-cap", "stopped-fault", "paused"}
 VALID_VERDICTS = {"progress", "green", "blocked", "needs-ruling", "drift"}
@@ -102,6 +118,48 @@ def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 def git_clean_tracked() -> bool:
     out = git("status", "--porcelain").stdout
     return not any(line and not line.startswith("??") for line in out.splitlines())
+
+
+def dirty_tracked() -> list:
+    return [line[3:].strip().strip('"')
+            for line in git("status", "--porcelain").stdout.splitlines()
+            if line and not line.startswith("??")]
+
+
+def settle_record_files(branch: str) -> bool:
+    """Commit the declared RECORD files so their churn cannot stop the loop.
+
+    -> True if the tracked tree is clean afterwards.
+
+    Deliberately narrow. It commits ONLY paths on RECORD_PATHS, and only when
+    they are the whole of the dirt: if anything else is modified, this does
+    nothing and the caller stops hard, because unexplained tracked edits at a
+    launch boundary are exactly what the check is for."""
+    dirty = dirty_tracked()
+    if not dirty:
+        return True
+    strays = [f for f in dirty if f not in RECORD_PATHS]
+    if strays:
+        return False
+    git("add", "--", *dirty)
+    names = ", ".join(f.split("/")[-1] for f in dirty)
+    got = git(
+        "commit",
+        "-m", f"[handoff-watcher] cowork tester records ({names})",
+        "-m", ("Committed on their own so the tester's notes cannot sit dirty "
+               "at a launch boundary and stop the hands-off loop. Records "
+               "only - no code is ever settled this way."),
+        check=False,
+    )
+    if got.returncode != 0 and "nothing to commit" not in (got.stdout + got.stderr):
+        log(f"record settle commit failed: {got.stderr[:200]}")
+        return False
+    fault = push_with_retries(branch)
+    if fault:
+        log(f"record settle push failed: {fault}")
+        return False
+    log(f"settled {len(dirty)} record file(s) so the boundary is clean: {dirty}")
+    return True
 
 
 def git_fetch_with_retries(branch: str, attempts: int = 3) -> bool:
@@ -729,7 +787,7 @@ def one_cycle(cfg: dict, state: dict) -> bool:
     if pid_alive(AGENT_PID):
         log("agent pid alive — waiting")
         return False
-    if not git_clean_tracked():
+    if not git_clean_tracked() and not settle_record_files(branch):
         stop("stopped-fault", "dirty tracked tree at launch boundary",
              "dirty tree", git("status", "--porcelain").stdout[:1200], cfg, state)
         return False
