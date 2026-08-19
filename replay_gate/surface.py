@@ -10,6 +10,7 @@ import hashlib
 import inspect
 import json
 import re
+import sys
 import uuid
 
 
@@ -529,13 +530,94 @@ class Surface(object):
             fin=copy.deepcopy(MULTI_FIN), year1=copy.deepcopy(MULTI_Y1),
             marketing={})
 
-    def _build_workbook(self, builder, from_row, info=None):
+    @staticmethod
+    def _patch_clock(when):
+        """Build AS IF today were `when`. -> (restore, gap).
+
+        FOUND, NOT LISTED. A hardcoded "patch cover_sheet.date" would be a
+        promise that somebody notices the next wall-clock read added to the
+        builder; instead every module of the workbook package is scanned for
+        one and each match is patched. Finding NONE is a gap, not a pass -
+        the builder has read the clock since it was written, so zero matches
+        means the scan broke and the second business would silently be built
+        at the same clock as the first, which is precisely the hole this
+        closes (mini, 2026-08-19: 'Cover'!C12 carried today's date straight
+        into the blessed golden, so R49 would have gone red the next day).
+        """
+        import datetime as _dt
+        import pkgutil
+
+        class _Frozen(_dt.date):
+            @classmethod
+            def today(cls):
+                return when
+
+        class _FrozenDT(_dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return _dt.datetime(when.year, when.month, when.day)
+
+            @classmethod
+            def utcnow(cls):
+                return _dt.datetime(when.year, when.month, when.day)
+
+        try:
+            import client_statements_output_excel as pkg
+        except ImportError as exc:
+            return None, f"cannot patch the clock: {exc}"
+        undo, patched = [], []
+        for mod in list(sys.modules.values()):
+            name = getattr(mod, "__name__", "") or ""
+            if not name.startswith(pkg.__name__):
+                continue
+            src = ""
+            try:
+                src = inspect.getsource(mod)
+            except Exception:
+                pass
+            _d = getattr(mod, "date", None)
+            if ("date.today()" in src and isinstance(_d, type)
+                    and issubclass(_d, _dt.date)):
+                undo.append((mod, "date", mod.date))
+                mod.date = _Frozen
+                patched.append(f"{name}.date")
+            _dtm = getattr(mod, "datetime", None)
+            if (("datetime.now()" in src or "datetime.utcnow()" in src)
+                    and isinstance(_dtm, type)
+                    and issubclass(_dtm, _dt.datetime)):
+                undo.append((mod, "datetime", mod.datetime))
+                mod.datetime = _FrozenDT
+                patched.append(f"{name}.datetime")
+        if not patched:
+            for mod, attr, old in undo:
+                setattr(mod, attr, old)
+            return None, ("the clock scan patched NOTHING in "
+                          f"{pkg.__name__} - the builder has always read the "
+                          "wall clock somewhere, so zero matches means the "
+                          "scan is broken and the two businesses would be "
+                          "built at the SAME clock, which is how a build date "
+                          "gets pinned into a golden master")
+
+        def restore():
+            for mod, attr, old in undo:
+                setattr(mod, attr, old)
+
+        return restore, ""
+
+    def _build_workbook(self, builder, from_row, info=None, clock=None):
         """(workbook, gap) for ONE business, through the production builder.
 
-        Extracted so the formula grid (R32) and the text surface (R33) enter
+        Extracted so the formula grid (R32) and the text surface (R49) enter
         the builder by the SAME door. Two copies of this assembly would drift
         apart, and the first symptom would be two goldens disagreeing about
         what the workbook is.
+
+        `clock` builds this workbook AS IF it were that date. It exists for
+        the text surface, which earns staticness by DIFFERING: the second
+        business is built at a different wall clock so that any text derived
+        from today's date differs between the two builds and drops out of the
+        intersection, the same way the client's name does. R32 never passes
+        it, so the formula grid's door is unchanged.
         """
         if builder is None or from_row is None:
             return None, "no builder/from_row supplied"
@@ -583,11 +665,21 @@ class Surface(object):
                           "re-capture from a draft that completed a run; a "
                           "hollow payload hashes stably and proves nothing")
         self.artifact_provenance = getattr(_run_artifacts, "PROVENANCE", {})
+        restore_clock = None
+        if clock is not None:
+            restore_clock, gap = self._patch_clock(clock)
+            if gap:
+                # NEVER build both businesses at the same clock silently: the
+                # whole point is that wall-clock text differs and drops out.
+                return None, gap
         try:
             wb = builder(from_row(row))
         except Exception as exc:
             return None, (f"{type(exc).__name__}: {exc}"[:300]
                           + " (builder refused the payload)")
+        finally:
+            if restore_clock:
+                restore_clock()
         names = list(getattr(wb, "sheetnames", []) or [])
         if not names:
             return None, ("the builder returned a Workbook with NO sheets - "
@@ -643,10 +735,27 @@ class Surface(object):
     #: as-of dates that refresh from FRED and Damodaran; pinning them would
     #: turn a correct data refresh into a red leg, which teaches everyone to
     #: re-bless without reading. Nick's ruling, 2026-08-19.
+    #: BOTH ORDERS of the spelled-out form. The day-first one is not
+    #: hypothetical: the Cover sheet renders "%d %B %Y", so "19 August 2026"
+    #: slipped past the month-first pattern and was blessed into the golden
+    #: at 66ce906 - a leg that would have gone red the following morning with
+    #: nothing wrong with the build (mini, 2026-08-19). The regex is now the
+    #: SECOND line of defence, not the first: the two businesses are built at
+    #: different wall clocks, so anything derived from today differs and drops
+    #: out by construction, the way an exclusion list can never be trusted to.
     _DATE_TEXT = re.compile(
         r"\d{4}-\d{2}-\d{2}"
         r"|\d{1,2}/\d{1,2}/\d{2,4}"
-        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}")
+        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}"
+        r"|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}"
+        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}")
+
+    #: The second business is built AS IF it were this date. Far from any
+    #: plausible today in day, month AND year, so a build-date stamp cannot
+    #: collide at any granularity - not the day, not "August 2026", not
+    #: "2026". Fixed rather than today-plus-an-offset because a golden master
+    #: over a moving input is the thing this leg exists to prevent.
+    _SECOND_CLOCK = (1996, 3, 7)
 
     def workbook_text_surface(self, builder=None, from_row=None):
         """{sheet: {cell address: text}} of the workbook's STATIC text.
@@ -686,12 +795,18 @@ class Surface(object):
         # different number of revenue lines. The same fixture on both sides
         # would make every per-draft string look static and would pin the
         # client's own name into a golden master.
+        # ...AND AT A DIFFERENT WALL CLOCK. Same principle as the different
+        # name: text that comes from today's date differs between the two
+        # builds and drops out, instead of relying on a regex to recognise
+        # every date format the workbook might ever render.
+        import datetime as _dt
         second, gap = self._build_workbook(builder, from_row, {
             "draft": {"id": "text-surface-probe",
                       "row": {"business_name": "Thistledown Cycles",
                               "address_city": "Burlington",
                               "address_state": "VT"}},
-            "mij": mij, "finmo": finmo})
+            "mij": mij, "finmo": finmo},
+            clock=_dt.date(*self._SECOND_CLOCK))
         if gap:
             self.text_gap = f"second business would not build: {gap}"
             return {}
@@ -724,6 +839,16 @@ class Surface(object):
             self.text_gap = ("no text survived the two-business intersection - "
                              "either the builds differ everywhere (wrong fixture) "
                              "or extraction is broken")
+        # WHAT THIS PIN DOES NOT COVER, COUNTED AND SAID OUT LOUD. The second
+        # business has TWO revenue lines against the first's one, so every
+        # block below a per-line block sits at a different ROW in the two
+        # workbooks and drops out - not because the text is per-draft, but
+        # because the address moved. That is real chrome going unpinned
+        # (FINMO's ratio-analysis labels, Calc's cost-structure labels, most
+        # of Checks), and a leg that reports "1,934 cells pinned" without it
+        # reads as fuller coverage than it has (mini, 2026-08-19).
+        kept = sum(len(v) for v in surface.values())
+        self.text_coverage = (kept, sum(len(v) for v in a.values()))
         return surface
 
     def assembled_year1(self, fin, people=None, ops=None):

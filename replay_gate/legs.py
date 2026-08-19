@@ -1945,12 +1945,18 @@ def _r_workbook_text_surface(ctx):
         return False, ("the Valuation 'As of' header is not in the static text "
                        "surface at all - it is the cell this leg exists for")
 
+    kept, seen = getattr(ctx, "text_coverage", (cells, cells))
     return True, (f"{cells} static text cells across {len(surface)} sheets, "
                   f"keyed by address; static EARNED by intersecting two "
-                  f"different businesses, so the client name, city and per-line "
-                  f"labels are absent by construction and no live as-of date is "
-                  f"pinned; the 'As of' header is at {as_of[0][0]}!{as_of[0][1]}; "
-                  f"text sha {digest[:12]}")
+                  f"different businesses built at two different WALL CLOCKS, "
+                  f"so the client name, city, per-line labels and the build "
+                  f"date are absent by construction; the 'As of' header is at "
+                  f"{as_of[0][0]}!{as_of[0][1]}; COVERAGE {kept}/{seen} of the "
+                  f"first workbook's text - the {seen - kept} unpinned are "
+                  f"mostly row-SHIFT drops, because the second business has two "
+                  f"revenue lines against the first's one and everything below "
+                  f"a per-line block sits at a different address; text sha "
+                  f"{digest[:12]}")
 
 
 def _r_per_line_proposal(ctx):
@@ -3835,11 +3841,43 @@ REGRESSIONS = [
                     "which refresh from FRED and Damodaran, are dropped by shape "
                     "on top of that: pinning them would turn a correct data "
                     "refresh into a red leg and teach everyone to bless without "
-                    "reading. Verified at bless time: 1,935 cells over 15 sheets, "
-                    "zero date-shaped cells, and none of Bellweather / "
-                    "Thistledown / Madison / Burlington present anywhere. "
-                    "R32's digest is UNCHANGED at 8878c405e17d across the "
-                    "shared-door refactor that added this leg.")),
+                    "reading. "
+                    "RE-BLESSED 2026-08-19 at HEAD (mini's audit of the first "
+                    "bless). The first bless was CLOCK-DEPENDENT: 'Cover'!C12 "
+                    "renders %d %B %Y and the drop-by-shape regex only knew the "
+                    "month-first form, so '19 August 2026' - today's wall clock, "
+                    "identical in both builds because both ran in the same "
+                    "second - was pinned into the golden. Proven, not argued: "
+                    "with the clock moved to 2026-08-20 the digest went "
+                    "6d1e65edbfe9 -> bd37bb3ced66 with nothing wrong in the "
+                    "build, so R49 would have gone red the next morning and "
+                    "taught exactly the bless-without-reading habit the ruling "
+                    "was written to prevent. The bless-time check that missed it "
+                    "was TAUTOLOGICAL: it re-applied the same regex the surface "
+                    "had already filtered by, so it could never fail. "
+                    "The fix earns time-staticness the same way it earns "
+                    "identity-staticness - the second business is built AT A "
+                    "DIFFERENT WALL CLOCK (1996-03-07), so anything derived from "
+                    "today differs between the builds and drops out by "
+                    "construction; the widened regex is now only a second line "
+                    "of defence. The clock scan FINDS its targets in the "
+                    "workbook package rather than naming one module, and "
+                    "patching nothing is a SETUP gap, never a pass. Verified "
+                    "after the fix: digest 4157868b6f89 identical at two "
+                    "different wall clocks, 1,934 cells over 15 sheets, and none "
+                    "of CareCompanions / Raleigh / Thistledown / Burlington - "
+                    "the gate fixture's REAL identity, which the first bless "
+                    "never probed - present anywhere. "
+                    "KNOWN COVERAGE GAP, stated in the evidence line rather "
+                    "than implied away: 1,934 of the first workbook's 2,608 text "
+                    "cells are pinned. The 674 unpinned are mostly ROW-SHIFT "
+                    "drops - the second business has two revenue lines to the "
+                    "first's one, so FINMO's ratio-analysis labels, Calc's "
+                    "cost-structure labels and ~44% of Checks sit at different "
+                    "addresses and escape. Widening that is a scope decision "
+                    "for Nick, not a silent re-bless. "
+                    "R32's digest is UNCHANGED at 8878c405e17d across both the "
+                    "shared-door refactor and this fix.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
         "c77094a", "5c9a8b9", _r_single_line_unchanged, issue="WS1b floor",
