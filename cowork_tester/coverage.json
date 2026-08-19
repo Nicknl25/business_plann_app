@@ -1,7 +1,7 @@
 {
- "version": 2,
- "updated": "2026-08-17",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings.",
+ "version": 3,
+ "updated": "2026-08-18",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -191,6 +191,15 @@
     "CW-038"
    ],
    "note": "Commercial print shop, used three times. CW-036 exposed the discovery already-captured blocker; CW-037 confirmed it fixed but hit a submit-validation blocker; CW-038 built end to end and became the first run in the campaign to verify a delivered P and L against client-captured inputs."
+  },
+  "auto_repair": {
+   "examples": [
+    "independent auto repair shop, single line, demand-constrained at 62 pct utilization"
+   ],
+   "runs": [
+    "CW-039"
+   ],
+   "note": "NEW business type. Chosen for a large, natural gap between capacity-at-full revenue and stated current revenue, which is exactly what makes a denominator bug visible."
   }
  },
  "friction_conditions": {
@@ -300,7 +309,8 @@
     "CW-031",
     "CW-032",
     "CW-033",
-    "CW-038"
+    "CW-038",
+    "CW-039"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -813,9 +823,30 @@
   },
   "workbook_verified_against_client_captured_inputs": {
    "runs": [
-    "CW-038"
+    "CW-038",
+    "CW-039"
    ],
-   "note": "NEW and MOSTLY PASSING - first run to reach a built P and L and balance sheet. Opening balance sheet exact to the dollar on all seven client-stated items; rent, COGS pct, capex and lease exact; opening PPE depreciation correct on a 5 year life; books balance in 21 of 21 periods. Two divergences found in the forecast layer, both filed."
+   "note": "NEW and MOSTLY PASSING - first run to reach a built P and L and balance sheet. Opening balance sheet exact to the dollar on all seven client-stated items; rent, COGS pct, capex and lease exact; opening PPE depreciation correct on a 5 year life; books balance in 21 of 21 periods. Two divergences found in the forecast layer, both filed. CW-039 ran the same check as a standing pass (A-126) and it came back clean on every stub line and every opening balance, surfacing only the stub-depreciation comparability question."
+  },
+  "stated_revenue_far_below_capacity_ceiling": {
+   "runs": [
+    "CW-039"
+   ],
+   "note": "NEW and PASSING - the discriminating condition for denominator bugs. 34 units/week x 640 x 52 = 1,129,032 capacity-at-full against 700,000 stated, a 429,032 gap. Every ratio-typed lever was checked against the right base: COGS proposal 133,000 = 19 pct of 700,000, marketing proposal 42,000 = 6 pct of 700,000, and stub G and A 0.06 = 42,000/700,000. All on stated revenue."
+  },
+  "ga_stub_denominator_confirmed_on_stated_revenue": {
+   "runs": [
+    "CW-039"
+   ],
+   "note": "NEW and PASSING - fix f900a45 confirmed live from the client side on both faces. model_input expenses[General and Administrative].values[0] = 0.060000; finmo pl stub G and A = 10,500 on revenue 175,000. Cross-check: the intake-close coherence figure of 32,900 a quarter reconciles only if G and A is 10,500 a quarter, so the conversational surface and the workbook agree."
+  },
+  "discovered_stream_merged_into_existing_line": {
+   "runs": [
+    "CW-037",
+    "CW-038",
+    "CW-039"
+   ],
+   "note": "PASSING across three business types now - print (CW-037, CW-038) and auto repair (CW-039). 'Parts are already inside the repair order, on the same ticket, not a separate thing we sell' latched merged_into:Auto repair service with no phantom, and the paired tire-sales candidate latched declined in the same turn."
   }
  },
  "verdict_classes_reached": {
@@ -1551,6 +1582,25 @@
    "headline": "First clean end-to-end print-shop build. Discovery handled a four-way mixed answer exactly (declined / merged x2 / added) and the drop door held from ops through finalize into the built model. A-122 and A-123 both closed on evidence. Two new findings, both in the forecast layer rather than flow - a silent interest re-rating from 7.5 to 9.0 pct APR, and a payroll narrative/statement disagreement.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-039": {
+   "persona": "Camille Ostrander - single-line independent auto repair shop",
+   "business": "Bellweather Auto Works",
+   "city": "Sheboygan WI",
+   "type": "auto_repair",
+   "draft_id": "46ae584a7eaa42bb95ad03075def4c7a",
+   "stack": "bda503e on intake-stable (fix f900a45)",
+   "outcome": "COMPLETE BUILD, FIX CONFIRMED. Submit cleared first click, workbook built and balanced 21 of 21. Reference QFOXYOL91084145384, submission #84.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "single_line_business_with_common_adjacent_streams",
+    "stated_revenue_far_below_capacity_ceiling",
+    "ga_stub_denominator_confirmed_on_stated_revenue",
+    "workbook_verified_against_client_captured_inputs"
+   ],
+   "headline": "The G and A stub denominator fix HOLDS exactly. Persona built so it could not pass by accident - capacity ceiling 1,129,032 against stated revenue 700,000, a 429,032 gap. Stub G and A reads 10,500 a quarter (42,000/yr, 6.00 pct of stated revenue); the old bug would have shown 6,510 (3.72 pct). Coherence line and workbook agree to the penny. Side observation: A-124's null-state defect is fixed, resolver now reads state WI.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1575,7 +1625,8 @@
     "CW-032",
     "CW-033",
     "CW-035",
-    "CW-038"
+    "CW-038",
+    "CW-039"
    ]
   },
   "parked": {

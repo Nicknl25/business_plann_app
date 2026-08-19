@@ -1,38 +1,30 @@
 {
  "version": 27,
- "updated": "2026-08-17T20:43:00Z",
- "notes": "CW-038 (Millgate Press, Dubuque) was the first complete end-to-end build of the print-shop shape and it closed the two frontier items in a single run. A-122's submit validator cleared on the first click and A-123's drop door held from ops all the way into the built model, so the discovery mechanism - propose, merge, decline, add, and now remove - is confirmed working from the client side across every disposition it offers.\n\nTHE FRONTIER HAS MOVED. Thirty-seven runs tested the CONVERSATION: whether the app asks the right questions, records the answers honestly, and reaches a defensible verdict. That layer is now in good shape. CW-038 got past it and looked at the DELIVERED FORECAST for the first time, and that is where both of this run's findings are. The opening balance sheet was exact to the dollar on all seven client-stated balances, rent, COGS percentage, capex and lease were exact, opening PPE depreciated correctly on a five-year life, and the books balanced in every one of 21 periods - so this is not a broken layer. But the forecast quietly re-rates the client's interest cost from 7.5 to 9.0 pct APR (A-124) and pays 1.1 pct less payroll than the HR narrative names person by person (A-125).\n\nThe useful discriminator this run surfaced: levers that move carry an applied_by_target_solver_quarters annotation when the movement is intended and disclosed. General and Administrative was trimmed by the margin solver and the app had already told the client in plain language that the build would temper the stress figure back to the believable band - disclosed, so not filed. The interest rate moved with no annotation and no disclosure. That distinction should drive the next few runs, and A-126 makes the built-workbook field check standing rather than ad hoc.\n\nStill open from earlier cycles and unaffected by this run: A-120 (a failed plan run still shows the client an unqualified 'we are building your plan now') and A-121 (the restructure net, which needs a persona that clears the pre-submit gate and only falls below the floor once build-time depreciation and debt service land - Millgate passed too comfortably to enter it).",
+ "updated": "2026-08-18",
+ "notes": "CW-039 (Bellweather Auto Works, Sheboygan) was a targeted confirmation and it confirms cleanly. The G and A stub denominator now uses stated current revenue, verified on a persona deliberately constructed to make the wrong denominator unmissable, and verified on both the model_input ratio and the built workbook dollars rather than at the proposal level.\n\nTWO CONSECUTIVE COMPLETE BUILDS. The programme has now verified delivered workbooks twice, and the standing field check introduced as A-126 after Millgate earned its place immediately: it is what surfaced this run's only new observation (A-127, the stub column's zero depreciation against a full quarter of everything else). The forecast layer that opened as a frontier at CW-038 is holding up under a second look - opening balance sheets exact to the dollar, books balancing 21 of 21 periods in both runs, and every client-captured stub line landing on the stated figure.\n\nTHE PICTURE ON A-124 HAS CHANGED and it is worth being explicit that it changed in the app's favour. VS's research showed the rate is a real SBA lookup rather than a hard-coded 9 pct, and identified the genuine defect as the state field never reaching the resolver. That is now fixed, and this run shows the consequence: with state correctly plumbed the derived rate landed 0.025 pp BELOW the client's own implied rate, where Millgate's unplumbed national median had pushed it 1.5 pp above. My original filing over-weighted the dollar impact and under-weighted the mechanism. What survives is narrow and unchanged: the substitution is silent, and the app already has a precedent for disclosing this kind of adjustment because it discloses the margin tempering in plain language at intake close.\n\nA-125 is downgraded but not closed. Bellweather's payroll landed +0.8 pct against stated where Millgate's landed -1.14 pct, and the stub was exact, so the headcount schedule tracks well and the question is now a policy one about whether a named-salary narrative is a contract with the reader.\n\nStill untouched by either build: A-120 (a failed plan run still shows the client an unqualified 'we are building your plan now') and A-121 (the restructure net, which needs a persona that clears the pre-submit gate and only falls below the floor once build-time depreciation and debt service land). Both healthy builds passed too comfortably to enter it, and that is now two runs in a row - the A-121 persona has to be designed for, not stumbled into.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "RUN-POST-GA-STUB-1",
-   "persona": "your pick - a real founder, natural answers, real numbers",
-   "business": "your pick, FRESH name. Any business that will state a monthly 'other regular bills' figure (utilities/software/insurance) - i.e. every real business - is the test. Single- or multi-line both fine.",
-   "why": "OPERATOR: run on HEAD f900a45. New since Millgate: (1) the workbook's TODAY column for General & Administrative now equals what you actually told us divided by your stated revenue (it was understated ~24% before - engine denominator bug, fixed + audited full-tier); (2) the SBA interest-rate lookup now keys on your STATE (state median, not national). Everything else unchanged (discovery reader converged, A-122 submit fixed, restructure net alive). Play through INCLUDING SUBMIT so the plan builds. TRIAGE LAW: new findings bucketed for the operator, filed not chased.",
-   "operator_command_hint": "run yours"
-  },
-  {
-   "rank": 2,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
-   "why": "NEW and the sharpest finding CW-038 produced. The client stated 120000 of debt and 9000 of annual interest and the app acknowledged both in plain language - 'I will use 9000 for annual interest payment'. The built model then uses the client-implied 7.5 pct APR (0.01875 per quarter) for the BASELINE period only and 9.0 pct APR (0.0225 per quarter) for every one of the twenty forecast quarters. Forecast Y1 interest is 9900 against the 9000 stated, and the tell is that interest RISES in forecast Q1 while debt issuance is 0 in all periods and the balance is falling - the only thing that can do that is a rate change. This is not a rounding artifact and it is not annotated as a solver lever the way General and Administrative is. Two readings and VS should settle which: either it is an intentional prudent-rate policy, in which case the client should be told at the point it is applied, exactly as the margin tempering is disclosed at intake close; or the forecast should carry the cost the client stated. Worth checking whether 0.0225 is a floor applied whenever the client-implied rate falls below it, because a client who states a cheap or subsidised loan would then silently get a plan that overstates their interest burden - and the same mechanism would understate it for a client on expensive credit.",
+   "why": "NARROWED BY CW-039 - the dollar-impact half is largely answered, the DISCLOSURE half is the live question. VS's research (docs/MILLGATE_A124_A125_RESEARCH.md) established the rate is genuinely SBA-derived from sba_loan_7a_raw, not a 9 pct literal, and identified the real defect underneath: state never reached the resolver, so Millgate got a NATIONAL median. CW-039 confirms that defect is FIXED - debt_interest_rate_policy.source_detail now carries state 'WI', match_basis exact_naics_6, naics 811111, sample_count 106, median 7.975 pct. And the outcome flipped: where Millgate's national median pushed the rate UP from the client's 7.5 pct to 9.0 pct, Bellweather's state-matched median landed at 7.975 pct against the client's own implied 8.00 pct - 0.025 pp BELOW what they stated. So the mechanism is sound and now correctly keyed. What has not changed is that the substitution is invisible: the client is told 'I will use 7,600 for annual interest payment' and is never told the forecast will re-rate from a lending table. The margin tempering IS disclosed at intake close, in plain language, and that is the precedent. Decide whether the rate substitution gets the same sentence.",
    "retests": [
-    "Re-run a debt-carrying persona stating an interest cost well BELOW 9 pct APR and one well ABOVE it, and compare the forecast rate row against the client-implied rate in each. If both land on 0.0225 it is a hard-coded default; if only the low one moves it is a floor; if neither moves the CW-038 case needs a different explanation."
+    "Any debt-carrying persona. Read derived_driver_policies.debt_interest_rate_policy for state and match_basis, compare annual_rate_decimal against the client's stated interest over stated debt, and scan the delivered plan for any mention of the substitution. The plumbing is fixed; what is being retested is whether the client is told."
    ]
   },
   {
-   "rank": 3,
+   "rank": 2,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
-   "why": "NEW, minor, and worth a decision rather than a fix. The client named 66000 for himself, 48000 for his lead press operator and 52000 for a three-person crew; the app echoed a payroll target of 166000 and stored payroll_total_year1 166000; the delivered HR narrative names the 66000 and the 48000 explicitly. The built P and L pays 41026 per forecast quarter - 164104 for Y1 - because payroll is headcount_schedule_derived with ending_fte 2.5. The seed at the baseline period is exactly 41500, so the app clearly knows the stated figure and the schedule then diverges from it by 1.1 pct. The contract's section 6 says derived means the workbook is truth and that is defensible here; what is not obviously defensible is that two sections of ONE delivered plan state different payroll, and a lender adding the salaries the narrative names will not get the financials. Secondary observation for the same decision: ending_fte 2.5 against a client-stated headcount of 5. Decide whether the named-salary narrative is a contract with the reader or merely colour; the answer determines whether this is a fix or a wont-fix.",
+   "why": "DOWNGRADED IN URGENCY BY CW-039, still worth a ruling. The shape recurs but far smaller and in the opposite direction: Bellweather's stated payroll 226,000 against forecast Y1 227,735, +0.8 pct, versus Millgate's -1.14 pct - and critically the STUB column is exact at 56,500 = 226,000/4. So the headcount schedule tracks the stated total closely and the Millgate gap looks like the tail of the distribution rather than a systematic understatement. The open question is unchanged and is a policy question, not a bug report: when the HR narrative names individual salaries and the P and L is derived from a headcount schedule, is the narrative a contract with the reader? Two runs now say the numbers land within about a percent either way, which argues for wont-fix unless a lender-facing reconciliation is expected.",
    "retests": [
     "Any run with two or more named people. Sum the salaries the HR narrative states and compare against finmo_json.pl Payroll for forecast Y1, and compare ending_fte against financials_json.current_num_employees."
    ]
   },
   {
-   "rank": 4,
+   "rank": 3,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -42,7 +34,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 4,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -50,13 +42,23 @@
    "retests": []
   },
   {
-   "rank": 6,
+   "rank": 5,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
    "why": "NEW - a PROGRAMME GAP, not a defect. CW-038 is the first run in thirty-eight to verify a delivered P and L and balance sheet against the numbers the client actually stated, because every prior run either parked, was blocked, or died before the builder. That single pass produced both of this run's findings, and both live in the forecast layer that no earlier run could see. The opening balance sheet was exact to the dollar on all seven client-stated items and the books balanced in 21 of 21 periods, so the layer is broadly sound - but the sample is one. Make the built-workbook check a standing part of the per-run cycle wherever a build completes: opening balance sheet against every stated balance, each expense line against its stated basis for forecast Y1 as well as the baseline period, and an explicit look at which levers carry an applied_by_target_solver_quarters annotation versus which move without one. The solver annotation turned out to be the honest signal that separated the General and Administrative trim, which was disclosed and not filed, from the interest re-rating, which was not.",
    "retests": [
     "Every future run that builds. This replaces spot-checking the built plan with a fixed field list."
+   ]
+  },
+  {
+   "rank": 6,
+   "id": "A-127",
+   "persona": "any business that reaches a built workbook",
+   "business": "any business with opening PPE",
+   "why": "NEW, note-severity, surfaced by the first standing use of the A-126 field check. The today/stub column runs a FULL quarter of activity - revenue 175,000, COGS 59,500, marketing 3,000, lease 12,600, payroll 56,500, G and A 10,500, all three months' worth - but books ZERO depreciation, while every forecast quarter books about 9,315 on the same 185,000 of opening PPE. The visible consequence is that stub net income reads 22,648 and the first forecast quarter reads 15,940, and roughly 9,300 of that drop is depreciation appearing rather than anything changing in the business. The same shape was present in CW-038 (stub depreciation 0 against 13,066 in forecast quarters), so this is a deliberate convention rather than an accident, and docs/STUB_CELLS_WHY_RESEARCH.md plus docs/STUB_PURITY_AND_ANNOTATIONS_RESEARCH.md suggest it has already been reasoned about. Filed so the cross-column comparability question gets an explicit ruling: either the stub is a full operating quarter and should carry that quarter's depreciation, or it is an opening snapshot and should not carry a full quarter of revenue and opex either. Right now the two halves of the column are on different bases.",
+   "retests": [
+    "Any run with meaningful opening PPE that builds. Compare finmo pl Depreciation values[0] against values[1] and check whether stub net income is comparable to the first forecast quarter on the same basis."
    ]
   },
   {
@@ -129,9 +131,9 @@
   }
  ],
  "closed_this_cycle": [
-  "RUN-POST-A122-1 (Millgate Press 2e198cbf): ALL HELD e2e; A-124 state plumbing + G&A stub denominator both fixed and audited after.",
-  "A-122 CLOSED ON EVIDENCE. CW-038 submitted a completed single-line commercial-print intake on HEAD d26a0e8 and Confirm and submit cleared on the FIRST click - reference code SOSCUTF06796651038, submission #83 - then built through to a completed workbook. This is the exact shape that was hard-blocked twice in CW-037, so the row-first validator fix is confirmed live from the client side.",
-  "A-123 CLOSED ON EVIDENCE - the drop door and the removed latch are exercised live for the first time. CW-038 said yes to large-format printing, the app minted it as its own line with origin discovery_confirmed, it captured unit name 'signage order' and price 480, and the client then said plainly to drop it. The latch moved to removed, the row left operating_model_json immediately, ops finalized without it, and it was absent from the financials stage, from finalize, and from model_input_json.sections.revenue in the built model - which contains exactly three rows, all on the single real print line. No resurrection at any boundary.",
-  "The discovery reader is now confirmed on a MIXED answer as well as single-disposition ones: four candidates answered in one turn produced declined / merged_into:print job / merged_into:print job / added, each echoed back separately and correctly, with no phantom minted for either merge."
+  "THE G AND A STUB DENOMINATOR IS CLOSED ON EVIDENCE. CW-039 (Bellweather Auto Works) was built so the fix could not pass by accident: capacity-at-full revenue 1,129,032 a year against a stated current revenue of 700,000, a gap of 429,032, with stated other operating expense of 3,500 a month chosen to land on a round 6.00 pct of stated revenue versus 3.72 pct if divided by the ceiling. Both faces read correctly - model_input expenses[General and Administrative].values[0] = 0.060000, and the built P and L stub column shows 10,500 on revenue of 175,000, i.e. 42,000 a year at 6.00 pct. The old defect would have produced 6,510 a quarter.",
+  "The conversational surface and the workbook agree. At intake close the app said the structure keeps about 32,900 a quarter at today's scale; the built stub EBITDA is 32,900 exactly, which reconciles only if G and A is 10,500 a quarter. No self-contradiction between the coherence check and the delivered numbers.",
+  "A-124's STATE PLUMBING half is closed on evidence as a side observation. debt_interest_rate_policy.source_detail now carries state 'WI' where Millgate's carried null, and the resolver matched exact_naics_6 811111 in Wisconsin across FY2021-2025, n=106. The disclosure half of A-124 remains open and is now the whole of that item.",
+  "Every ratio-typed lever in this run was verified against the correct base, not just G and A: the COGS proposal of 133,000 was 19 pct of the stated 700,000 and the marketing proposal of 42,000 was 6 pct of it. The denominator is right across the financials stage, not only in the fixed lever."
  ]
 }
