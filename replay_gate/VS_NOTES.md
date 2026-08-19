@@ -3576,3 +3576,54 @@ _gastub_leaf_purity.py (--dump/--diff), _gastub_tripwire_check.py, _check_gastub
 Gate residual found (mini's): --prove R31/R32 UNEARNED on the BASELINE side since
 725b374 (fixture re-recorded for the A-124 replay key only; 5716ba4/9d2c41c ask with
 the old key -> FrozenLookupMiss). Same on the pre-fix tree. Re-point baselines.
+
+
+## mini's TWO BLOCKERS FIXED (VS, 2026-08-19, 01fd627 + re-bless 7cb94ec)
+mini's W1-X5 stack audit: PASS on 6 areas, FAIL on two client-facing numbers.
+Both reproduced independently before touching anything, both fixed, both pinned.
+
+BLOCKER 1 - one sheet, two Y1 cash numbers. FINMO Balance Sheet Cash Y1 = 127,623
+(=G23, right) vs Cash Flow Ending Cash Y1 = 391,730 (=SUM(D61:G61)) two blocks
+below; Beginning Cash 312,107 instead of 48,000. Cause was routing by STATEMENT
+("year-end if Balance Sheet else sum") when Beginning/Ending Cash are BALANCES
+that live on the cash-flow statement. Fix is in two places on purpose:
+excel_utils.annual_mode_for now reads "beginning" alongside "opening" and an
+"Ending " prefix; finmo_sheet routes per ROW (the Balance Sheet keeps its
+statement-level rule, so nothing there depends on the label hints).
+After, in real Excel on Bellweather: Ending Cash Y1 == Cash Y1 == 127,623,
+Beginning Cash Y1 == 48,000, Y5 == 237,362.
+
+BLOCKER 2 - the DCF equity bridge subtracted net debt at the END OF YEAR 5 from
+an EV that already discounts five years of paydown: equity 860,170 for a business
+the same sheet sells for 656,130 in year five. The cross-check was pointed at EV
+(2.32x) so it could not see the equity number implying 3.28x. Now net debt at the
+VALUATION DATE (FINMO!C84) on the headline row and all five sensitivity rows, and
+the implied multiple is on equity. Equity 561,188 = 608,188 - 47,000.
+
+PINNED: tests/test_annual_column_semantics.py (8 tests) - red on all four
+workbook/router assertions at the pre-fix code. It pins BOTH halves deliberately:
+the flow rows must still SUM, because a fix that turned the cash-flow statement
+into a balance sheet would satisfy the first half and be worse. One test states
+the layering boundary out loud (a bare "Total Assets" routes to SUM on its own;
+the Balance Sheet does not depend on the router) so a later reader does not read
+that as a bug and "fix" it by widening the hints, which would move the schedules.
+_x5_valuation_proof.py gained the bridge check it was missing.
+
+R32 re-blessed 54c1843 -> 01fd627: 11 leaves of 298 moved, all declared (5
+Beginning Cash, 5 Ending Cash, the Valuation bridge rows + 2 label renames);
+new sha 8878c405e17d. --prove R31,R32 GOLDEN 0 DRIFT; fast gate 62/62.
+
+INSTRUMENT CORRECTION (mini should know this before re-auditing): the ad-hoc
+grid dump I used for drift purity put only <root>/python on sys.path and relied
+on cwd for the repo-root package, and the gate bootstrap moves the process off
+that directory - so it resolved client_statements_output_excel from the HOME
+repo whichever tree it was aimed at and compared HEAD to HEAD. It would have
+reported "0 changed" whatever moved. THE GATE IS NOT AFFECTED: prove() inserts
+the baseline ROOT itself (verified directly - R32 at 5c9a8b9 builds the 7-sheet
+pre-Valuation grid, sha cbd76463). The corrected dump asserts its own provenance
+before it hashes, and the previous re-bless claim (a474c3b -> 54c1843) was
+re-verified true under it: 264 shared leaves identical, 0 changed.
+
+CORRECTION: during X5 I claimed "exactly one consumer of an annual rate cell".
+mini swept and found 27 across 4 families. All semantically correct, so no number
+is wrong - but the count was asserted, not swept. Treat it as withdrawn.
