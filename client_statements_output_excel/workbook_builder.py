@@ -3,6 +3,7 @@ from __future__ import annotations
 from openpyxl.styles import Font, PatternFill
 
 from .calc_sheet import build_calc_sheet
+from .valuation_sheet import build_valuation_sheet
 from .checks_sheet import build_checks_sheet
 from .cover_sheet import COVER_SHEET, build_cover_sheet
 from .dashboard_sheet import build_dashboard_sheet
@@ -78,6 +79,9 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   # W2 (2026-08-18): Dashboard sits right after FINMO; wb.active stays FINMO.
   # The hidden Calc sheet is the dashboard's data engine, so it is built
   # first - the Dashboard only reads from it.
+  # The valuation reads FINMO's statements and the ratios section, so it is
+  # built after them and before the dashboard engine.
+  build_valuation_sheet(wb, data, ctx)
   build_calc_sheet(wb, data, ctx)
   build_dashboard_sheet(wb, data, ctx)
   build_source_audit_sheet(wb, data, ctx)

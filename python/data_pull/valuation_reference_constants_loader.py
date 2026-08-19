@@ -292,6 +292,47 @@ def fetch_terminal_growth() -> Optional[Dict[str, Any]]:
   }
 
 
+def fetch_risk_free_rate() -> Dict[str, Any]:
+  """The 10-year Treasury constant-maturity yield — the risk-free leg of the
+  cost-of-equity build-up.
+
+  DGS10 rather than DGS5: a five-year forecast with a terminal value discounts a
+  perpetual stream, and every published ERP (Damodaran's included) is quoted
+  against the 10-year, so a five-year risk-free paired with a ten-year ERP would
+  quietly mis-state the cost of equity.
+
+  Cached here rather than pulled per workbook build: a valuation must reproduce
+  when the same draft is rebuilt, and the DCF stamps whatever this row held at
+  build time.
+  """
+  value, as_of, fetched = 0.0472, date(2026, 8, 17), False
+  try:
+    obs = _fred_series("DGS10", "2026-01-01")
+    if obs:
+      value = round(float(obs[-1]["value"]) / 100.0, 6)
+      as_of = date.fromisoformat(obs[-1]["date"])
+      fetched = True
+  except Exception as exc:  # pragma: no cover - network
+    print(f"  ! FRED DGS10 fetch failed ({exc}); using the pinned figure")
+  return {
+    "constant_key": "risk_free_rate",
+    "constant_label": "Risk-free rate — 10-year US Treasury constant maturity",
+    "unit": "decimal_rate", "value_min": None, "value_default": value, "value_max": None,
+    "data_source": "fred",
+    "source_citation": (
+      f"FRED series DGS10 (10-year Treasury constant maturity), observation "
+      f"{as_of.isoformat()} = {value * 100:.2f}%. Matches the convention the "
+      f"Damodaran implied ERP is computed against."
+    ),
+    "source_as_of": as_of,
+    "confidence_tier": "high",
+    "refresh_mode": "fetched" if fetched else "pinned",
+    "derivation_formula": "latest valid DGS10 observation",
+    "notes": "GROUNDED market data. The DCF stamps the value it used, so a rebuilt "
+             "draft reproduces its original valuation instead of silently re-pricing.",
+  }
+
+
 DAMODARAN_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/home.htm"
 DAMODARAN_FALLBACK = {"erp": 0.0428, "rf": 0.0474, "as_of": date(2026, 8, 1)}
 
@@ -371,6 +412,9 @@ def main() -> int:
 
   rows: List[Dict[str, Any]] = []
   print("fetching live sources...")
+  rf = fetch_risk_free_rate()
+  print(f"  risk-free     {rf['value_default'] * 100:.2f}%  ({rf['refresh_mode']}, DGS10 as of {rf['source_as_of']})")
+  rows.append(rf)
   erp = fetch_damodaran_erp()
   print(f"  ERP           {erp['value_default'] * 100:.2f}%  ({erp['refresh_mode']}, as of {erp['source_as_of']})")
   rows.append(erp)
