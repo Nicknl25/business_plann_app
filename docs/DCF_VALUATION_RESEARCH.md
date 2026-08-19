@@ -283,3 +283,164 @@ Both are in the ratios section shipped this morning; both are cheap:
 - **Q6** WACC weights: current, target, or both as a sensitivity?
 
 Nothing built.
+
+---
+
+# PART 2 — THE REFERENCE CONSTANTS (BUILT), THE FRED FIX, AND THE DEFECT CLASS
+
+2026-08-19. Part 1 was research; this part reports what was **built and loaded**
+(the reference-constants table), what the FRED fix requires, the final DCF input
+map, and the full defect sweep.
+
+## A. valuation_reference_constants — BUILT AND LOADED
+
+`python/data_pull/valuation_reference_constants_loader.py` — re-runnable,
+idempotent (proved by running it twice: 11 rows, 11 distinct keys), and it does
+**not** use the `get_project_root()` pattern that kills the other loaders (§B).
+
+Schema follows the house lookup shape (`post_intake_industry_baseline_lookup`),
+extended so every row carries its own provenance:
+`constant_key · constant_label · applies_to (ALL or a NAICS prefix) · unit ·
+value_min / value_default / value_max · data_source · source_citation ·
+source_as_of · effective_from / effective_to · confidence_tier · refresh_mode ·
+derivation_formula · active · notes`.
+
+**The figures now loaded — this is the sanity-check list:**
+
+| Constant | Scope | min / **default** / max | Source | As of | Mode |
+|---|---|---|---|---|---|
+| `equity_risk_premium` | ALL | 3.68% / **4.28%** / 6.25% | **Damodaran implied ERP** (S&P 500, trailing-12m adjusted payout) | **2026-08-01** | fetched |
+| `equity_risk_premium_kroll` | ALL | **5.00%** | Kroll recommended US ERP | 2025-09-02 | pinned |
+| `equity_risk_premium_kroll_rf` | ALL | **3.50%** | Kroll normalized risk-free (its pair) | 2025-09-02 | pinned |
+| `size_premium_micro_cap` | ALL | 4.70% / **11.20%** / 11.80% | Kroll CRSP Deciles Size Study (decile 10 → sub-decile 10z) | 2023-12-31 | pinned |
+| `company_specific_risk_premium` | ALL | 0% / **3.00%** / 5.00% | judgment (conventional 0–5% band) | — | pinned |
+| `terminal_growth_rate` | ALL | 0% / **2.30%** / 4.28% | **FRED-derived**: GDPC1 20-yr real CAGR 1.98% + T10YIE 2.30% | 2026-08-18 | **fetched** |
+| `exit_multiple_sde` | ALL | 2.0× / **2.7×** / 3.5× | **BizBuySell Insight Report Q2 2026** — 2,117 closed transactions | 2026-06-30 | pinned |
+| `exit_multiple_sde` | 8111 | 2.0× / **2.5×** / 3.0× | owner-operated auto repair, sub-$250k SDE band | 2026-06-30 | pinned |
+| `exit_multiple_sde` | 4442 | 2.5× / **3.0×** / 4.2× | nursery & garden centre transactions | 2026-06-30 | pinned |
+| `exit_multiple_revenue` | ALL | 0.5× / **0.7×** / 1.0× | BizBuySell Q2 2026 (cross-check only) | 2026-06-30 | pinned |
+| `wacc_minus_growth_floor` | ALL | **3.0 pp** | structural guard on the Gordon denominator | — | pinned |
+
+**Three things worth your eye:**
+
+1. **The ERP convention resolves itself.** Damodaran computes his implied ERP
+   *against the spot 10-year* — his page states a risk-free of **4.74%**, and our
+   live FRED DGS10 is **4.72%**. Same convention, so pairing them is internally
+   consistent. Kroll's 5.0% is paired with a *normalized* 3.5%; pairing Kroll's
+   ERP with a spot rate would overstate the cost of equity, so Kroll is stored as
+   a labelled **alternative**, not the default.
+2. **The exit multiple is real transaction data, at our clients' size.**
+   BizBuySell's Q2 2026 sample has a median revenue of **$692,087** — Bellweather's
+   Y1 revenue is **$712,250**. The median business in that dataset *is* our client.
+3. **Two rows refresh themselves.** The Damodaran ERP and the FRED-derived growth
+   ceiling are re-fetched on every run; the rest are one-line edits. The annual
+   refresh is one command:
+   `python python/data_pull/valuation_reference_constants_loader.py`.
+
+**Cross-check that the two methods agree** — rf 4.72% + ERP 4.28% + size 11.20%
++ specific 3.00% = **Ke ≈ 23.2%**; with terminal g = 2.3% that implies a terminal
+multiple of about **1/(0.232−0.023) ≈ 4.8× free cash flow**. BizBuySell says these
+businesses transact at **2.7× SDE**, and SDE exceeds FCF (it adds back owner
+compensation). Two independent methods landing in the same neighbourhood is
+exactly the sanity check the sheet should print.
+
+## B. THE FRED FIX — it is a class, not one loader
+
+`get_project_root()` walks parents looking for a folder literally named
+`"Business Plan Generator"` and raises otherwise. **12 loaders share it:**
+`alpha_3statements_qtr`, `alpha_match_naics_industry`, `bls_employment_wages_loader`,
+`fred_macro_loader`, `google_competitor_map`, `hud_usps_files_to_sql`,
+`load_bds_firm_tables`, `naics_master_list`, `overpass_google_competitors`,
+**`pull_ticker_industry_sector_official`** (the one that fetches and discards
+Beta), `sba_load_7a`, `zip_crosswalk_loader`.
+
+**Every one of them is dead in this checkout.** That is why `fred_macro_quarterly`
+stops at 2025Q2 and why no warehouse table can currently be refreshed.
+
+The fix is the `project_root()` used in the new loader — anchor on a **marker
+file** (`.env` / `.git`) walking up from `__file__`, with a `BPLAN_ROOT` override.
+Two loaders additionally hardcode absolute paths under a different user profile
+(`pull_ticker_industry_sector_official.py:29` → `C:\Users\ignat\Documents\...`;
+`sba_load_7a.py:25` → a OneDrive path), so they need a `BPLAN_SOURCES_DIR` env
+var as well — fixing the root alone will not make those two run.
+
+**Risk-free wiring (recommended): cache, not per-run.** A new
+`fred_series_observations` long-form table plus a `market_rates.py` reader shaped
+like `_sba_business_loan_interest_rate_and_source` (module cache, structured
+source dict, **never raises**). The DCF reads the cached value and **stamps it
+into `finmo_json["dcf"]["assumptions"]`**, so rebuilding a six-month-old draft
+reproduces the six-month-old valuation instead of silently re-valuing at today's
+yield. Series: **DGS10**. Fallback ladder: fresh → stale-but-labelled → versioned
+constant marked "ASSUMPTION — not market-sourced".
+
+## C. FINAL DCF INPUT MAP
+
+| Input | Grounding | Exactly where from |
+|---|---|---|
+| UFCF (EBIT, D&A, capex, ΔNWC) | **MODEL** | FINMO rows 89 / 18 / 52 / 49+50 |
+| Effective tax rate | **MODEL** | Model Inputs `Taxes` — **quarterly cell only** (see D2) |
+| Cost of debt | **MODEL** | `debt_interest_rate_policy` — SBA 7(a), 7.975%, n=106 |
+| Capital weights | **MODEL** | FINMO rows 33/36/37 vs 42 |
+| Risk-free rate | **PULLED** | FRED `DGS10`, cached + stamped (§B) |
+| Equity risk premium | **REFERENCE TABLE** | `equity_risk_premium` 4.28%, Damodaran 2026-08-01 |
+| Size premium | **REFERENCE TABLE** | `size_premium_micro_cap` 11.2%, Kroll CRSP |
+| Company-specific premium | **REFERENCE TABLE (judgment)** | `company_specific_risk_premium` 3.0%, editable |
+| **Cost of equity** | **BUILD-UP** | `Ke = rf + ERP + size + specific` — one method for every client, no derived beta in v1 |
+| WACC | **COMPUTED** | `Kd(1−t)·w_d + Ke·w_e` |
+| Terminal growth | **REFERENCE TABLE (FRED-derived)** | default 2.30%, ceiling 4.28%, floor `WACC−g ≥ 3pp` |
+| Exit multiple | **REFERENCE TABLE + disclosed** | NAICS-scoped SDE multiple; GPT may frame the *range*, never the number |
+
+**Beta**: not used in v1 (ruled) — but capture `Beta`, `EVToEBITDA`,
+`SharesOutstanding` and a dated market cap on the existing OVERVIEW pass so the
+option exists later at zero API cost.
+
+## D. THE DEFECT CLASS — 11 found, and most PRE-DATE the ratios section
+
+Swept the whole builder for both classes. **Only one wrong-sheet reference exists
+in the package** (mine); the summed-rate class is much older and much wider than
+the single instance reported this morning.
+
+| # | Sev | Defect | Site | Whose | Evidence (Bellweather, recalculated) |
+|---|---|---|---|---|---|
+| D1 | **CRIT** | ROIC computed **pre-tax** — `(1−D22)` reads FINMO's blank "Balance Sheet" header, not Model Inputs' Taxes | `finmo_ratios.py:144` | **mine (X3)** | Y1 60.3% vs 44.1% true; Y5 407% |
+| D2 | **CRIT** | **15 Model Inputs RATE rows SUMMED** in annual columns | `model_inputs_sheet.py:71,185` + `excel_utils.py:251-263` | **pre-existing** | Unit Price Y1 **$2,599** (4× $640); Utilization **247.8%**; COGS **135.9%**; Depreciation **143.45%**; Taxes **107.77%**; AR **28.2 days** |
+| D3 | HIGH | DSO / inventory / payable days / CCC print **"0 days"** in Y1–Y5 (row 6 blank in annual columns) | `finmo_ratios.py:145` | **mine (X3)** | Y1–Y5 all `0 days` |
+| D4 | HIGH | Debt `Interest Rate` Y1 **7.98%**, CapEx `Depreciation Rate` Y5 **143.45%** summed | `schedule_sheets.py:469,624` | **pre-existing** | as shown |
+| D5 | MED | "Cash as Months of Operating Cost" divides annual opex by **3** | `finmo_ratios.py:166` | **mine (X3)** | Y1 0.67 vs ~2.67 true |
+| D6 | MED | Model Inputs `Distributions` (a flow) annualized as **year-end** | `model_inputs_sheet.py:214` | **pre-existing** | Y5 **$36,935** vs FINMO CF **$129,157** — same figure, two sheets, 3.5× apart |
+| D7 | MED | Six ratio **section headers** print **$0** in Y1–Y5 | `finmo_sheet.py:376` leak onto the Ratios statement | **mine (X3)** | rows 77/82/88/94/102/109 |
+| D8 | MED | Every `Opening …` balance annualized as **year-END** | `schedule_sheets.py:469,551,624` | **pre-existing** | Debt Opening Y1 86,093 (true 95,000); Opening PPE Y1 160,587 (true 185,000) |
+| D9 | LOW | ROIC guard misses near-zero invested capital on a net-cash business | `finmo_ratios.py:160` | **mine (X3)** | Y5 IC = 36,606 → 407% |
+| D10 | LOW | `Break-Even Units` annual is SUMMED while every other break-even annual row is re-derived | `break_even_sheet.py:204` | **pre-existing (W2)** | 850.6 vs ~863 re-derived |
+| D11 | LOW | Calc coerces ratio text `"-"` to **0**, so the dashboard shows a false `0.00x` DSCR | `calc_sheet.py:263,278` | **mine (X4)** | FINMO Y5 `-` vs Calc `0` |
+
+**Verified NOT defective** (so the fix turn does not churn them): the entire
+break-even ratio block re-derives correctly (`Variable Cost Ratio`,
+`Contribution Margin Ratio`, `Margin of Safety`); the Payroll Schedule's annual
+treatment (**the pattern the rest should copy** — `_add_annual_average_formulas`
+and `_add_annual_ratio_formulas`); the stage-ramp `=AVERAGE` rows; and every
+margin/leverage/liquidity/coverage ratio in the new section.
+
+**The dashboard is largely insulated**: Calc reads FINMO's *correctly re-derived*
+ratio rows, so D1/D2/D3/D5/D7 do not reach it. Its only exposure is D11.
+
+**Fix-order coupling (important):** D1 cannot be fixed alone. Re-pointing the tax
+reference at Model Inputs makes annual ROIC **negative**, because Model Inputs'
+annual tax cell is itself 1.0777 (D2). Either fix D2 first, or source the tax
+factor as a derived effective rate (`Taxes ÷ pre-tax income`) from FINMO.
+**Recommended: a third annual mode (`average`) in `add_annual_formulas` routed by
+row semantics, plus a `year_start` mode for the `Opening …` rows — that single
+change closes D2, D4 and D8 together.**
+
+## E. OPEN QUESTIONS (in addition to Part 1's Q1–Q6)
+
+- **Q7** Size premium default: **11.2%** (sub-decile 10z, the smallest published
+  bucket) or **4.7%** (decile 10)? The 11.2% gives Ke ≈ 23% and a terminal
+  multiple that reconciles with the observed 2.7× SDE market — which is why it is
+  the default — but it is an extrapolation and the sheet must say so.
+- **Q8** Fix the defect class as its own turn *before* X5 (recommended — D2 alone
+  puts a $2,599 unit price in front of a client), or fold it into X5?
+- **Q9** Should the DCF present **SDE** alongside EBITDA, given the exit multiple
+  we now hold is an SDE multiple and owner comp sits inside payroll?
+
+The only build in this pass is the reference table + loader; nothing consumes it yet.
