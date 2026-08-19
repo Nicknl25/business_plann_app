@@ -3643,9 +3643,25 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "96133a7", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "500907d", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-18 (baseline 725b374 -> 96133a7, VS, W2 "
+        proof_note=("RE-BLESSED 2026-08-19 (baseline 96133a7 -> 500907d, VS, "
+                    "Nick's restructure ruling: FINMO reads IS -> BS -> CF -> "
+                    "BREAK-EVEN -> RATIOS, the CVP helper data moved to the "
+                    "hidden Calc engine, and the Dashboard was rebuilt on that "
+                    "engine with a macro-free period selector). ONE re-bless "
+                    "bundling the whole restructure. Purity proven leaf-by-leaf "
+                    "BEFORE re-baselining (Test Files/_x2_restructure_purity.py "
+                    "on the grids at adafc07 vs now): 109 leaves identical, 51 "
+                    "pure renumberings on FINMO/Checks, 35 new ratio labels, 1 "
+                    "new sheet (Calc), Dashboard declared rebuilt, and the five "
+                    "CVP helper rows proven to have ARRIVED on Calc rather than "
+                    "vanished. The NUMBERS were held separately: 5,342 numeric "
+                    "cells identical by (sheet, row label, column) via "
+                    "Test Files/_x1_numbers_identical.py compare-labeled, and "
+                    "the selector was driven in real Excel "
+                    "(Test Files/_x4_toggle_live_proof.py, 17 live checks). "
+                    "PREVIOUS RE-BLESS 2026-08-18 (baseline 725b374 -> 96133a7, VS, W2 "
                     "break-even below the P&L + Dashboard; ONE planned re-bless "
                     "bundled for A+B+C per docs/WRITING_PHASE_RESEARCH_2.md R5): "
                     "the Break-Even Analysis block is inserted DIRECTLY BELOW "
