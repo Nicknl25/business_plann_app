@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"STANDING INSTRUCTION from Nick: FIRST action of every session - arm the persona-run watcher as a persistent background Monitor with command: ./.venv/Scripts/python.exe -u scripts/persona_session_watch.py (persistent=true; each stdout line is a run event). Then confirm to Nick with exactly one line: watcher armed. If a watcher Monitor is already live in this session (resume/compact), just re-confirm the line. Do this before any other work - Nick should never have to ask.\"}}'",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"STANDING INSTRUCTION from Nick: FIRST action of every session - arm the persona-run watcher as a persistent background Monitor with command: ./.venv/Scripts/python.exe -u scripts/persona_session_watch.py (persistent=true; each stdout line is a run event). Then confirm to Nick with exactly one line: watcher armed. If a watcher Monitor is already live in this session (resume/compact), just re-confirm the line. Then arm a SECOND persistent Monitor as the handoff-watcher keepalive: while true; do ./.venv/Scripts/python.exe scripts/handoff_supervisor.py --tick; sleep 120; done (persistent=true; it is silent unless it has to restart the watcher, so events are rare and meaningful). The SessionStart hook already ticks it once at startup; the Monitor is what covers a mid-session crash. Do this before any other work - Nick should never have to ask, and Nick never launches mini by hand.\"}}'",
             "shell": "bash",
             "timeout": 10
           }
