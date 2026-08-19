@@ -84,7 +84,7 @@ def build_cover_sheet(wb, data: DraftWorkbookData) -> None:
   sub.alignment = Alignment(horizontal="left", vertical="center")
 
   # --- meta block -----------------------------------------------------------
-  address = " ".join(x for x in [
+  address = ", ".join(x for x in [
     _meta(row_meta, "address_city"), _meta(row_meta, "address_state"),
   ] if x) or _meta(row_meta, "business_address")
   meta_rows = [
@@ -134,12 +134,14 @@ def build_cover_sheet(wb, data: DraftWorkbookData) -> None:
   design.section_band(ws, row, "How to read this model", end_col=10)
   row += 1
   for color, explanation in _LEGEND:
-    swatch = ws.cell(row=row, column=2, value="")
+    # The swatch lives in the narrow column A so it reads as a chip rather
+    # than a banner, and carries a hairline so the white one is visible.
+    swatch = ws.cell(row=row, column=1, value="")
     swatch.fill = design.fill(color)
-    swatch.border = design.BORDER_HAIRLINE
-    note = ws.cell(row=row, column=3, value=explanation)
+    swatch.border = design.BORDER_SWATCH
+    note = ws.cell(row=row, column=2, value=explanation)
     note.font = design.font("label")
-    ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=10)
+    ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=10)
     row += 1
 
   row += 1

@@ -191,6 +191,7 @@ FIRST_BLOCK_ROW = 6
 _THIN = Side(style="thin", color=HAIRLINE)
 _RULE = Side(style="thin", color=RULE)
 BORDER_HAIRLINE = Border(top=_THIN, bottom=_THIN)
+BORDER_SWATCH = Border(top=_RULE, bottom=_RULE, left=_RULE, right=_RULE)
 BORDER_BLOCK_TOP = Border(top=_RULE, bottom=_THIN)
 
 #: One tab color scheme, ordered by the reader's journey rather than Accent1-6.
