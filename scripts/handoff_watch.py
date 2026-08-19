@@ -55,6 +55,11 @@ RECORD_PATHS = (
     "cowork_tester/console.html",
 )
 
+#: How long the tree may stay dirty at a launch boundary before it counts as a
+#: fault. Long enough to cover a human finishing an edit and committing, short
+#: enough that genuinely abandoned work still surfaces the same day.
+DIRTY_GRACE_SECONDS = 600.0
+
 AGENT_STATUSES = {"awaiting-VS": "VS", "awaiting-mini": "mini"}
 STOP_STATUSES = {"awaiting-Nick", "stopped-stuck", "stopped-cap", "stopped-fault", "paused"}
 VALID_VERDICTS = {"progress", "green", "blocked", "needs-ruling", "drift"}
@@ -788,9 +793,27 @@ def one_cycle(cfg: dict, state: dict) -> bool:
         log("agent pid alive — waiting")
         return False
     if not git_clean_tracked() and not settle_record_files(branch):
-        stop("stopped-fault", "dirty tracked tree at launch boundary",
+        # A DIRTY TREE IS USUALLY TRANSIENT, SO WAIT BEFORE CALLING IT A FAULT.
+        # An interactive VS session mid-edit dirties the tree for as long as it
+        # takes to finish and commit. Stopping on the first sight of that ends
+        # the loop and pings Nick to come look at work that was about to be
+        # committed anyway - which is how a self-driving loop turns back into a
+        # thing Nick drives. It is only a fault if it does not clear.
+        since = state.get("dirty_since") or time.time()
+        state["dirty_since"] = since
+        save_state(state)
+        waited = time.time() - since
+        if waited < DIRTY_GRACE_SECONDS:
+            log(f"tree dirty at the launch boundary — waiting for it to settle "
+                f"({waited:.0f}s of {DIRTY_GRACE_SECONDS:.0f}s; someone is "
+                f"probably mid-commit)")
+            return False
+        stop("stopped-fault", f"dirty tracked tree for {waited / 60:.0f}m at launch boundary",
              "dirty tree", git("status", "--porcelain").stdout[:1200], cfg, state)
         return False
+    if state.pop("dirty_since", None) is not None:
+        save_state(state)
+        log("tree settled — boundary clear")
 
     write_status(status, reason=f"turn {next_turn}: launch {agent}", branch=branch, bump_turn=next_turn)
     timeout = h["turn_timeout_minutes"] or cfg["default_turn_timeout_minutes"]
