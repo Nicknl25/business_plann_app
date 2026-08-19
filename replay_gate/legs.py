@@ -3709,9 +3709,18 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
-        "c77094a", "725b374", _r_single_line_unchanged, issue="WS1b floor",
+        "c77094a", "5c9a8b9", _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("RE-POINTED 2026-08-17 (baseline 5716ba4 -> 725b374, mini): "
+        proof_note=("RE-BLESSED 2026-08-19 (baseline 725b374 -> 5c9a8b9, VS): W1 "
+                    "added finmo_json['break_even'], so the finmo digest moved by "
+                    "EXACTLY that key and nothing else - proven by stripping it: "
+                    "finmo-minus-break_even hashes to 24e38de4dc98, the pre-W1 "
+                    "baseline digest, byte for byte (Test Files/_w1_r31_diff, "
+                    "re-verified at HEAD on 2026-08-19). model_input is untouched "
+                    "at 1d50e46ab8e6. The leg had been QUARANTINED out of the gate "
+                    "verdict since W1; re-pointing restores it before production "
+                    "use. mini still owes the independent audit of the W1-X5 stack. "
+                    "PREVIOUS: RE-POINTED 2026-08-17 (baseline 5716ba4 -> 725b374, mini): "
                     "NOT a re-bless - the digests did not move (model_input "
                     "1d50e46a / finmo 24e38de4 before A-124, after A-124, and "
                     "after the G&A stub split 6b6f400). The A-124 SBA rate "
