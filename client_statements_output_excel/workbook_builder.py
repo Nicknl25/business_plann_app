@@ -3,7 +3,9 @@ from __future__ import annotations
 from openpyxl.styles import Font, PatternFill
 
 from .checks_sheet import build_checks_sheet
+from .cover_sheet import COVER_SHEET, build_cover_sheet
 from .dashboard_sheet import build_dashboard_sheet
+from . import design
 from .data import DraftWorkbookData
 from .diagnostics_sheet import build_diagnostics_sheet
 from .excel_utils import (
@@ -85,7 +87,13 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   except Exception:
     pass
 
-  wb.active = wb.sheetnames.index(FINMO_SHEET)
+  # X1 DESIGN SYSTEM (2026-08-18): the cover is built LAST (it links to the
+  # sheets that exist) but READS first. Build order above is unchanged - the
+  # dashboard still needs FINMO's row registry - and only the reading order
+  # moves, per Nick's Q6 ruling.
+  build_cover_sheet(wb, data)
+  design.apply_sheet_order(wb)
+  wb.active = wb.sheetnames.index(COVER_SHEET)
   set_tab_colors(wb)
   return wb
 

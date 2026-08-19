@@ -13,11 +13,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from openpyxl.chart import BarChart, LineChart, PieChart, Reference, Series
-from openpyxl.chart.label import DataLabelList
-from openpyxl.styles import Alignment, Border, Font, PatternFill
+from openpyxl.chart import Reference
 from openpyxl.utils import get_column_letter
 
+from . import design
 from .break_even_sheet import BREAK_EVEN_STATEMENT, CVP_HELPER_KEY, build_cvp_chart
 from .data import DraftWorkbookData, text
 from .excel_utils import (
@@ -66,33 +65,19 @@ def _sched_range(sheet: str, row: int) -> str:
 
 
 def _tile(ws, row: int, col: int, label: str, formula: str, number_format: str, note: str = "") -> None:
-  """A KPI tile: label cell above a bold formula cell (2 rows x 3 cols merged)."""
-  ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + 2)
-  ws.merge_cells(start_row=row + 1, start_column=col, end_row=row + 1, end_column=col + 2)
-  lab = ws.cell(row=row, column=col, value=label)
-  lab.font = Font(bold=True, color=FONT_WHITE, size=9)
-  lab.fill = PatternFill("solid", fgColor=FILL_NAVY)
-  lab.alignment = Alignment(horizontal="center")
-  val = ws.cell(row=row + 1, column=col, value=formula)
-  val.font = Font(bold=True, size=13, color=FILL_NAVY)
-  val.fill = PatternFill("solid", fgColor=FILL_BLUE)
-  val.alignment = Alignment(horizontal="center")
-  val.number_format = number_format
-  if note:
-    n = ws.cell(row=row + 2, column=col, value=note)
-    n.font = Font(size=8, italic=True, color="666666")
+  design.kpi_tile(ws, row, col, label, formula, number_format, note)
 
 
 def _helper_header(ws, row: int, col: int, title: str, span: int = 3) -> None:
   ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + span - 1)
-  c = ws.cell(row=row, column=col, value=title)
-  c.font = Font(bold=True, color=FONT_WHITE, size=9)
-  c.fill = PatternFill("solid", fgColor="595959")
+  cell = ws.cell(row=row, column=col, value=title)
+  cell.font = design.font("kpi_label")
+  cell.fill = design.fill(design.NAVY_DEEP)
 
 
 def _quarter_labels(ws, row: int, col: int) -> None:
   for i in range(_QCOUNT):
-    ws.cell(row=row, column=col + i, value=f"Q{i + 1}").font = Font(bold=True, size=9)
+    ws.cell(row=row, column=col + i, value=f"Q{i + 1}").font = design.font("colhead_sub")
 
 
 def _judged_band(data: DraftWorkbookData) -> Optional[List[Tuple[float, float]]]:
@@ -137,6 +122,9 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   set_title(ws, f"{data.business_name} - Dashboard", "Live KPIs and charts driven by the model's own cells (FINMO, Revenue Drivers, Payroll Schedule, Debt Schedule). Helper tables for the charts sit in columns AN onward.")
   for col in range(1, 30):
     ws.column_dimensions[get_column_letter(col)].width = 11
+  ws.sheet_view.zoomScale = 100
+  design.page_setup(ws, landscape=True, fit_width=True,
+                    footer=f"{data.business_name} — Dashboard")
   IS, BS, CF = "Income Statement", "Balance Sheet", "Cash Flow"
   y1 = ANNUAL_START_COL
   y5 = ANNUAL_START_COL + 4
@@ -260,94 +248,79 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
     ws.cell(row=head_row, column=hcol + 1 + i, value=(f"={ref(PAYROLL_SHEET, fte_row, FIRST_LIVE_COL + i)}" if fte_row else "=0")).number_format = NUMBER_FORMAT
   qlab_row_margins = gm_row - 1
 
-  # --- Charts -----------------------------------------------------------
+  # --- Charts (every one through design.chart — the single door) ---------
   cats = Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=qlab_row_margins)
+  CAT_SKIP = 2   # 20 quarters on one axis: label every other tick, never overlap
 
-  # 1 Revenue by line (stacked bars)
-  c1 = BarChart(); c1.type = "col"; c1.grouping = "stacked"; c1.overlap = 100
-  c1.title = "Revenue by quarter" + (" (by line)" if len(line_rows) > 1 else "")
-  c1.y_axis.title = "$"; c1.y_axis.number_format = "$#,##0"
-  for r, display in line_rows:
-    s = Series(Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r), title=display)
-    c1.series.append(s)
-  c1.set_categories(cats)
-  c1.varyColors = False
-  if len(line_rows) <= 1:
-    c1.legend = None
-  c1.height, c1.width = 8, 16
-  ws.add_chart(c1, "A16")
+  # 1 Revenue by quarter (stacked by line when multi-line)
+  c1 = design.chart("stacked_column" if len(line_rows) > 1 else "column",
+                    title="Revenue by quarter" + (" (by line)" if len(line_rows) > 1 else ""),
+                    y_format=design.FMT_AXIS_MONEY, legend="b" if len(line_rows) > 1 else None)
+  for idx, (r, display) in enumerate(line_rows):
+    design.add_series(c1, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r),
+                      title=display, slot=idx, line=False)
+  design.set_categories(c1, cats, skip=CAT_SKIP)
+  design.place(ws, c1, "A16")
 
-  # 2 Margins + band
-  c2 = LineChart(); c2.title = "Gross margin and EBITDA margin (dashed = judged EBITDA band)"
-  c2.y_axis.title = "% of revenue"; c2.y_axis.number_format = "0%"
-  for r, title, color in ((gm_row, "Gross Margin %", "1F4E79"), (em_row, "EBITDA Margin %", "C00000")):
-    s = Series(Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r), title=title)
-    s.graphicalProperties.line.solidFill = color; s.graphicalProperties.line.width = 28575; s.smooth = False
-    c2.series.append(s)
+  # 2 Margins vs the judged EBITDA band (band = chrome, dashed, muted)
+  c2 = design.chart("line", title="Gross margin and EBITDA margin",
+                    y_format=design.FMT_AXIS_PERCENT, legend="b")
+  design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=gm_row),
+                    title="Gross margin", slot=0)
+  design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=em_row),
+                    title="EBITDA margin", slot=1)
   if band:
-    for r, title in ((band_lo_row, "Judged EBITDA band - low"), (band_hi_row, "Judged EBITDA band - high")):
-      s = Series(Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r), title=title)
-      s.graphicalProperties.line.solidFill = "A5A5A5"; s.graphicalProperties.line.dashStyle = "dash"; s.smooth = False
-      c2.series.append(s)
-  c2.set_categories(cats)
-  c2.height, c2.width = 8, 16
-  ws.add_chart(c2, "K16")
+    design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=band_lo_row),
+                      title="Judged band low", color=design.SERIES_REFERENCE, dashed=True, thin=True)
+    design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=band_hi_row),
+                      title="Judged band high", color=design.SERIES_REFERENCE, dashed=True, thin=True)
+  design.set_categories(c2, cats, skip=CAT_SKIP)
+  design.place(ws, c2, "K16")
 
-  # 3 Cash + debt
-  c3 = LineChart(); c3.title = "Ending cash and closing debt"
-  c3.y_axis.title = "$"; c3.y_axis.number_format = "$#,##0"
-  for r, title, color in ((cash_row, "Ending Cash", "70AD47"), (debt_row, "Closing Debt", "ED7D31")):
-    s = Series(Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r), title=title)
-    s.graphicalProperties.line.solidFill = color; s.graphicalProperties.line.width = 28575; s.smooth = False
-    c3.series.append(s)
-  c3.set_categories(cats)
-  c3.height, c3.width = 8, 16
-  ws.add_chart(c3, "A34")
+  # 3 Cash and debt (one unit, one axis — never a dual axis)
+  c3 = design.chart("line", title="Ending cash and closing debt",
+                    y_format=design.FMT_AXIS_MONEY, legend="b")
+  design.add_series(c3, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=cash_row),
+                    title="Ending cash", slot=0)
+  design.add_series(c3, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=debt_row),
+                    title="Closing debt", color=design.SERIES_COST)
+  design.set_categories(c3, cats, skip=CAT_SKIP)
+  design.place(ws, c3, "A34")
 
   # 4 Break-even CVP (same helper range as FINMO, referenced cross-sheet)
   helper = ctx.schedule_rows.get(CVP_HELPER_KEY) or {}
   if helper:
     fin_ws = wb[FINMO_SHEET]
-    c4 = build_cvp_chart(fin_ws, first=helper["first"], last=helper["last"], be_r=helper["be"], plan_r1=helper["plan1"], plan_r2=helper["plan2"], loss_r=helper["loss"], profit_r=helper["profit"], title="Break-Even (Cost-Volume-Profit) - Q1")
-    c4.height, c4.width = 8, 16
-    ws.add_chart(c4, "K34")
+    c4 = build_cvp_chart(fin_ws, first=helper["first"], last=helper["last"], be_r=helper["be"],
+                         plan_r1=helper["plan1"], plan_r2=helper["plan2"], loss_r=helper["loss"],
+                         profit_r=helper["profit"], title="Break-even (cost-volume-profit), Q1")
+    c4.height, c4.width = 8.5, 16.5
+    design.place(ws, c4, "K34")
 
-  # 5 Cost structure Y1 (pie)
-  c5 = PieChart(); c5.title = "Year 1 cost structure"
-  c5.add_data(Reference(ws, min_col=hcol + 1, min_row=cost_first, max_row=cost_last), titles_from_data=False)
-  c5.set_categories(Reference(ws, min_col=hcol, min_row=cost_first, max_row=cost_last))
-  c5.dataLabels = DataLabelList(); c5.dataLabels.showPercent = True; c5.dataLabels.showVal = False; c5.dataLabels.showSerName = False; c5.dataLabels.showCatName = False; c5.dataLabels.showLegendKey = False
-  c5.height, c5.width = 8, 16
-  ws.add_chart(c5, "A52")
+  # 5 Year 1 cost structure — a horizontal bar, one hue, labels at the tips.
+  #   (A pie of 8 close values with 0%/2% slivers is the dated form it replaces.)
+  c5 = design.chart("bar", title="Year 1 cost structure",
+                    y_format=design.FMT_AXIS_MONEY, legend=None, height=9.5)
+  design.add_series(c5, Reference(ws, min_col=hcol + 1, min_row=cost_first, max_row=cost_last),
+                    slot=0, line=False, labels=True, label_position="outEnd")
+  design.set_categories(c5, Reference(ws, min_col=hcol, min_row=cost_first, max_row=cost_last))
+  design.place(ws, c5, "A52")
 
-  # 6 Headcount ramp
-  c6 = LineChart(); c6.title = "Headcount (total ending FTE)"
-  c6.y_axis.title = "FTE"
-  s = Series(Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=head_row), title="Total Ending FTE")
-  s.graphicalProperties.line.solidFill = "7030A0"; s.graphicalProperties.line.width = 28575; s.smooth = False
-  c6.series.append(s); c6.set_categories(cats)
-  c6.height, c6.width = 8, 16
-  ws.add_chart(c6, "K52")
+  # 6 Headcount — ONE series (varyColors off is what stops Excel legending
+  #   every point, which is what produced the Q1..Q20 rainbow legend).
+  c6 = design.chart("line", title="Headcount (total ending FTE)",
+                    y_format=design.FMT_AXIS_UNITS, legend=None)
+  design.add_series(c6, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=head_row),
+                    title="Total ending FTE", slot=6)
+  design.set_categories(c6, cats, skip=CAT_SKIP)
+  design.place(ws, c6, "K52")
 
-  # 7 Sources & uses Y1 (bars)
-  c7 = BarChart(); c7.type = "bar"; c7.title = "Year 1 sources (+) and uses (-) of cash"
-  c7.x_axis.number_format = "$#,##0"
-  c7.add_data(Reference(ws, min_col=hcol + 1, min_row=su_first, max_row=su_last), titles_from_data=False)
-  c7.set_categories(Reference(ws, min_col=hcol, min_row=su_first, max_row=su_last))
-  c7.legend = None
-  for s7 in c7.series:
-    s7.invertIfNegative = False  # negatives (uses) render solid, extending left
-    s7.graphicalProperties.solidFill = "1F4E79"
-    s7.dLbls = DataLabelList(); s7.dLbls.showVal = True; s7.dLbls.showSerName = False; s7.dLbls.showCatName = False; s7.dLbls.showLegendKey = False; s7.dLbls.numFmt = "$#,##0"
-  c7.height, c7.width = 8, 16
-  ws.add_chart(c7, "A70")
+  # 7 Year 1 sources (+) and uses (-) of cash
+  c7 = design.chart("bar", title="Year 1 sources (+) and uses (-) of cash",
+                    y_format=design.FMT_AXIS_MONEY, legend=None, height=9.5)
+  design.add_series(c7, Reference(ws, min_col=hcol + 1, min_row=su_first, max_row=su_last),
+                    slot=0, line=False, labels=True, label_position="outEnd")
+  design.set_categories(c7, Reference(ws, min_col=hcol, min_row=su_first, max_row=su_last))
+  design.place(ws, c7, "A70")
 
-  for ch in ws._charts:
-    try:
-      ch.x_axis.delete = False
-      ch.y_axis.delete = False
-      if ch.legend is not None:
-        ch.legend.position = "b"
-    except Exception:
-      pass
-  ws.sheet_properties.tabColor = "00B050"
+  ws.sheet_properties.tabColor = design.NAVY

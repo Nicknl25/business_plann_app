@@ -1,0 +1,39 @@
+X1 DESIGN SYSTEM PROOF 2026-08-19 (working tree on 3c186fd)
+
+== 1. KEY PROOF - numbers byte-identical (Bellweather) ==
+compared 9207 values and 4501 formulas across 12 pre-existing sheets
+new sheets (allowed, must be formula-free): ['Cover']
+sheet order base: ['Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'FINMO', 'Dashboard', 'Audit Source', 'Checks', 'Diagnostics']
+sheet order now : ['Cover', 'Dashboard', 'FINMO', 'Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'Audit Source', 'Checks', 'Diagnostics']
+
+IDENTICAL: every pre-existing formula string and every recalculated value is unchanged. X1 changed appearance only.
+
+== 2. KEY PROOF - numbers byte-identical (Kestrelbrook, 4-line) ==
+compared 12068 values and 5799 formulas across 12 pre-existing sheets
+new sheets (allowed, must be formula-free): ['Cover']
+
+IDENTICAL: every pre-existing formula string and every recalculated value is unchanged. X1 changed appearance only.
+
+   (instrument self-check: two builds of the UNCHANGED tree compared identical -
+    9207 values / 4501 formulas - so the comparison is deterministic, not lucky)
+
+== 3. R32 formula grid - NEUTRAL ==
+grid sha before X1: 5d935029e3f214c1ea1d1b263b2b713c0e3c07c8eb973f5c9723717531cd8fef
+grid sha after  X1: 5d935029e3f214c1ea1d1b263b2b713c0e3c07c8eb973f5c9723717531cd8fef
+-> UNCHANGED - no re-bless needed
+
+== 4. Guard test + negative controls ==
+............                                                             [100%]
+12 passed in 12.89s
+
+== 5. Design-system audit of a real built workbook ==
+sheets: ['Cover', 'Dashboard', 'FINMO', 'Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'Audit Source', 'Checks', 'Diagnostics']
+opens on: Cover
+design-system violations across every cell and chart: 0
+
+== 6. Excel COM open + Model Status ==
+   (Bellweather regenerated + recalculated: Excel recalc OK, Checks!B2 = OK)
+
+== 7. Fast gate ==
+61/61 legs clear
+  GREEN - every known issue that ran is clear.

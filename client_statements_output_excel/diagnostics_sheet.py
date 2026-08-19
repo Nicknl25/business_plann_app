@@ -26,6 +26,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from . import design
 from .data import DraftWorkbookData
 from .excel_utils import (
   FILL_LIGHT,
@@ -44,19 +45,19 @@ _FAIL_MARK = "X"
 
 
 def _bold(size: int = 11) -> Font:
-  return Font(name="Calibri", size=size, bold=True, color=FONT_BLACK)
+  return design.font("label_strong")
 
 
 def _section_header_fill() -> PatternFill:
-  return PatternFill(fill_type="solid", fgColor=FILL_NAVY)
+  return design.fill(design.NAVY)
 
 
 def _section_header_font() -> Font:
-  return Font(name="Calibri", size=12, bold=True, color=FONT_WHITE)
+  return design.font("section")
 
 
 def _row_alt_fill() -> PatternFill:
-  return PatternFill(fill_type="solid", fgColor=FILL_LIGHT)
+  return design.fill(design.TINT_2)
 
 
 def _section_header(ws: Worksheet, row: int, text: str) -> int:
@@ -87,10 +88,7 @@ def _check_row(
   status_text = _PASS_MARK if passed else _FAIL_MARK
   v = ws.cell(row=row, column=2, value=status_text)
   v.alignment = Alignment(horizontal="center", vertical="center")
-  v.font = Font(
-    name="Calibri", size=11, bold=True,
-    color="006100" if passed else "9C0006",
-  )
+  v.font = design.font("status_good" if passed else "status_bad")
   if alt:
     fill = _row_alt_fill()
     k.fill = fill
@@ -122,7 +120,7 @@ def build_diagnostics_sheet(
 
   row = 1
   title = ws.cell(row=row, column=1, value="Run Diagnostics")
-  title.font = Font(name="Calibri", size=16, bold=True, color=FONT_BLACK)
+  title.font = design.font("title")
   ws.row_dimensions[row].height = 24
   row += 2
 
@@ -185,7 +183,7 @@ def build_diagnostics_sheet(
   header_v = ws.cell(row=row, column=2, value="Status")
   for c in (header_k, header_v):
     c.font = _bold(11)
-    c.fill = PatternFill(fill_type="solid", fgColor=FILL_GRAY)
+    c.fill = design.fill(design.TINT_1)
     c.alignment = Alignment(horizontal="left", vertical="center")
   header_v.alignment = Alignment(horizontal="center", vertical="center")
   row += 1

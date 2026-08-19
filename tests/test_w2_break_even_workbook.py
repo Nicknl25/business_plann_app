@@ -7,8 +7,8 @@ Pins, on the P3.40 valid workbook payload fixture (no DB):
   2. the headline row is pre-tax BE, with cash BE and EBITDA-basis rows and
      the units row(s) referencing Revenue Drivers unit price;
   3. the CVP helper range + native scatter chart exist on FINMO, and the
-     Dashboard sheet sits right after FINMO with formula tiles + 7 charts;
-     wb.active stays FINMO;
+     Dashboard carries formula tiles + 7 charts (X1 moved the reading order to
+     Cover -> Dashboard -> FINMO and the cover is what opens);
   4. ABSENT-TOLERANT: a finmo_json WITHOUT break_even (pre-W1) still builds
      (block + charts render; no Audit Source tie-out rows), and WITH a
      break_even block the Audit Source mirror + Checks tie-out rows appear;
@@ -105,8 +105,11 @@ class BreakEvenWorkbookTests(unittest.TestCase):
     self.assertTrue(any(str(l).startswith("Cost-Volume-Profit Chart Data") for l in labels))
     self.assertEqual(len(ws._charts), 1)
     names = wb.sheetnames
-    self.assertEqual(names.index("Dashboard"), names.index("FINMO") + 1)
-    self.assertEqual(wb.active.title, "FINMO")
+    # X1 (Nick's Q6): reading order is Cover -> Dashboard -> FINMO -> ...,
+    # and the cover is what opens. Build order is unchanged.
+    self.assertEqual(names[0], "Cover")
+    self.assertLess(names.index("Dashboard"), names.index("FINMO"))
+    self.assertEqual(wb.active.title, "Cover")
     dash = wb["Dashboard"]
     self.assertEqual(len(dash._charts), 7)
     # KPI tiles are formulas referencing FINMO / the block.

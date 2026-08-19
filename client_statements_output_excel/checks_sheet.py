@@ -6,6 +6,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from . import design
 from .excel_utils import (
   CAPEX_SHEET,
   CASH_EQUITY_SHEET,
@@ -64,8 +65,8 @@ def _block_ref(sheet: str, start_row: int, end_row: int, start_col: int = PERIOD
 def _write_headers(ws) -> None:
   for col, header in enumerate(CHECK_HEADERS, start=1):
     cell = ws.cell(row=5, column=col, value=header)
-    cell.fill = PatternFill("solid", fgColor="1F4E79")
-    cell.font = Font(bold=True, color="FFFFFF")
+    cell.fill = design.fill(design.NAVY)
+    cell.font = design.font("colhead")
   widths = {
     "A": 24,
     "B": 42,
@@ -112,7 +113,7 @@ def _write_check(
   ws.cell(row=row, column=10, value=notes)
   for col in [5, 6, 7, 8]:
     set_formula_style(ws.cell(row=row, column=col), number_format=number_format)
-  ws.cell(row=row, column=9).font = Font(bold=True)
+  ws.cell(row=row, column=9).font = design.font("label_strong")
 
 
 def _write_single_tie(
@@ -871,16 +872,16 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
   last_check_row = row - 1
   ws.cell(row=2, column=1, value="Model Status")
   ws.cell(row=2, column=2, value=f'=IF(COUNTIF(I7:I{last_check_row},"FAIL")=0,"OK","FAIL")')
-  ws.cell(row=2, column=2).font = Font(bold=True, color="FFFFFF")
-  ws.cell(row=2, column=2).fill = PatternFill("solid", fgColor=FILL_GREEN)
+  ws.cell(row=2, column=2).font = design.font("kpi_label")
+  ws.cell(row=2, column=2).fill = design.fill(design.NAVY)
   ws.cell(row=3, column=1, value="Rule")
   ws.cell(row=3, column=2, value="Only real formula/coherence failures return FAIL. Baseline scenario changes show CHANGED.")
   ws.merge_cells(start_row=3, start_column=2, end_row=3, end_column=6)
 
   status_range = f"I7:I{last_check_row}"
-  fail_fill = PatternFill("solid", fgColor="FFC7CE")
-  ok_fill = PatternFill("solid", fgColor=FILL_GREEN)
-  changed_fill = PatternFill("solid", fgColor=FILL_BLUE)
+  fail_fill = design.fill(design.STATUS_CRITICAL_FILL)
+  ok_fill = design.fill(design.STATUS_GOOD_FILL)
+  changed_fill = design.fill(design.STATUS_NEUTRAL_FILL)
   ws.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"FAIL"'], fill=fail_fill))
   ws.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"OK"'], fill=ok_fill))
   ws.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"CHANGED"'], fill=changed_fill))

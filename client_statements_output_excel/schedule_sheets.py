@@ -4,6 +4,7 @@ from typing import Dict, List
 
 from openpyxl.styles import Font, PatternFill
 
+from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
 from .excel_utils import (
   ANNUAL_START_COL,
@@ -307,8 +308,8 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   ]
   for col, header in enumerate(headers, start=1):
     cell = ws.cell(row=row, column=col, value=header)
-    cell.fill = PatternFill("solid", fgColor="595959")
-    cell.font = Font(bold=True, color="FFFFFF")
+    cell.fill = design.fill(design.NAVY_DEEP)
+    cell.font = design.font("colhead")
   row += 1
   detail_start_row = row
   for item in root.get("rows") or []:
