@@ -256,7 +256,11 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
         formula = _derived(source[1], ctx, finmo_col)
       else:
         src = _source_ref(source, ctx, finmo_col)
-        formula = f"=IFERROR(IF(ISTEXT({src}),0,{src}),0)" if src else "=0"
+        # A ratio that FINMO honestly reports as "-" (no debt service, no
+        # capital base) must not become a confident 0.00x on the dashboard.
+        # NA() leaves the card blank and breaks the line, which is the truth.
+        blank = "NA()" if key in _RATIO_KEYS or key in _PERCENT_KEYS else "0"
+        formula = f"=IFERROR(IF(ISTEXT({src}),{blank},{src}),{blank})" if src else "=0"
       cell = ws.cell(row=row, column=col, value=formula)
       design.calculated_cell(cell, number_format=_fmt_for(key))
     q_rows[key] = row
@@ -275,7 +279,11 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
         formula = _derived(source[1], ctx, finmo_col)
       else:
         src = _source_ref(source, ctx, finmo_col)
-        formula = f"=IFERROR(IF(ISTEXT({src}),0,{src}),0)" if src else "=0"
+        # A ratio that FINMO honestly reports as "-" (no debt service, no
+        # capital base) must not become a confident 0.00x on the dashboard.
+        # NA() leaves the card blank and breaks the line, which is the truth.
+        blank = "NA()" if key in _RATIO_KEYS or key in _PERCENT_KEYS else "0"
+        formula = f"=IFERROR(IF(ISTEXT({src}),{blank},{src}),{blank})" if src else "=0"
       cell = ws.cell(row=row, column=col, value=formula)
       design.calculated_cell(cell, number_format=_fmt_for(key))
     y_rows[key] = row

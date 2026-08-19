@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple
 
 from .data import DraftWorkbookData, row_by_label, text
 from .excel_utils import (
@@ -59,7 +59,7 @@ def _write_linked_row(
   source_row: int,
   detail: str,
   number_format: str,
-  use_year_end: bool = False,
+  annual_mode: Optional[str] = None,
 ) -> None:
   ws.cell(row=row, column=1, value=label)
   ws.cell(row=row, column=2, value=detail)
@@ -68,7 +68,7 @@ def _write_linked_row(
     col = PERIOD_START_COL + idx
     cell = ws.cell(row=row, column=col, value=f"={ref(source_sheet, source_row, col)}")
     set_formula_style(cell, number_format=number_format, internal_link=True)
-  add_annual_formulas(ws, row, use_year_end=use_year_end, number_format=number_format)
+  add_annual_formulas(ws, row, mode=annual_mode, label=label, number_format=number_format)
   style_row(ws, row, fill=FILL_GREEN if "Schedule" in detail else None, number_format=number_format)
 
 
@@ -155,7 +155,7 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
         source_row=source_row,
         detail=f"{source_sheet} output",
         number_format=fmt,
-        use_year_end=False,
+        annual_mode=None,
       )
       if label == "Payroll":
         from .data import values_21
@@ -182,7 +182,7 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
         col = PERIOD_START_COL + idx
         cell = ws.cell(row=row, column=col, value=value)
         set_formula_style(cell, number_format=_format_for_label(label), internal_link=False)
-      add_annual_formulas(ws, row, use_year_end=False, number_format=_format_for_label(label))
+      add_annual_formulas(ws, row, label=label, number_format=_format_for_label(label))
       style_row(ws, row, number_format=_format_for_label(label))
     row += 1
 
@@ -211,7 +211,9 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
       source_row=ctx.schedule_row(sheet, source_key),
       detail=f"{sheet} schedule",
       number_format=fmt,
-      use_year_end=fmt == CURRENCY_FORMAT,
+      # Semantics, not number format: a money row may be a FLOW (distributions,
+      # capex) or a BALANCE (owner's capital), and the router knows which.
+      annual_mode=None,
     )
     row += 1
 
@@ -239,7 +241,7 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
     ("PPE Closing Balance", CAPEX_SHEET, "Closing PPE", CURRENCY_FORMAT, True),
     ("Accumulated Depreciation", CAPEX_SHEET, "Accumulated Depreciation", CURRENCY_FORMAT, True),
   ]
-  for label, sheet, source_key, fmt, use_year_end in cash_links:
+  for label, sheet, source_key, fmt, _legacy_year_end in cash_links:
     _write_linked_row(
       ws,
       ctx,
@@ -250,6 +252,6 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
       source_row=ctx.schedule_row(sheet, source_key),
       detail=f"{sheet} schedule",
       number_format=fmt,
-      use_year_end=use_year_end,
+      annual_mode=None,
     )
     row += 1

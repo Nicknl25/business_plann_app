@@ -22,6 +22,7 @@ from typing import List, Tuple
 from . import design
 from .excel_utils import (
   ANNUAL_START_COL,
+  MODEL_INPUT_SHEET,
   FIRST_LIVE_COL,
   PERIOD_COUNT,
   PERIOD_START_COL,
@@ -141,8 +142,22 @@ def fill_ratio_formulas(ws, ctx: WorkbookBuildContext) -> None:
     equity = fin("Balance Sheet", "Total Equity", col)
     debt_repay = fin("Cash Flow", "Debt Repayment", col)
     lease_principal = fin("Cash Flow", "Capital Lease Principal Payments", col)
-    tax_rate = local_ref(ctx.model_input_row("is::Taxes"), col) if ctx.model_input_row("is::Taxes") else "0"
-    days = local_ref(6, col)
+    # The tax factor lives on MODEL INPUTS. A same-sheet reference here used to
+    # resolve to FINMO row 22 - the "Balance Sheet" section header, blank - so
+    # (1 - blank) = 1 and ROIC was computed PRE-TAX. Sheet-qualified now; safe
+    # in the annual columns only because the annual rate is AVERAGEd, not summed.
+    _tax_row = ctx.model_input_row("is::Taxes")
+    tax_rate = ref(MODEL_INPUT_SHEET, _tax_row, col) if _tax_row else "0"
+    # FINMO row 6 (Days in Quarter) is written for the PERIOD columns only, so
+    # in an annual column a naive reference multiplies by blank and prints
+    # "0 days" - a false claim that receivables collect same-day. Annual columns
+    # take the year's four quarters of days.
+    if is_annual:
+      year_index = col - ANNUAL_START_COL
+      first_q = FIRST_LIVE_COL + year_index * 4
+      days = f"SUM({local_ref(6, first_q)}:{local_ref(6, first_q + 3)})"
+    else:
+      days = local_ref(6, col)
 
     total_debt = f"({std}+{ltd}+{lease_ob})"
     # CF debt repayment is written as a negative; principal paid is its absolute
@@ -163,8 +178,9 @@ def fill_ratio_formulas(ws, ctx: WorkbookBuildContext) -> None:
     put("Current Ratio", guarded(ca, cl), "ratio")
     put("Quick Ratio", guarded(f"({cash}+{ar})", cl), "ratio")
     put("Working Capital", f"={ca}-{cl}", "money")
+    months = 12 if is_annual else 3
     put("Cash as Months of Operating Cost",
-        f'=IFERROR(IF(({cogs}+{opex_block})<=0,"-",{cash}/(({cogs}+{opex_block})/3)),"-")', "ratio")
+        f'=IFERROR(IF(({cogs}+{opex_block})<=0,"-",{cash}/(({cogs}+{opex_block})/{months})),"-")', "ratio")
 
     put("Total Debt", f"={total_debt}", "money")
     put("Net Debt", f"={total_debt}-{cash}", "money")
@@ -185,8 +201,12 @@ def fill_ratio_formulas(ws, ctx: WorkbookBuildContext) -> None:
     put("Net Margin", guarded(ni, rev), "percent")
     put("Return on Assets", guarded(ni, assets), "percent")
     put("Return on Equity", guarded(ni, equity), "percent")
+    # Invested capital collapses toward zero once a business is debt-free and
+    # cash-rich, which turns a real ratio into a meaningless 400%. Below a tenth
+    # of revenue the denominator is not an economic capital base, so say so.
+    _invested = f"({equity}+{total_debt}-{cash})"
     put("Return on Invested Capital",
-        guarded(f"({ebit}*(1-{tax_rate}))", f"({equity}+{total_debt}-{cash})"), "percent")
+        f'=IFERROR(IF({_invested}<=0.1*{rev},"-",({ebit}*(1-{tax_rate}))/{_invested}),"-")', "percent")
 
     put("Asset Turnover", guarded(rev, assets), "ratio")
     put("Receivable Days (DSO)", guarded(f"({ar}*{days})", rev), "days")

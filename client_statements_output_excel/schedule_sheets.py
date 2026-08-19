@@ -7,6 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
 from .excel_utils import (
+  ANNUAL_YEAR_END,
   ANNUAL_START_COL,
   CAPEX_SHEET,
   CASH_EQUITY_SHEET,
@@ -165,7 +166,7 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
       util = local_ref(ctx.schedule_row(REVENUE_SHEET, f"{slot}::Utilization"), col)
       cell = ws.cell(row=row, column=col, value=f"={cap}*{price}*{util}")
       set_formula_style(cell, number_format=CURRENCY_FORMAT)
-    add_annual_formulas(ws, row)
+    add_annual_formulas(ws, row, label=f"{display} - Revenue")
     style_row(ws, row, fill=FILL_GREEN, bold=True, number_format=CURRENCY_FORMAT, border_top=True)
     ctx.add_schedule_row(REVENUE_SHEET, f"{slot}::Revenue", row)
     total_revenue_rows.append(revenue_row)
@@ -178,7 +179,7 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
     refs = [local_ref(r, col) for r in total_capacity_rows]
     ws.cell(row=row, column=col, value=f"=SUM({','.join(refs)})" if refs else "=0")
     set_formula_style(ws.cell(row=row, column=col), number_format=NUMBER_FORMAT)
-  add_annual_formulas(ws, row, number_format=NUMBER_FORMAT)
+  add_annual_formulas(ws, row, label="Total Capacity Units", number_format=NUMBER_FORMAT)
   style_row(ws, row, fill=FILL_LIGHT, bold=True, number_format=NUMBER_FORMAT, border_top=True)
   ctx.add_schedule_row(REVENUE_SHEET, "Total Capacity Units", row)
   row += 1
@@ -190,7 +191,7 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
     refs = [local_ref(r, col) for r in total_revenue_rows]
     ws.cell(row=row, column=col, value=f"=SUM({','.join(refs)})" if refs else "=0")
     set_formula_style(ws.cell(row=row, column=col), number_format=CURRENCY_FORMAT)
-  add_annual_formulas(ws, row)
+  add_annual_formulas(ws, row, label="Total Revenue")
   style_row(ws, row, fill=FILL_BLUE, bold=True, number_format=CURRENCY_FORMAT, border_top=True)
   ctx.add_schedule_row(REVENUE_SHEET, "Total Revenue", row)
   total_revenue_row = row
@@ -392,7 +393,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         number_format=fmt,
       )
     else:
-      add_annual_formulas(ws, summary_output_row, use_year_end=(key == "ending_fte"), number_format=fmt)
+      add_annual_formulas(ws, summary_output_row,
+                          mode=ANNUAL_YEAR_END if key == "ending_fte" else None,
+                          label=label, number_format=fmt)
     style_row(
       ws,
       summary_output_row,
@@ -466,7 +469,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
         set_input_style(cell, number_format=fmt)
       else:
         set_formula_style(cell, number_format=fmt)
-    add_annual_formulas(ws, r, use_year_end=label in {"Opening Debt", "Closing Debt"}, number_format=fmt)
+    add_annual_formulas(ws, r, label=label, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Closing Debt", "Interest Expense", "Actual Debt Repayment"} else None, bold=label in {"Closing Debt", "Interest Expense"}, number_format=fmt)
 
   row += 2
@@ -548,7 +551,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
         number_format=fmt,
         internal_link=label not in input_rows,
       )
-    add_annual_formulas(ws, r, use_year_end=label.endswith("Balance") or label.endswith("Opening") or label.endswith("Closing"), number_format=fmt)
+    add_annual_formulas(ws, r, label=label, number_format=fmt)
     style_row(ws, r, fill=FILL_LIGHT, number_format=fmt)
 
 
@@ -621,7 +624,7 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
         set_formula_style(ws.cell(r, col), number_format=fmt, internal_link=True)
       else:
         set_formula_style(ws.cell(r, col), number_format=fmt)
-    add_annual_formulas(ws, r, use_year_end=label in {"Opening PPE", "Closing PPE", "Opening Accumulated Depreciation", "Accumulated Depreciation"}, number_format=fmt)
+    add_annual_formulas(ws, r, label=label, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Capital Expenditures", "Depreciation Expense", "Closing PPE"} else None, bold=label in {"Depreciation Expense", "Closing PPE"}, number_format=fmt)
 
 

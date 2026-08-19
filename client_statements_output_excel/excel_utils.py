@@ -248,18 +248,98 @@ def write_values_row(
       set_formula_style(cell, number_format=number_format)
 
 
-def annual_formula_for_row(row: int, year_index: int, *, use_year_end: bool = False) -> str:
+# ---------------------------------------------------------------------------
+# ANNUAL AGGREGATION — routed by what the row MEANS (2026-08-19).
+#
+# The annual columns used to have two modes, SUM or last-quarter, and every
+# caller chose with a boolean. A RATE row therefore got SUMMED, and a client
+# opening the workbook saw a unit price of $2,599 for a $640 service, a 247%
+# utilisation and a 107% tax rate. The mode is now a SEMANTIC property of the
+# row, resolved from its label and number format, so a rate CANNOT be summed by
+# construction - `mode` is required and there is no boolean to get backwards.
+# ---------------------------------------------------------------------------
+
+ANNUAL_SUM = "sum"                # a FLOW: revenue, costs, cash movements
+ANNUAL_AVERAGE = "average"        # a RATE or LEVEL: %, price, utilisation, days
+ANNUAL_ANNUALIZE = "annualize"    # a PER-QUARTER rate quoted annually (cost of debt)
+ANNUAL_YEAR_END = "year_end"      # a BALANCE at the close of the year
+ANNUAL_YEAR_START = "year_start"  # a BALANCE at the open of the year
+
+_ANNUAL_MODES = {ANNUAL_SUM, ANNUAL_AVERAGE, ANNUAL_ANNUALIZE, ANNUAL_YEAR_END, ANNUAL_YEAR_START}
+
+#: Rows whose annual figure is the rate quoted the way a reader expects it -
+#: a cost of debt is an ANNUAL rate, even though the model carries it quarterly.
+_ANNUALIZED_LABELS = {"Interest Rate"}
+
+#: Labels that are a LEVEL or a RATE whatever their number format - a unit
+#: price is money-formatted but four quarters of it do not add up to a year's
+#: price. This is what put $2,599 in front of a client for a $640 service.
+_LEVEL_HINTS = ("unit price", "price per", "utilization", "utilisation", "rate", "days", "% of")
+
+#: Money-formatted rows that are BALANCES, not flows.
+_BALANCE_HINTS = ("opening", "closing", "balance", "ppe", "accumulated depreciation",
+                  "right-of-use asset", "owner's capital", "other equity")
+
+
+def annual_mode_for(label: str, number_format: str) -> str:
+  """The annual mode a row EARNS from its own meaning.
+
+  Number format is the honest signal for rate-ness (a percent/ratio/days row is
+  never a flow); the label decides balance-vs-flow among the money rows, and
+  whether a balance is a year-START (an "Opening ..." row) or a year-END one.
+  """
+  text_label = (label or "").strip().lower()
+  fmt = number_format or ""
+  if label in _ANNUALIZED_LABELS:
+    return ANNUAL_ANNUALIZE
+  if fmt in {design.FMT_PERCENT, design.FMT_RATIO, design.FMT_DAYS}:
+    return ANNUAL_AVERAGE
+  if any(hint in text_label for hint in _LEVEL_HINTS):
+    return ANNUAL_AVERAGE
+  if fmt == design.FMT_UNITS and any(
+      h in text_label for h in ("rate", "utilization", "utilisation", "price", "fte", "days")):
+    return ANNUAL_AVERAGE
+  # "Opening" anywhere, not just at the front: the row is "Debt Opening Balance"
+  # on Model Inputs and "Opening Debt" on the schedule, and both are the balance
+  # the year STARTS with.
+  if "opening" in text_label:
+    return ANNUAL_YEAR_START
+  if any(hint in text_label for hint in _BALANCE_HINTS):
+    return ANNUAL_YEAR_END
+  return ANNUAL_SUM
+
+
+def annual_formula_for_row(row: int, year_index: int, *, mode: str) -> str:
+  if mode not in _ANNUAL_MODES:
+    raise ValueError(f"unknown annual mode {mode!r}")
   start_col = FIRST_LIVE_COL + ((year_index - 1) * 4)
   end_col = start_col + 3
-  if use_year_end:
+  span = f"{local_ref(row, start_col)}:{local_ref(row, end_col)}"
+  if mode == ANNUAL_YEAR_END:
     return f"={local_ref(row, end_col)}"
-  return f"=SUM({local_ref(row, start_col)}:{local_ref(row, end_col)})"
+  if mode == ANNUAL_YEAR_START:
+    return f"={local_ref(row, start_col)}"
+  if mode == ANNUAL_AVERAGE:
+    return f"=IFERROR(AVERAGE({span}),0)"
+  if mode == ANNUAL_ANNUALIZE:
+    return f"=IFERROR(AVERAGE({span})*4,0)"
+  return f"=SUM({span})"
 
 
-def add_annual_formulas(ws: Worksheet, row: int, *, use_year_end: bool = False, number_format: str = CURRENCY_FORMAT) -> None:
+def add_annual_formulas(
+  ws: Worksheet,
+  row: int,
+  *,
+  mode: Optional[str] = None,
+  label: str = "",
+  number_format: str = CURRENCY_FORMAT,
+) -> None:
+  """Write the Y1..Y5 columns for one row. Pass an explicit `mode`, or a `label`
+  and let `annual_mode_for` resolve it - never a bare boolean."""
+  resolved = mode or annual_mode_for(label, number_format)
   for year in range(1, 6):
     col = ANNUAL_START_COL + year - 1
-    cell = ws.cell(row=row, column=col, value=annual_formula_for_row(row, year, use_year_end=use_year_end))
+    cell = ws.cell(row=row, column=col, value=annual_formula_for_row(row, year, mode=resolved))
     set_formula_style(cell, number_format=number_format)
 
 

@@ -201,8 +201,22 @@ def fill_break_even_formulas(ws, data: DraftWorkbookData, ctx: WorkbookBuildCont
     total_rev_row = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
     for label, slot in (ctx.schedule_rows.get(_UNIT_SLOT_KEY) or {}).items():
       unit_row = ctx.finmo_row(BREAK_EVEN_STATEMENT, label)
-      # Annual units = sum of the quarterly break-even units.
-      _set(ws, unit_row, col, f"=SUM({local_ref(unit_row, start)}:{local_ref(unit_row, end)})", number_format=NUMBER_FORMAT)
+      # RE-DERIVED, not summed. Every other annual row in this block is derived
+      # from the annual sums; summing the quarterly unit counts instead left the
+      # units disagreeing with the break-even revenue they come from. Annual
+      # units = annual break-even revenue x this line's annual revenue share,
+      # divided by its average price - the same arithmetic the quarters use.
+      price_row = ctx.schedule_row(REVENUE_SHEET, f"{slot}::Unit Price")
+      line_rev_row = ctx.schedule_row(REVENUE_SHEET, f"{slot}::Revenue")
+      if not price_row or not line_rev_row or not total_rev_row:
+        continue
+      price = f"IFERROR(AVERAGE({ref(REVENUE_SHEET, price_row, start)}:{ref(REVENUE_SHEET, price_row, end)}),0)"
+      line_rev = f"SUM({ref(REVENUE_SHEET, line_rev_row, start)}:{ref(REVENUE_SHEET, line_rev_row, end)})"
+      total_rev = f"SUM({ref(REVENUE_SHEET, total_rev_row, start)}:{ref(REVENUE_SHEET, total_rev_row, end)})"
+      be_annual = _be(ctx, "Break-Even Revenue", col)
+      _set(ws, unit_row, col,
+           f"=IFERROR(IF(OR({price}<=0,{total_rev}<=0),0,{be_annual}*({line_rev}/{total_rev})/{price}),0)",
+           number_format=NUMBER_FORMAT)
 
   # Styling
   for label, r in ctx.finmo_rows.get(BREAK_EVEN_STATEMENT, {}).items():

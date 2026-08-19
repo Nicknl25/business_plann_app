@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from .finmo_ratios import fill_ratio_formulas, write_ratio_rows
+from .finmo_ratios import RATIOS_STATEMENT, fill_ratio_formulas, write_ratio_rows
 from .break_even_sheet import (
   BREAK_EVEN_STATEMENT,
   fill_break_even_formulas,
@@ -12,6 +12,8 @@ from openpyxl.utils import get_column_letter
 
 from .data import DraftWorkbookData, text
 from .excel_utils import (
+  ANNUAL_SUM,
+  ANNUAL_YEAR_END,
   ANNUAL_START_COL,
   CURRENCY_FORMAT,
   DEBT_SHEET,
@@ -373,11 +375,15 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
     "Ending Cash",
   }
   for statement, line_map in ctx.finmo_rows.items():
-    if statement == BREAK_EVEN_STATEMENT:
-      continue  # W2: its own formulas + styling below
+    if statement in (BREAK_EVEN_STATEMENT, RATIOS_STATEMENT):
+      # Both analysis blocks write EVERY column themselves, annual ones
+      # included and correctly re-derived per ratio. Letting the statement-style
+      # aggregation also run over them is what printed $0 under the six ratio
+      # section headers.
+      continue
     use_year_end = statement == "Balance Sheet"
     for label, r in line_map.items():
-      add_annual_formulas(ws, r, use_year_end=use_year_end)
+      add_annual_formulas(ws, r, mode=ANNUAL_YEAR_END if use_year_end else ANNUAL_SUM)
       style_row(
         ws,
         r,
