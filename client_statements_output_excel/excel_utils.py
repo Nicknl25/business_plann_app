@@ -301,9 +301,13 @@ def annual_mode_for(label: str, number_format: str) -> str:
     return ANNUAL_AVERAGE
   # "Opening" anywhere, not just at the front: the row is "Debt Opening Balance"
   # on Model Inputs and "Opening Debt" on the schedule, and both are the balance
-  # the year STARTS with.
-  if "opening" in text_label:
+  # the year STARTS with. "Beginning" is the cash-flow statement's word for the
+  # same thing - missing it made "Beginning Cash" and "Ending Cash" SUM, so the
+  # cash-flow statement contradicted the balance sheet directly above it by 3x.
+  if "opening" in text_label or "beginning" in text_label:
     return ANNUAL_YEAR_START
+  if text_label.startswith("ending "):
+    return ANNUAL_YEAR_END
   if any(hint in text_label for hint in _BALANCE_HINTS):
     return ANNUAL_YEAR_END
   return ANNUAL_SUM

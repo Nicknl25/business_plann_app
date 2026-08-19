@@ -67,8 +67,9 @@ def check_workbook(path: str) -> int:
 
   ev = val("Enterprise value")
   equity = val("Equity value")
+  net_debt = val("Less: net debt today")
   tv_mult = val("Terminal value — exit multiple")
-  implied = val("Implied multiple of year-5 SDE")
+  implied = val("Implied multiple of year-5 SDE (equity)")
   if not isinstance(ev, (int, float)) or ev <= 0:
     failures.append(f"enterprise value is {ev!r}")
   if not isinstance(equity, (int, float)) or equity <= 0:
@@ -77,6 +78,15 @@ def check_workbook(path: str) -> int:
     failures.append(f"exit-multiple terminal value is {tv_mult!r}")
   if isinstance(implied, (int, float)) and not (0.5 < implied < 15):
     failures.append(f"implied SDE multiple {implied:.2f}x is not credible")
+  # The bridge must use net debt at the VALUATION DATE, not at the horizon:
+  # equity today cannot exceed what the business is forecast to sell for in
+  # five years when those flows are discounted at 20%+.
+  if isinstance(equity, (int, float)) and isinstance(tv_mult, (int, float)) and equity > tv_mult:
+    failures.append(f"equity today {equity:,.0f} exceeds the year-5 exit value {tv_mult:,.0f} "
+                    f"- the bridge is double-counting forecast cash")
+  if isinstance(equity, (int, float)) and isinstance(ev, (int, float)) and isinstance(net_debt, (int, float)):
+    if abs((ev - net_debt) - equity) > 1.0:
+      failures.append("equity != EV - net debt")
 
   # SDE must exceed EBITDA by the owner's pay - it is the whole point of the row
   sde_row, ebitda_row = rows["Seller's discretionary earnings (SDE)"], rows["EBITDA"]

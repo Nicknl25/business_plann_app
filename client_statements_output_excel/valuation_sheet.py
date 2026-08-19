@@ -36,6 +36,7 @@ from . import design
 from .data import DraftWorkbookData, text
 from .excel_utils import (
   ANNUAL_START_COL,
+  PERIOD_START_COL,
   FINMO_SHEET,
   FIRST_LIVE_COL,
   PERIOD_COUNT,
@@ -202,9 +203,10 @@ def build_valuation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   row = 4
   write_section_header(ws, row, "Inputs — what is grounded and what is assumed", end_col=12)
   row += 1
-  header = ("Input", "Value", "Basis", "Source", "As of")
-  for idx, name in enumerate(header):
-    cell = ws.cell(row=row, column=1 + (idx if idx < 2 else idx + 0), value=name)
+  # Column positions must match where `assumption()` actually writes: the
+  # citation is merged across 4..11 and the date lands in 12.
+  for column, name in ((1, "Input"), (2, "Value"), (3, "Basis"), (4, "Source"), (12, "As of")):
+    cell = ws.cell(row=row, column=column, value=name)
     cell.font = design.font("colhead")
     cell.fill = design.fill(design.NAVY)
   row += 1
@@ -410,15 +412,25 @@ def _finish(ws, data, ctx, const, rows, row, b, fin, owner_comp_q, naics):
   rows["pv_ops"] = put("Present value of forecast cash flows", f"={pv_total}")
   rows["ev"] = put("Enterprise value",
                    f"={local_ref(rows['pv_ops'], 2)}+{local_ref(rows['tv_pv'], 2)}", bold=True)
-  net_debt = fin(RATIOS_STATEMENT, "Net Debt", FIRST_LIVE_COL + QUARTERS - 1)
-  rows["net_debt"] = put("Less: net debt at the end of year 5", f"={net_debt}",
-                         note="negative means the business holds more cash than debt, which adds to value")
+  # Net debt AT THE VALUATION DATE - the model's opening balance sheet, the
+  # stub column. Using year-5 net debt instead would add back the cash those
+  # forecast flows produce, which is already inside the enterprise value: the
+  # same money counted twice. (It showed: equity came out above the year-5 sale
+  # price at a 23% discount rate, which cannot happen.)
+  net_debt = fin(RATIOS_STATEMENT, "Net Debt", PERIOD_START_COL)
+  rows["net_debt"] = put("Less: net debt today", f"={net_debt}",
+                         note="debt less cash on the opening balance sheet. Negative means the "
+                              "business already holds more cash than debt, which adds to value")
   rows["equity"] = put("Equity value",
                        f"={local_ref(rows['ev'], 2)}-{local_ref(rows['net_debt'], 2)}", bold=True)
+  # The cross-check has to run on the number the reader acts on - the EQUITY
+  # value. Pointed at enterprise value it read a comfortable 2.3x while the
+  # equity figure implied 3.3x, so the one guard on the valuation was aimed at
+  # the wrong number and could not see the error.
   rows["implied_sde"] = put(
-    "Implied multiple of year-5 SDE",
-    f'=IFERROR({local_ref(rows["ev"], 2)}/({sde_y5}),"—")', design.FMT_RATIO,
-    note="the cross-check: if this is far from the exit multiple above, the two methods disagree")
+    "Implied multiple of year-5 SDE (equity)",
+    f'=IFERROR({local_ref(rows["equity"], 2)}/({sde_y5}),"—")', design.FMT_RATIO,
+    note="the cross-check: if this sits far from the exit multiple above, the two methods disagree")
   row += 1
 
   # ---------------- sensitivity -------------------------------------------
@@ -447,7 +459,7 @@ def _finish(ws, data, ctx, const, rows, row, b, fin, owner_comp_q, naics):
         row=r, column=3 + j,
         value=(f'=IFERROR(IF(${w[0]}${r}-{g}<{b("wacc_minus_growth_floor")},"—",'
                f'{pv_total}+(({ufcf_y5})*(1+{g})/(${w[0]}${r}-{g}))*{last_df}-{net_debt}),"—")'),
-      )
+      )  # same valuation-date net debt as the bridge above
       design.calculated_cell(cell, number_format=design.FMT_MONEY)
   row = grid_top + len(wacc_steps) + 2
 

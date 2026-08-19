@@ -14,6 +14,7 @@ from .data import DraftWorkbookData, text
 from .excel_utils import (
   ANNUAL_SUM,
   ANNUAL_YEAR_END,
+  annual_mode_for,
   ANNUAL_START_COL,
   CURRENCY_FORMAT,
   DEBT_SHEET,
@@ -381,9 +382,12 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       # aggregation also run over them is what printed $0 under the six ratio
       # section headers.
       continue
-    use_year_end = statement == "Balance Sheet"
     for label, r in line_map.items():
-      add_annual_formulas(ws, r, mode=ANNUAL_YEAR_END if use_year_end else ANNUAL_SUM)
+      # Route by the ROW, not by the statement. A blanket "sum unless it is the
+      # balance sheet" is what let Beginning/Ending Cash - balances living on the
+      # cash-flow statement - be summed across the year.
+      mode = ANNUAL_YEAR_END if statement == "Balance Sheet" else annual_mode_for(label, CURRENCY_FORMAT)
+      add_annual_formulas(ws, r, mode=mode)
       style_row(
         ws,
         r,
