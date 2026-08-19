@@ -176,7 +176,108 @@ MULTI_FIN = {
 }
 MULTI_Y1 = {"company_revenue_total_year1": 224640.0}
 
+# Larkspur: a SECOND SINGLE-LINE business, for the R49 text surface only.
+#
+# The text pin decides what is "static" by intersecting two builds at the same
+# cell address. Thistledown was the obvious second sample and it was the wrong
+# one: two revenue lines against CareCompanions' one pushes every block below a
+# per-line block onto a different ROW, so 633 cells of real chrome - FINMO's
+# whole ratio-analysis block, Calc's cost-structure labels, 459 Checks cells,
+# Model Inputs' label column - dropped out for having MOVED, not for being
+# per-draft, and went unpinned (mini, 2026-08-19).
+#
+# So the second sample matches the first's LINE COUNT and differs in everything
+# else: name, city, state, NAICS, industry, product, staff, every figure. The
+# layout lines up, the identity does not, and the pin covers 2,588 cells
+# instead of 1,942 at exactly the same cost - two builds, not three.
+ALT_OPS = {
+    "business_naics_6": "812113",
+    "business_type": "Nail salon",
+    "unit_price": 61.0,
+    "units_per_period_capacity": 47.0,
+    "operating_periods_per_year": 12.0,
+    "utilization_rate": 0.74,
+    "lob_models": [{
+        "lob_name": "Salon Services",
+        "products": [{
+            "product_name": "Manicure appointment",
+            "unit_name": "appointment",
+            "unit_price": 61.0,
+            "unit_cadence": "appointment",
+            "units_per_period_capacity": 47.0,
+            "operating_periods_per_year": 12.0,
+            "utilization_rate": 0.74,
+        }],
+    }],
+}
+
+ALT_PEOPLE = {
+    "people": [
+        {"full_name": "Marisol Vega", "role_title": "Owner / Technician",
+         "annual_wage": 41000.0},
+        {"full_name": "June Okafor", "role_title": "Technician",
+         "annual_wage": 33000.0},
+    ],
+    "rest_of_team_payroll_year1": 22000.0,
+}
+
+ALT_FIN = {
+    "current_revenue": 209000.0,
+    "cogs_percent_of_revenue": 0.21,
+    "cogs_basis": "ratio",
+    "current_payroll": 96000.0,
+    "current_num_employees": 3,
+    "marketing_total_year1": 4400.0,
+    "monthly_rent_expense": 1900.0,
+    "gna_total_year1": 11000.0,
+    "capex_total_year1": 0.0,
+    "initial_assets": 26000.0,
+    "initial_lease": 0.0,
+    "total_debt_outstanding": 14000.0,
+    "other_monthly_debt_payments": 310.0,
+    "annual_interest_payment": 900.0,
+    "annual_principal_payment": 3100.0,
+    "cash_on_hand": 8000.0,
+    "ar_balance": 4000.0,
+    "ap_balance": 2200.0,
+    "inventory_balance": 3300.0,
+    "cash_strategy": "preserve_cash",
+    "funding_preference": "debt",
+    "_financials_revenue_intro_done": True,
+    "_financials_marketing_stage_done": True,
+}
+ALT_Y1 = {"company_revenue_total_year1": 209000.0}
+
 PATCHLESS = {"action": "answer_readonly", "assistant_message": "", "patch": None}
+
+
+def text_cells_of(wb):
+    """{sheet: {cell address: text}} for ONE workbook - every non-formula string.
+
+    MODULE LEVEL, not a closure, because the R49 negative controls have to be
+    able to import it. mini's audit caught the tests reimplementing this and
+    proved the point the hard way: all seven passed unchanged before and after
+    the production surface was edited, so they were guarding a copy and would
+    have kept passing while the real extraction rotted (2026-08-19).
+    """
+    out = {}
+    for ws in getattr(wb, "worksheets", []) or []:
+        cells = {}
+        for row_cells in ws.iter_rows():
+            for cell in row_cells:
+                val = cell.value
+                if not isinstance(val, str):
+                    continue
+                val = val.strip()
+                # A formula is the OTHER surface. This one line is what keeps
+                # R32 and R49 independent, so an edit to a formula never churns
+                # the text golden.
+                if not val or val.startswith("="):
+                    continue
+                cells[cell.coordinate] = val
+        if cells:
+            out[ws.title] = cells
+    return out
 
 
 class RecordedRouter(object):
@@ -757,6 +858,61 @@ class Surface(object):
     #: over a moving input is the thing this leg exists to prevent.
     _SECOND_CLOCK = (1996, 3, 7)
 
+    def alt_single_line_payload(self):
+        """(model_input_json, finmo_json, note) for the SECOND single-line
+        business. Same shape as the first, same number of revenue lines,
+        nothing else in common."""
+        return self._frozen_build(
+            facts={"business_name": "Larkspur Nail Studio"},
+            ops=copy.deepcopy(ALT_OPS), people=copy.deepcopy(ALT_PEOPLE),
+            fin=copy.deepcopy(ALT_FIN), year1=copy.deepcopy(ALT_Y1),
+            marketing={})
+
+    @staticmethod
+    def _patch_reference_constants():
+        """Build the second workbook against DIFFERENT reference data.
+        -> (restore, gap).
+
+        The Valuation input table prints, for every constant, its citation, its
+        source and its as-of date - live data from valuation_reference_constants
+        that Nick's loader refreshes on demand. Both builds read the same table,
+        so those strings were identical and got pinned into the golden: "Q2 2026",
+        "20-year CAGR 1.98% (through 2026-04-01)". A correct data refresh would
+        then turn R49 red, which is the bless-without-reading habit the leg was
+        written to prevent - the same trap the wall clock set, in a form the
+        date regex does not catch because "Q2 2026" is not a date.
+
+        Reference data is CONTENT, not chrome. So it earns its exclusion the way
+        identity and the clock do: the second build gets different values for it
+        and the cells fall out of the intersection by themselves. The headers
+        above them ("As of", "Basis", "Source") are chrome and stay pinned.
+
+        FOUND, NOT LISTED - patching nothing is a gap, never a pass.
+        """
+        try:
+            from client_statements_output_excel import valuation_sheet as _vs
+        except ImportError as exc:
+            return None, f"cannot patch the reference constants: {exc}"
+        real = getattr(_vs, "_load_constants", None)
+        if real is None:
+            return None, ("valuation_sheet has no _load_constants to patch - the "
+                          "reference-data exclusion would silently stop working")
+
+        def _shifted(naics):
+            out = {}
+            for key, row in (real(naics) or {}).items():
+                row = dict(row)
+                # Values are left alone: they feed FORMULAS, not text, and
+                # moving them would change the math surface R32 owns.
+                row["citation"] = f"[second-sample citation for {key}]"
+                row["as_of"] = "1996-03-07"
+                row["source"] = "[second-sample source]"
+                out[key] = row
+            return out
+
+        _vs._load_constants = _shifted
+        return (lambda: setattr(_vs, "_load_constants", real)), ""
+
     def workbook_text_surface(self, builder=None, from_row=None):
         """{sheet: {cell address: text}} of the workbook's STATIC text.
 
@@ -785,11 +941,15 @@ class Surface(object):
         if gap:
             self.text_gap = gap
             return {}
-        multi = self.multi_line_payload()
-        mij, finmo = multi[0], multi[1]
+        alt = self.alt_single_line_payload()
+        mij, finmo = alt[0], alt[1]
         if mij is None or finmo is None:
-            self.text_gap = ("no multi-line payload - the static/dynamic split "
-                             "needs two businesses")
+            self.text_gap = ("no second single-line payload - the static/dynamic "
+                             "split needs two businesses")
+            return {}
+        restore_refs, gap = self._patch_reference_constants()
+        if gap:
+            self.text_gap = gap
             return {}
         # A DELIBERATELY DIFFERENT BUSINESS: different name, different city,
         # different number of revenue lines. The same fixture on both sides
@@ -800,35 +960,21 @@ class Surface(object):
         # builds and drops out, instead of relying on a regex to recognise
         # every date format the workbook might ever render.
         import datetime as _dt
-        second, gap = self._build_workbook(builder, from_row, {
-            "draft": {"id": "text-surface-probe",
-                      "row": {"business_name": "Thistledown Cycles",
-                              "address_city": "Burlington",
-                              "address_state": "VT"}},
-            "mij": mij, "finmo": finmo},
-            clock=_dt.date(*self._SECOND_CLOCK))
+        try:
+            second, gap = self._build_workbook(builder, from_row, {
+                "draft": {"id": "text-surface-probe",
+                          "row": {"business_name": "Larkspur Nail Studio",
+                                  "address_city": "Asheville",
+                                  "address_state": "NC"}},
+                "mij": mij, "finmo": finmo},
+                clock=_dt.date(*self._SECOND_CLOCK))
+        finally:
+            restore_refs()
         if gap:
             self.text_gap = f"second business would not build: {gap}"
             return {}
 
-        def text_cells(wb):
-            out = {}
-            for ws in getattr(wb, "worksheets", []) or []:
-                cells = {}
-                for row_cells in ws.iter_rows():
-                    for cell in row_cells:
-                        val = cell.value
-                        if not isinstance(val, str):
-                            continue
-                        val = val.strip()
-                        if not val or val.startswith("="):
-                            continue
-                        cells[cell.coordinate] = val
-                if cells:
-                    out[ws.title] = cells
-            return out
-
-        a, b = text_cells(first), text_cells(second)
+        a, b = text_cells_of(first), text_cells_of(second)
         surface = {}
         for sheet in sorted(set(a) & set(b)):
             keep = {addr: txt for addr, txt in a[sheet].items()
@@ -839,14 +985,13 @@ class Surface(object):
             self.text_gap = ("no text survived the two-business intersection - "
                              "either the builds differ everywhere (wrong fixture) "
                              "or extraction is broken")
-        # WHAT THIS PIN DOES NOT COVER, COUNTED AND SAID OUT LOUD. The second
-        # business has TWO revenue lines against the first's one, so every
-        # block below a per-line block sits at a different ROW in the two
-        # workbooks and drops out - not because the text is per-draft, but
-        # because the address moved. That is real chrome going unpinned
-        # (FINMO's ratio-analysis labels, Calc's cost-structure labels, most
-        # of Checks), and a leg that reports "1,934 cells pinned" without it
-        # reads as fuller coverage than it has (mini, 2026-08-19).
+        # WHAT THIS PIN DOES NOT COVER, COUNTED AND SAID OUT LOUD. The two
+        # samples now share a line count, so the row-shift drops are gone and
+        # what escapes is per-draft text that SHOULD escape: the client's name
+        # and city, its product and line names, the draft id, and the Valuation
+        # reference block's citations and as-of dates. The residual gap is real
+        # but narrow - labels that exist ONLY in a multi-line layout are in no
+        # sample and so in no pin (mini, 2026-08-19; widened on Nick's ruling).
         kept = sum(len(v) for v in surface.values())
         self.text_coverage = (kept, sum(len(v) for v in a.values()))
         return surface

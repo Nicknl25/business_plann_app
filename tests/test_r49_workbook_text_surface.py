@@ -32,6 +32,7 @@ for path in (REPO, os.path.join(REPO, "python"), os.path.join(REPO, "tests")):
     sys.path.insert(0, path)
 
 from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
+from replay_gate.surface import text_cells_of  # noqa: E402
 from client_statements_output_excel.data import DraftWorkbookData  # noqa: E402
 from client_statements_output_excel.workbook_builder import (  # noqa: E402
   build_client_financial_model_workbook,
@@ -51,23 +52,12 @@ def _workbook(business_name="Fixture Co", city="Madison"):
   ))
 
 
-def _text_cells(wb):
-  """The same extraction the gate surface performs, over one workbook."""
-  out = {}
-  for ws in wb.worksheets:
-    cells = {}
-    for row in ws.iter_rows():
-      for cell in row:
-        val = cell.value
-        if not isinstance(val, str):
-          continue
-        val = val.strip()
-        if not val or val.startswith("="):
-          continue
-        cells[cell.coordinate] = val
-    if cells:
-      out[ws.title] = cells
-  return out
+#: THE GATE'S OWN EXTRACTION, imported - not a local copy of it.
+#: mini proved why: the first version of this file reimplemented the extraction,
+#: and all seven tests passed unchanged before and after the production surface
+#: was edited. They were guarding a copy. Importing it means an edit to the real
+#: extraction is felt here (2026-08-19).
+_text_cells = text_cells_of
 
 
 def _digest(surface):
@@ -146,6 +136,26 @@ class TextSurfaceNegativeControlTests(unittest.TestCase):
     ws[self._address_of("Valuation", "Enterprise value")] = None
     self.assertNotEqual(_digest(_text_cells(self.wb)), self.base_digest,
                         "a label vanishing left the digest identical")
+
+  def test_formulas_are_excluded_from_the_text_surface_at_all(self):
+    """The mechanism that keeps R32 and R49 independent, asserted directly.
+
+    mini called the digest-based version of this tautological, and fairly: it
+    appended "+0" to five formulas, which leaves them "="-prefixed, so the
+    extractor's own filter guaranteed the answer. This asserts the filter's
+    EFFECT instead - no pinned cell is a formula, and the count of formulas it
+    actually turned away is non-trivial, so a filter quietly deleted would fail
+    here rather than pass on an empty set."""
+    surface = _text_cells(self.wb)
+    pinned = [t for cells in surface.values() for t in cells.values()]
+    self.assertFalse([t for t in pinned if t.startswith("=")],
+                     "a formula was pinned into the TEXT surface")
+    formulas = sum(1 for ws in self.wb.worksheets for row in ws.iter_rows()
+                   for c in row
+                   if isinstance(c.value, str) and c.value.startswith("="))
+    self.assertGreater(formulas, 1000,
+                       "the workbook has almost no formulas - the exclusion "
+                       "would be passing on an empty set")
 
   def test_a_formula_only_change_does_NOT_move_the_text_digest(self):
     """Nick's ruling made concrete. If the math surface bled into the text
