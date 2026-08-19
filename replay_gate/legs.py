@@ -3643,9 +3643,18 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "500907d", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "a474c3b", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19 (baseline 96133a7 -> 500907d, VS, "
+        proof_note=("RE-BLESSED 2026-08-19b (baseline 500907d -> a474c3b, VS, the "
+                    "ANNUAL-COLUMN DEFECT CLASS fix: annual aggregation now routes "
+                    "by row semantics, so rate rows are AVERAGEd and Opening "
+                    "balances take the year START. Grid change fully accounted "
+                    "- 220 rows identical, 44 changed, every one in a declared "
+                    "category (30 annual-mode, 8 Calc NA(), 6 ratio formulas), "
+                    "ZERO unexplained; and the MODEL is untouched (4,362 "
+                    "quarterly cells compared, the only 21 that moved are ROIC, "
+                    "which was computed pre-tax and is now correct). "
+                    "PREVIOUS: RE-BLESSED 2026-08-19 (baseline 96133a7 -> 500907d, VS, "
                     "Nick's restructure ruling: FINMO reads IS -> BS -> CF -> "
                     "BREAK-EVEN -> RATIOS, the CVP helper data moved to the "
                     "hidden Calc engine, and the Dashboard was rebuilt on that "
