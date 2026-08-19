@@ -265,7 +265,7 @@ and neither is the exit multiple.**
 | Cost of debt | **REAL** | `debt_interest_rate_policy`: 7.975% annual / 1.9938% quarterly, from `sba_loan_7a_raw`, NAICS 811111, WI, FY2021-25, **n=106** |
 | Capital weights, net debt at horizon | **REAL** | live off the balance sheet (Bellweather Q20: **net cash −252,088**) |
 | Terminal growth | **PROXY → assumption** | `judged_growth.mature_annual_growth`, stage-ramp terminal QoQ, or DB `mature_qoq_growth_typical` (811111 target 1.94% QoQ, n=31). None is a perpetuity rate |
-| Risk-free, ERP, beta, cost of equity, WACC | **MUST ASSUME** | zero hits repo-wide; no column in any of the 68 tables |
+| Risk-free, ERP, beta, cost of equity, WACC | **MUST ASSUME** | zero hits repo-wide; no column in any of the 68 tables — **CORRECTED 2026-08-19, see docs/DCF_VALUATION_RESEARCH.md**: true of the DATABASE, but the risk-free rate IS pullable from FRED (DGS10, live 4.72%) and BETA is returned by the Alpha Vantage OVERVIEW endpoint our pipeline already calls and discards. ERP remains a disclosed assumption. |
 | Exit EV/EBITDA multiple | **MUST ASSUME — the weakest** | no EV data exists: `sec_edgar_facts` has no market-cap/price/EV concept; `industry_metrics_*` has market_cap but NAICS 811111 is **91 rows, one ticker** — equity cap ≠ EV, no cash bridge |
 
 **Method**: quarterly UFCF (`EBIT×(1−tax) + D&A − capex − ΔNWC`) → discount at a
