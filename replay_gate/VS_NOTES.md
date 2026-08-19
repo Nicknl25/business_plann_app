@@ -3618,12 +3618,50 @@ grid dump I used for drift purity put only <root>/python on sys.path and relied
 on cwd for the repo-root package, and the gate bootstrap moves the process off
 that directory - so it resolved client_statements_output_excel from the HOME
 repo whichever tree it was aimed at and compared HEAD to HEAD. It would have
-reported "0 changed" whatever moved. THE GATE IS NOT AFFECTED: prove() inserts
-the baseline ROOT itself (verified directly - R32 at 5c9a8b9 builds the 7-sheet
-pre-Valuation grid, sha cbd76463). The corrected dump asserts its own provenance
-before it hashes, and the previous re-bless claim (a474c3b -> 54c1843) was
-re-verified true under it: 264 shared leaves identical, 0 changed.
+reported "0 changed" whatever moved. The corrected dump asserts its own
+provenance before it hashes, and the previous re-bless claim (a474c3b ->
+54c1843) was re-verified true under it: 264 shared leaves identical, 0 changed.
+
+RECORD CORRECTION (VS, 2026-08-19, mini's re-audit 5624dfa): I wrote above that
+the gate was safe "because prove() inserts the baseline ROOT itself". IT DOES
+NOT, AND DID NOT - that mechanism never existed, and leaving it in the record
+was the dangerous half of the mistake: a future reader trusts it and deletes the
+app-side line that was actually carrying the property. Checked directly this
+turn, not taken from mini: the only sys.path.insert in prove.py is
+probe_baseline()'s, and it inserts <root>/python, not <root>; _run_one() then
+sets PYTHONPATH=HOME, so the HOME repo root is on the child's path. bind_root()
+inserted <root>/python only. The workbook package client_statements_output_excel/
+lives at the repo ROOT, so nothing bound it to the baseline tree - the baseline
+resolved correctly ONLY because python/api_handlers/intake_consult.py line 19
+computes its own parents[2] and the gate's mandatory assert_surface() imports
+that module before any leg runs. An accident of app-side code the gate does not
+own: delete that line and R32 becomes a self-comparison reporting GOLDEN forever.
+The CONCLUSION held (R32 at 5c9a8b9 really does build the 7-sheet pre-Valuation
+grid, sha cbd76463) - the reason I gave for it did not. mini made it structural
+in bind_root(), which now inserts <root> as well as <root>/python and evicts
+stale entries on re-bind; because bind_root inserts ahead of PYTHONPATH, the
+baseline root now beats HOME by construction.
+
+UNDECLARED RIDER, NOW DECLARED (VS, 2026-08-19): 01fd627 also moved the
+Valuation input table's "As of" column header from column E to column L
+(build_valuation_sheet: the header tuple with positional idx became an explicit
+(column, name) list, "As of" at column 12). It is CORRECT and stays - assumption()
+merges the citation across columns 4..11 and writes the date into 12, so the old
+header labelled an empty cell and left the date column unlabelled - but it rode
+along undeclared in the commit message, in this section and in the leg note. The
+reason it matters is not this change: R32 hashes FORMULAS, so a static-text or
+header-position move is invisible to the leg that is supposed to catch riders.
+No golden master can ever see it. See the open decision below.
 
 CORRECTION: during X5 I claimed "exactly one consumer of an annual rate cell".
 mini swept and found 27 across 4 families. All semantically correct, so no number
 is wrong - but the count was asserted, not swept. Treat it as withdrawn.
+
+OPEN DECISION FOR NICK - NOT BUILT, NOT TO BE AUTO-BUILT (raised by mini,
+2026-08-19): R32 pins FORMULAS only. Label text, header positions and number
+formats are therefore an UNPINNED SURFACE on a client-facing document - the
+"As of" move above is the live example: correct, but structurally invisible to
+the gate. Widening the R32 grid to carry text/format/position would catch that
+class of rider, at the cost of a re-bless on every copy edit. That is a
+cost/benefit call about how tightly a client-facing document is pinned, which is
+Nick's, not ours. Surfaced only; nothing built.
