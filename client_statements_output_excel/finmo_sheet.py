@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
+from .finmo_ratios import fill_ratio_formulas, write_ratio_rows
 from .break_even_sheet import (
   BREAK_EVEN_STATEMENT,
   fill_break_even_formulas,
   write_break_even_rows,
   write_cvp_helper_and_chart,
 )
+from openpyxl.utils import get_column_letter
+
 from .data import DraftWorkbookData, text
 from .excel_utils import (
   ANNUAL_START_COL,
@@ -146,7 +149,6 @@ def _write_statement_rows(ws, ctx: WorkbookBuildContext, *, statement: str, line
   row = start_row + 1
   for line in lines:
     ws.cell(row=row, column=1, value=line)
-    ws.cell(row=row, column=2, value="Formula")
     ctx.add_finmo_row(statement, line, row)
     row += 1
   return row + 1
@@ -190,13 +192,15 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
 
   row = 7
   row = _write_statement_rows(ws, ctx, statement="Income Statement", lines=pl_lines, start_row=row)
-  # W2 (2026-08-18, docs/WRITING_PHASE_RESEARCH_2.md R5): the Break-Even
-  # Analysis block sits DIRECTLY BELOW the P&L. Rows are reserved here so
-  # the Balance Sheet / Cash Flow keep resolving by label through ctx;
-  # formulas are filled after the statement loop (they read P&L cells).
-  row = write_break_even_rows(ws, data, ctx, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Balance Sheet", lines=BS_LINES, start_row=row)
   row = _write_statement_rows(ws, ctx, statement="Cash Flow", lines=CF_LINES, start_row=row)
+  # 2026-08-19 (Nick's structure ruling): FINMO reads top to bottom as
+  # Income Statement -> Balance Sheet -> Cash Flow -> BREAK-EVEN -> RATIOS.
+  # Both analysis blocks reserve their rows here so every reference resolves
+  # by label through ctx; their formulas are filled after the statement loop
+  # because they read the statement cells above them.
+  row = write_break_even_rows(ws, data, ctx, start_row=row)
+  row = write_ratio_rows(ws, ctx, start_row=row)
 
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
@@ -384,8 +388,16 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
         border_top=label in subtotal_rows,
       )
 
-  # W2: fill the break-even block (live formulas off the P&L cells above)
-  # and add the CVP helper range + native chart below the statements.
+  # Fill the two analysis blocks (live formulas off the statement cells above).
+  # The CVP helper data no longer lives here - it moved to the hidden Calc
+  # sheet (Nick: "it's helper data - invisible"), and the CVP chart is placed
+  # from there so it follows the dashboard's period selector.
   fill_break_even_formulas(ws, data, ctx)
-  last_statement_row = max(r for stmt, rows in ctx.finmo_rows.items() for r in rows.values())
-  write_cvp_helper_and_chart(ws, ctx, start_row=last_statement_row + 3)
+  fill_ratio_formulas(ws, ctx)
+
+  # Client-facing cleanup (Nick, 2026-08-19): the stub column is a modelling
+  # period, not a plan period, and "Days in Quarter" is a formula input - both
+  # stay in the model and out of sight. Hiding is a display attribute: every
+  # formula that references them is untouched.
+  ws.column_dimensions[get_column_letter(PERIOD_START_COL)].hidden = True
+  ws.row_dimensions[6].hidden = True

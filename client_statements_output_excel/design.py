@@ -209,6 +209,7 @@ TAB_COLORS = {
   "Working Capital": INK_SECONDARY,
   "Cash Equity Schedule": INK_SECONDARY,
   "Model Inputs": INK_SECONDARY,
+  "Calc": INK_MUTED,
   "Audit Source": INK_MUTED,
   "Checks": INK_MUTED,
   "Diagnostics": INK_MUTED,
@@ -220,7 +221,7 @@ SHEET_ORDER = (
   "Cover", "Dashboard", "FINMO", "Break-Even", "Ratios", "Valuation",
   "Revenue Drivers", "Payroll Schedule", "Debt Schedule", "CapEx Depreciation",
   "Working Capital", "Cash Equity Schedule", "Model Inputs",
-  "Audit Source", "Checks", "Diagnostics",
+  "Audit Source", "Calc", "Checks", "Diagnostics",
 )
 
 

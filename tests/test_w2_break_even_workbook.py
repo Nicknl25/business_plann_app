@@ -69,18 +69,21 @@ class BreakEvenWorkbookTests(unittest.TestCase):
   def setUp(self):
     self.payload = valid_workbook_payload_dict()
 
-  def test_block_below_pl_with_live_formulas(self):
+  def test_block_below_the_cash_flow_with_live_formulas(self):
+    """2026-08-19 (Nick's structure ruling): FINMO reads Income Statement ->
+    Balance Sheet -> Cash Flow -> BREAK-EVEN -> RATIOS. The block moved out
+    from under the P&L."""
     wb = build_client_financial_model_workbook(_data(self.payload))
     ws = wb["FINMO"]
     labels = _labels(ws)
-    ni = labels["Net Income"]
     hdr = labels[BREAK_EVEN_STATEMENT]
-    bs = labels["Balance Sheet"]
-    self.assertGreater(hdr, ni)
-    self.assertLess(hdr, bs, "block must sit between the P&L and the Balance Sheet")
+    self.assertLess(labels["Income Statement"], labels["Balance Sheet"])
+    self.assertLess(labels["Balance Sheet"], labels["Cash Flow"])
+    self.assertLess(labels["Cash Flow"], hdr, "break-even must sit BELOW the cash flow statement")
+    self.assertLess(hdr, labels["Ratio Analysis"], "ratios come after break-even")
     for label in ("Fixed Costs", "Variable Costs", "Variable Cost Ratio", "Contribution Margin Ratio", "Break-Even Revenue", "Cash Break-Even Revenue", "EBITDA-Basis Break-Even Revenue", "Planned Revenue", "Margin of Safety", "Break-Even Revenue (G&A as fixed)"):
       r = labels[label]
-      self.assertTrue(hdr < r < bs, label)
+      self.assertGreater(r, hdr, label)
       for col in range(3, 3 + 21 + 5):  # C..W periods + X..AB annual
         v = ws.cell(row=r, column=col).value
         self.assertIsInstance(v, str, f"{label} col {col}")
@@ -98,12 +101,15 @@ class BreakEvenWorkbookTests(unittest.TestCase):
     self.assertTrue(unit_rows)
     self.assertIn("'Revenue Drivers'!", ws.cell(row=labels[unit_rows[0]], column=4).value)
 
-  def test_cvp_helper_and_charts_and_dashboard(self):
+  def test_cvp_helper_lives_on_the_hidden_calc_sheet_and_dashboard_charts(self):
     wb = build_client_financial_model_workbook(_data(self.payload))
     ws = wb["FINMO"]
     labels = _labels(ws)
-    self.assertTrue(any(str(l).startswith("Cost-Volume-Profit Chart Data") for l in labels))
-    self.assertEqual(len(ws._charts), 1)
+    # The CVP helper data moved off the client-facing statements sheet.
+    self.assertNotIn("X max", labels)
+    self.assertEqual(len(ws._charts), 0, "FINMO carries statements, not charts")
+    self.assertIn("Calc", wb.sheetnames)
+    self.assertEqual(wb["Calc"].sheet_state, "hidden")
     names = wb.sheetnames
     # X1 (Nick's Q6): reading order is Cover -> Dashboard -> FINMO -> ...,
     # and the cover is what opens. Build order is unchanged.
@@ -111,11 +117,14 @@ class BreakEvenWorkbookTests(unittest.TestCase):
     self.assertLess(names.index("Dashboard"), names.index("FINMO"))
     self.assertEqual(wb.active.title, "Cover")
     dash = wb["Dashboard"]
-    self.assertEqual(len(dash._charts), 7)
-    # KPI tiles are formulas referencing FINMO / the block.
-    tile_values = [dash.cell(row=r, column=c).value for r in (5, 9, 13) for c in (1, 5, 9, 13, 17, 21)]
+    self.assertGreaterEqual(len(dash._charts), 8)
+    # Every card is a formula reading the Calc engine, not a pasted number.
+    tile_values = [dash.cell(row=r, column=c).value for r in (8, 12, 16) for c in (1, 5, 9, 13, 17)]
     self.assertTrue(all(isinstance(v, str) and v.startswith("=") for v in tile_values), tile_values)
-    self.assertTrue(any("Break-Even" in str(dash.cell(row=8, column=c).value) for c in (1, 5)))
+    self.assertTrue(all("Calc" in str(v) for v in tile_values), tile_values)
+    # The macro-free selector: three dropdowns wired to data validation.
+    self.assertGreaterEqual(len(dash.data_validations.dataValidation), 3)
+    self.assertEqual(dash["C3"].value, "Quarterly")
 
   def test_absent_tolerant_and_tie_out_when_present(self):
     payload = valid_workbook_payload_dict()

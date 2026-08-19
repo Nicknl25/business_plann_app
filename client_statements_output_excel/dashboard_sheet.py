@@ -1,326 +1,216 @@
-"""W2 (2026-08-18) — the Dashboard sheet (docs/WRITING_PHASE_RESEARCH_2.md
-Area 5 / R1-R6). Placed AFTER FINMO (``wb.active`` stays FINMO). Every KPI
-tile is a live formula and every chart is a native openpyxl chart whose
-series ``Reference`` live workbook cells (FINMO / Revenue Drivers / Payroll
-Schedule / Debt Schedule, or small helper tables on this sheet that are
-themselves formulas), so the sheet updates with the model and renders on
-Excel open (``fullCalcOnLoad``). Nothing here is pasted from finmo_json
-except the judged EBITDA-margin band (low/high literals from the executive
-margin-band judgment stamped in ``solver_input.finmo_output_targets`` - the
-band this plan was judged against), which is labelled as such.
+"""The Dashboard — a live, macro-free, period-selectable view (2026-08-19).
+
+Nothing is computed here. Every card and every chart reads the hidden Calc
+sheet (the data engine):
+
+  * period-specific cards and charts read Calc's CURRENT-VIEW region, so they
+    reslice the moment the selector changes;
+  * full-arc charts read Calc's RAW series, so the whole five-year picture is
+    always on screen;
+  * the CVP chart reads Calc's CVP block, which is itself driven by the
+    selector - it used to be hard-wired to Q1.
+
+The selector is a data-validation dropdown driving MATCH/INDEX. No macros, no
+form controls, no ActiveX: it works on Excel for Windows, Mac and the web
+(docs/WORKBOOK_ANALYTICS_RESEARCH.md §5/§6).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 from openpyxl.chart import Reference
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from . import design
-from .break_even_sheet import BREAK_EVEN_STATEMENT, CVP_HELPER_KEY, build_cvp_chart
-from .data import DraftWorkbookData, text
-from .excel_utils import (
-  ANNUAL_START_COL,
-  CURRENCY_FORMAT,
-  DASHBOARD_SHEET,
-  DEBT_SHEET,
-  FILL_BLUE,
-  FILL_LIGHT,
-  FILL_NAVY,
-  FINMO_SHEET,
-  FIRST_LIVE_COL,
-  FONT_WHITE,
-  LAST_LIVE_COL,
-  NUMBER_FORMAT,
-  PAYROLL_SHEET,
-  PERCENT_FORMAT,
-  REVENUE_SHEET,
-  THIN_GRAY,
-  WorkbookBuildContext,
-  create_sheet,
-  local_ref,
-  qsheet,
-  ref,
-  set_formula_style,
-  set_title,
-)
+from .break_even_sheet import build_cvp_chart
+from .calc_sheet import CALC_KEY, CALC_SHEET, FIRST_COL, LAST_Q_COL, QUARTERS, YEARS
+from .data import DraftWorkbookData
+from .excel_utils import WorkbookBuildContext, create_sheet, ref
 
-# Helper tables live far to the right of the charts so the visible sheet is
-# tiles + charts. Column 40 = AN.
-HELPER_COL = 40
-_QCOUNT = LAST_LIVE_COL - FIRST_LIVE_COL + 1
+DASHBOARD_SHEET = "Dashboard"
+
+QUARTER_LIST_NAME = "PeriodQuarters"
+YEAR_LIST_NAME = "PeriodYears"
+
+#: (label, calc key, number format, note)
+_CARDS = [
+  [("Revenue", "revenue", design.FMT_MONEY, ""),
+   ("EBITDA", "ebitda", design.FMT_MONEY, ""),
+   ("EBITDA Margin", "ebitda_margin", design.FMT_PERCENT, ""),
+   ("Net Income", "net_income", design.FMT_MONEY, ""),
+   ("Ending Cash", "cash", design.FMT_MONEY, "")],
+  [("Break-Even Revenue", "be_revenue", design.FMT_MONEY, "revenue needed to cover every cost"),
+   ("Margin of Safety", "be_mos", design.FMT_PERCENT, "how far above break-even"),
+   ("Cash Burn", "cash_burn", design.FMT_MONEY, "net cash used in the period"),
+   ("Operating Cash Flow", "operating_cf", design.FMT_MONEY, ""),
+   ("Total Debt", "total_debt", design.FMT_MONEY, "")],
+  [("Gross Margin", "gross_margin", design.FMT_PERCENT, ""),
+   ("Net Margin", "net_margin", design.FMT_PERCENT, ""),
+   ("Debt Service Coverage", "dscr", design.FMT_RATIO, "EBITDA over debt service"),
+   ("Current Ratio", "current_ratio", design.FMT_RATIO, ""),
+   ("Headcount (FTE)", "headcount", design.FMT_UNITS, "")],
+]
 
 
-def _fin(ctx: WorkbookBuildContext, statement: str, label: str, col: int) -> str:
-  return ref(FINMO_SHEET, ctx.finmo_row(statement, label), col)
+def _calc(ctx: WorkbookBuildContext) -> Dict[str, int]:
+  return ctx.schedule_rows.get(CALC_KEY) or {}
 
 
-def _fin_range(ctx: WorkbookBuildContext, statement: str, label: str) -> str:
-  r = ctx.finmo_row(statement, label)
-  return f"{qsheet(FINMO_SHEET)}!{get_column_letter(FIRST_LIVE_COL)}{r}:{get_column_letter(LAST_LIVE_COL)}{r}"
-
-
-def _sched_range(sheet: str, row: int) -> str:
-  return f"{qsheet(sheet)}!{get_column_letter(FIRST_LIVE_COL)}{row}:{get_column_letter(LAST_LIVE_COL)}{row}"
-
-
-def _tile(ws, row: int, col: int, label: str, formula: str, number_format: str, note: str = "") -> None:
-  design.kpi_tile(ws, row, col, label, formula, number_format, note)
-
-
-def _helper_header(ws, row: int, col: int, title: str, span: int = 3) -> None:
-  ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + span - 1)
-  cell = ws.cell(row=row, column=col, value=title)
-  cell.font = design.font("kpi_label")
-  cell.fill = design.fill(design.NAVY_DEEP)
-
-
-def _quarter_labels(ws, row: int, col: int) -> None:
-  for i in range(_QCOUNT):
-    ws.cell(row=row, column=col + i, value=f"Q{i + 1}").font = design.font("colhead_sub")
-
-
-def _judged_band(data: DraftWorkbookData) -> Optional[List[Tuple[float, float]]]:
-  """Per-quarter (low, high) EBITDA-margin band THIS plan was judged against:
-  the executive margin-band judgment stamped at
-  ``model_input_json.solver_input.finmo_output_targets.metrics.ebitda_margin
-  .provenance.judged_margin_band`` (q11 / q20 low-high). Quarters up to 11
-  carry the Q11 band, later quarters the Q20 band. Returns None when the
-  judgment is absent (the raw cohort envelope is NOT used - it is not a
-  band the plan was judged against)."""
-  try:
-    metrics = ((((data.model_input_json or {}).get("solver_input") or {}).get("finmo_output_targets") or {}).get("metrics") or {})
-    prov = ((metrics.get("ebitda_margin") or {}).get("provenance") or {})
-    jb = prov.get("judged_margin_band") or {}
-    q11, q20 = jb.get("q11") or {}, jb.get("q20") or {}
-    if q11.get("low") is None or q11.get("high") is None:
-      return None
-    late = q20 if (q20.get("low") is not None and q20.get("high") is not None) else q11
-    out: List[Tuple[float, float]] = []
-    for i in range(1, _QCOUNT + 1):
-      src = q11 if i <= 11 else late
-      out.append((float(src["low"]), float(src["high"])))
-    return out
-  except Exception:
-    return None
-
-
-def _revenue_slots(data: DraftWorkbookData) -> List[Tuple[str, str]]:
-  ordered: List[str] = []
-  display: Dict[str, str] = {}
-  for source_row in data.revenue_rows:
-    slot = text(source_row.get("revenue_slot_key")) or f"{text(source_row.get('lob'))}::{text(source_row.get('product'))}"
-    if slot not in display:
-      ordered.append(slot)
-      display[slot] = " / ".join([text(source_row.get("lob")) or "LOB", text(source_row.get("product")) or "Product"])
-  return [(slot, display[slot]) for slot in ordered]
+def _cur(ctx: WorkbookBuildContext, key: str) -> Optional[str]:
+  row = _calc(ctx).get(f"cur::{key}")
+  return ref(CALC_SHEET, row, FIRST_COL) if row else None
 
 
 def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
+  calc_rows = _calc(ctx)
+  if not calc_rows:
+    return
   ws = create_sheet(wb, DASHBOARD_SHEET)
+  calc_ws = wb[CALC_SHEET]
+  ws.sheet_view.zoomScale = 90
   ws.sheet_view.showGridLines = False
-  set_title(ws, f"{data.business_name} - Dashboard", "Live KPIs and charts driven by the model's own cells (FINMO, Revenue Drivers, Payroll Schedule, Debt Schedule). Helper tables for the charts sit in columns AN onward.")
   for col in range(1, 30):
     ws.column_dimensions[get_column_letter(col)].width = 11
-  ws.sheet_view.zoomScale = 100
   design.page_setup(ws, landscape=True, fit_width=True,
-                    footer=f"{data.business_name} — Dashboard")
-  IS, BS, CF = "Income Statement", "Balance Sheet", "Cash Flow"
-  y1 = ANNUAL_START_COL
-  y5 = ANNUAL_START_COL + 4
-  ebitda_rng = _fin_range(ctx, IS, "EBITDA")
-  cash_rng = _fin_range(ctx, CF, "Ending Cash")
-  be_q1 = _fin(ctx, BREAK_EVEN_STATEMENT, "Break-Even Revenue", FIRST_LIVE_COL)
-  fte_row = ctx.schedule_row(PAYROLL_SHEET, "Total Ending FTE")
-  closing_debt_row = ctx.schedule_row(DEBT_SHEET, "Closing Debt")
+                    footer=f"{data.business_name} - Dashboard")
 
-  # --- KPI tiles (rows 4-6, 8-10) ---------------------------------------
-  tiles_row1 = [
-    ("Year 1 Revenue", f"={_fin(ctx, IS, 'Revenue', y1)}", CURRENCY_FORMAT, ""),
-    ("Year 5 Revenue", f"={_fin(ctx, IS, 'Revenue', y5)}", CURRENCY_FORMAT, ""),
-    ("Year 1 EBITDA", f"={_fin(ctx, IS, 'EBITDA', y1)}", CURRENCY_FORMAT, ""),
-    ("Year 1 EBITDA Margin", f"=IF({_fin(ctx, IS, 'Revenue', y1)}>0,{_fin(ctx, IS, 'EBITDA', y1)}/{_fin(ctx, IS, 'Revenue', y1)},0)", PERCENT_FORMAT, ""),
-    ("Year 5 EBITDA Margin", f"=IF({_fin(ctx, IS, 'Revenue', y5)}>0,{_fin(ctx, IS, 'EBITDA', y5)}/{_fin(ctx, IS, 'Revenue', y5)},0)", PERCENT_FORMAT, ""),
-    ("First EBITDA-Positive Quarter", f'=IFERROR("Q"&MATCH(TRUE,INDEX({ebitda_rng}>=0,0),0),"none in 5 yrs")', "General", "quarter where EBITDA first >= 0"),
-  ]
-  tiles_row2 = [
-    ("Break-Even Revenue (Q1, pre-tax)", f"={be_q1}", CURRENCY_FORMAT, "headline: fixed / contribution margin"),
-    ("Cash Break-Even Revenue (Q1)", f"={_fin(ctx, BREAK_EVEN_STATEMENT, 'Cash Break-Even Revenue', FIRST_LIVE_COL)}", CURRENCY_FORMAT, "adds scheduled principal, drops depreciation"),
-    ("Margin of Safety (Q1)", f"={_fin(ctx, BREAK_EVEN_STATEMENT, 'Margin of Safety', FIRST_LIVE_COL)}", PERCENT_FORMAT, "planned revenue above break-even"),
-    ("Cash Low Point", f"=MIN({cash_rng})", CURRENCY_FORMAT, ""),
-    ("Cash Low Quarter", f'=IFERROR("Q"&MATCH(MIN({cash_rng}),{cash_rng},0),"-")', "General", ""),
-    ("Peak Debt Balance", (f"=MAX({_sched_range(DEBT_SHEET, closing_debt_row)})" if closing_debt_row else "=0"), CURRENCY_FORMAT, ""),
-  ]
-  tiles_row3 = [
-    ("Headcount Q1 (FTE)", (f"={ref(PAYROLL_SHEET, fte_row, FIRST_LIVE_COL)}" if fte_row else "=0"), NUMBER_FORMAT, ""),
-    ("Headcount Q20 (FTE)", (f"={ref(PAYROLL_SHEET, fte_row, LAST_LIVE_COL)}" if fte_row else "=0"), NUMBER_FORMAT, ""),
-    ("Year 1 Net Income", f"={_fin(ctx, IS, 'Net Income', y1)}", CURRENCY_FORMAT, ""),
-    ("Year 5 Net Income", f"={_fin(ctx, IS, 'Net Income', y5)}", CURRENCY_FORMAT, ""),
-    ("Year 1 Gross Margin", f"=IF({_fin(ctx, IS, 'Revenue', y1)}>0,{_fin(ctx, IS, 'Gross Profit', y1)}/{_fin(ctx, IS, 'Revenue', y1)},0)", PERCENT_FORMAT, ""),
-    ("Ending Cash Q20", f"={_fin(ctx, CF, 'Ending Cash', LAST_LIVE_COL)}", CURRENCY_FORMAT, ""),
-  ]
-  for r, tiles in ((4, tiles_row1), (8, tiles_row2), (12, tiles_row3)):
-    for i, (label, formula, fmt, note) in enumerate(tiles):
-      _tile(ws, r, 1 + i * 4, label, formula, fmt, note)
+  title = ws.cell(row=1, column=1, value=f"{data.business_name} - Dashboard")
+  title.font = design.font("title")
+  sub = ws.cell(row=2, column=1,
+                value="Choose a view and a period; every card and the period charts below "
+                      "reslice to match. The trend charts always show all twenty quarters.")
+  sub.font = design.font("subtitle")
 
-  # --- Helper tables (col AN+) --------------------------------------------
-  hcol = HELPER_COL
-  hrow = 4
-  # (a) Margins by quarter + industry band
-  _helper_header(ws, hrow, hcol, "Margins by quarter (formulas) + the EBITDA-margin band this plan was judged against (executive judgment, Q11 / Q20)", span=8)
-  hrow += 1
-  _quarter_labels(ws, hrow, hcol + 1)
-  gm_row, em_row, band_lo_row, band_hi_row = hrow + 1, hrow + 2, hrow + 3, hrow + 4
-  ws.cell(row=gm_row, column=hcol, value="Gross Margin %")
-  ws.cell(row=em_row, column=hcol, value="EBITDA Margin %")
-  band = _judged_band(data)
-  ws.cell(row=band_lo_row, column=hcol, value="Judged EBITDA band - low")
-  ws.cell(row=band_hi_row, column=hcol, value="Judged EBITDA band - high")
-  for i in range(_QCOUNT):
-    col = FIRST_LIVE_COL + i
-    c = hcol + 1 + i
-    rev = _fin(ctx, IS, "Revenue", col)
-    ws.cell(row=gm_row, column=c, value=f"=IF({rev}>0,{_fin(ctx, IS, 'Gross Profit', col)}/{rev},0)").number_format = PERCENT_FORMAT
-    ws.cell(row=em_row, column=c, value=f"=IF({rev}>0,{_fin(ctx, IS, 'EBITDA', col)}/{rev},0)").number_format = PERCENT_FORMAT
-    if band:
-      ws.cell(row=band_lo_row, column=c, value=band[i][0]).number_format = PERCENT_FORMAT
-      ws.cell(row=band_hi_row, column=c, value=band[i][1]).number_format = PERCENT_FORMAT
-  hrow = band_hi_row + 2
-  # (b) Cost structure Y1
-  _helper_header(ws, hrow, hcol, "Year 1 cost structure (formulas off FINMO Y1)", span=3)
-  hrow += 1
-  cost_first = hrow
-  for label in ("Cost of Goods Sold", "Marketing", "Research & Development", "Lease/Rent", "Payroll", "General & Administrative", "Depreciation", "Interest"):
-    ws.cell(row=hrow, column=hcol, value=label)
-    ws.cell(row=hrow, column=hcol + 1, value=f"={_fin(ctx, IS, label, y1)}").number_format = CURRENCY_FORMAT
-    hrow += 1
-  cost_last = hrow - 1
-  hrow += 1
-  # (c) Sources & uses Y1
-  _helper_header(ws, hrow, hcol, "Year 1 sources & uses of cash (formulas off FINMO Y1)", span=3)
-  hrow += 1
-  su_first = hrow
-  su_items = [
-    ("Operating cash flow", f"={_fin(ctx, CF, 'Operating Cash Flow', y1)}"),
-    ("New borrowing", f"={_fin(ctx, CF, 'Debt Issuance (New Borrowing)', y1)}"),
-    ("Owner equity in", f"={_fin(ctx, CF, 'Equity', y1)}"),
-    ("Capital expenditures", f"=-ABS({_fin(ctx, CF, 'Capital Expenditures', y1)})"),
-    ("Debt repayment", f"=-ABS({_fin(ctx, CF, 'Debt Repayment', y1)})"),
-    ("Lease principal", f"=-ABS({_fin(ctx, CF, 'Capital Lease Principal Payments', y1)})"),
-    ("Distributions", f"=-ABS({_fin(ctx, CF, 'Distributions', y1)})"),
-  ]
-  for label, formula in su_items:
-    ws.cell(row=hrow, column=hcol, value=label)
-    ws.cell(row=hrow, column=hcol + 1, value=formula).number_format = CURRENCY_FORMAT
-    hrow += 1
-  su_last = hrow - 1
-  hrow += 1
-  # (d) Cash + debt by quarter (formulas)
-  _helper_header(ws, hrow, hcol, "Ending cash and closing debt by quarter", span=8)
-  hrow += 1
-  _quarter_labels(ws, hrow, hcol + 1)
-  cash_row, debt_row = hrow + 1, hrow + 2
-  ws.cell(row=cash_row, column=hcol, value="Ending Cash")
-  ws.cell(row=debt_row, column=hcol, value="Closing Debt")
-  for i in range(_QCOUNT):
-    col = FIRST_LIVE_COL + i
-    c = hcol + 1 + i
-    ws.cell(row=cash_row, column=c, value=f"={_fin(ctx, CF, 'Ending Cash', col)}").number_format = CURRENCY_FORMAT
-    ws.cell(row=debt_row, column=c, value=(f"={ref(DEBT_SHEET, closing_debt_row, col)}" if closing_debt_row else "=0")).number_format = CURRENCY_FORMAT
-  hrow = debt_row + 2
-  # (e) Revenue by line + headcount (formulas)
-  slots = _revenue_slots(data)
-  _helper_header(ws, hrow, hcol, "Revenue by line and headcount by quarter", span=8)
-  hrow += 1
-  _quarter_labels(ws, hrow, hcol + 1)
-  line_rows: List[Tuple[int, str]] = []
-  for slot, display in slots:
-    hrow += 1
-    ws.cell(row=hrow, column=hcol, value=display)
-    src = ctx.schedule_row(REVENUE_SHEET, f"{slot}::Revenue")
-    for i in range(_QCOUNT):
-      ws.cell(row=hrow, column=hcol + 1 + i, value=f"={ref(REVENUE_SHEET, src, FIRST_LIVE_COL + i)}").number_format = CURRENCY_FORMAT
-    line_rows.append((hrow, display))
-  hrow += 1
-  head_row = hrow
-  ws.cell(row=head_row, column=hcol, value="Total Ending FTE")
-  for i in range(_QCOUNT):
-    ws.cell(row=head_row, column=hcol + 1 + i, value=(f"={ref(PAYROLL_SHEET, fte_row, FIRST_LIVE_COL + i)}" if fte_row else "=0")).number_format = NUMBER_FORMAT
-  qlab_row_margins = gm_row - 1
+  # ---------------- the selector -------------------------------------------
+  q_row = calc_rows.get("__labels_q__")
+  y_row = calc_rows.get("__labels_y__")
+  wb.defined_names.add(DefinedName(
+    QUARTER_LIST_NAME,
+    attr_text=f"{CALC_SHEET}!${get_column_letter(FIRST_COL)}${q_row}:"
+              f"${get_column_letter(LAST_Q_COL)}${q_row}"))
+  wb.defined_names.add(DefinedName(
+    YEAR_LIST_NAME,
+    attr_text=f"{CALC_SHEET}!${get_column_letter(FIRST_COL)}${y_row}:"
+              f"${get_column_letter(FIRST_COL + YEARS - 1)}${y_row}"))
 
-  # --- Charts (every one through design.chart — the single door) ---------
-  cats = Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=qlab_row_margins)
-  CAT_SKIP = 2   # 20 quarters on one axis: label every other tick, never overlap
+  for row, label, value, source in (
+    (3, "View", "Quarterly", '"Quarterly,Annual"'),
+    (4, "Quarter", "Q1", f"={QUARTER_LIST_NAME}"),
+    (5, "Year", "Y1", f"={YEAR_LIST_NAME}"),
+  ):
+    lab = ws.cell(row=row, column=1, value=label)
+    lab.font = design.font("label_strong")
+    cell = ws.cell(row=row, column=3, value=value)
+    design.input_cell(cell, number_format=design.FMT_TEXT)
+    # Never set showDropDown=True: in OOXML that HIDES the arrow.
+    dv = DataValidation(type="list", formula1=source, allow_blank=False)
+    ws.add_data_validation(dv)
+    dv.add(cell)
 
-  # 1 Revenue by quarter (stacked by line when multi-line)
-  c1 = design.chart("stacked_column" if len(line_rows) > 1 else "column",
-                    title="Revenue by quarter" + (" (by line)" if len(line_rows) > 1 else ""),
-                    y_format=design.FMT_AXIS_MONEY, legend="b" if len(line_rows) > 1 else None)
-  for idx, (r, display) in enumerate(line_rows):
-    design.add_series(c1, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=r),
-                      title=display, slot=idx, line=False)
-  design.set_categories(c1, cats, skip=CAT_SKIP)
-  design.place(ws, c1, "A16")
+  banner = ws.cell(row=3, column=5, value=f'="Showing: "&{ref(CALC_SHEET, calc_rows["sel::sel_label"], 2)}'
+                                          f'&" ("&{ref(CALC_SHEET, calc_rows["sel::sel_view"], 2)}&" view)"')
+  banner.font = design.font("kpi_value")
+  ws.merge_cells(start_row=3, start_column=5, end_row=4, end_column=11)
+  hint = ws.cell(row=5, column=5,
+                 value="The Quarter box drives the Quarterly view; the Year box drives the Annual view.")
+  hint.font = design.font("footnote")
+  ws.merge_cells(start_row=5, start_column=5, end_row=5, end_column=13)
 
-  # 2 Margins vs the judged EBITDA band (band = chrome, dashed, muted)
-  c2 = design.chart("line", title="Gross margin and EBITDA margin",
-                    y_format=design.FMT_AXIS_PERCENT, legend="b")
-  design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=gm_row),
-                    title="Gross margin", slot=0)
-  design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=em_row),
-                    title="EBITDA margin", slot=1)
-  if band:
-    design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=band_lo_row),
-                      title="Judged band low", color=design.SERIES_REFERENCE, dashed=True, thin=True)
-    design.add_series(c2, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=band_hi_row),
-                      title="Judged band high", color=design.SERIES_REFERENCE, dashed=True, thin=True)
-  design.set_categories(c2, cats, skip=CAT_SKIP)
-  design.place(ws, c2, "K16")
+  # ---------------- cards ---------------------------------------------------
+  row = 7
+  for card_row in _CARDS:
+    col = 1
+    for label, key, fmt, note in card_row:
+      source = _cur(ctx, key)
+      if source:
+        design.kpi_tile(ws, row, col, label, f"={source}", fmt, note, span=3)
+      col += 4
+    row += 4
 
-  # 3 Cash and debt (one unit, one axis — never a dual axis)
-  c3 = design.chart("line", title="Ending cash and closing debt",
+  # ---------------- charts --------------------------------------------------
+  def raw(key: str) -> Reference:
+    return Reference(calc_ws, min_col=FIRST_COL, max_col=LAST_Q_COL,
+                     min_row=calc_rows[f"q::{key}"])
+
+  q_cats = Reference(calc_ws, min_col=FIRST_COL, max_col=LAST_Q_COL, min_row=q_row)
+
+  # 1 Revenue and EBITDA, full arc
+  c1 = design.chart("line", title="Revenue and EBITDA - all twenty quarters",
                     y_format=design.FMT_AXIS_MONEY, legend="b")
-  design.add_series(c3, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=cash_row),
-                    title="Ending cash", slot=0)
-  design.add_series(c3, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=debt_row),
-                    title="Closing debt", color=design.SERIES_COST)
-  design.set_categories(c3, cats, skip=CAT_SKIP)
-  design.place(ws, c3, "A34")
+  design.add_series(c1, raw("revenue"), title="Revenue", slot=0)
+  design.add_series(c1, raw("ebitda"), title="EBITDA", slot=1)
+  design.set_categories(c1, q_cats)
+  design.place(ws, c1, "A20")
 
-  # 4 Break-even CVP (same helper range as FINMO, referenced cross-sheet)
-  helper = ctx.schedule_rows.get(CVP_HELPER_KEY) or {}
-  if helper:
-    fin_ws = wb[FINMO_SHEET]
-    c4 = build_cvp_chart(fin_ws, first=helper["first"], last=helper["last"], be_r=helper["be"],
-                         plan_r1=helper["plan1"], plan_r2=helper["plan2"], loss_r=helper["loss"],
-                         profit_r=helper["profit"], title="Break-even (cost-volume-profit), Q1")
-    c4.height, c4.width = 8.5, 16.5
-    design.place(ws, c4, "K34")
+  # 2 Margins, full arc
+  c2 = design.chart("line", title="Margins - all twenty quarters",
+                    y_format=design.FMT_AXIS_PERCENT, legend="b")
+  design.add_series(c2, raw("gross_margin"), title="Gross margin", slot=0)
+  design.add_series(c2, raw("ebitda_margin"), title="EBITDA margin", slot=1)
+  design.add_series(c2, raw("net_margin"), title="Net margin", slot=6)
+  design.set_categories(c2, q_cats)
+  design.place(ws, c2, "K20")
 
-  # 5 Year 1 cost structure — a horizontal bar, one hue, labels at the tips.
-  #   (A pie of 8 close values with 0%/2% slivers is the dated form it replaces.)
-  c5 = design.chart("bar", title="Year 1 cost structure",
-                    y_format=design.FMT_AXIS_MONEY, legend=None, height=9.5)
-  design.add_series(c5, Reference(ws, min_col=hcol + 1, min_row=cost_first, max_row=cost_last),
-                    slot=0, line=False, labels=True, label_position="outEnd")
-  design.set_categories(c5, Reference(ws, min_col=hcol, min_row=cost_first, max_row=cost_last))
-  design.place(ws, c5, "A52")
+  # 3 Cash and debt, full arc
+  c3 = design.chart("line", title="Ending cash and total debt - all twenty quarters",
+                    y_format=design.FMT_AXIS_MONEY, legend="b")
+  design.add_series(c3, raw("cash"), title="Ending cash", slot=0)
+  design.add_series(c3, raw("total_debt"), title="Total debt", color=design.SERIES_COST)
+  design.set_categories(c3, q_cats)
+  design.place(ws, c3, "A38")
 
-  # 6 Headcount — ONE series (varyColors off is what stops Excel legending
-  #   every point, which is what produced the Q1..Q20 rainbow legend).
-  c6 = design.chart("line", title="Headcount (total ending FTE)",
+  # 4 Revenue against break-even, full arc
+  c4 = design.chart("line", title="Revenue against break-even - all twenty quarters",
+                    y_format=design.FMT_AXIS_MONEY, legend="b")
+  design.add_series(c4, raw("revenue"), title="Revenue", slot=0)
+  design.add_series(c4, raw("be_revenue"), title="Break-even revenue",
+                    color=design.SERIES_ATTENTION)
+  design.set_categories(c4, q_cats)
+  design.place(ws, c4, "K38")
+
+  # 5 Cash burn, full arc
+  c5 = design.chart("column", title="Cash burn by quarter (net cash used)",
+                    y_format=design.FMT_AXIS_MONEY, legend=None)
+  design.add_series(c5, raw("cash_burn"), title="Cash burn", color=design.SERIES_COST, line=False)
+  design.set_categories(c5, q_cats)
+  design.place(ws, c5, "A56")
+
+  # 6 Headcount, full arc
+  c6 = design.chart("line", title="Headcount by quarter (ending FTE)",
                     y_format=design.FMT_AXIS_UNITS, legend=None)
-  design.add_series(c6, Reference(ws, min_col=hcol + 1, max_col=hcol + _QCOUNT, min_row=head_row),
-                    title="Total ending FTE", slot=6)
-  design.set_categories(c6, cats, skip=CAT_SKIP)
-  design.place(ws, c6, "K52")
+  design.add_series(c6, raw("headcount"), title="Total ending FTE", slot=6)
+  design.set_categories(c6, q_cats)
+  design.place(ws, c6, "K56")
 
-  # 7 Year 1 sources (+) and uses (-) of cash
-  c7 = design.chart("bar", title="Year 1 sources (+) and uses (-) of cash",
+  # 7 Cost structure - the SELECTED period
+  c7 = design.chart("bar", title="Cost structure - selected period",
                     y_format=design.FMT_AXIS_MONEY, legend=None, height=9.5)
-  design.add_series(c7, Reference(ws, min_col=hcol + 1, min_row=su_first, max_row=su_last),
+  design.add_series(c7, Reference(calc_ws, min_col=FIRST_COL,
+                                  min_row=calc_rows["cost_first"], max_row=calc_rows["cost_last"]),
                     slot=0, line=False, labels=True, label_position="outEnd")
-  design.set_categories(c7, Reference(ws, min_col=hcol, min_row=su_first, max_row=su_last))
-  design.place(ws, c7, "A70")
+  design.set_categories(c7, Reference(calc_ws, min_col=1, min_row=calc_rows["cost_first"],
+                                      max_row=calc_rows["cost_last"]))
+  design.place(ws, c7, "A74")
+
+  # 8 Sources and uses - the SELECTED period
+  c8 = design.chart("bar", title="Sources (+) and uses (-) of cash - selected period",
+                    y_format=design.FMT_AXIS_MONEY, legend=None, height=9.5)
+  design.add_series(c8, Reference(calc_ws, min_col=FIRST_COL,
+                                  min_row=calc_rows["su_first"], max_row=calc_rows["su_last"]),
+                    slot=0, line=False, labels=True, label_position="outEnd")
+  design.set_categories(c8, Reference(calc_ws, min_col=1, min_row=calc_rows["su_first"],
+                                      max_row=calc_rows["su_last"]))
+  design.place(ws, c8, "K74")
+
+  # 9 CVP - the SELECTED period (reads Calc's selector-driven CVP block)
+  c9 = build_cvp_chart(calc_ws, first=calc_rows["cvp::first"], last=calc_rows["cvp::last"],
+                       be_r=calc_rows["cvp::be"], plan_r1=calc_rows["cvp::plan1"],
+                       plan_r2=calc_rows["cvp::plan2"], loss_r=calc_rows["cvp::loss"],
+                       profit_r=calc_rows["cvp::profit"],
+                       title="Break-even (cost-volume-profit) - selected period")
+  c9.height, c9.width = 9.5, 16.5
+  design.place(ws, c9, "A92")
 
   ws.sheet_properties.tabColor = design.NAVY
