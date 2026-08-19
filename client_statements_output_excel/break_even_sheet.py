@@ -245,89 +245,48 @@ CVP_POINTS = 11  # 0%..150% of max(planned, break-even) in 15% steps
 CVP_HELPER_KEY = "__cvp_helper__"
 
 
-def write_cvp_helper_and_chart(ws, ctx: WorkbookBuildContext, *, start_row: int, anchor: Optional[str] = None, quarter_col: int = FIRST_LIVE_COL, title_suffix: str = "Q1") -> int:
-  """Write the CVP helper range (all live formulas off the block's
-  quarter column) below ``start_row`` and add a native ScatterChart
-  anchored at ``anchor`` (default: beside the break-even block). Returns
-  the next free row. The chart renders on Excel open (fullCalcOnLoad)."""
-  col_x, col_rev, col_cost, col_be, col_plan, col_lbl = 1, 2, 3, 4, 5, 6
-  write_section_header(ws, start_row, f"Cost-Volume-Profit Chart Data ({title_suffix}) - helper range for the break-even chart", end_col=8)
-  hdr = start_row + 1
-  for c, name in ((col_x, "Revenue (x)"), (col_rev, "Total Revenue"), (col_cost, "Total Cost"), (col_be, "Break-Even Point"), (col_plan, "Planned Revenue"), (col_lbl, "Region")):
-    ws.cell(row=hdr, column=c, value=name).font = design.font("label_strong")
-  fixed = local_ref(ctx.finmo_row(BREAK_EVEN_STATEMENT, "Fixed Costs"), quarter_col, abs_ref=True)
-  ratio = local_ref(ctx.finmo_row(BREAK_EVEN_STATEMENT, "Variable Cost Ratio"), quarter_col, abs_ref=True)
-  be = local_ref(ctx.finmo_row(BREAK_EVEN_STATEMENT, "Break-Even Revenue"), quarter_col, abs_ref=True)
-  planned = local_ref(ctx.finmo_row(BREAK_EVEN_STATEMENT, "Planned Revenue"), quarter_col, abs_ref=True)
-  # X max = 1.5 x max(planned, break-even) so both markers sit inside the plot.
-  xmax_row = hdr + 1
-  ws.cell(row=xmax_row, column=col_x, value="X max").font = design.font("note")
-  _set(ws, xmax_row, col_rev, f"=1.5*MAX({planned},{be},1)")
-  xmax = local_ref(xmax_row, col_rev, abs_ref=True)
-  first = xmax_row + 1
-  for i in range(CVP_POINTS):
-    r = first + i
-    _set(ws, r, col_x, f"={xmax}*{i}/{CVP_POINTS - 1}")
-    _set(ws, r, col_rev, f"={local_ref(r, col_x)}")
-    _set(ws, r, col_cost, f"={fixed}+{ratio}*{local_ref(r, col_x)}")
-  last = first + CVP_POINTS - 1
-  # Break-even point (one marker), planned-revenue vertical (two points), region labels.
-  be_r = last + 1
-  _set(ws, be_r, col_x, f"={be}")
-  _set(ws, be_r, col_be, f"={be}")
-  ws.cell(row=be_r, column=col_lbl, value="Break-even").font = design.font("note")
-  plan_r1, plan_r2 = be_r + 1, be_r + 2
-  _set(ws, plan_r1, col_x, f"={planned}")
-  _set(ws, plan_r1, col_plan, "=0")
-  _set(ws, plan_r2, col_x, f"={planned}")
-  _set(ws, plan_r2, col_plan, f"={xmax}")
-  ws.cell(row=plan_r1, column=col_lbl, value="Planned revenue").font = design.font("note")
-  # LOSS / PROFIT label anchors: midway left of BE on the cost line, and
-  # midway right of BE on the revenue line.
-  loss_r, profit_r = plan_r2 + 1, plan_r2 + 2
-  _set(ws, loss_r, col_x, f"={be}/2")
-  _set(ws, loss_r, col_be, f"={fixed}+{ratio}*{be}/2")
-  ws.cell(row=loss_r, column=col_lbl, value="LOSS").font = design.font("note")
-  _set(ws, profit_r, col_x, f"=({be}+{xmax})/2")
-  _set(ws, profit_r, col_be, f"=({be}+{xmax})/2")
-  ws.cell(row=profit_r, column=col_lbl, value="PROFIT").font = design.font("note")
-  ctx.schedule_rows.setdefault(CVP_HELPER_KEY, {})
-  ctx.schedule_rows[CVP_HELPER_KEY].update({"first": first, "last": last, "be": be_r, "plan1": plan_r1, "plan2": plan_r2, "loss": loss_r, "profit": profit_r, "hdr": hdr})
+def build_cvp_chart(ws, *, first: int, last: int, title: str, **_legacy):
+  """The cost-volume-profit chart, with the profit and loss REGIONS shaded.
 
-  chart = build_cvp_chart(ws, first=first, last=last, be_r=be_r, plan_r1=plan_r1, plan_r2=plan_r2, loss_r=loss_r, profit_r=profit_r, title=f"Break-Even (Cost-Volume-Profit) - {title_suffix}")
-  design.place(ws, chart, anchor or f"AD{ctx.finmo_row(BREAK_EVEN_STATEMENT, 'Fixed Costs')}")
-  return profit_r + 2
+  Shading the area between two lines is not a native Excel form, so it is built
+  as a stacked area chart layered UNDER the lines: an invisible base at
+  MIN(revenue, cost), then a red wash where cost exceeds revenue and a blue
+  wash where revenue exceeds cost (only one is non-zero at any point). The
+  revenue grid is anchored so the crossing is an exact grid point and the two
+  washes meet precisely at break-even.
 
-
-def build_cvp_chart(ws, *, first: int, last: int, be_r: int, plan_r1: int, plan_r2: int, loss_r: int, profit_r: int, title: str) -> ScatterChart:
-  """X1: built through the design system's single door. Semantic colors
-  (revenue blue / cost red / break-even amber) were validated ALL-PAIRS;
-  the planned-revenue line is chrome (muted dashed), not a series identity."""
-  chart = design.chart(
-    "scatter", title=title, y_format=design.FMT_AXIS_MONEY,
-    x_format=design.FMT_AXIS_MONEY, legend="b",  # no axis title: an axis title
-    # sits inside the plot band in Excel and collides with the tick labels;
-    # both axes are dollars and the legend names every line.
+  A category axis is used rather than a scatter axis because area and scatter
+  charts cannot share axes in Excel; the revenue grid is written as the
+  categories, so the x positions read exactly as they are.
+  """
+  bands = design.chart(
+    "area", title=title, y_format=design.FMT_AXIS_MONEY, legend="b",
     width=18, height=10,
   )
-  x = Reference(ws, min_col=1, min_row=first, max_row=last)
-  design.add_series(chart, Reference(ws, min_col=2, min_row=first, max_row=last),
-                    x_values=x, title="Total revenue", color=design.SERIES_REVENUE)
-  design.add_series(chart, Reference(ws, min_col=3, min_row=first, max_row=last),
-                    x_values=x, title="Total cost (fixed + variable)", color=design.SERIES_COST)
-  design.add_series(chart, Reference(ws, min_col=4, min_row=be_r, max_row=be_r),
-                    x_values=Reference(ws, min_col=1, min_row=be_r, max_row=be_r),
+  bands.grouping = "stacked"
+  design.add_series(bands, Reference(ws, min_col=4, min_row=first, max_row=last),
+                    title="_base", line=False, no_fill=True)
+  design.add_series(bands, Reference(ws, min_col=5, min_row=first, max_row=last),
+                    title="Loss region", color=design.BAND_LOSS, line=False)
+  design.add_series(bands, Reference(ws, min_col=6, min_row=first, max_row=last),
+                    title="Profit region", color=design.BAND_PROFIT, line=False)
+
+  lines = design.chart("line", title=title, y_format=design.FMT_AXIS_MONEY, legend="b")
+  design.add_series(lines, Reference(ws, min_col=2, min_row=first, max_row=last),
+                    title="Total revenue", color=design.SERIES_REVENUE)
+  design.add_series(lines, Reference(ws, min_col=3, min_row=first, max_row=last),
+                    title="Total cost (fixed + variable)", color=design.SERIES_COST)
+  design.add_series(lines, Reference(ws, min_col=7, min_row=first, max_row=last),
                     title="Break-even", color=design.SERIES_ATTENTION, line=False,
                     marker="diamond", marker_size=11, labels=True, label_position="r")
-  design.add_series(chart, Reference(ws, min_col=5, min_row=plan_r1, max_row=plan_r2),
-                    x_values=Reference(ws, min_col=1, min_row=plan_r1, max_row=plan_r2),
-                    title="Planned revenue", color=design.SERIES_REFERENCE, dashed=True, thin=True)
-  design.add_series(chart, Reference(ws, min_col=4, min_row=loss_r, max_row=loss_r),
-                    x_values=Reference(ws, min_col=1, min_row=loss_r, max_row=loss_r),
-                    title="Loss", color=design.SERIES_COST, line=False,
-                    marker="triangle", marker_size=8, labels="name", label_position="t")
-  design.add_series(chart, Reference(ws, min_col=4, min_row=profit_r, max_row=profit_r),
-                    x_values=Reference(ws, min_col=1, min_row=profit_r, max_row=profit_r),
-                    title="Profit", color=design.SERIES[5], line=False,
-                    marker="triangle", marker_size=8, labels="name", label_position="b")
+  design.add_series(lines, Reference(ws, min_col=8, min_row=first, max_row=last),
+                    title="Planned revenue", color=design.SERIES[6], line=False,
+                    marker="circle", marker_size=9, labels=True, label_position="t")
+
+  chart = design.combine(bands, lines)
+  design.set_categories(chart, Reference(ws, min_col=1, min_row=first, max_row=last), skip=2)
+  # The stacked base exists only to lift the bands off the axis; it must not
+  # appear in the legend. (No axis title either - Excel draws it inside the
+  # plot band, where it lands on the tick labels; the $ format says enough.)
+  design.hide_legend_entry(chart, 0)
   return chart

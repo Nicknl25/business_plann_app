@@ -43,13 +43,13 @@ _CARDS = [
    ("Ending Cash", "cash", design.FMT_MONEY, "")],
   [("Break-Even Revenue", "be_revenue", design.FMT_MONEY, "revenue needed to cover every cost"),
    ("Margin of Safety", "be_mos", design.FMT_PERCENT, "how far above break-even"),
-   ("Cash Burn", "cash_burn", design.FMT_MONEY, "net cash used in the period"),
+   ("Net Cash Flow", "net_cf", design.FMT_MONEY_SIGNED, "negative means cash was used"),
    ("Operating Cash Flow", "operating_cf", design.FMT_MONEY, ""),
    ("Total Debt", "total_debt", design.FMT_MONEY, "")],
   [("Gross Margin", "gross_margin", design.FMT_PERCENT, ""),
    ("Net Margin", "net_margin", design.FMT_PERCENT, ""),
    ("Debt Service Coverage", "dscr", design.FMT_RATIO, "EBITDA over debt service"),
-   ("Current Ratio", "current_ratio", design.FMT_RATIO, ""),
+   ("Cash Low Point", "cash_low", design.FMT_MONEY, "lowest cash across all 20 quarters"),
    ("Headcount (FTE)", "headcount", design.FMT_UNITS, "")],
 ]
 
@@ -61,6 +61,10 @@ def _calc(ctx: WorkbookBuildContext) -> Dict[str, int]:
 def _cur(ctx: WorkbookBuildContext, key: str) -> Optional[str]:
   row = _calc(ctx).get(f"cur::{key}")
   return ref(CALC_SHEET, row, FIRST_COL) if row else None
+
+
+def _anchor(row: int, col: str) -> str:
+  return f"{col}{row}"
 
 
 def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
@@ -129,6 +133,29 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
       col += 4
     row += 4
 
+  # ---------------- break-even volume, 1..N lines ---------------------------
+  be_first, be_last = calc_rows.get("be_units_first"), calc_rows.get("be_units_last")
+  if be_first and be_last:
+    single = (be_last - be_first) == 0
+    heading = ("Break-even volume - selected period" if single
+               else "Break-even volume at the planned mix - selected period")
+    design.section_band(ws, row, heading, end_col=21)
+    row += 1
+    for r in range(be_first, be_last + 1):
+      name = ws.cell(row=row, column=1, value=calc_ws.cell(row=r, column=1).value)
+      name.font = design.font("label")
+      # Line names run long on multi-line businesses ("Landscaping &
+      # installation services / Landscaping-installation job"), so the name
+      # gets six columns before the number rather than four.
+      ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+      value = ws.cell(row=row, column=7, value=f"={ref(CALC_SHEET, r, FIRST_COL)}")
+      design.calculated_cell(value, number_format=design.FMT_UNITS)
+      unit = ws.cell(row=row, column=8, value="units to break even")
+      unit.font = design.font("note")
+      ws.merge_cells(start_row=row, start_column=8, end_row=row, end_column=13)
+      row += 1
+    row += 1
+
   # ---------------- charts --------------------------------------------------
   def raw(key: str) -> Reference:
     return Reference(calc_ws, min_col=FIRST_COL, max_col=LAST_Q_COL,
@@ -136,13 +163,28 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
 
   q_cats = Reference(calc_ws, min_col=FIRST_COL, max_col=LAST_Q_COL, min_row=q_row)
 
-  # 1 Revenue and EBITDA, full arc
-  c1 = design.chart("line", title="Revenue and EBITDA - all twenty quarters",
-                    y_format=design.FMT_AXIS_MONEY, legend="b")
-  design.add_series(c1, raw("revenue"), title="Revenue", slot=0)
-  design.add_series(c1, raw("ebitda"), title="EBITDA", slot=1)
+  # 1 Revenue. The app builds anything from one line of business to N, so the
+  #   chart adapts: a multi-line business gets the MIX stacked over time (the
+  #   total is the stack height), a single-line business gets revenue against
+  #   EBITDA, which is the more useful pair when there is no mix to show.
+  line_count = calc_rows.get("line_count") or 0
+  if line_count > 1:
+    c1 = design.chart("stacked_column", title="Revenue by line of business - all twenty quarters",
+                      y_format=design.FMT_AXIS_MONEY, legend="b")
+    for i in range(line_count):
+      row_i = calc_rows.get(f"line::{i}::revenue")
+      if not row_i:
+        continue
+      label = calc_ws.cell(row=row_i, column=1).value or f"Line {i + 1}"
+      design.add_series(c1, Reference(calc_ws, min_col=FIRST_COL, max_col=LAST_Q_COL, min_row=row_i),
+                        title=str(label), slot=i, line=False)
+  else:
+    c1 = design.chart("line", title="Revenue and EBITDA - all twenty quarters",
+                      y_format=design.FMT_AXIS_MONEY, legend="b")
+    design.add_series(c1, raw("revenue"), title="Revenue", slot=0)
+    design.add_series(c1, raw("ebitda"), title="EBITDA", slot=1)
   design.set_categories(c1, q_cats)
-  design.place(ws, c1, "A20")
+  design.place(ws, c1, _anchor(row, "A"))
 
   # 2 Margins, full arc
   c2 = design.chart("line", title="Margins - all twenty quarters",
@@ -151,7 +193,7 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   design.add_series(c2, raw("ebitda_margin"), title="EBITDA margin", slot=1)
   design.add_series(c2, raw("net_margin"), title="Net margin", slot=6)
   design.set_categories(c2, q_cats)
-  design.place(ws, c2, "K20")
+  design.place(ws, c2, _anchor(row, "K"))
 
   # 3 Cash and debt, full arc
   c3 = design.chart("line", title="Ending cash and total debt - all twenty quarters",
@@ -159,7 +201,7 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   design.add_series(c3, raw("cash"), title="Ending cash", slot=0)
   design.add_series(c3, raw("total_debt"), title="Total debt", color=design.SERIES_COST)
   design.set_categories(c3, q_cats)
-  design.place(ws, c3, "A38")
+  design.place(ws, c3, _anchor(row + 18, "A"))
 
   # 4 Revenue against break-even, full arc
   c4 = design.chart("line", title="Revenue against break-even - all twenty quarters",
@@ -168,21 +210,25 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   design.add_series(c4, raw("be_revenue"), title="Break-even revenue",
                     color=design.SERIES_ATTENTION)
   design.set_categories(c4, q_cats)
-  design.place(ws, c4, "K38")
+  design.place(ws, c4, _anchor(row + 18, "K"))
 
-  # 5 Cash burn, full arc
-  c5 = design.chart("column", title="Cash burn by quarter (net cash used)",
-                    y_format=design.FMT_AXIS_MONEY, legend=None)
-  design.add_series(c5, raw("cash_burn"), title="Cash burn", color=design.SERIES_COST, line=False)
+  # 5 Cash built (+) and cash used (-), full arc. A single "cash burn" series
+  #   is flat at zero for a business that never burns cash (Bellweather is one),
+  #   which reads as a broken chart; splitting the sign shows the build AND the
+  #   burn, and a burning quarter appears in red the moment it exists.
+  c5 = design.chart("column", title="Cash built (+) and cash used (-) by quarter",
+                    y_format=design.FMT_AXIS_MONEY, legend="b")
+  design.add_series(c5, raw("cash_built"), title="Cash built", slot=0, line=False)
+  design.add_series(c5, raw("cash_used"), title="Cash used", color=design.SERIES_COST, line=False)
   design.set_categories(c5, q_cats)
-  design.place(ws, c5, "A56")
+  design.place(ws, c5, _anchor(row + 36, "A"))
 
   # 6 Headcount, full arc
   c6 = design.chart("line", title="Headcount by quarter (ending FTE)",
                     y_format=design.FMT_AXIS_UNITS, legend=None)
   design.add_series(c6, raw("headcount"), title="Total ending FTE", slot=6)
   design.set_categories(c6, q_cats)
-  design.place(ws, c6, "K56")
+  design.place(ws, c6, _anchor(row + 36, "K"))
 
   # 7 Cost structure - the SELECTED period
   c7 = design.chart("bar", title="Cost structure - selected period",
@@ -192,7 +238,7 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
                     slot=0, line=False, labels=True, label_position="outEnd")
   design.set_categories(c7, Reference(calc_ws, min_col=1, min_row=calc_rows["cost_first"],
                                       max_row=calc_rows["cost_last"]))
-  design.place(ws, c7, "A74")
+  design.place(ws, c7, _anchor(row + 54, "A"))
 
   # 8 Sources and uses - the SELECTED period
   c8 = design.chart("bar", title="Sources (+) and uses (-) of cash - selected period",
@@ -202,15 +248,12 @@ def build_dashboard_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
                     slot=0, line=False, labels=True, label_position="outEnd")
   design.set_categories(c8, Reference(calc_ws, min_col=1, min_row=calc_rows["su_first"],
                                       max_row=calc_rows["su_last"]))
-  design.place(ws, c8, "K74")
+  design.place(ws, c8, _anchor(row + 54, "K"))
 
   # 9 CVP - the SELECTED period (reads Calc's selector-driven CVP block)
   c9 = build_cvp_chart(calc_ws, first=calc_rows["cvp::first"], last=calc_rows["cvp::last"],
-                       be_r=calc_rows["cvp::be"], plan_r1=calc_rows["cvp::plan1"],
-                       plan_r2=calc_rows["cvp::plan2"], loss_r=calc_rows["cvp::loss"],
-                       profit_r=calc_rows["cvp::profit"],
                        title="Break-even (cost-volume-profit) - selected period")
   c9.height, c9.width = 9.5, 16.5
-  design.place(ws, c9, "A92")
+  design.place(ws, c9, _anchor(row + 72, "A"))
 
   ws.sheet_properties.tabColor = design.NAVY

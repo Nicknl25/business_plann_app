@@ -10,6 +10,7 @@ Usage:  python "Test Files/_x4_toggle_live_proof.py" <workbook.xlsx>
 from __future__ import annotations
 
 import sys
+import time
 
 import win32com.client as win32
 
@@ -31,7 +32,17 @@ def main(path: str) -> int:
   excel.Visible = False
   excel.DisplayAlerts = False
   wb = excel.Workbooks.Open(path)
-  dash, finmo = wb.Sheets("Dashboard"), wb.Sheets("FINMO")
+  # Excel rejects COM calls while it is still opening a large workbook
+  # ("Call was rejected by callee"); wait for it rather than failing the proof.
+  dash = finmo = None
+  for _ in range(20):
+    try:
+      dash, finmo = wb.Sheets("Dashboard"), wb.Sheets("FINMO")
+      break
+    except Exception:
+      time.sleep(1.5)
+  if dash is None:
+    raise SystemExit("Excel never became responsive")
 
   def row_of(label: str) -> int:
     for r in range(1, 400):

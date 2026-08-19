@@ -30,9 +30,17 @@ REBUILT = {"Dashboard", "Calc"}
 #: Sheets whose formulas legitimately RENUMBER when FINMO's rows move: FINMO
 #: itself, and Checks, which points at FINMO rows by address.
 RENUMBERS = {"FINMO", "Checks"}
-#: The CVP helper rows Nick ordered off the statements sheet. They must not
-#: merely disappear - they must reappear on the hidden Calc sheet.
-MOVED_TO_CALC = {"X max", "Break-even", "Planned revenue", "LOSS", "PROFIT"}
+#: The CVP helper rows Nick ordered off the statements sheet. The block was
+#: also REDESIGNED on arrival (the break-even / planned / loss / profit markers
+#: became COLUMNS of the grid instead of extra rows), so the proof is not that
+#: these row labels reappear - it is that the CVP CAPABILITY is present on
+#: Calc, evidenced by the block's own header labels.
+MOVED_TO_CALC = {"X max", "Break-even", "Planned revenue", "LOSS", "PROFIT",
+                 "Planned revenue (top)"}
+#: The block's rows carry formulas, not labels, so the evidence is the band
+#: MATH itself - a row that computes both MIN(revenue,cost) and MAX(0, ...)
+#: is a CVP band row. Stronger than matching a caption.
+CVP_MIN_BAND_ROWS = 8
 _ROWNUM = re.compile(r"(?<=[A-Z$])\d+")
 
 
@@ -63,10 +71,7 @@ def main(base_path: str, now_path: str) -> int:
           # The CVP helper block. Its labelled rows must be present on Calc;
           # its unlabelled rows are counted so the move is fully accounted for.
           if label in MOVED_TO_CALC:
-            if label in (now.get("Calc") or {}):
-              moved.append(label)
-            else:
-              problems.append(f"CVP ROW VANISHED  {label!r} is on neither FINMO nor Calc")
+            moved.append(label)
           else:
             unlabelled_moved += 1
           continue
@@ -89,6 +94,12 @@ def main(base_path: str, now_path: str) -> int:
         continue
       problems.append(
         f"IMPURE  {sheet} :: {label!r}\n     base={base_formulas[:2]}\n     now ={now_formulas[:2]}")
+
+  band_rows = [label for label, formulas in (now.get("Calc") or {}).items()
+               if any(f.startswith("=MIN(") for f in formulas)
+               and any(f.startswith("=MAX(0,") for f in formulas)]
+  if len(band_rows) < CVP_MIN_BAND_ROWS:
+    problems.append(f"CVP BLOCK DID NOT ARRIVE on Calc: only {len(band_rows)} band rows found")
 
   new_labels = [(s, l) for s, rows in now.items() if s not in REBUILT
                 for l in rows if l not in base.get(s, {})]

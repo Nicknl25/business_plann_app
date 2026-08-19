@@ -30,7 +30,8 @@ from typing import Iterable, List, Optional, Sequence
 
 from openpyxl.chart import AreaChart, BarChart, LineChart, PieChart, Reference, ScatterChart, Series
 from openpyxl.chart.axis import ChartLines
-from openpyxl.chart.label import DataLabelList
+from openpyxl.chart.label import DataLabel, DataLabelList
+from openpyxl.chart.legend import LegendEntry
 from openpyxl.chart.marker import Marker
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.chart.text import RichText
@@ -55,7 +56,8 @@ TINT_2 = "F4F7FA"         # section wash, helper blocks
 INK = "1A2733"            # body text — 15.2:1 on white
 INK_SECONDARY = "5B6B7B"  # row notes — 5.5:1
 INK_MUTED = "71808F"      # axis labels, footnotes — 3.6:1
-HAIRLINE = "DDE3E9"       # gridlines, cell borders
+HAIRLINE = "DDE3E9"       # cell borders
+GRID = "EDF1F5"           # chart gridlines - one whisper off the surface
 RULE = "C3CCD5"           # axis lines, block dividers
 WHITE = "FFFFFF"
 
@@ -78,6 +80,11 @@ SERIES_REVENUE = SERIES[0]
 SERIES_COST = SERIES[7]
 SERIES_ATTENTION = SERIES[3]
 SERIES_REFERENCE = INK_MUTED   # thresholds/bands are chrome, not identity
+#: Region fills for the CVP chart. Pale tints of the profit/loss series hues -
+#: openpyxl cannot express fill transparency, so the wash is a lighter STEP of
+#: the same hue rather than an alpha, which keeps the lines on top readable.
+BAND_PROFIT = "D6E4F5"
+BAND_LOSS = "F8DCDB"
 
 #: Status — reserved, never reused as a series color, always paired with a word.
 STATUS_GOOD = "0CA30C"
@@ -90,14 +97,14 @@ STATUS_NEUTRAL_FILL = TINT_1
 #: Every fill and font color the workbook is allowed to use (the guard test's
 #: allow-list). Anything else is a bypass.
 ALLOWED_FILLS = frozenset({
-  NAVY, NAVY_DEEP, TINT_1, TINT_2, WHITE, INPUT_FILL,
-  STATUS_GOOD_FILL, STATUS_CRITICAL_FILL,
+  NAVY, NAVY_DEEP, TINT_1, TINT_2, WHITE, INPUT_FILL, GRID,
+  STATUS_GOOD_FILL, STATUS_CRITICAL_FILL, BAND_PROFIT, BAND_LOSS,
 })
 ALLOWED_FONT_COLORS = frozenset({
   INK, INK_SECONDARY, INK_MUTED, NAVY, WHITE, INPUT_INK,
   STATUS_GOOD, STATUS_WARNING, STATUS_CRITICAL,
 })
-ALLOWED_SERIES_COLORS = frozenset(SERIES) | {SERIES_REFERENCE}
+ALLOWED_SERIES_COLORS = frozenset(SERIES) | {SERIES_REFERENCE, BAND_PROFIT, BAND_LOSS}
 
 # ---------------------------------------------------------------------------
 # 2. TYPOGRAPHY  (Calibri pinned — Nick's Q2)
@@ -367,19 +374,23 @@ def _text_props(*, size: int, color: str, bold: bool = False) -> RichText:
   )
 
 
-def _style_axis(axis, *, number_format: Optional[str], gridlines: bool, title: Optional[str]) -> None:
+def _style_axis(axis, *, number_format: Optional[str], gridlines: bool, title: Optional[str],
+                axis_line: bool = True) -> None:
   # openpyxl HIDES axes unless delete is explicitly False — the #1 gotcha
   # (docs/WORKBOOK_ANALYTICS_RESEARCH.md §1.5).
   axis.delete = False
   axis.majorTickMark = "none"
   axis.minorTickMark = "none"
-  axis.spPr = GraphicalProperties(ln=LineProperties(solidFill=RULE, w=_HAIRLINE_W))
-  axis.txPr = _text_props(size=9, color=INK_MUTED)
+  # A modern chart draws no box: the value axis has no rule at all (its
+  # gridlines carry the scale) and only the category baseline is drawn.
+  axis.spPr = (GraphicalProperties(ln=LineProperties(solidFill=RULE, w=_HAIRLINE_W))
+               if axis_line else GraphicalProperties(ln=LineProperties(noFill=True)))
+  axis.txPr = _text_props(size=8, color=INK_MUTED)
   if number_format:
     axis.number_format = number_format
   if gridlines:
     axis.majorGridlines = ChartLines(
-      spPr=GraphicalProperties(ln=LineProperties(solidFill=HAIRLINE, w=_HAIRLINE_W))
+      spPr=GraphicalProperties(ln=LineProperties(solidFill=GRID, w=_HAIRLINE_W))
     )
   else:
     axis.majorGridlines = None
@@ -442,7 +453,8 @@ def chart(kind: str, *, title: str, y_format: Optional[str] = FMT_AXIS_MONEY,
     # wrong axis - which is what left the sources-and-uses labels colliding.
     value_axis = obj.y_axis
     cat_axis = obj.x_axis
-    _style_axis(value_axis, number_format=y_format, gridlines=True, title=y_title)
+    _style_axis(value_axis, number_format=y_format, gridlines=True, title=y_title,
+                axis_line=False)
     _style_axis(cat_axis, number_format=x_format, gridlines=False, title=x_title)
     if kind in {"bar", "column", "stacked_column"}:
       # Category labels go to the OUTSIDE edge, not against the zero line —
@@ -460,14 +472,18 @@ def chart(kind: str, *, title: str, y_format: Optional[str] = FMT_AXIS_MONEY,
 
 
 def add_series(obj, values: Reference, *, title: Optional[str] = None,
+               end_index: int = 19,
                x_values: Optional[Reference] = None, slot: Optional[int] = None,
                color: Optional[str] = None, dashed: bool = False,
                line: bool = True, marker: Optional[str] = None,
                marker_size: int = 8, labels=False,
-               label_position: Optional[str] = None, thin: bool = False):
+               label_position: Optional[str] = None, thin: bool = False,
+               no_fill: bool = False, end_label: bool = False):
   """Add one series in the house style. Color comes from the validated slot
   order unless an explicit palette color is passed (semantic charts)."""
   hex_color = color or (SERIES[slot % len(SERIES)] if slot is not None else SERIES[0])
+  if no_fill:
+    hex_color = SERIES[0]
   if hex_color not in ALLOWED_SERIES_COLORS:
     raise ValueError(f"series color {hex_color!r} is outside the design palette")
   series = Series(values, x_values, title=title) if x_values is not None else Series(values, title=title)
@@ -479,6 +495,8 @@ def add_series(obj, values: Reference, *, title: Optional[str] = None,
   else:
     props.solidFill = hex_color
     props.line = LineProperties(noFill=True)
+  if no_fill:
+    props = GraphicalProperties(noFill=True, ln=LineProperties(noFill=True))
   series.graphicalProperties = props
   # Excel hollows out a negative bar unless told otherwise, which reads as an
   # unfinished chart on a sources-and-uses view.
@@ -505,6 +523,18 @@ def add_series(obj, values: Reference, *, title: Optional[str] = None,
     if label_position:
       series.dLbls.dLblPos = label_position
     series.dLbls.txPr = _text_props(size=9, color=INK_SECONDARY)
+  if end_label:
+    # Direct labelling: ONE label riding the end of the line instead of a
+    # legend row. The modern idiom, and it keeps the eye on the data.
+    series.dLbls = DataLabelList(dLbl=[DataLabel(
+      idx=end_index, showVal=False, showSerName=True, showCatName=False,
+      showLegendKey=False, showBubbleSize=False, showPercent=False,
+      txPr=_text_props(size=9, color=INK_SECONDARY))])
+    series.dLbls.showVal = False
+    series.dLbls.showSerName = False
+    series.dLbls.showCatName = False
+    series.dLbls.showLegendKey = False
+    series.dLbls.showBubbleSize = False
   obj.series.append(series)
   return series
 
@@ -514,6 +544,28 @@ def set_categories(obj, categories: Reference, *, skip: Optional[int] = None) ->
   if skip and skip > 1:
     obj.x_axis.tickLblSkip = skip
     obj.x_axis.tickMarkSkip = skip
+
+
+def combine(base, overlay):
+  """Layer `overlay` on top of `base` (e.g. the CVP lines over the shaded
+  profit/loss bands). Both must be category-axis charts so they share axes."""
+  if not getattr(base, MARKER_ATTR, False) or not getattr(overlay, MARKER_ATTR, False):
+    raise ValueError("both charts must come from design.chart()")
+  overlay.y_axis.majorGridlines = None
+  # ChartBase defines __iadd__ (not __add__): `+=` appends the overlay to the
+  # base chart's plot area. `base + overlay` raises "cannot combine instances
+  # of different types" because Serialisable.__add__ requires one type.
+  base += overlay
+  setattr(base, MARKER_ATTR, True)
+  return base
+
+
+def hide_legend_entry(obj, index: int) -> None:
+  """Drop ONE series from the legend while keeping it plotted - used for the
+  invisible base of a stacked band."""
+  if obj.legend is None:
+    return
+  obj.legend.legendEntry = list(obj.legend.legendEntry or []) + [LegendEntry(idx=index, delete=True)]
 
 
 def place(ws, obj, anchor: str) -> None:

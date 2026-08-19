@@ -7,7 +7,6 @@ from .break_even_sheet import (
   BREAK_EVEN_STATEMENT,
   fill_break_even_formulas,
   write_break_even_rows,
-  write_cvp_helper_and_chart,
 )
 from openpyxl.utils import get_column_letter
 

@@ -109,6 +109,9 @@ _SERIES: List[Tuple[str, str, tuple]] = [
   ("headcount", "Headcount (ending FTE)", ("schedule", "Payroll Schedule", "Total Ending FTE")),
   # derived
   ("cash_burn", "Cash Burn (net cash used)", ("derived", "cash_burn")),
+  ("cash_built", "Cash Built (net cash added)", ("derived", "cash_built")),
+  ("cash_used", "Cash Used (shown negative)", ("derived", "cash_used")),
+  ("cash_low", "Cash Low Point (20 quarters)", ("derived", "cash_low")),
 ]
 
 _PERCENT_KEYS = {"gross_margin", "ebitda_margin", "net_margin", "be_mos", "be_cm"}
@@ -126,6 +129,27 @@ def _fmt_for(key: str) -> str:
   return design.FMT_MONEY
 
 
+def _derived(kind: str, ctx: WorkbookBuildContext, col: int) -> str:
+  """Series the statements do not carry directly."""
+  cf = ctx.finmo_row("Cash Flow", "Net Cash Flow")
+  cash = ctx.finmo_row("Balance Sheet", "Cash")
+  if not cf or not cash:
+    return "=0"
+  ncf = ref(FINMO_SHEET, cf, col)
+  if kind == "cash_burn":
+    return f"=-MIN(0,{ncf})"
+  if kind == "cash_built":
+    return f"=MAX(0,{ncf})"
+  if kind == "cash_used":
+    return f"=MIN(0,{ncf})"
+  if kind == "cash_low":
+    # the same figure in every column: the trough is a property of the arc
+    first = ref(FINMO_SHEET, cash, FIRST_LIVE_COL)
+    last = ref(FINMO_SHEET, cash, FIRST_LIVE_COL + QUARTERS - 1)
+    return f"=MIN({first}:{last})"
+  return "=0"
+
+
 def _source_ref(source: tuple, ctx: WorkbookBuildContext, col: int) -> Optional[str]:
   kind = source[0]
   if kind == "finmo":
@@ -135,6 +159,34 @@ def _source_ref(source: tuple, ctx: WorkbookBuildContext, col: int) -> Optional[
     row = ctx.schedule_row(source[1], source[2])
     return ref(source[1], row, col) if row else None
   return None
+
+
+def _revenue_lines(data: DraftWorkbookData, ctx: WorkbookBuildContext):
+  """(display, revenue-row, break-even-units-row) per line of business.
+
+  The app builds anything from one line to N, so the dashboard cannot assume
+  either shape: this is what lets it show a single revenue line for a one-line
+  business and a stacked mix for a multi-line one.
+  """
+  out = []
+  seen = set()
+  for source in data.revenue_rows or []:
+    if text(source.get("driver")) != "Unit Price":
+      continue
+    slot = text(source.get("revenue_slot_key")) or ""
+    if not slot or slot in seen:
+      continue
+    seen.add(slot)
+    display = " / ".join(x for x in [text(source.get("lob")), text(source.get("product"))] if x)
+    rev_row = ctx.schedule_row("Revenue Drivers", f"{slot}::Revenue")
+    be_row = 0
+    for label, row in (ctx.finmo_rows.get(BREAK_EVEN_STATEMENT) or {}).items():
+      if label.startswith("Break-Even Units") and label.endswith(display):
+        be_row = row
+        break
+    if rev_row:
+      out.append((display or slot, rev_row, be_row))
+  return out
 
 
 def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
@@ -187,7 +239,8 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
       f'=IF({local_ref(8, 2)}=1,{local_ref(7, 2)},{local_ref(6, 2)})', "sel_label")
   _kv(14, "Points in view", f"=IF({local_ref(8, 2)}=1,{YEARS},{QUARTERS})", "points")
 
-  idx = local_ref(12, 2, abs_ref=True)
+  idx_ref = local_ref(12, 2, abs_ref=True)
+  idx = idx_ref
   is_annual = local_ref(8, 2, abs_ref=True)
 
   # ---------------- raw quarterly ------------------------------------------
@@ -200,8 +253,7 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
       col = FIRST_COL + i
       finmo_col = FIRST_LIVE_COL + i
       if source[0] == "derived":
-        cf_row = ctx.finmo_row("Cash Flow", "Net Cash Flow")
-        formula = f"=-MIN(0,{ref(FINMO_SHEET, cf_row, finmo_col)})" if cf_row else "=0"
+        formula = _derived(source[1], ctx, finmo_col)
       else:
         src = _source_ref(source, ctx, finmo_col)
         formula = f"=IFERROR(IF(ISTEXT({src}),0,{src}),0)" if src else "=0"
@@ -220,8 +272,7 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
       col = FIRST_COL + i
       finmo_col = ANNUAL_START_COL + i
       if source[0] == "derived":
-        cf_row = ctx.finmo_row("Cash Flow", "Net Cash Flow")
-        formula = f"=-MIN(0,{ref(FINMO_SHEET, cf_row, finmo_col)})" if cf_row else "=0"
+        formula = _derived(source[1], ctx, finmo_col)
       else:
         src = _source_ref(source, ctx, finmo_col)
         formula = f"=IFERROR(IF(ISTEXT({src}),0,{src}),0)" if src else "=0"
@@ -271,6 +322,44 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
       design.calculated_cell(cell, number_format=_fmt_for(key))
     arc_rows[key] = row
     row += 1
+
+  # ---------------- per line of business -----------------------------------
+  lines = _revenue_lines(data, ctx)
+  line_rows: List[Dict[str, int]] = []
+  if lines:
+    row += 1
+    write_section_header(ws, row - 1, "Revenue by line of business - quarterly", end_col=LAST_Q_COL)
+    for display, rev_row, be_row in lines:
+      ws.cell(row=row, column=1, value=display).font = design.font("label")
+      for i in range(QUARTERS):
+        src = ref("Revenue Drivers", rev_row, FIRST_LIVE_COL + i)
+        cell = ws.cell(row=row, column=FIRST_COL + i, value=f"=IFERROR({src},0)")
+        design.calculated_cell(cell, number_format=design.FMT_MONEY)
+      line_rows.append({"revenue": row, "display_row": row, "be_units": 0})
+      row += 1
+
+    row += 1
+    write_section_header(ws, row - 1,
+                         "Break-even volume by line at the planned mix - selected period",
+                         end_col=LAST_Q_COL)
+    be_first = row
+    for idx, (display, _rev, be_row) in enumerate(lines):
+      ws.cell(row=row, column=1, value=display).font = design.font("label")
+      if be_row:
+        q_src = ",".join([])  # placeholder, built below
+        parts_q = f"{ref(FINMO_SHEET, be_row, FIRST_LIVE_COL)}:{ref(FINMO_SHEET, be_row, FIRST_LIVE_COL + QUARTERS - 1)}"
+        parts_y = f"{ref(FINMO_SHEET, be_row, ANNUAL_START_COL)}:{ref(FINMO_SHEET, be_row, ANNUAL_START_COL + YEARS - 1)}"
+        formula = (f"=IFERROR(IF({is_annual}=1,INDEX({parts_y},{idx_ref}),"
+                   f"INDEX({parts_q},{idx_ref})),0)")
+      else:
+        formula = "=0"
+      cell = ws.cell(row=row, column=FIRST_COL, value=formula)
+      design.calculated_cell(cell, number_format=design.FMT_UNITS)
+      line_rows[idx]["be_units"] = row
+      row += 1
+    be_last = row - 1
+  else:
+    be_first = be_last = 0
 
   # ---------------- category blocks for the SELECTED period ----------------
   # A chart series needs ONE contiguous range, so the period-specific
@@ -322,69 +411,80 @@ def build_calc_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> 
   registry.update({f"cvp::{k}": v for k, v in cvp.items()})
   registry.update({f"sel::{k}": v for k, v in rows.items()})
   registry.update({"cost_first": cost_first, "cost_last": cost_last,
-                   "su_first": su_first, "su_last": su_last})
+                   "su_first": su_first, "su_last": su_last,
+                   "line_count": len(lines),
+                   "be_units_first": be_first, "be_units_last": be_last})
+  for i, entry in enumerate(line_rows):
+    registry[f"line::{i}::revenue"] = entry["revenue"]
+    registry[f"line::{i}::be_units"] = entry["be_units"]
   ctx.schedule_rows[CALC_KEY] = registry
 
 
 def _write_cvp(ws, start_row: int, cur_rows: Dict[str, int]) -> Dict[str, int]:
-  """The CVP series for the SELECTED period: revenue on the x-axis, the
-  45-degree revenue line, the total-cost line, and the markers. Because it
-  reads the CURRENT-VIEW cells it re-plots the moment the selector changes -
-  the chart was hard-wired to Q1 before."""
+  """The CVP series for the SELECTED period.
+
+  The revenue grid is ANCHORED on the two points that matter - break-even and
+  planned revenue are exact grid points - so the shaded profit and loss regions
+  meet exactly at the crossing instead of a step or two away from it. The grid
+  stays monotonic whether the plan sits above break-even or below it, because
+  the anchors are taken as MIN/MAX rather than assumed in order.
+
+  Columns: A revenue (x) | B revenue line | C total cost | D band base
+           E loss band | F profit band | G break-even marker | H planned marker
+  D/E/F are a stacked area under the lines: the base is invisible, the loss
+  band is a red wash where cost exceeds revenue, the profit band a blue wash
+  where revenue exceeds cost. Only one of the two is non-zero at any x.
+  """
   fixed = local_ref(cur_rows["be_fixed"], FIRST_COL, abs_ref=True)
   cm = local_ref(cur_rows["be_cm"], FIRST_COL, abs_ref=True)
   be = local_ref(cur_rows["be_revenue"], FIRST_COL, abs_ref=True)
   planned = local_ref(cur_rows["revenue"], FIRST_COL, abs_ref=True)
 
   header = start_row
-  for i, name in enumerate(("Revenue (x)", "Total revenue", "Total cost", "Marker y", "Planned x")):
+  for i, name in enumerate(("Revenue (x)", "Total revenue", "Total cost", "Band base",
+                            "Loss band", "Profit band", "Break-even point", "Planned point")):
     ws.cell(row=header, column=1 + i, value=name).font = design.font("note")
-  xmax_row = header + 1
-  ws.cell(row=xmax_row, column=1, value="X max").font = design.font("note")
-  xmax = local_ref(xmax_row, 2, abs_ref=True)
-  ws.cell(row=xmax_row, column=2, value=f"=MAX({be},{planned})*1.6")
 
-  first = xmax_row + 1
-  points = 11
-  for i in range(points):
+  anchors = header + 1
+  ws.cell(row=anchors, column=1, value="Anchors").font = design.font("note")
+  ws.cell(row=anchors, column=2, value=f"=MIN({be},{planned})")     # lo
+  ws.cell(row=anchors, column=3, value=f"=MAX({be},{planned})")     # hi
+  ws.cell(row=anchors, column=4, value=f"=MAX({be},{planned})*1.45")  # x max
+  lo = local_ref(anchors, 2, abs_ref=True)
+  hi = local_ref(anchors, 3, abs_ref=True)
+  xmax = local_ref(anchors, 4, abs_ref=True)
+
+  # 0 .. lo (3 steps) | lo .. hi (3 steps) | hi .. xmax (3 steps) = 10 points,
+  # with `lo` and `hi` landing exactly on points 4 and 7.
+  fractions = [("=0", None)]
+  for k in (1, 2, 3):
+    fractions.append((f"={lo}*{k}/3", None))
+  for k in (1, 2, 3):
+    fractions.append((f"={lo}+({hi}-{lo})*{k}/3", None))
+  for k in (1, 2, 3):
+    fractions.append((f"={hi}+({xmax}-{hi})*{k}/3", None))
+
+  first = anchors + 1
+  for i, (formula, _) in enumerate(fractions):
     r = first + i
-    ws.cell(row=r, column=1, value=f"={xmax}*{i}/{points - 1}")
+    ws.cell(row=r, column=1, value=formula)
     x = local_ref(r, 1)
     ws.cell(row=r, column=2, value=f"={x}")
     ws.cell(row=r, column=3, value=f"={fixed}+(1-{cm})*{x}")
-  last = first + points - 1
+    rev, cost = local_ref(r, 2), local_ref(r, 3)
+    ws.cell(row=r, column=4, value=f"=MIN({rev},{cost})")
+    ws.cell(row=r, column=5, value=f"=MAX(0,{cost}-{rev})")
+    ws.cell(row=r, column=6, value=f"=MAX(0,{rev}-{cost})")
+    # The markers sit on the grid points that ARE break-even and planned
+    # revenue; every other point is NA() so the series shows a single dot.
+    tol = f"MAX(1,{be})*0.0001"
+    ws.cell(row=r, column=7, value=f"=IF(ABS({x}-{be})<={tol},{cost},NA())")
+    ws.cell(row=r, column=8, value=f"=IF(ABS({x}-{planned})<=MAX(1,{planned})*0.0001,{rev},NA())")
+  last = first + len(fractions) - 1
 
-  # Each marker row carries its name in column F so the moved block stays
-  # readable on the hidden sheet - and so the restructure proof can show these
-  # rows ARRIVED here rather than merely disappearing from FINMO.
-  def _label(row_index: int, name: str) -> None:
-    ws.cell(row=row_index, column=6, value=name).font = design.font("note")
-
-  be_r = last + 1
-  ws.cell(row=be_r, column=1, value=f"={be}")
-  ws.cell(row=be_r, column=4, value=f"={be}")
-  _label(be_r, "Break-even")
-  plan_r1 = be_r + 1
-  ws.cell(row=plan_r1, column=1, value=f"={planned}")
-  ws.cell(row=plan_r1, column=5, value="=0")
-  _label(plan_r1, "Planned revenue")
-  plan_r2 = plan_r1 + 1
-  ws.cell(row=plan_r2, column=1, value=f"={planned}")
-  ws.cell(row=plan_r2, column=5, value=f"={xmax}")
-  _label(plan_r2, "Planned revenue (top)")
-  loss_r = plan_r2 + 1
-  ws.cell(row=loss_r, column=1, value=f"={be}*0.45")
-  ws.cell(row=loss_r, column=4, value=f"={fixed}+(1-{cm})*{be}*0.45")
-  _label(loss_r, "LOSS")
-  profit_r = loss_r + 1
-  ws.cell(row=profit_r, column=1, value=f"={be}*1.45")
-  ws.cell(row=profit_r, column=4, value=f"={be}*1.45")
-  _label(profit_r, "PROFIT")
-
-  for r in range(header, profit_r + 1):
-    for c in range(1, 6):
+  for r in range(header, last + 1):
+    for c in range(1, 9):
       cell = ws.cell(row=r, column=c)
       if isinstance(cell.value, str) and cell.value.startswith("="):
         cell.number_format = design.FMT_MONEY
-  return {"hdr": header, "first": first, "last": last, "be": be_r,
-          "plan1": plan_r1, "plan2": plan_r2, "loss": loss_r, "profit": profit_r}
+  return {"hdr": header, "first": first, "last": last, "anchors": anchors}
