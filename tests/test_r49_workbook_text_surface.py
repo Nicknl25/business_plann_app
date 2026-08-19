@@ -32,7 +32,9 @@ for path in (REPO, os.path.join(REPO, "python"), os.path.join(REPO, "tests")):
     sys.path.insert(0, path)
 
 from _p3_40_contract_2_fixtures import valid_workbook_payload_dict  # noqa: E402
-from replay_gate.surface import text_cells_of  # noqa: E402
+from replay_gate.surface import (  # noqa: E402
+  Surface, static_intersection, text_cells_of,
+)
 from client_statements_output_excel.data import DraftWorkbookData  # noqa: E402
 from client_statements_output_excel.workbook_builder import (  # noqa: E402
   build_client_financial_model_workbook,
@@ -72,10 +74,12 @@ class TextSurfaceStaticnessTests(unittest.TestCase):
   def setUpClass(cls):
     a = _text_cells(_workbook("Fixture Co", "Madison"))
     b = _text_cells(_workbook("Thistledown Cycles", "Burlington"))
-    cls.static = {
-      sheet: {addr: txt for addr, txt in a[sheet].items() if b.get(sheet, {}).get(addr) == txt}
-      for sheet in set(a) & set(b)
-    }
+    # THE GATE'S OWN INTERSECTION AND ITS OWN DATE FILTER, imported. The first
+    # version of this reimplemented the rule inline and the copy had already
+    # drifted - it had no date filter - so these tests asserted against a
+    # surface the leg does not pin, and deleting the whole intersection from
+    # the production path left every test passing (mini, 2026-08-19).
+    cls.static = static_intersection(a, b, Surface._DATE_TEXT)
     cls.flat = {t for cells in cls.static.values() for t in cells.values()}
 
   def test_the_business_name_is_never_pinned(self):
@@ -84,6 +88,14 @@ class TextSurfaceStaticnessTests(unittest.TestCase):
     for probe in ("Fixture Co", "Thistledown", "Madison", "Burlington"):
       self.assertFalse(any(probe in t for t in self.flat),
                        f"{probe!r} survived into the static surface")
+
+  def test_the_date_filter_is_actually_applied(self):
+    """The half the drifted copy silently dropped. If the intersection stops
+    filtering dates, the build date comes back into the pin and the leg goes
+    red on the calendar."""
+    import re
+    dated = [t for t in self.flat if re.search(r"\d{4}-\d{2}-\d{2}", t)]
+    self.assertFalse(dated, f"date-shaped text survived into the pin: {dated[:3]}")
 
   def test_the_structure_is_pinned(self):
     """The other half: dropping the per-business text must not drop the chrome."""

@@ -251,6 +251,26 @@ ALT_Y1 = {"company_revenue_total_year1": 209000.0}
 PATCHLESS = {"action": "answer_readonly", "assistant_message": "", "patch": None}
 
 
+def static_intersection(a, b, date_filter=None):
+    """{sheet: {address: text}} kept from `a` where `b` agrees at the SAME
+    address - the rule that decides what "static" means.
+
+    MODULE LEVEL for the same reason text_cells_of is: mini caught the R49
+    tests reimplementing this one layer up, and the copy had ALREADY drifted -
+    it carried no date filter, so the staticness tests were asserting against a
+    surface the leg does not pin. Deleting the whole intersection from the
+    production path left all 8 tests passing (mini, 2026-08-19).
+    """
+    out = {}
+    for sheet in sorted(set(a) & set(b)):
+        keep = {addr: txt for addr, txt in a[sheet].items()
+                if b[sheet].get(addr) == txt
+                and not (date_filter and date_filter.search(txt))}
+        if keep:
+            out[sheet] = keep
+    return out
+
+
 def text_cells_of(wb):
     """{sheet: {cell address: text}} for ONE workbook - every non-formula string.
 
@@ -861,7 +881,26 @@ class Surface(object):
     def alt_single_line_payload(self):
         """(model_input_json, finmo_json, note) for the SECOND single-line
         business. Same shape as the first, same number of revenue lines,
-        nothing else in common."""
+        nothing else in common.
+
+        NOT HERMETIC, AND THAT IS WORTH KNOWING (mini, 2026-08-19). The first
+        build runs through prime_frozen_lookups() and touches no live table;
+        this one cannot, because the recorded lookup keys belong to the other
+        business, so it makes ~4,292 LIVE reference-table calls (cohort bands,
+        metric registry, driver-target mapping, realism rows, the SBA rate).
+        Half a golden master's input is therefore live DB state, inside a leg
+        whose whole premise is that a moving input makes a golden cry wolf.
+
+        Exposure was MEASURED, not assumed, and it is zero: an entirely
+        different cohort set moved 0 of 2,572 pinned cells, and perturbing the
+        SBA loader's source strings moved 0. The only reference-shaped text
+        that survives into the pin is provenance KEY names, never values. So
+        this is a dependency, not a leak - but its failure mode is quiet (a
+        moved table changes build-2 text, the cell drops out of the
+        intersection, the digest moves, and nothing is wrong with the build),
+        which is exactly the class R49 keeps closing. If the digest ever moves
+        with no workbook change, look here first.
+        """
         return self._frozen_build(
             facts={"business_name": "Larkspur Nail Studio"},
             ops=copy.deepcopy(ALT_OPS), people=copy.deepcopy(ALT_PEOPLE),
@@ -905,8 +944,14 @@ class Surface(object):
                 # Values are left alone: they feed FORMULAS, not text, and
                 # moving them would change the math surface R32 owns.
                 row["citation"] = f"[second-sample citation for {key}]"
-                row["as_of"] = "1996-03-07"
-                row["source"] = "[second-sample source]"
+                # ONLY IF THERE IS ONE. A constant with no as-of date prints an
+                # em-dash placeholder, which is chrome; stamping a date on it
+                # made three static cells differ between the builds and drop out
+                # for a reason that was not true of them (mini, 2026-08-19).
+                if str(row.get("as_of") or "").strip():
+                    row["as_of"] = "1996-03-07"
+                if str(row.get("source") or "").strip():
+                    row["source"] = "[second-sample source]"
                 out[key] = row
             return out
 
@@ -975,12 +1020,7 @@ class Surface(object):
             return {}
 
         a, b = text_cells_of(first), text_cells_of(second)
-        surface = {}
-        for sheet in sorted(set(a) & set(b)):
-            keep = {addr: txt for addr, txt in a[sheet].items()
-                    if b[sheet].get(addr) == txt and not self._DATE_TEXT.search(txt)}
-            if keep:
-                surface[sheet] = keep
+        surface = static_intersection(a, b, self._DATE_TEXT)
         if not surface:
             self.text_gap = ("no text survived the two-business intersection - "
                              "either the builds differ everywhere (wrong fixture) "
