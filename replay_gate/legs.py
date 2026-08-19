@@ -3643,9 +3643,13 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "a474c3b", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "54c1843", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19b (baseline 500907d -> a474c3b, VS, the "
+        proof_note=("RE-BLESSED 2026-08-19c (baseline a474c3b -> 54c1843, VS, X5: the "
+                    "Valuation sheet is NEW, so the grid gains one sheet key and "
+                    "nothing else moves - the annual-class fix that preceded it is "
+                    "already in the baseline. "
+                    "PREVIOUS: RE-BLESSED 2026-08-19b (baseline 500907d -> a474c3b, VS, the "
                     "ANNUAL-COLUMN DEFECT CLASS fix: annual aggregation now routes "
                     "by row semantics, so rate rows are AVERAGEd and Opening "
                     "balances take the year START. Grid change fully accounted "
