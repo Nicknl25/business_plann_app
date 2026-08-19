@@ -3643,9 +3643,33 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "54c1843", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "01fd627", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19c (baseline a474c3b -> 54c1843, VS, X5: the "
+        proof_note=("RE-BLESSED 2026-08-19d (baseline 54c1843 -> 01fd627, VS, mini's "
+                    "two client-facing blockers). The grid moves by ELEVEN leaves "
+                    "out of 298 and every one is declared: 5 annual cells on "
+                    "Beginning Cash (=SUM(D46:G46) -> =D46, the year START) and 5 "
+                    "on Ending Cash (=SUM(D61:G61) -> =G61, the year END), because "
+                    "those two rows are BALANCES living on the cash-flow statement "
+                    "and were being added up like flows - the sheet printed Y1 cash "
+                    "of 391,730 on the cash-flow statement and 127,623 on the "
+                    "balance sheet two blocks above; and the Valuation bridge rows, "
+                    "where net debt moved from the end of year 5 to the valuation "
+                    "date (FINMO!W84 -> FINMO!C84) on the headline row and all five "
+                    "sensitivity rows, plus the two label renames that go with it. "
+                    "287 leaves identical. "
+                    "INSTRUMENT CORRECTION recorded with this re-bless: the ad-hoc "
+                    "grid dump used for the previous purity proofs resolved "
+                    "client_statements_output_excel from the HOME repo whichever "
+                    "tree it was pointed at, so it compared HEAD to HEAD and would "
+                    "report '0 changed' whatever had moved. THE GATE IS NOT "
+                    "AFFECTED - prove() puts the baseline ROOT on sys.path and "
+                    "really does build with baseline code (verified directly: R32 "
+                    "at 5c9a8b9 builds the 7-sheet pre-Valuation grid, sha "
+                    "cbd76463). Re-verified under the corrected dump: the previous "
+                    "re-bless claim held exactly (264 shared leaves identical, 0 "
+                    "changed, one sheet key added). "
+                    "PREVIOUS: RE-BLESSED 2026-08-19c (baseline a474c3b -> 54c1843, VS, X5: the "
                     "Valuation sheet is NEW, so the grid gains one sheet key and "
                     "nothing else moves - the annual-class fix that preceded it is "
                     "already in the baseline. "
