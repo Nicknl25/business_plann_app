@@ -20,18 +20,32 @@ _BOUND = {"root": None}
 
 
 def bind_root(root=None):
-    """Put <root>/python at the head of sys.path and load .env from HOME_REPO.
+    """Put <root> AND <root>/python at the head of sys.path, load .env from HOME.
 
     .env is gitignored, so a worktree checkout has none - credentials and
     API keys always come from the home repo regardless of which build is
     under test.
+
+    THE ROOT ITSELF, NOT JUST python/ (mini, 2026-08-19). The workbook package
+    client_statements_output_excel/ lives at the repo ROOT, outside python/, so
+    <root>/python alone never resolves it - and cwd is always HOME during a
+    prove, which means a baseline run would import the CURRENT workbook code
+    and a golden master over the workbook grid would compare HEAD to HEAD.
+    It happened not to, because python/api_handlers/intake_consult.py inserts
+    its own parents[2] and the gate's mandatory assert_surface() imports that
+    module before any leg runs. That is an ACCIDENT of app-side code the gate
+    does not own: delete that one line in the app and R32 silently becomes a
+    self-comparison that reports GOLDEN forever. Binding the root here makes
+    the property structural instead of incidental.
     """
     root = os.path.abspath(root or DEFAULT_ROOT)
     pkg = os.path.join(root, "python")
     if not os.path.isdir(pkg):
         raise SystemExit(f"SETUP FAILED: no python/ package under {root}")
-    # Drop any previously bound root so a re-bind cannot resolve stale.
-    sys.path[:] = [p for p in sys.path if os.path.normcase(p) != os.path.normcase(pkg)]
+    # Drop any previously bound entries so a re-bind cannot resolve stale.
+    stale = {os.path.normcase(pkg), os.path.normcase(root)}
+    sys.path[:] = [p for p in sys.path if os.path.normcase(p) not in stale]
+    sys.path.insert(0, root)
     sys.path.insert(0, pkg)
 
     from dotenv import load_dotenv
