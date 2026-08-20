@@ -1,10 +1,30 @@
 {
- "version": 27,
- "updated": "2026-08-18",
- "notes": "CW-039 (Bellweather Auto Works, Sheboygan) was a targeted confirmation and it confirms cleanly. The G and A stub denominator now uses stated current revenue, verified on a persona deliberately constructed to make the wrong denominator unmissable, and verified on both the model_input ratio and the built workbook dollars rather than at the proposal level.\n\nTWO CONSECUTIVE COMPLETE BUILDS. The programme has now verified delivered workbooks twice, and the standing field check introduced as A-126 after Millgate earned its place immediately: it is what surfaced this run's only new observation (A-127, the stub column's zero depreciation against a full quarter of everything else). The forecast layer that opened as a frontier at CW-038 is holding up under a second look - opening balance sheets exact to the dollar, books balancing 21 of 21 periods in both runs, and every client-captured stub line landing on the stated figure.\n\nTHE PICTURE ON A-124 HAS CHANGED and it is worth being explicit that it changed in the app's favour. VS's research showed the rate is a real SBA lookup rather than a hard-coded 9 pct, and identified the genuine defect as the state field never reaching the resolver. That is now fixed, and this run shows the consequence: with state correctly plumbed the derived rate landed 0.025 pp BELOW the client's own implied rate, where Millgate's unplumbed national median had pushed it 1.5 pp above. My original filing over-weighted the dollar impact and under-weighted the mechanism. What survives is narrow and unchanged: the substitution is silent, and the app already has a precedent for disclosing this kind of adjustment because it discloses the margin tempering in plain language at intake close.\n\nA-125 is downgraded but not closed. Bellweather's payroll landed +0.8 pct against stated where Millgate's landed -1.14 pct, and the stub was exact, so the headcount schedule tracks well and the question is now a policy one about whether a named-salary narrative is a contract with the reader.\n\nStill untouched by either build: A-120 (a failed plan run still shows the client an unqualified 'we are building your plan now') and A-121 (the restructure net, which needs a persona that clears the pre-submit gate and only falls below the floor once build-time depreciation and debt service land). Both healthy builds passed too comfortably to enter it, and that is now two runs in a row - the A-121 persona has to be designed for, not stumbled into.",
+ "version": 28,
+ "updated": "2026-08-20",
+ "notes": "CW-040 (Harrow Lane Grooming, Bloomington) was the end-to-end production test and it passes. Forty runs in, a fresh intake now reaches a complete, correct, premium workbook automatically. Everything asked for is there and the numbers reconcile; the two findings are display-layer blemishes and neither touches a number.\n\nWHAT THIS RUN CHANGES ABOUT HOW I VERIFY. Reading a workbook's cells proves what the default state contains; it cannot prove that an interactive control works. This run wrote three toggle states into the built file and recalculated each in headless LibreOffice, which is proof rather than inference - and it is what caught A-128, a defect that only exists in a state the default file never displays. A-129 makes that standing.\n\nTHE TWO FINDINGS. A-128: once the debt is repaid, debt service is zero and the Dashboard DSCR tile shows a raw #N/A where FINMO shows a documented dash. The underlying NA() is correct for the chart series - it breaks the line instead of plotting a false zero - so this is a tile display wrapper, not a value change. A-127 (the stub column's zero depreciation, from CW-039) is unaffected and still open. A-129 is method, not defect.\n\nONE INTAKE NIT NOT FILED, recorded in the runlog: the HR stage asked for the non-named team's annual payroll twice, and the first answer was not stored. No number was mis-captured - the final payroll is exactly 240,000 - so it is a redundant ask rather than a mishandled answer. Worth a glance only if it recurs.\n\nA-121 IS NOW THE OLDEST UNADDRESSED ITEM and three consecutive healthy builds have not touched it. The restructure net still needs a persona designed to clear the pre-submit gate and fall below the floor only once build-time depreciation and debt service land. It will not be stumbled into.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "A-128",
+   "persona": "any business that repays its debt inside the forecast",
+   "business": "any business whose debt service reaches zero before quarter 20",
+   "why": "NEW, minor, and the only client-visible defect the production test found. Harrow Lane repays its 42,000 of debt inside the forecast, so annual debt service is 0 from Y3 onward, and the Dashboard DSCR tile renders a raw Excel #N/A to the client. FINMO handles the identical case correctly - row 93 prints a dash, and the sheet documents the convention at row 113 - so two surfaces of the same workbook disagree about how an undefined coverage ratio looks. The cause is deliberate and half-right: Calc row 96 is =IFERROR(IF(ISTEXT(FINMO!X93),NA(),FINMO!X93),NA()), and NA() is exactly what a CHART series wants because it breaks the line instead of plotting a false zero. So do not change the Calc value - wrap the tile. This was found by recalculating the built workbook in the Annual view on Y3, Y4 and Y5; reading the formulas alone would not have surfaced it, because the formula is correct for its primary consumer.",
+   "retests": [
+    "Any persona that clears its debt before quarter 20. Set the Dashboard to Annual and step Y1..Y5, and check every coverage tile - DSCR and interest coverage both feed off debt service."
+   ]
+  },
+  {
+   "rank": 2,
+   "id": "A-129",
+   "persona": "n/a - a standing method change, not a persona",
+   "business": "any interactive feature in a generated workbook",
+   "why": "NEW - a METHOD upgrade earned by this run. A-126 made the built-workbook field check standing, but reading cells and formulas cannot prove that an INTERACTIVE feature works. CW-040 proved the dashboard period toggle by writing three toggle states into the built file (Quarterly/Q1, Quarterly/Q7, Annual/Y3) and recalculating each in headless LibreOffice, then comparing the resliced output: selected index 1/7/3, annual flag 0/0/1, points-in-view 20/20/5, Revenue 125,000 / 135,600 / 565,000, Ending Cash 55,010 / 140,300 / 148,600. That is proof rather than inference, it took about two minutes, and it is what caught A-128 - a defect that only appears in a state the default file never shows. Adopt it for any workbook feature with a control: toggles, selectors, scenario switches, anything with data validation. The rule is simple - if a cell drives other cells, drive it and recalculate.",
+   "retests": [
+    "Every future run that builds. Enumerate the workbook's data validations, exercise at least three states including an edge state, recalculate, and diff."
+   ]
+  },
+  {
+   "rank": 3,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
@@ -14,7 +34,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 4,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
@@ -24,7 +44,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 5,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -34,7 +54,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 6,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -42,7 +62,7 @@
    "retests": []
   },
   {
-   "rank": 5,
+   "rank": 7,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
@@ -52,7 +72,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 8,
    "id": "A-127",
    "persona": "any business that reaches a built workbook",
    "business": "any business with opening PPE",
@@ -62,7 +82,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 9,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -72,7 +92,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 10,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -82,7 +102,7 @@
    ]
   },
   {
-   "rank": 9,
+   "rank": 11,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -93,7 +113,7 @@
    ]
   },
   {
-   "rank": 10,
+   "rank": 12,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -104,7 +124,7 @@
    ]
   },
   {
-   "rank": 11,
+   "rank": 13,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -114,7 +134,7 @@
    ]
   },
   {
-   "rank": 12,
+   "rank": 14,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -122,7 +142,7 @@
    "retests": []
   },
   {
-   "rank": 13,
+   "rank": 15,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -131,9 +151,10 @@
   }
  ],
  "closed_this_cycle": [
-  "THE G AND A STUB DENOMINATOR IS CLOSED ON EVIDENCE. CW-039 (Bellweather Auto Works) was built so the fix could not pass by accident: capacity-at-full revenue 1,129,032 a year against a stated current revenue of 700,000, a gap of 429,032, with stated other operating expense of 3,500 a month chosen to land on a round 6.00 pct of stated revenue versus 3.72 pct if divided by the ceiling. Both faces read correctly - model_input expenses[General and Administrative].values[0] = 0.060000, and the built P and L stub column shows 10,500 on revenue of 175,000, i.e. 42,000 a year at 6.00 pct. The old defect would have produced 6,510 a quarter.",
-  "The conversational surface and the workbook agree. At intake close the app said the structure keeps about 32,900 a quarter at today's scale; the built stub EBITDA is 32,900 exactly, which reconciles only if G and A is 10,500 a quarter. No self-contradiction between the coherence check and the delivered numbers.",
-  "A-124's STATE PLUMBING half is closed on evidence as a side observation. debt_interest_rate_policy.source_detail now carries state 'WI' where Millgate's carried null, and the resolver matched exact_naics_6 811111 in Wisconsin across FY2021-2025, n=106. The disclosure half of A-124 remains open and is now the whole of that item.",
-  "Every ratio-typed lever in this run was verified against the correct base, not just G and A: the COGS proposal of 133,000 was 19 pct of the stated 700,000 and the marketing proposal of 42,000 was 6 pct of it. The denominator is right across the financials stage, not only in the fixed lever."
+  "THE END-TO-END PRODUCTION PATH IS CONFIRMED. CW-040 (Harrow Lane Grooming) took a fresh intake through convergence, a first-click submit, and an automatic build to a complete premium workbook with no human in the loop - run 8aae3322, about five minutes, 15 sheets, 245,919 bytes, written automatically to the configured output directory.",
+  "EVERY PIECE IS PRESENT AND CORRECT. Cover designed with business name, location, model version, run id, a contents index and a how-to-read legend. Dashboard with 15 KPI tiles, 9 charts including the CVP area chart, and a period/year toggle that genuinely reslices. FINMO with the three statements, then break-even in dollars AND units per line below the cash flow statement, then a full ratio block below that. A complete DCF valuation with both terminal methods, a 5x5 sensitivity table and a sourced GROUNDED-vs-ASSUMPTION block.",
+  "THE RATIO FAILURE MODE IS ABSENT. Annual columns carry proper rates, not summed ones - variable cost ratio 0.2177, contribution margin 0.7823, gross margin 0.8566 - and driver rate rows print a dash in annual columns rather than summing. No 247 pct utilization anywhere; the two lines show 0.70 and 0.50.",
+  "THE RECONCILIATION BUG STAYS FIXED. Y1 ending cash is 118,139.03 in all five places it appears - FINMO Ending Cash, FINMO balance-sheet Cash, the Dashboard tile, and both Calc resolvers. Y1 revenue, EBITDA and net income tie exactly between FINMO and the Dashboard. Checks reports Model Status OK across 224 rows with zero failures, and the API-side accounting check is all_ok across 21 of 21 periods with a maximum delta of 0.",
+  "THE DISCOVERY MATRIX IS COMPLETE. CW-038 proved a stream can be added then removed; CW-040 proves one can be added and KEPT all the way into a built multi-line workbook, with its own drivers, its own COGS rate, its own break-even units row and its own chart series. Four candidates produced four correct dispositions in a single turn."
  ]
 }

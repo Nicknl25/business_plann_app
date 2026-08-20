@@ -1,7 +1,7 @@
 {
- "version": 3,
- "updated": "2026-08-18",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly.",
+ "version": 4,
+ "updated": "2026-08-20",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -200,6 +200,15 @@
     "CW-039"
    ],
    "note": "NEW business type. Chosen for a large, natural gap between capacity-at-full revenue and stated current revenue, which is exactly what makes a denominator bug visible."
+  },
+  "pet_grooming": {
+   "examples": [
+    "dog grooming shop, two lines - full grooms plus standalone nail trims accepted from discovery"
+   ],
+   "runs": [
+    "CW-040"
+   ],
+   "note": "NEW business type, chosen as a clean normal single-line business that discovery would reliably offer adjacent streams to."
   }
  },
  "friction_conditions": {
@@ -310,7 +319,8 @@
     "CW-032",
     "CW-033",
     "CW-038",
-    "CW-039"
+    "CW-039",
+    "CW-040"
    ],
    "note": "first HEALTHY business in the campaign - correctly priced, 41.5 percent payroll share, passes without a lever. Reaches the passing path, which no prior run had."
   }
@@ -767,7 +777,8 @@
   "discovered_stream_becomes_a_modeled_lob": {
    "runs": [
     "CW-035",
-    "CW-038"
+    "CW-038",
+    "CW-040"
    ],
    "note": "NEW and PASSING. Two streams accepted from a discovery ask carried origin: discovery_confirmed through capture, finalize and the build, ending as real workbook lines with Capacity / Unit Price / Utilization / COGS pct drivers each."
   },
@@ -824,7 +835,8 @@
   "workbook_verified_against_client_captured_inputs": {
    "runs": [
     "CW-038",
-    "CW-039"
+    "CW-039",
+    "CW-040"
    ],
    "note": "NEW and MOSTLY PASSING - first run to reach a built P and L and balance sheet. Opening balance sheet exact to the dollar on all seven client-stated items; rent, COGS pct, capex and lease exact; opening PPE depreciation correct on a 5 year life; books balance in 21 of 21 periods. Two divergences found in the forecast layer, both filed. CW-039 ran the same check as a standing pass (A-126) and it came back clean on every stub line and every opening balance, surfacing only the stub-depreciation comparability question."
   },
@@ -844,9 +856,34 @@
    "runs": [
     "CW-037",
     "CW-038",
-    "CW-039"
+    "CW-039",
+    "CW-040"
    ],
    "note": "PASSING across three business types now - print (CW-037, CW-038) and auto repair (CW-039). 'Parts are already inside the repair order, on the same ticket, not a separate thing we sell' latched merged_into:Auto repair service with no phantom, and the paired tire-sales candidate latched declined in the same turn."
+  },
+  "proposed_stream_accepted_and_carried_into_built_workbook": {
+   "runs": [
+    "CW-040"
+   ],
+   "note": "NEW and PASSING - completes the discovery matrix. CW-038 proved added-then-removed; this proves added-and-kept all the way into a built multi-line workbook. Four candidates, four correct dispositions in one turn: nail trimming only added (origin discovery_confirmed), bath and tidy plus anal gland expression merged_into:dog groom, cat grooming declined. The accepted line captured its own unit, price, capacity, utilization and COGS rate, and appears as its own driver block, its own break-even units row and its own chart series in the delivered workbook."
+  },
+  "dashboard_period_toggle_verified_by_recalculation": {
+   "runs": [
+    "CW-040"
+   ],
+   "note": "NEW and PASSING, and a new VERIFICATION METHOD. Rather than reading formulas and trusting them, three toggle states were written into the built file and recalculated in headless LibreOffice: Quarterly/Q1, Quarterly/Q7, Annual/Y3. Selector resolved index 1/7/3, annual flag 0/0/1, points-in-view 20/20/5, and every KPI tile resliced - Revenue 125,000 / 135,600 / 565,000, Ending Cash 55,010 / 140,300 / 148,600. Dropdowns bind to named ranges PeriodQuarters (Q1..Q20) and PeriodYears (Y1..Y5). This should be the standing method for any interactive workbook feature."
+  },
+  "dcf_valuation_sheet_verified": {
+   "runs": [
+    "CW-040"
+   ],
+   "note": "NEW and PASSING. Cost-of-equity build-up 23.2 pct, WACC 20.34 pct, WACC-less-growth 18.04 pct against a 3 pct guard; unlevered FCF with discount factors; both terminal methods shown side by side (perpetuity 546,928, exit multiple 534,366, averaged 540,647) with an explicit note that neither is authoritative; enterprise value 463,784 less net debt 3,000 to an equity value of 460,784; a 5x5 WACC-by-growth sensitivity; and an assumptions block labelling each input GROUNDED or ASSUMPTION with a named source and as-of date (FRED DGS10, Damodaran, Kroll CRSP, FRED GDPC1, BizBuySell Q2 2026, SBA 7(a)). Sanity: 2.33x year-5 SDE against a cited 2.7x market multiple."
+  },
+  "multi_line_premium_workbook_verified": {
+   "runs": [
+    "CW-040"
+   ],
+   "note": "NEW and PASSING. Two lines carried correctly through every sheet - per-line drivers and distinct COGS rates (15 pct grooms, 2 pct nail trims), per-line break-even units on both FINMO and the Dashboard, and per-line revenue chart series. Annual rate rows correctly print a dash instead of summing, so the summed-rate failure mode is absent."
   }
  },
  "verdict_classes_reached": {
@@ -1601,6 +1638,26 @@
    "headline": "The G and A stub denominator fix HOLDS exactly. Persona built so it could not pass by accident - capacity ceiling 1,129,032 against stated revenue 700,000, a 429,032 gap. Stub G and A reads 10,500 a quarter (42,000/yr, 6.00 pct of stated revenue); the old bug would have shown 6,510 (3.72 pct). Coherence line and workbook agree to the penny. Side observation: A-124's null-state defect is fixed, resolver now reads state WI.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-040": {
+   "persona": "Delphine Marchetti - dog grooming shop, two lines (one accepted from discovery)",
+   "business": "Harrow Lane Grooming",
+   "city": "Bloomington IN",
+   "type": "pet_grooming",
+   "draft_id": "85f5825d50e24ccf8327441a52fbfee5",
+   "stack": "2e7e177 on intake-stable",
+   "outcome": "FULL PRODUCTION PATH CONFIRMED. Converged, submitted first click, built the complete premium workbook automatically in ~5 minutes. Reference WFHPGYP00985073431, submission #85.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "proposed_stream_accepted_and_carried_into_built_workbook",
+    "multi_line_premium_workbook_verified",
+    "dashboard_period_toggle_verified_by_recalculation",
+    "dcf_valuation_sheet_verified",
+    "workbook_verified_against_client_captured_inputs"
+   ],
+   "headline": "The end-to-end production test passes. 15 sheets: Cover, Dashboard (15 KPI tiles, 9 charts, working Quarterly/Annual toggle proven by recalculating three toggle states in headless LibreOffice), FINMO with break-even in dollars AND units below the cash flow statement and a full correct ratio block below that, and a complete DCF with both terminal methods, a 5x5 sensitivity table and a sourced GROUNDED-vs-ASSUMPTION block. Equity value 460,784 = 2.33x year-5 SDE. Y1 cash 118,139.03 identical in five places. Checks OK, 224 rows, zero failures. Two display-layer findings, neither touching a number.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1626,7 +1683,8 @@
     "CW-033",
     "CW-035",
     "CW-038",
-    "CW-039"
+    "CW-039",
+    "CW-040"
    ]
   },
   "parked": {
