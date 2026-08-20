@@ -20,6 +20,7 @@ from .excel_utils import (
   set_tab_colors,
 )
 from .finmo_sheet import build_finmo_sheet
+from .marketing_schedule_sheet import build_marketing_schedule_sheet
 from .model_inputs_sheet import build_model_inputs_sheet
 from .schedule_sheets import (
   build_capex_depreciation_sheet,
@@ -75,6 +76,10 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   build_working_capital_sheet(wb, data, ctx)
   build_cash_equity_sheet(wb, data, ctx)
   build_model_inputs_sheet(wb, data, ctx)
+  # AFTER model_inputs: the tab links its percentage row to Model Inputs, and a
+  # builder cannot reference a sheet whose builder has not run. It never
+  # references FINMO - that is what keeps it a leaf and the graph acyclic.
+  build_marketing_schedule_sheet(wb, data, ctx)
   build_finmo_sheet(wb, data, ctx)
   # W2 (2026-08-18): Dashboard sits right after FINMO; wb.active stays FINMO.
   # The hidden Calc sheet is the dashboard's data engine, so it is built

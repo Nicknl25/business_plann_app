@@ -79,6 +79,11 @@ class DraftWorkbookData:
   # this dict. Source of truth lives in `post_intake_run_diagnostics`;
   # the workbook is a pure reflection.
   run_diagnostics: Optional[Dict[str, Any]] = None
+  # R-MKTG-03: the settled marketing percent DECOMPOSED (customers, returning,
+  # new, CAC). Optional - a draft built before this shipped carries none, and
+  # the Marketing Schedule sheet is then simply not created rather than
+  # rendered empty.
+  marketing_schedule: Optional[Dict[str, Any]] = None
 
   @property
   def draft_id(self) -> str:
@@ -287,6 +292,7 @@ def draft_data_from_row(
     debt_schedule=parse_json_object((row or {}).get("debt_schedule")),
     planning_run_json=parse_json_object((row or {}).get("planning_run_json")),
     run_diagnostics=run_diagnostics if isinstance(run_diagnostics, dict) else None,
+    marketing_schedule=parse_json_object((row or {}).get("marketing_schedule_json")),
   )
 
 

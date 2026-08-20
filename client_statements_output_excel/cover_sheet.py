@@ -24,7 +24,14 @@ COVER_SHEET = "Cover"
 _CONTENTS = [
   ("Dashboard", "Headline numbers and the charts that carry them"),
   ("FINMO", "The three statements, quarterly and annual, with break-even"),
+  # A-129: the Valuation sheet was built and never indexed, so a client had no
+  # route to it from the contents page. The loop below skips any sheet that is
+  # not in the workbook, so listing it here is safe whether or not it is built.
+  ("Valuation", "What the business is worth today, and the assumptions behind it"),
   ("Revenue Drivers", "Capacity, price and utilisation per line of business"),
+  # R-MKTG-03: present only when the draft carries a marketing schedule
+  # payload; older drafts skip it via the same not-in-sheetnames guard.
+  ("Marketing Schedule", "What drives your marketing spend, and what a customer costs to win"),
   ("Payroll Schedule", "Roles, headcount and payroll by quarter"),
   ("Debt Schedule", "Debt and capital-lease amortisation"),
   ("CapEx Depreciation", "Capital expenditure and the depreciation schedule"),
