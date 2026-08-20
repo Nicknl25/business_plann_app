@@ -1037,6 +1037,7 @@ def _ensure_table_inner(conn) -> None:
         people_json LONGTEXT NULL,
         financials_json LONGTEXT NULL,
         marketing_model_json LONGTEXT NULL,
+        marketing_schedule_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
         realism_memo_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
@@ -1249,6 +1250,12 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN financials_json LONGTEXT NULL")
   if "marketing_model_json" not in cols:
     alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
+  # R-MKTG-03: the settled marketing percent DECOMPOSED into customers, new
+  # customers and CAC. Its own column rather than a key inside finmo_json,
+  # because it is not finmo output and because R31 pins finmo_json's digest -
+  # a new key there would move a golden for a payload the engine never reads.
+  if "marketing_schedule_json" not in cols:
+    alterations.append("ADD COLUMN marketing_schedule_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
   if "realism_memo_json" not in cols:

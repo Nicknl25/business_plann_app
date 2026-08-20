@@ -15478,6 +15478,109 @@ def post_intake_consult_system_run_handler(*, app, request):
         f"diagnostic setup raised {type(setup_exc).__name__}: {str(setup_exc)[:500]}"
       )
 
+    # R-MKTG-03 phase 1 - DECOMPOSE the settled marketing percent into the
+    # driver lines a client can read: customers, retained, new customers, CAC.
+    #
+    # Sits HERE deliberately: the solver has converged and the driver row is
+    # final, and the workbook has not been built yet. Same seam and same shape
+    # as finmo_break_even - it reads settled values and writes a payload, and
+    # touches no driver, no row and no engine math. CAC is the plug, so the
+    # percent is decomposed and can never be recomputed into a number the
+    # client did not agree to.
+    #
+    # Reads its own inputs from the draft rather than borrowing the diagnostic
+    # block's locals: those are defined inside a try that may have raised, and
+    # a payload that silently used a half-built dict would be worse than none.
+    #
+    # Best-effort by design - a failure here must never cost the client their
+    # workbook. The schedule degrades to its exact half on a failed retention
+    # call, and to nothing at all if this whole block raises.
+    try:
+      from client_intake_and_finmo.post_intake_marketing.gpt_retention_judgment import (  # type: ignore
+        gpt_author_retention_once,
+      )
+      from client_intake_and_finmo.post_intake_marketing.schedule import (  # type: ignore
+        compute_marketing_schedule,
+      )
+
+      _ms_cur = conn.cursor(dictionary=True)
+      try:
+        _ms_cur.execute(
+          "SELECT finmo_json, model_input_json, operating_model_json, "
+          "marketing_model_json FROM intake_consult_drafts WHERE draft_id=%s",
+          (result_draft_id,),
+        )
+        _ms_row = _ms_cur.fetchone() or {}
+      finally:
+        try:
+          _ms_cur.close()
+        except Exception:
+          pass
+
+      def _ms_blob(raw):
+        if isinstance(raw, dict):
+          return raw
+        try:
+          return json.loads(str(raw)) if raw else {}
+        except Exception:
+          return {}
+
+      _ms_finmo = _ms_blob(_ms_row.get("finmo_json"))
+      _ms_mij = _ms_blob(_ms_row.get("model_input_json"))
+      _ms_ops = _ms_blob(_ms_row.get("operating_model_json"))
+      _ms_audience = _ms_blob(_ms_row.get("marketing_model_json"))
+
+      _ms_products = [
+        _prod
+        for _lob in (_ms_ops.get("lob_models") or [])
+        for _prod in ((_lob or {}).get("products") or [])
+      ]
+      _ms_units = float(_ms_audience.get("expected_units_year1") or 0.0)
+      _ms_custs = float(_ms_audience.get("expected_customers_or_clients_year1") or 0.0)
+      _ms_retention = gpt_author_retention_once(compact={
+        "business_type": _ms_ops.get("business_type"),
+        "business_naics_6": _ms_ops.get("business_naics_6"),
+        "market_basis_type": _ms_audience.get("market_basis_type"),
+        "consumer_type": _ms_ops.get("consumer_type"),
+        "geographic_scope": _ms_ops.get("geographic_scope"),
+        "products": _ms_products,
+        "implied_repeat_units_per_customer": (_ms_units / _ms_custs) if _ms_custs else None,
+      })
+      if not _ms_retention.get("ok"):
+        app.logger.warning(
+          "Marketing retention judgment unavailable for draft %s: %s",
+          result_draft_id, str(_ms_retention.get("error"))[:200],
+        )
+      _ms_payload = compute_marketing_schedule(
+        finmo_json=_ms_finmo,
+        model_input_json=_ms_mij,
+        operating_model_json=_ms_ops,
+        marketing_model_json=_ms_audience,
+        retention_judgment=_ms_retention,
+      )
+      _ms_write = conn.cursor()
+      try:
+        _ms_write.execute(
+          "UPDATE intake_consult_drafts SET marketing_schedule_json=%s "
+          "WHERE draft_id=%s",
+          (json.dumps(_ms_payload), result_draft_id),
+        )
+        conn.commit()
+      finally:
+        try:
+          _ms_write.close()
+        except Exception:
+          pass
+      _p3_9_trace(
+        f"marketing_schedule persisted class={_ms_payload.get('schedule_class')} "
+        f"tie_back_exact={(_ms_payload.get('tie_back') or {}).get('exact')}"
+      )
+    except Exception as _ms_exc:
+      app.logger.warning(
+        "Marketing schedule post-process failed for draft %s: %s: %s",
+        result_draft_id, type(_ms_exc).__name__, str(_ms_exc)[:200],
+      )
+
     # Generate the workbook regardless of acceptance verdict. The
     # Diagnostics sheet renders from the just-persisted diagnostic row.
     try:
