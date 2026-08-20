@@ -123,11 +123,15 @@ def build_marketing_schedule_sheet(
 
   def lever(label: str, key: str, value, number_format: str, note: str) -> int:
     nonlocal row
+    # Column B carries the tag AND the note, which is the house convention
+    # (write_values_row puts its `detail` there). Writing a note into column C
+    # put it in the stub PERIOD column, where the next row's formula promptly
+    # overwrote it - found by opening the exported file rather than by reading
+    # the code.
     ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value="ASSUMPTION").font = design.font("label_strong")
+    ws.cell(row=row, column=2, value=f"ASSUMPTION — {note}").font = design.font("note")
     cell = ws.cell(row=row, column=PERIOD_START_COL, value=value)
     set_input_style(cell, number_format=number_format)
-    ws.cell(row=row, column=PERIOD_START_COL + 1, value=note).font = design.font("note")
     ctx.add_schedule_row(MARKETING_SCHEDULE_SHEET, key, row)
     written = row
     row += 1
@@ -147,16 +151,34 @@ def build_marketing_schedule_sheet(
   row += 1
 
   revenue_src = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
-  units_src = ctx.schedule_row(REVENUE_SHEET, "Total Capacity Units")
   percent_src = ctx.model_input_row("is::Marketing")
+
+  # UNITS SOLD, not capacity. "Total Capacity Units" is the un-utilised
+  # ceiling - flat across every quarter and, for Harrow, 2,743 against 1,755
+  # actually sold. Rendering that under a label reading "Units sold" put a
+  # wrong number in front of a client and made customers, new customers and
+  # CAC all flat; found by opening the exported file.
+  #
+  # Units sold per product = that product's revenue / its unit price, and both
+  # ARE per-quarter rows on Revenue Drivers. Summing them is exact, responds to
+  # a client editing capacity, utilisation or price, and needs no periods-per-
+  # year term because revenue already carries it.
+  revenue_rows = ctx.schedule_rows.get(REVENUE_SHEET, {})
+  unit_pairs = []
+  for key in sorted(revenue_rows):
+    if key.endswith("::Revenue"):
+      stem = key[: -len("::Revenue")]
+      price_row = revenue_rows.get(f"{stem}::Unit Price")
+      if price_row:
+        unit_pairs.append((revenue_rows[key], price_row))
 
   def period_row(label: str, key: str, formula_for, number_format: str,
                  exact: bool, note: str) -> int:
     nonlocal row
     ws.cell(row=row, column=1, value=label)
-    tag = ws.cell(row=row, column=2, value="Exact" if exact else "Assumed")
-    tag.font = design.font("status_good" if exact else "label_strong")
-    ws.cell(row=row, column=3, value=note).font = design.font("note")
+    tag = ws.cell(row=row, column=2,
+                  value=f"{'Exact' if exact else 'Assumed'} — {note}")
+    tag.font = design.font("status_good" if exact else "note")
     for index, column in enumerate(columns):
       cell = ws.cell(row=row, column=column, value=formula_for(index, column))
       set_formula_style(cell, number_format=number_format)
@@ -196,11 +218,17 @@ def build_marketing_schedule_sheet(
     ).font = design.font("note")
     row += 2
   else:
+    def units_formula(i, c):
+      if not unit_pairs:
+        return periods[i]["units"] or 0.0
+      terms = "+".join(
+        f"IFERROR('{REVENUE_SHEET}'!{_ref(c, rev)}/'{REVENUE_SHEET}'!{_ref(c, price)},0)"
+        for rev, price in unit_pairs)
+      return f"={terms}"
+
     units_row = period_row(
-      "Units sold", "Units",
-      lambda i, c: (f"='{REVENUE_SHEET}'!{_ref(c, units_src)}" if units_src
-                    else (periods[i]["units"] or 0.0)),
-      design.FMT_UNITS, True, "From your capacity and utilisation")
+      "Units sold", "Units", units_formula, design.FMT_UNITS, True,
+      "Each line's revenue divided by its price, added up")
 
     lever_col = get_column_letter(PERIOD_START_COL)
     customers_row = period_row(
@@ -222,12 +250,11 @@ def build_marketing_schedule_sheet(
     # CAC — the loudest label on the sheet, deliberately.
     ws.cell(row=row, column=1, value=f"Cost to acquire one {singular}").font = (
       design.font("label_strong"))
-    ws.cell(row=row, column=2, value="ASSUMED").font = design.font("label_strong")
     ws.cell(
-      row=row, column=3,
-      value=("The softest number here — it inherits retention AND purchases "
-             f"per {singular}, and absorbs every rounding difference"),
-    ).font = design.font("note")
+      row=row, column=2,
+      value=("ASSUMED — the softest number here. It inherits retention AND "
+             f"purchases per {singular}, and absorbs every rounding difference."),
+    ).font = design.font("label_strong")
     for index, column in enumerate(columns):
       cell = ws.cell(
         row=row, column=column,
@@ -238,7 +265,7 @@ def build_marketing_schedule_sheet(
     row += 1
 
     # Why a cost is missing or caveated — in words, per quarter.
-    ws.cell(row=row, column=3, value="Why a cost above shows an em dash"
+    ws.cell(row=row, column=1, value="Why a cost above shows an em dash"
             ).font = design.font("note")
     for index, column in enumerate(columns):
       note_key = str(periods[index].get("customer_acquisition_cost_note") or "")
@@ -269,5 +296,5 @@ def build_marketing_schedule_sheet(
       f"{reachable} — the audience estimated for this business at intake"))
   for label, detail in provenance:
     ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=3, value=detail).font = design.font("note")
+    ws.cell(row=row, column=2, value=detail).font = design.font("note")
     row += 1

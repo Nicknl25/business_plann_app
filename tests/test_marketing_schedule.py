@@ -116,11 +116,16 @@ class ClassRuleTests(unittest.TestCase):
     So a small count is shown and FLAGGED, never hidden. Suppression is now
     reserved for a base that does not grow at all.
     """
+    # A DELIBERATELY TINY BUSINESS - a handful of clients a quarter, which is
+    # the b2b advisory shape the old 0.5 threshold erased. The fixture was
+    # retuned when the quarterly-repeat fix multiplied customer counts by four
+    # and lifted the old one out of the thin band.
     fin, mi, _ = _flat_plan()
     out = compute_marketing_schedule(
-      finmo_json=fin, model_input_json=mi, operating_model_json=_ops(),
-      marketing_model_json=_audience(),
-      retention_judgment={"ok": True, "retention_rate": 0.999, "rationale": "t",
+      finmo_json=fin, model_input_json=mi,
+      operating_model_json=_ops(capacity=1.5, utilisation=1.0, periods=50.0),
+      marketing_model_json=_audience(units=40.0, customers=10.0),
+      retention_judgment={"ok": True, "retention_rate": 0.99, "rationale": "t",
                           "confidence_tier": "low", "model": "t"})
     live = [p for p in out["periods"] if not p["is_stub"]]
     thin = [p for p in live
@@ -232,3 +237,25 @@ class BasisAgnosticTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class UnitPeriodTests(unittest.TestCase):
+  """Units are QUARTERLY and the repeat rate is ANNUAL — the mismatch that
+  understated customers four-fold until the rendered tab disagreed with the
+  payload and gave it away."""
+
+  def test_customers_use_the_quarterly_repeat_rate(self):
+    fin, mi, _ = _flat_plan()
+    # 7,053 units a year over 650 customers = 10.85 purchases each per YEAR,
+    # so 2.7125 per quarter.
+    out = compute_marketing_schedule(
+      finmo_json=fin, model_input_json=mi,
+      operating_model_json=_ops(capacity=100.0, utilisation=1.0, periods=40.0),
+      marketing_model_json=_audience(units=7053.0, customers=650.0),
+      retention_judgment=RETENTION_OK)
+    live = [p for p in out["periods"] if not p["is_stub"]][0]
+    expected = live["units"] / (7053.0 / 650.0 / 4.0)
+    self.assertAlmostEqual(live["customers"], expected, places=6)
+    # and the annual-rate mistake would give a quarter of that
+    self.assertNotAlmostEqual(live["customers"], live["units"] / (7053.0 / 650.0),
+                              places=3)

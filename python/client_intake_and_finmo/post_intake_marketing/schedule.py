@@ -227,7 +227,13 @@ def compute_marketing_schedule(
     if quarterly_units_base and reference_revenue:
       units = quarterly_units_base * (period_revenue / reference_revenue)
 
-    customers = (units / repeat_units_per_customer) if repeat_units_per_customer > 0 else 0.0
+    # UNITS ARE QUARTERLY, THE REPEAT RATE IS ANNUAL. Dividing one by the other
+    # understated customers four-fold and overstated CAC four-fold - Harrow came
+    # out at 162 customers against the audience model's own 650, and the error
+    # only surfaced when the tab was rendered and the two disagreed. A customer
+    # buying 10.85 times a year buys 2.71 times a quarter.
+    quarterly_repeat = repeat_units_per_customer / 4.0
+    customers = (units / quarterly_repeat) if quarterly_repeat > 0 else 0.0
     # R3: at the stub there is no prior quarter, so retained is 0 and every
     # customer is new. For a pre-revenue business the stub's customers are
     # legitimately 0 and Q1's new customers equal Q1's customers.
@@ -332,6 +338,8 @@ def compute_marketing_schedule(
       "retention": retention_meta,
       "repeat_units_per_customer": {
         "value": repeat_units_per_customer or None,
+        "period": "per_year",
+        "note": "Divided by 4 before use, because the unit lines are quarterly",
         "basis": "ASSUMPTION",
         "basis_detail": "implied_from_audience_model",
         "source": (
