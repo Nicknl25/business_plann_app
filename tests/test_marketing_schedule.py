@@ -21,6 +21,7 @@ for path in (REPO, os.path.join(REPO, "python")):
 
 from client_intake_and_finmo.post_intake_marketing.schedule import (  # noqa: E402
   EPSILON_NEW_CUSTOMERS,
+  THIN_NEW_CUSTOMERS_PER_QUARTER,
   compute_marketing_schedule,
 )
 
@@ -95,19 +96,25 @@ class ClassRuleTests(unittest.TestCase):
                           "confidence_tier": "low", "model": "t"})
     offenders = [p for p in out["periods"]
                  if p["new_customers"] is not None
-                 and p["new_customers"] < EPSILON_NEW_CUSTOMERS
+                 and p["new_customers"] <= EPSILON_NEW_CUSTOMERS
                  and p["customer_acquisition_cost"] is not None]
     self.assertEqual(offenders, [], "divided into a ~zero new-customer count")
+    live = [p for p in out["periods"] if not p["is_stub"]]
+    self.assertTrue(any(p["customer_acquisition_cost_note"] == "no_net_acquisition"
+                        for p in live),
+                    "a base that does not grow must SAY why the CAC is absent")
 
-  def test_R1_a_NEARLY_zero_new_customer_count_is_also_refused(self):
-    """The one that matters, and the one a weaker test misses.
+  def test_R1_a_small_but_REAL_count_still_gets_its_CAC(self):
+    """The correction Nick caught before the tab was built on it.
 
-    Retention of exactly 1.0 makes new customers exactly 0.0, which even a
-    naive `!= 0` guard survives — I wrote that weaker test first and a tamper
-    proved it toothless. The real hazard is a count that is TINY BUT POSITIVE:
-    retention 0.999 on a flat plan leaves ~0.16 new customers a quarter, and
-    dividing marketing into that produces a CAC in the tens of thousands —
-    a number a client would quote. The epsilon floor exists for this case.
+    The threshold was 0.5 new customers a quarter, which is consumer-shaped. A
+    b2b advisory firm adding one client a year sits under it, and measuring
+    every b2b draft in production showed Fernhill Advisory suppressed in 20 of
+    20 quarters - hiding a $24,590 CAC against clients worth $129,600 a year,
+    which is a 5:1 ratio and exactly the number a lender would want.
+
+    So a small count is shown and FLAGGED, never hidden. Suppression is now
+    reserved for a base that does not grow at all.
     """
     fin, mi, _ = _flat_plan()
     out = compute_marketing_schedule(
@@ -115,14 +122,15 @@ class ClassRuleTests(unittest.TestCase):
       marketing_model_json=_audience(),
       retention_judgment={"ok": True, "retention_rate": 0.999, "rationale": "t",
                           "confidence_tier": "low", "model": "t"})
-    live = [p for p in out["periods"] if p["is_stub"] is False]
-    tiny = [p for p in live if 0 < (p["new_customers"] or 0) < EPSILON_NEW_CUSTOMERS]
-    self.assertTrue(tiny, "fixture no longer produces a tiny new-customer count")
-    for row in tiny:
-      self.assertIsNone(
-        row["customer_acquisition_cost"],
-        f"CAC computed on {row['new_customers']:.4f} new customers — "
-        f"that is an absurd number in a client's hands")
+    live = [p for p in out["periods"] if not p["is_stub"]]
+    thin = [p for p in live
+            if 0 < (p["new_customers"] or 0) < THIN_NEW_CUSTOMERS_PER_QUARTER]
+    self.assertTrue(thin, "fixture no longer produces a thin new-customer count")
+    for row in thin:
+      self.assertIsNotNone(row["customer_acquisition_cost"],
+                           "a small but real count must still get a CAC")
+      self.assertEqual(row["customer_acquisition_cost_note"], "thin_acquisition_count",
+                       "a thin count must be flagged so the tab can mark it")
 
   def test_R2_zero_marketing_yields_no_cac(self):
     fin, mi, _ = _flat_plan()
@@ -135,6 +143,8 @@ class ClassRuleTests(unittest.TestCase):
       retention_judgment=RETENTION_OK)
     self.assertEqual(out["schedule_class"], "zero_marketing")
     self.assertTrue(all(p["customer_acquisition_cost"] is None for p in out["periods"]))
+    self.assertTrue(all(p["customer_acquisition_cost_note"] == "no_marketing_spend"
+                        for p in out["periods"]))
 
   def test_R3_pre_revenue_stub_needs_no_special_case(self):
     """Stub revenue 0 means stub customers 0, so Q1's new customers equal its
@@ -164,6 +174,7 @@ class ClassRuleTests(unittest.TestCase):
     for row in out["periods"]:
       self.assertIsNotNone(row["marketing_dollars"], "exact lines must survive")
       self.assertIsNone(row["customer_acquisition_cost"])
+      self.assertEqual(row["customer_acquisition_cost_note"], "not_modelled")
 
   def test_a_failed_gpt_call_degrades_rather_than_defaulting(self):
     """A wrong retention would propagate into four of eight lines. Better to

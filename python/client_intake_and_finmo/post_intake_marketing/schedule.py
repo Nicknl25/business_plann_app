@@ -37,10 +37,13 @@ first-quarter convention, and no artificially low Q1 CAC.
 THE FOUR CLASS RULES (R-MKTG-02 §3, measured against 400 real drafts — every
 one of these shapes exists in production):
 
-  R1  ``new_customers`` floors at EPSILON and CAC is None rather than a
-      division. New customers go zero or negative whenever
-      ``retention * prior >= current``; a client typing retention = 1.0 on a
-      flat-revenue business produces exactly that.
+  R1  CAC is suppressed ONLY when the customer base does not grow
+      (``new_customers <= 0``), which happens whenever
+      ``retention * prior >= current`` — a client typing retention = 1.0 on a
+      flat plan produces exactly that, and spend divided across customers you
+      did not acquire is genuinely undefined. A count that is small but REAL
+      still gets its CAC, flagged ``thin_acquisition_count``; suppressing those
+      erased a legitimate advisory firm's $24,590 CAC in every quarter.
   R2  Zero marketing spend -> CAC is None rather than 0/0. NOTE: the draft
       that looked like this in the 400-sweep (Cedarhill Animal Hospital) has
       zero STATED marketing at intake but a non-zero planned spend, so it
@@ -63,10 +66,23 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-#: A quarter's new-customer count below this is treated as "no acquisition"
-#: rather than divided into. Not a tuned threshold - it is the smallest count
-#: that is meaningfully distinguishable from zero customers.
-EPSILON_NEW_CUSTOMERS = 0.5
+#: NUMERICAL floor only. Its single job is to stop a division that would be
+#: meaningless - it is not a judgment about how small a real business can be.
+#:
+#: It was 0.5 (half a customer a quarter) and that was CONSUMER-SHAPED, which
+#: Nick caught before the tab was built around it. Measured across every b2b and
+#: mixed draft in production: Fernhill Advisory - 10 clients a year, $129,600 of
+#: revenue per client - was suppressed in 20 of 20 quarters, hiding a CAC of
+#: $24,590 that is entirely sane for that business. Four other b2b firms lost a
+#: quarter each. A threshold that erases a legitimate advisory firm's headline
+#: acquisition cost is measuring the wrong thing.
+EPSILON_NEW_CUSTOMERS = 1e-6
+
+#: Below this the count is real but THIN - roughly one customer a year or less.
+#: The CAC is still computed and shown, and flagged so the tab can say the
+#: acquisition count behind it is small. Showing a marked number teaches the
+#: client something; hiding it teaches nothing.
+THIN_NEW_CUSTOMERS_PER_QUARTER = 0.25
 
 #: Emitted when a line is exact arithmetic on settled values.
 EXACT = "exact"
@@ -219,9 +235,21 @@ def compute_marketing_schedule(
     new_customers = customers - retained
 
     cac: Optional[float] = None
-    # R1: never divide by a count indistinguishable from zero.
-    if entity_math_available and not zero_marketing and new_customers >= EPSILON_NEW_CUSTOMERS:
+    cac_note: Optional[str] = None
+    # R1, restated. CAC is undefined when the customer base does not GROW - you
+    # cannot divide spend across customers you did not acquire - and that is the
+    # only case worth suppressing. A count that is small but real (a b2b firm
+    # adding a client a year) has a large and perfectly meaningful CAC.
+    if not entity_math_available:
+      cac_note = "not_modelled"
+    elif zero_marketing:
+      cac_note = "no_marketing_spend"
+    elif new_customers <= EPSILON_NEW_CUSTOMERS:
+      cac_note = "no_net_acquisition"
+    else:
       cac = period_marketing / new_customers
+      if new_customers < THIN_NEW_CUSTOMERS_PER_QUARTER:
+        cac_note = "thin_acquisition_count"
 
     # THE SETTLED VALUE ITSELF, not a recomputation of it. Dividing dollars by
     # revenue reproduces the percent to ~5e-11, which is close enough to look
@@ -242,6 +270,9 @@ def compute_marketing_schedule(
       "retained_customers": round(retained, 6) if entity_math_available else None,
       "new_customers": round(new_customers, 6) if entity_math_available else None,
       "customer_acquisition_cost": round(cac, 6) if cac is not None else None,
+      # Why a CAC is absent, or why it should be read with care. The tab shows
+      # this rather than leaving a client to wonder at a blank cell.
+      "customer_acquisition_cost_note": cac_note,
     })
     previous_customers = customers if entity_math_available else None
 
@@ -295,6 +326,7 @@ def compute_marketing_schedule(
       "retained_customers": ASSUMED,
       "new_customers": ASSUMED,
       "customer_acquisition_cost": ASSUMED,
+      "customer_acquisition_cost_note": EXACT,
     },
     "assumptions": {
       "retention": retention_meta,
