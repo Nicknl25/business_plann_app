@@ -15,16 +15,49 @@ live on one sheet.
 
 | Tag | Means |
 |---|---|
-| **VERIFIED** | I read the code or measured the built workbook. The method is stated. |
+| **VERIFIED** | I **walked the built workbook** and measured it. The method is stated. |
+| **VERIFIED (source read)** | I read the code but did not measure the artifact. Weaker — see the corrections below for why. |
 | **UNVERIFIED** | Reasoned from what I read but not directly measured. Treat as a hypothesis. |
 | **TO-BE-TESTED** | Requires an experiment nobody has run. Named as such, never asserted. |
+
+## Corrections log — amended 2026-08-20 (R-INPUT-01-C1)
+
+Two findings in the first version of this document (`5e0735e`) were tagged
+VERIFIED and were **wrong**. Both were reached by **grepping source** on a
+document whose stated measurement basis was **walking the built artifact**. The
+grep was not tagged as a weaker method; it was presented with the same
+confidence as the measurements. That is the process failure, and it is recorded
+here rather than quietly fixed.
+
+| # | Claim as first published | Status | How the error was made |
+|---|---|---|---|
+| **C1** | *"Not one of the 2,967 hardcoded schedule cells is styled as an input."* | **FALSE — refuted by measurement** | I grepped for call sites of `design.input_cell()`, found three, and concluded the convention was unapplied. I never looked at a cell's actual fill. The three call sites are direct callers; the convention reaches thousands of cells through an intermediate helper (see below). |
+| **C3** | *"There is no LibreOffice recalculation step… the file ships unrecalculated."* | **HALF RIGHT, and the half that was wrong matters more** | I grepped for `libreoffice\|soffice\|recalc\|CalculateFull`, found only test instruments, and concluded the delivered artifact is as-built. The builder *does* ship uncalculated — that part holds — but the file Nick is holding is **not** the as-built output. |
+
+A grep can prove a string is **absent from source**. It cannot prove a
+**property of the artifact**. Everything in this amendment was measured on built
+workbooks, on **both** a single-line and a multi-line fixture, per this
+document's own R1 rule.
 
 **Measurement basis.** Unless stated otherwise, every number comes from building
 the workbook **in memory through the production builder**
 (`workbook_builder.build_client_financial_model_workbook` via the gate's
-`Surface._build_workbook`, no Excel round-trip) over the **frozen CareCompanions
-single-line fixture**, then walking every cell of every sheet. Script:
-`scratchpad/rinput_census.py` (research instrument, not committed to the app).
+`Surface._build_workbook`, no Excel round-trip), then walking every cell of every
+sheet. Since the C1 amendment this is done on **two fixtures** — the frozen
+CareCompanions single-line business and the Thistledown two-product one.
+Instruments: `scratchpad/rinput_census.py`, `scratchpad/c1_styling_census.py`,
+`scratchpad/c3_cached_values.py` (research instruments, not committed to the app).
+
+> **Why two of my own totals differ (2,967 vs 3,156), stated so nobody has to
+> reconcile it themselves.** The Q1 census counts a cell as hardcoded when its
+> value is `int`/`float`; the C1 styling census counts anything that is not
+> `None`, `str` or `bool` — which additionally catches the **`datetime` period
+> header row, 21 cells on each of nine sheets = 189**. `2,967 + 189 = 3,156`.
+> Both are correct for their purpose: the period dates are PLUMBING and belong
+> out of the editable census, but they *are* cells whose styling was worth
+> checking. **VERIFIED** by differencing the two runs sheet by sheet — the delta
+> is exactly +21 on every sheet that carries a period header and 0 on those that
+> do not.
 
 > **A caution that shapes this whole document.** Nick's ground truth was measured
 > on **CW-038/040 Harrow Lane** (two products). My census ran on **CareCompanions**
@@ -43,29 +76,93 @@ single-line fixture**, then walking every cell of every sheet. Script:
 | **B** | Some Model Inputs rows *are* hardcoded | **CONFIRMED, and larger than stated** | VERIFIED: **107 hardcoded cells over 7 rows** — COGS %, Marketing, R&D, G&A, Taxes (21 cells each, full path) plus **Payroll (col C only)** and **Interest Expense (col C only)**. Nick's list omits Interest Expense. Row *numbers* differ from Harrow Lane's (see Q1). |
 | **C** | Model Inputs is not a complete chokepoint | **CONFIRMED — the claim holds; the counts are shape-dependent** | VERIFIED on CareCompanions: FINMO → Model Inputs **655**, Revenue Drivers **92**, Payroll **52**, Debt **19** (818 total). Nick measured 718/310/52/19 on Harrow Lane. Payroll and Debt match exactly; the two that move are the two that scale with line count. **The structural claim is true on both.** |
 | **D** | Hardcoded surface spread across six sheets | **CONFIRMED, and wider than listed** | VERIFIED. Additional hardcoded rows not in the directive's list are enumerated in Q1 — notably Debt rows 22/24/25, CapEx rows 9/13, and the fact that Working Capital's "opening seeds" are **21-column rows where only column C carries a value**. |
-| **E** | Input convention exists in design.py | **CONFIRMED — but it is almost entirely unapplied** | VERIFIED: `design.INPUT_FILL="FDF3DF"`, `design.INPUT_INK="1B4F8A"`, `design.input_cell()`. **It is called in exactly three places**: `dashboard_sheet.py:110` (toggle dropdowns), `valuation_sheet.py:194` (ASSUMPTION rows), `excel_utils.set_input_style` (helper). **Not one of the 2,967 hardcoded schedule cells is styled as an input.** See the finding below. |
+| **E** | Input convention exists in design.py | **CONFIRMED, and it is applied to most drivers** | VERIFIED by walking both fixtures: `design.INPUT_FILL="FDF3DF"`, `design.INPUT_INK="1B4F8A"`. **2,162 hardcoded cells (single-line) / 2,267 (multi-line) carry both the amber fill and the input ink.** Nick's Harrow measurement of 2,107 is the same class. My first version claimed the opposite; see the corrections log and C1 below. |
 | **F** | No sheet protection anywhere | **CONFIRMED** | VERIFIED: no `protection`/`sheet_protect`/`password` usage in any builder (the single grep hit is a MySQL password in `valuation_sheet.py`). |
 | **G** | Named-range precedent exists | **CONFIRMED** | VERIFIED: `dashboard_sheet.py:34-35,93-97` defines `PeriodQuarters` and `PeriodYears` via `DefinedName`, consumed by Dashboard data validation. |
 | **H** | Column C is the stub and behaves differently | **CONFIRMED** | VERIFIED: Model Inputs Payroll and Interest Expense are **col-C-only** hardcodes while their D–W siblings are formulas; Debt C7/C18/C22/C24/C25 and CapEx C7/C9/C13 are col-C-only; Working Capital rows 15–19 carry a value in C and `0` across D–W. |
 
-### Finding not in the ground truth: the workbook already promises a convention it does not keep
+### C1 — The amber convention IS applied. How it reaches the cells.
 
-**VERIFIED.** `cover_sheet.py:39` prints this legend to the client:
+**VERIFIED** by walking both built fixtures and reading each cell's actual
+`fill.fgColor.rgb` and `font.color.rgb`. Instrument:
+`scratchpad/c1_styling_census.py`.
 
-> *"Amber cells are inputs — change them and the whole model recalculates"*
+| Sheet | Hardcoded | Amber fill | Input ink | **Both** | Neither |
+|---|---:|---:|---:|---:|---:|
+| Revenue Drivers (1 line / 2 lines) | 315 / 420 | 294 / 399 | 294 / 399 | **294 / 399** | 21 / 21 |
+| Payroll Schedule | 524 | 400 | 400 | **400** | 124 |
+| Working Capital | 252 | 126 | 131 | **126** | 121 |
+| Cash Equity Schedule | 105 | 84 | 84 | **84** | 21 |
+| Debt Schedule | 131 | 63 | 63 | **63** | 68 |
+| CapEx Depreciation | 66 | 21 | **42** | 21 | 24 |
+| Valuation | 8 | 7 | 7 | **7** | 1 |
+| Audit Source | 1,188 | 1,167 | 1,167 | **1,167** | 21 |
+| Model Inputs | 128 | **0** | **0** | **0** | 128 |
+| FINMO | 42 | 0 | 0 | 0 | 42 |
+| Checks | 397 / 413 | 0 | 0 | 0 | 397 / 413 |
+| **Total** | **3,156 / 3,277** | **2,162 / 2,267** | 2,188 / 2,293 | **2,162 / 2,267** | 968 / 984 |
 
-The amber convention is applied to Dashboard dropdowns and Valuation assumption
-rows only. **Every genuine driver — unit price, capacity, utilisation, capex,
-interest rate, opening balances, distributions — is an unstyled plain number on
-a schedule sheet.** A client who reads the Cover and then looks for amber cells
-will not find the drivers, and will find amber on two things that are not
-drivers.
+Nick's independent Harrow Lane measurement (Revenue Drivers 399/399, Cash Equity
+84/84, Audit Source 1,167/1,167, Model Inputs 0/107) **matches my Thistledown
+two-line fixture exactly** on every sheet that does not depend on role count.
+Two different people, two different instruments, two different businesses of the
+same shape, same numbers.
 
-This is worth stating plainly because it changes the framing of this project:
-**the input sheet is not a new promise. It is the delivery of one the workbook
-already makes.** It is also, on its own, an existing defect in a client-facing
-document — recommended for separate triage regardless of what happens to
-R-INPUT-01.
+**How the styling reaches ~2,162 cells from three `design.input_cell()` call
+sites — VERIFIED by reading the chain:**
+
+```
+design.input_cell(cell)                       ← 3 direct call sites
+   ▲
+excel_utils.set_input_style(cell)             ← excel_utils.py:211
+   ▲
+excel_utils.write_values_row(..., input_style=True)   ← excel_utils.py:246
+   ▲
+every schedule builder that writes a driver row
+```
+
+`write_values_row` loops the 21 period columns and calls `set_input_style` per
+cell when `input_style=True`. The schedule builders also call `set_input_style`
+directly in six places (`schedule_sheets.py:334, 469, 622, 669` and others).
+**Counting direct callers of `input_cell` was measuring the wrong layer** — it
+is the bottom of a three-deep chain, and the fan-out happens two levels above it.
+
+**Consequence for this project, which is the opposite of what I first wrote:**
+the amber convention is not a promise to be delivered — it is **existing,
+working infrastructure** covering roughly two-thirds of the hardcoded surface.
+An input sheet does not have to introduce it; it has to **inherit** it. The
+`input_style=True` flag on `write_values_row` is very likely the mechanism the
+Inputs sheet builder should reuse verbatim (**TO-BE-TESTED** against an actual
+builder).
+
+### C2 — The real styling defect is the inverse, and it is worth separate triage
+
+**VERIFIED on both fixtures**, identical results on each (these are not
+shape-dependent):
+
+| # | Finding | Cells | Assessment |
+|---|---|---:|---|
+| **C2-a** | **Audit Source: all 1,167 cells carry input fill and ink** on a *hidden provenance sheet* | 1,167 | **The most serious of the five.** Audit Source is the record of what the engine produced — it is the opposite of a client input. Styling it as editable is semantically backwards. It is masked today only because the sheet is hidden; the moment anyone unhides it (a lender auditing, or Q7 revisiting visibility) the workbook presents 1,167 engine outputs as client inputs. **Recommend separate triage.** |
+| **C2-b** | **Model Inputs: 0 of 128 hardcoded cells styled** | 128 | The solver-produced ramp paths (COGS %, Marketing, R&D, G&A, Taxes) plus the two stub seeds are **the only genuinely unstyled hardcodes in the workbook**. Arguably correct — they are engine output, not client input — but it is unstated whether that is deliberate or incidental. |
+| **C2-c** | **CapEx row 8 (Capital Expenditures): input INK on non-input FILL `E8EEF4`** | 21 | Fill and ink disagree. Capex is a genuine client lever, so the *ink* is right and the *fill* is wrong. A client scanning for amber will miss capital expenditure entirely. |
+| **C2-d** | **Working Capital rows 15–19 (opening balances): unstyled, except 5 stub cells with input ink on fill `F4F7FA`** | 105 | Opening balances are genuine drivers and are not amber. The 5 stub-column cells have the same fill/ink disagreement as C2-c. |
+| **C2-e** | **Debt rows 19 and 21 unstyled** | 42 | Requested Lease Principal Repayments and Lease Net Additions. `schedule_sheets.py:545` names these two in an `input_rows` set used for `internal_link=` — so the builder *knows* they are inputs and styles them anyway as non-inputs. |
+
+**Why the design.py guard test does not catch fill/ink disagreement —
+VERIFIED by reading `tests/test_x1_design_system.py`.** The guard validates each
+attribute **independently against the palette**: it fails a fill outside the
+palette and a font colour outside the palette. `E8EEF4` and `F4F7FA` are valid
+palette fills; `1B4F8A` is a valid palette ink. A cell wearing a valid non-input
+fill and a valid input ink passes both checks. **The guard has no concept of a
+fill/ink pairing being semantically incoherent.**
+
+**Should it?** Yes — and cheaply. A cell using `INPUT_INK` without `INPUT_FILL`
+(or vice versa) is a state with no legitimate meaning, so it is a candidate for
+*make bad states unrepresentable*: the guard could assert the two always travel
+together. That would have caught C2-c and C2-d at build time. **Recommended, but
+out of scope for this directive** — it is a change to a test, and this is a
+research tier. Note it would go red today on 26 cells until they are fixed, so
+the fix and the guard must land together.
 
 ---
 
@@ -128,6 +225,43 @@ module/function attribution is **VERIFIED** by reading the builder.
 | FINMO | 21 cells on one row | 21 | Statement plumbing, not a driver. |
 | all | Period dates, stub definition, column headers, sheet structure | — | Structural. |
 
+### C5 — The editable-cell count is shape-dependent. The rule, not a number.
+
+My first version gave **~1,267 editable cells** as if it were a property of the
+workbook. It is a property of *CareCompanions*. **VERIFIED** by censusing both
+fixtures and differencing:
+
+| Sheet | 1 line | 2 lines | Δ | Driven by |
+|---|---:|---:|---:|---|
+| Revenue Drivers | 315 | 420 | **+105** | **product count** — 5 rows × 21 cols per additional product |
+| Checks | 397 | 413 | +16 | product count (per-line tie-outs) |
+| Payroll Schedule | 524 | 524 | 0 | **role count** — identical here only because both fixtures share the frozen `_run_artifacts.PAYROLL_HEADCOUNT` |
+| Debt, CapEx, Working Capital, Cash Equity, Model Inputs, Audit Source | identical | identical | 0 | fixed-size regardless of shape |
+
+**The rule (VERIFIED for the product axis, UNVERIFIED for the role axis):**
+
+```
+editable cells ≈ FIXED_BASE
+                 + 105 × (number of products)
+                 + 21  × (rows per role) × (number of roles)
+```
+
+`FIXED_BASE` ≈ **840** measured (Debt 110 + CapEx 45 + Working Capital 231 +
+Cash Equity 84 + Model Inputs 107 + Valuation 8, less period-date rows).
+
+**Two independent axes, not one.** Product count drives Revenue Drivers; **role
+count drives Payroll independently**. Nick measured Harrow Payroll at 303
+hardcodes against my fixtures' 524 — same product count, *different role count*,
+because Harrow's payroll is GPT-authored for its own two-person shop while my
+fixtures replay a frozen headcount artifact. **That is not a discrepancy; it is
+the second axis showing itself.**
+
+**Range for planning:** the editable surface is roughly **1,000–1,500 cells** for
+a small business of 1–3 lines and 2–6 roles, and grows linearly on both axes.
+Any capacity assumption about sheet size must be stated against a shape, never
+as a single figure. **A five-line business with ten roles is the case to size
+against, and it has not been built** — **TO-BE-TESTED**.
+
 ### The structural fact that dominates this design
 
 **VERIFIED.** Row numbers are **a function of business shape**. The Stage Ramp
@@ -156,7 +290,7 @@ Today, **VERIFIED**: schedules hold hardcodes → Model Inputs reads schedules
 Each currently-hardcoded editable cell becomes `='Inputs'!<cell>`; the Inputs
 sheet carries the literal. Model Inputs bridge untouched.
 
-- **Formula cells that change (VERIFIED count):** ~1,267 hardcoded editable
+- **Formula cells that change (VERIFIED, and SHAPE-DEPENDENT — see C5):** ~1,267 on the single-line fixture, ~1,370 on the two-line one; plan against **1,000-1,500** for a small business and size the worst case against a five-line, ten-role shape that has not yet been built. Hardcoded editable
   cells become formulas (2,967 total hardcodes − 1,167 Audit Source − 397 Checks
   − 21 FINMO − 8 Valuation − ~107 Model Inputs if left in place). Add the same
   number of new literal cells on Inputs. **R32 movement: ~2,500 cells.**
@@ -211,7 +345,7 @@ So the input sheet should:
 3. Have each schedule builder emit `='Inputs'!<ctx.input_cell(key)>` instead of
    the literal it writes today.
 
-- **What breaks:** the same ~1,267 cells as (i), no more.
+- **What breaks:** the same ~1,267-1,370 cells as (i) (shape-dependent, C5), no more.
 - **Checks:** unaffected — addresses do not move.
 - **Auditability:** improved as in (i).
 - **Why it beats (i) as written:** (i) invites hardcoded `'Inputs'!C12`
@@ -274,7 +408,7 @@ rejected because it omits headcount, and 480 of the 503 cells are the headcount
 block — excluding them means payroll is not really on the input sheet at all.
 
 **Cost, stated honestly:** payroll is by far the largest single block on the
-input sheet (~480 of ~1,267 editable cells). If sheet size becomes the binding
+input sheet — ~480 of ~1,267 editable cells on the frozen-headcount fixtures, and it scales on its OWN axis with role count (C5), independently of line count. If sheet size becomes the binding
 constraint, payroll is the first candidate for its own grouped section or a
 separate input sub-sheet — **but that is a layout decision, not an architecture
 one.**
@@ -417,14 +551,65 @@ the Cover will index a sheet the client cannot open.
 
 ## Q8 — Protection and validation
 
-**Correction to a premise in the directive.** **VERIFIED: there is no
-LibreOffice recalculation step in the build pipeline.** A grep for
-`libreoffice|soffice|recalc|CalculateFull` across the builder package, `python/`
-and `scripts/` returns no pipeline step — the only COM recalculation in the repo
-is in **test instruments** I and mini wrote. The builder writes the `.xlsx` with
-openpyxl and it is delivered unrecalculated; Excel computes on open. **The
-question "does protection survive the LibreOffice recalculation step" therefore
-does not arise.** If a recalculation step is ever added, this must be revisited.
+### C3 — What actually recalculates the file (corrected)
+
+My first version said the delivered file ships unrecalculated and the
+protection-survives-recalculation question does not arise. **Half of that was
+right and the half that was wrong matters more.**
+
+**Test run (VERIFIED, instrument `scratchpad/c3_cached_values.py`):** build
+through the production builder, save with `wb.save()`, reload with
+`data_only=True` **without opening the file in anything**.
+
+```
+builder returns: openpyxl.workbook.workbook.Workbook
+AS-BUILT, never opened by Excel:
+  formulas          7779
+  WITH cached value    0
+  cached = None     7779
+```
+
+**So (c) is ruled out** — the builder is plain openpyxl and emits **zero** cached
+values, exactly as openpyxl's documented behaviour predicts.
+
+**And (a) is ruled out** — the production export path is
+`intake_consult.py:15484` calling `export_workbook_for_draft_id`, which builds
+and saves. No recalculation step exists in it.
+
+**The answer is (b), and it is specific.** The delivered artifact at
+`…/Client Plans/Financial Models/Harrow Lane Grooming -- 08-19-2026 19-35-11.xlsx`
+carries **7,833 of 7,833 formulas cached**, and its document properties read:
+
+```
+creator:        Business Plan Generator      (openpyxl, set by the builder)
+lastModifiedBy: Ignatius Henry               (Excel, after export)
+```
+
+**The file Nick is holding was opened and saved by Excel after the app produced
+it.** The as-built output and the artifact under examination are not the same
+file. That is worth more than this directive: **any measurement taken from a
+delivered file that someone has opened is measuring Excel's output, not the
+app's.** My original census avoided this by building in memory; the styling
+correction in C1 was measured the same way. Both Nick's Harrow numbers and mine
+agree, so nothing here was distorted by it — but the general hazard stands.
+
+**What this means for a client who never opens the file in Excel — a real
+consideration for a sold product (UNVERIFIED, TO-BE-TESTED):** the as-built
+`.xlsx` has no cached values. Excel and LibreOffice calculate on open, so a
+normal user sees correct numbers. A **read-only viewer that does not
+calculate** — some web previews, some mobile viewers, some PDF converters — may
+render blanks or zeros. This has not been tested and is not claimed as a defect;
+it is named because a sold model is more likely than a delivered plan to be
+opened in something other than Excel.
+
+**Corrected answer to the protection question.** Since protection is applied at
+**build** time and calculation happens at **open** time in the client's own
+application, the two do not interact in the pipeline. Excel sheet protection
+restricts *editing*, not *calculation*, so a protected workbook still computes on
+open. **The question does arise once a recalculation step is added** — and if one
+is ever added to produce cached values for non-calculating viewers, protection
+must be applied **after** that step, or the recalculating process may be unable
+to write results. **TO-BE-TESTED at that point, not before.**
 
 **VERIFIED capability (openpyxl 3.1.5, tested directly):**
 - `ws.protection.sheet = True` and `ws.protection.password = ...` — supported.
@@ -564,7 +749,7 @@ Each phase is independently shippable and gate-clean.
 | Phase | Content | Gate impact |
 |---|---|---|
 | **0 — Resolve the unknown** | Answer the Q9 two-pass question: is every driver derivable from `DraftWorkbookData` before schedule builders run? Research only, no code. | none |
-| **1 — Truth in labelling** | Apply `design.input_cell()` to the hardcoded driver cells **where they already live**. No structural change, no new sheet, no formula change. The Cover's amber promise becomes true. | R49 neutral (styling is not text); **R32 neutral** (no formula changes) |
+| **1 — Styling consistency** (rescoped, C4) | Fix the **26 fill/ink disagreements** (CapEx row 8, Working Capital stub cells), style the **147 unstyled genuine drivers** (Working Capital opening balances 105, Debt rows 19/21 42), and rule on **Audit Source's 1,167 over-applied input cells**. Land the guard-test pairing assertion in the same commit. No new sheet, no formula change. | R49 neutral (styling is not text); **R32 neutral** (no formula changes) |
 | **2 — Rename and re-describe** | `Model Inputs` → `Model Feed`; correct its Cover description; fix A-129 so Valuation is indexed. | R49 re-bless, large but trivially explainable; R32 neutral |
 | **3 — Inputs sheet, read-only mirror** | Build the `Inputs` sheet **first**, register `ctx.input_rows`, and have it *display* every driver by reading from the schedules. Nothing inverts yet. One sheet the client can read. | R32 + R49 re-bless; **all values unchanged** — the strongest possible evidence bar |
 | **4 — Invert, one schedule at a time** | Per schedule: literals move to Inputs, schedule cells become `='Inputs'!<ctx key>`. Six independently shippable increments. | R32 re-bless per schedule; **every recalculated value must be identical** |
@@ -590,7 +775,7 @@ Each phase is independently shippable and gate-clean.
 **Recommended architecture — Q2(iii): invert in place, keyed through `ctx`.**
 A new `Inputs` sheet built first, holding literals only, with every schedule
 builder emitting `='Inputs'!<ctx key>` instead of the literal it writes today.
-Model Inputs stays a bridge and gets renamed. ~1,267 cells invert; ~2,500 formula
+Model Inputs stays a bridge and gets renamed. ~1,267-1,370 cells invert depending on business shape; ~2,500 formula
 cells move in R32. Rejected: collapsing Model Inputs into the input layer, which
 triples the blast radius, moves FINMO's grid, introduces genuine cycle risk, and
 degrades the lender-facing audit trail.
@@ -604,10 +789,22 @@ The `ctx` registry already solves this for every other cross-sheet reference in
 the workbook; the input sheet must use it, and the two-shape comparison must be
 part of every re-bless.
 
-**Smallest first phase — phase 1, truth in labelling.** Apply the existing
-`design.input_cell()` convention to the driver cells where they already live. No
-new sheet, no formula change, no structural risk, **both goldens neutral** — and
-it makes the promise the Cover already prints to every client (*"Amber cells are
-inputs"*) true for the first time. It is a one-sheet-at-a-time change, it is
-independently valuable if the rest is never built, and it forces the driver
-census to be exactly right before anything structural depends on it.
+**Smallest first phase — phase 1, styling consistency (rescoped).** The amber
+convention is already built and already covers ~2,162 cells; what it needs is
+*consistency*, not introduction. Phase 1 fixes the 26 cells where fill and ink
+disagree, styles the 147 genuine drivers that carry no input styling at all
+(Working Capital opening balances, Debt lease rows), and rules on Audit Source —
+where 1,167 engine-produced provenance values are dressed as client inputs on a
+sheet that is hidden today and would not be if anyone ever unhides it. Landing
+the guard-test pairing assertion in the same commit makes the incoherent state
+unrepresentable going forward. **Both goldens stay neutral**, it is independently
+valuable if nothing else is built, and it forces the driver census to be exactly
+right before anything structural depends on it.
+
+**A note on how this document was corrected.** Two findings in the first version
+were wrong because I grepped source and reported it with the confidence of
+measurement. The architecture recommendation was not affected — it was derived
+from the census, which was measured — but the two claims that reached Nick as
+facts were not. Everything in the amendment was measured on built workbooks, on
+both fixtures. Where a grep remains the only available method, the claim is
+tagged **VERIFIED (source read)** or **UNVERIFIED** rather than VERIFIED.
