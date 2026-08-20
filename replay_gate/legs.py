@@ -3810,9 +3810,28 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "66ce906", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "2757e22", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19d (VS, mini's green-with-follow-ups): "
+        proof_note=("RE-BLESSED 2026-08-20 (baseline 66ce906 -> 2757e22, VS, "
+                    "R-MKTG-03 phase 2 + A-129). 70862e7bdfad, 2,575 -> 2,577 "
+                    "cells. The drift is ENTIRELY on Cover and is a pure "
+                    "one-row shift: the contents index gained a Valuation line "
+                    "at position 19 (A-129 - the sheet was built and never "
+                    "indexed, so a client had no route to it), and every row "
+                    "below moved down one. Leaf-by-leaf: 5 added, 3 removed, 20 "
+                    "changed, and every changed cell is a label that MOVED "
+                    "rather than changed - zero content differs. "
+                    "The Marketing Schedule tab does NOT appear in this digest, "
+                    "and that is the honest position rather than an oversight: "
+                    "the frozen fixture carries no marketing_schedule_json, so "
+                    "the builder correctly does not create the sheet. THE NEW "
+                    "TAB IS THEREFORE UNPINNED BY BOTH GOLDENS. Closing that "
+                    "needs a marketing payload in the fixture, which re-keys the "
+                    "R31/R32 baselines - a separate declared change, not "
+                    "something to slip into this re-bless. "
+                    "R32 and R31 did NOT move: no engine, and no formula change "
+                    "to any pre-existing sheet. "
+                    "PREVIOUS: RE-BLESSED 2026-08-19d (VS, mini's green-with-follow-ups): "
                     "91d4fa285c75 -> 4d5d81484fd8, 2,572 -> 2,575 cells. The three "
                     "cells are the em-dash placeholders a constant with NO as-of "
                     "date prints: _patch_reference_constants had been stamping a "
