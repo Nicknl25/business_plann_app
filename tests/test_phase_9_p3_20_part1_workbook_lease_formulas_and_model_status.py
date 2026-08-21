@@ -38,6 +38,34 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
   def setUp(self) -> None:
     self._src = _SCHEDULE_SHEETS_PATH.read_text(encoding="utf-8")
 
+  def _row_formulas(self, rows, label):
+    """The 21 quarter cells of one Debt Schedule row."""
+    ws = self._debt_sheet()
+    return [ws.cell(rows[label], 3 + i).value for i in range(21)]
+
+  def _debt_rows(self):
+    """Every Debt Schedule row label mapped to its row number."""
+    ws = self._debt_sheet()
+    return {str(ws.cell(r, 1).value or "").strip(): r
+            for r in range(1, ws.max_row + 1)
+            if str(ws.cell(r, 1).value or "").strip()}
+
+  def _debt_sheet(self):
+    """The built Debt Schedule, built once per process."""
+    cached = getattr(type(self), "_SHEET", None)
+    if cached is not None:
+      return cached
+    from replay_gate import _bootstrap
+    _bootstrap.bind_root(None)
+    from replay_gate.context import GateContext
+    from client_statements_output_excel import data as wbdata, workbook_builder
+    ctx = GateContext(_bootstrap.gate_connection(), _bootstrap.read_connection())
+    wb, gap = ctx._build_workbook(
+      workbook_builder.build_client_financial_model_workbook, wbdata.draft_data_from_row)
+    assert not gap, gap
+    type(self)._SHEET = wb["Debt Schedule"]
+    return type(self)._SHEET
+
   def test_lease_interest_formula_uses_cell_reference(self) -> None:
     # The lease interest write should reference local_ref(interest_rate, col)
     # (matching the debt interest formula pattern).
@@ -59,12 +87,40 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
     )
 
   def test_lease_asset_depreciation_formula_uses_cell_reference(self) -> None:
-    # `per_quarter_dep_formula` should now reference local_ref(lease_open, PERIOD_START_COL)
-    self.assertIn(
-      'per_quarter_dep_formula = f"({local_ref(lease_open, PERIOD_START_COL)}/20)"',
-      self._src,
-      "Lease Asset Depreciation per_quarter_dep_formula must reference the Lease Opening Balance Q0 cell, not lease_seed_value literal",
-    )
+    """The seed must be a CELL, never a Python literal baked into the string.
+
+    This used to assert the formula's exact source text, which made it a guard
+    on one spelling rather than on the property. R-DEBT-02 moved the anchor off
+    the stub column (now hidden) onto the first LIVE quarter's right-of-use
+    opening, and turned the hard-coded 20 into a "Lease Life in quarters" row -
+    both of which the property survives and the string did not. Asserted
+    against the BUILT sheet now, so it holds however the formula is spelled.
+    """
+    rows = self._debt_rows()
+    dep = self._row_formulas(rows, "Lease Asset Depreciation")
+    live = [f for f in dep[1:] if isinstance(f, str)]
+    self.assertTrue(live, "no depreciation formulas were built")
+    # The first attempt at this test asserted "no 4-digit literal", which the
+    # gate fixture cannot fail: its lease seed is 0, so baking the seed in
+    # produced "(0/D24)" and the test stayed green through the tamper. Assert
+    # the STRUCTURE instead - the two rows the formula must read.
+    rou = rows["Right-of-Use Asset Opening"]
+    life = rows["Lease Life in quarters"]
+    for formula in live:
+      # ABSOLUTE, and that precision is the point. A relaxed "mentions row 27"
+      # is satisfied by the MIN's second argument - the cap - so baking the
+      # seed into the numerator still passed: =MIN((0/D24),D27). The BASE is
+      # the anchored $D$27; the cap is the relative D27. Assert the anchor.
+      self.assertRegex(
+        formula, rf"\$[A-Z]{{1,2}}\${rou}(?![0-9])",
+        f"the depreciation BASE is not the anchored Right-of-Use Asset Opening "
+        f"cell (row {rou}) - a seed has been baked into the numerator, which "
+        f"the row-{rou} cap would otherwise disguise: {formula!r}")
+      self.assertRegex(
+        formula, rf"\$?[A-Z]{{1,2}}\$?{life}(?![0-9])",
+        f"depreciation does not read the Lease Life row ({life}) - the life is "
+        f"hard-coded again: {formula!r}")
+
     # The old literal should NOT be present in the generator anymore
     self.assertNotIn(
       "lease_seed_value = number(schedules.get(",

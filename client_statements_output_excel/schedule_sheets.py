@@ -6,14 +6,14 @@ from openpyxl.styles import Font, PatternFill
 
 from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
+from openpyxl.utils import get_column_letter
+
 from .excel_utils import (
   ANNUAL_ANNUALIZE,
   ANNUAL_AVERAGE,
   ANNUAL_SUM,
   ANNUAL_YEAR_END,
   ANNUAL_YEAR_START,
-  hide_stub_column,
-  ANNUAL_YEAR_END,
   ANNUAL_START_COL,
   CAPEX_SHEET,
   CASH_EQUITY_SHEET,
@@ -40,6 +40,7 @@ from .excel_utils import (
   add_annual_formulas,
   apply_base_style,
   create_sheet,
+  hide_stub_column,
   local_ref,
   qsheet,
   ref,
@@ -516,12 +517,20 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ("Requested Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
     ("Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
     ("Lease Net Additions", CURRENCY_FORMAT, ANNUAL_SUM),
+    # THE DIVISOR, PROMOTED TO A ROW. It was the literal 20 inside the
+    # depreciation formula - a five-year life every client got and none could
+    # see, let alone change. AVERAGE annually because it is a LEVEL: four
+    # quarters of a 20-quarter life do not add up to an 80-quarter one.
+    ("Lease Life in quarters", INTEGER_FORMAT, ANNUAL_AVERAGE),
     ("Lease Interest Expense", CURRENCY_FORMAT, ANNUAL_SUM),
     ("Lease Closing Balance", CURRENCY_FORMAT, ANNUAL_YEAR_END),
     ("Right-of-Use Asset Opening", CURRENCY_FORMAT, ANNUAL_YEAR_START),
     ("Lease Asset Depreciation", CURRENCY_FORMAT, ANNUAL_SUM),
     ("Right-of-Use Asset Closing", CURRENCY_FORMAT, ANNUAL_YEAR_END),
   ]
+  # 20 quarters is the policy the formula already carried; it is now STATED
+  # rather than buried, and the engine can override it if it ever learns better.
+  lease_life_quarters = int(number(schedules.get("lease_life_quarters")) or 20)
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
   # Phase 9 P3.20 Part 1 — `interest_rate_values_lease` was a
@@ -539,19 +548,48 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   lease_requested_principal = ctx.schedule_row(DEBT_SHEET, "Requested Lease Principal Repayments")
   lease_principal = ctx.schedule_row(DEBT_SHEET, "Lease Principal Repayments")
   lease_add = ctx.schedule_row(DEBT_SHEET, "Lease Net Additions")
+  lease_life = ctx.schedule_row(DEBT_SHEET, "Lease Life in quarters")
   lease_interest = ctx.schedule_row(DEBT_SHEET, "Lease Interest Expense")
   lease_close = ctx.schedule_row(DEBT_SHEET, "Lease Closing Balance")
   rou_open = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Opening")
   lease_dep = ctx.schedule_row(DEBT_SHEET, "Lease Asset Depreciation")
   rou_close = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Closing")
-  # Phase 9 P3.20 Part 1 — lease asset depreciation now references
-  # the Lease Opening Balance Q0 cell (column PERIOD_START_COL of
-  # the lease_open row) instead of interpolating the Python literal
-  # `lease_seed_value`. The Q0 cell is written at line 513 below
-  # with `schedules.get("lease_opening_balance_seed")`; referencing
-  # it keeps the formula edit-live in Excel (mirrors the
-  # cell-reference pattern the debt schedule uses throughout).
-  per_quarter_dep_formula = f"({local_ref(lease_open, PERIOD_START_COL)}/20)"
+  # LEASE DEPRECIATION - straight line, over a life the client can see.
+  #
+  # It was MIN(C18/20, opening): the Q0 opening balance divided by a hard 20.
+  # Two things about that were wrong and one was right.
+  #
+  # RIGHT, and kept exactly: straight line on the gross asset. With no lease
+  # additions it charges seed/20 a quarter and lands the asset on precisely
+  # zero at Q20 (Falls City: 81,600 at 4,080 a quarter). Values do not move.
+  #
+  # WRONG 1, fixed here: the anchor was column C, the stub - now HIDDEN. The
+  # only driver of a client-facing row sat in an invisible cell. It now reads
+  # the first LIVE quarter's right-of-use opening, which carries the same seed
+  # and which the client can actually see.
+  # WRONG 2, fixed here: the 20 was a five-year life every client got and none
+  # could see. It is now a row.
+  #
+  # NOT the current-quarter opening balance, which was the shape first
+  # proposed. Dividing a DECLINING balance by a FIXED life is declining-balance
+  # depreciation: on Falls City that charges 4,080, then 3,876, then 3,682,
+  # never reaches zero, and understates the five-year expense by about a third.
+  # It would have moved delivered numbers in the wrong direction.
+  #
+  # NOT extended to lease ADDITIONS either, and that is a decision rather than
+  # an oversight. Additions reach the LIABILITY (Lease Closing Balance) and
+  # never reach the ASSET - Right-of-Use Asset Closing is opening minus
+  # depreciation, with no additions term - so a lease added mid-model raises
+  # the liability against no asset at all. Depreciating a gross base that
+  # includes additions was built and MEASURED first: it charges 6,080 a quarter
+  # from Q7 against an asset that only ever held 81,600, drives it to zero at
+  # Q17 and then charges nothing. That is not a fix, it is a second wrong.
+  # The exposure is nil today - 150 of 150 sampled drafts carry the additions
+  # row and every one of them is zero, so the engine emits no lease additions -
+  # which is why this is REPORTED rather than half-fixed under a commit that
+  # promised not to move numbers.
+  per_quarter_dep_formula = (
+    f"(${get_column_letter(FIRST_LIVE_COL)}${rou_open}/{{life}})")
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(lease_close, col - 1)}")
@@ -568,9 +606,13 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(lease_interest, col, value=0 if idx == 0 else f"={local_ref(lease_open, col)}*{local_ref(interest_rate, col)}")
     ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
     ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(rou_close, col - 1)}")
-    ws.cell(lease_dep, col, value=0 if idx == 0 else f"=MIN({per_quarter_dep_formula},{local_ref(rou_open, col)})")
+    ws.cell(lease_life, col, value=lease_life_quarters)
+    ws.cell(lease_dep, col, value=0 if idx == 0 else
+            f"=MIN({per_quarter_dep_formula.format(life=local_ref(lease_life, col))},"
+            f"{local_ref(rou_open, col)})")
     ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}-{local_ref(lease_dep, col)})")
-  input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions"}
+  input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions",
+                "Lease Life in quarters"}
   for label, fmt, annual_mode in lease_rows:
     r = ctx.schedule_row(DEBT_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
