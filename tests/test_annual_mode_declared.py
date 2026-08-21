@@ -20,6 +20,7 @@ sheet, held by ONE implicit `if statement == "Balance Sheet"`.
 """
 from __future__ import annotations
 
+import io
 import os
 import sys
 import unittest
@@ -30,9 +31,12 @@ for path in (REPO, os.path.join(REPO, "python")):
     sys.path.insert(0, path)
 
 from client_statements_output_excel import finmo_sheet  # noqa: E402
+from client_statements_output_excel import excel_utils  # noqa: E402
 from client_statements_output_excel.excel_utils import (  # noqa: E402
-  ANNUAL_AVERAGE, ANNUAL_SUM, ANNUAL_YEAR_END, ANNUAL_YEAR_START,
+  ANNUAL_ANNUALIZE, ANNUAL_AVERAGE, ANNUAL_SUM, ANNUAL_YEAR_END, ANNUAL_YEAR_START,
+  annual_mode_for,
 )
+from client_statements_output_excel import design  # noqa: E402
 
 #: The tail is allowed to be exactly this big. Growing it is a decision, and
 #: changing this number is how that decision gets made in the open.
@@ -98,6 +102,53 @@ class TailTests(unittest.TestCase):
     with self.assertRaises(ValueError) as caught:
       finmo_sheet._declared_annual_mode("Some New Statement", "Some Row")
     self.assertIn("undeclared", str(caught.exception))
+
+
+class AnnualizeIsDeclaredOnlyTests(unittest.TestCase):
+  """ANNUALIZE - the one mode that MULTIPLIES - is no longer reachable by
+  guessing at a label.
+
+  It used to be chosen by exact match against a set holding the single string
+  "Interest Rate". That made the row's wording load-bearing on the maths: the
+  rename to "Interest Rate per quarter", done so a client could tell which
+  period the 2.375% belonged to, would have dropped it out of the set and
+  turned a x4 into an average - a quarter of the true annual rate, printed
+  next to a debt balance. Measured dead across both fixtures (0 decisions) and
+  deleted; both rows that want ANNUALIZE now declare it.
+  """
+
+  def test_the_exact_match_set_is_gone(self):
+    self.assertFalse(
+      hasattr(excel_utils, "_ANNUALIZED_LABELS"),
+      "the exact-match label set is back - annual maths must not be chosen by "
+      "how a row happens to be worded")
+
+  def test_inference_never_returns_annualize(self):
+    """The whole surface, not just the label that used to be special."""
+    # every number format the design system defines, not a hand-picked few -
+    # a hand-picked list is how the one that matters gets left out
+    formats = [getattr(design, n) for n in dir(design) if n.startswith("FMT_")] + [""]
+    labels = ("Interest Rate", "Interest Rate per quarter", "interest rate",
+              "Opening Debt", "Ending Cash", "Revenue", "Cost of Debt",
+              "Annual Rate", "Rate", "")
+    for label in labels:
+      for fmt in formats:
+        self.assertNotEqual(
+          annual_mode_for(label, fmt), ANNUAL_ANNUALIZE,
+          f"inference produced ANNUALIZE for {label!r} / {fmt!r} - that mode is "
+          f"declaration-only")
+
+  def test_the_reworded_rate_still_annualizes_where_it_is_declared(self):
+    """The other half. Proving inference cannot reach ANNUALIZE is worthless if
+    the two rows that need it lost it - that is the same defect, arrived at
+    from the other side."""
+    from client_statements_output_excel import schedule_sheets, model_inputs_sheet
+    src = io.open(schedule_sheets.__file__, encoding="utf-8").read()
+    self.assertIn("ANNUAL_ANNUALIZE", src,
+                  "the Debt Schedule rate row no longer declares ANNUALIZE")
+    src2 = io.open(model_inputs_sheet.__file__, encoding="utf-8").read()
+    self.assertIn("ANNUAL_ANNUALIZE", src2,
+                  "the Model Inputs rate row no longer declares ANNUALIZE")
 
 
 if __name__ == "__main__":

@@ -401,22 +401,44 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
   schedules = data.schedules
-  rows = [
-    # (label, detail, format, ANNUAL MODE). The mode is DECLARED, not inferred
-    # from the label's words - a reworded label must never change the maths.
-    ("Opening Debt", "Calculated", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Debt Issuance", "Source borrowing", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Requested Debt Repayment", "Source scheduled repayment", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Actual Debt Repayment", "MIN(requested repayment, opening debt + issuance)", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Closing Debt", "Calculated", CURRENCY_FORMAT, ANNUAL_YEAR_END),
-    ("Interest Rate", "Source rate", PERCENT_FORMAT, ANNUAL_ANNUALIZE),
-    ("Interest Expense", "Average debt balance x rate", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Total Debt Service", "Interest + actual repayment", CURRENCY_FORMAT, ANNUAL_SUM),
+  # ADJUSTABLE ROWS FIRST, RESULTS BELOW. They used to be interleaved - the
+  # three a client can change sat at rows 8, 9 and 12 among calculated ones,
+  # so there was no way to see what was yours to touch.
+  #
+  # (label, detail, format, ANNUAL MODE). The mode is DECLARED - a reworded
+  # label must never change the maths.
+  debt_inputs = [
+    ("Debt Issuance", "New borrowing you take on this quarter", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Requested Debt Repayment", "What you intend to repay this quarter", CURRENCY_FORMAT, ANNUAL_SUM),
+    # NAMED PER QUARTER, deliberately. The value is ~2.375%, which is a
+    # QUARTERLY rate (about 9.5% a year), and the row said only "Interest Rate".
+    # That ambiguity is what produced the four-fold customer error on the
+    # marketing sheet. Kept quarterly rather than annualised because every other
+    # number here is quarterly and the formula multiplies it by a quarterly
+    # balance - converting would put a /4 inside a formula, which is the hidden
+    # conversion we have been removing.
+    ("Interest Rate per quarter", "Charged on the average balance, each quarter", PERCENT_FORMAT, ANNUAL_ANNUALIZE),
   ]
+  debt_outputs = [
+    ("Opening Debt", "What you owed at the start", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Actual Debt Repayment", "Your requested repayment, capped at what you owe", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Interest Expense", "Average balance x the rate above", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Closing Debt", "What you owe at the end", CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Total Debt Service", "Interest plus repayment - your cash cost", CURRENCY_FORMAT, ANNUAL_SUM),
+  ]
+  rows = debt_inputs + debt_outputs
   row = 6
-  write_section_header(ws, row, "Debt Amortization")
+  write_section_header(ws, row, "What you can change")
   row += 1
-  for label, detail, fmt, annual_mode in rows:
+  for label, detail, fmt, annual_mode in debt_inputs:
+    ws.cell(row=row, column=1, value=label)
+    ws.cell(row=row, column=2, value=detail)
+    ctx.add_schedule_row(DEBT_SHEET, label, row)
+    row += 1
+  row += 1
+  write_section_header(ws, row, "What that produces")
+  row += 1
+  for label, detail, fmt, annual_mode in debt_outputs:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value=detail)
     ctx.add_schedule_row(DEBT_SHEET, label, row)
@@ -426,7 +448,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   requested_repay = ctx.schedule_row(DEBT_SHEET, "Requested Debt Repayment")
   actual_repay = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
   closing_debt = ctx.schedule_row(DEBT_SHEET, "Closing Debt")
-  interest_rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate")
+  interest_rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate per quarter")
   interest_exp = ctx.schedule_row(DEBT_SHEET, "Interest Expense")
   debt_service = ctx.schedule_row(DEBT_SHEET, "Total Debt Service")
   issuance_values = values_21((schedule_by_label.get("Debt Issuance (New Borrowing)") or {}).get("values"))
@@ -451,14 +473,34 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     r = ctx.schedule_row(DEBT_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
       cell = ws.cell(r, col)
-      if label in {"Debt Issuance", "Requested Debt Repayment", "Interest Rate"}:
+      if label in {"Debt Issuance", "Requested Debt Repayment", "Interest Rate per quarter"}:
         set_input_style(cell, number_format=fmt)
       else:
         set_formula_style(cell, number_format=fmt)
     add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Closing Debt", "Interest Expense", "Actual Debt Repayment"} else None, bold=label in {"Closing Debt", "Interest Expense"}, number_format=fmt)
 
+  # ONE NOTE ROW, TWO JOBS. After payoff the repayment and rate rows still show
+  # numbers that reach nothing - on Harrow, debt closes in Q7 and thirteen
+  # quarters of amber follow. And the MIN() cap means a client who types a
+  # larger repayment sees nothing move. Both are the same question - "why did
+  # my number do nothing?" - so both get answered in the same row, per quarter.
+  # Show the number and mark it; never hide it.
+  ws.cell(row=row, column=1, value="Why a number here did nothing")
+  ws.cell(row=row, column=2,
+          value="Reads across the quarters below").font = design.font("note")
+  for idx in range(PERIOD_COUNT):
+    col = PERIOD_START_COL + idx
+    cell = ws.cell(
+      row=row, column=col,
+      value=(f'=IF({local_ref(closing_debt, col)}+{local_ref(debt_opening, col)}<=0,'
+             f'"Debt repaid in full - this quarter\'s repayment and rate no longer apply",'
+             f'IF({local_ref(requested_repay, col)}>{local_ref(actual_repay, col)},'
+             f'"Repayment capped at the balance available",""))'))
+    cell.font = design.font("note")
+  ctx.add_schedule_row(DEBT_SHEET, "Debt note", row)
   row += 2
+
   write_section_header(ws, row, "Capital Lease Schedule")
   row += 1
   # Phase 9 P3.16 — capital lease integration. Adds ROU asset and
@@ -539,6 +581,9 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
       )
     add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_LIGHT, number_format=fmt)
+
+
+  hide_stub_column(ws)
 
 
 def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:

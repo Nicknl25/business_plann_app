@@ -453,7 +453,7 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
   requested = ctx.schedule_row(DEBT_SHEET, "Requested Debt Repayment")
   actual = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
   closing = ctx.schedule_row(DEBT_SHEET, "Closing Debt")
-  rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate")
+  rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate per quarter")
   interest = ctx.schedule_row(DEBT_SHEET, "Interest Expense")
   service = ctx.schedule_row(DEBT_SHEET, "Total Debt Service")
   if all([opening, issuance, requested, actual, closing, rate, interest, service]):
@@ -496,7 +496,7 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       line_item="Interest expense formula",
       sheet=DEBT_SHEET,
       range_or_cell=rr("Interest Expense"),
-      actual_formula=f"=SUMPRODUCT(ABS({rr('Interest Expense')}-((({rr('Opening Debt')}+{rr('Closing Debt')})/2)*{rr('Interest Rate')})))",
+      actual_formula=f"=SUMPRODUCT(ABS({rr('Interest Expense')}-((({rr('Opening Debt')}+{rr('Closing Debt')})/2)*{rr('Interest Rate per quarter')})))",
       tolerance=1.0,
       notes="Interest expense must equal average debt balance times interest rate.",
     )

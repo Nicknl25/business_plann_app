@@ -325,10 +325,6 @@ ANNUAL_YEAR_START = "year_start"  # a BALANCE at the open of the year
 
 _ANNUAL_MODES = {ANNUAL_SUM, ANNUAL_AVERAGE, ANNUAL_ANNUALIZE, ANNUAL_YEAR_END, ANNUAL_YEAR_START}
 
-#: Rows whose annual figure is the rate quoted the way a reader expects it -
-#: a cost of debt is an ANNUAL rate, even though the model carries it quarterly.
-_ANNUALIZED_LABELS = {"Interest Rate"}
-
 #: Labels that are a LEVEL or a RATE whatever their number format - a unit
 #: price is money-formatted but four quarters of it do not add up to a year's
 #: price. This is what put $2,599 in front of a client for a $640 service.
@@ -345,11 +341,15 @@ def annual_mode_for(label: str, number_format: str) -> str:
   Number format is the honest signal for rate-ness (a percent/ratio/days row is
   never a flow); the label decides balance-vs-flow among the money rows, and
   whether a balance is a year-START (an "Opening ..." row) or a year-END one.
+
+  ANNUALIZE is NOT reachable from here, deliberately. It used to be, through an
+  exact-match set holding the single string "Interest Rate" - so the one mode
+  that MULTIPLIES was chosen by a label's exact wording, and renaming that row
+  to say which period it meant would silently have turned x4 into an average.
+  Both rows that want it now declare it. A row that wants ANNUALIZE says so.
   """
   text_label = (label or "").strip().lower()
   fmt = number_format or ""
-  if label in _ANNUALIZED_LABELS:
-    return ANNUAL_ANNUALIZE
   if fmt in {design.FMT_PERCENT, design.FMT_RATIO, design.FMT_DAYS}:
     return ANNUAL_AVERAGE
   if any(hint in text_label for hint in _LEVEL_HINTS):

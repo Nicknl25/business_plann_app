@@ -5,6 +5,7 @@ from typing import Optional, Dict, List, Tuple
 from .data import DraftWorkbookData, row_by_label, text
 from .marketing_schedule_sheet import MARKETING_PERCENT_ROW_KEY
 from .excel_utils import (
+  ANNUAL_ANNUALIZE,
   MARKETING_SCHEDULE_SHEET,
   ANNUAL_START_COL,
   CAPEX_SHEET,
@@ -139,7 +140,7 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
     "Lease": (CASH_EQUITY_SHEET, "Lease"),
     "Payroll": (PAYROLL_SHEET, "Total Payroll"),
     "General & Administrative": (None, None),
-    "Interest Rate": (DEBT_SHEET, "Interest Rate"),
+    "Interest Rate": (DEBT_SHEET, "Interest Rate per quarter"),
     "Interest Expense": (DEBT_SHEET, "Interest Expense"),
     "Depreciation": (CAPEX_SHEET, "Depreciation Rate"),
     "Depreciation Expense": (CAPEX_SHEET, "Depreciation Expense"),
@@ -159,7 +160,11 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
         source_row=source_row,
         detail=f"{source_sheet} output",
         number_format=fmt,
-        annual_mode=None,
+        # DECLARED, not inferred. This row is the last consumer of
+        # _ANNUALIZED_LABELS, which matches on the literal string "Interest
+        # Rate" - so a reword of THIS label would have silently turned the
+        # annual column from x4 into an average.
+        annual_mode=ANNUAL_ANNUALIZE if label == "Interest Rate" else None,
       )
       if label == "Payroll":
         from .data import values_21

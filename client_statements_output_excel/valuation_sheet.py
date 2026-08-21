@@ -247,7 +247,7 @@ def build_valuation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   rows["tax"] = row
   row += 1
 
-  rate_row = ctx.schedule_row("Debt Schedule", "Interest Rate")
+  rate_row = ctx.schedule_row("Debt Schedule", "Interest Rate per quarter")
   put(row, "Cost of debt (annual)",
       f"={ref('Debt Schedule', rate_row, FIRST_LIVE_COL)}*4" if rate_row else 0.0, design.FMT_PERCENT)
   ws.cell(row=row, column=3, value="GROUNDED (model)").font = design.font("status_good")
