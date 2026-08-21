@@ -13,6 +13,20 @@ class GateContext(Surface):
 
     def reset(self):
         self.last_turn = None
+        self.golden_shas = {}
+
+    def golden(self, name, digest):
+        """Record a golden-master surface digest, and echo it as before.
+
+        The echo is what --prove reads. The RECORD is what bare mode compares
+        against replay_gate.legs.BLESSED_SURFACES - without it a golden-master
+        leg computes a digest, prints it, and reports green having compared
+        nothing at all.
+        """
+        if not hasattr(self, "golden_shas") or self.golden_shas is None:
+            self.golden_shas = {}
+        self.golden_shas[name] = digest
+        print(f"GOLDEN-SHA {name} {digest}")
 
     def note_turn(self, turn):
         """A leg that drives a real turn registers it here so the

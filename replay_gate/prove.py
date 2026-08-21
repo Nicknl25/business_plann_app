@@ -202,6 +202,11 @@ def ensure_baseline(sha, home=None):
 def _run_one(root, leg_id, tier, home):
     env = dict(os.environ)
     env["PYTHONPATH"] = home + os.pathsep + env.get("PYTHONPATH", "")
+    # --prove compares each golden surface across BOTH commits itself, which
+    # is a stronger check than the blessed record and is the authority here.
+    # Without this the bare comparison would also fire, and a leg that
+    # legitimately moved would go RED at HEAD instead of reporting DRIFT.
+    env["REPLAY_GATE_PROVING"] = "1"
     cmd = [sys.executable, "-m", "replay_gate.run_gate",
            "--root", root, "--only", leg_id, "--tier", tier, "--quiet"]
     p = subprocess.run(cmd, cwd=home, env=env, capture_output=True, text=True)

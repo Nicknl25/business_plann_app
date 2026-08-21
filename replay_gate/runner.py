@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """Run legs against the bound build and score them."""
 from . import surface as surface_mod
-from .legs import FAST, LIVE, REGRESSIONS
+import os
+
+from .legs import (
+    FAST, GOLDEN_MASTER, LIVE, REGRESSIONS, bare_golden_verdict,
+)
 from .invariants import INVARIANTS
 from .verdict import judge
 
@@ -43,7 +47,21 @@ def run_leg(ctx, leg):
         return ok, verdict, detail, evidence
     verdict = "HOLDS" if landed else ("REGRESSED" if leg.kind == "REGRESSION"
                                       else "VIOLATED")
+    if landed and leg.proof == GOLDEN_MASTER and not _proving():
+        # BARE MODE. --prove compares the surface across two commits and is
+        # the authority when it runs; without it, the leg's own assertions
+        # only check a floor and a canary. The claim a golden-master leg
+        # makes is "this did not change", so bare mode compares it against
+        # the blessed record - and refuses green when it cannot.
+        ok, verdict, detail = bare_golden_verdict(
+            leg.id, getattr(ctx, "golden_shas", None) or {})
+        return ok, verdict, detail, evidence
     return bool(landed), verdict, evidence, ""
+
+
+def _proving():
+    """True inside a --prove child, which does its own two-commit compare."""
+    return os.environ.get("REPLAY_GATE_PROVING") == "1"
 
 
 def run_all(ctx, report, tier="fast", only=None, quarantined=()):

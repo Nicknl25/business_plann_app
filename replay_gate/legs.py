@@ -43,6 +43,93 @@ BEHAVIOURAL = "behavioural"
 # evidence, and must assert its payload is substantive - a hash over an empty
 # dict matches itself perfectly and proves nothing.
 GOLDEN_MASTER = "golden-master"
+
+# ---------------------------------------------------------------------------
+# BLESSED SURFACES - what bare mode compares against.
+#
+# Until 2026-08-21 a golden-master leg run WITHOUT --prove compared nothing.
+# It built its surface, checked a floor and a canary, PRINTED
+# "GOLDEN-SHA <name> <hex>", and returned green. The digest went to stdout and
+# nowhere else. R49 therefore reported [ ok ] on a commit that moved 61 static
+# text cells, and R32 had the same hole. The fast gate was reporting green on
+# the one question these legs exist to answer.
+#
+# Each entry is the digest set recorded at the leg's CURRENT baseline commit.
+# "input" is ctx.draft_input_sha: the fixture's own identity. If the fixture
+# moves, the surfaces legitimately move with it and a comparison would be
+# meaningless - bare mode says so rather than crying DRIFT.
+#
+# RE-BLESSING UPDATES BOTH: the Leg's baseline commit AND the digests here.
+# tests/test_golden_master_bare_mode.py fails if a golden-master leg has no
+# entry, so forgetting is loud rather than silent.
+# ---------------------------------------------------------------------------
+BLESSED_SURFACES = {
+    "R31": {
+        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "model_input": "1d50e46ab8e6",
+        "finmo": "bcd8fce31066",
+    },
+    "R32": {
+        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "workbook_formulas": "1c74a6f51cd9",
+    },
+    "R49": {
+        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "workbook_text": "8a59ab7774ac",
+    },
+}
+
+#: How much of each digest is compared. The proof notes and the gate's own
+#: output have always quoted 12 hex characters, so that is what is recorded
+#: and what is checked - 48 bits, which no accidental collision reaches.
+BLESSED_PREFIX = 12
+
+
+def bare_golden_verdict(leg_id, shas):
+    """Bare-mode verdict for a golden-master leg. -> (ok, verdict, detail)
+
+    Refuses to report green on anything it could not actually check. A
+    golden-master leg makes exactly one claim - "this output did not change" -
+    and a leg that cannot evaluate its claim must not look like one that did.
+    """
+    record = BLESSED_SURFACES.get(leg_id)
+    if not record:
+        return False, "UNBLESSED", (
+            f"{leg_id} is a golden-master leg with no entry in "
+            f"BLESSED_SURFACES, so bare mode has nothing to compare its "
+            f"digest against. Run --prove, or record the blessed digests.")
+    if not shas:
+        return False, "UNEARNED", (
+            f"{leg_id} emitted no golden digest at all - the surface was "
+            f"never hashed, so nothing was verified.")
+    want_input = record.get("input")
+    got_input = shas.get("single_line_input")
+    if want_input and got_input and got_input != want_input:
+        return False, "UNCOMPARABLE", (
+            f"the fixture moved: single_line_input is {got_input[:12]}, the "
+            f"blessed record is {want_input[:12]}. The surfaces legitimately "
+            f"differ against a different draft, so this is NOT a drift claim - "
+            f"it is bare mode declining to pretend it checked. Re-record.")
+    moved = []
+    for name, want in sorted(record.items()):
+        if name == "input":
+            continue
+        got = shas.get(name)
+        if got is None:
+            return False, "UNEARNED", (
+                f"{leg_id} blessed a {name!r} digest but the leg emitted none "
+                f"this run - the surface it claims to pin was not built.")
+        if got[:BLESSED_PREFIX] != want[:BLESSED_PREFIX]:
+            moved.append(f"{name}: blessed {want[:BLESSED_PREFIX]}, "
+                         f"got {got[:BLESSED_PREFIX]}")
+    if moved:
+        return False, "DRIFT", (
+            "THE OUTPUT MOVED against the blessed record - " + "; ".join(moved)
+            + ". This leg exists to prove it does not. Account for every "
+              "changed leaf before re-blessing.")
+    checked = ", ".join(f"{n}={record[n][:BLESSED_PREFIX]}"
+                        for n in sorted(record) if n != "input")
+    return True, "HOLDS", f"matches the blessed record ({checked})"
 # STRUCTURAL_ABSENCE: this leg's baseline red is an ImportError/AttributeError
 # because the capability it pins DID NOT EXIST at that commit - verified by
 # grepping the baseline tree, not inferred from the commit message. Such a red
@@ -1781,9 +1868,9 @@ def _r_single_line_unchanged(ctx):
     # deterministic ladder, but they pick it in separate processes - so this
     # is what turns "the two sides hashed different businesses" from an
     # unexplained output move into a DRIFT that names single_line_input.
-    print(f"GOLDEN-SHA single_line_input {ctx.draft_input_sha}")
-    print(f"GOLDEN-SHA model_input {mi_sha}")
-    print(f"GOLDEN-SHA finmo {fin_sha}")
+    ctx.golden("single_line_input", ctx.draft_input_sha)
+    ctx.golden("model_input", mi_sha)
+    ctx.golden("finmo", fin_sha)
     return not fails, (
         f"single-line draft {draft['id'][:8]}: {len(rows)} revenue rows, zero "
         f"COGS % rows, legacy blend row intact; {ppe_src}; "
@@ -1827,8 +1914,8 @@ def _r_workbook_formula_grid(ctx):
     digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     # Same reason as R31: the model-input side of this workbook comes from a
     # draft chosen at runtime, so its identity is hashed beside the output.
-    print(f"GOLDEN-SHA single_line_input {ctx.draft_input_sha}")
-    print(f"GOLDEN-SHA workbook_formulas {digest}")
+    ctx.golden("single_line_input", ctx.draft_input_sha)
+    ctx.golden("workbook_formulas", digest)
 
     # SCOPED TO FINMO (round 7). The label 'Cost of Goods Sold' legitimately
     # appears on THREE sheets, and counting it across the whole grid made the
@@ -1933,8 +2020,8 @@ def _r_workbook_text_surface(ctx):
                        f"stably and proves nothing")
     blob = json.dumps(surface, sort_keys=True, separators=(",", ":"), default=str)
     digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
-    print(f"GOLDEN-SHA single_line_input {ctx.draft_input_sha}")
-    print(f"GOLDEN-SHA workbook_text {digest}")
+    ctx.golden("single_line_input", ctx.draft_input_sha)
+    ctx.golden("workbook_text", digest)
 
     # A NAMED CANARY, not just a hash. The hash tells you something moved; this
     # says the specific cell whose silent move created this leg is still where
