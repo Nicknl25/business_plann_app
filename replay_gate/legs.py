@@ -3708,9 +3708,24 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "01fd627", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "b7586ca", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19d (baseline 54c1843 -> 01fd627, VS, mini's "
+        proof_note=("RE-BLESSED 2026-08-21 (baseline 01fd627 -> b7586ca, VS, Nick's "
+                    "schedule-sheet cleanup). 283 leaves identical, 13 changed, "
+                    "every one declared: the ELEVEN Stage Ramp Contract rows are "
+                    "REMOVED (R_RAMP_01 - nothing consumed them, proven across "
+                    "formulas, defined names, data validation, conditional "
+                    "formatting, chart series and hyperlinks on both fixtures); "
+                    "Actual Revenue QoQ Growth keeps its 26 cells but moves up "
+                    "into the live driver section so its own AVERAGE references "
+                    "follow; and Checks Formula Error Scan narrows from C7:W28 "
+                    "to C7:W16 because the sheet is shorter. ZERO unexplained. "
+                    "R31 did NOT move (finmo c36bef7c5bdb, model_input "
+                    "1d50e46ab8e6) - no engine touched. Delivered values "
+                    "recalculated in Excel and identical: FINMO Marketing "
+                    "2,250.00, Net Income 17,021.92, Checks OK. Hiding the stub "
+                    "COLUMN moves neither digest - visibility is not a cell value. "
+                    "PREVIOUS: RE-BLESSED 2026-08-19d (baseline 54c1843 -> 01fd627, VS, mini's "
                     "two client-facing blockers). The grid moves by ELEVEN leaves "
                     "out of 298 and every one is declared: 5 annual cells on "
                     "Beginning Cash (=SUM(D46:G46) -> =D46, the year START) and 5 "
@@ -3810,9 +3825,17 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "2757e22", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "b7586ca", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-20 (baseline 66ce906 -> 2757e22, VS, "
+        proof_note=("RE-BLESSED 2026-08-21 (baseline 2757e22 -> b7586ca, VS, Nick's "
+                    "schedule-sheet cleanup). 2,550 cells identical; 24 gone, 1 new, "
+                    "3 changed in place, all on Revenue Drivers and Checks and all "
+                    "declared: the 11 Stage Ramp row labels, their 11 GPT-selected "
+                    "stage ramp contract details, the section header, and the QoQ "
+                    "label OLD address are gone; the QoQ label reappears at its new "
+                    "address; the two Checks range strings and the section-header "
+                    "position change in place. ZERO unexplained. "
+                    "PREVIOUS: RE-BLESSED 2026-08-20 (baseline 66ce906 -> 2757e22, VS, "
                     "R-MKTG-03 phase 2 + A-129). 70862e7bdfad, 2,575 -> 2,577 "
                     "cells. The drift is ENTIRELY on Cover and is a pure "
                     "one-row shift: the contents index gained a Valuation line "
