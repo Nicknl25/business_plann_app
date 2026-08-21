@@ -71,7 +71,7 @@ BLESSED_SURFACES = {
     },
     "R32": {
         "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
-        "workbook_formulas": "1c74a6f51cd9",
+        "workbook_formulas": "e0ff81217c51",
     },
     "R49": {
         "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
@@ -3660,6 +3660,161 @@ def _r_discovery_removed_never_resurrected(ctx):
         "; ".join(seen) + ("; FAILED: " + "; ".join(fails) if fails else ""))
 
 
+
+def _r_no_stub_anchored_references(ctx):
+    """R50 - no formula is anchored to the STUB column.
+
+    The class both goldens are structurally blind to. R32 hashes formula
+    STRINGS, so "=MIN((C18/20),D24)" and "=MIN((C18/20),E24)" are different
+    strings and the golden is satisfied. What it never asks is whether a
+    reference ADVANCES with its column. A cell reading C18 in every quarter is
+    pinned to the stub - the pre-period column, now HIDDEN - and string
+    comparison cannot tell that apart from a reference that walks correctly.
+    R49 cannot see it either: these are formulas, not static text.
+
+    Measured live before the fix: the lease depreciation row read the stub's
+    opening balance in all twenty quarters, so a lease added after Q0 raised
+    the asset and never raised depreciation. R-DEBT-01 swept the whole workbook
+    and found exactly one such defect; this leg is what stops the second.
+
+    WHAT IS ALLOWED, and the distinction is the leg:
+      - a frozen reference to a column OUTSIDE the period grid (a label in A,
+        a rate held in B) - legitimately fixed;
+      - a frozen reference to a LIVE period column, which is how a seed is
+        written: $D$27;
+      - any RANGE endpoint, moving or not. SUM(C35:V35) on the Valuation DCF
+        spans the whole period grid deliberately, and the Payroll SUMIFS run
+        over a fixed $G$27:$G$126 block. Twenty such references exist on a
+        correct build; a rule that flagged them would be a rule nobody keeps.
+        Only SCALAR reads are anchors;
+      - the opening-balance pattern, where Q1 alone reads the stub and every
+        later quarter reads the quarter before it.
+    What is NOT allowed is a reference to the STUB column repeated across the
+    period columns, which is the defect and nothing else.
+    """
+    import re
+    from openpyxl.utils import column_index_from_string, get_column_letter
+    from client_statements_output_excel import data as wbdata
+    from client_statements_output_excel import workbook_builder
+    from client_statements_output_excel.excel_utils import (
+        PERIOD_COUNT, PERIOD_START_COL)
+
+    ref_rx = re.compile(r"(?:'([^']+)'!)?(\$?)([A-Z]{1,3})(\$?)(\d+)")
+    stub_letter = get_column_letter(PERIOD_START_COL)
+
+    def _is_period_grid(ws):
+        """Does this sheet carry the quarterly grid? Ask its header row."""
+        for r in range(1, min(ws.max_row, 12) + 1):
+            if (str(ws.cell(row=r, column=PERIOD_START_COL).value or "").strip()
+                    == "Stub"
+                    and str(ws.cell(row=r, column=PERIOD_START_COL + 1).value
+                            or "").strip() == "Q1"):
+                return True
+        return False
+
+    def sweep(wb):
+        """-> (violations, references_examined)"""
+        bad, seen = [], 0
+        for ws in wb.worksheets:
+            # ONLY sheets whose columns really are the period grid. The marker
+            # is production's own: write_period_headers stamps "Stub" at
+            # PERIOD_START_COL and "Q1" beside it. The Valuation sheet's grid
+            # is a DISCOUNT-RATE sensitivity axis, not a time axis, and
+            # sweeping it as one flagged five correct rows: each subtracts
+            # FINMO!C84, net debt at the stub, which is exactly right because
+            # the stub is "today" and every sensitivity cell must subtract the
+            # same scalar. A leg that has to be argued with on a correct
+            # workbook is a leg that gets switched off.
+            if not _is_period_grid(ws):
+                continue
+            for r in range(1, ws.max_row + 1):
+                per_col = {}
+                for i in range(PERIOD_COUNT):
+                    c = PERIOD_START_COL + i
+                    v = ws.cell(row=r, column=c).value
+                    if isinstance(v, str) and v.startswith("="):
+                        # SCALAR references only. A range ENDPOINT that never
+                        # moves is an aggregate, not an anchor: SUM(C35:V35)
+                        # spans the whole period grid on purpose, and the
+                        # Payroll SUMIFS run over a fixed $G$27:$G$126 block.
+                        # The defect is a per-quarter SCALAR read of the stub -
+                        # C20 in MIN((C20/20),D26) - which is what this keeps.
+                        per_col[c] = [
+                            (m.group(1), m.group(3), m.group(5))
+                            for m in ref_rx.finditer(v)
+                            if v[max(0, m.start() - 1):m.start()] != ":"
+                            and v[m.end():m.end() + 1] != ":"]
+                if len(per_col) < 3:
+                    continue
+                cols = sorted(per_col)
+                # the LIVE period columns only. The stub's own formula reading
+                # the stub is not a frozen reference, it is a cell reading its
+                # own column, and including it would flag the correct
+                # opening-balance pattern on every schedule in the workbook.
+                live = [c for c in cols if c > PERIOD_START_COL]
+                if len(live) < 3:
+                    continue
+                width = min(len(per_col[c]) for c in live)
+                seen += width * len(live)
+                for pos in range(width):
+                    letters = [per_col[c][pos][1] for c in live]
+                    rows_ = [per_col[c][pos][2] for c in live]
+                    sheets_ = [per_col[c][pos][0] for c in live]
+                    if len(set(letters)) != 1 or len(set(rows_)) != 1:
+                        continue
+                    if letters[0] != stub_letter:
+                        continue
+                    if column_index_from_string(letters[0]) < PERIOD_START_COL:
+                        continue
+                    label = str(ws.cell(row=r, column=1).value or "")[:40]
+                    bad.append(
+                        f"[{ws.title}] r{r} {label!r} pins "
+                        f"{(sheets_[0] + '!') if sheets_[0] else ''}"
+                        f"{letters[0]}{rows_[0]} in all {len(live)} live "
+                        f"quarters: {str(ws.cell(row=r, column=live[1]).value)[:70]}")
+        return bad, seen
+
+    wb, gap = ctx._build_workbook(
+        workbook_builder.build_client_financial_model_workbook,
+        wbdata.draft_data_from_row)
+    if gap:
+        return False, f"SETUP: {gap}"
+    bad, seen = sweep(wb)
+    total_seen, total_bad = seen, list(bad)
+
+    mij, fin, _ = ctx.multi_line_payload()
+    wb2, gap2 = ctx._build_workbook(
+        workbook_builder.build_client_financial_model_workbook,
+        wbdata.draft_data_from_row,
+        {"draft": {"id": "r50", "row": {"business_name": "Thistledown Cycles",
+                                        "address_city": "Burlington",
+                                        "address_state": "VT"}},
+         "mij": mij, "finmo": fin})
+    if gap2:
+        return False, f"SETUP (multi-line): {gap2}"
+    bad2, seen2 = sweep(wb2)
+    total_seen += seen2
+    total_bad += [f"(multi-line) {b}" for b in bad2]
+
+    # FLOOR. A sweep that examined nothing reports clean and proves nothing -
+    # the same trap the golden legs had. The real workbook carries thousands
+    # of in-grid references across both builds.
+    if total_seen < 2000:
+        return False, (f"only {total_seen} references examined across two "
+                       f"builds - too thin to pin; an empty sweep is clean by "
+                       f"construction and proves nothing")
+    if total_bad:
+        return False, (f"{len(total_bad)} reference(s) anchored to the stub "
+                       f"column {stub_letter}, which is HIDDEN and never "
+                       f"advances:\n          " + "\n          ".join(total_bad[:8]))
+    return True, (f"{total_seen} in-grid references examined across two builds "
+                  f"(single-line + multi-line); none is pinned to the stub "
+                  f"column {stub_letter}. Frozen references to LIVE columns are "
+                  f"allowed and present by design - a seed anchor and "
+                  f"cumulative-sum starts - so this is a scoped claim, not a "
+                  f"ban on absolute references")
+
+
 REGRESSIONS = [
     Leg("R01", "REGRESSION", "completed-financials-freeze",
         "the completed-financials dead end (the freeze)",
@@ -3793,11 +3948,42 @@ REGRESSIONS = [
         "the blend IS the lines: Sigma(line_rev x line_pct) == total x blend",
         "c77094a", "9d2c41c", _r_per_line_sigma, issue="WS1b",
         surface="model_input_json / engine"),
+    Leg("R50", "INVARIANT", "no-stub-anchored-references",
+        "no formula pins the hidden stub column across the live quarters",
+        "d3e8efe", "35df1d2", _r_no_stub_anchored_references, issue="R-DEBT-01",
+        surface="workbook formula grid",
+        proof_note=("BEHAVIOURAL, and it earns that: at the baseline 35df1d2 the "
+                    "lease depreciation row read the stub's opening balance in "
+                    "all twenty quarters (=MIN((C20/20),D26)), so a lease added "
+                    "after Q0 raised the asset and never raised depreciation. "
+                    "d3e8efe moved the anchor onto the first LIVE column. "
+                    "THE CLASS BOTH GOLDENS ARE BLIND TO: R32 hashes formula "
+                    "STRINGS, and C18 repeated across quarters produces a "
+                    "different string per column, so the grid golden is satisfied "
+                    "by a reference that never moves. R49 sees only static text. "
+                    "R-DEBT-01 swept the workbook and found exactly ONE such "
+                    "defect; this leg is what stops the second. "
+                    "SCOPED DELIBERATELY to the STUB column. Six frozen in-grid "
+                    "references survive on a correct build and all six are right: "
+                    "three Payroll SUMIFS over a fixed $G$27:$G$126 block, two "
+                    "Calc MINs over the whole FINMO cash row, and the lease "
+                    "depreciation seed $D$27. A leg banning absolute references "
+                    "outright would fail on a correct workbook, which is how a "
+                    "leg gets disabled rather than fixed.")),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "d3e8efe", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "4032ac3", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21d (baseline a46e5f8 -> d3e8efe, VS, R-DEBT-02 "
+        proof_note=("RE-BLESSED 2026-08-21e (baseline d3e8efe -> 4032ac3, VS, Nick's "
+                    "ruling: a capital lease creates an asset and a liability or "
+                    "neither). 1c74a6f51cd9 -> e0ff81217c51. EXACTLY TWO leaves, both "
+                    "on the Debt Schedule, both the change itself: Right-of-Use Asset "
+                    "Closing gains its additions term, and Lease Asset Depreciation "
+                    "takes the GROSS base (seed + additions already on the books). "
+                    "R49 did NOT move - no text changed - and the newly-comparing bare "
+                    "gate reported exactly that on its first real use. "
+                    "Values unmoved: 31,270 recalculated cells across three drafts, 0. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21d (baseline a46e5f8 -> d3e8efe, VS, R-DEBT-02 "
                     "stage 2 commit B: the lease depreciation anchor). 287 leaves, "
                     "1 added and 12 changed, all declared. The added leaf is the "
                     "'Lease Life in quarters' row - the divisor 20, promoted out of "
