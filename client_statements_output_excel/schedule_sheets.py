@@ -654,28 +654,53 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
     "CapEx & Depreciation Schedule",
     "Capital expenditure and depreciation mechanics. Model Inputs links "
     "to calculated outputs. Existing equipment and new capital spending "
-    f"are depreciated straight-line over {_life_years:g} years.",
+    f"are written down over about {_life_years:g} years, at a rate fitted "
+    "each quarter to keep the expense level - see the note below the "
+    "schedule.",
   )
   write_period_headers(ws, data.periods)
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
   schedules = data.schedules
-  row = 6
-  write_section_header(ws, row, "PPE and Depreciation")
-  row += 1
-  labels = [
-    ("Opening PPE", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Capital Expenditures", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Lease Additions", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Depreciation Rate", PERCENT_FORMAT, ANNUAL_AVERAGE),
-    ("Depreciation Expense", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Closing PPE", CURRENCY_FORMAT, ANNUAL_YEAR_END),
-    ("Opening Accumulated Depreciation", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Accumulated Depreciation", CURRENCY_FORMAT, ANNUAL_YEAR_END),
+  # ADJUSTABLE ROWS FIRST, RESULTS BELOW - the same shape as the Debt
+  # Schedule. Capital Expenditures sat at row 8 and Depreciation Rate at row
+  # 10, with calculated rows above, between and below them, so nothing on the
+  # sheet said which two numbers were the client's.
+  capex_inputs = [
+    ("Capital Expenditures", "What you spend on equipment this quarter",
+     CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Depreciation Rate", "Share of the opening balance written off this quarter",
+     PERCENT_FORMAT, ANNUAL_AVERAGE),
   ]
-  for label, _fmt, _mode in labels:
+  capex_outputs = [
+    ("Opening PPE", "What the equipment was worth at the start",
+     CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Lease Additions", "Comes from the Debt Schedule - change it there",
+     CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Depreciation Expense", "Opening balance x the rate above",
+     CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Closing PPE", "What it is worth at the end, after depreciation",
+     CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Opening Accumulated Depreciation", "Written off before this quarter",
+     CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Accumulated Depreciation", "Written off in total, to date",
+     CURRENCY_FORMAT, ANNUAL_YEAR_END),
+  ]
+  labels = [(l, f, m) for l, _d, f, m in capex_inputs + capex_outputs]
+  row = 6
+  write_section_header(ws, row, "What you can change")
+  row += 1
+  for label, detail, _fmt, _mode in capex_inputs:
     ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value="Schedule source" if label in {"Capital Expenditures", "Lease Additions", "Depreciation Rate"} else "Calculated")
+    ws.cell(row=row, column=2, value=detail)
+    ctx.add_schedule_row(CAPEX_SHEET, label, row)
+    row += 1
+  row += 1
+  write_section_header(ws, row, "What that produces")
+  row += 1
+  for label, detail, _fmt, _mode in capex_outputs:
+    ws.cell(row=row, column=1, value=label)
+    ws.cell(row=row, column=2, value=detail)
     ctx.add_schedule_row(CAPEX_SHEET, label, row)
     row += 1
   capex_values = values_21((schedule_by_label.get("Capital Expenditures") or {}).get("values"))
@@ -713,6 +738,32 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
         set_formula_style(ws.cell(r, col), number_format=fmt)
     add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Capital Expenditures", "Depreciation Expense", "Closing PPE"} else None, bold=label in {"Depreciation Expense", "Closing PPE"}, number_format=fmt)
+
+  # WHAT THE RATE ACTUALLY IS. The row above is editable and amber, and its
+  # values climb - measured on three drafts, 5.1% to 54.4% across the twenty
+  # quarters. That is not a rate anyone can reason about, and it is not an
+  # assumption: the engine FITS it quarter by quarter so that the expense
+  # comes out level (759, 768, 777 ... 859 on the fixture) while the balance
+  # it applies to keeps falling. The straight line is in the RESULT, not in
+  # the rate. A client who "corrects" this row to a flat 5% would change the
+  # whole schedule and be reasonable to think they were fixing a typo.
+  #
+  # Said plainly on the sheet rather than fixed here, because replacing the
+  # mechanism with a useful-life row - the shape the lease block now uses -
+  # changes delivered numbers, and that is Nick's call, not a tidy-up.
+  row += 1
+  ws.cell(row=row, column=1, value="About the depreciation rate")
+  ws.cell(row=row, column=2, value="Read this before changing it").font = design.font("note")
+  note = ws.cell(
+    row=row, column=PERIOD_START_COL,
+    value=("This rate is fitted quarter by quarter so the depreciation expense "
+           "stays level as the equipment balance falls - that is why it rises "
+           "over time. It is not an annual rate, and flattening it will change "
+           "every figure below."))
+  note.font = design.font("note")
+  ctx.add_schedule_row(CAPEX_SHEET, "CapEx note", row)
+
+  hide_stub_column(ws)
 
 
 def build_working_capital_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
