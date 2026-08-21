@@ -3708,9 +3708,26 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "b7586ca", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "a46e5f8", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21 (baseline 01fd627 -> b7586ca, VS, Nick's "
+        proof_note=("RE-BLESSED 2026-08-21c (baseline b7586ca -> a46e5f8, VS, R-DEBT-02 "
+                    "stage 2: the Debt Schedule reordered into inputs-then-outputs "
+                    "and the rate row renamed 'Interest Rate per quarter'). "
+                    "ff9fa4903fe0 -> fd607d4700b5, 285 -> 286 leaves. "
+                    "1 removed ('Interest Rate'), 2 added (the renamed rate row and "
+                    "the note row), 35 changed in place and ALL 35 are pure row "
+                    "shifts - classified MECHANICALLY rather than by eye, by blanking "
+                    "the row number of every Debt Schedule reference (single-cell AND "
+                    "range - the first pass missed the second half of E10:H10 and "
+                    "reported 4 false unexplained) and requiring the remainder to be "
+                    "byte-identical. ZERO unexplained. The moved leaves are 19 "
+                    "off-sheet references into the Debt Schedule (Model Inputs, FINMO, "
+                    "Checks, CapEx) and 16 on the sheet itself. "
+                    "THE VALUES DID NOT MOVE and that is the claim that matters here, "
+                    "because a reorder makes formula text change by construction: "
+                    "31,192 recalculated cells across three drafts (the fixture, Falls "
+                    "City 76c6e0b9, Harrow 85f5825d), keyed by row LABEL, 0 moved. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21 (baseline 01fd627 -> b7586ca, VS, Nick's "
                     "schedule-sheet cleanup). 283 leaves identical, 13 changed, "
                     "every one declared: the ELEVEN Stage Ramp Contract rows are "
                     "REMOVED (R_RAMP_01 - nothing consumed them, proven across "
@@ -3825,9 +3842,30 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "ef62181", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "a46e5f8", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21b (baseline b7586ca -> ef62181, VS): ONE cell, "
+        proof_note=("RE-BLESSED 2026-08-21c (baseline ef62181 -> a46e5f8, VS, R-DEBT-02 "
+                    "stage 2). 2742f45cb508 -> 4a357f183c66, 2,554 -> 2,557 cells: "
+                    "9 added, 6 removed, 42 changed in place, and every one is on the "
+                    "Debt Schedule or on Checks. "
+                    "The Debt Schedule half (38 cells) IS the change: 'Debt "
+                    "Amortization' becomes the two section headers 'What you can "
+                    "change' and 'What that produces', the labels below them move to "
+                    "new addresses, the rate row is renamed, the note row arrives, and "
+                    "the detail column is reworded out of build-speak ('Calculated', "
+                    "'MIN(requested repayment, opening debt + issuance)') into what "
+                    "the row means to whoever operates the sheet. "
+                    "The Checks half (19 cells) is NOT prose - they are the range "
+                    "STRINGS that name what each tie-out covers, so they follow the "
+                    "debt rows: 'Debt Schedule'!C10:W10 -> C13:W13 and so on. That "
+                    "they moved is the leg working; had they NOT moved, a check would "
+                    "be describing one range and testing another. "
+                    "R49 was GREEN on this change WITHOUT --prove, and that is worth "
+                    "writing down: bare, the leg only asserts the surface is thick "
+                    "enough and the 'As of' canary is in place - it PRINTS a digest "
+                    "and compares nothing. The golden comparison is the --prove path. "
+                    "A bare-green R49 is not evidence that text held. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21b (baseline b7586ca -> ef62181, VS): ONE cell, "
                     "Audit Source!A47, from the Depreciatoin typo fix. R32 did NOT "
                     "move - no formula changed. "
                     "PREVIOUS: RE-BLESSED 2026-08-21 (baseline 2757e22 -> b7586ca, VS, Nick's "
