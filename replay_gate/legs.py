@@ -71,11 +71,11 @@ BLESSED_SURFACES = {
     },
     "R32": {
         "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
-        "workbook_formulas": "e0ff81217c51",
+        "workbook_formulas": "7b06ca800380",
     },
     "R49": {
         "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
-        "workbook_text": "8a59ab7774ac",
+        "workbook_text": "692484342a4b",
     },
 }
 
@@ -3972,9 +3972,15 @@ REGRESSIONS = [
                     "leg gets disabled rather than fixed.")),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "4032ac3", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "aa014c7", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21e (baseline d3e8efe -> 4032ac3, VS, Nick's "
+        proof_note=("RE-BLESSED 2026-08-21f (baseline 4032ac3 -> aa014c7, VS, the CapEx "
+                    "Schedule reordered inputs-then-outputs, stub hidden, note row "
+                    "added). e0ff81217c51 -> 7b06ca800380. 16 changed leaves, ALL pure "
+                    "row shifts - 8 on the CapEx sheet, 8 off-sheet references into it "
+                    "from Model Inputs and Checks - classified mechanically, 0 "
+                    "unexplained. Values unmoved: 31,270 cells across three drafts, 0. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21e (baseline d3e8efe -> 4032ac3, VS, Nick's "
                     "ruling: a capital lease creates an asset and a liability or "
                     "neither). 1c74a6f51cd9 -> e0ff81217c51. EXACTLY TWO leaves, both "
                     "on the Debt Schedule, both the change itself: Right-of-Use Asset "
@@ -4129,9 +4135,14 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "d3e8efe", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "aa014c7", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("BARE-MODE AUDIT 2026-08-21 (Nick asked which commits this leg "
+        proof_note=("RE-BLESSED 2026-08-21f (baseline d3e8efe -> aa014c7, VS, CapEx "
+                    "Schedule). 2,559 -> 2,563 cells: 7 added, 3 removed, 23 changed "
+                    "in place, every one on CapEx or on the Checks range strings that "
+                    "follow its rows. The two section headers arrive, the labels below "
+                    "them move, the detail column is reworded, and the note row lands. "
+                    "PREVIOUS: BARE-MODE AUDIT 2026-08-21 (Nick asked which commits this leg "
                     "had verified on its own). MEASURED, not reconstructed: the "
                     "text digest was rebuilt at all 12 workbook-touching commits "
                     "from dbe82ba to d3e8efe, with the extraction rule held "
