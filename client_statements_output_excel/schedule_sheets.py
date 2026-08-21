@@ -7,6 +7,11 @@ from openpyxl.styles import Font, PatternFill
 from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
 from .excel_utils import (
+  ANNUAL_ANNUALIZE,
+  ANNUAL_AVERAGE,
+  ANNUAL_SUM,
+  ANNUAL_YEAR_END,
+  ANNUAL_YEAR_START,
   hide_stub_column,
   ANNUAL_YEAR_END,
   ANNUAL_START_COL,
@@ -397,19 +402,21 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   expense_by_label = row_by_label(data.expense_rows)
   schedules = data.schedules
   rows = [
-    ("Opening Debt", "Calculated", CURRENCY_FORMAT),
-    ("Debt Issuance", "Source borrowing", CURRENCY_FORMAT),
-    ("Requested Debt Repayment", "Source scheduled repayment", CURRENCY_FORMAT),
-    ("Actual Debt Repayment", "MIN(requested repayment, opening debt + issuance)", CURRENCY_FORMAT),
-    ("Closing Debt", "Calculated", CURRENCY_FORMAT),
-    ("Interest Rate", "Source rate", PERCENT_FORMAT),
-    ("Interest Expense", "Average debt balance x rate", CURRENCY_FORMAT),
-    ("Total Debt Service", "Interest + actual repayment", CURRENCY_FORMAT),
+    # (label, detail, format, ANNUAL MODE). The mode is DECLARED, not inferred
+    # from the label's words - a reworded label must never change the maths.
+    ("Opening Debt", "Calculated", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Debt Issuance", "Source borrowing", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Requested Debt Repayment", "Source scheduled repayment", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Actual Debt Repayment", "MIN(requested repayment, opening debt + issuance)", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Closing Debt", "Calculated", CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Interest Rate", "Source rate", PERCENT_FORMAT, ANNUAL_ANNUALIZE),
+    ("Interest Expense", "Average debt balance x rate", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Total Debt Service", "Interest + actual repayment", CURRENCY_FORMAT, ANNUAL_SUM),
   ]
   row = 6
   write_section_header(ws, row, "Debt Amortization")
   row += 1
-  for label, detail, fmt in rows:
+  for label, detail, fmt, annual_mode in rows:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value=detail)
     ctx.add_schedule_row(DEBT_SHEET, label, row)
@@ -440,7 +447,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(interest_rate, col, value=rate_values[idx])
     ws.cell(interest_exp, col, value=f"=(({local_ref(debt_opening, col)}+{local_ref(closing_debt, col)})/2)*{local_ref(interest_rate, col)}")
     ws.cell(debt_service, col, value=f"={local_ref(interest_exp, col)}+{local_ref(actual_repay, col)}")
-  for label, _, fmt in rows:
+  for label, _, fmt, annual_mode in rows:
     r = ctx.schedule_row(DEBT_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
       cell = ws.cell(r, col)
@@ -448,7 +455,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
         set_input_style(cell, number_format=fmt)
       else:
         set_formula_style(cell, number_format=fmt)
-    add_annual_formulas(ws, r, label=label, number_format=fmt)
+    add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Closing Debt", "Interest Expense", "Actual Debt Repayment"} else None, bold=label in {"Closing Debt", "Interest Expense"}, number_format=fmt)
 
   row += 2
@@ -463,15 +470,15 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   # rows to the Python-builder-produced (clipped) schedule and adds
   # the two new lines.
   lease_rows = [
-    ("Lease Opening Balance", CURRENCY_FORMAT),
-    ("Requested Lease Principal Repayments", CURRENCY_FORMAT),
-    ("Lease Principal Repayments", CURRENCY_FORMAT),
-    ("Lease Net Additions", CURRENCY_FORMAT),
-    ("Lease Interest Expense", CURRENCY_FORMAT),
-    ("Lease Closing Balance", CURRENCY_FORMAT),
-    ("Right-of-Use Asset Opening", CURRENCY_FORMAT),
-    ("Lease Asset Depreciation", CURRENCY_FORMAT),
-    ("Right-of-Use Asset Closing", CURRENCY_FORMAT),
+    ("Lease Opening Balance", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Requested Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Lease Net Additions", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Lease Interest Expense", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Lease Closing Balance", CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Right-of-Use Asset Opening", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Lease Asset Depreciation", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Right-of-Use Asset Closing", CURRENCY_FORMAT, ANNUAL_YEAR_END),
   ]
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
@@ -481,7 +488,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   # the cell-reference fix the formula references `interest_rate`
   # directly (the row variable on this sheet), so no Python-side
   # list is needed for that path.
-  for label, fmt in lease_rows:
+  for label, fmt, annual_mode in lease_rows:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value="Capital leases")
     ctx.add_schedule_row(DEBT_SHEET, label, row)
@@ -522,7 +529,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(lease_dep, col, value=0 if idx == 0 else f"=MIN({per_quarter_dep_formula},{local_ref(rou_open, col)})")
     ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}-{local_ref(lease_dep, col)})")
   input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions"}
-  for label, fmt in lease_rows:
+  for label, fmt, annual_mode in lease_rows:
     r = ctx.schedule_row(DEBT_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
       set_formula_style(
@@ -530,7 +537,7 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
         number_format=fmt,
         internal_link=label not in input_rows,
       )
-    add_annual_formulas(ws, r, label=label, number_format=fmt)
+    add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_LIGHT, number_format=fmt)
 
 
@@ -556,16 +563,16 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   write_section_header(ws, row, "PPE and Depreciation")
   row += 1
   labels = [
-    ("Opening PPE", CURRENCY_FORMAT),
-    ("Capital Expenditures", CURRENCY_FORMAT),
-    ("Lease Additions", CURRENCY_FORMAT),
-    ("Depreciation Rate", PERCENT_FORMAT),
-    ("Depreciation Expense", CURRENCY_FORMAT),
-    ("Closing PPE", CURRENCY_FORMAT),
-    ("Opening Accumulated Depreciation", CURRENCY_FORMAT),
-    ("Accumulated Depreciation", CURRENCY_FORMAT),
+    ("Opening PPE", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Capital Expenditures", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Lease Additions", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Depreciation Rate", PERCENT_FORMAT, ANNUAL_AVERAGE),
+    ("Depreciation Expense", CURRENCY_FORMAT, ANNUAL_SUM),
+    ("Closing PPE", CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Opening Accumulated Depreciation", CURRENCY_FORMAT, ANNUAL_YEAR_START),
+    ("Accumulated Depreciation", CURRENCY_FORMAT, ANNUAL_YEAR_END),
   ]
-  for label, _fmt in labels:
+  for label, _fmt, _mode in labels:
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value="Schedule source" if label in {"Capital Expenditures", "Lease Additions", "Depreciation Rate"} else "Calculated")
     ctx.add_schedule_row(CAPEX_SHEET, label, row)
@@ -594,7 +601,7 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
     ws.cell(closing, col, value=f"=MAX(0,{local_ref(opening, col)}+{local_ref(capex, col)}+{local_ref(lease_add, col)}-{local_ref(dep_exp, col)})")
     ws.cell(opening_acc, col, value=number(schedules.get("accumulated_depreciation_opening_seed")) if idx == 0 else f"={local_ref(acc, col - 1)}")
     ws.cell(acc, col, value=f"={local_ref(opening_acc, col)}-{local_ref(dep_exp, col)}")
-  for label, fmt in labels:
+  for label, fmt, annual_mode in labels:
     r = ctx.schedule_row(CAPEX_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
       if label in {"Capital Expenditures", "Depreciation Rate"}:
@@ -603,7 +610,7 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
         set_formula_style(ws.cell(r, col), number_format=fmt, internal_link=True)
       else:
         set_formula_style(ws.cell(r, col), number_format=fmt)
-    add_annual_formulas(ws, r, label=label, number_format=fmt)
+    add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
     style_row(ws, r, fill=FILL_GREEN if label in {"Capital Expenditures", "Depreciation Expense", "Closing PPE"} else None, bold=label in {"Depreciation Expense", "Closing PPE"}, number_format=fmt)
 
 

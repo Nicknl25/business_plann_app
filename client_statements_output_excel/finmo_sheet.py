@@ -12,8 +12,10 @@ from openpyxl.utils import get_column_letter
 
 from .data import DraftWorkbookData, text
 from .excel_utils import (
+  ANNUAL_AVERAGE,
   ANNUAL_SUM,
   ANNUAL_YEAR_END,
+  ANNUAL_YEAR_START,
   annual_mode_for,
   ANNUAL_START_COL,
   CURRENCY_FORMAT,
@@ -159,6 +161,64 @@ def _write_statement_rows(ws, ctx: WorkbookBuildContext, *, statement: str, line
 def _set_formula(ws, row: int, col: int, formula: str, *, number_format: str = CURRENCY_FORMAT) -> None:
   cell = ws.cell(row=row, column=col, value=formula)
   set_formula_style(cell, number_format=number_format, internal_link=True)
+
+
+#: FINMO's annual aggregation, DECLARED - option (c), Nick's A4 ruling.
+#:
+#: These rows cannot be declared one-by-one the way the schedule sheets can:
+#: their labels come from the ENGINE, finmo_json carries only `label` and
+#: `values` with no value_kind to declare from, and some labels carry the
+#: client's own product name ("Break-Even Units - <lob> / <product>"). So the
+#: rule is declared by STATEMENT plus an explicit list of named exceptions, and
+#: the tail is listed, counted and loud rather than whatever falls through.
+#:
+#: What this replaces was ONE implicit override - `ANNUAL_YEAR_END if statement
+#: == "Balance Sheet"` - holding SIXTEEN balance-sheet rows correct. The label
+#: hints would have said SUM for every one of them: four quarter-end balances
+#: added together, which is exactly the defect found on 2026-08-19, where
+#: Ending Cash Y1 read 391,730 against a true 127,623.
+_STATEMENT_ANNUAL_MODE = {
+  "Balance Sheet": ANNUAL_YEAR_END,      # every balance takes the year's end
+  "Income Statement": ANNUAL_SUM,        # every P&L line is a flow
+  "Cash Flow": ANNUAL_SUM,               # every cash-flow line is a flow...
+}
+
+#: ...except these two, which are BALANCES sitting on a flow statement. This is
+#: the exact pair that was being summed.
+_ROW_ANNUAL_MODE = {
+  ("Cash Flow", "Beginning Cash"): ANNUAL_YEAR_START,
+  ("Cash Flow", "Ending Cash"): ANNUAL_YEAR_END,
+}
+
+#: THE DECLARED TAIL. Labels that carry per-business text and so cannot be
+#: enumerated. Matched by explicit prefix - never guessed - and its size is
+#: asserted in tests/test_annual_mode_declared.py so it cannot quietly grow.
+_TAIL_PREFIXES = (
+  "Break-Even Units - ",                 # carries the client's product name
+)
+
+
+def _declared_annual_mode(statement: str, label: str) -> str:
+  """The declared mode for a FINMO row. Never inferred from the label's words.
+
+  A row reaching the tail does so by matching an explicit prefix, and a row
+  matching neither the declarations nor the tail RAISES rather than guessing.
+  """
+  named = _ROW_ANNUAL_MODE.get((statement, label))
+  if named:
+    return named
+  for prefix in _TAIL_PREFIXES:
+    if label.startswith(prefix):
+      # Break-even UNITS are a rate-like quantity - averaged across the year,
+      # not summed. Declared once for the whole per-business class.
+      return ANNUAL_AVERAGE
+  mode = _STATEMENT_ANNUAL_MODE.get(statement)
+  if mode is None:
+    raise ValueError(
+      f"undeclared annual mode for FINMO row {label!r} on statement "
+      f"{statement!r} - declare it in _STATEMENT_ANNUAL_MODE, "
+      f"_ROW_ANNUAL_MODE or _TAIL_PREFIXES rather than letting it guess")
+  return mode
 
 
 def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
@@ -386,7 +446,7 @@ def build_finmo_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) ->
       # Route by the ROW, not by the statement. A blanket "sum unless it is the
       # balance sheet" is what let Beginning/Ending Cash - balances living on the
       # cash-flow statement - be summed across the year.
-      mode = ANNUAL_YEAR_END if statement == "Balance Sheet" else annual_mode_for(label, CURRENCY_FORMAT)
+      mode = _declared_annual_mode(statement, label)
       add_annual_formulas(ws, r, mode=mode)
       style_row(
         ws,
