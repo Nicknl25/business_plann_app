@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Optional, Dict, List, Tuple
 
 from .data import DraftWorkbookData, row_by_label, text
+from .marketing_schedule_sheet import MARKETING_PERCENT_ROW_KEY
 from .excel_utils import (
+  MARKETING_SCHEDULE_SHEET,
   ANNUAL_START_COL,
   CAPEX_SHEET,
   CASH_EQUITY_SHEET,
@@ -175,11 +177,35 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
       source = expense_by_label.get(label, {"values": []})
       values = source.get("values") or []
       ws.cell(row=row, column=1, value=label)
-      ws.cell(row=row, column=2, value="Direct model driver")
+      # MARKETING NOW COMES FROM THE MARKETING SCHEDULE (R-MKTG-03 A1). The
+      # percentage used to be 21 literals here and the Marketing Schedule read
+      # them, which left that sheet downstream of the number it is supposed to
+      # own - so its two levers moved nothing. The link is reversed: the
+      # schedule produces the percentage, this row reads it, and FINMO reads
+      # this row unchanged.
+      #
+      # The old literal write is REPLACED, not supplemented. Keeping both would
+      # be a circular reference the moment the schedule pointed back here.
+      #
+      # Absent-tolerant: if the schedule sheet was not built (a draft with no
+      # marketing payload) the lookup misses and this row keeps its literals,
+      # exactly as before.
+      marketing_source = (
+        ctx.schedule_row(MARKETING_SCHEDULE_SHEET, MARKETING_PERCENT_ROW_KEY)
+        if label == "Marketing" else 0
+      )
+      ws.cell(row=row, column=2,
+              value=("Marketing Schedule output" if marketing_source
+                     else "Direct model driver"))
       ctx.add_model_input_row(f"is::{label}", row)
       from .data import values_21
       for idx, value in enumerate(values_21(values)):
         col = PERIOD_START_COL + idx
+        if marketing_source:
+          cell = ws.cell(row=row, column=col,
+                         value=f"={ref(MARKETING_SCHEDULE_SHEET, marketing_source, col)}")
+          set_formula_style(cell, number_format=_format_for_label(label), internal_link=True)
+          continue
         cell = ws.cell(row=row, column=col, value=value)
         set_formula_style(cell, number_format=_format_for_label(label), internal_link=False)
       add_annual_formulas(ws, row, label=label, number_format=_format_for_label(label))

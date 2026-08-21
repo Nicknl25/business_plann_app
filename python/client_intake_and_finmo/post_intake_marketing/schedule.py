@@ -111,6 +111,35 @@ def _series(rows: Any, label: str) -> List[float]:
   return []
 
 
+def _quarterly_units(model_input_json: Dict[str, Any]) -> List[float]:
+  """Units sold per period, summed across products: capacity x utilisation.
+
+  THE SHEET COMPUTES THE SAME THING FROM THE SAME ROWS, which is the point.
+  The first version used annual capacity / 4 scaled by a revenue ratio, and it
+  disagreed with the rendered tab by ~8 units - harmless on its own, fatal once
+  CAC is SEEDED from this and multiplied back by the sheet's own count. Two
+  definitions of "units" cannot both be right, so there is now one.
+  """
+  rows = ((model_input_json or {}).get("sections") or {}).get("revenue") or []
+  by_product: Dict[Any, Dict[str, List[float]]] = {}
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    key = (row.get("lob"), row.get("product"))
+    driver = str(row.get("driver") or "")
+    if driver in ("Capacity", "Utilization"):
+      values = row.get("values")
+      if isinstance(values, list):
+        by_product.setdefault(key, {})[driver] = [_num(v) for v in values]
+  units = [0.0 for _ in range(PERIOD_COUNT)]
+  for drivers in by_product.values():
+    capacity = drivers.get("Capacity") or []
+    utilisation = drivers.get("Utilization") or []
+    for i in range(min(PERIOD_COUNT, len(capacity), len(utilisation))):
+      units[i] += capacity[i] * utilisation[i]
+  return units
+
+
 def _annual_units_per_product(ops_json: Dict[str, Any]) -> List[Dict[str, Any]]:
   """Per-product annual unit capacity from the REVENUE DRIVERS (ruling: those
   are what drive revenue, so they are the unit source - not the audience
@@ -173,6 +202,7 @@ def compute_marketing_schedule(
 
   products = _annual_units_per_product(operating_model_json)
   annual_units = sum(p["annual_units"] for p in products)
+  quarterly_units = _quarterly_units(model_input_json)
 
   # Repeat units per customer: the audience model's own implied rate. It is the
   # only entity-per-unit signal that exists today, and it is an assumption.
@@ -204,7 +234,7 @@ def compute_marketing_schedule(
   # R4: without a usable entity count the assumed half is not modelled.
   entity_math_available = (
     repeat_units_per_customer > 0.0
-    and annual_units > 0.0
+    and sum(quarterly_units) > 0.0
     and retention is not None
   )
 
@@ -221,11 +251,14 @@ def compute_marketing_schedule(
     period_revenue = revenue[index]
     period_marketing = marketing_dollars[index] if index < len(marketing_dollars) else 0.0
 
-    # Units scale with revenue against the Q1 reference, so a ramping plan
-    # carries a ramping unit count rather than a flat one.
-    units = 0.0
-    if quarterly_units_base and reference_revenue:
-      units = quarterly_units_base * (period_revenue / reference_revenue)
+    # No revenue, no units sold. Capacity x utilisation is a CEILING, and it
+    # does not vanish on its own when a pre-revenue business has not started
+    # trading - so the stub of a pre-revenue plan would otherwise show a full
+    # quarter's customers against zero revenue. The sheet carries the same
+    # guard, so the two still agree cell for cell.
+    units = quarterly_units[index] if index < len(quarterly_units) else 0.0
+    if period_revenue <= 0:
+      units = 0.0
 
     # UNITS ARE QUARTERLY, THE REPEAT RATE IS ANNUAL. Dividing one by the other
     # understated customers four-fold and overstated CAC four-fold - Harrow came
@@ -240,6 +273,10 @@ def compute_marketing_schedule(
     retained = (previous_customers * retention) if (previous_customers is not None and retention is not None) else 0.0
     new_customers = customers - retained
 
+    # CAC IS NOW THE HELD NUMBER, not the division (Nick's A1). The sheet runs
+    # spend = new x CAC, so this is SEEDED from the same back-derivation that
+    # used to produce it - which is what makes the delivered file reproduce the
+    # agreed percentage to the cent while letting the levers drive it after.
     cac: Optional[float] = None
     cac_note: Optional[str] = None
     # R1, restated. CAC is undefined when the customer base does not GROW - you
@@ -275,7 +312,9 @@ def compute_marketing_schedule(
       "customers": round(customers, 6) if entity_math_available else None,
       "retained_customers": round(retained, 6) if entity_math_available else None,
       "new_customers": round(new_customers, 6) if entity_math_available else None,
-      "customer_acquisition_cost": round(cac, 6) if cac is not None else None,
+      # NOT rounded: the sheet multiplies new customers by this to rebuild
+      # spend, so precision lost here is money lost in the delivered file.
+      "customer_acquisition_cost": cac,
       # Why a CAC is absent, or why it should be read with care. The tab shows
       # this rather than leaving a client to wonder at a blank cell.
       "customer_acquisition_cost_note": cac_note,
@@ -339,6 +378,7 @@ def compute_marketing_schedule(
       "repeat_units_per_customer": {
         "value": repeat_units_per_customer or None,
         "period": "per_year",
+        "per_quarter": (repeat_units_per_customer / 4.0) if repeat_units_per_customer else None,
         "note": "Divided by 4 before use, because the unit lines are quarterly",
         "basis": "ASSUMPTION",
         "basis_detail": "implied_from_audience_model",

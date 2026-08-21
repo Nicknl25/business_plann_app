@@ -1,44 +1,46 @@
-"""R-MKTG-03 phase 2 — the Marketing Schedule tab.
+"""The Marketing Schedule tab — where the marketing percentage is now produced.
 
-The settled marketing percent, decomposed into the lines a client reads:
-customers, returning customers, new customers and cost to acquire one.
+THE CHAIN RUNS FORWARD (Nick's A1). It used to read the settled percentage from
+Model Inputs and divide its way back to CAC, which meant the two levers moved
+nothing: spend was revenue x percentage, fixed before retention entered, so
+raising retention only moved CAC. Spend, new customers and CAC are a closed
+loop — any two fix the third — so the loop is now closed the other way:
 
-WHAT IS LIVE AND WHAT IS NOT, stated plainly because it is the whole design.
-Retention and purchases-per-customer are the two EDITABLE levers; everything
-below them is a formula. Editing either moves customers, returning, new and
-CAC immediately. It does NOT move the marketing percentage — that is the number
-the client agreed and the solver converged the rest of the plan around, so it is
-LINKED from Model Inputs rather than recomputed here. The tab flexes its
-decomposition without ever changing the plan's spend.
+    customers       = units sold / purchases per customer   (units from Revenue Drivers)
+    returning       = last quarter's customers x retention
+    new customers   = customers - returning
+    marketing spend = new customers x CAC                   <- CAC is HELD, not divided
+    marketing %     = spend / revenue                       -> Model Inputs -> FINMO
 
-NO CYCLE: the tab reads Revenue Drivers and Model Inputs, never FINMO, and
-FINMO reads Model Inputs. This sheet is a leaf.
+CAC is seeded per quarter from the same back-derivation that used to compute it,
+so the delivered file reproduces the agreed percentage to the cent. After that
+the economics run the right way round: better retention means fewer customers to
+buy, which means less spend, which means a lower percentage.
 
-EXACT VS ASSUMED, in the Valuation sheet's idiom. Revenue, the percentage,
-spend and units are exact arithmetic on settled values. Customers and returning
-inherit purchases-per-customer; new customers inherit both; **CAC inherits
-everything and absorbs every residual**, which is why it carries the loudest
-label — it is the number a client quotes to a lender and the softest number the
-model produces.
+WHAT THAT COSTS, AND IT IS WORTH SAYING. The marketing percentage is no longer
+structurally exact — it is the OUTPUT of three assumptions (retention, purchases
+per customer, CAC) that happen to reproduce the agreed number on delivery. The
+labels say so: the percentage and spend are no longer marked Exact, because
+their exactness holds only at the moment of delivery.
 
-RETENTION IS AN EXPERT ESTIMATE, NOT A CITATION (Nick's ruling). The Valuation
-sheet cites Damodaran, FRED, Kroll and BizBuySell, and that is what makes those
-hold up. This says "expert estimate" in words and offers no source, because
-there is none to offer.
+NO CYCLE. This sheet reads Revenue Drivers, which holds literals; Model Inputs
+reads this sheet; FINMO reads Model Inputs. The old ='Model Inputs'!D19 link is
+CUT in the same change that adds the reverse one, or the workbook would carry a
+circular reference.
 
-THE FOUR CLASS RULES AS A CLIENT SEES THEM:
-  R1  a quarter whose customer base does not grow shows an em dash for CAC and
-      a sentence saying why; a small but real count shows its CAC and is marked
-      thin. Nothing is ever silently blank.
-  R2  a plan with no marketing spend renders the exact lines and says so.
-  R3  a pre-revenue business needs no special case — the stub's customers are
-      legitimately zero, so Q1's new customers equal its customers.
-  R4  a business with no usable audience gets the exact half plus an explicit
-      "not modelled for this business" band, never an invented audience.
+THE FOUR CLASS RULES, and one changed shape under the reversal:
+  R1  a quarter with no net acquisition CANNOT derive spend from new x CAC —
+      that would zero out real marketing spend and change the plan. Those
+      quarters hold the planned figure, and the note row says so.
+  R2  zero marketing: CAC seeds at zero, so spend stays zero on its own.
+  R3  pre-revenue: no revenue means no units sold, so the stub's customers are
+      zero and Q1's new customers equal its customers. Still no special case.
+  R4  no usable audience: no customer rows at all, and the percentage row keeps
+      the settled literals so Model Inputs still has something to point at.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl.utils import get_column_letter
 
@@ -46,7 +48,6 @@ from . import design
 from .data import DraftWorkbookData, text
 from .excel_utils import (
   MARKETING_SCHEDULE_SHEET,
-  MODEL_INPUT_SHEET,
   PERIOD_COUNT,
   PERIOD_START_COL,
   REVENUE_SHEET,
@@ -61,11 +62,14 @@ from .excel_utils import (
   write_section_header,
 )
 
-#: A missing or caveated CAC gets a sentence, not an empty cell. The payload's
-#: machine-readable note maps to words the client can act on.
+#: The key Model Inputs looks up to repoint its marketing driver row at this
+#: sheet. If the sheet is not built the lookup misses and Model Inputs keeps its
+#: literals — which is exactly the absent-tolerant behaviour we want.
+MARKETING_PERCENT_ROW_KEY = "Marketing percent of revenue"
+
 _NOTE_TEXT = {
   "no_marketing_spend": "No marketing spend in this plan",
-  "no_net_acquisition": "Customer base does not grow this quarter",
+  "no_net_acquisition": "No net new customers — spend held at the planned figure",
   "thin_acquisition_count": "Few new customers — read with care",
   "not_modelled": "Not modelled for this business",
 }
@@ -75,14 +79,27 @@ def _ref(column_index: int, row: int) -> str:
   return f"{get_column_letter(column_index)}{row}"
 
 
+def _driver_rows(ctx: WorkbookBuildContext) -> List[Tuple[int, int]]:
+  """(capacity_row, utilisation_row) per product on Revenue Drivers.
+
+  Units sold = capacity x utilisation, summed. The payload computes the SAME
+  thing from the same drivers, which is what lets CAC be seeded from one and
+  multiplied back by the other without losing a cent.
+  """
+  rows = ctx.schedule_rows.get(REVENUE_SHEET, {})
+  pairs: List[Tuple[int, int]] = []
+  for key in sorted(rows):
+    if key.endswith("::Capacity"):
+      stem = key[: -len("::Capacity")]
+      utilisation = rows.get(f"{stem}::Utilization")
+      if utilisation:
+        pairs.append((rows[key], utilisation))
+  return pairs
+
+
 def build_marketing_schedule_sheet(
   wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
 ) -> None:
-  """Render the tab.
-
-  Absent-tolerant: with no payload the sheet is not created at all, so a draft
-  built before this shipped simply has no tab rather than an empty one.
-  """
   payload: Dict[str, Any] = data.marketing_schedule or {}
   if not payload or payload.get("status") != "ok":
     return
@@ -96,190 +113,158 @@ def build_marketing_schedule_sheet(
   repeat_meta = assumptions.get("repeat_units_per_customer") or {}
   context = payload.get("context") or {}
   noun = str(context.get("entity_noun") or "customers")
-  # A mixed-basis business reads "households and firms", and naive
-  # de-pluralising turns that into "households and firm". The singular is only
-  # used in per-X phrasing, so a compound noun falls back to the generic word
-  # rather than being mangled.
-  if " and " in noun:
-    singular = "customer"
-  elif noun.endswith("s"):
-    singular = noun[:-1]
-  else:
-    singular = noun
+  singular = "customer" if " and " in noun else (noun[:-1] if noun.endswith("s") else noun)
 
   ws = create_sheet(wb, MARKETING_SCHEDULE_SHEET)
   apply_base_style(ws)
   set_title(
     ws, "Marketing Schedule",
-    f"Your marketing percentage, broken into the drivers behind it. Change "
-    f"retention or purchases per {singular} and the lines below update.")
+    f"What drives your marketing spend. Change retention, purchases per "
+    f"{singular} or the cost to win one, and your marketing budget follows.")
   write_period_headers(ws, data.periods)
 
   columns = [PERIOD_START_COL + i for i in range(min(len(periods), PERIOD_COUNT))]
+  pairs = _driver_rows(ctx)
+  revenue_src = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
+  modelled = schedule_class == "audience_modelled" and bool(pairs) and bool(revenue_src)
 
   row = 6
   write_section_header(ws, row, "What you can change")
   row += 1
 
-  def lever(label: str, key: str, value, number_format: str, note: str) -> int:
+  def editable_row(label: str, key: str, values, number_format: str,
+                   detail: str) -> int:
+    """A full 21-column editable row, like every other driver in the workbook.
+
+    These were two single cells anchored at $C$7 and $C$8 — one value applying
+    to all twenty quarters, and anchored in the STUB column at that. A driver a
+    client can only set once is not a schedule.
+    """
     nonlocal row
-    # Column B carries the tag AND the note, which is the house convention
-    # (write_values_row puts its `detail` there). Writing a note into column C
-    # put it in the stub PERIOD column, where the next row's formula promptly
-    # overwrote it - found by opening the exported file rather than by reading
-    # the code.
     ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value=f"ASSUMPTION — {note}").font = design.font("note")
-    cell = ws.cell(row=row, column=PERIOD_START_COL, value=value)
-    set_input_style(cell, number_format=number_format)
+    ws.cell(row=row, column=2, value=detail).font = design.font("note")
+    for index, column in enumerate(columns):
+      value = values[index] if index < len(values) else None
+      cell = ws.cell(row=row, column=column, value=value)
+      set_input_style(cell, number_format=number_format)
     ctx.add_schedule_row(MARKETING_SCHEDULE_SHEET, key, row)
     written = row
     row += 1
     return written
 
-  retention_row = lever(
+  retention_row = editable_row(
     "Customer retention, quarter over quarter", "Retention",
-    retention_meta.get("retention_rate"), design.FMT_PERCENT,
-    "Expert estimate from your business model — not a sourced figure")
-  repeat_row = lever(
-    f"Purchases per {singular} per year", "Repeat units per customer",
-    repeat_meta.get("value"), design.FMT_UNITS,
-    "Implied by your own plan volume — an implied rate, not a measured one")
+    [retention_meta.get("retention_rate")] * len(columns), design.FMT_PERCENT,
+    "ASSUMPTION — expert estimate from your business model, not a sourced figure")
+
+  # PER QUARTER, not per year. The payload carries an annual rate and the old
+  # formula divided by four inside itself; a hidden conversion in a quarterly
+  # grid is exactly what produced a four-fold customer error the first time.
+  # The label and the number now agree and no formula divides.
+  repeat_row = editable_row(
+    f"Purchases per {singular} per quarter", "Repeat units per customer",
+    [repeat_meta.get("per_quarter")] * len(columns), design.FMT_UNITS,
+    "ASSUMPTION — implied by your own plan volume, not a measured rate")
+
+  cac_row: Optional[int] = None
+  if modelled:
+    cac_row = editable_row(
+      f"Cost to acquire one {singular}", "Customer acquisition cost",
+      [p.get("customer_acquisition_cost") for p in periods], design.FMT_MONEY,
+      "ASSUMPTION — the softest number here, and the one your budget is built "
+      "on. Derived from the marketing figure agreed in your plan, then held.")
   row += 1
 
-  write_section_header(ws, row, "Quarter by quarter")
+  write_section_header(ws, row, "What that produces")
   row += 1
 
-  revenue_src = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
-  percent_src = ctx.model_input_row("is::Marketing")
-
-  # UNITS SOLD, not capacity. "Total Capacity Units" is the un-utilised
-  # ceiling - flat across every quarter and, for Harrow, 2,743 against 1,755
-  # actually sold. Rendering that under a label reading "Units sold" put a
-  # wrong number in front of a client and made customers, new customers and
-  # CAC all flat; found by opening the exported file.
-  #
-  # Units sold per product = that product's revenue / its unit price, and both
-  # ARE per-quarter rows on Revenue Drivers. Summing them is exact, responds to
-  # a client editing capacity, utilisation or price, and needs no periods-per-
-  # year term because revenue already carries it.
-  revenue_rows = ctx.schedule_rows.get(REVENUE_SHEET, {})
-  unit_pairs = []
-  for key in sorted(revenue_rows):
-    if key.endswith("::Revenue"):
-      stem = key[: -len("::Revenue")]
-      price_row = revenue_rows.get(f"{stem}::Unit Price")
-      if price_row:
-        unit_pairs.append((revenue_rows[key], price_row))
-
-  def period_row(label: str, key: str, formula_for, number_format: str,
-                 exact: bool, note: str) -> int:
+  def computed_row(label: str, key: str, formula_for, number_format: str,
+                   detail: str, emphasis: bool = False) -> int:
     nonlocal row
     ws.cell(row=row, column=1, value=label)
-    tag = ws.cell(row=row, column=2,
-                  value=f"{'Exact' if exact else 'Assumed'} — {note}")
-    tag.font = design.font("status_good" if exact else "note")
+    ws.cell(row=row, column=2, value=detail).font = design.font("note")
     for index, column in enumerate(columns):
       cell = ws.cell(row=row, column=column, value=formula_for(index, column))
       set_formula_style(cell, number_format=number_format)
     ctx.add_schedule_row(MARKETING_SCHEDULE_SHEET, key, row)
-    style_row(ws, row, number_format=number_format)
+    style_row(ws, row, number_format=number_format, bold=emphasis)
     written = row
     row += 1
     return written
 
-  revenue_row = period_row(
-    "Revenue", "Revenue",
-    lambda i, c: (f"='{REVENUE_SHEET}'!{_ref(c, revenue_src)}" if revenue_src
-                  else periods[i]["revenue"]),
-    design.FMT_MONEY, True, "From your revenue drivers")
+  settled_spend = [p.get("marketing_dollars") or 0.0 for p in periods]
+  settled_percent = [p.get("marketing_percent_of_revenue") or 0.0 for p in periods]
 
-  percent_row = period_row(
-    "Marketing % of revenue", "Marketing percent",
-    lambda i, c: (f"='{MODEL_INPUT_SHEET}'!{_ref(c, percent_src)}" if percent_src
-                  else periods[i]["marketing_percent_of_revenue"]),
-    design.FMT_PERCENT, True,
-    "The agreed percentage — this tab explains it, it does not change it")
+  if modelled:
+    def units_expr(column: int) -> str:
+      return "+".join(
+        f"'{REVENUE_SHEET}'!{_ref(column, cap)}*'{REVENUE_SHEET}'!{_ref(column, util)}"
+        for cap, util in pairs)
 
-  spend_row = period_row(
-    "Marketing spend", "Marketing spend",
-    lambda i, c: f"={_ref(c, revenue_row)}*{_ref(c, percent_row)}",
-    design.FMT_MONEY, True, "Revenue x the percentage above")
-
-  if schedule_class == "not_modelled":
-    row += 1
-    write_section_header(ws, row, "Acquisition — not modelled for this business")
-    row += 1
-    ws.cell(
-      row=row, column=1,
-      value=("This plan has no usable audience estimate, so the customer and "
-             "acquisition-cost lines are left out rather than invented. "
-             "Everything above is exact."),
-    ).font = design.font("note")
-    row += 2
-  else:
-    def units_formula(i, c):
-      if not unit_pairs:
-        return periods[i]["units"] or 0.0
-      terms = "+".join(
-        f"IFERROR('{REVENUE_SHEET}'!{_ref(c, rev)}/'{REVENUE_SHEET}'!{_ref(c, price)},0)"
-        for rev, price in unit_pairs)
-      return f"={terms}"
-
-    units_row = period_row(
-      "Units sold", "Units", units_formula, design.FMT_UNITS, True,
-      "Each line's revenue divided by its price, added up")
-
-    lever_col = get_column_letter(PERIOD_START_COL)
-    customers_row = period_row(
+    customers_row = computed_row(
       noun.capitalize(), "Customers",
-      lambda i, c: (f"=IFERROR({_ref(c, units_row)}/(${lever_col}${repeat_row}/4),0)"),
-      design.FMT_UNITS, False, f"Units divided by purchases per {singular}")
+      lambda i, c: (
+        f"=IF('{REVENUE_SHEET}'!{_ref(c, revenue_src)}<=0,0,"
+        f"IFERROR(({units_expr(c)})/{_ref(c, repeat_row)},0))"),
+      design.FMT_UNITS, f"Units sold divided by purchases per {singular}")
 
-    retained_row = period_row(
+    retained_row = computed_row(
       f"Returning {noun}", "Retained customers",
       lambda i, c: ("0" if i == 0
-                    else f"={_ref(c - 1, customers_row)}*${lever_col}${retention_row}"),
-      design.FMT_UNITS, False, "Last quarter's customers who come back")
+                    else f"={_ref(c - 1, customers_row)}*{_ref(c, retention_row)}"),
+      design.FMT_UNITS, "Last quarter's customers who come back")
 
-    new_row = period_row(
+    new_row = computed_row(
       f"New {noun}", "New customers",
       lambda i, c: f"={_ref(c, customers_row)}-{_ref(c, retained_row)}",
-      design.FMT_UNITS, False, "The customers marketing has to win")
+      design.FMT_UNITS, "The customers your marketing has to win")
 
-    # CAC — the loudest label on the sheet, deliberately.
-    ws.cell(row=row, column=1, value=f"Cost to acquire one {singular}").font = (
-      design.font("label_strong"))
-    ws.cell(
-      row=row, column=2,
-      value=("ASSUMED — the softest number here. It inherits retention AND "
-             f"purchases per {singular}, and absorbs every rounding difference."),
-    ).font = design.font("label_strong")
-    for index, column in enumerate(columns):
-      cell = ws.cell(
-        row=row, column=column,
-        value=(f'=IFERROR(IF({_ref(column, new_row)}<=0,"—",'
-               f'{_ref(column, spend_row)}/{_ref(column, new_row)}),"—")'))
-      set_formula_style(cell, number_format=design.FMT_MONEY)
-    ctx.add_schedule_row(MARKETING_SCHEDULE_SHEET, "Customer acquisition cost", row)
-    row += 1
+    # R1 under the reversal. A quarter with no net acquisition cannot derive
+    # spend from new x CAC — that would zero out real marketing spend and change
+    # the plan. It holds the planned figure instead, and the note row says so.
+    spend_row = computed_row(
+      "Marketing spend", "Marketing spend",
+      lambda i, c: (f"=IF({_ref(c, new_row)}>0,{_ref(c, new_row)}*{_ref(c, cac_row)},"
+                    f"{settled_spend[i]!r})"),
+      design.FMT_MONEY, f"New {noun} x the cost to win one", emphasis=True)
 
-    # Why a cost is missing or caveated — in words, per quarter.
-    ws.cell(row=row, column=1, value="Why a cost above shows an em dash"
-            ).font = design.font("note")
+    percent_row = computed_row(
+      "Marketing % of revenue", MARKETING_PERCENT_ROW_KEY,
+      lambda i, c: (f"=IFERROR({_ref(c, spend_row)}/"
+                    f"'{REVENUE_SHEET}'!{_ref(c, revenue_src)},0)"),
+      design.FMT_PERCENT,
+      "Spend divided by revenue — the figure the rest of your plan uses",
+      emphasis=True)
+
+    ws.cell(row=row, column=1, value="Why a spend is held").font = design.font("note")
     for index, column in enumerate(columns):
       note_key = str(periods[index].get("customer_acquisition_cost_note") or "")
       cell = ws.cell(row=row, column=column, value=_NOTE_TEXT.get(note_key, ""))
       cell.font = design.font("note")
     ctx.add_schedule_row(MARKETING_SCHEDULE_SHEET, "Acquisition note", row)
     row += 2
+  else:
+    # R2 / R4: no acquisition economics to run, so the percentage keeps the
+    # settled values and Model Inputs still has a row to point at.
+    computed_row(
+      "Marketing % of revenue", MARKETING_PERCENT_ROW_KEY,
+      lambda i, c: settled_percent[i], design.FMT_PERCENT,
+      "The marketing figure agreed in your plan", emphasis=True)
+    ws.cell(
+      row=row, column=1,
+      value=("This plan has no usable audience estimate, so the customer and "
+             "acquisition-cost lines are left out rather than invented."
+             if schedule_class != "zero_marketing"
+             else "This plan carries no marketing spend."),
+    ).font = design.font("note")
+    row += 2
 
   write_section_header(ws, row, "Where these figures come from")
   row += 1
   provenance = [
     ("Marketing percentage",
-     "Set when your plan was built and held here. Changing retention or "
-     "purchases per customer does not change it."),
+     "Produced by this sheet and read by the rest of the model. On delivery it "
+     "equals the figure agreed when your plan was built."),
     ("Customer retention",
      text(retention_meta.get("source")) or "Not available for this plan"),
   ]
@@ -289,6 +274,11 @@ def build_marketing_schedule_sheet(
   provenance.append((
     f"Purchases per {singular}",
     text(repeat_meta.get("source")) or "Not available for this plan"))
+  if modelled:
+    provenance.append((
+      f"Cost to acquire one {singular}",
+      "Derived from the marketing figure agreed in your plan, then held as an "
+      "input so your budget responds when you change the drivers above."))
   reachable = context.get("reachable_market")
   if reachable is not None:
     provenance.append((

@@ -34,11 +34,21 @@ def _finmo(revenue, marketing):
                  {"label": "Marketing", "values": list(marketing)}]}
 
 
-def _model_input(percents):
-  return {"sections": {"expenses": [
-    {"lever_id": "expenses::Marketing", "label": "Marketing",
-     "value_kind": "ratio", "values": list(percents)},
-  ]}}
+def _model_input(percents, capacity=105.0, utilisation=1.0, n=21):
+  """The payload reads UNITS from the revenue section (capacity x utilisation),
+  because that is exactly what the sheet computes from the same rows. A fixture
+  that only carried the expenses section was measuring a different workbook."""
+  return {"sections": {
+    "revenue": [
+      {"lob": "L", "product": "P", "driver": "Capacity",
+       "values": [capacity] * n},
+      {"lob": "L", "product": "P", "driver": "Utilization",
+       "values": [utilisation] * n},
+    ],
+    "expenses": [
+      {"lever_id": "expenses::Marketing", "label": "Marketing",
+       "value_kind": "ratio", "values": list(percents)},
+    ]}}
 
 
 def _ops(capacity=150.0, utilisation=0.7, periods=52.0, price=86.0):
@@ -122,8 +132,9 @@ class ClassRuleTests(unittest.TestCase):
     # and lifted the old one out of the thin band.
     fin, mi, _ = _flat_plan()
     out = compute_marketing_schedule(
-      finmo_json=fin, model_input_json=mi,
-      operating_model_json=_ops(capacity=1.5, utilisation=1.0, periods=50.0),
+      finmo_json=fin,
+      model_input_json=_model_input([0.018] * 21, capacity=4.7, utilisation=1.0),
+      operating_model_json=_ops(),
       marketing_model_json=_audience(units=40.0, customers=10.0),
       retention_judgment={"ok": True, "retention_rate": 0.99, "rationale": "t",
                           "confidence_tier": "low", "model": "t"})
@@ -249,8 +260,8 @@ class UnitPeriodTests(unittest.TestCase):
     # 7,053 units a year over 650 customers = 10.85 purchases each per YEAR,
     # so 2.7125 per quarter.
     out = compute_marketing_schedule(
-      finmo_json=fin, model_input_json=mi,
-      operating_model_json=_ops(capacity=100.0, utilisation=1.0, periods=40.0),
+      finmo_json=fin, model_input_json=_model_input([0.018] * 21, capacity=200.0),
+      operating_model_json=_ops(),
       marketing_model_json=_audience(units=7053.0, customers=650.0),
       retention_judgment=RETENTION_OK)
     live = [p for p in out["periods"] if not p["is_stub"]][0]
