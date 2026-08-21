@@ -576,20 +576,29 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   # never reaches zero, and understates the five-year expense by about a third.
   # It would have moved delivered numbers in the wrong direction.
   #
-  # NOT extended to lease ADDITIONS either, and that is a decision rather than
-  # an oversight. Additions reach the LIABILITY (Lease Closing Balance) and
-  # never reach the ASSET - Right-of-Use Asset Closing is opening minus
-  # depreciation, with no additions term - so a lease added mid-model raises
-  # the liability against no asset at all. Depreciating a gross base that
-  # includes additions was built and MEASURED first: it charges 6,080 a quarter
-  # from Q7 against an asset that only ever held 81,600, drives it to zero at
-  # Q17 and then charges nothing. That is not a fix, it is a second wrong.
-  # The exposure is nil today - 150 of 150 sampled drafts carry the additions
-  # row and every one of them is zero, so the engine emits no lease additions -
-  # which is why this is REPORTED rather than half-fixed under a commit that
-  # promised not to move numbers.
-  per_quarter_dep_formula = (
-    f"(${get_column_letter(FIRST_LIVE_COL)}${rou_open}/{{life}})")
+  # The base is the GROSS asset - the seed plus every addition already on the
+  # books - which is only coherent now that additions reach the asset at all.
+  # An addition in quarter t lands in that quarter's CLOSING balance, so it is
+  # part of the asset from t+1; the range stops one column short, and the
+  # MIN cap against the opening keeps the final quarter from over-charging.
+  #
+  # A lease added late does NOT finish depreciating inside the model, and that
+  # is correct rather than a rounding failure: 40,000 added at Q6 carries
+  # 2,000 a quarter for 20 quarters, only 14 of which fall before Q20, so
+  # 12,000 remains on the books at the horizon.
+  def _dep_base(col: int) -> str:
+    # FIRST_LIVE_COL, not PERIOD_START_COL. The stub column is hidden; putting
+    # the seed anchor back there is the exact defect the previous commit
+    # removed, and writing it as PERIOD_START_COL here quietly reintroduced it
+    # until the leaf-by-leaf diff showed $D$27 turning back into $C$27.
+    seed = f"${get_column_letter(FIRST_LIVE_COL)}${rou_open}"
+    if col <= FIRST_LIVE_COL:
+      return seed
+    first = f"${get_column_letter(FIRST_LIVE_COL)}${lease_add}"
+    return f"({seed}+SUM({first}:{local_ref(lease_add, col - 1)}))"
+
+  def per_quarter_dep(col: int, life_ref: str) -> str:
+    return f"({_dep_base(col)}/{life_ref})"
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(lease_close, col - 1)}")
@@ -608,9 +617,14 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(rou_close, col - 1)}")
     ws.cell(lease_life, col, value=lease_life_quarters)
     ws.cell(lease_dep, col, value=0 if idx == 0 else
-            f"=MIN({per_quarter_dep_formula.format(life=local_ref(lease_life, col))},"
+            f"=MIN({per_quarter_dep(col, local_ref(lease_life, col))},"
             f"{local_ref(rou_open, col)})")
-    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}-{local_ref(lease_dep, col)})")
+    # ADDITIONS REACH THE ASSET. They always reached the liability - Lease
+    # Closing Balance is opening + additions - principal - but this row was
+    # opening - depreciation, with no additions term, so a capital lease
+    # created a liability against no asset at all and the balance sheet took
+    # the difference. A lease creates both or neither.
+    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_dep, col)})")
   input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions",
                 "Lease Life in quarters"}
   for label, fmt, annual_mode in lease_rows:

@@ -121,6 +121,50 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
         f"depreciation does not read the Lease Life row ({life}) - the life is "
         f"hard-coded again: {formula!r}")
 
+  def test_lease_additions_reach_the_right_of_use_asset(self):
+    """A capital lease creates an asset and a liability together.
+
+    Right-of-Use Asset Closing was opening MINUS depreciation, with no
+    additions term, while Lease Closing Balance was opening PLUS additions
+    minus principal. So a lease added mid-model raised a liability against no
+    asset at all. Measured on Falls City with one 40,000 lease added at Q6:
+    the liability ended at 40,000 and the asset at 0.
+
+    Nick's ruling, 2026-08-21: there is no version where one arrives without
+    the other. Zero exposure today does not change it.
+    """
+    rows = self._debt_rows()
+    close = self._row_formulas(rows, "Right-of-Use Asset Closing")
+    adds = rows["Lease Net Additions"]
+    live = [f for f in close if isinstance(f, str)]
+    self.assertTrue(live, "no right-of-use closing formulas were built")
+    for formula in live:
+      self.assertRegex(
+        formula, rf"\+\$?[A-Z]{{1,2}}\$?{adds}(?![0-9])",
+        f"the right-of-use asset does not ADD the Lease Net Additions row "
+        f"({adds}) - a lease would create a liability with no asset: "
+        f"{formula!r}")
+
+  def test_depreciation_base_includes_additions_already_on_the_books(self):
+    """The companion half. Additions reaching the asset without reaching the
+    depreciation base would strand them on the balance sheet forever - the
+    opposite error, arrived at from the other side."""
+    rows = self._debt_rows()
+    dep = self._row_formulas(rows, "Lease Asset Depreciation")
+    adds = rows["Lease Net Additions"]
+    # quarter 1 has no prior additions, so the base is the seed alone; every
+    # later quarter must sum what has landed since
+    later = [f for f in dep[2:] if isinstance(f, str)]
+    self.assertTrue(later, "no later-quarter depreciation formulas were built")
+    for formula in later:
+      self.assertIn(
+        "SUM(", formula,
+        f"depreciation does not accumulate lease additions: {formula!r}")
+      self.assertRegex(
+        formula, rf"SUM\(\$?[A-Z]{{1,2}}\$?{adds}(?![0-9])",
+        f"depreciation's SUM does not run over the Lease Net Additions row "
+        f"({adds}): {formula!r}")
+
     # The old literal should NOT be present in the generator anymore
     self.assertNotIn(
       "lease_seed_value = number(schedules.get(",
