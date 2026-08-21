@@ -219,13 +219,28 @@ def build_marketing_schedule_sheet(
       lambda i, c: f"={_ref(c, customers_row)}-{_ref(c, retained_row)}",
       design.FMT_UNITS, "The customers your marketing has to win")
 
+    # THE AGREED RATE, ON ITS OWN VISIBLE ROW. The fallback below used to carry
+    # hardcoded dollar amounts inside the formula, and that was wrong three ways:
+    # those dollars were frozen at build-time revenue, so a client editing a
+    # revenue driver left the held branch describing a plan that no longer
+    # existed and the percentage silently dropped; the number was invisible and
+    # uneditable because it only surfaced when the condition tripped; and it
+    # converted a settled RATE into a fixed sum, cutting its tie to revenue.
+    # As a rate on a row, it stays a rate and stays tied.
+    agreed_row = computed_row(
+      "Marketing % agreed in your plan", "Marketing percent agreed",
+      lambda i, c: settled_percent[i], design.FMT_PERCENT,
+      "The figure your plan was built on — used when a quarter wins no new "
+      f"{noun}")
+
     # R1 under the reversal. A quarter with no net acquisition cannot derive
     # spend from new x CAC — that would zero out real marketing spend and change
-    # the plan. It holds the planned figure instead, and the note row says so.
+    # the plan. It falls back to revenue x the agreed rate above, so it still
+    # moves with revenue, and the note row says so.
     spend_row = computed_row(
       "Marketing spend", "Marketing spend",
       lambda i, c: (f"=IF({_ref(c, new_row)}>0,{_ref(c, new_row)}*{_ref(c, cac_row)},"
-                    f"{settled_spend[i]!r})"),
+                    f"'{REVENUE_SHEET}'!{_ref(c, revenue_src)}*{_ref(c, agreed_row)})"),
       design.FMT_MONEY, f"New {noun} x the cost to win one", emphasis=True)
 
     percent_row = computed_row(
