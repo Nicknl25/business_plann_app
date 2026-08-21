@@ -870,7 +870,11 @@ def build_python_finmo_json(
   cfs_rows = [
     {"label": "Beginning Cash", "values": _series("beginning_cash", include_stub=True)},
     {"label": "Net Income", "values": _series("net_income", include_stub=True)},
-    {"label": "Depreciatoin", "values": _series("depreciation", include_stub=True)},
+    # "Depreciatoin" until 2026-08-21 - a typo in the emitted label that rode
+    # into 2,005 of 2,051 drafts and rendered on Audit Source. Nothing MATCHED
+    # on the misspelling (only this emitter and some captured fixtures carried
+    # it), so correcting it is a display fix, not a behaviour change.
+    {"label": "Depreciation", "values": _series("depreciation", include_stub=True)},
     {"label": "Changes in Current Assets", "values": _series("changes_in_current_assets", include_stub=True)},
     {"label": "Changes in Current Liabilites", "values": _series("changes_in_current_liabilities", include_stub=True)},
     {"label": "Operating Cash Flow", "values": _series("operating_cash_flow", include_stub=True)},
