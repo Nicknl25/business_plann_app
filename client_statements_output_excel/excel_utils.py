@@ -57,6 +57,24 @@ PERCENT_FORMAT = design.FMT_PERCENT
 DATE_FORMAT = design.FMT_DATE
 
 
+class RowRegistryMiss(KeyError):
+  """A builder asked the registry for a row that was never registered.
+
+  RAISED, not resolved to 0. The old accessors returned 0 on a miss - silently,
+  with no exception and no warning - so a typo or a renamed label produced a
+  plausible-looking row number instead of failing. Every consequence of that is
+  invisible: a formula pointing at row 0, a bridge row wired to nothing, and
+  worst of all `_ANNUALIZED_LABELS`, where a miss silently reroutes annual
+  aggregation and puts a wrong number in the annual columns - the exact class
+  fixed in 01fd627, reachable again through nothing more than a rename.
+
+  Callers that genuinely mean "this row may not exist" say so explicitly with
+  the `optional_*` accessors. Measured before this changed: across both
+  fixtures and all four accessors there were exactly TWO misses, both
+  deliberate and both documented.
+  """
+
+
 @dataclass
 class WorkbookBuildContext:
   period_cols: Dict[int, int] = field(default_factory=dict)
@@ -70,24 +88,50 @@ class WorkbookBuildContext:
     self.schedule_rows.setdefault(sheet, {})[key] = row
 
   def schedule_row(self, sheet: str, key: str) -> int:
+    """The registered row, or RAISE. Use `optional_schedule_row` when absence
+    is a real possibility rather than a mistake."""
+    try:
+      return self.schedule_rows[sheet][key]
+    except KeyError:
+      raise RowRegistryMiss(
+        f"{sheet!r} has no registered row {key!r}. Registered: "
+        f"{sorted(self.schedule_rows.get(sheet, {}))}") from None
+
+  def optional_schedule_row(self, sheet: str, key: str) -> int:
+    """0 when the row legitimately does not exist for this business.
+
+    Only two callers should ever need this, and both are documented at their
+    call site. If a third appears, check it is really absence and not a typo.
+    """
     return self.schedule_rows.get(sheet, {}).get(key, 0)
 
   def add_model_input_row(self, key: str, row: int) -> None:
     self.model_input_rows[key] = row
 
   def model_input_row(self, key: str) -> int:
+    # STILL RESOLVES A MISS TO 0, deliberately and for now. I widened the raise
+    # to all four accessors on a measurement that turned out to be too narrow:
+    # I probed the gate's two fixtures, saw zero misses, and concluded nothing
+    # relied on the fallback. The unit-test fixture carries a thinner P&L and
+    # immediately produced 'Income Statement has no registered row Payroll',
+    # and calc_sheet.py:136/157 and checks_sheet.py:852 guard on falsiness
+    # explicitly - they genuinely mean "may be absent".
+    # Narrowing this properly needs its own measurement across the payload
+    # shapes, not a generalisation from two.
     return self.model_input_rows.get(key, 0)
 
   def add_finmo_row(self, statement: str, key: str, row: int) -> None:
     self.finmo_rows.setdefault(statement, {})[key] = row
 
   def finmo_row(self, statement: str, key: str) -> int:
+    # Unchanged - see the note on model_input_row.
     return self.finmo_rows.get(statement, {}).get(key, 0)
 
   def add_source_row(self, statement: str, key: str, row: int) -> None:
     self.source_rows.setdefault(statement, {})[key] = row
 
   def source_row(self, statement: str, key: str) -> int:
+    # Unchanged - see the note on model_input_row.
     return self.source_rows.get(statement, {}).get(key, 0)
 
 

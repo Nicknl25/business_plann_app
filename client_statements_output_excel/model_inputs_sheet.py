@@ -97,7 +97,9 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
     display = revenue_slots[slot]["display"]
     for driver in ["Capacity", "Unit Price", "Utilization", "COGS %", "Revenue"]:
       source_key = f"{slot}::{driver}"
-      source_row = ctx.schedule_row(REVENUE_SHEET, source_key)
+      # OPTIONAL BY DESIGN, one of only two in the workbook: per-line "COGS %"
+      # rows exist only on multi-line per-line-COGS drafts.
+      source_row = ctx.optional_schedule_row(REVENUE_SHEET, source_key)
       if not source_row:
         # "COGS %" rows exist only on multi-line per-line-COGS drafts;
         # absent rows (all single-line workbooks) skip untouched.
@@ -191,7 +193,10 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
       # marketing payload) the lookup misses and this row keeps its literals,
       # exactly as before.
       marketing_source = (
-        ctx.schedule_row(MARKETING_SCHEDULE_SHEET, MARKETING_PERCENT_ROW_KEY)
+        # OPTIONAL BY DESIGN, the second of two: a draft with no marketing
+        # payload builds no Marketing Schedule sheet, and this row keeps its
+        # literals.
+        ctx.optional_schedule_row(MARKETING_SCHEDULE_SHEET, MARKETING_PERCENT_ROW_KEY)
         if label == "Marketing" else 0
       )
       ws.cell(row=row, column=2,
