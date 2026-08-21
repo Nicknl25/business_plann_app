@@ -395,249 +395,242 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
 
 
 def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
+  """Three corkscrews: debt, lease liability, right-of-use asset.
+
+  A corkscrew is a roll-forward that reads top to bottom - you start with what
+  you had, add what came in, take off what went out, and land on what you have
+  left, which becomes the next quarter's opening. Every input sits INLINE at
+  the point where it acts, not gathered into a separate block above.
+
+  This replaces an inputs-then-outputs split. That split is right for a sheet
+  of assumptions and wrong for a schedule: it tore the roll-forward in half, so
+  the arithmetic a client needs to follow ran across two sections and the
+  balance never visibly walked to zero.
+
+  Deleted with it: the "why a number here did nothing" prose row. A corkscrew
+  says it without prose - when debt is repaid the closing balance goes to zero
+  and stays there, and the rows below it go quiet on their own.
+  """
   ws = create_sheet(wb, DEBT_SHEET)
   apply_base_style(ws)
-  set_title(ws, "Debt Schedule", "Debt, interest, and capital lease mechanics. Model Inputs links to calculated outputs.")
+  set_title(
+    ws,
+    "Debt & Lease Schedule",
+    "Three roll-forwards. Each starts with the opening balance, adds what you "
+    "take on, subtracts what you pay off, and lands on the closing balance "
+    "that opens the next quarter. Amber cells are yours to change.",
+  )
   write_period_headers(ws, data.periods)
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
   schedules = data.schedules
-  # ADJUSTABLE ROWS FIRST, RESULTS BELOW. They used to be interleaved - the
-  # three a client can change sat at rows 8, 9 and 12 among calculated ones,
-  # so there was no way to see what was yours to touch.
-  #
-  # (label, detail, format, ANNUAL MODE). The mode is DECLARED - a reworded
-  # label must never change the maths.
-  debt_inputs = [
-    ("Debt Issuance", "New borrowing you take on this quarter", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Requested Debt Repayment", "What you intend to repay this quarter", CURRENCY_FORMAT, ANNUAL_SUM),
-    # NAMED PER QUARTER, deliberately. The value is ~2.375%, which is a
-    # QUARTERLY rate (about 9.5% a year), and the row said only "Interest Rate".
-    # That ambiguity is what produced the four-fold customer error on the
-    # marketing sheet. Kept quarterly rather than annualised because every other
-    # number here is quarterly and the formula multiplies it by a quarterly
-    # balance - converting would put a /4 inside a formula, which is the hidden
-    # conversion we have been removing.
-    ("Interest Rate per quarter", "Charged on the average balance, each quarter", PERCENT_FORMAT, ANNUAL_ANNUALIZE),
-  ]
-  debt_outputs = [
-    ("Opening Debt", "What you owed at the start", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Actual Debt Repayment", "Your requested repayment, capped at what you owe", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Interest Expense", "Average balance x the rate above", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Closing Debt", "What you owe at the end", CURRENCY_FORMAT, ANNUAL_YEAR_END),
-    ("Total Debt Service", "Interest plus repayment - your cash cost", CURRENCY_FORMAT, ANNUAL_SUM),
-  ]
-  rows = debt_inputs + debt_outputs
-  row = 6
-  write_section_header(ws, row, "What you can change")
-  row += 1
-  for label, detail, fmt, annual_mode in debt_inputs:
-    ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value=detail)
-    ctx.add_schedule_row(DEBT_SHEET, label, row)
-    row += 1
-  row += 1
-  write_section_header(ws, row, "What that produces")
-  row += 1
-  for label, detail, fmt, annual_mode in debt_outputs:
-    ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value=detail)
-    ctx.add_schedule_row(DEBT_SHEET, label, row)
-    row += 1
-  debt_opening = ctx.schedule_row(DEBT_SHEET, "Opening Debt")
-  debt_issuance = ctx.schedule_row(DEBT_SHEET, "Debt Issuance")
-  requested_repay = ctx.schedule_row(DEBT_SHEET, "Requested Debt Repayment")
-  actual_repay = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
-  closing_debt = ctx.schedule_row(DEBT_SHEET, "Closing Debt")
-  interest_rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate per quarter")
-  interest_exp = ctx.schedule_row(DEBT_SHEET, "Interest Expense")
-  debt_service = ctx.schedule_row(DEBT_SHEET, "Total Debt Service")
+
+  # THE ENGINE'S OWN LABELS, and they are not the ones on this sheet. Getting
+  # them wrong is silent: row_by_label().get() returns None, values_21(None)
+  # returns zeros, and the whole debt block renders as a legitimate-looking
+  # business with no debt. That is exactly what happened on the first pass of
+  # this rebuild - "Debt Issuance" instead of "Debt Issuance (New Borrowing)"
+  # zeroed Falls City's debt and moved 2,579 cells downstream through
+  # break-even and interest coverage. The interest rate also lives on the
+  # EXPENSE rows, not the schedule rows.
   issuance_values = values_21((schedule_by_label.get("Debt Issuance (New Borrowing)") or {}).get("values"))
   repay_values = values_21((schedule_by_label.get("Debt Repayment (Scheduled)") or {}).get("values"))
   rate_values = values_21((expense_by_label.get("Interest Rate") or {}).get("values"))
-  for idx in range(PERIOD_COUNT):
-    col = PERIOD_START_COL + idx
-    if idx == 0:
-      ws.cell(debt_opening, col, value=number(schedules.get("debt_opening_balance_seed")))
-      ws.cell(debt_issuance, col, value=0)
-      ws.cell(requested_repay, col, value=0)
-    else:
-      ws.cell(debt_opening, col, value=f"={local_ref(closing_debt, col - 1)}")
-      ws.cell(debt_issuance, col, value=issuance_values[idx])
-      ws.cell(requested_repay, col, value=repay_values[idx])
-    ws.cell(actual_repay, col, value=f"=MIN({local_ref(requested_repay, col)},{local_ref(debt_opening, col)}+{local_ref(debt_issuance, col)})")
-    ws.cell(closing_debt, col, value=f"=MAX(0,{local_ref(debt_opening, col)}+{local_ref(debt_issuance, col)}-{local_ref(actual_repay, col)})")
-    ws.cell(interest_rate, col, value=rate_values[idx])
-    ws.cell(interest_exp, col, value=f"=(({local_ref(debt_opening, col)}+{local_ref(closing_debt, col)})/2)*{local_ref(interest_rate, col)}")
-    ws.cell(debt_service, col, value=f"={local_ref(interest_exp, col)}+{local_ref(actual_repay, col)}")
-  for label, _, fmt, annual_mode in rows:
-    r = ctx.schedule_row(DEBT_SHEET, label)
-    for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
-      cell = ws.cell(r, col)
-      if label in {"Debt Issuance", "Requested Debt Repayment", "Interest Rate per quarter"}:
-        set_input_style(cell, number_format=fmt)
-      else:
-        set_formula_style(cell, number_format=fmt)
-    add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
-    style_row(ws, r, fill=FILL_GREEN if label in {"Closing Debt", "Interest Expense", "Actual Debt Repayment"} else None, bold=label in {"Closing Debt", "Interest Expense"}, number_format=fmt)
-
-  # ONE NOTE ROW, TWO JOBS. After payoff the repayment and rate rows still show
-  # numbers that reach nothing - on Harrow, debt closes in Q7 and thirteen
-  # quarters of amber follow. And the MIN() cap means a client who types a
-  # larger repayment sees nothing move. Both are the same question - "why did
-  # my number do nothing?" - so both get answered in the same row, per quarter.
-  # Show the number and mark it; never hide it.
-  ws.cell(row=row, column=1, value="Why a number here did nothing")
-  ws.cell(row=row, column=2,
-          value="Reads across the quarters below").font = design.font("note")
-  for idx in range(PERIOD_COUNT):
-    col = PERIOD_START_COL + idx
-    cell = ws.cell(
-      row=row, column=col,
-      value=(f'=IF({local_ref(closing_debt, col)}+{local_ref(debt_opening, col)}<=0,'
-             f'"Debt repaid in full - this quarter\'s repayment and rate no longer apply",'
-             f'IF({local_ref(requested_repay, col)}>{local_ref(actual_repay, col)},'
-             f'"Repayment capped at the balance available",""))'))
-    cell.font = design.font("note")
-  ctx.add_schedule_row(DEBT_SHEET, "Debt note", row)
-  row += 2
-
-  write_section_header(ws, row, "Capital Lease Schedule")
-  row += 1
-  # Phase 9 P3.16 — capital lease integration. Adds ROU asset and
-  # lease asset depreciation rows so the Debt Schedule sheet's
-  # Capital Lease section is the canonical display for the new
-  # right-of-use asset and the straight-line depreciation. Pre-iter
-  # this section existed but its principal/closing rows were
-  # populated from intake-leak values; this iter wires the same
-  # rows to the Python-builder-produced (clipped) schedule and adds
-  # the two new lines.
-  lease_rows = [
-    ("Lease Opening Balance", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Requested Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Lease Principal Repayments", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Lease Net Additions", CURRENCY_FORMAT, ANNUAL_SUM),
-    # THE DIVISOR, PROMOTED TO A ROW. It was the literal 20 inside the
-    # depreciation formula - a five-year life every client got and none could
-    # see, let alone change. AVERAGE annually because it is a LEVEL: four
-    # quarters of a 20-quarter life do not add up to an 80-quarter one.
-    ("Lease Life in quarters", INTEGER_FORMAT, ANNUAL_AVERAGE),
-    ("Lease Interest Expense", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Lease Closing Balance", CURRENCY_FORMAT, ANNUAL_YEAR_END),
-    ("Right-of-Use Asset Opening", CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Lease Asset Depreciation", CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Right-of-Use Asset Closing", CURRENCY_FORMAT, ANNUAL_YEAR_END),
-  ]
-  # 20 quarters is the policy the formula already carried; it is now STATED
-  # rather than buried, and the engine can override it if it ever learns better.
-  lease_life_quarters = int(number(schedules.get("lease_life_quarters")) or 20)
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
-  # Phase 9 P3.20 Part 1 — `interest_rate_values_lease` was a
-  # Python-side list of the Interest Rate row values used to
-  # interpolate literals into the lease interest formula. After
-  # the cell-reference fix the formula references `interest_rate`
-  # directly (the row variable on this sheet), so no Python-side
-  # list is needed for that path.
-  for label, fmt, annual_mode in lease_rows:
-    ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value="Capital leases")
-    ctx.add_schedule_row(DEBT_SHEET, label, row)
-    row += 1
-  lease_open = ctx.schedule_row(DEBT_SHEET, "Lease Opening Balance")
-  lease_requested_principal = ctx.schedule_row(DEBT_SHEET, "Requested Lease Principal Repayments")
-  lease_principal = ctx.schedule_row(DEBT_SHEET, "Lease Principal Repayments")
-  lease_add = ctx.schedule_row(DEBT_SHEET, "Lease Net Additions")
-  lease_life = ctx.schedule_row(DEBT_SHEET, "Lease Life in quarters")
-  lease_interest = ctx.schedule_row(DEBT_SHEET, "Lease Interest Expense")
-  lease_close = ctx.schedule_row(DEBT_SHEET, "Lease Closing Balance")
-  rou_open = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Opening")
-  lease_dep = ctx.schedule_row(DEBT_SHEET, "Lease Asset Depreciation")
-  rou_close = ctx.schedule_row(DEBT_SHEET, "Right-of-Use Asset Closing")
-  # LEASE DEPRECIATION - straight line, over a life the client can see.
-  #
-  # It was MIN(C18/20, opening): the Q0 opening balance divided by a hard 20.
-  # Two things about that were wrong and one was right.
-  #
-  # RIGHT, and kept exactly: straight line on the gross asset. With no lease
-  # additions it charges seed/20 a quarter and lands the asset on precisely
-  # zero at Q20 (Falls City: 81,600 at 4,080 a quarter). Values do not move.
-  #
-  # WRONG 1, fixed here: the anchor was column C, the stub - now HIDDEN. The
-  # only driver of a client-facing row sat in an invisible cell. It now reads
-  # the first LIVE quarter's right-of-use opening, which carries the same seed
-  # and which the client can actually see.
-  # WRONG 2, fixed here: the 20 was a five-year life every client got and none
-  # could see. It is now a row.
-  #
-  # NOT the current-quarter opening balance, which was the shape first
-  # proposed. Dividing a DECLINING balance by a FIXED life is declining-balance
-  # depreciation: on Falls City that charges 4,080, then 3,876, then 3,682,
-  # never reaches zero, and understates the five-year expense by about a third.
-  # It would have moved delivered numbers in the wrong direction.
-  #
-  # The base is the GROSS asset - the seed plus every addition already on the
-  # books - which is only coherent now that additions reach the asset at all.
-  # An addition in quarter t lands in that quarter's CLOSING balance, so it is
-  # part of the asset from t+1; the range stops one column short, and the
-  # MIN cap against the opening keeps the final quarter from over-charging.
-  #
-  # A lease added late does NOT finish depreciating inside the model, and that
-  # is correct rather than a rounding failure: 40,000 added at Q6 carries
-  # 2,000 a quarter for 20 quarters, only 14 of which fall before Q20, so
-  # 12,000 remains on the books at the horizon.
-  def _dep_base(col: int) -> str:
-    # FIRST_LIVE_COL, not PERIOD_START_COL. The stub column is hidden; putting
-    # the seed anchor back there is the exact defect the previous commit
-    # removed, and writing it as PERIOD_START_COL here quietly reintroduced it
-    # until the leaf-by-leaf diff showed $D$27 turning back into $C$27.
-    seed = f"${get_column_letter(FIRST_LIVE_COL)}${rou_open}"
-    if col <= FIRST_LIVE_COL:
-      return seed
-    first = f"${get_column_letter(FIRST_LIVE_COL)}${lease_add}"
-    return f"({seed}+SUM({first}:{local_ref(lease_add, col - 1)}))"
+  lease_life_quarters = int(number(schedules.get("lease_life_quarters")) or 20)
 
-  def per_quarter_dep(col: int, life_ref: str) -> str:
-    return f"({_dep_base(col)}/{life_ref})"
+  # THE REPAYMENT ROWS ARE SEEDED ALREADY CAPPED.
+  #
+  # There used to be two rows - a "Requested" input and an "Actual" formula
+  # holding MIN(requested, what you owe). A corkscrew has ONE subtraction line,
+  # so the cap is applied here, in Python, and the row a client sees carries
+  # the capped figure. Delivered numbers are unchanged because this reproduces
+  # exactly the MIN chain Excel was evaluating.
+  #
+  # The cap still holds after delivery, through the MAX(0, ...) on the closing
+  # balance: type a repayment larger than the balance and it walks to zero and
+  # stays there, which is the behaviour the deleted prose row described.
+  def _walk(seed, adds, takes):
+    """-> (openings, capped_takes, closings) for the 21 columns."""
+    openings, capped, closings = [], [], []
+    balance = number(seed) or 0.0
+    for idx in range(PERIOD_COUNT):
+      add = 0.0 if idx == 0 else (adds[idx] or 0.0)
+      want = 0.0 if idx == 0 else (takes[idx] or 0.0)
+      take = min(want, balance + add)
+      openings.append(balance)
+      capped.append(take)
+      balance = max(0.0, balance + add - take)
+      closings.append(balance)
+    return openings, capped, closings
+
+  _, debt_repay_capped, _ = _walk(
+    schedules.get("debt_opening_balance_seed"), issuance_values, repay_values)
+  _, lease_principal_capped, _ = _walk(
+    schedules.get("lease_opening_balance_seed"), lease_add_values, lease_principal_values)
+
+  # (registry KEY, displayed label, detail, format, ANNUAL MODE, is an input)
+  #
+  # The KEY is stable and the LABEL is free. That separation is what lets this
+  # sheet be rebuilt without moving a single lookup anywhere else in the
+  # workbook - every consumer still asks for "Actual Debt Repayment" and gets
+  # the row now displayed as "Less: Repayment".
+  debt_block = [
+    ("Opening Debt", "Opening Debt", "What you owed at the start of the quarter",
+     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
+    ("Debt Issuance", "Plus: New borrowing", "New debt you take on this quarter",
+     CURRENCY_FORMAT, ANNUAL_SUM, True),
+    ("Actual Debt Repayment", "Less: Repayment", "What you pay off - it cannot exceed what you owe",
+     CURRENCY_FORMAT, ANNUAL_SUM, True),
+    ("Closing Debt", "Equals: Closing Debt", "What you owe at the end - this opens next quarter",
+     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
+    ("Interest Rate per quarter", "Interest rate per quarter", "Charged on the average balance, each quarter",
+     PERCENT_FORMAT, ANNUAL_ANNUALIZE, True),
+    ("Interest Expense", "Interest expense", "Average balance x the rate above",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+    ("Total Debt Service", "Total debt service", "Interest plus repayment - your cash cost",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+  ]
+  # ONE INPUT BLOCK, THEN TWO ROLL-FORWARDS THAT FOLLOW IT.
+  #
+  # Signing a lease is the decision; the right-of-use asset is the accounting
+  # consequence. So the three things a client decides are entered ONCE, and
+  # both roll-forwards read them - the liability and the asset cannot drift
+  # apart because there is only one place to type.
+  #
+  # The client never touches the asset block. Nothing in it is amber.
+  lease_inputs = [
+    ("Lease Net Additions", "Lease additions", "New leases you sign this quarter",
+     CURRENCY_FORMAT, ANNUAL_SUM, True),
+    ("Lease Principal Repayments", "Principal repayment", "What you pay off - it cannot exceed what you owe",
+     CURRENCY_FORMAT, ANNUAL_SUM, True),
+    ("Lease Life in quarters", "Lease term in quarters", "How long a lease runs, and is written down over",
+     INTEGER_FORMAT, ANNUAL_AVERAGE, True),
+  ]
+  lease_block = [
+    ("Lease Opening Balance", "Lease Opening", "What you owed on leases at the start",
+     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
+    ("Lease Additions (liability)", "Plus: Lease additions", "From the block above",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+    ("Lease Principal (liability)", "Less: Principal repaid", "From the block above",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+    ("Lease Closing Balance", "Equals: Lease Closing", "What you owe at the end - this opens next quarter",
+     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
+    ("Lease Interest Expense", "Lease interest", "Opening balance x the debt rate above",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+  ]
+  asset_block = [
+    ("Right-of-Use Asset Opening", "Asset Opening", "What the leased assets were worth at the start",
+     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
+    ("Lease Additions (asset)", "Plus: Lease additions", "The same leases, on the asset side",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+    ("Lease Asset Depreciation", "Less: Depreciation", "The current balance over the term remaining",
+     CURRENCY_FORMAT, ANNUAL_SUM, False),
+    ("Right-of-Use Asset Closing", "Equals: Asset Closing", "What they are worth at the end - this opens next quarter",
+     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
+  ]
+
+  row = 6
+  layout = []
+  for title, block in (("Debt", debt_block),
+                       ("Capital lease - what you can change", lease_inputs),
+                       ("Lease liability", lease_block),
+                       ("Right-of-use asset - follows automatically", asset_block)):
+    write_section_header(ws, row, title)
+    row += 1
+    for key, label, detail, fmt, mode, is_input in block:
+      ws.cell(row=row, column=1, value=label)
+      ws.cell(row=row, column=2, value=detail)
+      ctx.add_schedule_row(DEBT_SHEET, key, row)
+      layout.append((key, fmt, mode, is_input))
+      row += 1
+    row += 1
+
+  r = lambda key: ctx.schedule_row(DEBT_SHEET, key)
+  debt_open, debt_new = r("Opening Debt"), r("Debt Issuance")
+  debt_repay, debt_close = r("Actual Debt Repayment"), r("Closing Debt")
+  rate, interest, service = r("Interest Rate per quarter"), r("Interest Expense"), r("Total Debt Service")
+  lease_add_in = r("Lease Net Additions")            # the input block
+  lease_principal_in = r("Lease Principal Repayments")
+  lease_life = r("Lease Life in quarters")
+  lease_open, lease_close = r("Lease Opening Balance"), r("Lease Closing Balance")
+  lease_add = r("Lease Additions (liability)")        # the liability roll-forward
+  lease_principal = r("Lease Principal (liability)")
+  lease_interest = r("Lease Interest Expense")
+  rou_open, rou_add = r("Right-of-Use Asset Opening"), r("Lease Additions (asset)")
+  rou_dep, rou_close = r("Lease Asset Depreciation"), r("Right-of-Use Asset Closing")
+
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
-    ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(lease_close, col - 1)}")
-    ws.cell(lease_requested_principal, col, value=0 if idx == 0 else lease_principal_values[idx])
-    ws.cell(lease_add, col, value=0 if idx == 0 else lease_add_values[idx])
-    ws.cell(lease_principal, col, value=f"=MIN({local_ref(lease_requested_principal, col)},{local_ref(lease_open, col)}+{local_ref(lease_add, col)})")
-    # Phase 9 P3.20 Part 1 — Lease Interest = Lease Opening *
-    # Interest Rate cell (declining balance). Pre-iter this
-    # interpolated `rate_cell_value` as a Python literal; now
-    # references the Interest Rate row (row variable `interest_rate`
-    # from line 435, written into cells at line 453) the same way
-    # the debt Interest Expense formula does at line 454. Mirror
-    # Flavor 1 — single cell-reference pattern across debt + lease.
-    ws.cell(lease_interest, col, value=0 if idx == 0 else f"={local_ref(lease_open, col)}*{local_ref(interest_rate, col)}")
-    ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
-    ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed")) if idx == 0 else f"={local_ref(rou_close, col - 1)}")
-    ws.cell(lease_life, col, value=lease_life_quarters)
-    ws.cell(lease_dep, col, value=0 if idx == 0 else
-            f"=MIN({per_quarter_dep(col, local_ref(lease_life, col))},"
-            f"{local_ref(rou_open, col)})")
-    # ADDITIONS REACH THE ASSET. They always reached the liability - Lease
-    # Closing Balance is opening + additions - principal - but this row was
-    # opening - depreciation, with no additions term, so a capital lease
-    # created a liability against no asset at all and the balance sheet took
-    # the difference. A lease creates both or neither.
-    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}+{local_ref(lease_add, col)}-{local_ref(lease_dep, col)})")
-  input_rows = {"Requested Lease Principal Repayments", "Lease Net Additions",
-                "Lease Life in quarters"}
-  for label, fmt, annual_mode in lease_rows:
-    r = ctx.schedule_row(DEBT_SHEET, label)
-    for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
-      set_formula_style(
-        ws.cell(r, col),
-        number_format=fmt,
-        internal_link=label not in input_rows,
-      )
-    add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
-    style_row(ws, r, fill=FILL_LIGHT, number_format=fmt)
+    stub = idx == 0
 
+    # ---- DEBT
+    ws.cell(debt_open, col, value=number(schedules.get("debt_opening_balance_seed"))
+            if stub else f"={local_ref(debt_close, col - 1)}")
+    ws.cell(debt_new, col, value=0 if stub else issuance_values[idx])
+    ws.cell(debt_repay, col, value=0 if stub else debt_repay_capped[idx])
+    ws.cell(debt_close, col, value=f"=MAX(0,{local_ref(debt_open, col)}"
+                                  f"+{local_ref(debt_new, col)}-{local_ref(debt_repay, col)})")
+    ws.cell(rate, col, value=rate_values[idx])
+    ws.cell(interest, col, value=f"=(({local_ref(debt_open, col)}+{local_ref(debt_close, col)})/2)"
+                                f"*{local_ref(rate, col)}")
+    ws.cell(service, col, value=f"={local_ref(interest, col)}+{local_ref(debt_repay, col)}")
+
+    # ---- CAPITAL LEASE: the inputs, entered once
+    ws.cell(lease_add_in, col, value=0 if stub else lease_add_values[idx])
+    ws.cell(lease_principal_in, col, value=0 if stub else lease_principal_capped[idx])
+    ws.cell(lease_life, col, value=lease_life_quarters)
+
+    # ---- LEASE LIABILITY
+    ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed"))
+            if stub else f"={local_ref(lease_close, col - 1)}")
+    ws.cell(lease_add, col, value=f"={local_ref(lease_add_in, col)}")
+    ws.cell(lease_principal, col, value=f"={local_ref(lease_principal_in, col)}")
+    ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}"
+                                   f"+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
+    # A lease is charged at the same rate as the debt above it, and there is no
+    # separate lease rate to ask a client for, so this reads the rate row
+    # rather than inventing a second lever that could disagree with the first.
+    ws.cell(lease_interest, col, value=0 if stub
+            else f"={local_ref(lease_open, col)}*{local_ref(rate, col)}")
+
+    # ---- RIGHT-OF-USE ASSET. Nothing here is the client's.
+    ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed"))
+            if stub else f"={local_ref(rou_close, col - 1)}")
+    ws.cell(rou_add, col, value=f"={local_ref(lease_add_in, col)}")
+    # DEPRECIATION RUNS OFF THE CURRENT BASE, over the term REMAINING.
+    #
+    # It used to read MIN($D$27/term, opening): frozen to Q1's balance, so a
+    # lease signed later raised the asset and never raised depreciation. The
+    # base is now this quarter's opening plus this quarter's additions - the
+    # two rows directly above it - and the term comes from the input block.
+    #
+    # REMAINING term, not the full term. Dividing the current base by the FULL
+    # term is declining balance: 4,080 then 3,876 then 3,682, and the asset
+    # never reaches zero. Dividing by what is LEFT of the term keeps the charge
+    # level on a flat book - 81,600 over 20 quarters is 4,080 every quarter,
+    # landing on exactly zero - and spreads a new lease over the quarters it
+    # has left. Consequence worth knowing: everything is written down by the
+    # end of the stated term, so a lease signed late depreciates faster.
+    remaining = f"MAX({local_ref(lease_life, col)}-{max(idx - 1, 0)},1)"
+    base = f"({local_ref(rou_open, col)}+{local_ref(rou_add, col)})"
+    ws.cell(rou_dep, col, value=0 if stub else f"=MIN({base}/{remaining},{base})")
+    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}"
+                                 f"+{local_ref(rou_add, col)}-{local_ref(rou_dep, col)})")
+
+  # STYLE_ROW FIRST, then the per-cell styling. style_row repaints the whole
+  # row, so applying it last silently wiped the amber off every input - which
+  # is how the lease inputs came to look exactly like the calculated rows.
+  for key, fmt, mode, is_input in layout:
+    rr_ = ctx.schedule_row(DEBT_SHEET, key)
+    style_row(ws, rr_, fill=FILL_LIGHT, number_format=fmt)
+    for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
+      if is_input:
+        set_input_style(ws.cell(rr_, col), number_format=fmt)
+      else:
+        set_formula_style(ws.cell(rr_, col), number_format=fmt, internal_link=True)
+    add_annual_formulas(ws, rr_, mode=mode, number_format=fmt)
 
   hide_stub_column(ws)
 
@@ -669,14 +662,21 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   capex_inputs = [
     ("Capital Expenditures", "What you spend on equipment this quarter",
      CURRENCY_FORMAT, ANNUAL_SUM),
-    ("Depreciation Rate", "Share of the opening balance written off this quarter",
-     PERCENT_FORMAT, ANNUAL_AVERAGE),
   ]
   capex_outputs = [
     ("Opening PPE", "What the equipment was worth at the start",
      CURRENCY_FORMAT, ANNUAL_YEAR_START),
     ("Lease Additions", "Comes from the Debt Schedule - change it there",
      CURRENCY_FORMAT, ANNUAL_SUM),
+    # DERIVED, not an input. It was amber - styled exactly like a lever - and
+    # its values climb from 5.1% to 54.4% across the twenty quarters, because
+    # the engine FITS it so the expense stays level while the balance it
+    # multiplies falls. A client reading a rising rate as a mistake and
+    # flattening it to 5% would change every figure below and be reasonable
+    # to think they were fixing a typo. Same trap as the inert Stage Ramp
+    # cells, except this one does something, and the something is wrong.
+    ("Depreciation Rate", "Derived - fitted each quarter, see the note below",
+     PERCENT_FORMAT, ANNUAL_AVERAGE),
     ("Depreciation Expense", "Opening balance x the rate above",
      CURRENCY_FORMAT, ANNUAL_SUM),
     ("Closing PPE", "What it is worth at the end, after depreciation",
@@ -730,14 +730,19 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   for label, fmt, annual_mode in labels:
     r = ctx.schedule_row(CAPEX_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
-      if label in {"Capital Expenditures", "Depreciation Rate"}:
+      if label == "Capital Expenditures":
         set_input_style(ws.cell(r, col), number_format=fmt)
       elif label == "Lease Additions":
         set_formula_style(ws.cell(r, col), number_format=fmt, internal_link=True)
       else:
         set_formula_style(ws.cell(r, col), number_format=fmt)
     add_annual_formulas(ws, r, mode=annual_mode, number_format=fmt)
-    style_row(ws, r, fill=FILL_GREEN if label in {"Capital Expenditures", "Depreciation Expense", "Closing PPE"} else None, bold=label in {"Depreciation Expense", "Closing PPE"}, number_format=fmt)
+    # Capital Expenditures is OUT of the emphasis set. style_row repaints the
+    # row, so the FILL_GREEN band was overwriting the amber that
+    # set_input_style had just applied - which left this sheet with the fitted
+    # Depreciation Rate as its ONLY amber row, and the one thing a client can
+    # actually change painted like a subtotal. Exactly backwards.
+    style_row(ws, r, fill=FILL_GREEN if label in {"Depreciation Expense", "Closing PPE"} else None, bold=label in {"Depreciation Expense", "Closing PPE"}, number_format=fmt)
 
   # WHAT THE RATE ACTUALLY IS. The row above is editable and amber, and its
   # values climb - measured on three drafts, 5.1% to 54.4% across the twenty

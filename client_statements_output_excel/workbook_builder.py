@@ -110,5 +110,10 @@ def build_client_financial_model_workbook(data: DraftWorkbookData):
   design.apply_sheet_order(wb)
   wb.active = wb.sheetnames.index(COVER_SHEET)
   set_tab_colors(wb)
+  # THE ROW REGISTRY, ON THE WORKBOOK. Callers that need to find a row need
+  # the KEY -> row map, and the only alternative is reading the text in
+  # column A - which couples them to the displayed label and breaks the
+  # moment a sheet is reworded. It broke four tests that way once.
+  wb.build_context = ctx
   return wb
 

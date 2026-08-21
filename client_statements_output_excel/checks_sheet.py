@@ -450,13 +450,16 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
 
   opening = ctx.schedule_row(DEBT_SHEET, "Opening Debt")
   issuance = ctx.schedule_row(DEBT_SHEET, "Debt Issuance")
-  requested = ctx.schedule_row(DEBT_SHEET, "Requested Debt Repayment")
+  # "Requested Debt Repayment" no longer exists. The corkscrew has ONE
+  # subtraction line, capped at build time, so there is nothing left to
+  # compare a requested figure against - the clause that did so is deleted
+  # below rather than quietly left to compare a row against itself.
   actual = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
   closing = ctx.schedule_row(DEBT_SHEET, "Closing Debt")
   rate = ctx.schedule_row(DEBT_SHEET, "Interest Rate per quarter")
   interest = ctx.schedule_row(DEBT_SHEET, "Interest Expense")
   service = ctx.schedule_row(DEBT_SHEET, "Total Debt Service")
-  if all([opening, issuance, requested, actual, closing, rate, interest, service]):
+  if all([opening, issuance, actual, closing, rate, interest, service]):
     row = _write_sum_abs_logic_check(
       ws,
       row,
@@ -474,11 +477,10 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       sheet=DEBT_SHEET,
       range_or_cell=rr("Actual Debt Repayment"),
       actual_formula=(
-        f"=SUMPRODUCT(--(({rr('Actual Debt Repayment')}-{rr('Requested Debt Repayment')})>1))"
-        f"+SUMPRODUCT(--(({rr('Actual Debt Repayment')}-({rr('Opening Debt')}+{rr('Debt Issuance')}))>1))"
+        f"=SUMPRODUCT(--(({rr('Actual Debt Repayment')}-({rr('Opening Debt')}+{rr('Debt Issuance')}))>1))"
       ),
       tolerance=0,
-      notes="Actual repayment must not exceed requested repayment or available debt balance.",
+      notes="Repayment must not exceed the balance available to repay.",
     )
     row = _write_sum_abs_logic_check(
       ws,
@@ -512,11 +514,10 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
     )
 
   lease_open = ctx.schedule_row(DEBT_SHEET, "Lease Opening Balance")
-  lease_requested = ctx.schedule_row(DEBT_SHEET, "Requested Lease Principal Repayments")
   lease_principal = ctx.schedule_row(DEBT_SHEET, "Lease Principal Repayments")
   lease_add = ctx.schedule_row(DEBT_SHEET, "Lease Net Additions")
   lease_close = ctx.schedule_row(DEBT_SHEET, "Lease Closing Balance")
-  if all([lease_open, lease_requested, lease_principal, lease_add, lease_close]):
+  if all([lease_open, lease_principal, lease_add, lease_close]):
     row = _write_sum_abs_logic_check(
       ws,
       row,
@@ -534,11 +535,10 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       sheet=DEBT_SHEET,
       range_or_cell=rr("Lease Principal Repayments"),
       actual_formula=(
-        f"=SUMPRODUCT(--(({rr('Lease Principal Repayments')}-{rr('Requested Lease Principal Repayments')})>1))"
-        f"+SUMPRODUCT(--(({rr('Lease Principal Repayments')}-({rr('Lease Opening Balance')}+{rr('Lease Net Additions')}))>1))"
+        f"=SUMPRODUCT(--(({rr('Lease Principal Repayments')}-({rr('Lease Opening Balance')}+{rr('Lease Net Additions')}))>1))"
       ),
       tolerance=0,
-      notes="Lease principal repayment must not exceed requested repayment or available lease balance.",
+      notes="Lease principal repayment must not exceed the balance available to repay.",
     )
     row = _write_sum_abs_logic_check(
       ws,

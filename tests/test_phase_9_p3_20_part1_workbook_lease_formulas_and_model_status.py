@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import os
 import re
+
+from openpyxl.utils import get_column_letter
 import sys
 import unittest
 from pathlib import Path
@@ -44,11 +46,15 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
     return [ws.cell(rows[label], 3 + i).value for i in range(21)]
 
   def _debt_rows(self):
-    """Every Debt Schedule row label mapped to its row number."""
-    ws = self._debt_sheet()
-    return {str(ws.cell(r, 1).value or "").strip(): r
-            for r in range(1, ws.max_row + 1)
-            if str(ws.cell(r, 1).value or "").strip()}
+    """Every Debt Schedule row KEY mapped to its row number.
+
+    Read from the ctx registry, not from the text in column A. These tests
+    used to key off the displayed label, so rewording the sheet broke four of
+    them at once - which is the exact coupling the key/label separation was
+    built to remove. The key is the contract; the label is presentation.
+    """
+    self._debt_sheet()
+    return dict(type(self)._CTX.schedule_rows["Debt Schedule"])
 
   def _debt_sheet(self):
     """The built Debt Schedule, built once per process."""
@@ -63,6 +69,7 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
     wb, gap = ctx._build_workbook(
       workbook_builder.build_client_financial_model_workbook, wbdata.draft_data_from_row)
     assert not gap, gap
+    type(self)._CTX = wb.build_context
     type(self)._SHEET = wb["Debt Schedule"]
     return type(self)._SHEET
 
@@ -70,15 +77,15 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
     # The lease interest write should reference local_ref(interest_rate, col)
     # (matching the debt interest formula pattern).
     pattern = re.compile(
-      r"ws\.cell\(lease_interest,\s*col,\s*value=0 if idx == 0 else\s*(f\"[^\"]+\")"
+      r"ws\.cell\(lease_interest, col, value=0 if stub\s+else\s+(f\"[^\"]+\")"
     )
     matches = pattern.findall(self._src)
     self.assertEqual(len(matches), 1, "Expected exactly one lease interest write")
     formula_template = matches[0]
     self.assertIn(
-      "local_ref(interest_rate, col)",
+      "local_ref(rate, col)",
       formula_template,
-      "Lease interest formula must reference the Interest Rate cell (local_ref(interest_rate, col)), not a Python literal",
+      "Lease interest formula must reference the Interest Rate cell, not a Python literal",
     )
     self.assertNotIn(
       "rate_cell_value",
@@ -87,85 +94,94 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
     )
 
   def test_lease_asset_depreciation_formula_uses_cell_reference(self) -> None:
-    """The seed must be a CELL, never a Python literal baked into the string.
+    """Depreciation reads THIS quarter's asset base and the term row.
 
-    This used to assert the formula's exact source text, which made it a guard
-    on one spelling rather than on the property. R-DEBT-02 moved the anchor off
-    the stub column (now hidden) onto the first LIVE quarter's right-of-use
-    opening, and turned the hard-coded 20 into a "Lease Life in quarters" row -
-    both of which the property survives and the string did not. Asserted
-    against the BUILT sheet now, so it holds however the formula is spelled.
+    Three shapes have now been wrong here, and the test has followed each:
+
+      1. a Python literal interpolated into the string;
+      2. MIN($D$27/term, opening) - a cell, but FROZEN to Q1, so a lease
+         signed later raised the asset and never raised depreciation;
+      3. a cumulative SUM of additions bolted onto a frozen seed.
+
+    The corkscrew replaces all three: the base is the two rows directly above
+    - this quarter's Asset Opening plus this quarter's additions - so the
+    property to hold is that the formula reads THOSE cells, in THIS column,
+    with no absolute reference anywhere in it.
     """
     rows = self._debt_rows()
-    dep = self._row_formulas(rows, "Lease Asset Depreciation")
-    live = [f for f in dep[1:] if isinstance(f, str)]
-    self.assertTrue(live, "no depreciation formulas were built")
-    # The first attempt at this test asserted "no 4-digit literal", which the
-    # gate fixture cannot fail: its lease seed is 0, so baking the seed in
-    # produced "(0/D24)" and the test stayed green through the tamper. Assert
-    # the STRUCTURE instead - the two rows the formula must read.
-    rou = rows["Right-of-Use Asset Opening"]
-    life = rows["Lease Life in quarters"]
-    for formula in live:
-      # ABSOLUTE, and that precision is the point. A relaxed "mentions row 27"
-      # is satisfied by the MIN's second argument - the cap - so baking the
-      # seed into the numerator still passed: =MIN((0/D24),D27). The BASE is
-      # the anchored $D$27; the cap is the relative D27. Assert the anchor.
-      self.assertRegex(
-        formula, rf"\$[A-Z]{{1,2}}\${rou}(?![0-9])",
-        f"the depreciation BASE is not the anchored Right-of-Use Asset Opening "
-        f"cell (row {rou}) - a seed has been baked into the numerator, which "
-        f"the row-{rou} cap would otherwise disguise: {formula!r}")
-      self.assertRegex(
-        formula, rf"\$?[A-Z]{{1,2}}\$?{life}(?![0-9])",
-        f"depreciation does not read the Lease Life row ({life}) - the life is "
-        f"hard-coded again: {formula!r}")
+    ws = self._debt_sheet()
+    dep_row = rows["Lease Asset Depreciation"]
+    opening, adds = rows["Right-of-Use Asset Opening"], rows["Lease Additions (asset)"]
+    term = rows["Lease Life in quarters"]
+    live = 0
+    for i in range(1, 21):
+      col = get_column_letter(3 + i)
+      formula = ws.cell(dep_row, 3 + i).value
+      if not isinstance(formula, str):
+        continue
+      live += 1
+      self.assertIn(f"{col}{opening}", formula,
+                    f"depreciation does not read THIS quarter's Asset Opening "
+                    f"({col}{opening}): {formula!r}")
+      self.assertIn(f"{col}{adds}", formula,
+                    f"depreciation does not read THIS quarter's additions "
+                    f"({col}{adds}): {formula!r}")
+      self.assertIn(f"{col}{term}", formula,
+                    f"depreciation does not read the lease term row "
+                    f"({col}{term}): {formula!r}")
+      self.assertNotIn(
+        "$", formula,
+        f"depreciation carries an ABSOLUTE reference again - that is the "
+        f"frozen anchor this design removed, and it is what stopped a lease "
+        f"signed after Q1 from ever depreciating: {formula!r}")
+    self.assertEqual(live, 20, "expected a depreciation formula in every live quarter")
 
   def test_lease_additions_reach_the_right_of_use_asset(self):
     """A capital lease creates an asset and a liability together.
 
     Right-of-Use Asset Closing was opening MINUS depreciation, with no
-    additions term, while Lease Closing Balance was opening PLUS additions
-    minus principal. So a lease added mid-model raised a liability against no
-    asset at all. Measured on Falls City with one 40,000 lease added at Q6:
-    the liability ended at 40,000 and the asset at 0.
-
-    Nick's ruling, 2026-08-21: there is no version where one arrives without
-    the other. Zero exposure today does not change it.
+    additions term at all, so a lease added mid-model raised a liability
+    against no asset. Measured on Falls City with 40,000 added at Q6: the
+    liability ended at 40,000 and the asset at 0.
     """
     rows = self._debt_rows()
-    close = self._row_formulas(rows, "Right-of-Use Asset Closing")
-    adds = rows["Lease Net Additions"]
-    live = [f for f in close if isinstance(f, str)]
-    self.assertTrue(live, "no right-of-use closing formulas were built")
-    for formula in live:
-      self.assertRegex(
-        formula, rf"\+\$?[A-Z]{{1,2}}\$?{adds}(?![0-9])",
-        f"the right-of-use asset does not ADD the Lease Net Additions row "
-        f"({adds}) - a lease would create a liability with no asset: "
-        f"{formula!r}")
+    ws = self._debt_sheet()
+    close_row = rows["Right-of-Use Asset Closing"]
+    opening, adds = rows["Right-of-Use Asset Opening"], rows["Lease Additions (asset)"]
+    dep = rows["Lease Asset Depreciation"]
+    for i in range(21):
+      col = get_column_letter(3 + i)
+      formula = ws.cell(close_row, 3 + i).value
+      if not isinstance(formula, str):
+        continue
+      self.assertIn(f"+{col}{adds}", formula,
+                    f"the asset closing balance does not ADD the additions row "
+                    f"({col}{adds}) - a lease would create a liability with no "
+                    f"asset: {formula!r}")
+      self.assertIn(f"{col}{opening}", formula)
+      self.assertIn(f"{col}{dep}", formula)
 
-  def test_depreciation_base_includes_additions_already_on_the_books(self):
-    """The companion half. Additions reaching the asset without reaching the
-    depreciation base would strand them on the balance sheet forever - the
-    opposite error, arrived at from the other side."""
+  def test_the_lease_is_entered_once_and_feeds_both_sides(self):
+    """The asset block is not a second place to type.
+
+    Both roll-forwards read the SAME input row, so the liability and the asset
+    cannot drift apart - which is the whole reason the client never touches
+    the asset block.
+    """
     rows = self._debt_rows()
-    dep = self._row_formulas(rows, "Lease Asset Depreciation")
-    adds = rows["Lease Net Additions"]
-    # quarter 1 has no prior additions, so the base is the seed alone; every
-    # later quarter must sum what has landed since
-    later = [f for f in dep[2:] if isinstance(f, str)]
-    self.assertTrue(later, "no later-quarter depreciation formulas were built")
-    for formula in later:
-      self.assertIn(
-        "SUM(", formula,
-        f"depreciation does not accumulate lease additions: {formula!r}")
-      self.assertRegex(
-        formula, rf"SUM\(\$?[A-Z]{{1,2}}\$?{adds}(?![0-9])",
-        f"depreciation's SUM does not run over the Lease Net Additions row "
-        f"({adds}): {formula!r}")
+    ws = self._debt_sheet()
+    source = rows["Lease Net Additions"]
+    for key in ("Lease Additions (asset)", "Lease Additions (liability)"):
+      mirror = rows[key]
+      for i in range(21):
+        col = get_column_letter(3 + i)
+        formula = ws.cell(mirror, 3 + i).value
+        self.assertEqual(
+          formula, f"={col}{source}",
+          f"{key} is not a straight link to the single additions input "
+          f"({col}{source}) - two places to type is two numbers that disagree")
 
-    # The old literal should NOT be present in the generator anymore
+  def test_no_python_seed_literal_survives_in_the_generator(self):
     self.assertNotIn(
       "lease_seed_value = number(schedules.get(",
       self._src,
