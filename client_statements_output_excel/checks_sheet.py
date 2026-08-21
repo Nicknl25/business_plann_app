@@ -592,9 +592,16 @@ def _add_capex_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       line_item="Closing PPE formula",
       sheet=CAPEX_SHEET,
       range_or_cell=rr("Closing PPE"),
-      actual_formula=f"=SUMPRODUCT(ABS({rr('Closing PPE')}-({rr('Opening PPE')}+{rr('Capital Expenditures')}+{rr('Lease Additions')}-{rr('Depreciation Expense')})))",
+      # LEASE ADDITIONS ARE OUT. This check encoded the double count: it
+      # required Closing PPE to include lease additions, which the
+      # Right-of-Use Asset already carries, so one lease sat on the asset
+      # side twice. The check did its job - it went red the moment the
+      # formula was corrected - and moves with the rule rather than being
+      # loosened around it.
+      actual_formula=f"=SUMPRODUCT(ABS({rr('Closing PPE')}-({rr('Opening PPE')}+{rr('Capital Expenditures')}-{rr('Depreciation Expense')})))",
       tolerance=1.0,
-      notes="Closing PPE must include capex and lease additions and subtract depreciation.",
+      notes="Closing PPE must include capex and subtract depreciation. Leased "
+            "assets are carried as the Right-of-Use Asset, not in PPE.",
     )
     row = _write_sum_abs_logic_check(
       ws,

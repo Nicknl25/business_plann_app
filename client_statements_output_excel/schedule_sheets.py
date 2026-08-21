@@ -599,23 +599,35 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed"))
             if stub else f"={local_ref(rou_close, col - 1)}")
     ws.cell(rou_add, col, value=f"={local_ref(lease_add_in, col)}")
-    # DEPRECIATION RUNS OFF THE CURRENT BASE, over the term REMAINING.
+    # STRAIGHT LINE ON ORIGINAL COST, over the lease term, from the quarter
+    # the lease is signed. The asset and the liability run on ONE clock.
     #
-    # It used to read MIN($D$27/term, opening): frozen to Q1's balance, so a
-    # lease signed later raised the asset and never raised depreciation. The
-    # base is now this quarter's opening plus this quarter's additions - the
-    # two rows directly above it - and the term comes from the input block.
+    # Three shapes have been wrong here and each failed differently:
+    #   MIN($D$27/term, opening)      frozen to Q1 - a lease signed later
+    #                                 raised the asset and never depreciated
+    #   current base / term           declining balance - never reaches zero
+    #   current base / term REMAINING fully wrote a late lease off by the
+    #                                 horizon while its principal was still
+    #                                 outstanding, which broke the balance
+    #                                 sheet by the exact amount of the lease
     #
-    # REMAINING term, not the full term. Dividing the current base by the FULL
-    # term is declining balance: 4,080 then 3,876 then 3,682, and the asset
-    # never reaches zero. Dividing by what is LEFT of the term keeps the charge
-    # level on a flat book - 81,600 over 20 quarters is 4,080 every quarter,
-    # landing on exactly zero - and spreads a new lease over the quarters it
-    # has left. Consequence worth knowing: everything is written down by the
-    # end of the stated term, so a lease signed late depreciates faster.
-    remaining = f"MAX({local_ref(lease_life, col)}-{max(idx - 1, 0)},1)"
-    base = f"({local_ref(rou_open, col)}+{local_ref(rou_add, col)})"
-    ws.cell(rou_dep, col, value=0 if stub else f"=MIN({base}/{remaining},{base})")
+    # Straight line is COST divided by TERM, and neither part of that is the
+    # current balance or the quarters left in the model. Each tranche charges
+    # cost/term for `term` quarters starting when it is signed: the opening
+    # book from Q1, and every addition from its own quarter. A lease signed
+    # late therefore does NOT finish inside the model, and that is correct -
+    # it is still being paid for.
+    #
+    # The SUMPRODUCT is the window: an addition is still depreciating while
+    # fewer than `term` quarters have passed since it was signed.
+    seed = f"${get_column_letter(FIRST_LIVE_COL)}${rou_open}"
+    first_add = f"${get_column_letter(FIRST_LIVE_COL)}${rou_add}"
+    window = f"{first_add}:{local_ref(rou_add, col)}"
+    term = local_ref(lease_life, col)
+    cost = (f"IF({idx}<={term},{seed},0)"
+            f"+SUMPRODUCT((COLUMN({window})>COLUMN({local_ref(rou_add, col)})-{term})*{window})")
+    cap = f"{local_ref(rou_open, col)}+{local_ref(rou_add, col)}"
+    ws.cell(rou_dep, col, value=0 if stub else f"=MIN(({cost})/{term},{cap})")
     ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}"
                                  f"+{local_ref(rou_add, col)}-{local_ref(rou_dep, col)})")
 
@@ -666,8 +678,7 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   capex_outputs = [
     ("Opening PPE", "What the equipment was worth at the start",
      CURRENCY_FORMAT, ANNUAL_YEAR_START),
-    ("Lease Additions", "Comes from the Debt Schedule - change it there",
-     CURRENCY_FORMAT, ANNUAL_SUM),
+
     # DERIVED, not an input. It was amber - styled exactly like a lever - and
     # its values climb from 5.1% to 54.4% across the twenty quarters, because
     # the engine FITS it so the expense stays level while the balance it
@@ -685,6 +696,9 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
      CURRENCY_FORMAT, ANNUAL_YEAR_START),
     ("Accumulated Depreciation", "Written off in total, to date",
      CURRENCY_FORMAT, ANNUAL_YEAR_END),
+    ("Lease Additions", "Memo - leased assets are carried as the Right-of-Use "
+                        "Asset on the Debt Schedule, not in PPE",
+     CURRENCY_FORMAT, ANNUAL_SUM),
   ]
   labels = [(l, f, m) for l, _d, f, m in capex_inputs + capex_outputs]
   row = 6
@@ -724,7 +738,19 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
     )
     ws.cell(dep_rate, col, value=dep_rate_values[idx])
     ws.cell(dep_exp, col, value=f"=MIN({local_ref(opening, col)}*{local_ref(dep_rate, col)},{local_ref(opening, col)})")
-    ws.cell(closing, col, value=f"=MAX(0,{local_ref(opening, col)}+{local_ref(capex, col)}+{local_ref(lease_add, col)}-{local_ref(dep_exp, col)})")
+    # LEASED ASSETS ARE NOT IN PPE. This used to add lease additions here AND
+    # carry them again as the Right-of-Use Asset, so one lease landed on the
+    # asset side twice while the liability counted it once - the balance sheet
+    # came out over by the full amount of the lease. MEASURED: a single 40,000
+    # lease moved PPE +37,688 and the ROU asset +26,000 against a liability of
+    # +40,000, and Checks "Balance Sheet balances Q20" read FAIL by exactly
+    # 40,000. It predates the corkscrew rebuild - the same gap reproduces at
+    # aa014c7 - and it needs a lease ADDITION to appear, which no sampled
+    # draft has (0 of 150), so nothing delivered carried it.
+    #
+    # The row stays as a memo and keeps its Checks tie-out to the Debt
+    # Schedule; it just no longer double-counts into owned PPE.
+    ws.cell(closing, col, value=f"=MAX(0,{local_ref(opening, col)}+{local_ref(capex, col)}-{local_ref(dep_exp, col)})")
     ws.cell(opening_acc, col, value=number(schedules.get("accumulated_depreciation_opening_seed")) if idx == 0 else f"={local_ref(acc, col - 1)}")
     ws.cell(acc, col, value=f"={local_ref(opening_acc, col)}-{local_ref(dep_exp, col)}")
   for label, fmt, annual_mode in labels:

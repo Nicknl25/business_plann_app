@@ -129,11 +129,27 @@ class WorkbookLeaseFormulaSourceTests(unittest.TestCase):
       self.assertIn(f"{col}{term}", formula,
                     f"depreciation does not read the lease term row "
                     f"({col}{term}): {formula!r}")
+      # THE ORIGINAL COST ANCHOR IS REQUIRED, not forbidden. An earlier
+      # version of this test banned absolute references outright, which was
+      # right for the design it was written against and wrong for straight
+      # line: cost/term needs the cost, and the cost is the opening book in
+      # the first live quarter. What must NOT happen is depreciation running
+      # off that anchor ALONE - the additions window and the per-quarter cap
+      # asserted here and above are what stop it.
+      first = get_column_letter(4)
+      self.assertIn(f"${first}${opening}", formula,
+                    f"depreciation does not read the original cost "
+                    f"(${first}${opening}) - straight line is cost over term, "
+                    f"and it cannot be computed without it: {formula!r}")
+      self.assertIn(f"${first}${adds}", formula,
+                    f"depreciation does not open its additions window at "
+                    f"${first}${adds}, so a lease signed after Q1 never enters "
+                    f"the charge: {formula!r}")
       self.assertNotIn(
-        "$", formula,
-        f"depreciation carries an ABSOLUTE reference again - that is the "
-        f"frozen anchor this design removed, and it is what stopped a lease "
-        f"signed after Q1 from ever depreciating: {formula!r}")
+        "MAX(", formula.split("SUMPRODUCT")[0],
+        f"depreciation is dividing by a REMAINING term again - that writes a "
+        f"late lease off by the horizon while its principal is still owed, "
+        f"and it broke the balance sheet by the whole lease: {formula!r}")
     self.assertEqual(live, 20, "expected a depreciation formula in every live quarter")
 
   def test_lease_additions_reach_the_right_of_use_asset(self):
