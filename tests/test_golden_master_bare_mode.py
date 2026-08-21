@@ -27,7 +27,8 @@ for path in (REPO, os.path.join(REPO, "python")):
 
 from replay_gate import legs as legs_mod  # noqa: E402
 from replay_gate.legs import (  # noqa: E402
-  BLESSED_PREFIX, BLESSED_SURFACES, GOLDEN_MASTER, bare_golden_verdict,
+  BLESSED_INPUT, BLESSED_PREFIX, BLESSED_SURFACES, GOLDEN_MASTER,
+  bare_golden_verdict,
 )
 from replay_gate.runner import all_legs  # noqa: E402
 
@@ -53,12 +54,12 @@ class EveryGoldenLegIsBlessedTests(unittest.TestCase):
         f"{leg.id} is a golden-master leg with no BLESSED_SURFACES entry, so "
         f"bare mode cannot check it. Record its digests when re-blessing.")
 
-  def test_every_blessed_record_names_a_surface_and_the_fixture(self):
+  def test_every_blessed_record_names_a_surface_and_its_commit(self):
     for leg_id, record in BLESSED_SURFACES.items():
-      self.assertIn("input", record,
-                    f"{leg_id} does not record the fixture identity, so a "
-                    f"changed fixture would read as drift")
-      surfaces = [k for k in record if k != "input"]
+      self.assertIn("at", record,
+                    f"{leg_id} does not record the commit its digests were "
+                    f"taken at, which is also the leg's baseline")
+      surfaces = [k for k in record if k not in ("input", "at")]
       self.assertTrue(surfaces, f"{leg_id} blesses no surface at all")
       for name in surfaces:
         self.assertGreaterEqual(
@@ -66,11 +67,53 @@ class EveryGoldenLegIsBlessedTests(unittest.TestCase):
           f"{leg_id}/{name} digest is shorter than the {BLESSED_PREFIX} "
           f"characters actually compared")
 
+  def test_no_golden_leg_carries_its_own_baseline_literal(self):
+    """The foot-gun this closes. The baseline commit and the blessed digests
+    are the same fact - the commit the surface was photographed at - and
+    holding it in two literals meant a re-bless could update one and not the
+    other. That fired within an hour of the blessed record being introduced:
+    a digest transcribed from a run predating a later fix in the same commit.
+
+    Asserted against the SOURCE, deliberately. The obvious test - that
+    leg.baseline equals the record's "at" - is now tautological, because the
+    baseline is DERIVED from that record and the two cannot disagree by
+    construction. A test that cannot fail is the thing this file exists to
+    stop, so this one checks the property that can still regress: that the
+    Leg call passes FROM_BLESSED rather than a commit of its own.
+    """
+    src = open(legs_mod.__file__, encoding="utf-8").read()
+    for leg in _golden_legs():
+      start = src.index(f'Leg("{leg.id}",')
+      head = src[start:start + 400]
+      self.assertIn(
+        "FROM_BLESSED", head,
+        f"{leg.id} passes a baseline commit of its own instead of "
+        f"FROM_BLESSED, so the commit lives in two places again and a "
+        f"re-bless can update one without the other")
+
+  def test_from_blessed_without_a_record_is_loud(self):
+    """The other half: resolving must fail rather than default."""
+    from replay_gate.legs import FROM_BLESSED, Leg
+    with self.assertRaises(KeyError) as caught:
+      Leg("R_NOT_REAL", "INVARIANT", "bug", "title", "fix", FROM_BLESSED,
+          lambda ctx: (True, ""))
+    self.assertIn("BLESSED_SURFACES", str(caught.exception))
+
+  def test_the_fixture_identity_is_shared_not_copied(self):
+    """All three legs read the same frozen draft. Three copies of that sha is
+    a fourth thing to forget."""
+    self.assertGreaterEqual(len(BLESSED_INPUT), 32)
+    for leg_id, record in BLESSED_SURFACES.items():
+      self.assertNotIn(
+        "input", record,
+        f"{leg_id} carries its own copy of the fixture sha; the shared "
+        f"BLESSED_INPUT is the one home")
+
 
 class BareModeRefusesGreenTests(unittest.TestCase):
   """Every path that cannot verify must be red, not green."""
 
-  GOOD = {"single_line_input": BLESSED_SURFACES["R49"]["input"],
+  GOOD = {"single_line_input": BLESSED_INPUT,
           "workbook_text": BLESSED_SURFACES["R49"]["workbook_text"]}
 
   def test_matching_digests_hold(self):
@@ -84,6 +127,17 @@ class BareModeRefusesGreenTests(unittest.TestCase):
     self.assertFalse(ok)
     self.assertEqual(verdict, "DRIFT")
     self.assertIn("deadbeefcafe", detail)
+
+  def test_drift_hands_back_the_block_to_paste(self):
+    """Re-blessing must not require transcribing a digest by hand from an
+    earlier run - that is the exact way it went wrong."""
+    shas = dict(self.GOOD, workbook_text="deadbeefcafe0000")
+    _, _, detail = bare_golden_verdict("R49", shas)
+    self.assertIn('"R49": {', detail)
+    self.assertIn('"at": "<this commit>"', detail)
+    self.assertIn('"workbook_text": "deadbeefcafe",', detail,
+                  "the pasteable block must carry the digest MEASURED this "
+                  "run, not the stale blessed one")
 
   def test_an_unblessed_leg_refuses_green(self):
     ok, verdict, _ = bare_golden_verdict("R99", dict(self.GOOD))

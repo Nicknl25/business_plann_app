@@ -63,21 +63,31 @@ GOLDEN_MASTER = "golden-master"
 # tests/test_golden_master_bare_mode.py fails if a golden-master leg has no
 # entry, so forgetting is loud rather than silent.
 # ---------------------------------------------------------------------------
+#: The fixture's own identity. Shared, because all three legs read the same
+#: frozen draft, and repeating it three times is a fourth thing to forget.
+BLESSED_INPUT = "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679"
+
 BLESSED_SURFACES = {
+    # "at" is the leg's BASELINE COMMIT, and the Leg below reads it from here
+    # rather than repeating it. Re-blessing is ONE edit: this block.
     "R31": {
-        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "at": "ef62181",
         "model_input": "1d50e46ab8e6",
         "finmo": "bcd8fce31066",
     },
     "R32": {
-        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "at": "aa014c7",
         "workbook_formulas": "7b06ca800380",
     },
     "R49": {
-        "input": "72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679",
+        "at": "aa014c7",
         "workbook_text": "692484342a4b",
     },
 }
+
+#: What a golden-master Leg passes instead of a baseline commit. The commit
+#: lives in BLESSED_SURFACES and is resolved in Leg.__init__.
+FROM_BLESSED = "<from-blessed-record>"
 
 #: How much of each digest is compared. The proof notes and the gate's own
 #: output have always quoted 12 hex characters, so that is what is recorded
@@ -102,7 +112,7 @@ def bare_golden_verdict(leg_id, shas):
         return False, "UNEARNED", (
             f"{leg_id} emitted no golden digest at all - the surface was "
             f"never hashed, so nothing was verified.")
-    want_input = record.get("input")
+    want_input = record.get("input", BLESSED_INPUT)
     got_input = shas.get("single_line_input")
     if want_input and got_input and got_input != want_input:
         return False, "UNCOMPARABLE", (
@@ -112,7 +122,7 @@ def bare_golden_verdict(leg_id, shas):
             f"it is bare mode declining to pretend it checked. Re-record.")
     moved = []
     for name, want in sorted(record.items()):
-        if name == "input":
+        if name in ("input", "at"):
             continue
         got = shas.get(name)
         if got is None:
@@ -123,12 +133,22 @@ def bare_golden_verdict(leg_id, shas):
             moved.append(f"{name}: blessed {want[:BLESSED_PREFIX]}, "
                          f"got {got[:BLESSED_PREFIX]}")
     if moved:
+        # Hand back the exact replacement block. The digest has to come from
+        # the run of the tree actually being committed, and transcribing it by
+        # hand from an earlier run is how this went wrong within an hour of
+        # being built - the gate caught it, but it should not need to.
+        fresh = "\n              ".join(
+            f'"{n}": "{shas[n][:BLESSED_PREFIX]}",'
+            for n in sorted(record) if n not in ("input", "at"))
         return False, "DRIFT", (
             "THE OUTPUT MOVED against the blessed record - " + "; ".join(moved)
             + ". This leg exists to prove it does not. Account for every "
-              "changed leaf before re-blessing.")
+              "changed leaf FIRST; then re-bless by replacing this leg's "
+              "BLESSED_SURFACES block, which is the only place to edit:\n"
+              f'          "{leg_id}": {{\n              "at": "<this commit>",\n'
+              f"              {fresh}\n          }},")
     checked = ", ".join(f"{n}={record[n][:BLESSED_PREFIX]}"
-                        for n in sorted(record) if n != "input")
+                        for n in sorted(record) if n not in ("input", "at"))
     return True, "HOLDS", f"matches the blessed record ({checked})"
 # STRUCTURAL_ABSENCE: this leg's baseline red is an ImportError/AttributeError
 # because the capability it pins DID NOT EXIST at that commit - verified by
@@ -148,6 +168,18 @@ class Leg(object):
         self.bug = bug                # short_name of the bug this pins
         self.title = title
         self.fix_commit = fix_commit
+        if baseline == FROM_BLESSED:
+            # SINGLE SOURCE. A golden-master leg's baseline IS the commit its
+            # blessed digests were taken at, so holding it in two places meant
+            # a re-bless that updated one and not the other looked fine until
+            # the next run. It fired once, within an hour of the blessed
+            # record being introduced. Now there is one place: the record.
+            try:
+                baseline = BLESSED_SURFACES[leg_id]["at"]
+            except KeyError:
+                raise KeyError(
+                    f"{leg_id} takes its baseline from BLESSED_SURFACES but has "
+                    f"no 'at' commit recorded there") from None
         self.baseline = baseline      # commit where this bug was still live
         self.run = run                # run(ctx) -> (ok, evidence)
         self.tier = tier
@@ -3972,7 +4004,7 @@ REGRESSIONS = [
                     "leg gets disabled rather than fixed.")),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "aa014c7", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", FROM_BLESSED, _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
         proof_note=("RE-BLESSED 2026-08-21f (baseline 4032ac3 -> aa014c7, VS, the CapEx "
                     "Schedule reordered inputs-then-outputs, stub hidden, note row "
@@ -4135,7 +4167,7 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "aa014c7", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", FROM_BLESSED, _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
         proof_note=("RE-BLESSED 2026-08-21f (baseline d3e8efe -> aa014c7, VS, CapEx "
                     "Schedule). 2,559 -> 2,563 cells: 7 added, 3 removed, 23 changed "
@@ -4363,7 +4395,7 @@ REGRESSIONS = [
                     "shared-door refactor and this fix.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
-        "c77094a", "ef62181", _r_single_line_unchanged, issue="WS1b floor",
+        "c77094a", FROM_BLESSED, _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
         proof_note=("RE-BLESSED 2026-08-21 (baseline 5c9a8b9 -> ef62181, VS): ONE emitted "
                     "label typo corrected, Depreciatoin -> Depreciation. Purity "
