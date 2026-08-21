@@ -54,6 +54,7 @@ from .excel_utils import (
   WorkbookBuildContext,
   apply_base_style,
   create_sheet,
+  hide_stub_column,
   set_formula_style,
   set_input_style,
   set_title,
@@ -227,11 +228,23 @@ def build_marketing_schedule_sheet(
     # uneditable because it only surfaced when the condition tripped; and it
     # converted a settled RATE into a fixed sum, cutting its tie to revenue.
     # As a rate on a row, it stays a rate and stays tied.
+    # THE AGREED RATE IS HIDDEN, NOT DELETED, and the distinction is the whole
+    # point. The fallback below has to source the settled percentage from
+    # SOMEWHERE, and the three options were: a dollar literal inside the formula
+    # (what this replaced - frozen at build-time revenue, invisible, and it cuts
+    # the tie to revenue); a reference to Model Inputs (a circular reference,
+    # since Model Inputs now reads this sheet); or a row.
+    #
+    # So it stays a row and the row is hidden. It is off the page as directed,
+    # the fallback still computes revenue x a RATE rather than a frozen sum, and
+    # a client who unhides it finds a labelled figure rather than a number
+    # buried in a condition.
     agreed_row = computed_row(
       "Marketing % agreed in your plan", "Marketing percent agreed",
       lambda i, c: settled_percent[i], design.FMT_PERCENT,
       "The figure your plan was built on — used when a quarter wins no new "
       f"{noun}")
+    ws.row_dimensions[agreed_row].hidden = True
 
     # R1 under the reversal. A quarter with no net acquisition cannot derive
     # spend from new x CAC — that would zero out real marketing spend and change
@@ -273,6 +286,8 @@ def build_marketing_schedule_sheet(
              else "This plan carries no marketing spend."),
     ).font = design.font("note")
     row += 2
+
+  hide_stub_column(ws)
 
   write_section_header(ws, row, "Where these figures come from")
   row += 1

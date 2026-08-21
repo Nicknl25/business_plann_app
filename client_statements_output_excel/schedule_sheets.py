@@ -7,6 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
 from .excel_utils import (
+  hide_stub_column,
   ANNUAL_YEAR_END,
   ANNUAL_START_COL,
   CAPEX_SHEET,
@@ -92,20 +93,6 @@ def _add_annual_ratio_formulas(
       value=f"=IFERROR({local_ref(numerator_row, col)}/{local_ref(denominator_row, col)},0)",
     )
     set_formula_style(cell, number_format=number_format)
-
-
-def _stage_ramp_values(data: DraftWorkbookData, field: str) -> List[float]:
-  # Contract carries short-form keys (q, rev_target, max_util, ...); see
-  # post_intake_contracts/runner.py:710 ramp_field_aliases for the full map.
-  values = [0.0 for _ in range(PERIOD_COUNT)]
-  ramp_rows = data.stage_ramp_contract.get("quarter_ramp_grid") if isinstance(data.stage_ramp_contract, dict) else []
-  for item in ramp_rows or []:
-    if not isinstance(item, dict):
-      continue
-    quarter_index = int(number(item.get("q")))
-    if 1 <= quarter_index < PERIOD_COUNT:
-      values[quarter_index] = number(item.get(field))
-  return values
 
 
 def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
@@ -197,9 +184,13 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
   total_revenue_row = row
   row += 2
 
-  write_section_header(ws, row, "Stage Ramp Contract")
-  row += 1
-
+  # ACTUAL REVENUE QoQ GROWTH lives HERE now, in the live driver section
+  # directly under revenue, because it is a RESULT of the drivers above and it
+  # recomputes when a client edits them. It used to sit inside a "Stage Ramp
+  # Contract" block that has been omitted (R_RAMP_01, 7f9be65) - leaving the one
+  # live row under a header for a block that no longer exists would have
+  # mislabelled it. Addressed through the ctx key, never a literal row number,
+  # because its row moves with the number of products.
   ws.cell(row=row, column=1, value="Actual Revenue QoQ Growth")
   ws.cell(row=row, column=2, value="Total revenue growth from modeled revenue drivers")
   for idx in range(PERIOD_COUNT):
@@ -212,32 +203,20 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
   ctx.add_schedule_row(REVENUE_SHEET, "Actual Revenue QoQ Growth", row)
   row += 1
 
-  ramp_definitions = [
-    ("Stage Ramp Revenue QoQ Target", "rev_target", PERCENT_FORMAT),
-    ("Stage Ramp Revenue QoQ Max", "rev_max", PERCENT_FORMAT),
-    ("Stage Ramp Revenue QoQ Spike Max", "rev_spike_max", PERCENT_FORMAT),
-    ("Stage Ramp Utilization Cap", "max_util", PERCENT_FORMAT),
-    ("Stage Ramp COGS % Revenue Target", "cogs_target", PERCENT_FORMAT),
-    ("Stage Ramp COGS % Revenue Max", "cogs_max", PERCENT_FORMAT),
-    ("Stage Ramp Marketing % Revenue Max", "marketing_max", PERCENT_FORMAT),
-    ("Stage Ramp R&D % Revenue Max", "rd_max", PERCENT_FORMAT),
-    ("Stage Ramp G&A % Revenue Max", "ga_max", PERCENT_FORMAT),
-    ("Stage Ramp Lease % Revenue Max", "lease_max", PERCENT_FORMAT),
-    ("Stage Ramp Net Income Margin Floor", "ni_floor", PERCENT_FORMAT),
-  ]
-  for label, field, fmt in ramp_definitions:
-    write_values_row(
-      ws,
-      row,
-      label,
-      _stage_ramp_values(data, field),
-      detail="GPT-selected stage ramp contract",
-      number_format=fmt,
-    )
-    _add_annual_average_formulas(ws, row, number_format=fmt)
-    style_row(ws, row, number_format=fmt)
-    ctx.add_schedule_row(REVENUE_SHEET, label, row)
-    row += 1
+  hide_stub_column(ws)
+
+  # THE STAGE RAMP CONTRACT BLOCK IS OMITTED (Nick's ruling on R_RAMP_01 A1).
+  # Eleven rows x 21 columns of engine constants that NOTHING in the workbook
+  # consumed - proven across formulas, defined names, data validation,
+  # conditional formatting, chart series and hyperlinks, on both fixtures - and
+  # all 231 cells carried the amber input styling, so a client scanning for what
+  # they could change found eleven rows of solver constraints dressed as levers.
+  #
+  # The record is NOT lost: stage_ramp_contract stays in planning_run_json with
+  # its rationale, decision_source and business_stage. This omits a RENDERING.
+  #
+  # Marketing % Max, which the Marketing Schedule shows as context, never came
+  # from here either - it reads stage_ramp_contract.quarter_ramp_grid directly.
 
 
 def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:

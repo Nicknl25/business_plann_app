@@ -145,6 +145,19 @@ def set_title(ws: Worksheet, title: str, subtitle: str = "") -> None:
   design.title_block(ws, title, subtitle)
 
 
+def hide_stub_column(ws) -> None:
+  """Hide the STUB period column on a client-facing schedule.
+
+  The stub is what the client told us at intake - they already know it, and on
+  a driver sheet it reads as a twenty-first quarter that is not one. HIDDEN, not
+  removed: every formula that references it still computes, the balance sheet
+  still opens from it, and a client who wants it can unhide the column.
+  """
+  from openpyxl.utils import get_column_letter
+
+  ws.column_dimensions[get_column_letter(PERIOD_START_COL)].hidden = True
+
+
 def write_period_headers(ws: Worksheet, periods: List[dict], *, row: int = 4, include_annual: bool = True) -> None:
   labels = ["Stub"] + [f"Q{i}" for i in range(1, PERIOD_COUNT)]
   for index, label in enumerate(labels):
