@@ -3825,9 +3825,12 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "b7586ca", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "ef62181", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21 (baseline 2757e22 -> b7586ca, VS, Nick's "
+        proof_note=("RE-BLESSED 2026-08-21b (baseline b7586ca -> ef62181, VS): ONE cell, "
+                    "Audit Source!A47, from the Depreciatoin typo fix. R32 did NOT "
+                    "move - no formula changed. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21 (baseline 2757e22 -> b7586ca, VS, Nick's "
                     "schedule-sheet cleanup). 2,550 cells identical; 24 gone, 1 new, "
                     "3 changed in place, all on Revenue Drivers and Checks and all "
                     "declared: the 11 Stage Ramp row labels, their 11 GPT-selected "
@@ -4000,9 +4003,14 @@ REGRESSIONS = [
                     "shared-door refactor and this fix.")),
     Leg("R31", "INVARIANT", "single-line-unchanged",
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
-        "c77094a", "5c9a8b9", _r_single_line_unchanged, issue="WS1b floor",
+        "c77094a", "ef62181", _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-19 (baseline 725b374 -> 5c9a8b9, VS): W1 "
+        proof_note=("RE-BLESSED 2026-08-21 (baseline 5c9a8b9 -> ef62181, VS): ONE emitted "
+                    "label typo corrected, Depreciatoin -> Depreciation. Purity "
+                    "proven leaf-by-leaf: 3,472 leaves in finmo_json, exactly ONE "
+                    "different - /cash_flow[2]/label. No VALUE moved anywhere. "
+                    "Nothing matched on the misspelling, so this is a display fix. "
+                    "PREVIOUS: RE-BLESSED 2026-08-19 (baseline 725b374 -> 5c9a8b9, VS): W1 "
                     "added finmo_json['break_even'], so the finmo digest moved by "
                     "EXACTLY that key and nothing else - proven by stripping it: "
                     "finmo-minus-break_even hashes to 24e38de4dc98, the pre-W1 "
