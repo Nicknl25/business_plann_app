@@ -3708,9 +3708,23 @@ REGRESSIONS = [
         surface="model_input_json / engine"),
     Leg("R32", "INVARIANT", "workbook-formula-grid",
         "NEGATIVE CONTROL: the workbook formula grid does not move",
-        "c77094a", "a46e5f8", _r_workbook_formula_grid, issue="WS1b floor",
+        "c77094a", "d3e8efe", _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21c (baseline b7586ca -> a46e5f8, VS, R-DEBT-02 "
+        proof_note=("RE-BLESSED 2026-08-21d (baseline a46e5f8 -> d3e8efe, VS, R-DEBT-02 "
+                    "stage 2 commit B: the lease depreciation anchor). 287 leaves, "
+                    "1 added and 12 changed, all declared. The added leaf is the "
+                    "'Lease Life in quarters' row - the divisor 20, promoted out of "
+                    "the formula into a row a client can see and edit. Eleven of the "
+                    "twelve changes are the one-row shift that inserting it causes "
+                    "(the lease block below it, and the Model Inputs and Checks "
+                    "references into it). The twelfth is the fix itself: "
+                    "MIN(C20/20, opening) -> MIN($D$27/D24, D27), which moves the "
+                    "anchor off the HIDDEN stub column onto the first live "
+                    "right-of-use opening and onto the ASSET being depreciated "
+                    "rather than the liability beside it. Both seed from "
+                    "lease_opening_balance_seed, so NO VALUE MOVES: 31,192 "
+                    "pre-existing recalculated cells across three drafts, 0 moved. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21c (baseline b7586ca -> a46e5f8, VS, R-DEBT-02 "
                     "stage 2: the Debt Schedule reordered into inputs-then-outputs "
                     "and the rate row renamed 'Interest Rate per quarter'). "
                     "ff9fa4903fe0 -> fd607d4700b5, 285 -> 286 leaves. "
@@ -3842,9 +3856,15 @@ REGRESSIONS = [
                     "'baseline' hash is computed with CURRENT workbook code.")),
     Leg("R49", "INVARIANT", "workbook-text-surface",
         "NEGATIVE CONTROL: the workbook's static text does not move or change",
-        "01fd627", "a46e5f8", _r_workbook_text_surface, issue="X5 rider class",
+        "01fd627", "d3e8efe", _r_workbook_text_surface, issue="X5 rider class",
         surface="workbook static text", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21c (baseline ef62181 -> a46e5f8, VS, R-DEBT-02 "
+        proof_note=("RE-BLESSED 2026-08-21d (baseline a46e5f8 -> d3e8efe, VS, R-DEBT-02 "
+                    "stage 2 commit B). 2,557 -> 2,559 cells: 2 added, 0 removed, "
+                    "8 changed in place, all on the Debt Schedule and Checks. The "
+                    "'Lease Life in quarters' label arrives, every lease label below "
+                    "it moves down one address, and three Checks range STRINGS follow "
+                    "the rows they describe. ZERO unexplained. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21c (baseline ef62181 -> a46e5f8, VS, R-DEBT-02 "
                     "stage 2). 2742f45cb508 -> 4a357f183c66, 2,554 -> 2,557 cells: "
                     "9 added, 6 removed, 42 changed in place, and every one is on the "
                     "Debt Schedule or on Checks. "
