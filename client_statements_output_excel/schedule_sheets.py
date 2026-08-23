@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from . import design
 from .data import DraftWorkbookData, live_values, number, row_by_label, text, values_21
@@ -395,256 +395,267 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
 
 
 def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
-  """Three corkscrews: debt, lease liability, right-of-use asset.
+  """A vertical amortization schedule: periods DOWN, one row per quarter.
 
-  A corkscrew is a roll-forward that reads top to bottom - you start with what
-  you had, add what came in, take off what went out, and land on what you have
-  left, which becomes the next quarter's opening. Every input sits INLINE at
-  the point where it acts, not gathered into a separate block above.
+  Debt columns and capital-lease columns sit side by side against the same
+  period rows, with combined totals on the right. A client scans down and sees
+  each balance walk to zero and exactly which quarter it gets there.
 
-  This replaces an inputs-then-outputs split. That split is right for a sheet
-  of assumptions and wrong for a schedule: it tore the roll-forward in half, so
-  the arithmetic a client needs to follow ran across two sections and the
-  balance never visibly walked to zero.
+  WHY VERTICAL AT ALL. The rest of the workbook is a 21-column horizontal
+  grid, and this sheet used to match it - which made it a grid of drivers
+  rather than a schedule. An amortization table reads down.
 
-  Deleted with it: the "why a number here did nothing" prose row. A corkscrew
-  says it without prose - when debt is repaid the closing balance goes to zero
-  and stays there, and the rows below it go quiet on their own.
+  HOW IT STILL FEEDS THE STATEMENTS (the part that had to be solved). A HIDDEN
+  HORIZONTAL BRIDGE sits below the table: one row per figure the rest of the
+  workbook consumes, 21 columns wide, in the standard geometry, each cell a
+  direct reference back into the vertical table. Every bridge row is
+  registered under the SAME ctx key the sheet has always published, so
+  Model Inputs, Checks, FINMO and CapEx need no change at all - they ask for
+  "Closing Debt" and get a horizontal row exactly as before.
+
+  Chosen over INDEX lookups down the schedule because the references are
+  plain and non-volatile, and over re-pointing the consumers because that
+  would have meant editing four other sheets to rearrange one.
+
+  WHAT IS NOT HERE. The right-of-use asset. It depreciates rather than
+  amortizing, so it does not belong in an amortization table; it is computed
+  in the bridge from the lease columns and published under its existing keys.
+
+  NO AMORTIZING-PAYMENT REFERENCE COLUMN. It would need a debt term, and
+  there is none in the payload - not in model_input_json, not in the
+  schedules block, nowhere. Inventing or hard-coding one was ruled out, so
+  the column is left out.
+
+  PAYMENT COMPUTES; PRINCIPAL IS THE INPUT. Today's repayment figure is
+  entirely principal - interest is a separate expense and total debt service
+  is interest plus repayment. So the amber column is Principal, seeded with
+  the engine's own repayment, and Payment is Interest + Principal. Any other
+  arrangement would move delivered numbers.
   """
   ws = create_sheet(wb, DEBT_SHEET)
   apply_base_style(ws)
   set_title(
     ws,
-    "Debt & Lease Schedule",
-    "Three roll-forwards. Each starts with the opening balance, adds what you "
-    "take on, subtracts what you pay off, and lands on the closing balance "
-    "that opens the next quarter. Amber cells are yours to change.",
+    "Debt & Lease Amortization Schedule",
+    "One row per quarter. Each balance opens where the quarter above it "
+    "closed. Amber cells are yours: new borrowing, interest rate, principal "
+    "repayment, lease additions, lease rate, lease term and lease principal.",
   )
-  write_period_headers(ws, data.periods)
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
   schedules = data.schedules
 
-  # THE ENGINE'S OWN LABELS, and they are not the ones on this sheet. Getting
-  # them wrong is silent: row_by_label().get() returns None, values_21(None)
-  # returns zeros, and the whole debt block renders as a legitimate-looking
-  # business with no debt. That is exactly what happened on the first pass of
-  # this rebuild - "Debt Issuance" instead of "Debt Issuance (New Borrowing)"
-  # zeroed Falls City's debt and moved 2,579 cells downstream through
-  # break-even and interest coverage. The interest rate also lives on the
-  # EXPENSE rows, not the schedule rows.
   issuance_values = values_21((schedule_by_label.get("Debt Issuance (New Borrowing)") or {}).get("values"))
   repay_values = values_21((schedule_by_label.get("Debt Repayment (Scheduled)") or {}).get("values"))
   rate_values = values_21((expense_by_label.get("Interest Rate") or {}).get("values"))
   lease_principal_values = values_21((schedule_by_label.get("Less: Principal Repayments") or {}).get("values"))
   lease_add_values = values_21((schedule_by_label.get("Plus: Net Additions") or {}).get("values"))
   lease_life_quarters = int(number(schedules.get("lease_life_quarters")) or 20)
+  debt_seed = number(schedules.get("debt_opening_balance_seed"))
+  lease_seed = number(schedules.get("lease_opening_balance_seed"))
 
-  # THE REPAYMENT ROWS ARE SEEDED ALREADY CAPPED.
-  #
-  # There used to be two rows - a "Requested" input and an "Actual" formula
-  # holding MIN(requested, what you owe). A corkscrew has ONE subtraction line,
-  # so the cap is applied here, in Python, and the row a client sees carries
-  # the capped figure. Delivered numbers are unchanged because this reproduces
-  # exactly the MIN chain Excel was evaluating.
-  #
-  # The cap still holds after delivery, through the MAX(0, ...) on the closing
-  # balance: type a repayment larger than the balance and it walks to zero and
-  # stays there, which is the behaviour the deleted prose row described.
   def _walk(seed, adds, takes):
-    """-> (openings, capped_takes, closings) for the 21 columns."""
-    openings, capped, closings = [], [], []
+    """Balances walked forward with each draw capped at what is owed.
+
+    The repayment a client sees is already capped here, in Python, exactly as
+    the MIN chain used to do it in Excel - so the schedule has ONE principal
+    line rather than a requested one and an actual one, and the figures are
+    unchanged.
+    """
+    capped = []
     balance = number(seed) or 0.0
     for idx in range(PERIOD_COUNT):
       add = 0.0 if idx == 0 else (adds[idx] or 0.0)
       want = 0.0 if idx == 0 else (takes[idx] or 0.0)
       take = min(want, balance + add)
-      openings.append(balance)
       capped.append(take)
       balance = max(0.0, balance + add - take)
-      closings.append(balance)
-    return openings, capped, closings
+    return capped
 
-  _, debt_repay_capped, _ = _walk(
-    schedules.get("debt_opening_balance_seed"), issuance_values, repay_values)
-  _, lease_principal_capped, _ = _walk(
-    schedules.get("lease_opening_balance_seed"), lease_add_values, lease_principal_values)
+  debt_principal = _walk(debt_seed, issuance_values, repay_values)
+  lease_principal = _walk(lease_seed, lease_add_values, lease_principal_values)
 
-  # (registry KEY, displayed label, detail, format, ANNUAL MODE, is an input)
-  #
-  # The KEY is stable and the LABEL is free. That separation is what lets this
-  # sheet be rebuilt without moving a single lookup anywhere else in the
-  # workbook - every consumer still asks for "Actual Debt Repayment" and gets
-  # the row now displayed as "Less: Repayment".
-  debt_block = [
-    ("Opening Debt", "Opening Debt", "What you owed at the start of the quarter",
-     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
-    ("Debt Issuance", "Plus: New borrowing", "New debt you take on this quarter",
-     CURRENCY_FORMAT, ANNUAL_SUM, True),
-    ("Actual Debt Repayment", "Less: Repayment", "What you pay off - it cannot exceed what you owe",
-     CURRENCY_FORMAT, ANNUAL_SUM, True),
-    ("Closing Debt", "Equals: Closing Debt", "What you owe at the end - this opens next quarter",
-     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
-    ("Interest Rate per quarter", "Interest rate per quarter", "Charged on the average balance, each quarter",
-     PERCENT_FORMAT, ANNUAL_ANNUALIZE, True),
-    ("Interest Expense", "Interest expense", "Average balance x the rate above",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-    ("Total Debt Service", "Total debt service", "Interest plus repayment - your cash cost",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-  ]
-  # ONE INPUT BLOCK, THEN TWO ROLL-FORWARDS THAT FOLLOW IT.
-  #
-  # Signing a lease is the decision; the right-of-use asset is the accounting
-  # consequence. So the three things a client decides are entered ONCE, and
-  # both roll-forwards read them - the liability and the asset cannot drift
-  # apart because there is only one place to type.
-  #
-  # The client never touches the asset block. Nothing in it is amber.
-  lease_inputs = [
-    ("Lease Net Additions", "Lease additions", "New leases you sign this quarter",
-     CURRENCY_FORMAT, ANNUAL_SUM, True),
-    ("Lease Principal Repayments", "Principal repayment", "What you pay off - it cannot exceed what you owe",
-     CURRENCY_FORMAT, ANNUAL_SUM, True),
-    ("Lease Life in quarters", "Lease term in quarters", "How long a lease runs, and is written down over",
-     INTEGER_FORMAT, ANNUAL_AVERAGE, True),
-  ]
-  lease_block = [
-    ("Lease Opening Balance", "Lease Opening", "What you owed on leases at the start",
-     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
-    ("Lease Additions (liability)", "Plus: Lease additions", "From the block above",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-    ("Lease Principal (liability)", "Less: Principal repaid", "From the block above",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-    ("Lease Closing Balance", "Equals: Lease Closing", "What you owe at the end - this opens next quarter",
-     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
-    ("Lease Interest Expense", "Lease interest", "Opening balance x the debt rate above",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-  ]
-  asset_block = [
-    ("Right-of-Use Asset Opening", "Asset Opening", "What the leased assets were worth at the start",
-     CURRENCY_FORMAT, ANNUAL_YEAR_START, False),
-    ("Lease Additions (asset)", "Plus: Lease additions", "The same leases, on the asset side",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-    ("Lease Asset Depreciation", "Less: Depreciation", "The current balance over the term remaining",
-     CURRENCY_FORMAT, ANNUAL_SUM, False),
-    ("Right-of-Use Asset Closing", "Equals: Asset Closing", "What they are worth at the end - this opens next quarter",
-     CURRENCY_FORMAT, ANNUAL_YEAR_END, False),
-  ]
+  # ---- geometry -----------------------------------------------------------
+  C_PERIOD = 1
+  C_D_OPEN, C_D_NEW, C_D_RATE, C_D_PAY, C_D_INT, C_D_PRIN, C_D_CLOSE = range(2, 9)
+  C_L_OPEN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_PAY, C_L_INT, C_L_PRIN, C_L_CLOSE = range(9, 17)
+  C_T_PAY, C_T_INT, C_T_CLOSE = 17, 18, 19
+  GROUP_ROW, HEAD_ROW = 5, 6
+  FIRST_ROW = 7
 
-  row = 6
-  layout = []
-  for title, block in (("Debt", debt_block),
-                       ("Capital lease - what you can change", lease_inputs),
-                       ("Lease liability", lease_block),
-                       ("Right-of-use asset - follows automatically", asset_block)):
-    write_section_header(ws, row, title)
-    row += 1
-    for key, label, detail, fmt, mode, is_input in block:
-      ws.cell(row=row, column=1, value=label)
-      ws.cell(row=row, column=2, value=detail)
-      ctx.add_schedule_row(DEBT_SHEET, key, row)
-      layout.append((key, fmt, mode, is_input))
-      row += 1
-    row += 1
+  groups = [("Debt", C_D_OPEN, C_D_CLOSE),
+            ("Capital lease", C_L_OPEN, C_L_CLOSE),
+            ("Combined", C_T_PAY, C_T_CLOSE)]
+  for label, first, last in groups:
+    cell = ws.cell(GROUP_ROW, first, value=label)
+    cell.font = design.font("colhead")
+    cell.fill = design.fill(design.NAVY_DEEP)
+    cell.alignment = Alignment(horizontal="center")
+    for c in range(first, last + 1):
+      ws.cell(GROUP_ROW, c).fill = design.fill(design.NAVY_DEEP)
+    ws.merge_cells(start_row=GROUP_ROW, start_column=first,
+                   end_row=GROUP_ROW, end_column=last)
 
-  r = lambda key: ctx.schedule_row(DEBT_SHEET, key)
-  debt_open, debt_new = r("Opening Debt"), r("Debt Issuance")
-  debt_repay, debt_close = r("Actual Debt Repayment"), r("Closing Debt")
-  rate, interest, service = r("Interest Rate per quarter"), r("Interest Expense"), r("Total Debt Service")
-  lease_add_in = r("Lease Net Additions")            # the input block
-  lease_principal_in = r("Lease Principal Repayments")
-  lease_life = r("Lease Life in quarters")
-  lease_open, lease_close = r("Lease Opening Balance"), r("Lease Closing Balance")
-  lease_add = r("Lease Additions (liability)")        # the liability roll-forward
-  lease_principal = r("Lease Principal (liability)")
-  lease_interest = r("Lease Interest Expense")
-  rou_open, rou_add = r("Right-of-Use Asset Opening"), r("Lease Additions (asset)")
-  rou_dep, rou_close = r("Lease Asset Depreciation"), r("Right-of-Use Asset Closing")
+  headers = [
+    (C_PERIOD, "Period", None), (C_D_OPEN, "Opening", CURRENCY_FORMAT),
+    (C_D_NEW, "New borrowing", CURRENCY_FORMAT), (C_D_RATE, "Rate", PERCENT_FORMAT),
+    (C_D_PAY, "Payment", CURRENCY_FORMAT), (C_D_INT, "Interest", CURRENCY_FORMAT),
+    (C_D_PRIN, "Principal", CURRENCY_FORMAT), (C_D_CLOSE, "Closing", CURRENCY_FORMAT),
+    (C_L_OPEN, "Opening", CURRENCY_FORMAT), (C_L_ADD, "Additions", CURRENCY_FORMAT),
+    (C_L_RATE, "Rate", PERCENT_FORMAT), (C_L_TERM, "Term (q)", INTEGER_FORMAT),
+    (C_L_PAY, "Payment", CURRENCY_FORMAT), (C_L_INT, "Interest", CURRENCY_FORMAT),
+    (C_L_PRIN, "Principal", CURRENCY_FORMAT), (C_L_CLOSE, "Closing", CURRENCY_FORMAT),
+    (C_T_PAY, "Total payment", CURRENCY_FORMAT),
+    (C_T_INT, "Total interest", CURRENCY_FORMAT),
+    (C_T_CLOSE, "Total closing", CURRENCY_FORMAT),
+  ]
+  for col, text, _fmt in headers:
+    cell = ws.cell(HEAD_ROW, col, value=text)
+    cell.font = design.font("colhead")
+    cell.fill = design.fill(design.NAVY)
+    cell.alignment = Alignment(horizontal="center", wrap_text=True)
+  ws.column_dimensions[get_column_letter(C_PERIOD)].width = 16
+  for col, _t, _f in headers[1:]:
+    ws.column_dimensions[get_column_letter(col)].width = 13
+  ws.freeze_panes = ws.cell(FIRST_ROW, C_D_OPEN)
+
+  INPUT_COLS = {C_D_NEW, C_D_RATE, C_D_PRIN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_PRIN}
+  periods = data.periods or []
 
   for idx in range(PERIOD_COUNT):
-    col = PERIOD_START_COL + idx
+    r = FIRST_ROW + idx
     stub = idx == 0
+    prev = r - 1
+    period = periods[idx] if idx < len(periods) else {}
+    ws.cell(r, C_PERIOD, value="Stub" if stub else f"Q{idx}")
+    ws.cell(r, C_PERIOD).font = design.font("label_strong")
 
-    # ---- DEBT
-    ws.cell(debt_open, col, value=number(schedules.get("debt_opening_balance_seed"))
-            if stub else f"={local_ref(debt_close, col - 1)}")
-    ws.cell(debt_new, col, value=0 if stub else issuance_values[idx])
-    ws.cell(debt_repay, col, value=0 if stub else debt_repay_capped[idx])
-    ws.cell(debt_close, col, value=f"=MAX(0,{local_ref(debt_open, col)}"
-                                  f"+{local_ref(debt_new, col)}-{local_ref(debt_repay, col)})")
-    ws.cell(rate, col, value=rate_values[idx])
-    ws.cell(interest, col, value=f"=(({local_ref(debt_open, col)}+{local_ref(debt_close, col)})/2)"
-                                f"*{local_ref(rate, col)}")
-    ws.cell(service, col, value=f"={local_ref(interest, col)}+{local_ref(debt_repay, col)}")
+    # ---- debt
+    ws.cell(r, C_D_OPEN, value=debt_seed if stub else f"={local_ref(prev, C_D_CLOSE)}")
+    ws.cell(r, C_D_NEW, value=0 if stub else issuance_values[idx])
+    ws.cell(r, C_D_RATE, value=rate_values[idx])
+    ws.cell(r, C_D_PRIN, value=debt_principal[idx])
+    ws.cell(r, C_D_CLOSE, value=f"=MAX(0,{local_ref(r, C_D_OPEN)}+{local_ref(r, C_D_NEW)}"
+                                f"-{local_ref(r, C_D_PRIN)})")
+    ws.cell(r, C_D_INT, value=f"=(({local_ref(r, C_D_OPEN)}+{local_ref(r, C_D_CLOSE)})/2)"
+                              f"*{local_ref(r, C_D_RATE)}")
+    ws.cell(r, C_D_PAY, value=f"={local_ref(r, C_D_INT)}+{local_ref(r, C_D_PRIN)}")
 
-    # ---- CAPITAL LEASE: the inputs, entered once
-    ws.cell(lease_add_in, col, value=0 if stub else lease_add_values[idx])
-    ws.cell(lease_principal_in, col, value=0 if stub else lease_principal_capped[idx])
-    ws.cell(lease_life, col, value=lease_life_quarters)
+    # ---- capital lease
+    ws.cell(r, C_L_OPEN, value=lease_seed if stub else f"={local_ref(prev, C_L_CLOSE)}")
+    ws.cell(r, C_L_ADD, value=0 if stub else lease_add_values[idx])
+    ws.cell(r, C_L_RATE, value=rate_values[idx])
+    ws.cell(r, C_L_TERM, value=lease_life_quarters)
+    ws.cell(r, C_L_PRIN, value=lease_principal[idx])
+    ws.cell(r, C_L_CLOSE, value=f"=MAX(0,{local_ref(r, C_L_OPEN)}+{local_ref(r, C_L_ADD)}"
+                                f"-{local_ref(r, C_L_PRIN)})")
+    ws.cell(r, C_L_INT, value=0 if stub else
+            f"={local_ref(r, C_L_OPEN)}*{local_ref(r, C_L_RATE)}")
+    ws.cell(r, C_L_PAY, value=f"={local_ref(r, C_L_INT)}+{local_ref(r, C_L_PRIN)}")
 
-    # ---- LEASE LIABILITY
-    ws.cell(lease_open, col, value=number(schedules.get("lease_opening_balance_seed"))
-            if stub else f"={local_ref(lease_close, col - 1)}")
-    ws.cell(lease_add, col, value=f"={local_ref(lease_add_in, col)}")
-    ws.cell(lease_principal, col, value=f"={local_ref(lease_principal_in, col)}")
-    ws.cell(lease_close, col, value=f"=MAX(0,{local_ref(lease_open, col)}"
-                                   f"+{local_ref(lease_add, col)}-{local_ref(lease_principal, col)})")
-    # A lease is charged at the same rate as the debt above it, and there is no
-    # separate lease rate to ask a client for, so this reads the rate row
-    # rather than inventing a second lever that could disagree with the first.
-    ws.cell(lease_interest, col, value=0 if stub
-            else f"={local_ref(lease_open, col)}*{local_ref(rate, col)}")
+    # ---- combined
+    ws.cell(r, C_T_PAY, value=f"={local_ref(r, C_D_PAY)}+{local_ref(r, C_L_PAY)}")
+    ws.cell(r, C_T_INT, value=f"={local_ref(r, C_D_INT)}+{local_ref(r, C_L_INT)}")
+    ws.cell(r, C_T_CLOSE, value=f"={local_ref(r, C_D_CLOSE)}+{local_ref(r, C_L_CLOSE)}")
 
-    # ---- RIGHT-OF-USE ASSET. Nothing here is the client's.
-    ws.cell(rou_open, col, value=number(schedules.get("lease_opening_balance_seed"))
-            if stub else f"={local_ref(rou_close, col - 1)}")
-    ws.cell(rou_add, col, value=f"={local_ref(lease_add_in, col)}")
-    # STRAIGHT LINE ON ORIGINAL COST, over the lease term, from the quarter
-    # the lease is signed. The asset and the liability run on ONE clock.
-    #
-    # Three shapes have been wrong here and each failed differently:
-    #   MIN($D$27/term, opening)      frozen to Q1 - a lease signed later
-    #                                 raised the asset and never depreciated
-    #   current base / term           declining balance - never reaches zero
-    #   current base / term REMAINING fully wrote a late lease off by the
-    #                                 horizon while its principal was still
-    #                                 outstanding, which broke the balance
-    #                                 sheet by the exact amount of the lease
-    #
-    # Straight line is COST divided by TERM, and neither part of that is the
-    # current balance or the quarters left in the model. Each tranche charges
-    # cost/term for `term` quarters starting when it is signed: the opening
-    # book from Q1, and every addition from its own quarter. A lease signed
-    # late therefore does NOT finish inside the model, and that is correct -
-    # it is still being paid for.
-    #
-    # The SUMPRODUCT is the window: an addition is still depreciating while
-    # fewer than `term` quarters have passed since it was signed.
-    seed = f"${get_column_letter(FIRST_LIVE_COL)}${rou_open}"
-    first_add = f"${get_column_letter(FIRST_LIVE_COL)}${rou_add}"
-    window = f"{first_add}:{local_ref(rou_add, col)}"
-    term = local_ref(lease_life, col)
-    cost = (f"IF({idx}<={term},{seed},0)"
-            f"+SUMPRODUCT((COLUMN({window})>COLUMN({local_ref(rou_add, col)})-{term})*{window})")
-    cap = f"{local_ref(rou_open, col)}+{local_ref(rou_add, col)}"
-    ws.cell(rou_dep, col, value=0 if stub else f"=MIN(({cost})/{term},{cap})")
-    ws.cell(rou_close, col, value=f"=MAX(0,{local_ref(rou_open, col)}"
-                                 f"+{local_ref(rou_add, col)}-{local_ref(rou_dep, col)})")
-
-  # STYLE_ROW FIRST, then the per-cell styling. style_row repaints the whole
-  # row, so applying it last silently wiped the amber off every input - which
-  # is how the lease inputs came to look exactly like the calculated rows.
-  for key, fmt, mode, is_input in layout:
-    rr_ = ctx.schedule_row(DEBT_SHEET, key)
-    style_row(ws, rr_, fill=FILL_LIGHT, number_format=fmt)
-    for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
-      if is_input:
-        set_input_style(ws.cell(rr_, col), number_format=fmt)
+    for col, _text, fmt in headers[1:]:
+      cell = ws.cell(r, col)
+      if col in INPUT_COLS:
+        set_input_style(cell, number_format=fmt)
       else:
-        set_formula_style(ws.cell(rr_, col), number_format=fmt, internal_link=True)
-    add_annual_formulas(ws, rr_, mode=mode, number_format=fmt)
+        set_formula_style(cell, number_format=fmt)
+    if stub:
+      for col, _t, _f in headers:
+        ws.cell(r, col).font = design.font("note")
 
-  hide_stub_column(ws)
+  last_row = FIRST_ROW + PERIOD_COUNT - 1
+
+  # ---- THE HIDDEN BRIDGE --------------------------------------------------
+  # One row per figure the rest of the workbook consumes, 21 columns wide, in
+  # the standard horizontal geometry, each cell pointing straight back into
+  # the table above. Registered under the keys this sheet has always
+  # published, so nothing downstream changes.
+  bridge_top = last_row + 3
+  ws.cell(bridge_top - 1, 1,
+          value="Feed to Model Inputs, FINMO, CapEx and Checks - hidden by "
+                "design; edit the schedule above, not these rows"
+          ).font = design.font("note")
+
+  #: (ctx key, column in the table above)
+  DIRECT = [
+    ("Opening Debt", C_D_OPEN),
+    ("Debt Issuance", C_D_NEW),
+    ("Interest Rate per quarter", C_D_RATE),
+    ("Total Debt Service", C_D_PAY),
+    ("Interest Expense", C_D_INT),
+    ("Actual Debt Repayment", C_D_PRIN),
+    ("Closing Debt", C_D_CLOSE),
+    ("Lease Opening Balance", C_L_OPEN),
+    ("Lease Net Additions", C_L_ADD),
+    ("Lease Life in quarters", C_L_TERM),
+    ("Lease Interest Expense", C_L_INT),
+    ("Lease Principal Repayments", C_L_PRIN),
+    ("Lease Closing Balance", C_L_CLOSE),
+    ("Lease Additions (asset)", C_L_ADD),
+  ]
+  row = bridge_top
+  lease_add_bridge_row = 0
+  for key, col in DIRECT:
+    if key == "Lease Net Additions":
+      lease_add_bridge_row = row
+    ws.cell(row, 1, value=key).font = design.font("note")
+    for idx in range(PERIOD_COUNT):
+      ws.cell(row, PERIOD_START_COL + idx,
+              value=f"={local_ref(FIRST_ROW + idx, col)}")
+    ctx.add_schedule_row(DEBT_SHEET, key, row)
+    if key == "Lease Additions (asset)":
+      rou_add_row = row
+    if key == "Lease Life in quarters":
+      lease_term_bridge_row = row
+    row += 1
+
+  # ONE INPUT, ONE HOP. The asset side reads the LIABILITY's additions row
+  # rather than reaching into the table a second time, so there is exactly one
+  # cell a client types a lease into and both sides are downstream of it.
+  for idx in range(PERIOD_COUNT):
+    col = PERIOD_START_COL + idx
+    ws.cell(rou_add_row, col, value=f"={local_ref(lease_add_bridge_row, col)}")
+
+  # The right-of-use asset: off the schedule, computed here from the lease
+  # columns so the lease TERM a client edits still drives it. Straight line on
+  # ORIGINAL COST over the term, each tranche from the quarter it is signed.
+  rou_open_row, rou_dep_row, rou_close_row = row, row + 1, row + 2
+  for key, r_ in (("Right-of-Use Asset Opening", rou_open_row),
+                  ("Lease Asset Depreciation", rou_dep_row),
+                  ("Right-of-Use Asset Closing", rou_close_row)):
+    ws.cell(r_, 1, value=key).font = design.font("note")
+    ctx.add_schedule_row(DEBT_SHEET, key, r_)
+  for idx in range(PERIOD_COUNT):
+    col = PERIOD_START_COL + idx
+    prev_col = col - 1
+    add = local_ref(rou_add_row, col)
+    term = local_ref(lease_term_bridge_row, col)
+    ws.cell(rou_open_row, col,
+            value=lease_seed if idx == 0 else f"={local_ref(rou_close_row, prev_col)}")
+    if idx == 0:
+      ws.cell(rou_dep_row, col, value=0)
+    else:
+      # FIRST_LIVE_COL, not the stub. The stub column is hidden and R50 bans a
+      # scalar that pins it across every live quarter - and the two cells hold
+      # the same original cost, since nothing moves in the stub period.
+      seed_ref = f"${get_column_letter(FIRST_LIVE_COL)}${rou_open_row}"
+      first_add = f"${get_column_letter(FIRST_LIVE_COL)}${rou_add_row}"
+      window = f"{first_add}:{local_ref(rou_add_row, col)}"
+      cost = (f"IF({idx}<={term},{seed_ref},0)"
+              f"+SUMPRODUCT((COLUMN({window})>COLUMN({local_ref(rou_add_row, col)})-{term})*{window})")
+      cap = f"{local_ref(rou_open_row, col)}+{add}"
+      ws.cell(rou_dep_row, col, value=f"=MIN(({cost})/{term},{cap})")
+    ws.cell(rou_close_row, col,
+            value=f"=MAX(0,{local_ref(rou_open_row, col)}+{add}"
+                  f"-{local_ref(rou_dep_row, col)})")
+
+  for r_ in range(bridge_top - 1, rou_close_row + 1):
+    ws.row_dimensions[r_].hidden = True
 
 
 def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
