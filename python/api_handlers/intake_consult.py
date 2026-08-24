@@ -8611,6 +8611,7 @@ def _normalize_financials_router_patch(
   last_assistant: str,
   user_message: str = "",
   report: Optional[Dict[str, Any]] = None,
+  instrument_draft_id: str = "",
 ) -> Optional[Dict[str, Any]]:
   if not isinstance(patch, dict) or not patch:
     return None
@@ -8813,6 +8814,10 @@ def _normalize_financials_router_patch(
   # clothes, and it reverts (reported honestly via the say-do
   # accounting). Fields with no keyword entry are left alone - this
   # guard only ever narrows the exact observed shape.
+  # CW-041 INSTRUMENTATION: snapshot before the guard so an admitted foreign
+  # write can be told apart from a reverted one.
+  _pre_guard_touched = set(touched)
+  _guard_armed = False
   _msg_l_mr = str(user_message or "").strip().lower()
   if _msg_l_mr and stage_name:
     _active_kw = _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD
@@ -8821,6 +8826,7 @@ def _normalize_financials_router_patch(
       for tf in active_targets
       for kw in _active_kw.get(tf, ())
     )
+    _guard_armed = bool(_active_named)
     if _active_named:
       for _mf in list(touched):
         if _mf in active_targets:
@@ -8839,6 +8845,60 @@ def _normalize_financials_router_patch(
             "MISROUTE_GUARD field=%s reverted - message names the active "
             "stage family, never this one", _mf,
           )
+  # CW-041 INSTRUMENTATION. A field whose own stage is already COMPLETE is
+  # being changed by a turn that was asking about something else. That is the
+  # shape that overwrote Halbrook's confirmed $5,200 rent with a figure from
+  # the lease answer, and until now it left no trace anywhere: only the
+  # guard's REVERTS were logged, never the writes it let through.
+  #
+  # Records both outcomes, so the rate of each is measurable rather than
+  # guessed at. Nothing is admitted or rejected differently by this block.
+  try:
+    _foreign = sorted(
+      (correctable | volunteered) - set(active_targets)
+    )
+    for _ff in _foreign:
+      _was = (financials_json or {}).get(_ff)
+      _now = next_financials.get(_ff)
+      _attempted = _ff in _pre_guard_touched
+      if not _attempted:
+        continue
+      _reverted = _ff not in touched
+      if not _reverted and _was == _now:
+        continue
+      _kws = _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD.get(_ff)
+      _detail = {
+        "field": _ff,
+        "before": _was,
+        "after": _now,
+        "active_stage": stage_name,
+        "outcome": "reverted_by_guard" if _reverted else "admitted",
+        "guard_armed": bool(_guard_armed),
+        "field_has_keywords": bool(_kws),
+        "user_message": str(user_message or "")[:240],
+      }
+      logger.info(
+        "COMPLETED_FIELD_WRITE field=%s stage=%s outcome=%s before=%r after=%r "
+        "guard_armed=%s field_guarded=%s",
+        _ff, stage_name, _detail["outcome"], _was, _now,
+        _detail["guard_armed"], _detail["field_has_keywords"],
+      )
+      (report if isinstance(report, dict) else {}).setdefault(
+        "completed_field_writes", []).append(_detail)
+      try:
+        from client_intake_and_finmo.run_vitals import record_event  # type: ignore
+
+        record_event(
+          draft_id=str(instrument_draft_id or ""),
+          event_type="completed_field_write",
+          detail=_detail,
+        )
+      except Exception:
+        pass
+  except Exception as _exc:  # pragma: no cover - instrumentation never breaks a turn
+    logger.debug("completed_field_write_instrumentation_swallowed: %s",
+                 type(_exc).__name__)
+
   # Mid-intake derivability guard (CW-015 majors): writes must be
   # derivable from the turn's content (message + preceding proposal) or
   # they drop BEFORE the say-do accounting, so the client hears the
@@ -11099,6 +11159,7 @@ def _run_financials_turn_and_sync_inner(
       last_assistant=last_assistant,
       user_message=user_message,
       report=_patch_report,
+      instrument_draft_id=str((intake_context or {}).get('draft_id') or '').strip(),
     )
     if isinstance(normalized_patch, dict) and normalized_patch:
       # Layer 2: the write-derived acknowledgment (built from the APPLIED
