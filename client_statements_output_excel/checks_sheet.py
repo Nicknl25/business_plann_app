@@ -12,6 +12,7 @@ from .excel_utils import (
   CASH_EQUITY_SHEET,
   CHECKS_SHEET,
   CURRENCY_FORMAT,
+  INTEGER_FORMAT,
   DEBT_SHEET,
   FILL_BLUE,
   FILL_GREEN,
@@ -635,6 +636,28 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
   row = 6
   write_section_header(ws, row, "Model Coherence Checks", end_col=len(CHECK_HEADERS))
   row += 1
+
+  # A REQUIRED TAB THAT COULD NOT BE BUILT FAILS THE MODEL STATUS.
+  # The marketing schedule used to vanish silently whenever its payload was
+  # absent - a workbook shipped fifteen tabs instead of sixteen and nothing
+  # said so. The builder now records the gap; this turns it into a FAIL, so
+  # Checks!B2 reads FAIL rather than a plan quietly going out incomplete.
+  for sheet_name in sorted(getattr(ctx, "missing_sheets", {}) or {}):
+    reason = ctx.missing_sheets[sheet_name]
+    _write_check(
+      ws,
+      row,
+      category="Workbook Completeness",
+      line_item=f"{sheet_name} could not be built",
+      sheet=sheet_name,
+      range_or_cell="whole tab",
+      actual="1",
+      expected=0,
+      tolerance=0,
+      notes=f"Every client workbook must carry this tab. {reason}",
+      number_format=INTEGER_FORMAT,
+    )
+    row += 1
 
   for q_col in [FIRST_LIVE_COL, LAST_LIVE_COL]:
     quarter_label = ws.parent[FINMO_SHEET].cell(4, q_col).value

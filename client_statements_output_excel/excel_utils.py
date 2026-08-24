@@ -83,6 +83,17 @@ class WorkbookBuildContext:
   model_input_rows: Dict[str, int] = field(default_factory=dict)
   finmo_rows: Dict[str, Dict[str, int]] = field(default_factory=dict)
   source_rows: Dict[str, Dict[str, int]] = field(default_factory=dict)
+  #: Required tabs that could not be built, and why. Checks fails on these.
+  missing_sheets: Dict[str, str] = field(default_factory=dict)
+
+  def mark_missing_sheet(self, sheet: str, reason: str) -> None:
+    """A required tab could not be built. Recorded so Checks can fail on it.
+
+    A builder that returns early leaves no trace anywhere - which is how a
+    workbook shipped fifteen tabs instead of sixteen and nobody noticed until
+    a client opened it. This is the trace.
+    """
+    self.missing_sheets[sheet] = reason
 
   def add_schedule_row(self, sheet: str, key: str, row: int) -> None:
     self.schedule_rows.setdefault(sheet, {})[key] = row

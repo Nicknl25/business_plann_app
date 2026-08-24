@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from . import design
@@ -102,11 +103,48 @@ def build_marketing_schedule_sheet(
   wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
 ) -> None:
   payload: Dict[str, Any] = data.marketing_schedule or {}
-  if not payload or payload.get("status") != "ok":
+  # THE TAB IS NOT OPTIONAL. Three separate `return`s used to drop this sheet
+  # whenever the payload was absent, not "ok", or empty - so a workbook came
+  # out with fifteen tabs instead of sixteen and nothing anywhere said why.
+  # Falls City (an 08-07 draft, before marketing_schedule_json existed)
+  # shipped exactly that.
+  #
+  # The sheet is now always created. When the schedule cannot be built the tab
+  # states WHICH of the three conditions failed, and Checks carries a row that
+  # fails on it - so the absence is visible on the sheet, visible in the model
+  # status, and impossible to miss. Nothing is fabricated: no rows are
+  # registered, so Model Inputs still finds no marketing row and every figure
+  # downstream is exactly what it was.
+  gap = ""
+  if not payload:
+    gap = ("This plan carries no marketing schedule payload at all. That is "
+           "expected only for drafts built before the marketing schedule "
+           "existed; on a current run it means the post-process did not "
+           "deliver one.")
+  elif payload.get("status") != "ok":
+    gap = (f"The marketing schedule payload arrived with status "
+           f"{str(payload.get('status') or 'missing')!r} rather than 'ok', so "
+           f"the schedule below was not built.")
+  elif not (payload.get("periods") or []):
+    gap = ("The marketing schedule payload arrived without any periods, so "
+           "there is nothing to lay out.")
+  if gap:
+    ws = create_sheet(wb, MARKETING_SCHEDULE_SHEET)
+    apply_base_style(ws)
+    set_title(ws, "Marketing Schedule",
+              "This tab could not be built for this plan - see below.")
+    ws.cell(row=6, column=1, value="Why this tab is empty").font = design.font("label_strong")
+    cell = ws.cell(row=7, column=1, value=gap)
+    cell.font = design.font("note")
+    cell.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=7, start_column=1, end_row=10, end_column=10)
+    ws.cell(row=12, column=1,
+            value="Checks carries a failing row for this, so the model status "
+                  "reads FAIL rather than quietly shipping a plan without it."
+            ).font = design.font("note")
+    ctx.mark_missing_sheet(MARKETING_SCHEDULE_SHEET, gap)
     return
   periods = payload.get("periods") or []
-  if not periods:
-    return
 
   schedule_class = str(payload.get("schedule_class") or "")
   assumptions = payload.get("assumptions") or {}
