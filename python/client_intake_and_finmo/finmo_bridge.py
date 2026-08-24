@@ -4063,9 +4063,22 @@ def _build_model_input_overlay(
   debt_seed = _safe_float((financials_json or {}).get("total_debt_outstanding"))
   if debt_seed is not None:
     schedules["debt_opening_balance_seed"] = round(debt_seed, 6)
-  lease_seed = _annualized_lease_commitment((financials_json or {}).get("initial_lease"))
-  if lease_seed is not None:
-    schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
+  # CW-041: THE LEASE LIABILITY IS THE BALANCE STILL OWED.
+  # It used to be initial_lease x 12 - a MONTHLY PAYMENT annualised and then
+  # used as an opening balance-sheet liability, which is not what is owed on
+  # anything. Intake now captures the payout figure directly.
+  #
+  # The legacy path stays for drafts captured before this: their stored
+  # initial_lease is a monthly payment and there is no term anywhere to derive
+  # a balance from, so re-deriving is impossible and the old x12 is kept
+  # rather than guessed at. New drafts never take it.
+  _capital_lease = _safe_float((financials_json or {}).get("capital_lease_balance"))
+  if _capital_lease is not None:
+    schedules["lease_opening_balance_seed"] = round(max(0.0, _capital_lease), 6)
+  else:
+    lease_seed = _annualized_lease_commitment((financials_json or {}).get("initial_lease"))
+    if lease_seed is not None:
+      schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
   client_ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
   forecast_ppe_seed = _safe_float(forecast_starting_ppe)
   if forecast_ppe_seed is None:

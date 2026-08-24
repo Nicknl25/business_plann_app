@@ -700,6 +700,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "initial_assets": {"type": "number"},
 
       "initial_lease": {"type": "number"},
+      "capital_lease_balance": {"type": "number"},
 
       "initial_equity": {"type": "number"},
 
@@ -1694,6 +1695,7 @@ def route_intent(
       "initial_assets",
 
       "initial_lease",
+      "capital_lease_balance",
 
       "initial_equity",
 
@@ -1869,7 +1871,7 @@ def route_intent(
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If current_stage.name is future_rent_expected, the app is asking whether the business expects paid dedicated space later. This rule fires on the FRAME (the stage name), never on how the question happened to be phrased. Interpret the client's INTENT into the boolean: ANY natural phrasing meaning yes (yes, yep, sure, that's right, definitely, of course, we'll keep the office, probably once we grow) patches future_rent_expected = true; ANY phrasing meaning no (no, nah, staying home-based, fully remote, no dedicated space) patches future_rent_expected = false. Never require literal words, never return confirm_proceed or continue_chat for a reply that leans either way; only a genuinely direction-less reply (e.g. 'it depends' with no lean) gets confirm_clarify with a closed yes/no question.\n"
-      + "- If the last assistant message is asking about leased equipment or space beyond main rent, interpret clear no/none style answers as initial_lease = 0 and interpret amount answers as the monthly lease amount.\n"
+      + "- If the last assistant message is asking about equipment or vehicles under a lease or finance agreement, interpret clear no/none style answers as capital_lease_balance = 0 and interpret amount answers as the TOTAL STILL OWED on that agreement, not a monthly payment. Never write monthly_rent_expense from that answer - rented space belongs to the rent question.\n"
       + "Financials funding handling:\n"
       + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"
       + "- If current_stage.name is funding_split_debt_share, map answers like mostly debt, mainly loans, 70/30, or 70 percent debt to funding_split_debt_share = 0.7; even, half and half, or 50/50 to 0.5; and mostly equity, mainly investors, or 30/70 to 0.3. Interpret X/Y style answers as debt share first (X is debt). Return edit_patch with the closest allowed value.\n"

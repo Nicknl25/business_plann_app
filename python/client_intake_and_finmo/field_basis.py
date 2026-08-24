@@ -65,6 +65,8 @@ FIELD_BASIS: Dict[str, str] = {
   "current_capex": AMOUNT,
   "initial_assets": AMOUNT,
   "initial_lease": MONTHLY,
+  # CW-041: a BALANCE, not a rate over time - it is what is still owed.
+  "capital_lease_balance": AMOUNT,
   "initial_equity": AMOUNT,
   "total_debt_outstanding": AMOUNT,
   "cash_on_hand": AMOUNT,

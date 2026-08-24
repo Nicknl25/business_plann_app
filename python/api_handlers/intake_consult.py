@@ -2753,7 +2753,7 @@ def _build_financials_stage_message(
       "What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine."
     )
   if stage == "initial_lease":
-    return _build_initial_lease_message()
+    return _build_capital_lease_message()
   if stage == "initial_equity":
     return (
       "Roughly how much money or value has gone into the business so far, from you or any investors, all together?"
@@ -5461,11 +5461,32 @@ def _sync_marketing_field_family(
     next_financials["marketing_adjustment"] = total - baseline_amount
   return next_financials
 
-def _build_initial_lease_message() -> str:
+def _build_capital_lease_message() -> str:
+  """CW-041. The old question bundled two different things into one number:
+
+    "What monthly amount should we use for any leased equipment, vehicles,
+     servers, or additional space you do not own?"
+
+  Extra rented space is an operating expense. Equipment financed under a
+  lease with a term is a DEBT - it belongs on the balance sheet with a
+  liability, a right-of-use asset, interest and principal. One question
+  collecting both meant the app decided which a commitment was by which
+  question the number landed in, and Halbrook's mower fleet - a real capital
+  lease - was routed into rent.
+
+  This asks only about the financed kind, describes it the way an owner
+  would recognise it (a set term, and it is yours at the end), and asks for
+  the AMOUNT STILL OWED. A monthly payment cannot put a lease on a balance
+  sheet; the payout figure can. Rented space now belongs to the rent
+  question and nowhere else.
+  """
   return (
-    "Now let's capture any leased or rented equipment or space beyond your main rent. "
-    "What monthly amount should we use for any leased equipment, vehicles, servers, or additional space you do not own? "
-    "If there is none, use 0."
+    "Do you have any equipment or vehicles you are making payments on under "
+    "a lease or finance agreement - the kind with a set term, where you keep "
+    "the equipment at the end or have the option to buy it? "
+    "If so, roughly how much is still owed on it in total? "
+    "Do not include rented space or anything you can hand back at any time, "
+    "and if there is none, use 0."
   )
 
 
@@ -5639,11 +5660,15 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "confirmable_baseline": False,
     "clarifier": "What initial asset value should I record?",
   },
+  # CW-041: the stage KEY stays (in-flight drafts carry it in their persisted
+  # stage state) but it now asks the capital-lease question and writes the
+  # capital-lease field. initial_lease is legacy: read for old drafts, never
+  # written again.
   "initial_lease": {
-    "patch_targets": ("initial_lease",),
-    "completion_fields": ("initial_lease",),
+    "patch_targets": ("capital_lease_balance",),
+    "completion_fields": ("capital_lease_balance",),
     "confirmable_baseline": False,
-    "clarifier": "What monthly lease amount should I record for leased equipment or space beyond main rent?",
+    "clarifier": "How much is still owed in total on equipment or vehicles you are making lease or finance payments on?",
   },
   "initial_equity": {
     "patch_targets": ("initial_equity",),
@@ -8407,6 +8432,7 @@ _GENERIC_FINANCIALS_FIELD_LABELS = {
   "current_capex": "current capital spending",
   "initial_assets": "initial assets already in the business",
   "initial_lease": "monthly lease commitment beyond main rent",
+  "capital_lease_balance": "capital lease balance still owed",
   "initial_equity": "money invested so far",
   "total_debt_outstanding": "total debt outstanding",
   "other_monthly_debt_payments": "other monthly debt payments",
@@ -8491,7 +8517,15 @@ _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD: Dict[str, Tuple[str, ...]] = {
   "annual_interest_payment": ("interest",),
   "total_debt_outstanding": ("debt", "owe", "loan", "borrow"),
   "other_monthly_debt_payments": ("debt", "loan", "payment"),
-  "monthly_rent_expense": ("rent", "lease", "space"),
+  # CW-041: "lease" LEFT rent's family. It was here so a lease-worded answer
+  # looked like a believable rent correction - which is exactly how "the mower
+  # fleet lease... 3,600 a quarter" overwrote a confirmed $5,200 rent. Rent is
+  # named by rent words now.
+  "monthly_rent_expense": ("rent", "space", "storefront", "warehouse"),
+  # CW-041: the capital-lease stage had NO entry at all, so the guard's
+  # precondition (does the message name the ACTIVE stage's family?) could
+  # never be met and the whole guard stood down on this stage. It arms now.
+  "capital_lease_balance": ("lease", "financ", "still owe", "owed on"),
   "current_payroll": ("payroll", "wage", "salar", "staff", "team", "pay"),
   "payroll_total_year1": ("payroll", "wage", "salar", "staff", "team", "pay"),
   "current_cogs": ("cogs", "direct cost", "material", "cost of goods", "supplies"),
