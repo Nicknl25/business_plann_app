@@ -1,10 +1,30 @@
 {
- "version": 28,
- "updated": "2026-08-20",
- "notes": "CW-040 (Harrow Lane Grooming, Bloomington) was the end-to-end production test and it passes. Forty runs in, a fresh intake now reaches a complete, correct, premium workbook automatically. Everything asked for is there and the numbers reconcile; the two findings are display-layer blemishes and neither touches a number.\n\nWHAT THIS RUN CHANGES ABOUT HOW I VERIFY. Reading a workbook's cells proves what the default state contains; it cannot prove that an interactive control works. This run wrote three toggle states into the built file and recalculated each in headless LibreOffice, which is proof rather than inference - and it is what caught A-128, a defect that only exists in a state the default file never displays. A-129 makes that standing.\n\nTHE TWO FINDINGS. A-128: once the debt is repaid, debt service is zero and the Dashboard DSCR tile shows a raw #N/A where FINMO shows a documented dash. The underlying NA() is correct for the chart series - it breaks the line instead of plotting a false zero - so this is a tile display wrapper, not a value change. A-127 (the stub column's zero depreciation, from CW-039) is unaffected and still open. A-129 is method, not defect.\n\nONE INTAKE NIT NOT FILED, recorded in the runlog: the HR stage asked for the non-named team's annual payroll twice, and the first answer was not stored. No number was mis-captured - the final payroll is exactly 240,000 - so it is a redundant ask rather than a mishandled answer. Worth a glance only if it recurs.\n\nA-121 IS NOW THE OLDEST UNADDRESSED ITEM and three consecutive healthy builds have not touched it. The restructure net still needs a persona designed to clear the pre-submit gate and fall below the floor only once build-time depreciation and debt service land. It will not be stumbled into.",
+ "version": 29,
+ "updated": "2026-08-22",
+ "notes": "CW-041 (Halbrook Grounds Management, Overland Park) was killed at the financials stage and did not build. The intake behaviour up to that point was the strongest the app has shown - two lines with different cadences read straight out of prose, an awkward concurrency-versus-throughput unit reconciled out loud, four discovery candidates merged correctly, and an unparsed answer surfaced instead of defaulted. Then it lost a confirmed number.\n\nA-130 IS THE BLOCKER AND IT IS THE WHOLE STORY OF THIS RUN. The leased-equipment question asks for a monthly amount; this client's lease bills quarterly; naming both figures is the only natural way to answer. The lease stored correctly and the leftover quarterly figure overwrote monthly rent, which had been answered and confirmed several questions earlier. Verified at the stored field, not from the chat. Rent understated by 19,200 a year.\n\nWHAT MAKES IT WORSE THAN THE DOLLAR IMPACT is the shape. The overwrite was announced inside the lease confirmation - 'I will use 1,200 for monthly lease commitment beyond main rent. Recorded: monthly rent 3,600.' A client skimming that reads it as the app restating what it already had, not as a change to a number they gave twenty minutes ago. This is the honesty exception in its purest form: an answer the app solicited, mishandled, with a receipt that conceals rather than reveals the change.\n\nA-131 IS A TEST DEBT, NOT A DEFECT. The 16-sheet count, the Marketing Schedule, the vertical Debt Schedule with a real loan AND a real lease in it, and Checks B2 are all still unverified. This persona is the right one - no previous run has put something real in both halves of that schedule - so re-run it verbatim once A-130 is fixed.\n\nOne thing worth pairing with the A-130 fix: earlier in this same run the install line briefly carried the maintenance line's capacity and utilization before installs had been discussed. That self-corrected and is a legitimate intermediate state under section 2, so it is not filed - but a cross-line value bleed in ops and a cross-field value bleed in financials appearing in the same run is worth one look for a shared mechanism.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "A-130",
+   "persona": "any client whose lease bills on a different cadence than the question asks for",
+   "business": "any business with leased equipment, vehicles or extra space",
+   "why": "NEW BLOCKER, and the reason CW-041 was killed. The leased-equipment question asks 'what MONTHLY amount should we use for any leased equipment, vehicles, servers, or additional space you do not own'. This client's mower fleet lease bills QUARTERLY, so the natural answer named both figures: 'about 3,600 a quarter, so call it 1,200 a month'. The app confirmed 'I will use 1,200 for monthly lease commitment beyond main rent. Recorded: monthly rent 3,600.' Verified at the stored field: initial_lease is correctly 1,200, and monthly_rent_expense went from 5,200 - answered and explicitly confirmed several questions earlier - to 3,600, which is verbatim the quarterly lease figure. Rent understated by 19,200 a year in what would have been the delivered plan. Three things make this a deal breaker rather than a nit: the value was ALREADY CONFIRMED, the change was SILENT in the sense that it was announced in the same sentence as the lease confirmation where it reads as a restatement, and the triggering answer was the natural response to the app's own question. THEORY, not asserted, not checked against code: the lease handler parses all currency figures in the answer, consumes 1,200 as the lease, and the un-consumed 3,600 falls through to a rent setter - 3,600 is the only other money figure in the sentence and it landed in rent exactly, with no rounding or transformation. Worth checking alongside it: earlier in the same run the install line briefly carried the maintenance line's capacity and utilization before installs had been discussed. That one self-corrected and is a legitimate intermediate state, but a cross-line value bleed in ops and a cross-field value bleed in financials may share a mechanism.",
+   "retests": [
+    "Re-run the CW-041 persona verbatim. Answer the rent question with one figure, then answer the leased-equipment question with a quarterly lease that also names a monthly equivalent, and read financials_json.monthly_rent_expense before and after. Also try a lease answer containing an annual figure, and an answer naming a deposit as well as a payment."
+   ]
+  },
+  {
+   "rank": 2,
+   "id": "A-131",
+   "persona": "the CW-041 landscaping persona, re-run",
+   "business": "commercial landscaping - term loan plus equipment lease",
+   "why": "NEW - a TEST DEBT, not a defect. Everything CW-041 was built to verify is still unverified because the run was killed before submit: the 16-sheet count, the new Marketing Schedule sheet, the Debt Schedule rendered as a VERTICAL AMORTIZATION TABLE carrying a real term loan AND a real equipment lease simultaneously, and what Checks B2 actually reads. This persona remains exactly right for it - 180,000 outstanding on a four-year-old truck and equipment loan, plus a live mower fleet lease signed last year at 3,600 a quarter - and no earlier run has put something real in both halves of that schedule at once. Re-run it once A-130 is fixed, with the same numbers, so the two runs are comparable.",
+   "retests": [
+    "Re-run and open the workbook: enumerate sheets, confirm Marketing Schedule is present, confirm the Debt Schedule is vertical with both instruments populated, and read Checks B2 from the file rather than the screen."
+   ]
+  },
+  {
+   "rank": 3,
    "id": "A-128",
    "persona": "any business that repays its debt inside the forecast",
    "business": "any business whose debt service reaches zero before quarter 20",
@@ -14,7 +34,7 @@
    ]
   },
   {
-   "rank": 2,
+   "rank": 4,
    "id": "A-129",
    "persona": "n/a - a standing method change, not a persona",
    "business": "any interactive feature in a generated workbook",
@@ -24,7 +44,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 5,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
@@ -34,7 +54,7 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 6,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
@@ -44,7 +64,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 7,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -54,7 +74,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 8,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -62,7 +82,7 @@
    "retests": []
   },
   {
-   "rank": 7,
+   "rank": 9,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
@@ -72,7 +92,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 10,
    "id": "A-127",
    "persona": "any business that reaches a built workbook",
    "business": "any business with opening PPE",
@@ -82,7 +102,7 @@
    ]
   },
   {
-   "rank": 9,
+   "rank": 11,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -92,7 +112,7 @@
    ]
   },
   {
-   "rank": 10,
+   "rank": 12,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -102,7 +122,7 @@
    ]
   },
   {
-   "rank": 11,
+   "rank": 13,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -113,7 +133,7 @@
    ]
   },
   {
-   "rank": 12,
+   "rank": 14,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -124,7 +144,7 @@
    ]
   },
   {
-   "rank": 13,
+   "rank": 15,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -134,7 +154,7 @@
    ]
   },
   {
-   "rank": 14,
+   "rank": 16,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -142,7 +162,7 @@
    "retests": []
   },
   {
-   "rank": 15,
+   "rank": 17,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -151,10 +171,7 @@
   }
  ],
  "closed_this_cycle": [
-  "THE END-TO-END PRODUCTION PATH IS CONFIRMED. CW-040 (Harrow Lane Grooming) took a fresh intake through convergence, a first-click submit, and an automatic build to a complete premium workbook with no human in the loop - run 8aae3322, about five minutes, 15 sheets, 245,919 bytes, written automatically to the configured output directory.",
-  "EVERY PIECE IS PRESENT AND CORRECT. Cover designed with business name, location, model version, run id, a contents index and a how-to-read legend. Dashboard with 15 KPI tiles, 9 charts including the CVP area chart, and a period/year toggle that genuinely reslices. FINMO with the three statements, then break-even in dollars AND units per line below the cash flow statement, then a full ratio block below that. A complete DCF valuation with both terminal methods, a 5x5 sensitivity table and a sourced GROUNDED-vs-ASSUMPTION block.",
-  "THE RATIO FAILURE MODE IS ABSENT. Annual columns carry proper rates, not summed ones - variable cost ratio 0.2177, contribution margin 0.7823, gross margin 0.8566 - and driver rate rows print a dash in annual columns rather than summing. No 247 pct utilization anywhere; the two lines show 0.70 and 0.50.",
-  "THE RECONCILIATION BUG STAYS FIXED. Y1 ending cash is 118,139.03 in all five places it appears - FINMO Ending Cash, FINMO balance-sheet Cash, the Dashboard tile, and both Calc resolvers. Y1 revenue, EBITDA and net income tie exactly between FINMO and the Dashboard. Checks reports Model Status OK across 224 rows with zero failures, and the API-side accounting check is all_ok across 21 of 21 periods with a maximum delta of 0.",
-  "THE DISCOVERY MATRIX IS COMPLETE. CW-038 proved a stream can be added then removed; CW-040 proves one can be added and KEPT all the way into a built multi-line workbook, with its own drivers, its own COGS rate, its own break-even units row and its own chart series. Four candidates produced four correct dispositions in a single turn."
+  "Nothing closed this cycle - CW-041 was killed at the financials stage before it could verify anything it was designed to verify.",
+  "Recorded as PASSING behaviour observed before the kill, none of it filed: the app inferred TWO lines with DIFFERENT cadences (monthly maintenance, per-contract installs) straight from the opening description before asking a single capacity question; it reconciled a concurrency-based capacity against an annual throughput figure by reasoning out loud (3 slots x ~10 turns) and asking which turn rate fit; it merged all four discovery candidates into the maintenance contract with no phantom; it proposed differentiated per-line COGS unprompted and stored the client's corrections exactly (14 pct and 30 pct as separate structures); and it SURFACED an unparsed capex answer ('not this year') by asking for a number rather than silently defaulting to zero."
  ]
 }

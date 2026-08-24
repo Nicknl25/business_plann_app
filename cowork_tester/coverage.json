@@ -1,7 +1,7 @@
 {
- "version": 4,
- "updated": "2026-08-20",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas.",
+ "version": 5,
+ "updated": "2026-08-22",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -209,6 +209,15 @@
     "CW-040"
    ],
    "note": "NEW business type, chosen as a clean normal single-line business that discovery would reliably offer adjacent streams to."
+  },
+  "commercial_landscaping": {
+   "examples": [
+    "commercial grounds maintenance contracts plus one-off install projects, term loan plus equipment lease"
+   ],
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW business type, chosen specifically to put a real loan AND a real lease into the Debt Schedule. Still the right persona for that test; needs a re-run after the rent overwrite is fixed."
   }
  },
  "friction_conditions": {
@@ -857,7 +866,8 @@
     "CW-037",
     "CW-038",
     "CW-039",
-    "CW-040"
+    "CW-040",
+    "CW-041"
    ],
    "note": "PASSING across three business types now - print (CW-037, CW-038) and auto repair (CW-039). 'Parts are already inside the repair order, on the same ticket, not a separate thing we sell' latched merged_into:Auto repair service with no phantom, and the paired tire-sales candidate latched declined in the same turn."
   },
@@ -884,6 +894,36 @@
     "CW-040"
    ],
    "note": "NEW and PASSING. Two lines carried correctly through every sheet - per-line drivers and distinct COGS rates (15 pct grooms, 2 pct nail trims), per-line break-even units on both FINMO and the Dashboard, and per-line revenue chart series. Annual rate rows correctly print a dash instead of summing, so the summed-rate failure mode is absent."
+  },
+  "lease_answer_overwrites_confirmed_rent": {
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW and FAILING - blocker. The leased-equipment question asks for a MONTHLY amount; this client's lease bills QUARTERLY, so the natural answer names both figures (3,600 a quarter, so call it 1,200 a month). The lease stored correctly at 1,200, and the un-consumed 3,600 overwrote monthly_rent_expense, which had been answered and explicitly confirmed at 5,200 several questions earlier. Announced in the same sentence as the lease confirmation, so it reads as a restatement rather than a change."
+  },
+  "monthly_operating_cadence": {
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW and PASSING as far as the run got. First campaign run on a monthly rather than weekly cadence - operating_periods_per_year 12, units_per_period_capacity carrying the real 40 contracts per month. Note units_per_week_capacity also carried a derived 9.2308 (40 divided by 4.333); harmless while the period field drives, but unverified downstream because the build never ran."
+  },
+  "two_lines_inferred_from_prose_with_different_cadences": {
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW and PASSING. The app read two lines out of the opening description and set both up with correct and DIFFERENT cadences - maintenance monthly, installs per-contract - before asking any capacity question. Cleanest line setup seen so far."
+  },
+  "concurrency_versus_throughput_unit": {
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW and PASSING. Install capacity is naturally concurrent, not throughput. Client said three at a time and about 30 a year; the app reconciled out loud (3 slots x ~10 turns) and asked whether 10 or 12 turns per slot fit better, then applied 10."
+  },
+  "unparsed_answer_surfaced_instead_of_defaulted": {
+   "runs": [
+    "CW-041"
+   ],
+   "note": "NEW and PASSING. 'Not this year' to the capex question produced 'I was not able to apply that change yet. What current capital spending amount should I record' rather than a silent zero. Same class as A-118 on the discovery side, and handled correctly here."
   }
  },
  "verdict_classes_reached": {
@@ -1658,6 +1698,26 @@
    "headline": "The end-to-end production test passes. 15 sheets: Cover, Dashboard (15 KPI tiles, 9 charts, working Quarterly/Annual toggle proven by recalculating three toggle states in headless LibreOffice), FINMO with break-even in dollars AND units below the cash flow statement and a full correct ratio block below that, and a complete DCF with both terminal methods, a 5x5 sensitivity table and a sourced GROUNDED-vs-ASSUMPTION block. Equity value 460,784 = 2.33x year-5 SDE. Y1 cash 118,139.03 identical in five places. Checks OK, 224 rows, zero failures. Two display-layer findings, neither touching a number.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-041": {
+   "persona": "Rafael Ostrowski - commercial landscaping, two lines, term loan plus equipment lease",
+   "business": "Halbrook Grounds Management",
+   "city": "Overland Park KS",
+   "type": "commercial_landscaping",
+   "draft_id": "f5175f681edd433db76ae3035398311b",
+   "stack": "de7c8f1 on intake-stable",
+   "outcome": "KILLED at the financials stage. Never submitted, never built. A figure mentioned in passing in the leased-equipment answer silently overwrote the confirmed monthly rent (5,200 to 3,600), verified at the stored field.",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "monthly_operating_cadence",
+    "two_lines_inferred_from_prose_with_different_cadences",
+    "concurrency_versus_throughput_unit",
+    "lease_answer_overwrites_confirmed_rent",
+    "unparsed_answer_surfaced_instead_of_defaulted"
+   ],
+   "headline": "Strongest intake behaviour of the campaign up to the kill - two lines with different cadences inferred straight from the opening description, concurrency reconciled against annual throughput by reasoning out loud, four discovery candidates merged correctly, an unparsed capex answer surfaced instead of silently defaulted. Then a blocker: answering the leased-equipment question (which asks MONTHLY) with a lease that bills QUARTERLY put the quarterly figure into monthly rent. The 16-sheet workbook, Marketing Schedule, loan-plus-lease Debt Schedule and Checks B2 all remain UNTESTED.",
+   "issues_filed": 1,
+   "blockers": 1
   }
  },
  "verdict_classes": {
@@ -1717,7 +1777,8 @@
   },
   "killed_at_decision_point": {
    "runs": [
-    "CW-034"
+    "CW-034",
+    "CW-041"
    ]
   }
  }
