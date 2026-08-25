@@ -1,6 +1,6 @@
 STATUS: awaiting-VS
 
-TURN: 3/16
+TURN: 4/16
 
 TASK:
   CW-043 follow-up - TWO turns, split by blast radius. Do TURN A now; TURN B is verification and rides alone.
