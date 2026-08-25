@@ -1,0 +1,237 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    efe82d78f258b46cfec535f061b007b357de0df64e2cad7abbc9d18ae254da45
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    7fc2238b3608c9380c1d12e6f88e15678bfbbb4cc35ba99d0d522084cfe4d72e
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8063 shared cells, 76 CHANGED, 0 only in wt_head, 0 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  *    CapEx Depreciation	Closing PPE	0
+         was =IF(C10+C7-C12<0.005,0,C10+C7-C12)
+         now =IF(C11+C7-C12<0.005,0,C11+C7-C12)
+  *    CapEx Depreciation	Closing PPE	1
+         was =IF(D10+D7-D12<0.005,0,D10+D7-D12)
+         now =IF(D11+D7-D12<0.005,0,D11+D7-D12)
+  *    CapEx Depreciation	Closing PPE	10
+         was =IF(M10+M7-M12<0.005,0,M10+M7-M12)
+         now =IF(M11+M7-M12<0.005,0,M11+M7-M12)
+  *    CapEx Depreciation	Closing PPE	11
+         was =IF(N10+N7-N12<0.005,0,N10+N7-N12)
+         now =IF(N11+N7-N12<0.005,0,N11+N7-N12)
+  *    CapEx Depreciation	Closing PPE	12
+         was =IF(O10+O7-O12<0.005,0,O10+O7-O12)
+         now =IF(O11+O7-O12<0.005,0,O11+O7-O12)
+  *    CapEx Depreciation	Closing PPE	13
+         was =IF(P10+P7-P12<0.005,0,P10+P7-P12)
+         now =IF(P11+P7-P12<0.005,0,P11+P7-P12)
+  *    CapEx Depreciation	Closing PPE	14
+         was =IF(Q10+Q7-Q12<0.005,0,Q10+Q7-Q12)
+         now =IF(Q11+Q7-Q12<0.005,0,Q11+Q7-Q12)
+  *    CapEx Depreciation	Closing PPE	15
+         was =IF(R10+R7-R12<0.005,0,R10+R7-R12)
+         now =IF(R11+R7-R12<0.005,0,R11+R7-R12)
+  *    CapEx Depreciation	Closing PPE	16
+         was =IF(S10+S7-S12<0.005,0,S10+S7-S12)
+         now =IF(S11+S7-S12<0.005,0,S11+S7-S12)
+  *    CapEx Depreciation	Closing PPE	17
+         was =IF(T10+T7-T12<0.005,0,T10+T7-T12)
+         now =IF(T11+T7-T12<0.005,0,T11+T7-T12)
+  *    CapEx Depreciation	Closing PPE	18
+         was =IF(U10+U7-U12<0.005,0,U10+U7-U12)
+         now =IF(U11+U7-U12<0.005,0,U11+U7-U12)
+  *    CapEx Depreciation	Closing PPE	19
+         was =IF(V10+V7-V12<0.005,0,V10+V7-V12)
+         now =IF(V11+V7-V12<0.005,0,V11+V7-V12)
+  *    CapEx Depreciation	Closing PPE	2
+         was =IF(E10+E7-E12<0.005,0,E10+E7-E12)
+         now =IF(E11+E7-E12<0.005,0,E11+E7-E12)
+  *    CapEx Depreciation	Closing PPE	20
+         was =IF(W10+W7-W12<0.005,0,W10+W7-W12)
+         now =IF(W11+W7-W12<0.005,0,W11+W7-W12)
+  *    CapEx Depreciation	Closing PPE	3
+         was =IF(F10+F7-F12<0.005,0,F10+F7-F12)
+         now =IF(F11+F7-F12<0.005,0,F11+F7-F12)
+  *    CapEx Depreciation	Closing PPE	4
+         was =IF(G10+G7-G12<0.005,0,G10+G7-G12)
+         now =IF(G11+G7-G12<0.005,0,G11+G7-G12)
+  *    CapEx Depreciation	Closing PPE	5
+         was =IF(H10+H7-H12<0.005,0,H10+H7-H12)
+         now =IF(H11+H7-H12<0.005,0,H11+H7-H12)
+  *    CapEx Depreciation	Closing PPE	6
+         was =IF(I10+I7-I12<0.005,0,I10+I7-I12)
+         now =IF(I11+I7-I12<0.005,0,I11+I7-I12)
+  *    CapEx Depreciation	Closing PPE	7
+         was =IF(J10+J7-J12<0.005,0,J10+J7-J12)
+         now =IF(J11+J7-J12<0.005,0,J11+J7-J12)
+  *    CapEx Depreciation	Closing PPE	8
+         was =IF(K10+K7-K12<0.005,0,K10+K7-K12)
+         now =IF(K11+K7-K12<0.005,0,K11+K7-K12)
+  *    CapEx Depreciation	Closing PPE	9
+         was =IF(L10+L7-L12<0.005,0,L10+L7-L12)
+         now =IF(L11+L7-L12<0.005,0,L11+L7-L12)
+  *    CapEx Depreciation	Depreciation Expense	0
+         was =MIN(C10*C11,C10)
+         now =MIN(C11*C8,C11)
+  *    CapEx Depreciation	Depreciation Expense	1
+         was =MIN(D10*D11,D10)
+         now =MIN(D11*D8,D11)
+  *    CapEx Depreciation	Depreciation Expense	10
+         was =MIN(M10*M11,M10)
+         now =MIN(M11*M8,M11)
+  *    CapEx Depreciation	Depreciation Expense	11
+         was =MIN(N10*N11,N10)
+         now =MIN(N11*N8,N11)
+  *    CapEx Depreciation	Depreciation Expense	12
+         was =MIN(O10*O11,O10)
+         now =MIN(O11*O8,O11)
+  *    CapEx Depreciation	Depreciation Expense	13
+         was =MIN(P10*P11,P10)
+         now =MIN(P11*P8,P11)
+  *    CapEx Depreciation	Depreciation Expense	14
+         was =MIN(Q10*Q11,Q10)
+         now =MIN(Q11*Q8,Q11)
+  *    CapEx Depreciation	Depreciation Expense	15
+         was =MIN(R10*R11,R10)
+         now =MIN(R11*R8,R11)
+  *    CapEx Depreciation	Depreciation Expense	16
+         was =MIN(S10*S11,S10)
+         now =MIN(S11*S8,S11)
+  *    CapEx Depreciation	Depreciation Expense	17
+         was =MIN(T10*T11,T10)
+         now =MIN(T11*T8,T11)
+  *    CapEx Depreciation	Depreciation Expense	18
+         was =MIN(U10*U11,U10)
+         now =MIN(U11*U8,U11)
+  *    CapEx Depreciation	Depreciation Expense	19
+         was =MIN(V10*V11,V10)
+         now =MIN(V11*V8,V11)
+  *    CapEx Depreciation	Depreciation Expense	2
+         was =MIN(E10*E11,E10)
+         now =MIN(E11*E8,E11)
+  *    CapEx Depreciation	Depreciation Expense	20
+         was =MIN(W10*W11,W10)
+         now =MIN(W11*W8,W11)
+  *    CapEx Depreciation	Depreciation Expense	3
+         was =MIN(F10*F11,F10)
+         now =MIN(F11*F8,F11)
+  *    CapEx Depreciation	Depreciation Expense	4
+         was =MIN(G10*G11,G10)
+         now =MIN(G11*G8,G11)
+  *    CapEx Depreciation	Depreciation Expense	5
+         was =MIN(H10*H11,H10)
+         now =MIN(H11*H8,H11)
+  *    CapEx Depreciation	Depreciation Expense	6
+         was =MIN(I10*I11,I10)
+         now =MIN(I11*I8,I11)
+  *    CapEx Depreciation	Depreciation Expense	7
+         was =MIN(J10*J11,J10)
+         now =MIN(J11*J8,J11)
+  *    CapEx Depreciation	Depreciation Expense	8
+         was =MIN(K10*K11,K10)
+         now =MIN(K11*K8,K11)
+  *    CapEx Depreciation	Depreciation Expense	9
+         was =MIN(L10*L11,L10)
+         now =MIN(L11*L8,L11)
+  *    CapEx Depreciation	Depreciation Rate	0
+         was =IFERROR(AVERAGE(D11:G11),0)
+         now =IFERROR(AVERAGE(D8:G8),0)
+  *    CapEx Depreciation	Depreciation Rate	1
+         was =IFERROR(AVERAGE(H11:K11),0)
+         now =IFERROR(AVERAGE(H8:K8),0)
+  *    CapEx Depreciation	Depreciation Rate	2
+         was =IFERROR(AVERAGE(L11:O11),0)
+         now =IFERROR(AVERAGE(L8:O8),0)
+  *    CapEx Depreciation	Depreciation Rate	3
+         was =IFERROR(AVERAGE(P11:S11),0)
+         now =IFERROR(AVERAGE(P8:S8),0)
+  *    CapEx Depreciation	Depreciation Rate	4
+         was =IFERROR(AVERAGE(T11:W11),0)
+         now =IFERROR(AVERAGE(T8:W8),0)
+  *    CapEx Depreciation	Opening PPE	20
+         was =D10
+         now =D11
+  *    CapEx Depreciation	Opening PPE	21
+         was =H10
+         now =H11
+  *    CapEx Depreciation	Opening PPE	22
+         was =L10
+         now =L11
+  *    CapEx Depreciation	Opening PPE	23
+         was =P10
+         now =P11
+  *    CapEx Depreciation	Opening PPE	24
+         was =T10
+         now =T11
+  *    Checks	Formula Logic	33
+         was =SUMPRODUCT(ABS('CapEx Depreciation'!D10:W10-'CapEx Depreciation'!C13:V13))
+         now =SUMPRODUCT(ABS('CapEx Depreciation'!D11:W11-'CapEx Depreciation'!C13:V13))
+  *    Checks	Formula Logic	36
+         was =SUMPRODUCT(ABS('CapEx Depreciation'!C12:W12-('CapEx Depreciation'!C10:W10*'CapEx Depreciation'!C11:W11)))
+         now =SUMPRODUCT(ABS('CapEx Depreciation'!C12:W12-('CapEx Depreciation'!C11:W11*'CapEx Depreciation'!C8:W8)))
+  *    Checks	Formula Logic	39
+         was =SUMPRODUCT(ABS('CapEx Depreciation'!C13:W13-('CapEx Depreciation'!C10:W10+'CapEx Depreciation'!C7:W7-'CapEx D
+         now =SUMPRODUCT(ABS('CapEx Depreciation'!C13:W13-('CapEx Depreciation'!C11:W11+'CapEx Depreciation'!C7:W7-'CapEx D
+  *    Model Inputs	Depreciation	0
+         was ='CapEx Depreciation'!C11
+         now ='CapEx Depreciation'!C8
+  *    Model Inputs	Depreciation	1
+         was ='CapEx Depreciation'!D11
+         now ='CapEx Depreciation'!D8
+  *    Model Inputs	Depreciation	10
+         was ='CapEx Depreciation'!M11
+         now ='CapEx Depreciation'!M8
+  *    Model Inputs	Depreciation	11
+         was ='CapEx Depreciation'!N11
+         now ='CapEx Depreciation'!N8
+  *    Model Inputs	Depreciation	12
+         was ='CapEx Depreciation'!O11
+         now ='CapEx Depreciation'!O8
+  *    Model Inputs	Depreciation	13
+         was ='CapEx Depreciation'!P11
+         now ='CapEx Depreciation'!P8
+  *    Model Inputs	Depreciation	14
+         was ='CapEx Depreciation'!Q11
+         now ='CapEx Depreciation'!Q8
+  *    Model Inputs	Depreciation	15
+         was ='CapEx Depreciation'!R11
+         now ='CapEx Depreciation'!R8
+  *    Model Inputs	Depreciation	16
+         was ='CapEx Depreciation'!S11
+         now ='CapEx Depreciation'!S8
+  *    Model Inputs	Depreciation	17
+         was ='CapEx Depreciation'!T11
+         now ='CapEx Depreciation'!T8
+  *    Model Inputs	Depreciation	18
+         was ='CapEx Depreciation'!U11
+         now ='CapEx Depreciation'!U8
+  *    Model Inputs	Depreciation	19
+         was ='CapEx Depreciation'!V11
+         now ='CapEx Depreciation'!V8
+  *    Model Inputs	Depreciation	2
+         was ='CapEx Depreciation'!E11
+         now ='CapEx Depreciation'!E8
+  *    Model Inputs	Depreciation	20
+         was ='CapEx Depreciation'!W11
+         now ='CapEx Depreciation'!W8
+  *    Model Inputs	Depreciation	3
+         was ='CapEx Depreciation'!F11
+         now ='CapEx Depreciation'!F8
+  *    Model Inputs	Depreciation	4
+         was ='CapEx Depreciation'!G11
+         now ='CapEx Depreciation'!G8
+  *    Model Inputs	Depreciation	5
+         was ='CapEx Depreciation'!H11
+         now ='CapEx Depreciation'!H8
+  *    Model Inputs	Depreciation	6
+         was ='CapEx Depreciation'!I11
+         now ='CapEx Depreciation'!I8
+  *    Model Inputs	Depreciation	7
+         was ='CapEx Depreciation'!J11
+         now ='CapEx Depreciation'!J8
+  *    Model Inputs	Depreciation	8
+         was ='CapEx Depreciation'!K11
+         now ='CapEx Depreciation'!K8
+  *    Model Inputs	Depreciation	9
+         was ='CapEx Depreciation'!L11
+         now ='CapEx Depreciation'!L8

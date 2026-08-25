@@ -817,20 +817,17 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   capex_inputs = [
     ("Capital Expenditures", "What you spend on equipment this quarter",
      CURRENCY_FORMAT, ANNUAL_SUM),
+    # A CLIENT INPUT, amber, under "What you can change" (Nick, 2026-08-25,
+    # having been through the sheet: the mechanics are correct and this is a
+    # lever like any other). It was de-ambered on 08-21 as a fitted solver
+    # artifact; that ruling is reversed here. The note below the schedule
+    # still says what the rate is and what flattening it does.
+    ("Depreciation Rate", "Derived - fitted each quarter, see the note below",
+     PERCENT_FORMAT, ANNUAL_AVERAGE),
   ]
   capex_outputs = [
     ("Opening PPE", "What the equipment was worth at the start",
      CURRENCY_FORMAT, ANNUAL_YEAR_START),
-
-    # DERIVED, not an input. It was amber - styled exactly like a lever - and
-    # its values climb from 5.1% to 54.4% across the twenty quarters, because
-    # the engine FITS it so the expense stays level while the balance it
-    # multiplies falls. A client reading a rising rate as a mistake and
-    # flattening it to 5% would change every figure below and be reasonable
-    # to think they were fixing a typo. Same trap as the inert Stage Ramp
-    # cells, except this one does something, and the something is wrong.
-    ("Depreciation Rate", "Derived - fitted each quarter, see the note below",
-     PERCENT_FORMAT, ANNUAL_AVERAGE),
     ("Depreciation Expense", "Opening balance x the rate above",
      CURRENCY_FORMAT, ANNUAL_SUM),
     ("Closing PPE", "What it is worth at the end, after depreciation",
@@ -900,7 +897,7 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
   for label, fmt, annual_mode in labels:
     r = ctx.schedule_row(CAPEX_SHEET, label)
     for col in range(PERIOD_START_COL, PERIOD_END_COL + 1):
-      if label == "Capital Expenditures":
+      if label in {"Capital Expenditures", "Depreciation Rate"}:
         set_input_style(ws.cell(r, col), number_format=fmt)
       elif label == "Lease Additions":
         set_formula_style(ws.cell(r, col), number_format=fmt, internal_link=True)
