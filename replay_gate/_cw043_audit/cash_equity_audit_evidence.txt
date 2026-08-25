@@ -1,0 +1,272 @@
+# mini Cash & Equity audit evidence (2026-08-25, turn 7) - 7deaefa + be4978e vs b4949f3
+
+## grid drift re-derived (python -m replay_gate._grid_dump <b4949f3 worktree> .) - byte-identical to VS's file modulo ROOT lines
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/1f85c248-0624-4571-a39e-d7f5f6dac6c8/scratchpad/wt_old
+SHA    7fc2238b3608c9380c1d12e6f88e15678bfbbb4cc35ba99d0d522084cfe4d72e
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   .
+SHA    cf77a0b03ef11a39c7da17efee10f91dc720ede36daf50e67f4eec4ed67da600
+GRID   11 sheets, 8079 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8039 shared cells, 403 CHANGED, 24 only in wt_old, 40 only in .
+
+## text-surface drift re-derived (mini_text_dump.py)
+ROOT C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/1f85c248-0624-4571-a39e-d7f5f6dac6c8/scratchpad/wt_old
+SHA  ec6a2be219be2edb4f182b58670864f7f7d7c331fe67dba1ebbe31e39cf63286
+TEXT 2569 cells across 16 sheets
+ROOT C:/dev/business_plann_app
+SHA  550320a6e74bbe33cae85f9d2dd4e0fb9470369f6002a7437fbacb3e3230dc66
+TEXT 2561 cells across 16 sheets
+
+DIFF shared=2540 changed=434 gone=29 added=21  (total touched 484)
+by sheet: {'Cash Equity Schedule': 7, 'Checks': 476, 'Model Inputs': 1}
+   7 ('Cash Equity Schedule', 'sheet-text')
+   1 ('Checks', 'OTHER')
+   26 ('Checks', 'moved-up-1: last row fell off (old text now one row above)')
+   449 ('Checks', 'moved-up-1: new text == old text one row below')
+   1 ('Model Inputs', 'sheet-text')
+('Cash Equity Schedule', 'sheet-text')
+      ('A11', 'Operating Fixed Cash Items', 'None')
+      ('A12', 'Lease', 'None')
+      ('A2', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these row', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and O")
+      ('B12', 'Operating lease/rent input', 'None')
+      ('B7', 'Equity / distribution input', 'Balance - a new level carries forward')
+      ('B8', 'Equity / distribution input', 'Balance - a new level carries forward')
+      ('B9', 'Equity / distribution input', 'Paid out in the quarter you enter it')
+('Checks', 'moved-up-1: last row fell off (old text now one row above)')
+      ('A20', 'Schedule Coherence', 'None')
+      ('A201', 'Formula Manifest', 'None')
+      ('A210', 'Formula Error Scan', 'None')
+      ('A222', 'Persisted Baseline', 'None')
+      ('A38', 'Formula Logic', 'None')
+      ('B165', 'FINMO - Break-Even Analysis - Break-Even Revenue (G&A as fixed)', 'None')
+      ('B20', 'Payroll detail wage and tax math', 'None')
+      ('B201', 'FINMO - Ratios - EBITDA Growth', 'None')
+      ('B210', 'FINMO formula/error scan', 'None')
+      ('B222', 'Break-Even Revenue Q20', 'None')
+      ('B38', 'Accumulated depreciation formula', 'None')
+      ('C20', 'Payroll Schedule', 'None')
+      ('C201', 'FINMO', 'None')
+      ('C210', 'FINMO', 'None')
+      ('C222', 'FINMO vs Audit Source', 'None')
+      ('C38', 'CapEx Depreciation', 'None')
+      ('D20', 'I27:M126', 'None')
+      ('D201', "'FINMO'!C111:W111", 'None')
+      ('D210', "'FINMO'!C8:W111", 'None')
+      ('D222', "'FINMO'!W68", 'None')
+      ('D38', "'CapEx Depreciation'!C15:W15", 'None')
+      ('J20', 'Payroll dollars must flow from average FTE, wage, benefits/taxes, and total payroll formul', 'None')
+      ('J201', 'FINMO statement lines must remain formula-driven. Formula presence is verified at export; ', 'None')
+      ('J210', 'Counts Excel error values in the range.', 'None')
+      ('J222', 'CHANGED means assumptions were edited from the persisted run; it is informational and does', 'None')
+      ('J38', 'Accumulated depreciation must roll forward by depreciation expense.', 'None')
+('Checks', 'OTHER')
+      ('D207', "'CapEx Depreciation'!C7:W18", "'Cash Equity Schedule'!C7:W9")
+('Model Inputs', 'sheet-text')
+      ('B15', 'Cash Equity Schedule output', 'Direct model driver')
+old tie-out label at: [('Checks', 'B16')] | in new: []
+
+## bare gate R32 + R49
+GOLDEN-SHA workbook_formulas cf77a0b03ef11a39c7da17efee10f91dc720ede36daf50e67f4eec4ed67da600
+GOLDEN-SHA single_line_input 72dfcb81f6f30a2cee54391d6078454717c0ef73fa39ef02fd8e08131538f679
+GOLDEN-SHA workbook_text 550320a6e74bbe33cae85f9d2dd4e0fb9470369f6002a7437fbacb3e3230dc66
+
+==============================================================================
+REPLAY GATE - every known issue
+  build under test: C:\dev\business_plann_app @ a79e7de
+==============================================================================
+[  ok  ] R32 INVARIANT  workbook-formula-grid [WS1b floor]
+          NEGATIVE CONTROL: the workbook formula grid does not move
+          HOLDS: matches the blessed record (workbook_formulas=cf77a0b03ef1)
+          8079 formulas across 11 sheets; FINMO carries exactly one 'Cost of Goods Sold' row - 21 per-period cells of the legacy =<revenue cell>*'Model Inputs'!<row 12> shape plus 5 annual =SUM rollups, zero per-line rows; grid sha cf77a0b03ef1; run artifacts frozen from draft 6feac758 stage post_intake_finalize_validation_completed; model inputs from FROZEN draft 89e5a622 (CareCompanions Home Health Services) - committed fixture, no DB query in this path
+[  ok  ] R49 INVARIANT  workbook-text-surface [X5 rider class]
+          NEGATIVE CONTROL: the workbook's static text does not move or change
+          HOLDS: matches the blessed record (workbook_text=550320a6e74b)
+          2561 static text cells across 16 sheets, keyed by address; static EARNED by intersecting two different businesses built at two different WALL CLOCKS, so the client name, city, per-line labels and the build date are absent by construction; the 'As of' header is at Valuation!L5; COVERAGE 2561/2594 of the first workbook's text - the 33 unpinned are the per-draft text that SHOULD escape (client name and city, product and line names, the draft id, and the Valuation reference block's citations and as-of dates, which are live data built differently in the second sample on purpose); text sha 550320a6e74b
+------------------------------------------------------------------------------
+2/2 legs clear
+
+  GREEN - every known issue that ran is clear.
+  Safe to spend a Cowork run.
+==============================================================================
+
+## claims (a)(b)(d)(e) on 5 untouched drafts (mini_ce_audit.py)
+
+######## b944961a  old=OLD b944961a -- 08-25-2026 15-51-48.xlsx  new=NEW b944961a -- 08-25-2026 15-51-55.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: 2 diffs e.g. [((3, 2), 'OLD b944961a', 'NEW b944961a'), ((10, 3), 'OLD b944961a', 'NEW b944961a')]
+   Dashboard: 1 diffs e.g. [((1, 1), 'OLD b944961a - Dashboard', 'NEW b944961a - Dashboard')]
+   Model Inputs: 1 diffs e.g. [((19, 2), 'Cash Equity Schedule output', 'Direct model driver')]
+   (a) by-address cells=11563 EXACT diffs=4 | Cash sheet label rows old=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.', 'Lease', 'Operating Fixed Cash Items', 'Other Equity', "Owner's Capital"] new=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it. Distributions are paid in the quarter you enter them.", 'Other Equity', "Owner's Capital"] equity-row value diffs=[]
+   (a) Checks by label: rows old=219 new=218 gone=[('Lease/rent feeds Model Inputs', 'Cross-sheet', "'Cash Equity Schedule'!C12:W12"), ('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W12")] added=[('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W9")] value-changed=0 []
+   (b/d) Owner's Capital r7: literals at [0, 1] expected [0, 1] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Other Equity r8: literals at [0] expected [0] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Distributions r9: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] expected ALL 21 MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   FINMO r39 Owner's Capital: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.owners_capital mismatches=[(1, 45000, 20000.0)] (keys present 20/20)
+   FINMO r41 Other Equity: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.other_equity mismatches=[] (keys present 20/20)
+   FINMO r57 Distributions: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.distributions mismatches=[(8, 1104, 0.0), (9, 6163, 1104.0), (10, 6824, 6163.0)] (keys present 20/20)
+   FINMO r56 Equity K: =(K39-J39)+(K41-J41) | r57 Distributions K: ='Model Inputs'!K37 | Model Inputs K: Distributions -> ='Cash Equity Schedule'!K9 | Owner's Capital -> ='Cash Equity Schedule'!K7 | Other Equity -> ='Cash Equity Schedule'!K8
+   (e) OLD refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-12'), 2), (('Checks', 'Schedule Bridge', '12-12'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Lease', '12'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) NEW refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-9'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) OLD Cash sheet rows 10-12 labels: [None, 'Operating Fixed Cash Items', 'Lease'] | NEW rows 10-12: [None, None, None]
+   (e) Model Inputs Lease 21 values old==new: True annuals old==new: True | new formula C..E: [6000, 6000, 6000] annual: =SUM(D19:G19) | old C: ='Cash Equity Schedule'!C12
+   (e) FINMO 'Lease/Rent' old==new: True K formula: ='Model Inputs'!K19
+   (e) FINMO 'Right-of-Use Asset (Capital Lease)' old==new: True K formula: ='Model Inputs'!K54
+   (e) FINMO 'Capital Lease Obligation' old==new: True K formula: ='Model Inputs'!K53
+   (e) FINMO 'Capital Lease Principal Payments' old==new: True K formula: ='Model Inputs'!K50
+
+######## a051f479  old=OLD a051f479 -- 08-25-2026 15-52-04.xlsx  new=NEW a051f479 -- 08-25-2026 15-52-10.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: 2 diffs e.g. [((3, 2), 'OLD a051f479', 'NEW a051f479'), ((10, 3), 'OLD a051f479', 'NEW a051f479')]
+   Dashboard: 1 diffs e.g. [((1, 1), 'OLD a051f479 - Dashboard', 'NEW a051f479 - Dashboard')]
+   Model Inputs: 1 diffs e.g. [((23, 2), 'Cash Equity Schedule output', 'Direct model driver')]
+   (a) by-address cells=12713 EXACT diffs=4 | Cash sheet label rows old=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.', 'Lease', 'Operating Fixed Cash Items', 'Other Equity', "Owner's Capital"] new=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it. Distributions are paid in the quarter you enter them.", 'Other Equity', "Owner's Capital"] equity-row value diffs=[]
+   (a) Checks by label: rows old=225 new=224 gone=[('Lease/rent feeds Model Inputs', 'Cross-sheet', "'Cash Equity Schedule'!C12:W12"), ('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W12")] added=[('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W9")] value-changed=0 []
+   (b/d) Owner's Capital r7: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12] expected [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Other Equity r8: literals at [0] expected [0] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Distributions r9: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] expected ALL 21 MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   FINMO r39 Owner's Capital: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.owners_capital mismatches=[(1, 450620, 400000.0), (2, 476468, 450620.0), (3, 499539, 476468.0)] (keys present 20/20)
+   FINMO r41 Other Equity: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.other_equity mismatches=[] (keys present 20/20)
+   FINMO r57 Distributions: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.distributions mismatches=[] (keys present 20/20)
+   FINMO r56 Equity K: =(K39-J39)+(K41-J41) | r57 Distributions K: ='Model Inputs'!K41 | Model Inputs K: Distributions -> ='Cash Equity Schedule'!K9 | Owner's Capital -> ='Cash Equity Schedule'!K7 | Other Equity -> ='Cash Equity Schedule'!K8
+   (e) OLD refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-12'), 2), (('Checks', 'Schedule Bridge', '12-12'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Lease', '12'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) NEW refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-9'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) OLD Cash sheet rows 10-12 labels: [None, 'Operating Fixed Cash Items', 'Lease'] | NEW rows 10-12: [None, None, None]
+   (e) Model Inputs Lease 21 values old==new: True annuals old==new: True | new formula C..E: [20400, 20400, 20298.75] annual: =SUM(D23:G23) | old C: ='Cash Equity Schedule'!C12
+   (e) FINMO 'Lease/Rent' old==new: True K formula: ='Model Inputs'!K23
+   (e) FINMO 'Right-of-Use Asset (Capital Lease)' old==new: True K formula: ='Model Inputs'!K58
+   (e) FINMO 'Capital Lease Obligation' old==new: True K formula: ='Model Inputs'!K57
+   (e) FINMO 'Capital Lease Principal Payments' old==new: True K formula: ='Model Inputs'!K54
+
+######## 97a01a49  old=OLD 97a01a49 -- 08-25-2026 15-52-17.xlsx  new=NEW 97a01a49 -- 08-25-2026 15-52-24.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: 2 diffs e.g. [((3, 2), 'OLD 97a01a49', 'NEW 97a01a49'), ((10, 3), 'OLD 97a01a49', 'NEW 97a01a49')]
+   Dashboard: 1 diffs e.g. [((1, 1), 'OLD 97a01a49 - Dashboard', 'NEW 97a01a49 - Dashboard')]
+   Model Inputs: 1 diffs e.g. [((23, 2), 'Cash Equity Schedule output', 'Direct model driver')]
+   (a) by-address cells=13717 EXACT diffs=4 | Cash sheet label rows old=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.', 'Lease', 'Operating Fixed Cash Items', 'Other Equity', "Owner's Capital"] new=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it. Distributions are paid in the quarter you enter them.", 'Other Equity', "Owner's Capital"] equity-row value diffs=[]
+   (a) Checks by label: rows old=225 new=224 gone=[('Lease/rent feeds Model Inputs', 'Cross-sheet', "'Cash Equity Schedule'!C12:W12"), ('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W12")] added=[('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W9")] value-changed=0 []
+   (b/d) Owner's Capital r7: literals at [0, 1, 5] expected [0, 1, 5] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Other Equity r8: literals at [0, 1, 5] expected [0, 1, 5] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Distributions r9: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] expected ALL 21 MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   FINMO r39 Owner's Capital: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.owners_capital mismatches=[(1, 21394432, 14000000.0), (5, 14000000, 21394432.0), (6, 14000000, 21394432.0)] (keys present 20/20)
+   FINMO r41 Other Equity: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.other_equity mismatches=[(1, 7394432, 0.0), (5, 0, 7394432.0), (6, 0, 7394432.0)] (keys present 20/20)
+   FINMO r57 Distributions: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.distributions mismatches=[] (keys present 20/20)
+   FINMO r56 Equity K: =(K39-J39)+(K41-J41) | r57 Distributions K: ='Model Inputs'!K41 | Model Inputs K: Distributions -> ='Cash Equity Schedule'!K9 | Owner's Capital -> ='Cash Equity Schedule'!K7 | Other Equity -> ='Cash Equity Schedule'!K8
+   (e) OLD refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-12'), 2), (('Checks', 'Schedule Bridge', '12-12'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Lease', '12'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) NEW refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-9'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) OLD Cash sheet rows 10-12 labels: [None, 'Operating Fixed Cash Items', 'Lease'] | NEW rows 10-12: [None, None, None]
+   (e) Model Inputs Lease 21 values old==new: True annuals old==new: True | new formula C..E: [84000, 84000, 84000] annual: =SUM(D23:G23) | old C: ='Cash Equity Schedule'!C12
+   (e) FINMO 'Lease/Rent' old==new: True K formula: ='Model Inputs'!K23
+   (e) FINMO 'Right-of-Use Asset (Capital Lease)' old==new: True K formula: ='Model Inputs'!K58
+   (e) FINMO 'Capital Lease Obligation' old==new: True K formula: ='Model Inputs'!K57
+   (e) FINMO 'Capital Lease Principal Payments' old==new: True K formula: ='Model Inputs'!K54
+
+######## be1c0b1b  old=OLD be1c0b1b -- 08-25-2026 15-52-30.xlsx  new=NEW be1c0b1b -- 08-25-2026 15-52-37.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: 2 diffs e.g. [((3, 2), 'OLD be1c0b1b', 'NEW be1c0b1b'), ((10, 3), 'OLD be1c0b1b', 'NEW be1c0b1b')]
+   Dashboard: 1 diffs e.g. [((1, 1), 'OLD be1c0b1b - Dashboard', 'NEW be1c0b1b - Dashboard')]
+   Model Inputs: 1 diffs e.g. [((23, 2), 'Cash Equity Schedule output', 'Direct model driver')]
+   (a) by-address cells=11305 EXACT diffs=4 | Cash sheet label rows old=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.', 'Lease', 'Operating Fixed Cash Items', 'Other Equity', "Owner's Capital"] new=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it. Distributions are paid in the quarter you enter them.", 'Other Equity', "Owner's Capital"] equity-row value diffs=[]
+   (a) Checks by label: rows old=225 new=224 gone=[('Lease/rent feeds Model Inputs', 'Cross-sheet', "'Cash Equity Schedule'!C12:W12"), ('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W12")] added=[('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W9")] value-changed=0 []
+   (b/d) Owner's Capital r7: literals at [0, 5, 6, 7] expected [0, 5, 6, 7] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Other Equity r8: literals at [0] expected [0] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Distributions r9: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] expected ALL 21 MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   FINMO r39 Owner's Capital: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.owners_capital mismatches=[(5, 86910686, 85000000.0), (6, 88729659, 86910686.0), (7, 89210976, 88729659.0)] (keys present 20/20)
+   FINMO r41 Other Equity: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.other_equity mismatches=[] (keys present 20/20)
+   FINMO r57 Distributions: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.distributions mismatches=[] (keys present 20/20)
+   FINMO r56 Equity K: =(K39-J39)+(K41-J41) | r57 Distributions K: ='Model Inputs'!K41 | Model Inputs K: Distributions -> ='Cash Equity Schedule'!K9 | Owner's Capital -> ='Cash Equity Schedule'!K7 | Other Equity -> ='Cash Equity Schedule'!K8
+   (e) OLD refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-12'), 2), (('Checks', 'Schedule Bridge', '12-12'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Lease', '12'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) NEW refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-9'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) OLD Cash sheet rows 10-12 labels: [None, 'Operating Fixed Cash Items', 'Lease'] | NEW rows 10-12: [None, None, None]
+   (e) Model Inputs Lease 21 values old==new: True annuals old==new: True | new formula C..E: [660000, 660000, 660000] annual: =SUM(D23:G23) | old C: ='Cash Equity Schedule'!C12
+   (e) FINMO 'Lease/Rent' old==new: True K formula: ='Model Inputs'!K23
+   (e) FINMO 'Right-of-Use Asset (Capital Lease)' old==new: True K formula: ='Model Inputs'!K58
+   (e) FINMO 'Capital Lease Obligation' old==new: True K formula: ='Model Inputs'!K57
+   (e) FINMO 'Capital Lease Principal Payments' old==new: True K formula: ='Model Inputs'!K54
+
+######## 46ae584a  old=OLD 46ae584a -- 08-25-2026 15-52-45.xlsx  new=NEW 46ae584a -- 08-25-2026 15-52-51.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: 2 diffs e.g. [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')]
+   Dashboard: 1 diffs e.g. [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')]
+   Model Inputs: 1 diffs e.g. [((15, 2), 'Cash Equity Schedule output', 'Direct model driver')]
+   (a) by-address cells=10779 EXACT diffs=4 | Cash sheet label rows old=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', 'Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.', 'Lease', 'Operating Fixed Cash Items', 'Other Equity', "Owner's Capital"] new=['Cash & Equity Schedule', 'Distributions', 'Equity and Distributions', "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it. Distributions are paid in the quarter you enter them.", 'Other Equity', "Owner's Capital"] equity-row value diffs=[]
+   (a) Checks by label: rows old=213 new=212 gone=[('Lease/rent feeds Model Inputs', 'Cross-sheet', "'Cash Equity Schedule'!C12:W12"), ('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W12")] added=[('Cash Equity Schedule formula/error scan', 'Cash Equity Schedule', "'Cash Equity Schedule'!C7:W9")] value-changed=0 []
+   (b/d) Owner's Capital r7: literals at [0] expected [0] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Other Equity r8: literals at [0] expected [0] MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   (b/d) Distributions r9: literals at [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] expected ALL 21 MATCH; chain refs =prev ok=True; literal values==engine exact=True; old build all-literal=True; recalculated row==engine series exact mismatches=[]
+   FINMO r39 Owner's Capital: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.owners_capital mismatches=[] (keys present 20/20)
+   FINMO r41 Other Equity: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.other_equity mismatches=[] (keys present 20/20)
+   FINMO r57 Distributions: new==old exact=True; vs balance_sheet series exact mismatches=[]; vs finmo quarter_rows.distributions mismatches=[(11, 18020, 0.0), (12, 22296, 18020.0), (13, 28391, 22296.0)] (keys present 20/20)
+   FINMO r56 Equity K: =(K39-J39)+(K41-J41) | r57 Distributions K: ='Model Inputs'!K33 | Model Inputs K: Distributions -> ='Cash Equity Schedule'!K9 | Owner's Capital -> ='Cash Equity Schedule'!K7 | Other Equity -> ='Cash Equity Schedule'!K8
+   (e) OLD refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-12'), 2), (('Checks', 'Schedule Bridge', '12-12'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Lease', '12'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) NEW refs to Cash Equity rows: [(('Checks', 'Formula Error Scan', '7-9'), 2), (('Model Inputs', 'Distributions', '9'), 21), (('Model Inputs', 'Other Equity', '8'), 21), (('Model Inputs', "Owner's Capital", '7'), 21)]
+   (e) OLD Cash sheet rows 10-12 labels: [None, 'Operating Fixed Cash Items', 'Lease'] | NEW rows 10-12: [None, None, None]
+   (e) Model Inputs Lease 21 values old==new: True annuals old==new: True | new formula C..E: [12600, 12600, 12600] annual: =SUM(D15:G15) | old C: ='Cash Equity Schedule'!C12
+   (e) FINMO 'Lease/Rent' old==new: True K formula: ='Model Inputs'!K15
+   (e) FINMO 'Right-of-Use Asset (Capital Lease)' old==new: True K formula: ='Model Inputs'!K50
+   (e) FINMO 'Capital Lease Obligation' old==new: True K formula: ='Model Inputs'!K49
+   (e) FINMO 'Capital Lease Principal Payments' old==new: True K formula: ='Model Inputs'!K46
+
+## claim (c) demonstration Q8 (mini_ce_demo.py - K7)
+a051f479 OLD K7: 568949 -> 250000.0
+   FINMO Owner's Capital Q6..Q11: [563198, 568673, 250000, 571037, 571037, 572953]
+   FINMO Equity flow  Q6..Q11: [15606, 5475, -318673, 321037, 0, 1916]
+   Total Assets       Q6..Q11: [374586, 378765, 60502, 383471, 387193, 395994]
+   Total L&E          Q6..Q11: [374586, 378765, 60502, 383471, 387193, 395994]  A=L+E diffs: [0.0, -0.0, -0.0, 0.0, 0.0, 0.0]
+   Ending Cash        Q6..Q11: [110011, 111577, -207034, 113964, 115242, 118528] | Checks!B2: FAIL
+a051f479 NEW K7: 568949 -> 250000.0
+   FINMO Owner's Capital Q6..Q11: [563198, 568673, 250000, 571037, 571037, 572953]
+   FINMO Equity flow  Q6..Q11: [15606, 5475, -318673, 321037, 0, 1916]
+   Total Assets       Q6..Q11: [374586, 378765, 60502, 383471, 387193, 395994]
+   Total L&E          Q6..Q11: [374586, 378765, 60502, 383471, 387193, 395994]  A=L+E diffs: [0.0, -0.0, -0.0, 0.0, 0.0, 0.0]
+   Ending Cash        Q6..Q11: [110011, 111577, -207034, 113964, 115242, 118528] | Checks!B2: FAIL
+46ae584a OLD K7: 110000 -> 250000.0
+   FINMO Owner's Capital Q6..Q11: [110000, 110000, 250000, 110000, 110000, 110000]
+   FINMO Equity flow  Q6..Q11: [0, 0, 140000, -140000, 0, 0]
+   Total Assets       Q6..Q11: [358112, 374154, 513768, 367074, 362219, 363496]
+   Total L&E          Q6..Q11: [358112, 374154, 513768, 367074, 362219, 363496]  A=L+E diffs: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+   Ending Cash        Q6..Q11: [175194, 200325, 349555, 212174, 214877, 223632] | Checks!B2: FAIL
+46ae584a NEW K7: =J7 -> 250000.0
+   FINMO Owner's Capital Q6..Q11: [110000, 110000, 250000, 250000, 250000, 250000]
+   FINMO Equity flow  Q6..Q11: [0, 0, 140000, 0, 0, 0]
+   Total Assets       Q6..Q11: [358112, 374154, 513768, 507074, 502219, 503496]
+   Total L&E          Q6..Q11: [358112, 374154, 513768, 507074, 502219, 503496]  A=L+E diffs: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+   Ending Cash        Q6..Q11: [175194, 200325, 349555, 352174, 354877, 363632] | Checks!B2: FAIL
+
+## claim (c) demonstration on chosen quarters (mini_ce_demo2.py)
+be1c0b1b OLD K7 (Q8): cell was 89210976 value 89210976 -> typed 89250976.0; sheet formulas J..: [89210976, 89210976, 89210976, 89210976, 89210976]
+   quarters               ['Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12']
+   Owner's Capital before [88729659, 89210976, 89210976, 89210976, 89210976, 89210976, 89210976]
+   Owner's Capital after  [88729659, 89210976, 89250976, 89210976, 89210976, 89210976, 89210976]
+   Equity flow after      [1818973, 481317, 40000, -40000, 0, 0, 0]
+   Total L&E delta        [0, 0, 40000, 0, 0, 0, 0]   A=L+E diffs [-0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0]  Checks!B2 FAIL
+be1c0b1b NEW K7 (Q8): cell was '=J7' value 89210976 -> typed 89250976.0; sheet formulas J..: [89210976, '=J7', '=K7', '=L7', '=M7']
+   quarters               ['Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12']
+   Owner's Capital before [88729659, 89210976, 89210976, 89210976, 89210976, 89210976, 89210976]
+   Owner's Capital after  [88729659, 89210976, 89250976, 89250976, 89250976, 89250976, 89250976]
+   Equity flow after      [1818973, 481317, 40000, 0, 0, 0, 0]
+   Total L&E delta        [0, 0, 40000, 40000, 40000, 40000, 40000]   A=L+E diffs [-0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0]  Checks!B2 FAIL
+a051f479 OLD M7 (Q10): cell was 571037 value 571037 -> typed 611037.0; sheet formulas L..: [571037, 571037, 572953, 580449, 580449]
+   quarters               ['Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14']
+   Owner's Capital before [568949, 571037, 571037, 572953, 580449, 580449, 580449]
+   Owner's Capital after  [568949, 571037, 611037, 572953, 580449, 580449, 580449]
+   Equity flow after      [276, 2088, 40000, -38084, 7496, 0, 0]
+   Total L&E delta        [0, 0, 40000, 0, 0, 0, 0]   A=L+E diffs [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  Checks!B2 FAIL
+a051f479 NEW M7 (Q10): cell was '=L7' value 571037 -> typed 611037.0; sheet formulas L..: [571037, '=L7', 572953, 580449, '=O7']
+   quarters               ['Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14']
+   Owner's Capital before [568949, 571037, 571037, 572953, 580449, 580449, 580449]
+   Owner's Capital after  [568949, 571037, 611037, 572953, 580449, 580449, 580449]
+   Equity flow after      [276, 2088, 40000, -38084, 7496, 0, 0]
+   Total L&E delta        [0, 0, 40000, 0, 0, 0, 0]   A=L+E diffs [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  Checks!B2 FAIL
+a051f479 OLD P7 (Q13): cell was 580449 value 580449 -> typed 620449.0; sheet formulas O..: [580449, 580449, 580449, 580449, 580449]
+   quarters               ['Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17']
+   Owner's Capital before [572953, 580449, 580449, 580449, 580449, 580449, 580449]
+   Owner's Capital after  [572953, 580449, 620449, 580449, 580449, 580449, 580449]
+   Equity flow after      [1916, 7496, 40000, -40000, 0, 0, 0]
+   Total L&E delta        [0, 0, 40000, 0, 0, 0, 0]   A=L+E diffs [0.0, 0.0, -0.0, 0.0, 0.0, -0.0, 0.0]  Checks!B2 FAIL
+a051f479 NEW P7 (Q13): cell was '=O7' value 580449 -> typed 620449.0; sheet formulas O..: [580449, '=O7', '=P7', '=Q7', '=R7']
+   quarters               ['Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17']
+   Owner's Capital before [572953, 580449, 580449, 580449, 580449, 580449, 580449]
+   Owner's Capital after  [572953, 580449, 620449, 620449, 620449, 620449, 620449]
+   Equity flow after      [1916, 7496, 40000, 0, 0, 0, 0]
+   Total L&E delta        [0, 0, 40000, 40000, 40000, 40000, 40000]   A=L+E diffs [0.0, 0.0, -0.0, 0.0, 0.0, -0.0, 0.0]  Checks!B2 FAIL

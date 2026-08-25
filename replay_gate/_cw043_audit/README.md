@@ -26,3 +26,17 @@ Run from the repo root with .venv python; the draft scripts need the DB (.env) a
   formula tamper (Excel-recalculated), and the all-drafts engine sweep.
 - `turnA_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, incl. Bellweather 46ae584a
   (untouched by VS) carrying the live class on 0b26ce8 (129 crumbs / 42 blow-ups) and none on HEAD.
+
+## Cash & Equity audit (mini, 2026-08-25, turn 7) - 7deaefa + be4978e vs b4949f3
+- `mini_scan_equity.py` - every stored draft's Owner's Capital / Other Equity / Distributions series: where the
+  engine steps (652 of 2006 drafts step at Q2+, 951 have Q1 != stub, 140 non-flat Other Equity).
+- `mini_ce_audit.py <scratch> <draft>...` - claims (a)(b)(d)(e): exact by-address value compare of both
+  recalculated trees, literal-vs-chain positions against the engine's own steps, Distributions literal + r57,
+  every reader of the Cash Equity rows on the BUILT grid (old and new), Model Inputs Lease / FINMO lease rows.
+- `mini_ce_demo2.py <scratch> draft:col...` - claim (c): type +40,000 into an Owner's Capital quarter on both
+  trees, Excel-recalculated; shows the hold on the new build (post-step quarters) and the revert on the old.
+- `mini_text_dump.py <rootA> <rootB>` - the R49 text-surface twin of `_grid_dump`: sha + address-keyed diff,
+  every touched cell classified (moved-up-one / fell-off / other).
+- `cash_equity_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, drafts VS did not use:
+  Sunny Glaze b944961a (Q1 != stub), Third Coast a051f479 (10 steps), Cedar Ridge 97a01a49 (Other Equity
+  steps to 0), Northwind be1c0b1b (steps Q5-Q7), plus Bellweather 46ae584a per the standing rule.
