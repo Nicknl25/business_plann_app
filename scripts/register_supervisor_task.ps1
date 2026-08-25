@@ -13,8 +13,10 @@ param(
 $ErrorActionPreference = "Stop"
 $taskName = "BusinessPlanApp-Supervisor"
 $repo = Split-Path -Parent $PSScriptRoot
-$python = Join-Path $repo ".venv\Scripts\python.exe"
-$script = Join-Path $repo "scripts\run_supervisor.py"
+# pythonw + the quiet launcher: a console python fired by Task Scheduler flashes
+# a terminal on the desktop every tick; the launcher keeps stdout in _logs\supervisor.log.
+$python = Join-Path $repo ".venv\Scripts\pythonw.exe"
+$script = Join-Path $repo "scripts\run_supervisor_quiet.py"
 
 if ($Unregister) {
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
@@ -29,7 +31,7 @@ $action = New-ScheduledTaskAction -Execute $python -Argument "`"$script`"" -Work
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
   -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes)
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
-  -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable
+  -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable -Hidden
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
   -Settings $settings -Description "Reap dead planning runs, ladder reruns, dead-letter escalation." -Force

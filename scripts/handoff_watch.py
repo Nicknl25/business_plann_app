@@ -114,9 +114,18 @@ def save_state(state: dict) -> None:
 
 
 # ---------------------------------------------------------------- git
+#: Every shell-out from the watcher runs with NO console window. The watcher
+#: itself is spawned DETACHED (no console), so each child git.exe / msg /
+#: powershell it starts would otherwise allocate a brand-new console for the
+#: instant it lives - which is the "terminal that flashes twice every few
+#: seconds" Nick saw on 2026-08-25: two git calls per 5-second poll.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
+
+
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args], cwd=str(REPO), capture_output=True, text=True, check=check,
+        creationflags=NO_WINDOW,
     )
 
 
@@ -477,7 +486,7 @@ def desktop_alert(subject: str) -> None:
     text = subject[:180].replace('"', "'")
     try:
         subprocess.Popen(["msg", "*", "/TIME:0", text],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
         return
     except Exception:
         pass
@@ -490,7 +499,7 @@ def desktop_alert(subject: str) -> None:
             "Start-Sleep -Seconds 20"
         )
         subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
     except Exception as exc:
         log(f"desktop alert failed ({type(exc).__name__}) — email is the only channel")
 
@@ -568,7 +577,8 @@ def pid_alive(pid_file: Path) -> bool:
         out = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}"],
             capture_output=True, text=True, timeout=30,
-        ).stdout
+        creationflags=NO_WINDOW,
+    ).stdout
         return str(pid) in out
     except Exception as exc:
         log(f"cannot query the process table ({type(exc).__name__}: {exc}) — "
@@ -888,7 +898,8 @@ def _cpu_seconds(pid: int) -> float | None:
             ["powershell", "-NoProfile", "-Command",
              f"(Get-Process -Id {pid} -ErrorAction Stop).CPU"],
             capture_output=True, text=True, timeout=20,
-        ).stdout.strip()
+        creationflags=NO_WINDOW,
+    ).stdout.strip()
         return float(out) if out else None
     except Exception:
         return None

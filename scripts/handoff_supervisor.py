@@ -55,6 +55,11 @@ TASK_NAME = "BPA_HandoffWatcher"
 INTERVAL_MINUTES = 5
 
 
+#: Shell-outs never get a console window (the supervisor may itself run under
+#: pythonw, where every child console would flash on the desktop).
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
+
+
 def python_exe() -> str:
     """pythonw so the scheduled task never flashes a console at Nick."""
     venv = REPO / ".venv" / "Scripts" / "pythonw.exe"
@@ -80,7 +85,7 @@ def watcher_alive() -> bool:
         return True
     try:
         out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW).stdout
     except Exception:
         return True
     return str(pid) in out
@@ -120,26 +125,26 @@ def install() -> int:
     create = subprocess.run(
         ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", cmd, "/SC", "MINUTE",
          "/MO", str(INTERVAL_MINUTES), "/F"],
-        capture_output=True, text=True)
+        capture_output=True, text=True, creationflags=NO_WINDOW)
     print((create.stdout or create.stderr).strip())
     if create.returncode != 0:
         return create.returncode
     subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME],
-                   capture_output=True, text=True)
+                   capture_output=True, text=True, creationflags=NO_WINDOW)
     log(f"scheduled task {TASK_NAME} installed, every {INTERVAL_MINUTES} min")
     return 0
 
 
 def uninstall() -> int:
     r = subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, creationflags=NO_WINDOW)
     print((r.stdout or r.stderr).strip())
     return r.returncode
 
 
 def status() -> int:
     r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, creationflags=NO_WINDOW)
     print((r.stdout or r.stderr).strip())
     brake = "PRESENT - watcher will not start" if PAUSE_SENTINEL.exists() else "absent"
     print(f"\nPAUSE sentinel : {brake}")
