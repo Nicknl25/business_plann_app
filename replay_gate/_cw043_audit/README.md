@@ -40,3 +40,17 @@ Run from the repo root with .venv python; the draft scripts need the DB (.env) a
 - `cash_equity_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, drafts VS did not use:
   Sunny Glaze b944961a (Q1 != stub), Third Coast a051f479 (10 steps), Cedar Ridge 97a01a49 (Other Equity
   steps to 0), Northwind be1c0b1b (steps Q5-Q7), plus Bellweather 46ae584a per the standing rule.
+
+## Cash & Equity option (B) audit (mini, 2026-08-25, turn 9) - 6cd654e + 628b7ee vs 7deaefa
+- `mini_ce_B_population.py` - claim (h) my way: the EXACT emitted chain (stub literal; =prev; =ROUND(prev +/- |delta|,6) with
+  Excel half-away rounding) evaluated in Python on every stored draft vs the engine series; also lists negative / Other Equity
+  steppers for the sample pick, e-notation deltas, and off-6dp-grid values (2,006 drafts, 1,054 stepping, 0 misses, 0 off-grid).
+- `mini_ce_B_audit.py <scratch> <draft>...` - claims (a)(b)(d)(e)(f): exact by-address value AND formula compare of both
+  recalculated trees, the ROUND/=prev/stub shape parsed off the BUILT grid against the engine's own deltas, Distributions,
+  the A2/B7/B8 wording, and the repointed Lease tie-out row + FINMO-vs-Audit-Source equality.
+- `mini_ce_B_demo.py <scratch> demo draft:label:col:amount...` - claim (c) to Q20 on both trees (row delta, Total L&E delta,
+  A=L+E, Checks!B2); `... tamper draft...` - claim (f): Model Inputs Lease literal +1,234.56, tie-out row + B2 read back.
+- `mini_ce_B_enotation_probe.py` - Excel parses the 44 e-notation deltas (`+1.00000761449337e-06`) the emitter can write.
+- `cash_equity_B_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, drafts VS did not use: Cedar Ridge
+  97a01a49 (Other Equity -7.39M to 0 at Q5), Orion 76915a55 (six negative steps Q15-Q20), Cedarhill 767dc360 (15 steps),
+  plus Bellweather 46ae584a and Third Coast a051f479 (the task's demo draft); Halbrook only for the B2 OK->FAIL tamper.

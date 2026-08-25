@@ -1,0 +1,260 @@
+# mini Cash & Equity option (B) audit evidence (2026-08-25, turn 9) - 6cd654e + 628b7ee vs a 7deaefa tree
+# Drafts VS did not use: Cedar Ridge 97a01a49 (Owner's Capital AND Other Equity step +7.39M at Q1, -7.39M to 0 at Q5),
+#   Orion 76915a55 (Other Equity +4.88B at Q11 then SIX negative steps Q15-Q20; Owner's Capital the same plus Q1),
+#   Cedarhill 767dc360 (15 consecutive positive steps Q2-Q16); plus Bellweather 46ae584a (standing rule, flat) and
+#   Third Coast a051f479 (the task's own demo draft, steps Q1-Q9, Q11, Q12). Halbrook ecd0e148 (VS's) used ONLY for the
+#   Checks!B2 OK->FAIL tamper demonstration because every untouched draft's B2 is already FAIL on both trees.
+# All builds: production exporter under each tree, Excel CalculateFullRebuild, values read back with openpyxl data_only.
+
+## (h) population check my way (mini_ce_B_population.py): the EXACT emitted chain (stub literal; =prev; =ROUND(prev +/- |delta|,6) with
+##     Excel half-away-from-zero rounding) evaluated in Python on every stored draft vs the engine series, float equality
+drafts with OC row: 2006 | stepping (any step Q1..Q20, OC or OE): 1054 | chain misses: 0 | e-notation deltas: 44 | off-6dp-grid engine values: 0
+  EREPR ('55b340dc', "Owner's Capital", 3, '1.00000761449337e-06')
+  EREPR ('55b340dc', "Owner's Capital", 4, '1.00000761449337e-06')
+  EREPR ('f30968ef', 'Other Equity', 1, '4.8e-05')
+  EREPR ('eaef8e38', 'Other Equity', 8, '6.999999999999953e-06')
+  EREPR ('eaef8e38', 'Other Equity', 9, '3.600000000000001e-05')
+  EREPR ('eaef8e38', 'Other Equity', 10, '2.400000000000004e-05')
+  EREPR ('eaef8e38', 'Other Equity', 11, '1.100000000000005e-05')
+  EREPR ('eaef8e38', 'Other Equity', 12, '3.499999999999998e-05')
+  EREPR ('eaef8e38', 'Other Equity', 20, '9.400000000000012e-05')
+  EREPR ('bc3da5ed', "Owner's Capital", 3, '1.0000003385357559e-06')
+stepping since 07-13: 242
+##     the 44 e-notation deltas are all pre-07-13 drafts (stale shape - 55b340dc: ContractViolation forecast_ppe_opening_balance_seed on HEAD);
+##     Excel parses them anyway (mini_ce_B_enotation_probe.py, recalculated):
+e-notation formulas recalculated: [12308, 12308.000001, 12307.999953, 12307.99996, 12307.99997] | expect [12308.0, 12308.000001, 12307.999953, 12307.99996, 12307.99997]
+##     the 3 skips e606a5ee / acbecef5 / 8f1c539a: ContractViolation _pre_finalize_persist_marker on the 7deaefa tree AND on HEAD - not exportable on either, so no delivered plan can come from them on the current pipeline.
+
+## (a)(b)(d)(e)(f) on the built grids (mini_ce_B_audit.py) - the Cover/Dashboard diffs are my own OLD/NEW name tag
+
+######## 97a01a49  old=OLD 97a01a49 -- 08-25-2026 16-44-00.xlsx  new=NEW 97a01a49 -- 08-25-2026 16-44-11.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: value diffs=2 [((3, 2), 'OLD 97a01a49', 'NEW 97a01a49'), ((10, 3), 'OLD 97a01a49', 'NEW 97a01a49')] formula diffs=2 [((3, 2), 'OLD 97a01a49', 'NEW 97a01a49'), ((10, 3), 'OLD 97a01a49', 'NEW 97a01a49')]
+   Dashboard: value diffs=1 [((1, 1), 'OLD 97a01a49 - Dashboard', 'NEW 97a01a49 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 97a01a49 - Dashboard', 'NEW 97a01a49 - Dashboard')]
+   (a) other sheets: cells=13717 value diffs=3 formula diffs=3
+   (a) Cash sheet Owner's Capital recalculated old==new exact: True
+   (a) Cash sheet Other Equity recalculated old==new exact: True
+   (a) Cash sheet Distributions recalculated old==new exact: True
+   (a) Checks by key: rows old=224 new=225 gone=[] added=[('Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13")] value-changed=0 []
+   (b) Owner's Capital r7: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(1, '+7394432'), (5, '-7394432')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 1, 5]
+   (b) Other Equity r8: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(1, '+7394432'), (5, '-7394432')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 1, 5]
+   (a) FINMO r39 Owner's Capital: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r41 Other Equity: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r57 Distributions: new==old exact=True; vs engine series exact mismatches=[]
+   (e) Distributions: all 21 literal new=True old=True literals identical=True; FINMO r57 K: ='Model Inputs'!K41 | Model Inputs K: ='Cash Equity Schedule'!K9 | FINMO Equity r56 K: =(K39-J39)+(K41-J41)
+   (d) A2: "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it - any contributions your plan already makes in later quarters are added on top of the level you set. Distributions are paid in the quarter you enter them."
+   (d) B7/B8/B9: 'Balance - a new level carries forward; planned contributions add on top' | 'Balance - a new level carries forward; planned contributions add on top' | 'Paid out in the quarter you enter it'
+   (f) Checks r16: ['Schedule Bridge', 'Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", "=SUMPRODUCT(ABS(FINMO!C13:W13-'Audit Source'!C12:W12))", 0, '=E16-F16', 1, '=IF(ABS(G16)<=H16,"OK","FAIL")'] | recalculated: [0, 0, 0, 1, 'OK']
+   (f) source sheet=['Audit Source'] Lease/Rent row=12 | FINMO Lease/Rent r13 K formula: ='Model Inputs'!K23 | Model Inputs Lease r23 K: 84000
+   (f) FINMO Lease/Rent == Audit Source Lease/Rent (recalculated, 21 cols): 21/21; Q8 84000 vs 84000
+
+######## 76915a55  old=OLD 76915a55 -- 08-25-2026 16-44-23.xlsx  new=NEW 76915a55 -- 08-25-2026 16-44-34.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: value diffs=2 [((3, 2), 'OLD 76915a55', 'NEW 76915a55'), ((10, 3), 'OLD 76915a55', 'NEW 76915a55')] formula diffs=2 [((3, 2), 'OLD 76915a55', 'NEW 76915a55'), ((10, 3), 'OLD 76915a55', 'NEW 76915a55')]
+   Dashboard: value diffs=1 [((1, 1), 'OLD 76915a55 - Dashboard', 'NEW 76915a55 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 76915a55 - Dashboard', 'NEW 76915a55 - Dashboard')]
+   (a) other sheets: cells=12871 value diffs=3 formula diffs=3
+   (a) Cash sheet Owner's Capital recalculated old==new exact: True
+   (a) Cash sheet Other Equity recalculated old==new exact: True
+   (a) Cash sheet Distributions recalculated old==new exact: True
+   (a) Checks by key: rows old=224 new=225 gone=[] added=[('Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13")] value-changed=0 []
+   (b) Owner's Capital r7: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(1, '+10000000000'), (11, '+4882445768'), (15, '-6173160'), (16, '-50172054'), (17, '-75432883'), (18, '-185877142'), (19, '-214121090'), (20, '-265375181')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 1, 11, 15, 16, 17, 18, 19, 20]
+   (b) Other Equity r8: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(11, '+4882445768'), (15, '-6173160'), (16, '-50172054'), (17, '-75432883'), (18, '-185877142'), (19, '-214121090'), (20, '-265375181')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 11, 15, 16, 17, 18, 19, 20]
+   (a) FINMO r39 Owner's Capital: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r41 Other Equity: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r57 Distributions: new==old exact=True; vs engine series exact mismatches=[]
+   (e) Distributions: all 21 literal new=True old=True literals identical=True; FINMO r57 K: ='Model Inputs'!K41 | Model Inputs K: ='Cash Equity Schedule'!K9 | FINMO Equity r56 K: =(K39-J39)+(K41-J41)
+   (d) A2: "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it - any contributions your plan already makes in later quarters are added on top of the level you set. Distributions are paid in the quarter you enter them."
+   (d) B7/B8/B9: 'Balance - a new level carries forward; planned contributions add on top' | 'Balance - a new level carries forward; planned contributions add on top' | 'Paid out in the quarter you enter it'
+   (f) Checks r16: ['Schedule Bridge', 'Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", "=SUMPRODUCT(ABS(FINMO!C13:W13-'Audit Source'!C12:W12))", 0, '=E16-F16', 1, '=IF(ABS(G16)<=H16,"OK","FAIL")'] | recalculated: [0, 0, 0, 1, 'OK']
+   (f) source sheet=['Audit Source'] Lease/Rent row=12 | FINMO Lease/Rent r13 K formula: ='Model Inputs'!K23 | Model Inputs Lease r23 K: 126000000
+   (f) FINMO Lease/Rent == Audit Source Lease/Rent (recalculated, 21 cols): 21/21; Q8 126000000 vs 126000000
+
+######## 767dc360  old=OLD 767dc360 -- 08-25-2026 16-44-46.xlsx  new=NEW 767dc360 -- 08-25-2026 16-44-57.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: value diffs=2 [((3, 2), 'OLD 767dc360', 'NEW 767dc360'), ((10, 3), 'OLD 767dc360', 'NEW 767dc360')] formula diffs=2 [((3, 2), 'OLD 767dc360', 'NEW 767dc360'), ((10, 3), 'OLD 767dc360', 'NEW 767dc360')]
+   Dashboard: value diffs=1 [((1, 1), 'OLD 767dc360 - Dashboard', 'NEW 767dc360 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 767dc360 - Dashboard', 'NEW 767dc360 - Dashboard')]
+   (a) other sheets: cells=11311 value diffs=3 formula diffs=3
+   (a) Cash sheet Owner's Capital recalculated old==new exact: True
+   (a) Cash sheet Other Equity recalculated old==new exact: True
+   (a) Cash sheet Distributions recalculated old==new exact: True
+   (a) Checks by key: rows old=224 new=225 gone=[] added=[('Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13")] value-changed=0 []
+   (b) Owner's Capital r7: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(2, '+14143'), (3, '+21693'), (4, '+11010'), (5, '+13627'), (6, '+7838'), (7, '+6871'), (8, '+6098'), (9, '+7641'), (10, '+2044'), (11, '+4242'), (12, '+2206'), (13, '+737'), (14, '+2717'), (15, '+2705'), (16, '+1536')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+   (b) Other Equity r8: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0]
+   (a) FINMO r39 Owner's Capital: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r41 Other Equity: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r57 Distributions: new==old exact=True; vs engine series exact mismatches=[]
+   (e) Distributions: all 21 literal new=True old=True literals identical=True; FINMO r57 K: ='Model Inputs'!K41 | Model Inputs K: ='Cash Equity Schedule'!K9 | FINMO Equity r56 K: =(K39-J39)+(K41-J41)
+   (d) A2: "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it - any contributions your plan already makes in later quarters are added on top of the level you set. Distributions are paid in the quarter you enter them."
+   (d) B7/B8/B9: 'Balance - a new level carries forward; planned contributions add on top' | 'Balance - a new level carries forward; planned contributions add on top' | 'Paid out in the quarter you enter it'
+   (f) Checks r16: ['Schedule Bridge', 'Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", "=SUMPRODUCT(ABS(FINMO!C13:W13-'Audit Source'!C12:W12))", 0, '=E16-F16', 1, '=IF(ABS(G16)<=H16,"OK","FAIL")'] | recalculated: [0, 0, 0, 1, 'OK']
+   (f) source sheet=['Audit Source'] Lease/Rent row=12 | FINMO Lease/Rent r13 K formula: ='Model Inputs'!K23 | Model Inputs Lease r23 K: 31500
+   (f) FINMO Lease/Rent == Audit Source Lease/Rent (recalculated, 21 cols): 21/21; Q8 31500 vs 31500
+
+######## 46ae584a  old=OLD 46ae584a -- 08-25-2026 16-45-09.xlsx  new=NEW 46ae584a -- 08-25-2026 16-45-18.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: value diffs=2 [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')] formula diffs=2 [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')]
+   Dashboard: value diffs=1 [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')] formula diffs=1 [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')]
+   (a) other sheets: cells=10779 value diffs=3 formula diffs=3
+   (a) Cash sheet Owner's Capital recalculated old==new exact: True
+   (a) Cash sheet Other Equity recalculated old==new exact: True
+   (a) Cash sheet Distributions recalculated old==new exact: True
+   (a) Checks by key: rows old=212 new=213 gone=[] added=[('Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13")] value-changed=0 []
+   (b) Owner's Capital r7: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0]
+   (b) Other Equity r8: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0]
+   (a) FINMO r39 Owner's Capital: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r41 Other Equity: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r57 Distributions: new==old exact=True; vs engine series exact mismatches=[]
+   (e) Distributions: all 21 literal new=True old=True literals identical=True; FINMO r57 K: ='Model Inputs'!K33 | Model Inputs K: ='Cash Equity Schedule'!K9 | FINMO Equity r56 K: =(K39-J39)+(K41-J41)
+   (d) A2: "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it - any contributions your plan already makes in later quarters are added on top of the level you set. Distributions are paid in the quarter you enter them."
+   (d) B7/B8/B9: 'Balance - a new level carries forward; planned contributions add on top' | 'Balance - a new level carries forward; planned contributions add on top' | 'Paid out in the quarter you enter it'
+   (f) Checks r16: ['Schedule Bridge', 'Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", "=SUMPRODUCT(ABS(FINMO!C13:W13-'Audit Source'!C12:W12))", 0, '=E16-F16', 1, '=IF(ABS(G16)<=H16,"OK","FAIL")'] | recalculated: [0, 0, 0, 1, 'OK']
+   (f) source sheet=['Audit Source'] Lease/Rent row=12 | FINMO Lease/Rent r13 K formula: ='Model Inputs'!K15 | Model Inputs Lease r15 K: 12600
+   (f) FINMO Lease/Rent == Audit Source Lease/Rent (recalculated, 21 cols): 21/21; Q8 12600 vs 12600
+
+######## a051f479  old=OLD a051f479 -- 08-25-2026 16-45-30.xlsx  new=NEW a051f479 -- 08-25-2026 16-45-42.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   Cover: value diffs=2 [((3, 2), 'OLD a051f479', 'NEW a051f479'), ((10, 3), 'OLD a051f479', 'NEW a051f479')] formula diffs=2 [((3, 2), 'OLD a051f479', 'NEW a051f479'), ((10, 3), 'OLD a051f479', 'NEW a051f479')]
+   Dashboard: value diffs=1 [((1, 1), 'OLD a051f479 - Dashboard', 'NEW a051f479 - Dashboard')] formula diffs=1 [((1, 1), 'OLD a051f479 - Dashboard', 'NEW a051f479 - Dashboard')]
+   (a) other sheets: cells=12713 value diffs=3 formula diffs=3
+   (a) Cash sheet Owner's Capital recalculated old==new exact: True
+   (a) Cash sheet Other Equity recalculated old==new exact: True
+   (a) Cash sheet Distributions recalculated old==new exact: True
+   (a) Checks by key: rows old=224 new=225 gone=[] added=[('Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13")] value-changed=0 []
+   (b) Owner's Capital r7: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[(1, '+50620'), (2, '+25848'), (3, '+23071'), (4, '+21292'), (5, '+26761'), (6, '+15606'), (7, '+5475'), (8, '+276'), (9, '+2088'), (11, '+1916'), (12, '+7496')]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12]
+   (b) Other Equity r8: stub literal==engine True; flat cells =prev True; step cells ROUND(prev+/-engine delta,6) True steps=[]; probs=[]; recalculated==engine exact mismatches=[]; OLD tree literal positions=[0]
+   (a) FINMO r39 Owner's Capital: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r41 Other Equity: new==old exact=True; vs engine series exact mismatches=[]
+   (a) FINMO r57 Distributions: new==old exact=True; vs engine series exact mismatches=[]
+   (e) Distributions: all 21 literal new=True old=True literals identical=True; FINMO r57 K: ='Model Inputs'!K41 | Model Inputs K: ='Cash Equity Schedule'!K9 | FINMO Equity r56 K: =(K39-J39)+(K41-J41)
+   (d) A2: "Equity balances and distributions. Model Inputs links to these rows. Owner's Capital and Other Equity are BALANCES: type a new level into a quarter and it carries to every quarter after it - any contributions your plan already makes in later quarters are added on top of the level you set. Distributions are paid in the quarter you enter them."
+   (d) B7/B8/B9: 'Balance - a new level carries forward; planned contributions add on top' | 'Balance - a new level carries forward; planned contributions add on top' | 'Paid out in the quarter you enter it'
+   (f) Checks r16: ['Schedule Bridge', 'Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", "=SUMPRODUCT(ABS(FINMO!C13:W13-'Audit Source'!C12:W12))", 0, '=E16-F16', 1, '=IF(ABS(G16)<=H16,"OK","FAIL")'] | recalculated: [0, 0, 0, 1, 'OK']
+   (f) source sheet=['Audit Source'] Lease/Rent row=12 | FINMO Lease/Rent r13 K formula: ='Model Inputs'!K23 | Model Inputs Lease r23 K: 19691.25
+   (f) FINMO Lease/Rent == Audit Source Lease/Rent (recalculated, 21 cols): 21/21; Q8 19691.25 vs 19691.25
+
+## FAIL/CHANGED rows on Checks, old vs new (same set on every draft = pre-existing stale-marketing + Q20 baseline rows, not this change)
+97a01a49 old: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | new: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | same set: True
+76915a55 old: [('Marketing Schedule could not be built', 'FAIL'), ('Payroll Q20', 'CHANGED'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | new: [('Marketing Schedule could not be built', 'FAIL'), ('Payroll Q20', 'CHANGED'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | same set: True
+767dc360 old: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | new: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | same set: True
+46ae584a old: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | new: [('Marketing Schedule could not be built', 'FAIL'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | same set: True
+a051f479 old: [('Marketing Schedule could not be built', 'FAIL'), ('Payroll Q20', 'CHANGED'), ('Net Income Q20', 'CHANGED'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | new: [('Marketing Schedule could not be built', 'FAIL'), ('Payroll Q20', 'CHANGED'), ('Net Income Q20', 'CHANGED'), ('Cash Q20', 'CHANGED'), ('Total Assets Q20', 'CHANGED'), ('Total Liabilities & Equity Q20', 'CHANGED'), ('Ending Cash Q20', 'CHANGED')] | same set: True
+
+## (c) demos to Q20 (mini_ce_B_demo.py demo) - +40,000 typed; NOTE my printed HOLDS flag is wrong (it includes the two quarters BEFORE the edit column, where the delta is correctly 0) - read the 'row delta' and 'Total L&E d' lines
+a051f479 OLD Owner's Capital M7 (Q10): cell was '=L7' value 571037.0 -> typed 611037.0
+   quarters      ['Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [568949, 571037, 571037, 572953, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449] -> [568949, 571037, 611037, 572953, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449]
+   row delta     [0, 0, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   Total L&E d   [0, 0, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q10 to Q20 (row AND Total L&E): False
+a051f479 NEW Owner's Capital M7 (Q10): cell was '=L7' value 571037.0 -> typed 611037.0
+   quarters      ['Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [568949, 571037, 571037, 572953, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449, 580449] -> [568949, 571037, 611037, 612953, 620449, 620449, 620449, 620449, 620449, 620449, 620449, 620449, 620449]
+   row delta     [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q10 to Q20 (row AND Total L&E): False
+76915a55 OLD Owner's Capital O7 (Q12): cell was '=N7' value 24882445768.0 -> typed 24882485768.0
+   quarters      ['Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [20000000000, 24882445768, 24882445768, 24882445768, 24882445768, 24876272608, 24826100554, 24750667671, 24564790529, 24350669439, 24085294258] -> [20000000000, 24882445768, 24882485768, 24882485768, 24882485768, 24876272608, 24826100554, 24750667671, 24564790529, 24350669439, 24085294258]
+   row delta     [0, 0, 40000, 40000, 40000, 0, 0, 0, 0, 0, 0]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 0, 0, 0, 0, 0, 0]  A=L+E diffs max 0.000008  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q12 to Q20 (row AND Total L&E): False
+76915a55 NEW Owner's Capital O7 (Q12): cell was '=N7' value 24882445768.0 -> typed 24882485768.0
+   quarters      ['Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [20000000000, 24882445768, 24882445768, 24882445768, 24882445768, 24876272608, 24826100554, 24750667671, 24564790529, 24350669439, 24085294258] -> [20000000000, 24882445768, 24882485768, 24882485768, 24882485768, 24876312608, 24826140554, 24750707671, 24564830529, 24350709439, 24085334258]
+   row delta     [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000008  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q12 to Q20 (row AND Total L&E): False
+97a01a49 OLD Other Equity F8 (Q3): cell was '=E8' value 7394432.0 -> typed 7434432.0
+   quarters      ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Other Equity   [7394432, 7394432, 7394432, 7394432, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] -> [7394432, 7394432, 7434432, 7434432, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   row delta     [0, 0, 40000, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   Total L&E d   [0, 0, 40000, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q3 to Q20 (row AND Total L&E): False
+97a01a49 NEW Other Equity F8 (Q3): cell was '=E8' value 7394432.0 -> typed 7434432.0
+   quarters      ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Other Equity   [7394432, 7394432, 7394432, 7394432, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] -> [7394432, 7394432, 7434432, 7434432, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   row delta     [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q3 to Q20 (row AND Total L&E): False
+767dc360 OLD Owner's Capital D7 (Q1): cell was '=C7' value 600000.0 -> typed 640000.0
+   quarters      ['Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [600000, 600000, 614143, 635836, 646846, 660473, 668311, 675182, 681280, 688921, 690965, 695207, 697413, 698150, 700867, 703572, 705108, 705108, 705108, 705108, 705108] -> [600000, 640000, 614143, 635836, 646846, 660473, 668311, 675182, 681280, 688921, 690965, 695207, 697413, 698150, 700867, 703572, 705108, 705108, 705108, 705108, 705108]
+   row delta     [0, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   Total L&E d   [0, 40000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q1 to Q20 (row AND Total L&E): False
+767dc360 NEW Owner's Capital D7 (Q1): cell was '=C7' value 600000.0 -> typed 640000.0
+   quarters      ['Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [600000, 600000, 614143, 635836, 646846, 660473, 668311, 675182, 681280, 688921, 690965, 695207, 697413, 698150, 700867, 703572, 705108, 705108, 705108, 705108, 705108] -> [600000, 640000, 654143, 675836, 686846, 700473, 708311, 715182, 721280, 728921, 730965, 735207, 737413, 738150, 740867, 743572, 745108, 745108, 745108, 745108, 745108]
+   row delta     [0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q1 to Q20 (row AND Total L&E): False
+46ae584a OLD Owner's Capital K7 (Q8): cell was '=J7' value 110000.0 -> typed 150000.0
+   quarters      ['Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000] -> [110000, 110000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000]
+   row delta     [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q8 to Q20 (row AND Total L&E): False
+46ae584a NEW Owner's Capital K7 (Q8): cell was '=J7' value 110000.0 -> typed 150000.0
+   quarters      ['Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14', 'Q15', 'Q16', 'Q17', 'Q18', 'Q19', 'Q20']
+   Owner's Capita [110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000, 110000] -> [110000, 110000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000, 150000]
+   row delta     [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]
+   Total L&E d   [0, 0, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000, 40000]  A=L+E diffs max 0.000000  Checks!B2 FAIL
+   HOLDS typed amount on every quarter from Q8 to Q20 (row AND Total L&E): False
+
+## (f) Lease tie-out tamper (mini_ce_B_demo.py tamper): Model Inputs Lease Q8 literal + 1,234.56
+767dc360 TAMPER Model Inputs!K23 (Lease Q8) 31500 -> 32734.56
+   tie-out r16 before: ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 0, 0, 0, 1, 'OK']
+   tie-out r16 after : ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 1234.5600000000013, 0, 1234.5600000000013, 1, 'FAIL']
+   Checks!B2 before/after: FAIL / FAIL | FINMO Lease/Rent Q8 before/after: 31500 / 32734.56
+a051f479 TAMPER Model Inputs!K23 (Lease Q8) 19691.25 -> 20925.81
+   tie-out r16 before: ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 0, 0, 0, 1, 'OK']
+   tie-out r16 after : ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 1234.5600000000013, 0, 1234.5600000000013, 1, 'FAIL']
+   Checks!B2 before/after: FAIL / FAIL | FINMO Lease/Rent Q8 before/after: 19691.25 / 20925.81
+46ae584a TAMPER Model Inputs!K15 (Lease Q8) 12600 -> 13834.56
+   tie-out r16 before: ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 0, 0, 0, 1, 'OK']
+   tie-out r16 after : ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 1234.5599999999995, 0, 1234.5599999999995, 1, 'FAIL']
+   Checks!B2 before/after: FAIL / FAIL | FINMO Lease/Rent Q8 before/after: 12600 / 13834.56
+ecd0e148 (Halbrook, VS's draft, B2 starts OK): TAMPER Model Inputs!K21 (Lease Q8) 15600 -> 16834.56
+   tie-out r15 before: ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 0, 0, 0, 1, 'OK']
+   tie-out r15 after : ['Lease/rent reaches FINMO from the engine', 'Cross-sheet', "'FINMO'!C13:W13", 1234.5600000000013, 0, 1234.5600000000013, 1, 'FAIL']
+   Checks!B2 before/after: OK / FAIL | FINMO Lease/Rent Q8 before/after: 15600 / 16834.56
+
+## (g) grid drift re-derived: python -m replay_gate._grid_dump <7deaefa worktree> . - byte-identical to VS's grid_drift_7deaefa_to_cash_equity_B.txt modulo ROOT lines
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/88ade988-84e1-43d6-b8f1-4ea555ab1bb9/scratchpad/wt_old
+SHA    cf77a0b03ef11a39c7da17efee10f91dc720ede36daf50e67f4eec4ed67da600
+GRID   11 sheets, 8079 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   .
+SHA    4a847716136897ce2875013fb03ff015895a900b1ed2b0569c8878a6b04703a9
+GRID   11 sheets, 8082 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8079 shared cells, 397 CHANGED, 0 only in wt_old, 3 only in .
+       (formulas only - static labels and formats are invisible here)
+  +    Checks	Schedule Bridge	12	=SUMPRODUCT(ABS('FINMO'!C13:W13-'Audit Source'!C12:W12))
+  +    Checks	Schedule Bridge	13	=E16-F16
+  +    Checks	Schedule Bridge	14	=IF(ABS(G16)<=H16,"OK","FAIL")
+397 changed by section:
+     14 Formula Error Scan
+     32 Formula Logic
+    322 Formula Manifest
+      1 Model Status
+     20 Persisted Baseline
+      8 Schedule Coherence
+
+## (g) text surface re-derived (mini_text_dump.py <7deaefa worktree> .)
+ROOT C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/88ade988-84e1-43d6-b8f1-4ea555ab1bb9/scratchpad/wt_old
+SHA  550320a6e74bbe33cae85f9d2dd4e0fb9470369f6002a7437fbacb3e3230dc66
+TEXT 2561 cells across 16 sheets
+ROOT .
+SHA  19a61eac970b969fcb04958d8e025e730536cbeb76f8eed7050e9f1c6654ef38
+TEXT 2566 cells across 16 sheets
+
+DIFF shared=2540 changed=432 gone=21 added=26  (total touched 479)
+by sheet: {'Cash Equity Schedule': 3, 'Checks': 476}
+   3 ('Cash Equity Schedule', 'sheet-text')
+classification of the 479 touched leaves (mine): Cash Equity Schedule 3 (A2 subtitle, B7, B8); Checks 476 = 452 moved down one row (new == old one row above) + 21 last-row cells present one row below + 3 new tie-out row texts (B16 line item, D16 range, J16 note).
+VS's commit message says 495 (Checks 492 moved down one row): NOT reproducible with the committed instrument - every leaf IS accounted for at 479; bookkeeping, the digests match.
+
+## (g) bare gate runs
+R32: [  ok  ] HOLDS: matches the blessed record (workbook_formulas=4a8477161368) - 8082 formulas across 11 sheets
+R49: [  ok  ] HOLDS: matches the blessed record (workbook_text=19a61eac970b) - 2566 static text cells across 16 sheets
+--list: 68 legs
