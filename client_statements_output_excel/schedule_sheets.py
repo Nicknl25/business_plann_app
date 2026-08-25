@@ -988,25 +988,50 @@ def build_working_capital_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
 def build_cash_equity_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
   ws = create_sheet(wb, CASH_EQUITY_SHEET)
   apply_base_style(ws)
-  set_title(ws, "Cash & Equity Schedule", "Equity, distributions, lease/rent, and opening cash seeds. Model Inputs links to these rows.")
+  set_title(ws, "Cash & Equity Schedule",
+            "Equity balances and distributions. Model Inputs links to these rows. "
+            "Owner's Capital and Other Equity are BALANCES: type a new level into a "
+            "quarter and it carries to every quarter after it. Distributions are "
+            "paid in the quarter you enter them.")
   write_period_headers(ws, data.periods)
   balance_by_label = row_by_label(data.balance_sheet_rows)
-  expense_by_label = row_by_label(data.expense_rows)
   row = 6
   write_section_header(ws, row, "Equity and Distributions")
   row += 1
+  # OWNER'S CAPITAL AND OTHER EQUITY ARE CHAINED (Nick, 2026-08-25). They
+  # were 21 independent literals that happened to hold the same number, so a
+  # client typing 250,000 into Q8 changed one cell: Q9 fell back to its own
+  # literal and the balance sheet read a jump and a reversal. These rows are
+  # BALANCES (FINMO reads the level, r39, and derives the equity FLOW as the
+  # change in it, r56), so each quarter references the quarter before it and
+  # one edit flows all the way right. The stub seeds the chain.
+  #
+  # A literal survives ONLY where the engine's own series steps (the cash
+  # pass injects equity in 88 of 400 drafts - 70,000 -> 217,892 -> 247,427 ...)
+  # so no delivered figure moves: a step quarter is an authored contribution
+  # level and stays one; the flat stretches between steps are the chain.
+  #
+  # DISTRIBUTIONS ARE NOT CHAINED. They are a per-quarter FLOW - FINMO r57
+  # pays them out in the quarter they appear and retained earnings subtracts
+  # them there - so a Q8 distribution is a Q8 distribution, not one that
+  # repeats forever.
   for label in ["Owner's Capital", "Other Equity", "Distributions"]:
     source = balance_by_label.get(label, {"values": []})
-    write_values_row(ws, row, label, values_21(source.get("values")), detail="Equity / distribution input", number_format=CURRENCY_FORMAT)
-    ctx.add_schedule_row(CASH_EQUITY_SHEET, label, row)
-    style_row(ws, row, number_format=CURRENCY_FORMAT)
-    row += 1
-  row += 1
-  write_section_header(ws, row, "Operating Fixed Cash Items")
-  row += 1
-  for label in ["Lease"]:
-    source = expense_by_label.get(label, {"values": []})
-    write_values_row(ws, row, label, values_21(source.get("values")), detail="Operating lease/rent input", number_format=CURRENCY_FORMAT)
+    values = values_21(source.get("values"))
+    if label == "Distributions":
+      write_values_row(ws, row, label, values, detail="Paid out in the quarter you enter it",
+                       number_format=CURRENCY_FORMAT)
+    else:
+      ws.cell(row=row, column=1, value=label)
+      ws.cell(row=row, column=2, value="Balance - a new level carries forward")
+      for idx in range(PERIOD_COUNT):
+        col = PERIOD_START_COL + idx
+        value = number(values[idx]) or 0.0
+        prev = number(values[idx - 1]) or 0.0 if idx else None
+        chained = idx > 0 and abs(value - prev) <= 1e-9
+        cell = ws.cell(row=row, column=col,
+                       value=f"={local_ref(row, col - 1)}" if chained else value)
+        set_input_style(cell, number_format=CURRENCY_FORMAT)
     ctx.add_schedule_row(CASH_EQUITY_SHEET, label, row)
     style_row(ws, row, number_format=CURRENCY_FORMAT)
     row += 1

@@ -721,15 +721,6 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
     expected_range=range_ref(CAPEX_SHEET, ctx.schedule_row(CAPEX_SHEET, "Lease Additions"), PERIOD_START_COL, PERIOD_END_COL),
     notes="Lease additions must affect PPE/depreciation through the CapEx schedule.",
   )
-  row = _write_range_tie(
-    ws,
-    row,
-    category="Schedule Bridge",
-    line_item="Lease/rent feeds Model Inputs",
-    actual_range=range_ref(CASH_EQUITY_SHEET, ctx.schedule_row(CASH_EQUITY_SHEET, "Lease"), PERIOD_START_COL, PERIOD_END_COL),
-    expected_range=range_ref(MODEL_INPUT_SHEET, ctx.model_input_row("is::Lease"), PERIOD_START_COL, PERIOD_END_COL),
-    notes="Operating lease/rent must flow through Model Inputs into FINMO.",
-  )
   row = _add_payroll_detail_math_checks(ws, row, ctx)
 
   row += 1

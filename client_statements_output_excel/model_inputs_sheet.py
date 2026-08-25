@@ -137,7 +137,9 @@ def build_model_inputs_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCont
     "Cost of Goods Sold": (None, None),
     "Marketing": (None, None),
     "Research & Development": (None, None),
-    "Lease": (CASH_EQUITY_SHEET, "Lease"),
+    # Lease/rent comes straight from the expense row, like COGS and G&A - the
+    # Cash & Equity Schedule no longer carries a redundant copy (2026-08-25).
+    "Lease": (None, None),
     "Payroll": (PAYROLL_SHEET, "Total Payroll"),
     "General & Administrative": (None, None),
     "Interest Rate": (DEBT_SHEET, "Interest Rate per quarter"),
