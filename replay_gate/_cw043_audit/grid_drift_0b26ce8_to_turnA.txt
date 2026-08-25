@@ -1,0 +1,1935 @@
+ROOT   C:/dev/bpa_gate_baselines/0b26ce8
+SHA    b4bb849f5e858162a2ee4aacf4aecd14f57c64a2890c60dfef87a531fce8af2e
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    efe82d78f258b46cfec535f061b007b357de0df64e2cad7abbc9d18ae254da45
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8063 shared cells, 642 CHANGED, 0 only in 0b26ce8, 0 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  *    CapEx Depreciation	Closing PPE	0
+         was =MAX(0,C10+C7-C12)
+         now =IF(C10+C7-C12<0.005,0,C10+C7-C12)
+  *    CapEx Depreciation	Closing PPE	1
+         was =MAX(0,D10+D7-D12)
+         now =IF(D10+D7-D12<0.005,0,D10+D7-D12)
+  *    CapEx Depreciation	Closing PPE	10
+         was =MAX(0,M10+M7-M12)
+         now =IF(M10+M7-M12<0.005,0,M10+M7-M12)
+  *    CapEx Depreciation	Closing PPE	11
+         was =MAX(0,N10+N7-N12)
+         now =IF(N10+N7-N12<0.005,0,N10+N7-N12)
+  *    CapEx Depreciation	Closing PPE	12
+         was =MAX(0,O10+O7-O12)
+         now =IF(O10+O7-O12<0.005,0,O10+O7-O12)
+  *    CapEx Depreciation	Closing PPE	13
+         was =MAX(0,P10+P7-P12)
+         now =IF(P10+P7-P12<0.005,0,P10+P7-P12)
+  *    CapEx Depreciation	Closing PPE	14
+         was =MAX(0,Q10+Q7-Q12)
+         now =IF(Q10+Q7-Q12<0.005,0,Q10+Q7-Q12)
+  *    CapEx Depreciation	Closing PPE	15
+         was =MAX(0,R10+R7-R12)
+         now =IF(R10+R7-R12<0.005,0,R10+R7-R12)
+  *    CapEx Depreciation	Closing PPE	16
+         was =MAX(0,S10+S7-S12)
+         now =IF(S10+S7-S12<0.005,0,S10+S7-S12)
+  *    CapEx Depreciation	Closing PPE	17
+         was =MAX(0,T10+T7-T12)
+         now =IF(T10+T7-T12<0.005,0,T10+T7-T12)
+  *    CapEx Depreciation	Closing PPE	18
+         was =MAX(0,U10+U7-U12)
+         now =IF(U10+U7-U12<0.005,0,U10+U7-U12)
+  *    CapEx Depreciation	Closing PPE	19
+         was =MAX(0,V10+V7-V12)
+         now =IF(V10+V7-V12<0.005,0,V10+V7-V12)
+  *    CapEx Depreciation	Closing PPE	2
+         was =MAX(0,E10+E7-E12)
+         now =IF(E10+E7-E12<0.005,0,E10+E7-E12)
+  *    CapEx Depreciation	Closing PPE	20
+         was =MAX(0,W10+W7-W12)
+         now =IF(W10+W7-W12<0.005,0,W10+W7-W12)
+  *    CapEx Depreciation	Closing PPE	3
+         was =MAX(0,F10+F7-F12)
+         now =IF(F10+F7-F12<0.005,0,F10+F7-F12)
+  *    CapEx Depreciation	Closing PPE	4
+         was =MAX(0,G10+G7-G12)
+         now =IF(G10+G7-G12<0.005,0,G10+G7-G12)
+  *    CapEx Depreciation	Closing PPE	5
+         was =MAX(0,H10+H7-H12)
+         now =IF(H10+H7-H12<0.005,0,H10+H7-H12)
+  *    CapEx Depreciation	Closing PPE	6
+         was =MAX(0,I10+I7-I12)
+         now =IF(I10+I7-I12<0.005,0,I10+I7-I12)
+  *    CapEx Depreciation	Closing PPE	7
+         was =MAX(0,J10+J7-J12)
+         now =IF(J10+J7-J12<0.005,0,J10+J7-J12)
+  *    CapEx Depreciation	Closing PPE	8
+         was =MAX(0,K10+K7-K12)
+         now =IF(K10+K7-K12<0.005,0,K10+K7-K12)
+  *    CapEx Depreciation	Closing PPE	9
+         was =MAX(0,L10+L7-L12)
+         now =IF(L10+L7-L12<0.005,0,L10+L7-L12)
+  *    Checks	Formula Logic	18
+         was =SUMPRODUCT(ABS('Debt Schedule'!C34:W34-((('Debt Schedule'!C30:W30+'Debt Schedule'!C36:W36)/2)*'Debt Schedule'
+         now =SUMPRODUCT(ABS('Debt Schedule'!D34:W34-((('Debt Schedule'!D30:W30+'Debt Schedule'!D36:W36)/2)*'Debt Schedule'
+  *    Debt Schedule	Q1	11
+         was =MAX(0,L8+M8-R8)
+         now =IF(L8+M8-R8<0.005,0,L8+M8-R8)
+  *    Debt Schedule	Q1	2
+         was =MIN(B8+C8,MAX(0,F8+G8))
+         now =MIN(B8+C8,MAX(0,ROUND(F8+G8,6)))
+  *    Debt Schedule	Q1	5
+         was =MAX(0,B8+C8-H8)
+         now =IF(B8+C8-H8<0.005,0,B8+C8-H8)
+  *    Debt Schedule	Q1	8
+         was =MIN(L8+M8,MAX(0,P8+Q8))
+         now =MIN(L8+M8,MAX(0,ROUND(P8+Q8,6)))
+  *    Debt Schedule	Q1	9
+         was =IF(A8="Stub",0,L8*N8)
+         now =L8*N8
+  *    Debt Schedule	Q10	11
+         was =MAX(0,L17+M17-R17)
+         now =IF(L17+M17-R17<0.005,0,L17+M17-R17)
+  *    Debt Schedule	Q10	2
+         was =MIN(B17+C17,MAX(0,F17+G17))
+         now =MIN(B17+C17,MAX(0,ROUND(F17+G17,6)))
+  *    Debt Schedule	Q10	5
+         was =MAX(0,B17+C17-H17)
+         now =IF(B17+C17-H17<0.005,0,B17+C17-H17)
+  *    Debt Schedule	Q10	8
+         was =MIN(L17+M17,MAX(0,P17+Q17))
+         now =MIN(L17+M17,MAX(0,ROUND(P17+Q17,6)))
+  *    Debt Schedule	Q10	9
+         was =IF(A17="Stub",0,L17*N17)
+         now =L17*N17
+  *    Debt Schedule	Q11	11
+         was =MAX(0,L18+M18-R18)
+         now =IF(L18+M18-R18<0.005,0,L18+M18-R18)
+  *    Debt Schedule	Q11	2
+         was =MIN(B18+C18,MAX(0,F18+G18))
+         now =MIN(B18+C18,MAX(0,ROUND(F18+G18,6)))
+  *    Debt Schedule	Q11	5
+         was =MAX(0,B18+C18-H18)
+         now =IF(B18+C18-H18<0.005,0,B18+C18-H18)
+  *    Debt Schedule	Q11	8
+         was =MIN(L18+M18,MAX(0,P18+Q18))
+         now =MIN(L18+M18,MAX(0,ROUND(P18+Q18,6)))
+  *    Debt Schedule	Q11	9
+         was =IF(A18="Stub",0,L18*N18)
+         now =L18*N18
+  *    Debt Schedule	Q12	11
+         was =MAX(0,L19+M19-R19)
+         now =IF(L19+M19-R19<0.005,0,L19+M19-R19)
+  *    Debt Schedule	Q12	2
+         was =MIN(B19+C19,MAX(0,F19+G19))
+         now =MIN(B19+C19,MAX(0,ROUND(F19+G19,6)))
+  *    Debt Schedule	Q12	5
+         was =MAX(0,B19+C19-H19)
+         now =IF(B19+C19-H19<0.005,0,B19+C19-H19)
+  *    Debt Schedule	Q12	8
+         was =MIN(L19+M19,MAX(0,P19+Q19))
+         now =MIN(L19+M19,MAX(0,ROUND(P19+Q19,6)))
+  *    Debt Schedule	Q12	9
+         was =IF(A19="Stub",0,L19*N19)
+         now =L19*N19
+  *    Debt Schedule	Q13	11
+         was =MAX(0,L20+M20-R20)
+         now =IF(L20+M20-R20<0.005,0,L20+M20-R20)
+  *    Debt Schedule	Q13	2
+         was =MIN(B20+C20,MAX(0,F20+G20))
+         now =MIN(B20+C20,MAX(0,ROUND(F20+G20,6)))
+  *    Debt Schedule	Q13	5
+         was =MAX(0,B20+C20-H20)
+         now =IF(B20+C20-H20<0.005,0,B20+C20-H20)
+  *    Debt Schedule	Q13	8
+         was =MIN(L20+M20,MAX(0,P20+Q20))
+         now =MIN(L20+M20,MAX(0,ROUND(P20+Q20,6)))
+  *    Debt Schedule	Q13	9
+         was =IF(A20="Stub",0,L20*N20)
+         now =L20*N20
+  *    Debt Schedule	Q14	11
+         was =MAX(0,L21+M21-R21)
+         now =IF(L21+M21-R21<0.005,0,L21+M21-R21)
+  *    Debt Schedule	Q14	2
+         was =MIN(B21+C21,MAX(0,F21+G21))
+         now =MIN(B21+C21,MAX(0,ROUND(F21+G21,6)))
+  *    Debt Schedule	Q14	5
+         was =MAX(0,B21+C21-H21)
+         now =IF(B21+C21-H21<0.005,0,B21+C21-H21)
+  *    Debt Schedule	Q14	8
+         was =MIN(L21+M21,MAX(0,P21+Q21))
+         now =MIN(L21+M21,MAX(0,ROUND(P21+Q21,6)))
+  *    Debt Schedule	Q14	9
+         was =IF(A21="Stub",0,L21*N21)
+         now =L21*N21
+  *    Debt Schedule	Q15	11
+         was =MAX(0,L22+M22-R22)
+         now =IF(L22+M22-R22<0.005,0,L22+M22-R22)
+  *    Debt Schedule	Q15	2
+         was =MIN(B22+C22,MAX(0,F22+G22))
+         now =MIN(B22+C22,MAX(0,ROUND(F22+G22,6)))
+  *    Debt Schedule	Q15	5
+         was =MAX(0,B22+C22-H22)
+         now =IF(B22+C22-H22<0.005,0,B22+C22-H22)
+  *    Debt Schedule	Q15	8
+         was =MIN(L22+M22,MAX(0,P22+Q22))
+         now =MIN(L22+M22,MAX(0,ROUND(P22+Q22,6)))
+  *    Debt Schedule	Q15	9
+         was =IF(A22="Stub",0,L22*N22)
+         now =L22*N22
+  *    Debt Schedule	Q16	11
+         was =MAX(0,L23+M23-R23)
+         now =IF(L23+M23-R23<0.005,0,L23+M23-R23)
+  *    Debt Schedule	Q16	2
+         was =MIN(B23+C23,MAX(0,F23+G23))
+         now =MIN(B23+C23,MAX(0,ROUND(F23+G23,6)))
+  *    Debt Schedule	Q16	5
+         was =MAX(0,B23+C23-H23)
+         now =IF(B23+C23-H23<0.005,0,B23+C23-H23)
+  *    Debt Schedule	Q16	8
+         was =MIN(L23+M23,MAX(0,P23+Q23))
+         now =MIN(L23+M23,MAX(0,ROUND(P23+Q23,6)))
+  *    Debt Schedule	Q16	9
+         was =IF(A23="Stub",0,L23*N23)
+         now =L23*N23
+  *    Debt Schedule	Q17	11
+         was =MAX(0,L24+M24-R24)
+         now =IF(L24+M24-R24<0.005,0,L24+M24-R24)
+  *    Debt Schedule	Q17	2
+         was =MIN(B24+C24,MAX(0,F24+G24))
+         now =MIN(B24+C24,MAX(0,ROUND(F24+G24,6)))
+  *    Debt Schedule	Q17	5
+         was =MAX(0,B24+C24-H24)
+         now =IF(B24+C24-H24<0.005,0,B24+C24-H24)
+  *    Debt Schedule	Q17	8
+         was =MIN(L24+M24,MAX(0,P24+Q24))
+         now =MIN(L24+M24,MAX(0,ROUND(P24+Q24,6)))
+  *    Debt Schedule	Q17	9
+         was =IF(A24="Stub",0,L24*N24)
+         now =L24*N24
+  *    Debt Schedule	Q18	11
+         was =MAX(0,L25+M25-R25)
+         now =IF(L25+M25-R25<0.005,0,L25+M25-R25)
+  *    Debt Schedule	Q18	2
+         was =MIN(B25+C25,MAX(0,F25+G25))
+         now =MIN(B25+C25,MAX(0,ROUND(F25+G25,6)))
+  *    Debt Schedule	Q18	5
+         was =MAX(0,B25+C25-H25)
+         now =IF(B25+C25-H25<0.005,0,B25+C25-H25)
+  *    Debt Schedule	Q18	8
+         was =MIN(L25+M25,MAX(0,P25+Q25))
+         now =MIN(L25+M25,MAX(0,ROUND(P25+Q25,6)))
+  *    Debt Schedule	Q18	9
+         was =IF(A25="Stub",0,L25*N25)
+         now =L25*N25
+  *    Debt Schedule	Q19	11
+         was =MAX(0,L26+M26-R26)
+         now =IF(L26+M26-R26<0.005,0,L26+M26-R26)
+  *    Debt Schedule	Q19	2
+         was =MIN(B26+C26,MAX(0,F26+G26))
+         now =MIN(B26+C26,MAX(0,ROUND(F26+G26,6)))
+  *    Debt Schedule	Q19	5
+         was =MAX(0,B26+C26-H26)
+         now =IF(B26+C26-H26<0.005,0,B26+C26-H26)
+  *    Debt Schedule	Q19	8
+         was =MIN(L26+M26,MAX(0,P26+Q26))
+         now =MIN(L26+M26,MAX(0,ROUND(P26+Q26,6)))
+  *    Debt Schedule	Q19	9
+         was =IF(A26="Stub",0,L26*N26)
+         now =L26*N26
+  *    Debt Schedule	Q2	11
+         was =MAX(0,L9+M9-R9)
+         now =IF(L9+M9-R9<0.005,0,L9+M9-R9)
+  *    Debt Schedule	Q2	2
+         was =MIN(B9+C9,MAX(0,F9+G9))
+         now =MIN(B9+C9,MAX(0,ROUND(F9+G9,6)))
+  *    Debt Schedule	Q2	5
+         was =MAX(0,B9+C9-H9)
+         now =IF(B9+C9-H9<0.005,0,B9+C9-H9)
+  *    Debt Schedule	Q2	8
+         was =MIN(L9+M9,MAX(0,P9+Q9))
+         now =MIN(L9+M9,MAX(0,ROUND(P9+Q9,6)))
+  *    Debt Schedule	Q2	9
+         was =IF(A9="Stub",0,L9*N9)
+         now =L9*N9
+  *    Debt Schedule	Q20	11
+         was =MAX(0,L27+M27-R27)
+         now =IF(L27+M27-R27<0.005,0,L27+M27-R27)
+  *    Debt Schedule	Q20	2
+         was =MIN(B27+C27,MAX(0,F27+G27))
+         now =MIN(B27+C27,MAX(0,ROUND(F27+G27,6)))
+  *    Debt Schedule	Q20	5
+         was =MAX(0,B27+C27-H27)
+         now =IF(B27+C27-H27<0.005,0,B27+C27-H27)
+  *    Debt Schedule	Q20	8
+         was =MIN(L27+M27,MAX(0,P27+Q27))
+         now =MIN(L27+M27,MAX(0,ROUND(P27+Q27,6)))
+  *    Debt Schedule	Q20	9
+         was =IF(A27="Stub",0,L27*N27)
+         now =L27*N27
+  *    Debt Schedule	Q3	11
+         was =MAX(0,L10+M10-R10)
+         now =IF(L10+M10-R10<0.005,0,L10+M10-R10)
+  *    Debt Schedule	Q3	2
+         was =MIN(B10+C10,MAX(0,F10+G10))
+         now =MIN(B10+C10,MAX(0,ROUND(F10+G10,6)))
+  *    Debt Schedule	Q3	5
+         was =MAX(0,B10+C10-H10)
+         now =IF(B10+C10-H10<0.005,0,B10+C10-H10)
+  *    Debt Schedule	Q3	8
+         was =MIN(L10+M10,MAX(0,P10+Q10))
+         now =MIN(L10+M10,MAX(0,ROUND(P10+Q10,6)))
+  *    Debt Schedule	Q3	9
+         was =IF(A10="Stub",0,L10*N10)
+         now =L10*N10
+  *    Debt Schedule	Q4	11
+         was =MAX(0,L11+M11-R11)
+         now =IF(L11+M11-R11<0.005,0,L11+M11-R11)
+  *    Debt Schedule	Q4	2
+         was =MIN(B11+C11,MAX(0,F11+G11))
+         now =MIN(B11+C11,MAX(0,ROUND(F11+G11,6)))
+  *    Debt Schedule	Q4	5
+         was =MAX(0,B11+C11-H11)
+         now =IF(B11+C11-H11<0.005,0,B11+C11-H11)
+  *    Debt Schedule	Q4	8
+         was =MIN(L11+M11,MAX(0,P11+Q11))
+         now =MIN(L11+M11,MAX(0,ROUND(P11+Q11,6)))
+  *    Debt Schedule	Q4	9
+         was =IF(A11="Stub",0,L11*N11)
+         now =L11*N11
+  *    Debt Schedule	Q5	11
+         was =MAX(0,L12+M12-R12)
+         now =IF(L12+M12-R12<0.005,0,L12+M12-R12)
+  *    Debt Schedule	Q5	2
+         was =MIN(B12+C12,MAX(0,F12+G12))
+         now =MIN(B12+C12,MAX(0,ROUND(F12+G12,6)))
+  *    Debt Schedule	Q5	5
+         was =MAX(0,B12+C12-H12)
+         now =IF(B12+C12-H12<0.005,0,B12+C12-H12)
+  *    Debt Schedule	Q5	8
+         was =MIN(L12+M12,MAX(0,P12+Q12))
+         now =MIN(L12+M12,MAX(0,ROUND(P12+Q12,6)))
+  *    Debt Schedule	Q5	9
+         was =IF(A12="Stub",0,L12*N12)
+         now =L12*N12
+  *    Debt Schedule	Q6	11
+         was =MAX(0,L13+M13-R13)
+         now =IF(L13+M13-R13<0.005,0,L13+M13-R13)
+  *    Debt Schedule	Q6	2
+         was =MIN(B13+C13,MAX(0,F13+G13))
+         now =MIN(B13+C13,MAX(0,ROUND(F13+G13,6)))
+  *    Debt Schedule	Q6	5
+         was =MAX(0,B13+C13-H13)
+         now =IF(B13+C13-H13<0.005,0,B13+C13-H13)
+  *    Debt Schedule	Q6	8
+         was =MIN(L13+M13,MAX(0,P13+Q13))
+         now =MIN(L13+M13,MAX(0,ROUND(P13+Q13,6)))
+  *    Debt Schedule	Q6	9
+         was =IF(A13="Stub",0,L13*N13)
+         now =L13*N13
+  *    Debt Schedule	Q7	11
+         was =MAX(0,L14+M14-R14)
+         now =IF(L14+M14-R14<0.005,0,L14+M14-R14)
+  *    Debt Schedule	Q7	2
+         was =MIN(B14+C14,MAX(0,F14+G14))
+         now =MIN(B14+C14,MAX(0,ROUND(F14+G14,6)))
+  *    Debt Schedule	Q7	5
+         was =MAX(0,B14+C14-H14)
+         now =IF(B14+C14-H14<0.005,0,B14+C14-H14)
+  *    Debt Schedule	Q7	8
+         was =MIN(L14+M14,MAX(0,P14+Q14))
+         now =MIN(L14+M14,MAX(0,ROUND(P14+Q14,6)))
+  *    Debt Schedule	Q7	9
+         was =IF(A14="Stub",0,L14*N14)
+         now =L14*N14
+  *    Debt Schedule	Q8	11
+         was =MAX(0,L15+M15-R15)
+         now =IF(L15+M15-R15<0.005,0,L15+M15-R15)
+  *    Debt Schedule	Q8	2
+         was =MIN(B15+C15,MAX(0,F15+G15))
+         now =MIN(B15+C15,MAX(0,ROUND(F15+G15,6)))
+  *    Debt Schedule	Q8	5
+         was =MAX(0,B15+C15-H15)
+         now =IF(B15+C15-H15<0.005,0,B15+C15-H15)
+  *    Debt Schedule	Q8	8
+         was =MIN(L15+M15,MAX(0,P15+Q15))
+         now =MIN(L15+M15,MAX(0,ROUND(P15+Q15,6)))
+  *    Debt Schedule	Q8	9
+         was =IF(A15="Stub",0,L15*N15)
+         now =L15*N15
+  *    Debt Schedule	Q9	11
+         was =MAX(0,L16+M16-R16)
+         now =IF(L16+M16-R16<0.005,0,L16+M16-R16)
+  *    Debt Schedule	Q9	2
+         was =MIN(B16+C16,MAX(0,F16+G16))
+         now =MIN(B16+C16,MAX(0,ROUND(F16+G16,6)))
+  *    Debt Schedule	Q9	5
+         was =MAX(0,B16+C16-H16)
+         now =IF(B16+C16-H16<0.005,0,B16+C16-H16)
+  *    Debt Schedule	Q9	8
+         was =MIN(L16+M16,MAX(0,P16+Q16))
+         now =MIN(L16+M16,MAX(0,ROUND(P16+Q16,6)))
+  *    Debt Schedule	Q9	9
+         was =IF(A16="Stub",0,L16*N16)
+         now =L16*N16
+  *    Debt Schedule	Right-of-Use Asset Closing	0
+         was =MAX(0,C44+C43-C45)
+         now =IF(C44+C43-C45<0.005,0,C44+C43-C45)
+  *    Debt Schedule	Right-of-Use Asset Closing	1
+         was =MAX(0,D44+D43-D45)
+         now =IF(D44+D43-D45<0.005,0,D44+D43-D45)
+  *    Debt Schedule	Right-of-Use Asset Closing	10
+         was =MAX(0,M44+M43-M45)
+         now =IF(M44+M43-M45<0.005,0,M44+M43-M45)
+  *    Debt Schedule	Right-of-Use Asset Closing	11
+         was =MAX(0,N44+N43-N45)
+         now =IF(N44+N43-N45<0.005,0,N44+N43-N45)
+  *    Debt Schedule	Right-of-Use Asset Closing	12
+         was =MAX(0,O44+O43-O45)
+         now =IF(O44+O43-O45<0.005,0,O44+O43-O45)
+  *    Debt Schedule	Right-of-Use Asset Closing	13
+         was =MAX(0,P44+P43-P45)
+         now =IF(P44+P43-P45<0.005,0,P44+P43-P45)
+  *    Debt Schedule	Right-of-Use Asset Closing	14
+         was =MAX(0,Q44+Q43-Q45)
+         now =IF(Q44+Q43-Q45<0.005,0,Q44+Q43-Q45)
+  *    Debt Schedule	Right-of-Use Asset Closing	15
+         was =MAX(0,R44+R43-R45)
+         now =IF(R44+R43-R45<0.005,0,R44+R43-R45)
+  *    Debt Schedule	Right-of-Use Asset Closing	16
+         was =MAX(0,S44+S43-S45)
+         now =IF(S44+S43-S45<0.005,0,S44+S43-S45)
+  *    Debt Schedule	Right-of-Use Asset Closing	17
+         was =MAX(0,T44+T43-T45)
+         now =IF(T44+T43-T45<0.005,0,T44+T43-T45)
+  *    Debt Schedule	Right-of-Use Asset Closing	18
+         was =MAX(0,U44+U43-U45)
+         now =IF(U44+U43-U45<0.005,0,U44+U43-U45)
+  *    Debt Schedule	Right-of-Use Asset Closing	19
+         was =MAX(0,V44+V43-V45)
+         now =IF(V44+V43-V45<0.005,0,V44+V43-V45)
+  *    Debt Schedule	Right-of-Use Asset Closing	2
+         was =MAX(0,E44+E43-E45)
+         now =IF(E44+E43-E45<0.005,0,E44+E43-E45)
+  *    Debt Schedule	Right-of-Use Asset Closing	20
+         was =MAX(0,W44+W43-W45)
+         now =IF(W44+W43-W45<0.005,0,W44+W43-W45)
+  *    Debt Schedule	Right-of-Use Asset Closing	3
+         was =MAX(0,F44+F43-F45)
+         now =IF(F44+F43-F45<0.005,0,F44+F43-F45)
+  *    Debt Schedule	Right-of-Use Asset Closing	4
+         was =MAX(0,G44+G43-G45)
+         now =IF(G44+G43-G45<0.005,0,G44+G43-G45)
+  *    Debt Schedule	Right-of-Use Asset Closing	5
+         was =MAX(0,H44+H43-H45)
+         now =IF(H44+H43-H45<0.005,0,H44+H43-H45)
+  *    Debt Schedule	Right-of-Use Asset Closing	6
+         was =MAX(0,I44+I43-I45)
+         now =IF(I44+I43-I45<0.005,0,I44+I43-I45)
+  *    Debt Schedule	Right-of-Use Asset Closing	7
+         was =MAX(0,J44+J43-J45)
+         now =IF(J44+J43-J45<0.005,0,J44+J43-J45)
+  *    Debt Schedule	Right-of-Use Asset Closing	8
+         was =MAX(0,K44+K43-K45)
+         now =IF(K44+K43-K45<0.005,0,K44+K43-K45)
+  *    Debt Schedule	Right-of-Use Asset Closing	9
+         was =MAX(0,L44+L43-L45)
+         now =IF(L44+L43-L45<0.005,0,L44+L43-L45)
+  *    Debt Schedule	Stub	1
+         was =MIN(B7+C7,MAX(0,F7+G7))
+         now =MIN(B7+C7,MAX(0,ROUND(F7+G7,6)))
+  *    Debt Schedule	Stub	2
+         was =((B7+K7)/2)*D7
+         now =IF(A7="Stub",0,((B7+K7)/2)*D7)
+  *    Debt Schedule	Stub	4
+         was =MAX(0,B7+C7-H7)
+         now =IF(B7+C7-H7<0.005,0,B7+C7-H7)
+  *    Debt Schedule	Stub	6
+         was =MIN(L7+M7,MAX(0,P7+Q7))
+         now =MIN(L7+M7,MAX(0,ROUND(P7+Q7,6)))
+  *    Debt Schedule	Stub	9
+         was =MAX(0,L7+M7-R7)
+         now =IF(L7+M7-R7<0.005,0,L7+M7-R7)
+  *    FINMO	Asset Turnover	0
+         was =IFERROR(IF(C31<=0,"-",C8/C31),"-")
+         now =IFERROR(IF(C31<0.005,"-",C8/C31),"-")
+  *    FINMO	Asset Turnover	1
+         was =IFERROR(IF(D31<=0,"-",D8/D31),"-")
+         now =IFERROR(IF(D31<0.005,"-",D8/D31),"-")
+  *    FINMO	Asset Turnover	10
+         was =IFERROR(IF(M31<=0,"-",M8/M31),"-")
+         now =IFERROR(IF(M31<0.005,"-",M8/M31),"-")
+  *    FINMO	Asset Turnover	11
+         was =IFERROR(IF(N31<=0,"-",N8/N31),"-")
+         now =IFERROR(IF(N31<0.005,"-",N8/N31),"-")
+  *    FINMO	Asset Turnover	12
+         was =IFERROR(IF(O31<=0,"-",O8/O31),"-")
+         now =IFERROR(IF(O31<0.005,"-",O8/O31),"-")
+  *    FINMO	Asset Turnover	13
+         was =IFERROR(IF(P31<=0,"-",P8/P31),"-")
+         now =IFERROR(IF(P31<0.005,"-",P8/P31),"-")
+  *    FINMO	Asset Turnover	14
+         was =IFERROR(IF(Q31<=0,"-",Q8/Q31),"-")
+         now =IFERROR(IF(Q31<0.005,"-",Q8/Q31),"-")
+  *    FINMO	Asset Turnover	15
+         was =IFERROR(IF(R31<=0,"-",R8/R31),"-")
+         now =IFERROR(IF(R31<0.005,"-",R8/R31),"-")
+  *    FINMO	Asset Turnover	16
+         was =IFERROR(IF(S31<=0,"-",S8/S31),"-")
+         now =IFERROR(IF(S31<0.005,"-",S8/S31),"-")
+  *    FINMO	Asset Turnover	17
+         was =IFERROR(IF(T31<=0,"-",T8/T31),"-")
+         now =IFERROR(IF(T31<0.005,"-",T8/T31),"-")
+  *    FINMO	Asset Turnover	18
+         was =IFERROR(IF(U31<=0,"-",U8/U31),"-")
+         now =IFERROR(IF(U31<0.005,"-",U8/U31),"-")
+  *    FINMO	Asset Turnover	19
+         was =IFERROR(IF(V31<=0,"-",V8/V31),"-")
+         now =IFERROR(IF(V31<0.005,"-",V8/V31),"-")
+  *    FINMO	Asset Turnover	2
+         was =IFERROR(IF(E31<=0,"-",E8/E31),"-")
+         now =IFERROR(IF(E31<0.005,"-",E8/E31),"-")
+  *    FINMO	Asset Turnover	20
+         was =IFERROR(IF(W31<=0,"-",W8/W31),"-")
+         now =IFERROR(IF(W31<0.005,"-",W8/W31),"-")
+  *    FINMO	Asset Turnover	21
+         was =IFERROR(IF(X31<=0,"-",X8/X31),"-")
+         now =IFERROR(IF(X31<0.005,"-",X8/X31),"-")
+  *    FINMO	Asset Turnover	22
+         was =IFERROR(IF(Y31<=0,"-",Y8/Y31),"-")
+         now =IFERROR(IF(Y31<0.005,"-",Y8/Y31),"-")
+  *    FINMO	Asset Turnover	23
+         was =IFERROR(IF(Z31<=0,"-",Z8/Z31),"-")
+         now =IFERROR(IF(Z31<0.005,"-",Z8/Z31),"-")
+  *    FINMO	Asset Turnover	24
+         was =IFERROR(IF(AA31<=0,"-",AA8/AA31),"-")
+         now =IFERROR(IF(AA31<0.005,"-",AA8/AA31),"-")
+  *    FINMO	Asset Turnover	25
+         was =IFERROR(IF(AB31<=0,"-",AB8/AB31),"-")
+         now =IFERROR(IF(AB31<0.005,"-",AB8/AB31),"-")
+  *    FINMO	Asset Turnover	3
+         was =IFERROR(IF(F31<=0,"-",F8/F31),"-")
+         now =IFERROR(IF(F31<0.005,"-",F8/F31),"-")
+  *    FINMO	Asset Turnover	4
+         was =IFERROR(IF(G31<=0,"-",G8/G31),"-")
+         now =IFERROR(IF(G31<0.005,"-",G8/G31),"-")
+  *    FINMO	Asset Turnover	5
+         was =IFERROR(IF(H31<=0,"-",H8/H31),"-")
+         now =IFERROR(IF(H31<0.005,"-",H8/H31),"-")
+  *    FINMO	Asset Turnover	6
+         was =IFERROR(IF(I31<=0,"-",I8/I31),"-")
+         now =IFERROR(IF(I31<0.005,"-",I8/I31),"-")
+  *    FINMO	Asset Turnover	7
+         was =IFERROR(IF(J31<=0,"-",J8/J31),"-")
+         now =IFERROR(IF(J31<0.005,"-",J8/J31),"-")
+  *    FINMO	Asset Turnover	8
+         was =IFERROR(IF(K31<=0,"-",K8/K31),"-")
+         now =IFERROR(IF(K31<0.005,"-",K8/K31),"-")
+  *    FINMO	Asset Turnover	9
+         was =IFERROR(IF(L31<=0,"-",L8/L31),"-")
+         now =IFERROR(IF(L31<0.005,"-",L8/L31),"-")
+  *    FINMO	Cash as Months of Operating Cost	0
+         was =IFERROR(IF((C9+SUM(C11:C15))<=0,"-",C23/((C9+SUM(C11:C15))/3)),"-")
+         now =IFERROR(IF((C9+SUM(C11:C15))<0.005,"-",C23/((C9+SUM(C11:C15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	1
+         was =IFERROR(IF((D9+SUM(D11:D15))<=0,"-",D23/((D9+SUM(D11:D15))/3)),"-")
+         now =IFERROR(IF((D9+SUM(D11:D15))<0.005,"-",D23/((D9+SUM(D11:D15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	10
+         was =IFERROR(IF((M9+SUM(M11:M15))<=0,"-",M23/((M9+SUM(M11:M15))/3)),"-")
+         now =IFERROR(IF((M9+SUM(M11:M15))<0.005,"-",M23/((M9+SUM(M11:M15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	11
+         was =IFERROR(IF((N9+SUM(N11:N15))<=0,"-",N23/((N9+SUM(N11:N15))/3)),"-")
+         now =IFERROR(IF((N9+SUM(N11:N15))<0.005,"-",N23/((N9+SUM(N11:N15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	12
+         was =IFERROR(IF((O9+SUM(O11:O15))<=0,"-",O23/((O9+SUM(O11:O15))/3)),"-")
+         now =IFERROR(IF((O9+SUM(O11:O15))<0.005,"-",O23/((O9+SUM(O11:O15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	13
+         was =IFERROR(IF((P9+SUM(P11:P15))<=0,"-",P23/((P9+SUM(P11:P15))/3)),"-")
+         now =IFERROR(IF((P9+SUM(P11:P15))<0.005,"-",P23/((P9+SUM(P11:P15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	14
+         was =IFERROR(IF((Q9+SUM(Q11:Q15))<=0,"-",Q23/((Q9+SUM(Q11:Q15))/3)),"-")
+         now =IFERROR(IF((Q9+SUM(Q11:Q15))<0.005,"-",Q23/((Q9+SUM(Q11:Q15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	15
+         was =IFERROR(IF((R9+SUM(R11:R15))<=0,"-",R23/((R9+SUM(R11:R15))/3)),"-")
+         now =IFERROR(IF((R9+SUM(R11:R15))<0.005,"-",R23/((R9+SUM(R11:R15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	16
+         was =IFERROR(IF((S9+SUM(S11:S15))<=0,"-",S23/((S9+SUM(S11:S15))/3)),"-")
+         now =IFERROR(IF((S9+SUM(S11:S15))<0.005,"-",S23/((S9+SUM(S11:S15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	17
+         was =IFERROR(IF((T9+SUM(T11:T15))<=0,"-",T23/((T9+SUM(T11:T15))/3)),"-")
+         now =IFERROR(IF((T9+SUM(T11:T15))<0.005,"-",T23/((T9+SUM(T11:T15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	18
+         was =IFERROR(IF((U9+SUM(U11:U15))<=0,"-",U23/((U9+SUM(U11:U15))/3)),"-")
+         now =IFERROR(IF((U9+SUM(U11:U15))<0.005,"-",U23/((U9+SUM(U11:U15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	19
+         was =IFERROR(IF((V9+SUM(V11:V15))<=0,"-",V23/((V9+SUM(V11:V15))/3)),"-")
+         now =IFERROR(IF((V9+SUM(V11:V15))<0.005,"-",V23/((V9+SUM(V11:V15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	2
+         was =IFERROR(IF((E9+SUM(E11:E15))<=0,"-",E23/((E9+SUM(E11:E15))/3)),"-")
+         now =IFERROR(IF((E9+SUM(E11:E15))<0.005,"-",E23/((E9+SUM(E11:E15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	20
+         was =IFERROR(IF((W9+SUM(W11:W15))<=0,"-",W23/((W9+SUM(W11:W15))/3)),"-")
+         now =IFERROR(IF((W9+SUM(W11:W15))<0.005,"-",W23/((W9+SUM(W11:W15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	21
+         was =IFERROR(IF((X9+SUM(X11:X15))<=0,"-",X23/((X9+SUM(X11:X15))/12)),"-")
+         now =IFERROR(IF((X9+SUM(X11:X15))<0.005,"-",X23/((X9+SUM(X11:X15))/12)),"-")
+  *    FINMO	Cash as Months of Operating Cost	22
+         was =IFERROR(IF((Y9+SUM(Y11:Y15))<=0,"-",Y23/((Y9+SUM(Y11:Y15))/12)),"-")
+         now =IFERROR(IF((Y9+SUM(Y11:Y15))<0.005,"-",Y23/((Y9+SUM(Y11:Y15))/12)),"-")
+  *    FINMO	Cash as Months of Operating Cost	23
+         was =IFERROR(IF((Z9+SUM(Z11:Z15))<=0,"-",Z23/((Z9+SUM(Z11:Z15))/12)),"-")
+         now =IFERROR(IF((Z9+SUM(Z11:Z15))<0.005,"-",Z23/((Z9+SUM(Z11:Z15))/12)),"-")
+  *    FINMO	Cash as Months of Operating Cost	24
+         was =IFERROR(IF((AA9+SUM(AA11:AA15))<=0,"-",AA23/((AA9+SUM(AA11:AA15))/12)),"-")
+         now =IFERROR(IF((AA9+SUM(AA11:AA15))<0.005,"-",AA23/((AA9+SUM(AA11:AA15))/12)),"-")
+  *    FINMO	Cash as Months of Operating Cost	25
+         was =IFERROR(IF((AB9+SUM(AB11:AB15))<=0,"-",AB23/((AB9+SUM(AB11:AB15))/12)),"-")
+         now =IFERROR(IF((AB9+SUM(AB11:AB15))<0.005,"-",AB23/((AB9+SUM(AB11:AB15))/12)),"-")
+  *    FINMO	Cash as Months of Operating Cost	3
+         was =IFERROR(IF((F9+SUM(F11:F15))<=0,"-",F23/((F9+SUM(F11:F15))/3)),"-")
+         now =IFERROR(IF((F9+SUM(F11:F15))<0.005,"-",F23/((F9+SUM(F11:F15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	4
+         was =IFERROR(IF((G9+SUM(G11:G15))<=0,"-",G23/((G9+SUM(G11:G15))/3)),"-")
+         now =IFERROR(IF((G9+SUM(G11:G15))<0.005,"-",G23/((G9+SUM(G11:G15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	5
+         was =IFERROR(IF((H9+SUM(H11:H15))<=0,"-",H23/((H9+SUM(H11:H15))/3)),"-")
+         now =IFERROR(IF((H9+SUM(H11:H15))<0.005,"-",H23/((H9+SUM(H11:H15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	6
+         was =IFERROR(IF((I9+SUM(I11:I15))<=0,"-",I23/((I9+SUM(I11:I15))/3)),"-")
+         now =IFERROR(IF((I9+SUM(I11:I15))<0.005,"-",I23/((I9+SUM(I11:I15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	7
+         was =IFERROR(IF((J9+SUM(J11:J15))<=0,"-",J23/((J9+SUM(J11:J15))/3)),"-")
+         now =IFERROR(IF((J9+SUM(J11:J15))<0.005,"-",J23/((J9+SUM(J11:J15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	8
+         was =IFERROR(IF((K9+SUM(K11:K15))<=0,"-",K23/((K9+SUM(K11:K15))/3)),"-")
+         now =IFERROR(IF((K9+SUM(K11:K15))<0.005,"-",K23/((K9+SUM(K11:K15))/3)),"-")
+  *    FINMO	Cash as Months of Operating Cost	9
+         was =IFERROR(IF((L9+SUM(L11:L15))<=0,"-",L23/((L9+SUM(L11:L15))/3)),"-")
+         now =IFERROR(IF((L9+SUM(L11:L15))<0.005,"-",L23/((L9+SUM(L11:L15))/3)),"-")
+  *    FINMO	Current Ratio	0
+         was =IFERROR(IF(C35<=0,"-",C27/C35),"-")
+         now =IFERROR(IF(C35<0.005,"-",C27/C35),"-")
+  *    FINMO	Current Ratio	1
+         was =IFERROR(IF(D35<=0,"-",D27/D35),"-")
+         now =IFERROR(IF(D35<0.005,"-",D27/D35),"-")
+  *    FINMO	Current Ratio	10
+         was =IFERROR(IF(M35<=0,"-",M27/M35),"-")
+         now =IFERROR(IF(M35<0.005,"-",M27/M35),"-")
+  *    FINMO	Current Ratio	11
+         was =IFERROR(IF(N35<=0,"-",N27/N35),"-")
+         now =IFERROR(IF(N35<0.005,"-",N27/N35),"-")
+  *    FINMO	Current Ratio	12
+         was =IFERROR(IF(O35<=0,"-",O27/O35),"-")
+         now =IFERROR(IF(O35<0.005,"-",O27/O35),"-")
+  *    FINMO	Current Ratio	13
+         was =IFERROR(IF(P35<=0,"-",P27/P35),"-")
+         now =IFERROR(IF(P35<0.005,"-",P27/P35),"-")
+  *    FINMO	Current Ratio	14
+         was =IFERROR(IF(Q35<=0,"-",Q27/Q35),"-")
+         now =IFERROR(IF(Q35<0.005,"-",Q27/Q35),"-")
+  *    FINMO	Current Ratio	15
+         was =IFERROR(IF(R35<=0,"-",R27/R35),"-")
+         now =IFERROR(IF(R35<0.005,"-",R27/R35),"-")
+  *    FINMO	Current Ratio	16
+         was =IFERROR(IF(S35<=0,"-",S27/S35),"-")
+         now =IFERROR(IF(S35<0.005,"-",S27/S35),"-")
+  *    FINMO	Current Ratio	17
+         was =IFERROR(IF(T35<=0,"-",T27/T35),"-")
+         now =IFERROR(IF(T35<0.005,"-",T27/T35),"-")
+  *    FINMO	Current Ratio	18
+         was =IFERROR(IF(U35<=0,"-",U27/U35),"-")
+         now =IFERROR(IF(U35<0.005,"-",U27/U35),"-")
+  *    FINMO	Current Ratio	19
+         was =IFERROR(IF(V35<=0,"-",V27/V35),"-")
+         now =IFERROR(IF(V35<0.005,"-",V27/V35),"-")
+  *    FINMO	Current Ratio	2
+         was =IFERROR(IF(E35<=0,"-",E27/E35),"-")
+         now =IFERROR(IF(E35<0.005,"-",E27/E35),"-")
+  *    FINMO	Current Ratio	20
+         was =IFERROR(IF(W35<=0,"-",W27/W35),"-")
+         now =IFERROR(IF(W35<0.005,"-",W27/W35),"-")
+  *    FINMO	Current Ratio	21
+         was =IFERROR(IF(X35<=0,"-",X27/X35),"-")
+         now =IFERROR(IF(X35<0.005,"-",X27/X35),"-")
+  *    FINMO	Current Ratio	22
+         was =IFERROR(IF(Y35<=0,"-",Y27/Y35),"-")
+         now =IFERROR(IF(Y35<0.005,"-",Y27/Y35),"-")
+  *    FINMO	Current Ratio	23
+         was =IFERROR(IF(Z35<=0,"-",Z27/Z35),"-")
+         now =IFERROR(IF(Z35<0.005,"-",Z27/Z35),"-")
+  *    FINMO	Current Ratio	24
+         was =IFERROR(IF(AA35<=0,"-",AA27/AA35),"-")
+         now =IFERROR(IF(AA35<0.005,"-",AA27/AA35),"-")
+  *    FINMO	Current Ratio	25
+         was =IFERROR(IF(AB35<=0,"-",AB27/AB35),"-")
+         now =IFERROR(IF(AB35<0.005,"-",AB27/AB35),"-")
+  *    FINMO	Current Ratio	3
+         was =IFERROR(IF(F35<=0,"-",F27/F35),"-")
+         now =IFERROR(IF(F35<0.005,"-",F27/F35),"-")
+  *    FINMO	Current Ratio	4
+         was =IFERROR(IF(G35<=0,"-",G27/G35),"-")
+         now =IFERROR(IF(G35<0.005,"-",G27/G35),"-")
+  *    FINMO	Current Ratio	5
+         was =IFERROR(IF(H35<=0,"-",H27/H35),"-")
+         now =IFERROR(IF(H35<0.005,"-",H27/H35),"-")
+  *    FINMO	Current Ratio	6
+         was =IFERROR(IF(I35<=0,"-",I27/I35),"-")
+         now =IFERROR(IF(I35<0.005,"-",I27/I35),"-")
+  *    FINMO	Current Ratio	7
+         was =IFERROR(IF(J35<=0,"-",J27/J35),"-")
+         now =IFERROR(IF(J35<0.005,"-",J27/J35),"-")
+  *    FINMO	Current Ratio	8
+         was =IFERROR(IF(K35<=0,"-",K27/K35),"-")
+         now =IFERROR(IF(K35<0.005,"-",K27/K35),"-")
+  *    FINMO	Current Ratio	9
+         was =IFERROR(IF(L35<=0,"-",L27/L35),"-")
+         now =IFERROR(IF(L35<0.005,"-",L27/L35),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	0
+         was =IFERROR(IF((C17+ABS(C55)+ABS(C58))<=0,"-",C16/(C17+ABS(C55)+ABS(C58))),"-")
+         now =IFERROR(IF((C17+ABS(C55)+ABS(C58))<0.005,"-",C16/(C17+ABS(C55)+ABS(C58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	1
+         was =IFERROR(IF((D17+ABS(D55)+ABS(D58))<=0,"-",D16/(D17+ABS(D55)+ABS(D58))),"-")
+         now =IFERROR(IF((D17+ABS(D55)+ABS(D58))<0.005,"-",D16/(D17+ABS(D55)+ABS(D58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	10
+         was =IFERROR(IF((M17+ABS(M55)+ABS(M58))<=0,"-",M16/(M17+ABS(M55)+ABS(M58))),"-")
+         now =IFERROR(IF((M17+ABS(M55)+ABS(M58))<0.005,"-",M16/(M17+ABS(M55)+ABS(M58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	11
+         was =IFERROR(IF((N17+ABS(N55)+ABS(N58))<=0,"-",N16/(N17+ABS(N55)+ABS(N58))),"-")
+         now =IFERROR(IF((N17+ABS(N55)+ABS(N58))<0.005,"-",N16/(N17+ABS(N55)+ABS(N58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	12
+         was =IFERROR(IF((O17+ABS(O55)+ABS(O58))<=0,"-",O16/(O17+ABS(O55)+ABS(O58))),"-")
+         now =IFERROR(IF((O17+ABS(O55)+ABS(O58))<0.005,"-",O16/(O17+ABS(O55)+ABS(O58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	13
+         was =IFERROR(IF((P17+ABS(P55)+ABS(P58))<=0,"-",P16/(P17+ABS(P55)+ABS(P58))),"-")
+         now =IFERROR(IF((P17+ABS(P55)+ABS(P58))<0.005,"-",P16/(P17+ABS(P55)+ABS(P58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	14
+         was =IFERROR(IF((Q17+ABS(Q55)+ABS(Q58))<=0,"-",Q16/(Q17+ABS(Q55)+ABS(Q58))),"-")
+         now =IFERROR(IF((Q17+ABS(Q55)+ABS(Q58))<0.005,"-",Q16/(Q17+ABS(Q55)+ABS(Q58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	15
+         was =IFERROR(IF((R17+ABS(R55)+ABS(R58))<=0,"-",R16/(R17+ABS(R55)+ABS(R58))),"-")
+         now =IFERROR(IF((R17+ABS(R55)+ABS(R58))<0.005,"-",R16/(R17+ABS(R55)+ABS(R58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	16
+         was =IFERROR(IF((S17+ABS(S55)+ABS(S58))<=0,"-",S16/(S17+ABS(S55)+ABS(S58))),"-")
+         now =IFERROR(IF((S17+ABS(S55)+ABS(S58))<0.005,"-",S16/(S17+ABS(S55)+ABS(S58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	17
+         was =IFERROR(IF((T17+ABS(T55)+ABS(T58))<=0,"-",T16/(T17+ABS(T55)+ABS(T58))),"-")
+         now =IFERROR(IF((T17+ABS(T55)+ABS(T58))<0.005,"-",T16/(T17+ABS(T55)+ABS(T58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	18
+         was =IFERROR(IF((U17+ABS(U55)+ABS(U58))<=0,"-",U16/(U17+ABS(U55)+ABS(U58))),"-")
+         now =IFERROR(IF((U17+ABS(U55)+ABS(U58))<0.005,"-",U16/(U17+ABS(U55)+ABS(U58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	19
+         was =IFERROR(IF((V17+ABS(V55)+ABS(V58))<=0,"-",V16/(V17+ABS(V55)+ABS(V58))),"-")
+         now =IFERROR(IF((V17+ABS(V55)+ABS(V58))<0.005,"-",V16/(V17+ABS(V55)+ABS(V58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	2
+         was =IFERROR(IF((E17+ABS(E55)+ABS(E58))<=0,"-",E16/(E17+ABS(E55)+ABS(E58))),"-")
+         now =IFERROR(IF((E17+ABS(E55)+ABS(E58))<0.005,"-",E16/(E17+ABS(E55)+ABS(E58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	20
+         was =IFERROR(IF((W17+ABS(W55)+ABS(W58))<=0,"-",W16/(W17+ABS(W55)+ABS(W58))),"-")
+         now =IFERROR(IF((W17+ABS(W55)+ABS(W58))<0.005,"-",W16/(W17+ABS(W55)+ABS(W58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	21
+         was =IFERROR(IF((X17+ABS(X55)+ABS(X58))<=0,"-",X16/(X17+ABS(X55)+ABS(X58))),"-")
+         now =IFERROR(IF((X17+ABS(X55)+ABS(X58))<0.005,"-",X16/(X17+ABS(X55)+ABS(X58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	22
+         was =IFERROR(IF((Y17+ABS(Y55)+ABS(Y58))<=0,"-",Y16/(Y17+ABS(Y55)+ABS(Y58))),"-")
+         now =IFERROR(IF((Y17+ABS(Y55)+ABS(Y58))<0.005,"-",Y16/(Y17+ABS(Y55)+ABS(Y58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	23
+         was =IFERROR(IF((Z17+ABS(Z55)+ABS(Z58))<=0,"-",Z16/(Z17+ABS(Z55)+ABS(Z58))),"-")
+         now =IFERROR(IF((Z17+ABS(Z55)+ABS(Z58))<0.005,"-",Z16/(Z17+ABS(Z55)+ABS(Z58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	24
+         was =IFERROR(IF((AA17+ABS(AA55)+ABS(AA58))<=0,"-",AA16/(AA17+ABS(AA55)+ABS(AA58))),"-")
+         now =IFERROR(IF((AA17+ABS(AA55)+ABS(AA58))<0.005,"-",AA16/(AA17+ABS(AA55)+ABS(AA58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	25
+         was =IFERROR(IF((AB17+ABS(AB55)+ABS(AB58))<=0,"-",AB16/(AB17+ABS(AB55)+ABS(AB58))),"-")
+         now =IFERROR(IF((AB17+ABS(AB55)+ABS(AB58))<0.005,"-",AB16/(AB17+ABS(AB55)+ABS(AB58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	3
+         was =IFERROR(IF((F17+ABS(F55)+ABS(F58))<=0,"-",F16/(F17+ABS(F55)+ABS(F58))),"-")
+         now =IFERROR(IF((F17+ABS(F55)+ABS(F58))<0.005,"-",F16/(F17+ABS(F55)+ABS(F58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	4
+         was =IFERROR(IF((G17+ABS(G55)+ABS(G58))<=0,"-",G16/(G17+ABS(G55)+ABS(G58))),"-")
+         now =IFERROR(IF((G17+ABS(G55)+ABS(G58))<0.005,"-",G16/(G17+ABS(G55)+ABS(G58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	5
+         was =IFERROR(IF((H17+ABS(H55)+ABS(H58))<=0,"-",H16/(H17+ABS(H55)+ABS(H58))),"-")
+         now =IFERROR(IF((H17+ABS(H55)+ABS(H58))<0.005,"-",H16/(H17+ABS(H55)+ABS(H58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	6
+         was =IFERROR(IF((I17+ABS(I55)+ABS(I58))<=0,"-",I16/(I17+ABS(I55)+ABS(I58))),"-")
+         now =IFERROR(IF((I17+ABS(I55)+ABS(I58))<0.005,"-",I16/(I17+ABS(I55)+ABS(I58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	7
+         was =IFERROR(IF((J17+ABS(J55)+ABS(J58))<=0,"-",J16/(J17+ABS(J55)+ABS(J58))),"-")
+         now =IFERROR(IF((J17+ABS(J55)+ABS(J58))<0.005,"-",J16/(J17+ABS(J55)+ABS(J58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	8
+         was =IFERROR(IF((K17+ABS(K55)+ABS(K58))<=0,"-",K16/(K17+ABS(K55)+ABS(K58))),"-")
+         now =IFERROR(IF((K17+ABS(K55)+ABS(K58))<0.005,"-",K16/(K17+ABS(K55)+ABS(K58))),"-")
+  *    FINMO	Debt Service Coverage Ratio (DSCR)	9
+         was =IFERROR(IF((L17+ABS(L55)+ABS(L58))<=0,"-",L16/(L17+ABS(L55)+ABS(L58))),"-")
+         now =IFERROR(IF((L17+ABS(L55)+ABS(L58))<0.005,"-",L16/(L17+ABS(L55)+ABS(L58))),"-")
+  *    FINMO	Debt to Assets	0
+         was =IFERROR(IF(C31<=0,"-",(C33+C36+C37)/C31),"-")
+         now =IFERROR(IF(C31<0.005,"-",(C33+C36+C37)/C31),"-")
+  *    FINMO	Debt to Assets	1
+         was =IFERROR(IF(D31<=0,"-",(D33+D36+D37)/D31),"-")
+         now =IFERROR(IF(D31<0.005,"-",(D33+D36+D37)/D31),"-")
+  *    FINMO	Debt to Assets	10
+         was =IFERROR(IF(M31<=0,"-",(M33+M36+M37)/M31),"-")
+         now =IFERROR(IF(M31<0.005,"-",(M33+M36+M37)/M31),"-")
+  *    FINMO	Debt to Assets	11
+         was =IFERROR(IF(N31<=0,"-",(N33+N36+N37)/N31),"-")
+         now =IFERROR(IF(N31<0.005,"-",(N33+N36+N37)/N31),"-")
+  *    FINMO	Debt to Assets	12
+         was =IFERROR(IF(O31<=0,"-",(O33+O36+O37)/O31),"-")
+         now =IFERROR(IF(O31<0.005,"-",(O33+O36+O37)/O31),"-")
+  *    FINMO	Debt to Assets	13
+         was =IFERROR(IF(P31<=0,"-",(P33+P36+P37)/P31),"-")
+         now =IFERROR(IF(P31<0.005,"-",(P33+P36+P37)/P31),"-")
+  *    FINMO	Debt to Assets	14
+         was =IFERROR(IF(Q31<=0,"-",(Q33+Q36+Q37)/Q31),"-")
+         now =IFERROR(IF(Q31<0.005,"-",(Q33+Q36+Q37)/Q31),"-")
+  *    FINMO	Debt to Assets	15
+         was =IFERROR(IF(R31<=0,"-",(R33+R36+R37)/R31),"-")
+         now =IFERROR(IF(R31<0.005,"-",(R33+R36+R37)/R31),"-")
+  *    FINMO	Debt to Assets	16
+         was =IFERROR(IF(S31<=0,"-",(S33+S36+S37)/S31),"-")
+         now =IFERROR(IF(S31<0.005,"-",(S33+S36+S37)/S31),"-")
+  *    FINMO	Debt to Assets	17
+         was =IFERROR(IF(T31<=0,"-",(T33+T36+T37)/T31),"-")
+         now =IFERROR(IF(T31<0.005,"-",(T33+T36+T37)/T31),"-")
+  *    FINMO	Debt to Assets	18
+         was =IFERROR(IF(U31<=0,"-",(U33+U36+U37)/U31),"-")
+         now =IFERROR(IF(U31<0.005,"-",(U33+U36+U37)/U31),"-")
+  *    FINMO	Debt to Assets	19
+         was =IFERROR(IF(V31<=0,"-",(V33+V36+V37)/V31),"-")
+         now =IFERROR(IF(V31<0.005,"-",(V33+V36+V37)/V31),"-")
+  *    FINMO	Debt to Assets	2
+         was =IFERROR(IF(E31<=0,"-",(E33+E36+E37)/E31),"-")
+         now =IFERROR(IF(E31<0.005,"-",(E33+E36+E37)/E31),"-")
+  *    FINMO	Debt to Assets	20
+         was =IFERROR(IF(W31<=0,"-",(W33+W36+W37)/W31),"-")
+         now =IFERROR(IF(W31<0.005,"-",(W33+W36+W37)/W31),"-")
+  *    FINMO	Debt to Assets	21
+         was =IFERROR(IF(X31<=0,"-",(X33+X36+X37)/X31),"-")
+         now =IFERROR(IF(X31<0.005,"-",(X33+X36+X37)/X31),"-")
+  *    FINMO	Debt to Assets	22
+         was =IFERROR(IF(Y31<=0,"-",(Y33+Y36+Y37)/Y31),"-")
+         now =IFERROR(IF(Y31<0.005,"-",(Y33+Y36+Y37)/Y31),"-")
+  *    FINMO	Debt to Assets	23
+         was =IFERROR(IF(Z31<=0,"-",(Z33+Z36+Z37)/Z31),"-")
+         now =IFERROR(IF(Z31<0.005,"-",(Z33+Z36+Z37)/Z31),"-")
+  *    FINMO	Debt to Assets	24
+         was =IFERROR(IF(AA31<=0,"-",(AA33+AA36+AA37)/AA31),"-")
+         now =IFERROR(IF(AA31<0.005,"-",(AA33+AA36+AA37)/AA31),"-")
+  *    FINMO	Debt to Assets	25
+         was =IFERROR(IF(AB31<=0,"-",(AB33+AB36+AB37)/AB31),"-")
+         now =IFERROR(IF(AB31<0.005,"-",(AB33+AB36+AB37)/AB31),"-")
+  *    FINMO	Debt to Assets	3
+         was =IFERROR(IF(F31<=0,"-",(F33+F36+F37)/F31),"-")
+         now =IFERROR(IF(F31<0.005,"-",(F33+F36+F37)/F31),"-")
+  *    FINMO	Debt to Assets	4
+         was =IFERROR(IF(G31<=0,"-",(G33+G36+G37)/G31),"-")
+         now =IFERROR(IF(G31<0.005,"-",(G33+G36+G37)/G31),"-")
+  *    FINMO	Debt to Assets	5
+         was =IFERROR(IF(H31<=0,"-",(H33+H36+H37)/H31),"-")
+         now =IFERROR(IF(H31<0.005,"-",(H33+H36+H37)/H31),"-")
+  *    FINMO	Debt to Assets	6
+         was =IFERROR(IF(I31<=0,"-",(I33+I36+I37)/I31),"-")
+         now =IFERROR(IF(I31<0.005,"-",(I33+I36+I37)/I31),"-")
+  *    FINMO	Debt to Assets	7
+         was =IFERROR(IF(J31<=0,"-",(J33+J36+J37)/J31),"-")
+         now =IFERROR(IF(J31<0.005,"-",(J33+J36+J37)/J31),"-")
+  *    FINMO	Debt to Assets	8
+         was =IFERROR(IF(K31<=0,"-",(K33+K36+K37)/K31),"-")
+         now =IFERROR(IF(K31<0.005,"-",(K33+K36+K37)/K31),"-")
+  *    FINMO	Debt to Assets	9
+         was =IFERROR(IF(L31<=0,"-",(L33+L36+L37)/L31),"-")
+         now =IFERROR(IF(L31<0.005,"-",(L33+L36+L37)/L31),"-")
+  *    FINMO	Debt to EBITDA (annualised)	0
+         was =IFERROR(IF((C16*4)<=0,"-",(C33+C36+C37)/(C16*4)),"-")
+         now =IFERROR(IF((C16*4)<0.005,"-",(C33+C36+C37)/(C16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	1
+         was =IFERROR(IF((D16*4)<=0,"-",(D33+D36+D37)/(D16*4)),"-")
+         now =IFERROR(IF((D16*4)<0.005,"-",(D33+D36+D37)/(D16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	10
+         was =IFERROR(IF((M16*4)<=0,"-",(M33+M36+M37)/(M16*4)),"-")
+         now =IFERROR(IF((M16*4)<0.005,"-",(M33+M36+M37)/(M16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	11
+         was =IFERROR(IF((N16*4)<=0,"-",(N33+N36+N37)/(N16*4)),"-")
+         now =IFERROR(IF((N16*4)<0.005,"-",(N33+N36+N37)/(N16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	12
+         was =IFERROR(IF((O16*4)<=0,"-",(O33+O36+O37)/(O16*4)),"-")
+         now =IFERROR(IF((O16*4)<0.005,"-",(O33+O36+O37)/(O16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	13
+         was =IFERROR(IF((P16*4)<=0,"-",(P33+P36+P37)/(P16*4)),"-")
+         now =IFERROR(IF((P16*4)<0.005,"-",(P33+P36+P37)/(P16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	14
+         was =IFERROR(IF((Q16*4)<=0,"-",(Q33+Q36+Q37)/(Q16*4)),"-")
+         now =IFERROR(IF((Q16*4)<0.005,"-",(Q33+Q36+Q37)/(Q16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	15
+         was =IFERROR(IF((R16*4)<=0,"-",(R33+R36+R37)/(R16*4)),"-")
+         now =IFERROR(IF((R16*4)<0.005,"-",(R33+R36+R37)/(R16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	16
+         was =IFERROR(IF((S16*4)<=0,"-",(S33+S36+S37)/(S16*4)),"-")
+         now =IFERROR(IF((S16*4)<0.005,"-",(S33+S36+S37)/(S16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	17
+         was =IFERROR(IF((T16*4)<=0,"-",(T33+T36+T37)/(T16*4)),"-")
+         now =IFERROR(IF((T16*4)<0.005,"-",(T33+T36+T37)/(T16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	18
+         was =IFERROR(IF((U16*4)<=0,"-",(U33+U36+U37)/(U16*4)),"-")
+         now =IFERROR(IF((U16*4)<0.005,"-",(U33+U36+U37)/(U16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	19
+         was =IFERROR(IF((V16*4)<=0,"-",(V33+V36+V37)/(V16*4)),"-")
+         now =IFERROR(IF((V16*4)<0.005,"-",(V33+V36+V37)/(V16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	2
+         was =IFERROR(IF((E16*4)<=0,"-",(E33+E36+E37)/(E16*4)),"-")
+         now =IFERROR(IF((E16*4)<0.005,"-",(E33+E36+E37)/(E16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	20
+         was =IFERROR(IF((W16*4)<=0,"-",(W33+W36+W37)/(W16*4)),"-")
+         now =IFERROR(IF((W16*4)<0.005,"-",(W33+W36+W37)/(W16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	21
+         was =IFERROR(IF((X16*1)<=0,"-",(X33+X36+X37)/(X16*1)),"-")
+         now =IFERROR(IF((X16*1)<0.005,"-",(X33+X36+X37)/(X16*1)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	22
+         was =IFERROR(IF((Y16*1)<=0,"-",(Y33+Y36+Y37)/(Y16*1)),"-")
+         now =IFERROR(IF((Y16*1)<0.005,"-",(Y33+Y36+Y37)/(Y16*1)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	23
+         was =IFERROR(IF((Z16*1)<=0,"-",(Z33+Z36+Z37)/(Z16*1)),"-")
+         now =IFERROR(IF((Z16*1)<0.005,"-",(Z33+Z36+Z37)/(Z16*1)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	24
+         was =IFERROR(IF((AA16*1)<=0,"-",(AA33+AA36+AA37)/(AA16*1)),"-")
+         now =IFERROR(IF((AA16*1)<0.005,"-",(AA33+AA36+AA37)/(AA16*1)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	25
+         was =IFERROR(IF((AB16*1)<=0,"-",(AB33+AB36+AB37)/(AB16*1)),"-")
+         now =IFERROR(IF((AB16*1)<0.005,"-",(AB33+AB36+AB37)/(AB16*1)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	3
+         was =IFERROR(IF((F16*4)<=0,"-",(F33+F36+F37)/(F16*4)),"-")
+         now =IFERROR(IF((F16*4)<0.005,"-",(F33+F36+F37)/(F16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	4
+         was =IFERROR(IF((G16*4)<=0,"-",(G33+G36+G37)/(G16*4)),"-")
+         now =IFERROR(IF((G16*4)<0.005,"-",(G33+G36+G37)/(G16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	5
+         was =IFERROR(IF((H16*4)<=0,"-",(H33+H36+H37)/(H16*4)),"-")
+         now =IFERROR(IF((H16*4)<0.005,"-",(H33+H36+H37)/(H16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	6
+         was =IFERROR(IF((I16*4)<=0,"-",(I33+I36+I37)/(I16*4)),"-")
+         now =IFERROR(IF((I16*4)<0.005,"-",(I33+I36+I37)/(I16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	7
+         was =IFERROR(IF((J16*4)<=0,"-",(J33+J36+J37)/(J16*4)),"-")
+         now =IFERROR(IF((J16*4)<0.005,"-",(J33+J36+J37)/(J16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	8
+         was =IFERROR(IF((K16*4)<=0,"-",(K33+K36+K37)/(K16*4)),"-")
+         now =IFERROR(IF((K16*4)<0.005,"-",(K33+K36+K37)/(K16*4)),"-")
+  *    FINMO	Debt to EBITDA (annualised)	9
+         was =IFERROR(IF((L16*4)<=0,"-",(L33+L36+L37)/(L16*4)),"-")
+         now =IFERROR(IF((L16*4)<0.005,"-",(L33+L36+L37)/(L16*4)),"-")
+  *    FINMO	Debt to Equity	0
+         was =IFERROR(IF(C42<=0,"-",(C33+C36+C37)/C42),"-")
+         now =IFERROR(IF(C42<0.005,"-",(C33+C36+C37)/C42),"-")
+  *    FINMO	Debt to Equity	1
+         was =IFERROR(IF(D42<=0,"-",(D33+D36+D37)/D42),"-")
+         now =IFERROR(IF(D42<0.005,"-",(D33+D36+D37)/D42),"-")
+  *    FINMO	Debt to Equity	10
+         was =IFERROR(IF(M42<=0,"-",(M33+M36+M37)/M42),"-")
+         now =IFERROR(IF(M42<0.005,"-",(M33+M36+M37)/M42),"-")
+  *    FINMO	Debt to Equity	11
+         was =IFERROR(IF(N42<=0,"-",(N33+N36+N37)/N42),"-")
+         now =IFERROR(IF(N42<0.005,"-",(N33+N36+N37)/N42),"-")
+  *    FINMO	Debt to Equity	12
+         was =IFERROR(IF(O42<=0,"-",(O33+O36+O37)/O42),"-")
+         now =IFERROR(IF(O42<0.005,"-",(O33+O36+O37)/O42),"-")
+  *    FINMO	Debt to Equity	13
+         was =IFERROR(IF(P42<=0,"-",(P33+P36+P37)/P42),"-")
+         now =IFERROR(IF(P42<0.005,"-",(P33+P36+P37)/P42),"-")
+  *    FINMO	Debt to Equity	14
+         was =IFERROR(IF(Q42<=0,"-",(Q33+Q36+Q37)/Q42),"-")
+         now =IFERROR(IF(Q42<0.005,"-",(Q33+Q36+Q37)/Q42),"-")
+  *    FINMO	Debt to Equity	15
+         was =IFERROR(IF(R42<=0,"-",(R33+R36+R37)/R42),"-")
+         now =IFERROR(IF(R42<0.005,"-",(R33+R36+R37)/R42),"-")
+  *    FINMO	Debt to Equity	16
+         was =IFERROR(IF(S42<=0,"-",(S33+S36+S37)/S42),"-")
+         now =IFERROR(IF(S42<0.005,"-",(S33+S36+S37)/S42),"-")
+  *    FINMO	Debt to Equity	17
+         was =IFERROR(IF(T42<=0,"-",(T33+T36+T37)/T42),"-")
+         now =IFERROR(IF(T42<0.005,"-",(T33+T36+T37)/T42),"-")
+  *    FINMO	Debt to Equity	18
+         was =IFERROR(IF(U42<=0,"-",(U33+U36+U37)/U42),"-")
+         now =IFERROR(IF(U42<0.005,"-",(U33+U36+U37)/U42),"-")
+  *    FINMO	Debt to Equity	19
+         was =IFERROR(IF(V42<=0,"-",(V33+V36+V37)/V42),"-")
+         now =IFERROR(IF(V42<0.005,"-",(V33+V36+V37)/V42),"-")
+  *    FINMO	Debt to Equity	2
+         was =IFERROR(IF(E42<=0,"-",(E33+E36+E37)/E42),"-")
+         now =IFERROR(IF(E42<0.005,"-",(E33+E36+E37)/E42),"-")
+  *    FINMO	Debt to Equity	20
+         was =IFERROR(IF(W42<=0,"-",(W33+W36+W37)/W42),"-")
+         now =IFERROR(IF(W42<0.005,"-",(W33+W36+W37)/W42),"-")
+  *    FINMO	Debt to Equity	21
+         was =IFERROR(IF(X42<=0,"-",(X33+X36+X37)/X42),"-")
+         now =IFERROR(IF(X42<0.005,"-",(X33+X36+X37)/X42),"-")
+  *    FINMO	Debt to Equity	22
+         was =IFERROR(IF(Y42<=0,"-",(Y33+Y36+Y37)/Y42),"-")
+         now =IFERROR(IF(Y42<0.005,"-",(Y33+Y36+Y37)/Y42),"-")
+  *    FINMO	Debt to Equity	23
+         was =IFERROR(IF(Z42<=0,"-",(Z33+Z36+Z37)/Z42),"-")
+         now =IFERROR(IF(Z42<0.005,"-",(Z33+Z36+Z37)/Z42),"-")
+  *    FINMO	Debt to Equity	24
+         was =IFERROR(IF(AA42<=0,"-",(AA33+AA36+AA37)/AA42),"-")
+         now =IFERROR(IF(AA42<0.005,"-",(AA33+AA36+AA37)/AA42),"-")
+  *    FINMO	Debt to Equity	25
+         was =IFERROR(IF(AB42<=0,"-",(AB33+AB36+AB37)/AB42),"-")
+         now =IFERROR(IF(AB42<0.005,"-",(AB33+AB36+AB37)/AB42),"-")
+  *    FINMO	Debt to Equity	3
+         was =IFERROR(IF(F42<=0,"-",(F33+F36+F37)/F42),"-")
+         now =IFERROR(IF(F42<0.005,"-",(F33+F36+F37)/F42),"-")
+  *    FINMO	Debt to Equity	4
+         was =IFERROR(IF(G42<=0,"-",(G33+G36+G37)/G42),"-")
+         now =IFERROR(IF(G42<0.005,"-",(G33+G36+G37)/G42),"-")
+  *    FINMO	Debt to Equity	5
+         was =IFERROR(IF(H42<=0,"-",(H33+H36+H37)/H42),"-")
+         now =IFERROR(IF(H42<0.005,"-",(H33+H36+H37)/H42),"-")
+  *    FINMO	Debt to Equity	6
+         was =IFERROR(IF(I42<=0,"-",(I33+I36+I37)/I42),"-")
+         now =IFERROR(IF(I42<0.005,"-",(I33+I36+I37)/I42),"-")
+  *    FINMO	Debt to Equity	7
+         was =IFERROR(IF(J42<=0,"-",(J33+J36+J37)/J42),"-")
+         now =IFERROR(IF(J42<0.005,"-",(J33+J36+J37)/J42),"-")
+  *    FINMO	Debt to Equity	8
+         was =IFERROR(IF(K42<=0,"-",(K33+K36+K37)/K42),"-")
+         now =IFERROR(IF(K42<0.005,"-",(K33+K36+K37)/K42),"-")
+  *    FINMO	Debt to Equity	9
+         was =IFERROR(IF(L42<=0,"-",(L33+L36+L37)/L42),"-")
+         now =IFERROR(IF(L42<0.005,"-",(L33+L36+L37)/L42),"-")
+  *    FINMO	EBITDA Margin	0
+         was =IFERROR(IF(C8<=0,"-",C16/C8),"-")
+         now =IFERROR(IF(C8<0.005,"-",C16/C8),"-")
+  *    FINMO	EBITDA Margin	1
+         was =IFERROR(IF(D8<=0,"-",D16/D8),"-")
+         now =IFERROR(IF(D8<0.005,"-",D16/D8),"-")
+  *    FINMO	EBITDA Margin	10
+         was =IFERROR(IF(M8<=0,"-",M16/M8),"-")
+         now =IFERROR(IF(M8<0.005,"-",M16/M8),"-")
+  *    FINMO	EBITDA Margin	11
+         was =IFERROR(IF(N8<=0,"-",N16/N8),"-")
+         now =IFERROR(IF(N8<0.005,"-",N16/N8),"-")
+  *    FINMO	EBITDA Margin	12
+         was =IFERROR(IF(O8<=0,"-",O16/O8),"-")
+         now =IFERROR(IF(O8<0.005,"-",O16/O8),"-")
+  *    FINMO	EBITDA Margin	13
+         was =IFERROR(IF(P8<=0,"-",P16/P8),"-")
+         now =IFERROR(IF(P8<0.005,"-",P16/P8),"-")
+  *    FINMO	EBITDA Margin	14
+         was =IFERROR(IF(Q8<=0,"-",Q16/Q8),"-")
+         now =IFERROR(IF(Q8<0.005,"-",Q16/Q8),"-")
+  *    FINMO	EBITDA Margin	15
+         was =IFERROR(IF(R8<=0,"-",R16/R8),"-")
+         now =IFERROR(IF(R8<0.005,"-",R16/R8),"-")
+  *    FINMO	EBITDA Margin	16
+         was =IFERROR(IF(S8<=0,"-",S16/S8),"-")
+         now =IFERROR(IF(S8<0.005,"-",S16/S8),"-")
+  *    FINMO	EBITDA Margin	17
+         was =IFERROR(IF(T8<=0,"-",T16/T8),"-")
+         now =IFERROR(IF(T8<0.005,"-",T16/T8),"-")
+  *    FINMO	EBITDA Margin	18
+         was =IFERROR(IF(U8<=0,"-",U16/U8),"-")
+         now =IFERROR(IF(U8<0.005,"-",U16/U8),"-")
+  *    FINMO	EBITDA Margin	19
+         was =IFERROR(IF(V8<=0,"-",V16/V8),"-")
+         now =IFERROR(IF(V8<0.005,"-",V16/V8),"-")
+  *    FINMO	EBITDA Margin	2
+         was =IFERROR(IF(E8<=0,"-",E16/E8),"-")
+         now =IFERROR(IF(E8<0.005,"-",E16/E8),"-")
+  *    FINMO	EBITDA Margin	20
+         was =IFERROR(IF(W8<=0,"-",W16/W8),"-")
+         now =IFERROR(IF(W8<0.005,"-",W16/W8),"-")
+  *    FINMO	EBITDA Margin	21
+         was =IFERROR(IF(X8<=0,"-",X16/X8),"-")
+         now =IFERROR(IF(X8<0.005,"-",X16/X8),"-")
+  *    FINMO	EBITDA Margin	22
+         was =IFERROR(IF(Y8<=0,"-",Y16/Y8),"-")
+         now =IFERROR(IF(Y8<0.005,"-",Y16/Y8),"-")
+  *    FINMO	EBITDA Margin	23
+         was =IFERROR(IF(Z8<=0,"-",Z16/Z8),"-")
+         now =IFERROR(IF(Z8<0.005,"-",Z16/Z8),"-")
+  *    FINMO	EBITDA Margin	24
+         was =IFERROR(IF(AA8<=0,"-",AA16/AA8),"-")
+         now =IFERROR(IF(AA8<0.005,"-",AA16/AA8),"-")
+  *    FINMO	EBITDA Margin	25
+         was =IFERROR(IF(AB8<=0,"-",AB16/AB8),"-")
+         now =IFERROR(IF(AB8<0.005,"-",AB16/AB8),"-")
+  *    FINMO	EBITDA Margin	3
+         was =IFERROR(IF(F8<=0,"-",F16/F8),"-")
+         now =IFERROR(IF(F8<0.005,"-",F16/F8),"-")
+  *    FINMO	EBITDA Margin	4
+         was =IFERROR(IF(G8<=0,"-",G16/G8),"-")
+         now =IFERROR(IF(G8<0.005,"-",G16/G8),"-")
+  *    FINMO	EBITDA Margin	5
+         was =IFERROR(IF(H8<=0,"-",H16/H8),"-")
+         now =IFERROR(IF(H8<0.005,"-",H16/H8),"-")
+  *    FINMO	EBITDA Margin	6
+         was =IFERROR(IF(I8<=0,"-",I16/I8),"-")
+         now =IFERROR(IF(I8<0.005,"-",I16/I8),"-")
+  *    FINMO	EBITDA Margin	7
+         was =IFERROR(IF(J8<=0,"-",J16/J8),"-")
+         now =IFERROR(IF(J8<0.005,"-",J16/J8),"-")
+  *    FINMO	EBITDA Margin	8
+         was =IFERROR(IF(K8<=0,"-",K16/K8),"-")
+         now =IFERROR(IF(K8<0.005,"-",K16/K8),"-")
+  *    FINMO	EBITDA Margin	9
+         was =IFERROR(IF(L8<=0,"-",L16/L8),"-")
+         now =IFERROR(IF(L8<0.005,"-",L16/L8),"-")
+  *    FINMO	Fixed Charge Coverage	0
+         was =IFERROR(IF(((C17+ABS(C55)+ABS(C58))+C13)<=0,"-",(C16+C13)/((C17+ABS(C55)+ABS(C58))+C13)),"-")
+         now =IFERROR(IF(((C17+ABS(C55)+ABS(C58))+C13)<0.005,"-",(C16+C13)/((C17+ABS(C55)+ABS(C58))+C13)),"-")
+  *    FINMO	Fixed Charge Coverage	1
+         was =IFERROR(IF(((D17+ABS(D55)+ABS(D58))+D13)<=0,"-",(D16+D13)/((D17+ABS(D55)+ABS(D58))+D13)),"-")
+         now =IFERROR(IF(((D17+ABS(D55)+ABS(D58))+D13)<0.005,"-",(D16+D13)/((D17+ABS(D55)+ABS(D58))+D13)),"-")
+  *    FINMO	Fixed Charge Coverage	10
+         was =IFERROR(IF(((M17+ABS(M55)+ABS(M58))+M13)<=0,"-",(M16+M13)/((M17+ABS(M55)+ABS(M58))+M13)),"-")
+         now =IFERROR(IF(((M17+ABS(M55)+ABS(M58))+M13)<0.005,"-",(M16+M13)/((M17+ABS(M55)+ABS(M58))+M13)),"-")
+  *    FINMO	Fixed Charge Coverage	11
+         was =IFERROR(IF(((N17+ABS(N55)+ABS(N58))+N13)<=0,"-",(N16+N13)/((N17+ABS(N55)+ABS(N58))+N13)),"-")
+         now =IFERROR(IF(((N17+ABS(N55)+ABS(N58))+N13)<0.005,"-",(N16+N13)/((N17+ABS(N55)+ABS(N58))+N13)),"-")
+  *    FINMO	Fixed Charge Coverage	12
+         was =IFERROR(IF(((O17+ABS(O55)+ABS(O58))+O13)<=0,"-",(O16+O13)/((O17+ABS(O55)+ABS(O58))+O13)),"-")
+         now =IFERROR(IF(((O17+ABS(O55)+ABS(O58))+O13)<0.005,"-",(O16+O13)/((O17+ABS(O55)+ABS(O58))+O13)),"-")
+  *    FINMO	Fixed Charge Coverage	13
+         was =IFERROR(IF(((P17+ABS(P55)+ABS(P58))+P13)<=0,"-",(P16+P13)/((P17+ABS(P55)+ABS(P58))+P13)),"-")
+         now =IFERROR(IF(((P17+ABS(P55)+ABS(P58))+P13)<0.005,"-",(P16+P13)/((P17+ABS(P55)+ABS(P58))+P13)),"-")
+  *    FINMO	Fixed Charge Coverage	14
+         was =IFERROR(IF(((Q17+ABS(Q55)+ABS(Q58))+Q13)<=0,"-",(Q16+Q13)/((Q17+ABS(Q55)+ABS(Q58))+Q13)),"-")
+         now =IFERROR(IF(((Q17+ABS(Q55)+ABS(Q58))+Q13)<0.005,"-",(Q16+Q13)/((Q17+ABS(Q55)+ABS(Q58))+Q13)),"-")
+  *    FINMO	Fixed Charge Coverage	15
+         was =IFERROR(IF(((R17+ABS(R55)+ABS(R58))+R13)<=0,"-",(R16+R13)/((R17+ABS(R55)+ABS(R58))+R13)),"-")
+         now =IFERROR(IF(((R17+ABS(R55)+ABS(R58))+R13)<0.005,"-",(R16+R13)/((R17+ABS(R55)+ABS(R58))+R13)),"-")
+  *    FINMO	Fixed Charge Coverage	16
+         was =IFERROR(IF(((S17+ABS(S55)+ABS(S58))+S13)<=0,"-",(S16+S13)/((S17+ABS(S55)+ABS(S58))+S13)),"-")
+         now =IFERROR(IF(((S17+ABS(S55)+ABS(S58))+S13)<0.005,"-",(S16+S13)/((S17+ABS(S55)+ABS(S58))+S13)),"-")
+  *    FINMO	Fixed Charge Coverage	17
+         was =IFERROR(IF(((T17+ABS(T55)+ABS(T58))+T13)<=0,"-",(T16+T13)/((T17+ABS(T55)+ABS(T58))+T13)),"-")
+         now =IFERROR(IF(((T17+ABS(T55)+ABS(T58))+T13)<0.005,"-",(T16+T13)/((T17+ABS(T55)+ABS(T58))+T13)),"-")
+  *    FINMO	Fixed Charge Coverage	18
+         was =IFERROR(IF(((U17+ABS(U55)+ABS(U58))+U13)<=0,"-",(U16+U13)/((U17+ABS(U55)+ABS(U58))+U13)),"-")
+         now =IFERROR(IF(((U17+ABS(U55)+ABS(U58))+U13)<0.005,"-",(U16+U13)/((U17+ABS(U55)+ABS(U58))+U13)),"-")
+  *    FINMO	Fixed Charge Coverage	19
+         was =IFERROR(IF(((V17+ABS(V55)+ABS(V58))+V13)<=0,"-",(V16+V13)/((V17+ABS(V55)+ABS(V58))+V13)),"-")
+         now =IFERROR(IF(((V17+ABS(V55)+ABS(V58))+V13)<0.005,"-",(V16+V13)/((V17+ABS(V55)+ABS(V58))+V13)),"-")
+  *    FINMO	Fixed Charge Coverage	2
+         was =IFERROR(IF(((E17+ABS(E55)+ABS(E58))+E13)<=0,"-",(E16+E13)/((E17+ABS(E55)+ABS(E58))+E13)),"-")
+         now =IFERROR(IF(((E17+ABS(E55)+ABS(E58))+E13)<0.005,"-",(E16+E13)/((E17+ABS(E55)+ABS(E58))+E13)),"-")
+  *    FINMO	Fixed Charge Coverage	20
+         was =IFERROR(IF(((W17+ABS(W55)+ABS(W58))+W13)<=0,"-",(W16+W13)/((W17+ABS(W55)+ABS(W58))+W13)),"-")
+         now =IFERROR(IF(((W17+ABS(W55)+ABS(W58))+W13)<0.005,"-",(W16+W13)/((W17+ABS(W55)+ABS(W58))+W13)),"-")
+  *    FINMO	Fixed Charge Coverage	21
+         was =IFERROR(IF(((X17+ABS(X55)+ABS(X58))+X13)<=0,"-",(X16+X13)/((X17+ABS(X55)+ABS(X58))+X13)),"-")
+         now =IFERROR(IF(((X17+ABS(X55)+ABS(X58))+X13)<0.005,"-",(X16+X13)/((X17+ABS(X55)+ABS(X58))+X13)),"-")
+  *    FINMO	Fixed Charge Coverage	22
+         was =IFERROR(IF(((Y17+ABS(Y55)+ABS(Y58))+Y13)<=0,"-",(Y16+Y13)/((Y17+ABS(Y55)+ABS(Y58))+Y13)),"-")
+         now =IFERROR(IF(((Y17+ABS(Y55)+ABS(Y58))+Y13)<0.005,"-",(Y16+Y13)/((Y17+ABS(Y55)+ABS(Y58))+Y13)),"-")
+  *    FINMO	Fixed Charge Coverage	23
+         was =IFERROR(IF(((Z17+ABS(Z55)+ABS(Z58))+Z13)<=0,"-",(Z16+Z13)/((Z17+ABS(Z55)+ABS(Z58))+Z13)),"-")
+         now =IFERROR(IF(((Z17+ABS(Z55)+ABS(Z58))+Z13)<0.005,"-",(Z16+Z13)/((Z17+ABS(Z55)+ABS(Z58))+Z13)),"-")
+  *    FINMO	Fixed Charge Coverage	24
+         was =IFERROR(IF(((AA17+ABS(AA55)+ABS(AA58))+AA13)<=0,"-",(AA16+AA13)/((AA17+ABS(AA55)+ABS(AA58))+AA13)),"-")
+         now =IFERROR(IF(((AA17+ABS(AA55)+ABS(AA58))+AA13)<0.005,"-",(AA16+AA13)/((AA17+ABS(AA55)+ABS(AA58))+AA13)),"-")
+  *    FINMO	Fixed Charge Coverage	25
+         was =IFERROR(IF(((AB17+ABS(AB55)+ABS(AB58))+AB13)<=0,"-",(AB16+AB13)/((AB17+ABS(AB55)+ABS(AB58))+AB13)),"-")
+         now =IFERROR(IF(((AB17+ABS(AB55)+ABS(AB58))+AB13)<0.005,"-",(AB16+AB13)/((AB17+ABS(AB55)+ABS(AB58))+AB13)),"-")
+  *    FINMO	Fixed Charge Coverage	3
+         was =IFERROR(IF(((F17+ABS(F55)+ABS(F58))+F13)<=0,"-",(F16+F13)/((F17+ABS(F55)+ABS(F58))+F13)),"-")
+         now =IFERROR(IF(((F17+ABS(F55)+ABS(F58))+F13)<0.005,"-",(F16+F13)/((F17+ABS(F55)+ABS(F58))+F13)),"-")
+  *    FINMO	Fixed Charge Coverage	4
+         was =IFERROR(IF(((G17+ABS(G55)+ABS(G58))+G13)<=0,"-",(G16+G13)/((G17+ABS(G55)+ABS(G58))+G13)),"-")
+         now =IFERROR(IF(((G17+ABS(G55)+ABS(G58))+G13)<0.005,"-",(G16+G13)/((G17+ABS(G55)+ABS(G58))+G13)),"-")
+  *    FINMO	Fixed Charge Coverage	5
+         was =IFERROR(IF(((H17+ABS(H55)+ABS(H58))+H13)<=0,"-",(H16+H13)/((H17+ABS(H55)+ABS(H58))+H13)),"-")
+         now =IFERROR(IF(((H17+ABS(H55)+ABS(H58))+H13)<0.005,"-",(H16+H13)/((H17+ABS(H55)+ABS(H58))+H13)),"-")
+  *    FINMO	Fixed Charge Coverage	6
+         was =IFERROR(IF(((I17+ABS(I55)+ABS(I58))+I13)<=0,"-",(I16+I13)/((I17+ABS(I55)+ABS(I58))+I13)),"-")
+         now =IFERROR(IF(((I17+ABS(I55)+ABS(I58))+I13)<0.005,"-",(I16+I13)/((I17+ABS(I55)+ABS(I58))+I13)),"-")
+  *    FINMO	Fixed Charge Coverage	7
+         was =IFERROR(IF(((J17+ABS(J55)+ABS(J58))+J13)<=0,"-",(J16+J13)/((J17+ABS(J55)+ABS(J58))+J13)),"-")
+         now =IFERROR(IF(((J17+ABS(J55)+ABS(J58))+J13)<0.005,"-",(J16+J13)/((J17+ABS(J55)+ABS(J58))+J13)),"-")
+  *    FINMO	Fixed Charge Coverage	8
+         was =IFERROR(IF(((K17+ABS(K55)+ABS(K58))+K13)<=0,"-",(K16+K13)/((K17+ABS(K55)+ABS(K58))+K13)),"-")
+         now =IFERROR(IF(((K17+ABS(K55)+ABS(K58))+K13)<0.005,"-",(K16+K13)/((K17+ABS(K55)+ABS(K58))+K13)),"-")
+  *    FINMO	Fixed Charge Coverage	9
+         was =IFERROR(IF(((L17+ABS(L55)+ABS(L58))+L13)<=0,"-",(L16+L13)/((L17+ABS(L55)+ABS(L58))+L13)),"-")
+         now =IFERROR(IF(((L17+ABS(L55)+ABS(L58))+L13)<0.005,"-",(L16+L13)/((L17+ABS(L55)+ABS(L58))+L13)),"-")
+  *    FINMO	Gross Margin	0
+         was =IFERROR(IF(C8<=0,"-",C10/C8),"-")
+         now =IFERROR(IF(C8<0.005,"-",C10/C8),"-")
+  *    FINMO	Gross Margin	1
+         was =IFERROR(IF(D8<=0,"-",D10/D8),"-")
+         now =IFERROR(IF(D8<0.005,"-",D10/D8),"-")
+  *    FINMO	Gross Margin	10
+         was =IFERROR(IF(M8<=0,"-",M10/M8),"-")
+         now =IFERROR(IF(M8<0.005,"-",M10/M8),"-")
+  *    FINMO	Gross Margin	11
+         was =IFERROR(IF(N8<=0,"-",N10/N8),"-")
+         now =IFERROR(IF(N8<0.005,"-",N10/N8),"-")
+  *    FINMO	Gross Margin	12
+         was =IFERROR(IF(O8<=0,"-",O10/O8),"-")
+         now =IFERROR(IF(O8<0.005,"-",O10/O8),"-")
+  *    FINMO	Gross Margin	13
+         was =IFERROR(IF(P8<=0,"-",P10/P8),"-")
+         now =IFERROR(IF(P8<0.005,"-",P10/P8),"-")
+  *    FINMO	Gross Margin	14
+         was =IFERROR(IF(Q8<=0,"-",Q10/Q8),"-")
+         now =IFERROR(IF(Q8<0.005,"-",Q10/Q8),"-")
+  *    FINMO	Gross Margin	15
+         was =IFERROR(IF(R8<=0,"-",R10/R8),"-")
+         now =IFERROR(IF(R8<0.005,"-",R10/R8),"-")
+  *    FINMO	Gross Margin	16
+         was =IFERROR(IF(S8<=0,"-",S10/S8),"-")
+         now =IFERROR(IF(S8<0.005,"-",S10/S8),"-")
+  *    FINMO	Gross Margin	17
+         was =IFERROR(IF(T8<=0,"-",T10/T8),"-")
+         now =IFERROR(IF(T8<0.005,"-",T10/T8),"-")
+  *    FINMO	Gross Margin	18
+         was =IFERROR(IF(U8<=0,"-",U10/U8),"-")
+         now =IFERROR(IF(U8<0.005,"-",U10/U8),"-")
+  *    FINMO	Gross Margin	19
+         was =IFERROR(IF(V8<=0,"-",V10/V8),"-")
+         now =IFERROR(IF(V8<0.005,"-",V10/V8),"-")
+  *    FINMO	Gross Margin	2
+         was =IFERROR(IF(E8<=0,"-",E10/E8),"-")
+         now =IFERROR(IF(E8<0.005,"-",E10/E8),"-")
+  *    FINMO	Gross Margin	20
+         was =IFERROR(IF(W8<=0,"-",W10/W8),"-")
+         now =IFERROR(IF(W8<0.005,"-",W10/W8),"-")
+  *    FINMO	Gross Margin	21
+         was =IFERROR(IF(X8<=0,"-",X10/X8),"-")
+         now =IFERROR(IF(X8<0.005,"-",X10/X8),"-")
+  *    FINMO	Gross Margin	22
+         was =IFERROR(IF(Y8<=0,"-",Y10/Y8),"-")
+         now =IFERROR(IF(Y8<0.005,"-",Y10/Y8),"-")
+  *    FINMO	Gross Margin	23
+         was =IFERROR(IF(Z8<=0,"-",Z10/Z8),"-")
+         now =IFERROR(IF(Z8<0.005,"-",Z10/Z8),"-")
+  *    FINMO	Gross Margin	24
+         was =IFERROR(IF(AA8<=0,"-",AA10/AA8),"-")
+         now =IFERROR(IF(AA8<0.005,"-",AA10/AA8),"-")
+  *    FINMO	Gross Margin	25
+         was =IFERROR(IF(AB8<=0,"-",AB10/AB8),"-")
+         now =IFERROR(IF(AB8<0.005,"-",AB10/AB8),"-")
+  *    FINMO	Gross Margin	3
+         was =IFERROR(IF(F8<=0,"-",F10/F8),"-")
+         now =IFERROR(IF(F8<0.005,"-",F10/F8),"-")
+  *    FINMO	Gross Margin	4
+         was =IFERROR(IF(G8<=0,"-",G10/G8),"-")
+         now =IFERROR(IF(G8<0.005,"-",G10/G8),"-")
+  *    FINMO	Gross Margin	5
+         was =IFERROR(IF(H8<=0,"-",H10/H8),"-")
+         now =IFERROR(IF(H8<0.005,"-",H10/H8),"-")
+  *    FINMO	Gross Margin	6
+         was =IFERROR(IF(I8<=0,"-",I10/I8),"-")
+         now =IFERROR(IF(I8<0.005,"-",I10/I8),"-")
+  *    FINMO	Gross Margin	7
+         was =IFERROR(IF(J8<=0,"-",J10/J8),"-")
+         now =IFERROR(IF(J8<0.005,"-",J10/J8),"-")
+  *    FINMO	Gross Margin	8
+         was =IFERROR(IF(K8<=0,"-",K10/K8),"-")
+         now =IFERROR(IF(K8<0.005,"-",K10/K8),"-")
+  *    FINMO	Gross Margin	9
+         was =IFERROR(IF(L8<=0,"-",L10/L8),"-")
+         now =IFERROR(IF(L8<0.005,"-",L10/L8),"-")
+  *    FINMO	Interest Coverage	0
+         was =IFERROR(IF(C17<=0,"-",(C16-C18)/C17),"-")
+         now =IFERROR(IF(C17<0.005,"-",(C16-C18)/C17),"-")
+  *    FINMO	Interest Coverage	1
+         was =IFERROR(IF(D17<=0,"-",(D16-D18)/D17),"-")
+         now =IFERROR(IF(D17<0.005,"-",(D16-D18)/D17),"-")
+  *    FINMO	Interest Coverage	10
+         was =IFERROR(IF(M17<=0,"-",(M16-M18)/M17),"-")
+         now =IFERROR(IF(M17<0.005,"-",(M16-M18)/M17),"-")
+  *    FINMO	Interest Coverage	11
+         was =IFERROR(IF(N17<=0,"-",(N16-N18)/N17),"-")
+         now =IFERROR(IF(N17<0.005,"-",(N16-N18)/N17),"-")
+  *    FINMO	Interest Coverage	12
+         was =IFERROR(IF(O17<=0,"-",(O16-O18)/O17),"-")
+         now =IFERROR(IF(O17<0.005,"-",(O16-O18)/O17),"-")
+  *    FINMO	Interest Coverage	13
+         was =IFERROR(IF(P17<=0,"-",(P16-P18)/P17),"-")
+         now =IFERROR(IF(P17<0.005,"-",(P16-P18)/P17),"-")
+  *    FINMO	Interest Coverage	14
+         was =IFERROR(IF(Q17<=0,"-",(Q16-Q18)/Q17),"-")
+         now =IFERROR(IF(Q17<0.005,"-",(Q16-Q18)/Q17),"-")
+  *    FINMO	Interest Coverage	15
+         was =IFERROR(IF(R17<=0,"-",(R16-R18)/R17),"-")
+         now =IFERROR(IF(R17<0.005,"-",(R16-R18)/R17),"-")
+  *    FINMO	Interest Coverage	16
+         was =IFERROR(IF(S17<=0,"-",(S16-S18)/S17),"-")
+         now =IFERROR(IF(S17<0.005,"-",(S16-S18)/S17),"-")
+  *    FINMO	Interest Coverage	17
+         was =IFERROR(IF(T17<=0,"-",(T16-T18)/T17),"-")
+         now =IFERROR(IF(T17<0.005,"-",(T16-T18)/T17),"-")
+  *    FINMO	Interest Coverage	18
+         was =IFERROR(IF(U17<=0,"-",(U16-U18)/U17),"-")
+         now =IFERROR(IF(U17<0.005,"-",(U16-U18)/U17),"-")
+  *    FINMO	Interest Coverage	19
+         was =IFERROR(IF(V17<=0,"-",(V16-V18)/V17),"-")
+         now =IFERROR(IF(V17<0.005,"-",(V16-V18)/V17),"-")
+  *    FINMO	Interest Coverage	2
+         was =IFERROR(IF(E17<=0,"-",(E16-E18)/E17),"-")
+         now =IFERROR(IF(E17<0.005,"-",(E16-E18)/E17),"-")
+  *    FINMO	Interest Coverage	20
+         was =IFERROR(IF(W17<=0,"-",(W16-W18)/W17),"-")
+         now =IFERROR(IF(W17<0.005,"-",(W16-W18)/W17),"-")
+  *    FINMO	Interest Coverage	21
+         was =IFERROR(IF(X17<=0,"-",(X16-X18)/X17),"-")
+         now =IFERROR(IF(X17<0.005,"-",(X16-X18)/X17),"-")
+  *    FINMO	Interest Coverage	22
+         was =IFERROR(IF(Y17<=0,"-",(Y16-Y18)/Y17),"-")
+         now =IFERROR(IF(Y17<0.005,"-",(Y16-Y18)/Y17),"-")
+  *    FINMO	Interest Coverage	23
+         was =IFERROR(IF(Z17<=0,"-",(Z16-Z18)/Z17),"-")
+         now =IFERROR(IF(Z17<0.005,"-",(Z16-Z18)/Z17),"-")
+  *    FINMO	Interest Coverage	24
+         was =IFERROR(IF(AA17<=0,"-",(AA16-AA18)/AA17),"-")
+         now =IFERROR(IF(AA17<0.005,"-",(AA16-AA18)/AA17),"-")
+  *    FINMO	Interest Coverage	25
+         was =IFERROR(IF(AB17<=0,"-",(AB16-AB18)/AB17),"-")
+         now =IFERROR(IF(AB17<0.005,"-",(AB16-AB18)/AB17),"-")
+  *    FINMO	Interest Coverage	3
+         was =IFERROR(IF(F17<=0,"-",(F16-F18)/F17),"-")
+         now =IFERROR(IF(F17<0.005,"-",(F16-F18)/F17),"-")
+  *    FINMO	Interest Coverage	4
+         was =IFERROR(IF(G17<=0,"-",(G16-G18)/G17),"-")
+         now =IFERROR(IF(G17<0.005,"-",(G16-G18)/G17),"-")
+  *    FINMO	Interest Coverage	5
+         was =IFERROR(IF(H17<=0,"-",(H16-H18)/H17),"-")
+         now =IFERROR(IF(H17<0.005,"-",(H16-H18)/H17),"-")
+  *    FINMO	Interest Coverage	6
+         was =IFERROR(IF(I17<=0,"-",(I16-I18)/I17),"-")
+         now =IFERROR(IF(I17<0.005,"-",(I16-I18)/I17),"-")
+  *    FINMO	Interest Coverage	7
+         was =IFERROR(IF(J17<=0,"-",(J16-J18)/J17),"-")
+         now =IFERROR(IF(J17<0.005,"-",(J16-J18)/J17),"-")
+  *    FINMO	Interest Coverage	8
+         was =IFERROR(IF(K17<=0,"-",(K16-K18)/K17),"-")
+         now =IFERROR(IF(K17<0.005,"-",(K16-K18)/K17),"-")
+  *    FINMO	Interest Coverage	9
+         was =IFERROR(IF(L17<=0,"-",(L16-L18)/L17),"-")
+         now =IFERROR(IF(L17<0.005,"-",(L16-L18)/L17),"-")
+  *    FINMO	Inventory Days	0
+         was =IFERROR(IF(C9<=0,"-",(C25*C6)/C9),"-")
+         now =IFERROR(IF(C9<0.005,"-",(C25*C6)/C9),"-")
+  *    FINMO	Inventory Days	1
+         was =IFERROR(IF(D9<=0,"-",(D25*D6)/D9),"-")
+         now =IFERROR(IF(D9<0.005,"-",(D25*D6)/D9),"-")
+  *    FINMO	Inventory Days	10
+         was =IFERROR(IF(M9<=0,"-",(M25*M6)/M9),"-")
+         now =IFERROR(IF(M9<0.005,"-",(M25*M6)/M9),"-")
+  *    FINMO	Inventory Days	11
+         was =IFERROR(IF(N9<=0,"-",(N25*N6)/N9),"-")
+         now =IFERROR(IF(N9<0.005,"-",(N25*N6)/N9),"-")
+  *    FINMO	Inventory Days	12
+         was =IFERROR(IF(O9<=0,"-",(O25*O6)/O9),"-")
+         now =IFERROR(IF(O9<0.005,"-",(O25*O6)/O9),"-")
+  *    FINMO	Inventory Days	13
+         was =IFERROR(IF(P9<=0,"-",(P25*P6)/P9),"-")
+         now =IFERROR(IF(P9<0.005,"-",(P25*P6)/P9),"-")
+  *    FINMO	Inventory Days	14
+         was =IFERROR(IF(Q9<=0,"-",(Q25*Q6)/Q9),"-")
+         now =IFERROR(IF(Q9<0.005,"-",(Q25*Q6)/Q9),"-")
+  *    FINMO	Inventory Days	15
+         was =IFERROR(IF(R9<=0,"-",(R25*R6)/R9),"-")
+         now =IFERROR(IF(R9<0.005,"-",(R25*R6)/R9),"-")
+  *    FINMO	Inventory Days	16
+         was =IFERROR(IF(S9<=0,"-",(S25*S6)/S9),"-")
+         now =IFERROR(IF(S9<0.005,"-",(S25*S6)/S9),"-")
+  *    FINMO	Inventory Days	17
+         was =IFERROR(IF(T9<=0,"-",(T25*T6)/T9),"-")
+         now =IFERROR(IF(T9<0.005,"-",(T25*T6)/T9),"-")
+  *    FINMO	Inventory Days	18
+         was =IFERROR(IF(U9<=0,"-",(U25*U6)/U9),"-")
+         now =IFERROR(IF(U9<0.005,"-",(U25*U6)/U9),"-")
+  *    FINMO	Inventory Days	19
+         was =IFERROR(IF(V9<=0,"-",(V25*V6)/V9),"-")
+         now =IFERROR(IF(V9<0.005,"-",(V25*V6)/V9),"-")
+  *    FINMO	Inventory Days	2
+         was =IFERROR(IF(E9<=0,"-",(E25*E6)/E9),"-")
+         now =IFERROR(IF(E9<0.005,"-",(E25*E6)/E9),"-")
+  *    FINMO	Inventory Days	20
+         was =IFERROR(IF(W9<=0,"-",(W25*W6)/W9),"-")
+         now =IFERROR(IF(W9<0.005,"-",(W25*W6)/W9),"-")
+  *    FINMO	Inventory Days	21
+         was =IFERROR(IF(X9<=0,"-",(X25*SUM(D6:G6))/X9),"-")
+         now =IFERROR(IF(X9<0.005,"-",(X25*SUM(D6:G6))/X9),"-")
+  *    FINMO	Inventory Days	22
+         was =IFERROR(IF(Y9<=0,"-",(Y25*SUM(H6:K6))/Y9),"-")
+         now =IFERROR(IF(Y9<0.005,"-",(Y25*SUM(H6:K6))/Y9),"-")
+  *    FINMO	Inventory Days	23
+         was =IFERROR(IF(Z9<=0,"-",(Z25*SUM(L6:O6))/Z9),"-")
+         now =IFERROR(IF(Z9<0.005,"-",(Z25*SUM(L6:O6))/Z9),"-")
+  *    FINMO	Inventory Days	24
+         was =IFERROR(IF(AA9<=0,"-",(AA25*SUM(P6:S6))/AA9),"-")
+         now =IFERROR(IF(AA9<0.005,"-",(AA25*SUM(P6:S6))/AA9),"-")
+  *    FINMO	Inventory Days	25
+         was =IFERROR(IF(AB9<=0,"-",(AB25*SUM(T6:W6))/AB9),"-")
+         now =IFERROR(IF(AB9<0.005,"-",(AB25*SUM(T6:W6))/AB9),"-")
+  *    FINMO	Inventory Days	3
+         was =IFERROR(IF(F9<=0,"-",(F25*F6)/F9),"-")
+         now =IFERROR(IF(F9<0.005,"-",(F25*F6)/F9),"-")
+  *    FINMO	Inventory Days	4
+         was =IFERROR(IF(G9<=0,"-",(G25*G6)/G9),"-")
+         now =IFERROR(IF(G9<0.005,"-",(G25*G6)/G9),"-")
+  *    FINMO	Inventory Days	5
+         was =IFERROR(IF(H9<=0,"-",(H25*H6)/H9),"-")
+         now =IFERROR(IF(H9<0.005,"-",(H25*H6)/H9),"-")
+  *    FINMO	Inventory Days	6
+         was =IFERROR(IF(I9<=0,"-",(I25*I6)/I9),"-")
+         now =IFERROR(IF(I9<0.005,"-",(I25*I6)/I9),"-")
+  *    FINMO	Inventory Days	7
+         was =IFERROR(IF(J9<=0,"-",(J25*J6)/J9),"-")
+         now =IFERROR(IF(J9<0.005,"-",(J25*J6)/J9),"-")
+  *    FINMO	Inventory Days	8
+         was =IFERROR(IF(K9<=0,"-",(K25*K6)/K9),"-")
+         now =IFERROR(IF(K9<0.005,"-",(K25*K6)/K9),"-")
+  *    FINMO	Inventory Days	9
+         was =IFERROR(IF(L9<=0,"-",(L25*L6)/L9),"-")
+         now =IFERROR(IF(L9<0.005,"-",(L25*L6)/L9),"-")
+  *    FINMO	Net Margin	0
+         was =IFERROR(IF(C8<=0,"-",C20/C8),"-")
+         now =IFERROR(IF(C8<0.005,"-",C20/C8),"-")
+  *    FINMO	Net Margin	1
+         was =IFERROR(IF(D8<=0,"-",D20/D8),"-")
+         now =IFERROR(IF(D8<0.005,"-",D20/D8),"-")
+  *    FINMO	Net Margin	10
+         was =IFERROR(IF(M8<=0,"-",M20/M8),"-")
+         now =IFERROR(IF(M8<0.005,"-",M20/M8),"-")
+  *    FINMO	Net Margin	11
+         was =IFERROR(IF(N8<=0,"-",N20/N8),"-")
+         now =IFERROR(IF(N8<0.005,"-",N20/N8),"-")
+  *    FINMO	Net Margin	12
+         was =IFERROR(IF(O8<=0,"-",O20/O8),"-")
+         now =IFERROR(IF(O8<0.005,"-",O20/O8),"-")
+  *    FINMO	Net Margin	13
+         was =IFERROR(IF(P8<=0,"-",P20/P8),"-")
+         now =IFERROR(IF(P8<0.005,"-",P20/P8),"-")
+  *    FINMO	Net Margin	14
+         was =IFERROR(IF(Q8<=0,"-",Q20/Q8),"-")
+         now =IFERROR(IF(Q8<0.005,"-",Q20/Q8),"-")
+  *    FINMO	Net Margin	15
+         was =IFERROR(IF(R8<=0,"-",R20/R8),"-")
+         now =IFERROR(IF(R8<0.005,"-",R20/R8),"-")
+  *    FINMO	Net Margin	16
+         was =IFERROR(IF(S8<=0,"-",S20/S8),"-")
+         now =IFERROR(IF(S8<0.005,"-",S20/S8),"-")
+  *    FINMO	Net Margin	17
+         was =IFERROR(IF(T8<=0,"-",T20/T8),"-")
+         now =IFERROR(IF(T8<0.005,"-",T20/T8),"-")
+  *    FINMO	Net Margin	18
+         was =IFERROR(IF(U8<=0,"-",U20/U8),"-")
+         now =IFERROR(IF(U8<0.005,"-",U20/U8),"-")
+  *    FINMO	Net Margin	19
+         was =IFERROR(IF(V8<=0,"-",V20/V8),"-")
+         now =IFERROR(IF(V8<0.005,"-",V20/V8),"-")
+  *    FINMO	Net Margin	2
+         was =IFERROR(IF(E8<=0,"-",E20/E8),"-")
+         now =IFERROR(IF(E8<0.005,"-",E20/E8),"-")
+  *    FINMO	Net Margin	20
+         was =IFERROR(IF(W8<=0,"-",W20/W8),"-")
+         now =IFERROR(IF(W8<0.005,"-",W20/W8),"-")
+  *    FINMO	Net Margin	21
+         was =IFERROR(IF(X8<=0,"-",X20/X8),"-")
+         now =IFERROR(IF(X8<0.005,"-",X20/X8),"-")
+  *    FINMO	Net Margin	22
+         was =IFERROR(IF(Y8<=0,"-",Y20/Y8),"-")
+         now =IFERROR(IF(Y8<0.005,"-",Y20/Y8),"-")
+  *    FINMO	Net Margin	23
+         was =IFERROR(IF(Z8<=0,"-",Z20/Z8),"-")
+         now =IFERROR(IF(Z8<0.005,"-",Z20/Z8),"-")
+  *    FINMO	Net Margin	24
+         was =IFERROR(IF(AA8<=0,"-",AA20/AA8),"-")
+         now =IFERROR(IF(AA8<0.005,"-",AA20/AA8),"-")
+  *    FINMO	Net Margin	25
+         was =IFERROR(IF(AB8<=0,"-",AB20/AB8),"-")
+         now =IFERROR(IF(AB8<0.005,"-",AB20/AB8),"-")
+  *    FINMO	Net Margin	3
+         was =IFERROR(IF(F8<=0,"-",F20/F8),"-")
+         now =IFERROR(IF(F8<0.005,"-",F20/F8),"-")
+  *    FINMO	Net Margin	4
+         was =IFERROR(IF(G8<=0,"-",G20/G8),"-")
+         now =IFERROR(IF(G8<0.005,"-",G20/G8),"-")
+  *    FINMO	Net Margin	5
+         was =IFERROR(IF(H8<=0,"-",H20/H8),"-")
+         now =IFERROR(IF(H8<0.005,"-",H20/H8),"-")
+  *    FINMO	Net Margin	6
+         was =IFERROR(IF(I8<=0,"-",I20/I8),"-")
+         now =IFERROR(IF(I8<0.005,"-",I20/I8),"-")
+  *    FINMO	Net Margin	7
+         was =IFERROR(IF(J8<=0,"-",J20/J8),"-")
+         now =IFERROR(IF(J8<0.005,"-",J20/J8),"-")
+  *    FINMO	Net Margin	8
+         was =IFERROR(IF(K8<=0,"-",K20/K8),"-")
+         now =IFERROR(IF(K8<0.005,"-",K20/K8),"-")
+  *    FINMO	Net Margin	9
+         was =IFERROR(IF(L8<=0,"-",L20/L8),"-")
+         now =IFERROR(IF(L8<0.005,"-",L20/L8),"-")
+  *    FINMO	Operating Margin (EBIT)	0
+         was =IFERROR(IF(C8<=0,"-",(C16-C18)/C8),"-")
+         now =IFERROR(IF(C8<0.005,"-",(C16-C18)/C8),"-")
+  *    FINMO	Operating Margin (EBIT)	1
+         was =IFERROR(IF(D8<=0,"-",(D16-D18)/D8),"-")
+         now =IFERROR(IF(D8<0.005,"-",(D16-D18)/D8),"-")
+  *    FINMO	Operating Margin (EBIT)	10
+         was =IFERROR(IF(M8<=0,"-",(M16-M18)/M8),"-")
+         now =IFERROR(IF(M8<0.005,"-",(M16-M18)/M8),"-")
+  *    FINMO	Operating Margin (EBIT)	11
+         was =IFERROR(IF(N8<=0,"-",(N16-N18)/N8),"-")
+         now =IFERROR(IF(N8<0.005,"-",(N16-N18)/N8),"-")
+  *    FINMO	Operating Margin (EBIT)	12
+         was =IFERROR(IF(O8<=0,"-",(O16-O18)/O8),"-")
+         now =IFERROR(IF(O8<0.005,"-",(O16-O18)/O8),"-")
+  *    FINMO	Operating Margin (EBIT)	13
+         was =IFERROR(IF(P8<=0,"-",(P16-P18)/P8),"-")
+         now =IFERROR(IF(P8<0.005,"-",(P16-P18)/P8),"-")
+  *    FINMO	Operating Margin (EBIT)	14
+         was =IFERROR(IF(Q8<=0,"-",(Q16-Q18)/Q8),"-")
+         now =IFERROR(IF(Q8<0.005,"-",(Q16-Q18)/Q8),"-")
+  *    FINMO	Operating Margin (EBIT)	15
+         was =IFERROR(IF(R8<=0,"-",(R16-R18)/R8),"-")
+         now =IFERROR(IF(R8<0.005,"-",(R16-R18)/R8),"-")
+  *    FINMO	Operating Margin (EBIT)	16
+         was =IFERROR(IF(S8<=0,"-",(S16-S18)/S8),"-")
+         now =IFERROR(IF(S8<0.005,"-",(S16-S18)/S8),"-")
+  *    FINMO	Operating Margin (EBIT)	17
+         was =IFERROR(IF(T8<=0,"-",(T16-T18)/T8),"-")
+         now =IFERROR(IF(T8<0.005,"-",(T16-T18)/T8),"-")
+  *    FINMO	Operating Margin (EBIT)	18
+         was =IFERROR(IF(U8<=0,"-",(U16-U18)/U8),"-")
+         now =IFERROR(IF(U8<0.005,"-",(U16-U18)/U8),"-")
+  *    FINMO	Operating Margin (EBIT)	19
+         was =IFERROR(IF(V8<=0,"-",(V16-V18)/V8),"-")
+         now =IFERROR(IF(V8<0.005,"-",(V16-V18)/V8),"-")
+  *    FINMO	Operating Margin (EBIT)	2
+         was =IFERROR(IF(E8<=0,"-",(E16-E18)/E8),"-")
+         now =IFERROR(IF(E8<0.005,"-",(E16-E18)/E8),"-")
+  *    FINMO	Operating Margin (EBIT)	20
+         was =IFERROR(IF(W8<=0,"-",(W16-W18)/W8),"-")
+         now =IFERROR(IF(W8<0.005,"-",(W16-W18)/W8),"-")
+  *    FINMO	Operating Margin (EBIT)	21
+         was =IFERROR(IF(X8<=0,"-",(X16-X18)/X8),"-")
+         now =IFERROR(IF(X8<0.005,"-",(X16-X18)/X8),"-")
+  *    FINMO	Operating Margin (EBIT)	22
+         was =IFERROR(IF(Y8<=0,"-",(Y16-Y18)/Y8),"-")
+         now =IFERROR(IF(Y8<0.005,"-",(Y16-Y18)/Y8),"-")
+  *    FINMO	Operating Margin (EBIT)	23
+         was =IFERROR(IF(Z8<=0,"-",(Z16-Z18)/Z8),"-")
+         now =IFERROR(IF(Z8<0.005,"-",(Z16-Z18)/Z8),"-")
+  *    FINMO	Operating Margin (EBIT)	24
+         was =IFERROR(IF(AA8<=0,"-",(AA16-AA18)/AA8),"-")
+         now =IFERROR(IF(AA8<0.005,"-",(AA16-AA18)/AA8),"-")
+  *    FINMO	Operating Margin (EBIT)	25
+         was =IFERROR(IF(AB8<=0,"-",(AB16-AB18)/AB8),"-")
+         now =IFERROR(IF(AB8<0.005,"-",(AB16-AB18)/AB8),"-")
+  *    FINMO	Operating Margin (EBIT)	3
+         was =IFERROR(IF(F8<=0,"-",(F16-F18)/F8),"-")
+         now =IFERROR(IF(F8<0.005,"-",(F16-F18)/F8),"-")
+  *    FINMO	Operating Margin (EBIT)	4
+         was =IFERROR(IF(G8<=0,"-",(G16-G18)/G8),"-")
+         now =IFERROR(IF(G8<0.005,"-",(G16-G18)/G8),"-")
+  *    FINMO	Operating Margin (EBIT)	5
+         was =IFERROR(IF(H8<=0,"-",(H16-H18)/H8),"-")
+         now =IFERROR(IF(H8<0.005,"-",(H16-H18)/H8),"-")
+  *    FINMO	Operating Margin (EBIT)	6
+         was =IFERROR(IF(I8<=0,"-",(I16-I18)/I8),"-")
+         now =IFERROR(IF(I8<0.005,"-",(I16-I18)/I8),"-")
+  *    FINMO	Operating Margin (EBIT)	7
+         was =IFERROR(IF(J8<=0,"-",(J16-J18)/J8),"-")
+         now =IFERROR(IF(J8<0.005,"-",(J16-J18)/J8),"-")
+  *    FINMO	Operating Margin (EBIT)	8
+         was =IFERROR(IF(K8<=0,"-",(K16-K18)/K8),"-")
+         now =IFERROR(IF(K8<0.005,"-",(K16-K18)/K8),"-")
+  *    FINMO	Operating Margin (EBIT)	9
+         was =IFERROR(IF(L8<=0,"-",(L16-L18)/L8),"-")
+         now =IFERROR(IF(L8<0.005,"-",(L16-L18)/L8),"-")
+  *    FINMO	Payable Days (opex basis)	0
+         was =IFERROR(IF(SUM(C11:C15)<=0,"-",(C32*C6)/SUM(C11:C15)),"-")
+         now =IFERROR(IF(SUM(C11:C15)<0.005,"-",(C32*C6)/SUM(C11:C15)),"-")
+  *    FINMO	Payable Days (opex basis)	1
+         was =IFERROR(IF(SUM(D11:D15)<=0,"-",(D32*D6)/SUM(D11:D15)),"-")
+         now =IFERROR(IF(SUM(D11:D15)<0.005,"-",(D32*D6)/SUM(D11:D15)),"-")
+  *    FINMO	Payable Days (opex basis)	10
+         was =IFERROR(IF(SUM(M11:M15)<=0,"-",(M32*M6)/SUM(M11:M15)),"-")
+         now =IFERROR(IF(SUM(M11:M15)<0.005,"-",(M32*M6)/SUM(M11:M15)),"-")
+  *    FINMO	Payable Days (opex basis)	11
+         was =IFERROR(IF(SUM(N11:N15)<=0,"-",(N32*N6)/SUM(N11:N15)),"-")
+         now =IFERROR(IF(SUM(N11:N15)<0.005,"-",(N32*N6)/SUM(N11:N15)),"-")
+  *    FINMO	Payable Days (opex basis)	12
+         was =IFERROR(IF(SUM(O11:O15)<=0,"-",(O32*O6)/SUM(O11:O15)),"-")
+         now =IFERROR(IF(SUM(O11:O15)<0.005,"-",(O32*O6)/SUM(O11:O15)),"-")
+  *    FINMO	Payable Days (opex basis)	13
+         was =IFERROR(IF(SUM(P11:P15)<=0,"-",(P32*P6)/SUM(P11:P15)),"-")
+         now =IFERROR(IF(SUM(P11:P15)<0.005,"-",(P32*P6)/SUM(P11:P15)),"-")
+  *    FINMO	Payable Days (opex basis)	14
+         was =IFERROR(IF(SUM(Q11:Q15)<=0,"-",(Q32*Q6)/SUM(Q11:Q15)),"-")
+         now =IFERROR(IF(SUM(Q11:Q15)<0.005,"-",(Q32*Q6)/SUM(Q11:Q15)),"-")
+  *    FINMO	Payable Days (opex basis)	15
+         was =IFERROR(IF(SUM(R11:R15)<=0,"-",(R32*R6)/SUM(R11:R15)),"-")
+         now =IFERROR(IF(SUM(R11:R15)<0.005,"-",(R32*R6)/SUM(R11:R15)),"-")
+  *    FINMO	Payable Days (opex basis)	16
+         was =IFERROR(IF(SUM(S11:S15)<=0,"-",(S32*S6)/SUM(S11:S15)),"-")
+         now =IFERROR(IF(SUM(S11:S15)<0.005,"-",(S32*S6)/SUM(S11:S15)),"-")
+  *    FINMO	Payable Days (opex basis)	17
+         was =IFERROR(IF(SUM(T11:T15)<=0,"-",(T32*T6)/SUM(T11:T15)),"-")
+         now =IFERROR(IF(SUM(T11:T15)<0.005,"-",(T32*T6)/SUM(T11:T15)),"-")
+  *    FINMO	Payable Days (opex basis)	18
+         was =IFERROR(IF(SUM(U11:U15)<=0,"-",(U32*U6)/SUM(U11:U15)),"-")
+         now =IFERROR(IF(SUM(U11:U15)<0.005,"-",(U32*U6)/SUM(U11:U15)),"-")
+  *    FINMO	Payable Days (opex basis)	19
+         was =IFERROR(IF(SUM(V11:V15)<=0,"-",(V32*V6)/SUM(V11:V15)),"-")
+         now =IFERROR(IF(SUM(V11:V15)<0.005,"-",(V32*V6)/SUM(V11:V15)),"-")
+  *    FINMO	Payable Days (opex basis)	2
+         was =IFERROR(IF(SUM(E11:E15)<=0,"-",(E32*E6)/SUM(E11:E15)),"-")
+         now =IFERROR(IF(SUM(E11:E15)<0.005,"-",(E32*E6)/SUM(E11:E15)),"-")
+  *    FINMO	Payable Days (opex basis)	20
+         was =IFERROR(IF(SUM(W11:W15)<=0,"-",(W32*W6)/SUM(W11:W15)),"-")
+         now =IFERROR(IF(SUM(W11:W15)<0.005,"-",(W32*W6)/SUM(W11:W15)),"-")
+  *    FINMO	Payable Days (opex basis)	21
+         was =IFERROR(IF(SUM(X11:X15)<=0,"-",(X32*SUM(D6:G6))/SUM(X11:X15)),"-")
+         now =IFERROR(IF(SUM(X11:X15)<0.005,"-",(X32*SUM(D6:G6))/SUM(X11:X15)),"-")
+  *    FINMO	Payable Days (opex basis)	22
+         was =IFERROR(IF(SUM(Y11:Y15)<=0,"-",(Y32*SUM(H6:K6))/SUM(Y11:Y15)),"-")
+         now =IFERROR(IF(SUM(Y11:Y15)<0.005,"-",(Y32*SUM(H6:K6))/SUM(Y11:Y15)),"-")
+  *    FINMO	Payable Days (opex basis)	23
+         was =IFERROR(IF(SUM(Z11:Z15)<=0,"-",(Z32*SUM(L6:O6))/SUM(Z11:Z15)),"-")
+         now =IFERROR(IF(SUM(Z11:Z15)<0.005,"-",(Z32*SUM(L6:O6))/SUM(Z11:Z15)),"-")
+  *    FINMO	Payable Days (opex basis)	24
+         was =IFERROR(IF(SUM(AA11:AA15)<=0,"-",(AA32*SUM(P6:S6))/SUM(AA11:AA15)),"-")
+         now =IFERROR(IF(SUM(AA11:AA15)<0.005,"-",(AA32*SUM(P6:S6))/SUM(AA11:AA15)),"-")
+  *    FINMO	Payable Days (opex basis)	25
+         was =IFERROR(IF(SUM(AB11:AB15)<=0,"-",(AB32*SUM(T6:W6))/SUM(AB11:AB15)),"-")
+         now =IFERROR(IF(SUM(AB11:AB15)<0.005,"-",(AB32*SUM(T6:W6))/SUM(AB11:AB15)),"-")
+  *    FINMO	Payable Days (opex basis)	3
+         was =IFERROR(IF(SUM(F11:F15)<=0,"-",(F32*F6)/SUM(F11:F15)),"-")
+         now =IFERROR(IF(SUM(F11:F15)<0.005,"-",(F32*F6)/SUM(F11:F15)),"-")
+  *    FINMO	Payable Days (opex basis)	4
+         was =IFERROR(IF(SUM(G11:G15)<=0,"-",(G32*G6)/SUM(G11:G15)),"-")
+         now =IFERROR(IF(SUM(G11:G15)<0.005,"-",(G32*G6)/SUM(G11:G15)),"-")
+  *    FINMO	Payable Days (opex basis)	5
+         was =IFERROR(IF(SUM(H11:H15)<=0,"-",(H32*H6)/SUM(H11:H15)),"-")
+         now =IFERROR(IF(SUM(H11:H15)<0.005,"-",(H32*H6)/SUM(H11:H15)),"-")
+  *    FINMO	Payable Days (opex basis)	6
+         was =IFERROR(IF(SUM(I11:I15)<=0,"-",(I32*I6)/SUM(I11:I15)),"-")
+         now =IFERROR(IF(SUM(I11:I15)<0.005,"-",(I32*I6)/SUM(I11:I15)),"-")
+  *    FINMO	Payable Days (opex basis)	7
+         was =IFERROR(IF(SUM(J11:J15)<=0,"-",(J32*J6)/SUM(J11:J15)),"-")
+         now =IFERROR(IF(SUM(J11:J15)<0.005,"-",(J32*J6)/SUM(J11:J15)),"-")
+  *    FINMO	Payable Days (opex basis)	8
+         was =IFERROR(IF(SUM(K11:K15)<=0,"-",(K32*K6)/SUM(K11:K15)),"-")
+         now =IFERROR(IF(SUM(K11:K15)<0.005,"-",(K32*K6)/SUM(K11:K15)),"-")
+  *    FINMO	Payable Days (opex basis)	9
+         was =IFERROR(IF(SUM(L11:L15)<=0,"-",(L32*L6)/SUM(L11:L15)),"-")
+         now =IFERROR(IF(SUM(L11:L15)<0.005,"-",(L32*L6)/SUM(L11:L15)),"-")
+  *    FINMO	Quick Ratio	0
+         was =IFERROR(IF(C35<=0,"-",(C23+C24)/C35),"-")
+         now =IFERROR(IF(C35<0.005,"-",(C23+C24)/C35),"-")
+  *    FINMO	Quick Ratio	1
+         was =IFERROR(IF(D35<=0,"-",(D23+D24)/D35),"-")
+         now =IFERROR(IF(D35<0.005,"-",(D23+D24)/D35),"-")
+  *    FINMO	Quick Ratio	10
+         was =IFERROR(IF(M35<=0,"-",(M23+M24)/M35),"-")
+         now =IFERROR(IF(M35<0.005,"-",(M23+M24)/M35),"-")
+  *    FINMO	Quick Ratio	11
+         was =IFERROR(IF(N35<=0,"-",(N23+N24)/N35),"-")
+         now =IFERROR(IF(N35<0.005,"-",(N23+N24)/N35),"-")
+  *    FINMO	Quick Ratio	12
+         was =IFERROR(IF(O35<=0,"-",(O23+O24)/O35),"-")
+         now =IFERROR(IF(O35<0.005,"-",(O23+O24)/O35),"-")
+  *    FINMO	Quick Ratio	13
+         was =IFERROR(IF(P35<=0,"-",(P23+P24)/P35),"-")
+         now =IFERROR(IF(P35<0.005,"-",(P23+P24)/P35),"-")
+  *    FINMO	Quick Ratio	14
+         was =IFERROR(IF(Q35<=0,"-",(Q23+Q24)/Q35),"-")
+         now =IFERROR(IF(Q35<0.005,"-",(Q23+Q24)/Q35),"-")
+  *    FINMO	Quick Ratio	15
+         was =IFERROR(IF(R35<=0,"-",(R23+R24)/R35),"-")
+         now =IFERROR(IF(R35<0.005,"-",(R23+R24)/R35),"-")
+  *    FINMO	Quick Ratio	16
+         was =IFERROR(IF(S35<=0,"-",(S23+S24)/S35),"-")
+         now =IFERROR(IF(S35<0.005,"-",(S23+S24)/S35),"-")
+  *    FINMO	Quick Ratio	17
+         was =IFERROR(IF(T35<=0,"-",(T23+T24)/T35),"-")
+         now =IFERROR(IF(T35<0.005,"-",(T23+T24)/T35),"-")
+  *    FINMO	Quick Ratio	18
+         was =IFERROR(IF(U35<=0,"-",(U23+U24)/U35),"-")
+         now =IFERROR(IF(U35<0.005,"-",(U23+U24)/U35),"-")
+  *    FINMO	Quick Ratio	19
+         was =IFERROR(IF(V35<=0,"-",(V23+V24)/V35),"-")
+         now =IFERROR(IF(V35<0.005,"-",(V23+V24)/V35),"-")
+  *    FINMO	Quick Ratio	2
+         was =IFERROR(IF(E35<=0,"-",(E23+E24)/E35),"-")
+         now =IFERROR(IF(E35<0.005,"-",(E23+E24)/E35),"-")
+  *    FINMO	Quick Ratio	20
+         was =IFERROR(IF(W35<=0,"-",(W23+W24)/W35),"-")
+         now =IFERROR(IF(W35<0.005,"-",(W23+W24)/W35),"-")
+  *    FINMO	Quick Ratio	21
+         was =IFERROR(IF(X35<=0,"-",(X23+X24)/X35),"-")
+         now =IFERROR(IF(X35<0.005,"-",(X23+X24)/X35),"-")
+  *    FINMO	Quick Ratio	22
+         was =IFERROR(IF(Y35<=0,"-",(Y23+Y24)/Y35),"-")
+         now =IFERROR(IF(Y35<0.005,"-",(Y23+Y24)/Y35),"-")
+  *    FINMO	Quick Ratio	23
+         was =IFERROR(IF(Z35<=0,"-",(Z23+Z24)/Z35),"-")
+         now =IFERROR(IF(Z35<0.005,"-",(Z23+Z24)/Z35),"-")
+  *    FINMO	Quick Ratio	24
+         was =IFERROR(IF(AA35<=0,"-",(AA23+AA24)/AA35),"-")
+         now =IFERROR(IF(AA35<0.005,"-",(AA23+AA24)/AA35),"-")
+  *    FINMO	Quick Ratio	25
+         was =IFERROR(IF(AB35<=0,"-",(AB23+AB24)/AB35),"-")
+         now =IFERROR(IF(AB35<0.005,"-",(AB23+AB24)/AB35),"-")
+  *    FINMO	Quick Ratio	3
+         was =IFERROR(IF(F35<=0,"-",(F23+F24)/F35),"-")
+         now =IFERROR(IF(F35<0.005,"-",(F23+F24)/F35),"-")
+  *    FINMO	Quick Ratio	4
+         was =IFERROR(IF(G35<=0,"-",(G23+G24)/G35),"-")
+         now =IFERROR(IF(G35<0.005,"-",(G23+G24)/G35),"-")
+  *    FINMO	Quick Ratio	5
+         was =IFERROR(IF(H35<=0,"-",(H23+H24)/H35),"-")
+         now =IFERROR(IF(H35<0.005,"-",(H23+H24)/H35),"-")
+  *    FINMO	Quick Ratio	6
+         was =IFERROR(IF(I35<=0,"-",(I23+I24)/I35),"-")
+         now =IFERROR(IF(I35<0.005,"-",(I23+I24)/I35),"-")
+  *    FINMO	Quick Ratio	7
+         was =IFERROR(IF(J35<=0,"-",(J23+J24)/J35),"-")
+         now =IFERROR(IF(J35<0.005,"-",(J23+J24)/J35),"-")
+  *    FINMO	Quick Ratio	8
+         was =IFERROR(IF(K35<=0,"-",(K23+K24)/K35),"-")
+         now =IFERROR(IF(K35<0.005,"-",(K23+K24)/K35),"-")
+  *    FINMO	Quick Ratio	9
+         was =IFERROR(IF(L35<=0,"-",(L23+L24)/L35),"-")
+         now =IFERROR(IF(L35<0.005,"-",(L23+L24)/L35),"-")
+  *    FINMO	Receivable Days (DSO)	0
+         was =IFERROR(IF(C8<=0,"-",(C24*C6)/C8),"-")
+         now =IFERROR(IF(C8<0.005,"-",(C24*C6)/C8),"-")
+  *    FINMO	Receivable Days (DSO)	1
+         was =IFERROR(IF(D8<=0,"-",(D24*D6)/D8),"-")
+         now =IFERROR(IF(D8<0.005,"-",(D24*D6)/D8),"-")
+  *    FINMO	Receivable Days (DSO)	10
+         was =IFERROR(IF(M8<=0,"-",(M24*M6)/M8),"-")
+         now =IFERROR(IF(M8<0.005,"-",(M24*M6)/M8),"-")
+  *    FINMO	Receivable Days (DSO)	11
+         was =IFERROR(IF(N8<=0,"-",(N24*N6)/N8),"-")
+         now =IFERROR(IF(N8<0.005,"-",(N24*N6)/N8),"-")
+  *    FINMO	Receivable Days (DSO)	12
+         was =IFERROR(IF(O8<=0,"-",(O24*O6)/O8),"-")
+         now =IFERROR(IF(O8<0.005,"-",(O24*O6)/O8),"-")
+  *    FINMO	Receivable Days (DSO)	13
+         was =IFERROR(IF(P8<=0,"-",(P24*P6)/P8),"-")
+         now =IFERROR(IF(P8<0.005,"-",(P24*P6)/P8),"-")
+  *    FINMO	Receivable Days (DSO)	14
+         was =IFERROR(IF(Q8<=0,"-",(Q24*Q6)/Q8),"-")
+         now =IFERROR(IF(Q8<0.005,"-",(Q24*Q6)/Q8),"-")
+  *    FINMO	Receivable Days (DSO)	15
+         was =IFERROR(IF(R8<=0,"-",(R24*R6)/R8),"-")
+         now =IFERROR(IF(R8<0.005,"-",(R24*R6)/R8),"-")
+  *    FINMO	Receivable Days (DSO)	16
+         was =IFERROR(IF(S8<=0,"-",(S24*S6)/S8),"-")
+         now =IFERROR(IF(S8<0.005,"-",(S24*S6)/S8),"-")
+  *    FINMO	Receivable Days (DSO)	17
+         was =IFERROR(IF(T8<=0,"-",(T24*T6)/T8),"-")
+         now =IFERROR(IF(T8<0.005,"-",(T24*T6)/T8),"-")
+  *    FINMO	Receivable Days (DSO)	18
+         was =IFERROR(IF(U8<=0,"-",(U24*U6)/U8),"-")
+         now =IFERROR(IF(U8<0.005,"-",(U24*U6)/U8),"-")
+  *    FINMO	Receivable Days (DSO)	19
+         was =IFERROR(IF(V8<=0,"-",(V24*V6)/V8),"-")
+         now =IFERROR(IF(V8<0.005,"-",(V24*V6)/V8),"-")
+  *    FINMO	Receivable Days (DSO)	2
+         was =IFERROR(IF(E8<=0,"-",(E24*E6)/E8),"-")
+         now =IFERROR(IF(E8<0.005,"-",(E24*E6)/E8),"-")
+  *    FINMO	Receivable Days (DSO)	20
+         was =IFERROR(IF(W8<=0,"-",(W24*W6)/W8),"-")
+         now =IFERROR(IF(W8<0.005,"-",(W24*W6)/W8),"-")
+  *    FINMO	Receivable Days (DSO)	21
+         was =IFERROR(IF(X8<=0,"-",(X24*SUM(D6:G6))/X8),"-")
+         now =IFERROR(IF(X8<0.005,"-",(X24*SUM(D6:G6))/X8),"-")
+  *    FINMO	Receivable Days (DSO)	22
+         was =IFERROR(IF(Y8<=0,"-",(Y24*SUM(H6:K6))/Y8),"-")
+         now =IFERROR(IF(Y8<0.005,"-",(Y24*SUM(H6:K6))/Y8),"-")
+  *    FINMO	Receivable Days (DSO)	23
+         was =IFERROR(IF(Z8<=0,"-",(Z24*SUM(L6:O6))/Z8),"-")
+         now =IFERROR(IF(Z8<0.005,"-",(Z24*SUM(L6:O6))/Z8),"-")
+  *    FINMO	Receivable Days (DSO)	24
+         was =IFERROR(IF(AA8<=0,"-",(AA24*SUM(P6:S6))/AA8),"-")
+         now =IFERROR(IF(AA8<0.005,"-",(AA24*SUM(P6:S6))/AA8),"-")
+  *    FINMO	Receivable Days (DSO)	25
+         was =IFERROR(IF(AB8<=0,"-",(AB24*SUM(T6:W6))/AB8),"-")
+         now =IFERROR(IF(AB8<0.005,"-",(AB24*SUM(T6:W6))/AB8),"-")
+  *    FINMO	Receivable Days (DSO)	3
+         was =IFERROR(IF(F8<=0,"-",(F24*F6)/F8),"-")
+         now =IFERROR(IF(F8<0.005,"-",(F24*F6)/F8),"-")
+  *    FINMO	Receivable Days (DSO)	4
+         was =IFERROR(IF(G8<=0,"-",(G24*G6)/G8),"-")
+         now =IFERROR(IF(G8<0.005,"-",(G24*G6)/G8),"-")
+  *    FINMO	Receivable Days (DSO)	5
+         was =IFERROR(IF(H8<=0,"-",(H24*H6)/H8),"-")
+         now =IFERROR(IF(H8<0.005,"-",(H24*H6)/H8),"-")
+  *    FINMO	Receivable Days (DSO)	6
+         was =IFERROR(IF(I8<=0,"-",(I24*I6)/I8),"-")
+         now =IFERROR(IF(I8<0.005,"-",(I24*I6)/I8),"-")
+  *    FINMO	Receivable Days (DSO)	7
+         was =IFERROR(IF(J8<=0,"-",(J24*J6)/J8),"-")
+         now =IFERROR(IF(J8<0.005,"-",(J24*J6)/J8),"-")
+  *    FINMO	Receivable Days (DSO)	8
+         was =IFERROR(IF(K8<=0,"-",(K24*K6)/K8),"-")
+         now =IFERROR(IF(K8<0.005,"-",(K24*K6)/K8),"-")
+  *    FINMO	Receivable Days (DSO)	9
+         was =IFERROR(IF(L8<=0,"-",(L24*L6)/L8),"-")
+         now =IFERROR(IF(L8<0.005,"-",(L24*L6)/L8),"-")
+  *    FINMO	Return on Assets	0
+         was =IFERROR(IF(C31<=0,"-",C20/C31),"-")
+         now =IFERROR(IF(C31<0.005,"-",C20/C31),"-")
+  *    FINMO	Return on Assets	1
+         was =IFERROR(IF(D31<=0,"-",D20/D31),"-")
+         now =IFERROR(IF(D31<0.005,"-",D20/D31),"-")
+  *    FINMO	Return on Assets	10
+         was =IFERROR(IF(M31<=0,"-",M20/M31),"-")
+         now =IFERROR(IF(M31<0.005,"-",M20/M31),"-")
+  *    FINMO	Return on Assets	11
+         was =IFERROR(IF(N31<=0,"-",N20/N31),"-")
+         now =IFERROR(IF(N31<0.005,"-",N20/N31),"-")
+  *    FINMO	Return on Assets	12
+         was =IFERROR(IF(O31<=0,"-",O20/O31),"-")
+         now =IFERROR(IF(O31<0.005,"-",O20/O31),"-")
+  *    FINMO	Return on Assets	13
+         was =IFERROR(IF(P31<=0,"-",P20/P31),"-")
+         now =IFERROR(IF(P31<0.005,"-",P20/P31),"-")
+  *    FINMO	Return on Assets	14
+         was =IFERROR(IF(Q31<=0,"-",Q20/Q31),"-")
+         now =IFERROR(IF(Q31<0.005,"-",Q20/Q31),"-")
+  *    FINMO	Return on Assets	15
+         was =IFERROR(IF(R31<=0,"-",R20/R31),"-")
+         now =IFERROR(IF(R31<0.005,"-",R20/R31),"-")
+  *    FINMO	Return on Assets	16
+         was =IFERROR(IF(S31<=0,"-",S20/S31),"-")
+         now =IFERROR(IF(S31<0.005,"-",S20/S31),"-")
+  *    FINMO	Return on Assets	17
+         was =IFERROR(IF(T31<=0,"-",T20/T31),"-")
+         now =IFERROR(IF(T31<0.005,"-",T20/T31),"-")
+  *    FINMO	Return on Assets	18
+         was =IFERROR(IF(U31<=0,"-",U20/U31),"-")
+         now =IFERROR(IF(U31<0.005,"-",U20/U31),"-")
+  *    FINMO	Return on Assets	19
+         was =IFERROR(IF(V31<=0,"-",V20/V31),"-")
+         now =IFERROR(IF(V31<0.005,"-",V20/V31),"-")
+  *    FINMO	Return on Assets	2
+         was =IFERROR(IF(E31<=0,"-",E20/E31),"-")
+         now =IFERROR(IF(E31<0.005,"-",E20/E31),"-")
+  *    FINMO	Return on Assets	20
+         was =IFERROR(IF(W31<=0,"-",W20/W31),"-")
+         now =IFERROR(IF(W31<0.005,"-",W20/W31),"-")
+  *    FINMO	Return on Assets	21
+         was =IFERROR(IF(X31<=0,"-",X20/X31),"-")
+         now =IFERROR(IF(X31<0.005,"-",X20/X31),"-")
+  *    FINMO	Return on Assets	22
+         was =IFERROR(IF(Y31<=0,"-",Y20/Y31),"-")
+         now =IFERROR(IF(Y31<0.005,"-",Y20/Y31),"-")
+  *    FINMO	Return on Assets	23
+         was =IFERROR(IF(Z31<=0,"-",Z20/Z31),"-")
+         now =IFERROR(IF(Z31<0.005,"-",Z20/Z31),"-")
+  *    FINMO	Return on Assets	24
+         was =IFERROR(IF(AA31<=0,"-",AA20/AA31),"-")
+         now =IFERROR(IF(AA31<0.005,"-",AA20/AA31),"-")
+  *    FINMO	Return on Assets	25
+         was =IFERROR(IF(AB31<=0,"-",AB20/AB31),"-")
+         now =IFERROR(IF(AB31<0.005,"-",AB20/AB31),"-")
+  *    FINMO	Return on Assets	3
+         was =IFERROR(IF(F31<=0,"-",F20/F31),"-")
+         now =IFERROR(IF(F31<0.005,"-",F20/F31),"-")
+  *    FINMO	Return on Assets	4
+         was =IFERROR(IF(G31<=0,"-",G20/G31),"-")
+         now =IFERROR(IF(G31<0.005,"-",G20/G31),"-")
+  *    FINMO	Return on Assets	5
+         was =IFERROR(IF(H31<=0,"-",H20/H31),"-")
+         now =IFERROR(IF(H31<0.005,"-",H20/H31),"-")
+  *    FINMO	Return on Assets	6
+         was =IFERROR(IF(I31<=0,"-",I20/I31),"-")
+         now =IFERROR(IF(I31<0.005,"-",I20/I31),"-")
+  *    FINMO	Return on Assets	7
+         was =IFERROR(IF(J31<=0,"-",J20/J31),"-")
+         now =IFERROR(IF(J31<0.005,"-",J20/J31),"-")
+  *    FINMO	Return on Assets	8
+         was =IFERROR(IF(K31<=0,"-",K20/K31),"-")
+         now =IFERROR(IF(K31<0.005,"-",K20/K31),"-")
+  *    FINMO	Return on Assets	9
+         was =IFERROR(IF(L31<=0,"-",L20/L31),"-")
+         now =IFERROR(IF(L31<0.005,"-",L20/L31),"-")
+  *    FINMO	Return on Equity	0
+         was =IFERROR(IF(C42<=0,"-",C20/C42),"-")
+         now =IFERROR(IF(C42<0.005,"-",C20/C42),"-")
+  *    FINMO	Return on Equity	1
+         was =IFERROR(IF(D42<=0,"-",D20/D42),"-")
+         now =IFERROR(IF(D42<0.005,"-",D20/D42),"-")
+  *    FINMO	Return on Equity	10
+         was =IFERROR(IF(M42<=0,"-",M20/M42),"-")
+         now =IFERROR(IF(M42<0.005,"-",M20/M42),"-")
+  *    FINMO	Return on Equity	11
+         was =IFERROR(IF(N42<=0,"-",N20/N42),"-")
+         now =IFERROR(IF(N42<0.005,"-",N20/N42),"-")
+  *    FINMO	Return on Equity	12
+         was =IFERROR(IF(O42<=0,"-",O20/O42),"-")
+         now =IFERROR(IF(O42<0.005,"-",O20/O42),"-")
+  *    FINMO	Return on Equity	13
+         was =IFERROR(IF(P42<=0,"-",P20/P42),"-")
+         now =IFERROR(IF(P42<0.005,"-",P20/P42),"-")
+  *    FINMO	Return on Equity	14
+         was =IFERROR(IF(Q42<=0,"-",Q20/Q42),"-")
+         now =IFERROR(IF(Q42<0.005,"-",Q20/Q42),"-")
+  *    FINMO	Return on Equity	15
+         was =IFERROR(IF(R42<=0,"-",R20/R42),"-")
+         now =IFERROR(IF(R42<0.005,"-",R20/R42),"-")
+  *    FINMO	Return on Equity	16
+         was =IFERROR(IF(S42<=0,"-",S20/S42),"-")
+         now =IFERROR(IF(S42<0.005,"-",S20/S42),"-")
+  *    FINMO	Return on Equity	17
+         was =IFERROR(IF(T42<=0,"-",T20/T42),"-")
+         now =IFERROR(IF(T42<0.005,"-",T20/T42),"-")
+  *    FINMO	Return on Equity	18
+         was =IFERROR(IF(U42<=0,"-",U20/U42),"-")
+         now =IFERROR(IF(U42<0.005,"-",U20/U42),"-")
+  *    FINMO	Return on Equity	19
+         was =IFERROR(IF(V42<=0,"-",V20/V42),"-")
+         now =IFERROR(IF(V42<0.005,"-",V20/V42),"-")
+  *    FINMO	Return on Equity	2
+         was =IFERROR(IF(E42<=0,"-",E20/E42),"-")
+         now =IFERROR(IF(E42<0.005,"-",E20/E42),"-")
+  *    FINMO	Return on Equity	20
+         was =IFERROR(IF(W42<=0,"-",W20/W42),"-")
+         now =IFERROR(IF(W42<0.005,"-",W20/W42),"-")
+  *    FINMO	Return on Equity	21
+         was =IFERROR(IF(X42<=0,"-",X20/X42),"-")
+         now =IFERROR(IF(X42<0.005,"-",X20/X42),"-")
+  *    FINMO	Return on Equity	22
+         was =IFERROR(IF(Y42<=0,"-",Y20/Y42),"-")
+         now =IFERROR(IF(Y42<0.005,"-",Y20/Y42),"-")
+  *    FINMO	Return on Equity	23
+         was =IFERROR(IF(Z42<=0,"-",Z20/Z42),"-")
+         now =IFERROR(IF(Z42<0.005,"-",Z20/Z42),"-")
+  *    FINMO	Return on Equity	24
+         was =IFERROR(IF(AA42<=0,"-",AA20/AA42),"-")
+         now =IFERROR(IF(AA42<0.005,"-",AA20/AA42),"-")
+  *    FINMO	Return on Equity	25
+         was =IFERROR(IF(AB42<=0,"-",AB20/AB42),"-")
+         now =IFERROR(IF(AB42<0.005,"-",AB20/AB42),"-")
+  *    FINMO	Return on Equity	3
+         was =IFERROR(IF(F42<=0,"-",F20/F42),"-")
+         now =IFERROR(IF(F42<0.005,"-",F20/F42),"-")
+  *    FINMO	Return on Equity	4
+         was =IFERROR(IF(G42<=0,"-",G20/G42),"-")
+         now =IFERROR(IF(G42<0.005,"-",G20/G42),"-")
+  *    FINMO	Return on Equity	5
+         was =IFERROR(IF(H42<=0,"-",H20/H42),"-")
+         now =IFERROR(IF(H42<0.005,"-",H20/H42),"-")
+  *    FINMO	Return on Equity	6
+         was =IFERROR(IF(I42<=0,"-",I20/I42),"-")
+         now =IFERROR(IF(I42<0.005,"-",I20/I42),"-")
+  *    FINMO	Return on Equity	7
+         was =IFERROR(IF(J42<=0,"-",J20/J42),"-")
+         now =IFERROR(IF(J42<0.005,"-",J20/J42),"-")
+  *    FINMO	Return on Equity	8
+         was =IFERROR(IF(K42<=0,"-",K20/K42),"-")
+         now =IFERROR(IF(K42<0.005,"-",K20/K42),"-")
+  *    FINMO	Return on Equity	9
+         was =IFERROR(IF(L42<=0,"-",L20/L42),"-")
+         now =IFERROR(IF(L42<0.005,"-",L20/L42),"-")

@@ -101,6 +101,13 @@ def _add_annual_ratio_formulas(
     set_formula_style(cell, number_format=number_format)
 
 
+#: Half a cent. Any balance below it is zero - the threshold under which a
+#: rounding crumb (an ulp left by Excel reproducing python) is treated as the
+#: payoff it is, rather than a balance that keeps accruing interest or
+#: depreciating forever. Shared by every closing balance on these sheets.
+SUB_CENT = "0.005"
+
+
 def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
   ws = create_sheet(wb, REVENUE_SHEET)
   apply_base_style(ws)
@@ -429,7 +436,8 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
 
     Scheduled principal = (Opening + New) / remaining term   (formula)
     Extra principal     = engine repayment - scheduled       (INPUT column)
-    Principal           = MIN(Opening + New, MAX(0, Scheduled + Extra))
+    Principal           = MIN(Opening + New, MAX(0, ROUND(Scheduled + Extra, 6)))
+    Closing             = Opening + New - Principal, zero below half a cent
     Payment             = Interest + Principal
 
   Opening-over-remaining-term reproduces the engine's straight-line base
@@ -621,17 +629,29 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
                     f'+{local_ref(r, c_new)})'
                     f'/MAX(1,{local_ref(r, c_term)}-{elapsed}))')
       ws.cell(r, c_extra, value=extra_value)
+      # A ROUNDING CRUMB MUST NEVER BREAK THE MODEL (CW-043 TURN A). Excel's
+      # sched + extra reproduces the engine's repayment only to within an
+      # ulp; on Harrow 85f5825d the Q7 payoff landed at 11756.999999999998,
+      # MAX(0, open - prin) kept the 5e-12 of debt left over, interest accrued
+      # on it for thirteen quarters and FINMO's coverage ratios printed 1e17.
+      # So principal lands on the engine's own 6-dp grid, and a closing
+      # balance under half a cent IS zero - a payoff is a payoff.
       ws.cell(r, c_prin,
               value=f"=MIN({local_ref(r, c_open)}+{local_ref(r, c_new)},"
-                    f"MAX(0,{local_ref(r, c_sched)}+{local_ref(r, c_extra)}))")
-      ws.cell(r, c_close, value=f"=MAX(0,{local_ref(r, c_open)}+{local_ref(r, c_new)}"
-                                f"-{local_ref(r, c_prin)})")
+                    f"MAX(0,ROUND({local_ref(r, c_sched)}+{local_ref(r, c_extra)},6)))")
+      _left = f"{local_ref(r, c_open)}+{local_ref(r, c_new)}-{local_ref(r, c_prin)}"
+      ws.cell(r, c_close, value=f"=IF({_left}<{SUB_CENT},0,{_left})")
       if interest_kind == "average_balance":
-        ws.cell(r, c_int, value=f"=(({local_ref(r, c_open)}+{local_ref(r, c_close)})/2)"
-                                f"*{local_ref(r, c_rate)}")
+        live_interest = (f"(({local_ref(r, c_open)}+{local_ref(r, c_close)})/2)"
+                         f"*{local_ref(r, c_rate)}")
       else:
-        ws.cell(r, c_int, value=f'=IF({period_ref}="Stub",0,'
-                                f'{local_ref(r, c_open)}*{local_ref(r, c_rate)})')
+        live_interest = f"{local_ref(r, c_open)}*{local_ref(r, c_rate)}"
+      # The stub is the historical anchor period: the engine schedules no
+      # interest in it (debt_interest_expense = 0 at the stub, lease likewise),
+      # and the stub's P&L interest is the client's STATED figure carried on
+      # Model Inputs - not this cell. Live rows carry the bare formula.
+      ws.cell(r, c_int, value=(f'=IF({period_ref}="Stub",0,{live_interest})' if stub
+                               else f"={live_interest}"))
       ws.cell(r, c_pay, value=f"={local_ref(r, c_int)}+{local_ref(r, c_prin)}")
 
     # ---- debt
@@ -763,9 +783,8 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
               f"+SUMPRODUCT((COLUMN({window})>COLUMN({local_ref(rou_add_row, col)})-{term})*{window})")
       cap = f"{local_ref(rou_open_row, col)}+{add}"
       ws.cell(rou_dep_row, col, value=f"=MIN(({cost})/{term},{cap})")
-    ws.cell(rou_close_row, col,
-            value=f"=MAX(0,{local_ref(rou_open_row, col)}+{add}"
-                  f"-{local_ref(rou_dep_row, col)})")
+    _rou_left = f"{local_ref(rou_open_row, col)}+{add}-{local_ref(rou_dep_row, col)}"
+    ws.cell(rou_close_row, col, value=f"=IF({_rou_left}<{SUB_CENT},0,{_rou_left})")
 
   for r_ in range(bridge_top - 1, rou_close_row + 1):
     ws.row_dimensions[r_].hidden = True
@@ -874,7 +893,8 @@ def build_capex_depreciation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBui
     #
     # The row stays as a memo and keeps its Checks tie-out to the Debt
     # Schedule; it just no longer double-counts into owned PPE.
-    ws.cell(closing, col, value=f"=MAX(0,{local_ref(opening, col)}+{local_ref(capex, col)}-{local_ref(dep_exp, col)})")
+    _ppe_left = f"{local_ref(opening, col)}+{local_ref(capex, col)}-{local_ref(dep_exp, col)}"
+    ws.cell(closing, col, value=f"=IF({_ppe_left}<{SUB_CENT},0,{_ppe_left})")
     ws.cell(opening_acc, col, value=number(schedules.get("accumulated_depreciation_opening_seed")) if idx == 0 else f"={local_ref(acc, col - 1)}")
     ws.cell(acc, col, value=f"={local_ref(opening_acc, col)}-{local_ref(dep_exp, col)}")
   for label, fmt, annual_mode in labels:

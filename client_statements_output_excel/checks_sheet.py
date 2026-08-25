@@ -498,8 +498,11 @@ def _add_debt_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       row,
       line_item="Interest expense formula",
       sheet=DEBT_SHEET,
-      range_or_cell=rr("Interest Expense"),
-      actual_formula=f"=SUMPRODUCT(ABS({rr('Interest Expense')}-((({rr('Opening Debt')}+{rr('Closing Debt')})/2)*{rr('Interest Rate per quarter')})))",
+      # Live quarters only: the stub is the historical anchor and schedules
+      # no interest (the engine's debt_interest_expense is 0 there), so the
+      # average-balance formula is a forecast property, not a stub one.
+      range_or_cell=rr("Interest Expense", FIRST_LIVE_COL, PERIOD_END_COL),
+      actual_formula=f"=SUMPRODUCT(ABS({rr('Interest Expense', FIRST_LIVE_COL, PERIOD_END_COL)}-((({rr('Opening Debt', FIRST_LIVE_COL, PERIOD_END_COL)}+{rr('Closing Debt', FIRST_LIVE_COL, PERIOD_END_COL)})/2)*{rr('Interest Rate per quarter', FIRST_LIVE_COL, PERIOD_END_COL)})))",
       tolerance=1.0,
       notes="Interest expense must equal average debt balance times interest rate.",
     )

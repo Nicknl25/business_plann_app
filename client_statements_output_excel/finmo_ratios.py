@@ -173,14 +173,18 @@ def fill_ratio_formulas(ws, ctx: WorkbookBuildContext) -> None:
       design.calculated_cell(cell, number_format=_FORMATS[kind])
 
     def guarded(numerator: str, denominator: str, *, pct: bool = False) -> str:
-      return f'=IFERROR(IF({denominator}<=0,"-",{numerator}/{denominator}),"-")'
+      # A ratio never divides by a crumb (CW-043 TURN A). A denominator under
+      # half a cent is the zero it would be on any statement - Harrow's paid-
+      # off loan left 5e-12 of interest and Interest Coverage printed 2e17
+      # where "-" belonged. Same dash as an exact zero or a negative.
+      return f'=IFERROR(IF({denominator}<0.005,"-",{numerator}/{denominator}),"-")'
 
     put("Current Ratio", guarded(ca, cl), "ratio")
     put("Quick Ratio", guarded(f"({cash}+{ar})", cl), "ratio")
     put("Working Capital", f"={ca}-{cl}", "money")
     months = 12 if is_annual else 3
     put("Cash as Months of Operating Cost",
-        f'=IFERROR(IF(({cogs}+{opex_block})<=0,"-",{cash}/(({cogs}+{opex_block})/{months})),"-")', "ratio")
+        f'=IFERROR(IF(({cogs}+{opex_block})<0.005,"-",{cash}/(({cogs}+{opex_block})/{months})),"-")', "ratio")
 
     put("Total Debt", f"={total_debt}", "money")
     put("Net Debt", f"={total_debt}-{cash}", "money")
