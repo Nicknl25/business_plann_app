@@ -1,7 +1,7 @@
 {
- "version": 5,
- "updated": "2026-08-22",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run.",
+ "version": 7,
+ "updated": "2026-08-24",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run. CW-042 killed at the people stage on a payroll regression; the CW-041 fix it was meant to confirm was never reached, and the workbook targets are now two runs overdue. CW-043 reached the workbook on the third attempt and proved both earlier kills would have healed; it also surfaced the non-amortizing capital lease, which only a both-instruments persona could reach.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -215,9 +215,11 @@
     "commercial grounds maintenance contracts plus one-off install projects, term loan plus equipment lease"
    ],
    "runs": [
-    "CW-041"
+    "CW-041",
+    "CW-042",
+    "CW-043"
    ],
-   "note": "NEW business type, chosen specifically to put a real loan AND a real lease into the Debt Schedule. Still the right persona for that test; needs a re-run after the rent overwrite is fixed."
+   "note": "Chosen to put a real loan AND a real lease into the Debt Schedule. Killed twice before the workbook (CW-041 rent overwrite, CW-042 owner payroll duplicate), reached it on the third attempt under a run-to-completion mandate - and immediately surfaced the non-amortizing lease that no other persona could have found."
   }
  },
  "friction_conditions": {
@@ -867,7 +869,9 @@
     "CW-038",
     "CW-039",
     "CW-040",
-    "CW-041"
+    "CW-041",
+    "CW-042",
+    "CW-043"
    ],
    "note": "PASSING across three business types now - print (CW-037, CW-038) and auto repair (CW-039). 'Parts are already inside the repair order, on the same ticket, not a separate thing we sell' latched merged_into:Auto repair service with no phantom, and the paired tire-sales candidate latched declined in the same turn."
   },
@@ -909,13 +913,16 @@
   },
   "two_lines_inferred_from_prose_with_different_cadences": {
    "runs": [
-    "CW-041"
+    "CW-041",
+    "CW-042",
+    "CW-043"
    ],
    "note": "NEW and PASSING. The app read two lines out of the opening description and set both up with correct and DIFFERENT cadences - maintenance monthly, installs per-contract - before asking any capacity question. Cleanest line setup seen so far."
   },
   "concurrency_versus_throughput_unit": {
    "runs": [
-    "CW-041"
+    "CW-041",
+    "CW-042"
    ],
    "note": "NEW and PASSING. Install capacity is naturally concurrent, not throughput. Client said three at a time and about 30 a year; the app reconciled out loud (3 slots x ~10 turns) and asked whether 10 or 12 turns per slot fit better, then applied 10."
   },
@@ -924,6 +931,49 @@
     "CW-041"
    ],
    "note": "NEW and PASSING. 'Not this year' to the capex question produced 'I was not able to apply that change yet. What current capital spending amount should I record' rather than a silent zero. Same class as A-118 on the discovery side, and handled correctly here."
+  },
+  "owner_wage_double_counted_as_second_payroll_person": {
+   "runs": [
+    "CW-042"
+   ],
+   "note": "NEW and FAILING - blocker, and a REGRESSION between de7c8f1 and e4fb9a4. One owner answer produced two rows in payroll_basis_people_roles: (no title):95000 and Owner:95000.04. payroll_total_year1 314,000.04 against three stated salaries summing to 219,000. Survived the stage's own narrative generation and printed a phantom person, 'Owner (payroll allocation)', with its own biography and wage, between the owner and the first crew lead. CW-041 ran the identical answer on the previous build and produced 219,000.04 with three rows and no extra paragraph."
+  },
+  "discovery_candidate_declined_outright": {
+   "runs": [
+    "CW-042",
+    "CW-043"
+   ],
+   "note": "NEW and PASSING. Snow removal was proposed and is genuinely real for a Kansas commercial landscaper, but not for this persona, who explained why (no plows, no salt, refers it out). Latched declined while the other three candidates merged into the maintenance contract. Correct handling of a candidate that is plausible for the industry but false for the business."
+  },
+  "debt_schedule_with_loan_and_lease_both_populated": {
+   "runs": [
+    "CW-043"
+   ],
+   "note": "NEW - the longest-standing untested target in the campaign, finally exercised. The sheet is a true vertical amortization table: one row per period (Stub, Q1..Q20) with three blocks - Debt, Capital lease, Combined. Debt half fully correct (180,000 opening, 5,625/quarter principal, accelerating Q7-Q8, closing 0). Lease half populated but non-amortizing - see capital_lease_liability_never_amortizes."
+  },
+  "capital_lease_liability_never_amortizes": {
+   "runs": [
+    "CW-043"
+   ],
+   "note": "NEW and FAILING - major. Lease Term reads 20 quarters, Lease Principal is 0 in every one of the 21 periods, Payment equals Interest exactly at 1,317.50, and Lease Closing Balance stays 62,000 from stub through Q20, while the right-of-use asset amortizes correctly at 3,100/quarter to zero. FINMO Capital Lease Obligation agrees at 62,000 throughout. Books still balance and Checks reads OK because the liability is frozen rather than mis-added, so no existing tie-out catches it."
+  },
+  "marketing_schedule_sheet_verified": {
+   "runs": [
+    "CW-043"
+   ],
+   "note": "NEW and PASSING on content. Sheet present as the 16th tab and genuinely populated - retention, purchases per firm, cost to acquire, returning vs new firms, spend, marketing pct, and a sourcing block labelling inputs ASSUMPTION or derived. One fidelity issue filed: the row labelled 'the figure your plan was built on' reads 0.02 at stub but 0.04 across the forecast, and forecast Y1 spend is about 61,792 against the 22,000 the client stated."
+  },
+  "owner_duplicate_heals_before_submit": {
+   "runs": [
+    "CW-043"
+   ],
+   "note": "NEW and important for TEST METHOD, not a defect row. A-132 reproduced exactly - 2 roster rows and payroll 190,000 after the owner answer, 4 rows and 314,000 after the crew leads, phantom second-owner paragraph in the narrative - then healed at the narrative-correction turn to 3 properly-titled rows and exactly 219,000, settling at 599,000. CW-042 was killed one turn before this. Evidence that mid-intake stored values are genuinely intermediate."
+  },
+  "restructure_attempt_artifact_produced": {
+   "runs": [
+    "CW-043"
+   ],
+   "note": "NEW - first sighting of the restructure net producing a visible artifact (A-121 territory). A second workbook was written alongside the main one: 'Halbrook Grounds Management RESTRUCTURE ATTEMPT - viable candidate', 16 sheets, full Cover and Dashboard, 151KB. Not yet analysed in depth."
   }
  },
  "verdict_classes_reached": {
@@ -1718,6 +1768,45 @@
    "headline": "Strongest intake behaviour of the campaign up to the kill - two lines with different cadences inferred straight from the opening description, concurrency reconciled against annual throughput by reasoning out loud, four discovery candidates merged correctly, an unparsed capex answer surfaced instead of silently defaulted. Then a blocker: answering the leased-equipment question (which asks MONTHLY) with a lease that bills QUARTERLY put the quarterly figure into monthly rent. The 16-sheet workbook, Marketing Schedule, loan-plus-lease Debt Schedule and Checks B2 all remain UNTESTED.",
    "issues_filed": 1,
    "blockers": 1
+  },
+  "CW-042": {
+   "persona": "Rafael Ostrowski - commercial landscaping, verbatim re-run of CW-041",
+   "business": "Halbrook Grounds Management",
+   "city": "Overland Park KS",
+   "type": "commercial_landscaping",
+   "draft_id": "6bddab1a222e4d8fadb9ceb2bb4ba68a",
+   "stack": "e4fb9a4 on intake-stable (A-130 fix ef2d6e7 present but never reached)",
+   "outcome": "KILLED at the people stage on a NEW REGRESSION. One owner answer produced two payroll roster rows (95,000 and 95,000.04), overstating payroll by 43 percent, and the duplicate reached the client-facing narrative as a phantom person titled 'Owner (payroll allocation)'. Never reached the leased-equipment question.",
+   "verdict_correct": null,
+   "conditions_hit": [
+    "owner_wage_double_counted_as_second_payroll_person",
+    "two_lines_inferred_from_prose_with_different_cadences",
+    "concurrency_versus_throughput_unit",
+    "discovery_candidate_declined_outright"
+   ],
+   "headline": "Second consecutive kill on this persona, different defect, and this one is a REGRESSION - CW-041 ran the identical owner answer on the previous build and got the correct 219,000. The 95,000.04 duplicate row is 7,916.67 x 12, so it was rebuilt from the monthly derivative rather than the source answer. Good news alongside it: the CW-041 cross-line bleed is gone, LOB1 stayed null until asked. The A-130 rent/lease fix, 16 sheets, Marketing Schedule, the loan-plus-lease Debt Schedule and Checks B2 are ALL still untested - this persona has now been burned twice without reaching a workbook.",
+   "issues_filed": 1,
+   "blockers": 1
+  },
+  "CW-043": {
+   "persona": "Rafael Ostrowski - commercial landscaping, third attempt, run-to-completion mandate",
+   "business": "Halbrook Grounds Management",
+   "city": "Overland Park KS",
+   "type": "commercial_landscaping",
+   "draft_id": "ecd0e148a4934a14bb66924048bd036c",
+   "stack": "e4fb9a4 on intake-stable",
+   "outcome": "COMPLETE - reached a finished 16-sheet workbook. Reference AHILQMO57743618052, submission #86. All four never-tested targets verified at the file.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "debt_schedule_with_loan_and_lease_both_populated",
+    "marketing_schedule_sheet_verified",
+    "capital_lease_liability_never_amortizes",
+    "owner_duplicate_heals_before_submit",
+    "restructure_attempt_artifact_produced"
+   ],
+   "headline": "Third time reached the workbook, and it vindicated the run-to-completion mandate: the A-132 owner duplicate reproduced exactly (payroll 190,000 then 314,000, phantom owner paragraph and all) then HEALED at the narrative-correction turn to exactly 219,000, then 599,000. Both prior kills would have shipped correct numbers. TARGETS: 16 sheets incl Marketing Schedule with real content; Debt Schedule IS a vertical amortization table with BOTH the 180,000 loan and the 62,000 lease populated - first time ever; Checks B2 = OK with 219 OK rows and zero FAILs; books balance with difference 0 at Q1 and Q20. THE FIND: the lease half never amortizes - Term 20 quarters, Principal 0 in all 21 periods, Closing frozen at 62,000, while the right-of-use asset correctly depreciates to zero. Only a persona carrying both instruments could surface it.",
+   "issues_filed": 2,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1744,7 +1833,8 @@
     "CW-035",
     "CW-038",
     "CW-039",
-    "CW-040"
+    "CW-040",
+    "CW-043"
    ]
   },
   "parked": {
@@ -1778,7 +1868,8 @@
   "killed_at_decision_point": {
    "runs": [
     "CW-034",
-    "CW-041"
+    "CW-041",
+    "CW-042"
    ]
   }
  }
