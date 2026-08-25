@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-fault
 
 TURN: 4/16
 
