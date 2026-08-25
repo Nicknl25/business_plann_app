@@ -991,8 +991,9 @@ def build_cash_equity_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildConte
   set_title(ws, "Cash & Equity Schedule",
             "Equity balances and distributions. Model Inputs links to these rows. "
             "Owner's Capital and Other Equity are BALANCES: type a new level into a "
-            "quarter and it carries to every quarter after it. Distributions are "
-            "paid in the quarter you enter them.")
+            "quarter and it carries to every quarter after it - any contributions "
+            "your plan already makes in later quarters are added on top of the level "
+            "you set. Distributions are paid in the quarter you enter them.")
   write_period_headers(ws, data.periods)
   balance_by_label = row_by_label(data.balance_sheet_rows)
   row = 6
@@ -1006,10 +1007,17 @@ def build_cash_equity_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildConte
   # change in it, r56), so each quarter references the quarter before it and
   # one edit flows all the way right. The stub seeds the chain.
   #
-  # A literal survives ONLY where the engine's own series steps (the cash
-  # pass injects equity in 88 of 400 drafts - 70,000 -> 217,892 -> 247,427 ...)
-  # so no delivered figure moves: a step quarter is an authored contribution
-  # level and stays one; the flat stretches between steps are the chain.
+  # WHERE THE ENGINE'S OWN SERIES STEPS (the cash pass injects equity - 652
+  # of 2,006 stored drafts step at Q2 or later), the step quarter is written
+  # as ROUND(previous + the authored contribution, 6): the contribution rides
+  # on top of whatever level is in force, so a client's edit before a step
+  # still carries all the way to Q20 and the plan's own injections still land.
+  # A step written as a LEVEL literal (the first version) snapped the client's
+  # edit back to the engine's number at the step - the very reversal this
+  # chain exists to remove (mini, 2026-08-25, Third Coast Q10 -> Q11). The
+  # ROUND to the engine's 6-dp grid is the same guard as the Debt Schedule's
+  # payoff fix: previous + delta reproduces the authored level only to an ulp
+  # in Excel, and the grid lands it exactly. The stub is the one literal.
   #
   # DISTRIBUTIONS ARE NOT CHAINED. They are a per-quarter FLOW - FINMO r57
   # pays them out in the quarter they appear and retained earnings subtracts
@@ -1023,14 +1031,22 @@ def build_cash_equity_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildConte
                        number_format=CURRENCY_FORMAT)
     else:
       ws.cell(row=row, column=1, value=label)
-      ws.cell(row=row, column=2, value="Balance - a new level carries forward")
+      ws.cell(row=row, column=2,
+              value="Balance - a new level carries forward; planned contributions add on top")
       for idx in range(PERIOD_COUNT):
         col = PERIOD_START_COL + idx
         value = number(values[idx]) or 0.0
-        prev = number(values[idx - 1]) or 0.0 if idx else None
-        chained = idx > 0 and abs(value - prev) <= 1e-9
-        cell = ws.cell(row=row, column=col,
-                       value=f"={local_ref(row, col - 1)}" if chained else value)
+        if idx == 0:
+          formula = value  # the stub seeds the chain
+        else:
+          prev_ref = local_ref(row, col - 1)
+          delta = value - (number(values[idx - 1]) or 0.0)
+          if abs(delta) <= 1e-9:
+            formula = f"={prev_ref}"
+          else:
+            sign = "-" if delta < 0 else "+"
+            formula = f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
+        cell = ws.cell(row=row, column=col, value=formula)
         set_input_style(cell, number_format=CURRENCY_FORMAT)
     ctx.add_schedule_row(CASH_EQUITY_SHEET, label, row)
     style_row(ws, row, number_format=CURRENCY_FORMAT)

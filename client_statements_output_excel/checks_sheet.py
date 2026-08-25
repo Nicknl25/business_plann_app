@@ -721,6 +721,24 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
     expected_range=range_ref(CAPEX_SHEET, ctx.schedule_row(CAPEX_SHEET, "Lease Additions"), PERIOD_START_COL, PERIOD_END_COL),
     notes="Lease additions must affect PPE/depreciation through the CapEx schedule.",
   )
+  # LEASE/RENT REACHES FINMO FROM THE ENGINE (repointed 2026-08-25). The old
+  # tie compared the Cash & Equity Schedule's Lease literals to Model Inputs'
+  # link to those same literals - it proved a link existed, nothing about the
+  # number. Model Inputs now takes Lease from the expense row directly, so the
+  # whole path (expense row -> Model Inputs -> FINMO) is tied to the figure the
+  # engine persisted: the Audit Source Income Statement Lease/Rent line.
+  _lease_actual = ctx.finmo_row("Income Statement", "Lease/Rent")
+  _lease_expected = ctx.source_row("Income Statement", "Lease/Rent")
+  if _lease_actual and _lease_expected:
+    row = _write_range_tie(
+      ws,
+      row,
+      category="Schedule Bridge",
+      line_item="Lease/rent reaches FINMO from the engine",
+      actual_range=range_ref(FINMO_SHEET, _lease_actual, PERIOD_START_COL, PERIOD_END_COL),
+      expected_range=range_ref(SOURCE_SHEET, _lease_expected, PERIOD_START_COL, PERIOD_END_COL),
+      notes="Operating lease/rent on FINMO must equal the engine's persisted Lease/Rent line, every quarter.",
+    )
   row = _add_payroll_detail_math_checks(ws, row, ctx)
 
   row += 1

@@ -1,0 +1,16 @@
+  progress 20/242 ok=20 miss=0 skip=0 62s
+  progress 40/242 ok=40 miss=0 skip=0 123s
+  progress 60/242 ok=60 miss=0 skip=0 185s
+  progress 80/242 ok=80 miss=0 skip=0 248s
+  progress 100/242 ok=100 miss=0 skip=0 311s
+  progress 120/242 ok=120 miss=0 skip=0 374s
+  progress 140/242 ok=140 miss=0 skip=0 438s
+  progress 160/242 ok=160 miss=0 skip=0 501s
+  progress 180/242 ok=180 miss=0 skip=0 564s
+  progress 200/242 ok=200 miss=0 skip=0 627s
+  skip e606a5ee: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip acbecef5: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip 8f1c539a: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  progress 220/242 ok=217 miss=0 skip=3 682s
+  progress 240/242 ok=237 miss=0 skip=3 745s
+SWEEP DONE: drafts=242 ok=239 miss=0 skip=3 in 751s

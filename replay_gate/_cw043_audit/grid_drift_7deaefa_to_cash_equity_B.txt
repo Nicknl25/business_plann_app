@@ -1,0 +1,1203 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    cf77a0b03ef11a39c7da17efee10f91dc720ede36daf50e67f4eec4ed67da600
+GRID   11 sheets, 8079 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    4a847716136897ce2875013fb03ff015895a900b1ed2b0569c8878a6b04703a9
+GRID   11 sheets, 8082 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8079 shared cells, 397 CHANGED, 0 only in wt_head, 3 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  +    Checks	Schedule Bridge	12	=SUMPRODUCT(ABS('FINMO'!C13:W13-'Audit Source'!C12:W12))
+  +    Checks	Schedule Bridge	13	=E16-F16
+  +    Checks	Schedule Bridge	14	=IF(ABS(G16)<=H16,"OK","FAIL")
+  *    Checks	Formula Error Scan	1
+         was =E203-F203
+         now =E204-F204
+  *    Checks	Formula Error Scan	10
+         was =E206-F206
+         now =E207-F207
+  *    Checks	Formula Error Scan	11
+         was =IF(E206=0,"OK","FAIL")
+         now =IF(E207=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	13
+         was =E207-F207
+         now =E208-F208
+  *    Checks	Formula Error Scan	14
+         was =IF(E207=0,"OK","FAIL")
+         now =IF(E208=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	16
+         was =E208-F208
+         now =E209-F209
+  *    Checks	Formula Error Scan	17
+         was =IF(E208=0,"OK","FAIL")
+         now =IF(E209=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	19
+         was =E209-F209
+         now =E210-F210
+  *    Checks	Formula Error Scan	2
+         was =IF(E203=0,"OK","FAIL")
+         now =IF(E204=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	20
+         was =IF(E209=0,"OK","FAIL")
+         now =IF(E210=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	4
+         was =E204-F204
+         now =E205-F205
+  *    Checks	Formula Error Scan	5
+         was =IF(E204=0,"OK","FAIL")
+         now =IF(E205=0,"OK","FAIL")
+  *    Checks	Formula Error Scan	7
+         was =E205-F205
+         now =E206-F206
+  *    Checks	Formula Error Scan	8
+         was =IF(E205=0,"OK","FAIL")
+         now =IF(E206=0,"OK","FAIL")
+  *    Checks	Formula Logic	1
+         was =E22-F22
+         now =E23-F23
+  *    Checks	Formula Logic	10
+         was =E25-F25
+         now =E26-F26
+  *    Checks	Formula Logic	11
+         was =IF(ABS(G25)<=H25,"OK","FAIL")
+         now =IF(ABS(G26)<=H26,"OK","FAIL")
+  *    Checks	Formula Logic	13
+         was =E26-F26
+         now =E27-F27
+  *    Checks	Formula Logic	14
+         was =IF(ABS(G26)<=H26,"OK","FAIL")
+         now =IF(ABS(G27)<=H27,"OK","FAIL")
+  *    Checks	Formula Logic	16
+         was =E27-F27
+         now =E28-F28
+  *    Checks	Formula Logic	17
+         was =IF(ABS(G27)<=H27,"OK","FAIL")
+         now =IF(ABS(G28)<=H28,"OK","FAIL")
+  *    Checks	Formula Logic	19
+         was =E28-F28
+         now =E29-F29
+  *    Checks	Formula Logic	2
+         was =IF(ABS(G22)<=H22,"OK","FAIL")
+         now =IF(ABS(G23)<=H23,"OK","FAIL")
+  *    Checks	Formula Logic	20
+         was =IF(ABS(G28)<=H28,"OK","FAIL")
+         now =IF(ABS(G29)<=H29,"OK","FAIL")
+  *    Checks	Formula Logic	22
+         was =E29-F29
+         now =E30-F30
+  *    Checks	Formula Logic	23
+         was =IF(ABS(G29)<=H29,"OK","FAIL")
+         now =IF(ABS(G30)<=H30,"OK","FAIL")
+  *    Checks	Formula Logic	25
+         was =E30-F30
+         now =E31-F31
+  *    Checks	Formula Logic	26
+         was =IF(ABS(G30)<=H30,"OK","FAIL")
+         now =IF(ABS(G31)<=H31,"OK","FAIL")
+  *    Checks	Formula Logic	28
+         was =E31-F31
+         now =E32-F32
+  *    Checks	Formula Logic	29
+         was =IF(ABS(G31)<=H31,"OK","FAIL")
+         now =IF(ABS(G32)<=H32,"OK","FAIL")
+  *    Checks	Formula Logic	31
+         was =E32-F32
+         now =E33-F33
+  *    Checks	Formula Logic	32
+         was =IF(ABS(G32)<=H32,"OK","FAIL")
+         now =IF(ABS(G33)<=H33,"OK","FAIL")
+  *    Checks	Formula Logic	34
+         was =E33-F33
+         now =E34-F34
+  *    Checks	Formula Logic	35
+         was =IF(ABS(G33)<=H33,"OK","FAIL")
+         now =IF(ABS(G34)<=H34,"OK","FAIL")
+  *    Checks	Formula Logic	37
+         was =E34-F34
+         now =E35-F35
+  *    Checks	Formula Logic	38
+         was =IF(ABS(G34)<=H34,"OK","FAIL")
+         now =IF(ABS(G35)<=H35,"OK","FAIL")
+  *    Checks	Formula Logic	4
+         was =E23-F23
+         now =E24-F24
+  *    Checks	Formula Logic	40
+         was =E35-F35
+         now =E36-F36
+  *    Checks	Formula Logic	41
+         was =IF(ABS(G35)<=H35,"OK","FAIL")
+         now =IF(ABS(G36)<=H36,"OK","FAIL")
+  *    Checks	Formula Logic	43
+         was =E36-F36
+         now =E37-F37
+  *    Checks	Formula Logic	44
+         was =IF(ABS(G36)<=H36,"OK","FAIL")
+         now =IF(ABS(G37)<=H37,"OK","FAIL")
+  *    Checks	Formula Logic	46
+         was =E37-F37
+         now =E38-F38
+  *    Checks	Formula Logic	47
+         was =IF(ABS(G37)<=H37,"OK","FAIL")
+         now =IF(ABS(G38)<=H38,"OK","FAIL")
+  *    Checks	Formula Logic	5
+         was =IF(ABS(G23)<=H23,"OK","FAIL")
+         now =IF(ABS(G24)<=H24,"OK","FAIL")
+  *    Checks	Formula Logic	7
+         was =E24-F24
+         now =E25-F25
+  *    Checks	Formula Logic	8
+         was =IF(ABS(G24)<=H24,"OK","FAIL")
+         now =IF(ABS(G25)<=H25,"OK","FAIL")
+  *    Checks	Formula Manifest	1
+         was =E40-F40
+         now =E41-F41
+  *    Checks	Formula Manifest	10
+         was =E43-F43
+         now =E44-F44
+  *    Checks	Formula Manifest	100
+         was =E73-F73
+         now =E74-F74
+  *    Checks	Formula Manifest	101
+         was =IF(G73=0,"OK","FAIL")
+         now =IF(G74=0,"OK","FAIL")
+  *    Checks	Formula Manifest	103
+         was =E74-F74
+         now =E75-F75
+  *    Checks	Formula Manifest	104
+         was =IF(G74=0,"OK","FAIL")
+         now =IF(G75=0,"OK","FAIL")
+  *    Checks	Formula Manifest	106
+         was =E75-F75
+         now =E76-F76
+  *    Checks	Formula Manifest	107
+         was =IF(G75=0,"OK","FAIL")
+         now =IF(G76=0,"OK","FAIL")
+  *    Checks	Formula Manifest	109
+         was =E76-F76
+         now =E77-F77
+  *    Checks	Formula Manifest	11
+         was =IF(G43=0,"OK","FAIL")
+         now =IF(G44=0,"OK","FAIL")
+  *    Checks	Formula Manifest	110
+         was =IF(G76=0,"OK","FAIL")
+         now =IF(G77=0,"OK","FAIL")
+  *    Checks	Formula Manifest	112
+         was =E77-F77
+         now =E78-F78
+  *    Checks	Formula Manifest	113
+         was =IF(G77=0,"OK","FAIL")
+         now =IF(G78=0,"OK","FAIL")
+  *    Checks	Formula Manifest	115
+         was =E78-F78
+         now =E79-F79
+  *    Checks	Formula Manifest	116
+         was =IF(G78=0,"OK","FAIL")
+         now =IF(G79=0,"OK","FAIL")
+  *    Checks	Formula Manifest	118
+         was =E79-F79
+         now =E80-F80
+  *    Checks	Formula Manifest	119
+         was =IF(G79=0,"OK","FAIL")
+         now =IF(G80=0,"OK","FAIL")
+  *    Checks	Formula Manifest	121
+         was =E80-F80
+         now =E81-F81
+  *    Checks	Formula Manifest	122
+         was =IF(G80=0,"OK","FAIL")
+         now =IF(G81=0,"OK","FAIL")
+  *    Checks	Formula Manifest	124
+         was =E81-F81
+         now =E82-F82
+  *    Checks	Formula Manifest	125
+         was =IF(G81=0,"OK","FAIL")
+         now =IF(G82=0,"OK","FAIL")
+  *    Checks	Formula Manifest	127
+         was =E82-F82
+         now =E83-F83
+  *    Checks	Formula Manifest	128
+         was =IF(G82=0,"OK","FAIL")
+         now =IF(G83=0,"OK","FAIL")
+  *    Checks	Formula Manifest	13
+         was =E44-F44
+         now =E45-F45
+  *    Checks	Formula Manifest	130
+         was =E83-F83
+         now =E84-F84
+  *    Checks	Formula Manifest	131
+         was =IF(G83=0,"OK","FAIL")
+         now =IF(G84=0,"OK","FAIL")
+  *    Checks	Formula Manifest	133
+         was =E84-F84
+         now =E85-F85
+  *    Checks	Formula Manifest	134
+         was =IF(G84=0,"OK","FAIL")
+         now =IF(G85=0,"OK","FAIL")
+  *    Checks	Formula Manifest	136
+         was =E85-F85
+         now =E86-F86
+  *    Checks	Formula Manifest	137
+         was =IF(G85=0,"OK","FAIL")
+         now =IF(G86=0,"OK","FAIL")
+  *    Checks	Formula Manifest	139
+         was =E86-F86
+         now =E87-F87
+  *    Checks	Formula Manifest	14
+         was =IF(G44=0,"OK","FAIL")
+         now =IF(G45=0,"OK","FAIL")
+  *    Checks	Formula Manifest	140
+         was =IF(G86=0,"OK","FAIL")
+         now =IF(G87=0,"OK","FAIL")
+  *    Checks	Formula Manifest	142
+         was =E87-F87
+         now =E88-F88
+  *    Checks	Formula Manifest	143
+         was =IF(G87=0,"OK","FAIL")
+         now =IF(G88=0,"OK","FAIL")
+  *    Checks	Formula Manifest	145
+         was =E88-F88
+         now =E89-F89
+  *    Checks	Formula Manifest	146
+         was =IF(G88=0,"OK","FAIL")
+         now =IF(G89=0,"OK","FAIL")
+  *    Checks	Formula Manifest	148
+         was =E89-F89
+         now =E90-F90
+  *    Checks	Formula Manifest	149
+         was =IF(G89=0,"OK","FAIL")
+         now =IF(G90=0,"OK","FAIL")
+  *    Checks	Formula Manifest	151
+         was =E90-F90
+         now =E91-F91
+  *    Checks	Formula Manifest	152
+         was =IF(G90=0,"OK","FAIL")
+         now =IF(G91=0,"OK","FAIL")
+  *    Checks	Formula Manifest	154
+         was =E91-F91
+         now =E92-F92
+  *    Checks	Formula Manifest	155
+         was =IF(G91=0,"OK","FAIL")
+         now =IF(G92=0,"OK","FAIL")
+  *    Checks	Formula Manifest	157
+         was =E92-F92
+         now =E93-F93
+  *    Checks	Formula Manifest	158
+         was =IF(G92=0,"OK","FAIL")
+         now =IF(G93=0,"OK","FAIL")
+  *    Checks	Formula Manifest	16
+         was =E45-F45
+         now =E46-F46
+  *    Checks	Formula Manifest	160
+         was =E93-F93
+         now =E94-F94
+  *    Checks	Formula Manifest	161
+         was =IF(G93=0,"OK","FAIL")
+         now =IF(G94=0,"OK","FAIL")
+  *    Checks	Formula Manifest	163
+         was =E94-F94
+         now =E95-F95
+  *    Checks	Formula Manifest	164
+         was =IF(G94=0,"OK","FAIL")
+         now =IF(G95=0,"OK","FAIL")
+  *    Checks	Formula Manifest	166
+         was =E95-F95
+         now =E96-F96
+  *    Checks	Formula Manifest	167
+         was =IF(G95=0,"OK","FAIL")
+         now =IF(G96=0,"OK","FAIL")
+  *    Checks	Formula Manifest	169
+         was =E96-F96
+         now =E97-F97
+  *    Checks	Formula Manifest	17
+         was =IF(G45=0,"OK","FAIL")
+         now =IF(G46=0,"OK","FAIL")
+  *    Checks	Formula Manifest	170
+         was =IF(G96=0,"OK","FAIL")
+         now =IF(G97=0,"OK","FAIL")
+  *    Checks	Formula Manifest	172
+         was =E97-F97
+         now =E98-F98
+  *    Checks	Formula Manifest	173
+         was =IF(G97=0,"OK","FAIL")
+         now =IF(G98=0,"OK","FAIL")
+  *    Checks	Formula Manifest	175
+         was =E98-F98
+         now =E99-F99
+  *    Checks	Formula Manifest	176
+         was =IF(G98=0,"OK","FAIL")
+         now =IF(G99=0,"OK","FAIL")
+  *    Checks	Formula Manifest	178
+         was =E99-F99
+         now =E100-F100
+  *    Checks	Formula Manifest	179
+         was =IF(G99=0,"OK","FAIL")
+         now =IF(G100=0,"OK","FAIL")
+  *    Checks	Formula Manifest	181
+         was =E100-F100
+         now =E101-F101
+  *    Checks	Formula Manifest	182
+         was =IF(G100=0,"OK","FAIL")
+         now =IF(G101=0,"OK","FAIL")
+  *    Checks	Formula Manifest	184
+         was =E101-F101
+         now =E102-F102
+  *    Checks	Formula Manifest	185
+         was =IF(G101=0,"OK","FAIL")
+         now =IF(G102=0,"OK","FAIL")
+  *    Checks	Formula Manifest	187
+         was =E102-F102
+         now =E103-F103
+  *    Checks	Formula Manifest	188
+         was =IF(G102=0,"OK","FAIL")
+         now =IF(G103=0,"OK","FAIL")
+  *    Checks	Formula Manifest	19
+         was =E46-F46
+         now =E47-F47
+  *    Checks	Formula Manifest	190
+         was =E103-F103
+         now =E104-F104
+  *    Checks	Formula Manifest	191
+         was =IF(G103=0,"OK","FAIL")
+         now =IF(G104=0,"OK","FAIL")
+  *    Checks	Formula Manifest	193
+         was =E104-F104
+         now =E105-F105
+  *    Checks	Formula Manifest	194
+         was =IF(G104=0,"OK","FAIL")
+         now =IF(G105=0,"OK","FAIL")
+  *    Checks	Formula Manifest	196
+         was =E105-F105
+         now =E106-F106
+  *    Checks	Formula Manifest	197
+         was =IF(G105=0,"OK","FAIL")
+         now =IF(G106=0,"OK","FAIL")
+  *    Checks	Formula Manifest	199
+         was =E106-F106
+         now =E107-F107
+  *    Checks	Formula Manifest	2
+         was =IF(G40=0,"OK","FAIL")
+         now =IF(G41=0,"OK","FAIL")
+  *    Checks	Formula Manifest	20
+         was =IF(G46=0,"OK","FAIL")
+         now =IF(G47=0,"OK","FAIL")
+  *    Checks	Formula Manifest	200
+         was =IF(G106=0,"OK","FAIL")
+         now =IF(G107=0,"OK","FAIL")
+  *    Checks	Formula Manifest	202
+         was =E107-F107
+         now =E108-F108
+  *    Checks	Formula Manifest	203
+         was =IF(G107=0,"OK","FAIL")
+         now =IF(G108=0,"OK","FAIL")
+  *    Checks	Formula Manifest	205
+         was =E108-F108
+         now =E109-F109
+  *    Checks	Formula Manifest	206
+         was =IF(G108=0,"OK","FAIL")
+         now =IF(G109=0,"OK","FAIL")
+  *    Checks	Formula Manifest	208
+         was =E109-F109
+         now =E110-F110
+  *    Checks	Formula Manifest	209
+         was =IF(G109=0,"OK","FAIL")
+         now =IF(G110=0,"OK","FAIL")
+  *    Checks	Formula Manifest	211
+         was =E110-F110
+         now =E111-F111
+  *    Checks	Formula Manifest	212
+         was =IF(G110=0,"OK","FAIL")
+         now =IF(G111=0,"OK","FAIL")
+  *    Checks	Formula Manifest	214
+         was =E111-F111
+         now =E112-F112
+  *    Checks	Formula Manifest	215
+         was =IF(G111=0,"OK","FAIL")
+         now =IF(G112=0,"OK","FAIL")
+  *    Checks	Formula Manifest	217
+         was =E112-F112
+         now =E113-F113
+  *    Checks	Formula Manifest	218
+         was =IF(G112=0,"OK","FAIL")
+         now =IF(G113=0,"OK","FAIL")
+  *    Checks	Formula Manifest	22
+         was =E47-F47
+         now =E48-F48
+  *    Checks	Formula Manifest	220
+         was =E113-F113
+         now =E114-F114
+  *    Checks	Formula Manifest	221
+         was =IF(G113=0,"OK","FAIL")
+         now =IF(G114=0,"OK","FAIL")
+  *    Checks	Formula Manifest	223
+         was =E114-F114
+         now =E115-F115
+  *    Checks	Formula Manifest	224
+         was =IF(G114=0,"OK","FAIL")
+         now =IF(G115=0,"OK","FAIL")
+  *    Checks	Formula Manifest	226
+         was =E115-F115
+         now =E116-F116
+  *    Checks	Formula Manifest	227
+         was =IF(G115=0,"OK","FAIL")
+         now =IF(G116=0,"OK","FAIL")
+  *    Checks	Formula Manifest	229
+         was =E116-F116
+         now =E117-F117
+  *    Checks	Formula Manifest	23
+         was =IF(G47=0,"OK","FAIL")
+         now =IF(G48=0,"OK","FAIL")
+  *    Checks	Formula Manifest	230
+         was =IF(G116=0,"OK","FAIL")
+         now =IF(G117=0,"OK","FAIL")
+  *    Checks	Formula Manifest	232
+         was =E117-F117
+         now =E118-F118
+  *    Checks	Formula Manifest	233
+         was =IF(G117=0,"OK","FAIL")
+         now =IF(G118=0,"OK","FAIL")
+  *    Checks	Formula Manifest	235
+         was =E118-F118
+         now =E119-F119
+  *    Checks	Formula Manifest	236
+         was =IF(G118=0,"OK","FAIL")
+         now =IF(G119=0,"OK","FAIL")
+  *    Checks	Formula Manifest	238
+         was =E119-F119
+         now =E120-F120
+  *    Checks	Formula Manifest	239
+         was =IF(G119=0,"OK","FAIL")
+         now =IF(G120=0,"OK","FAIL")
+  *    Checks	Formula Manifest	241
+         was =E120-F120
+         now =E121-F121
+  *    Checks	Formula Manifest	242
+         was =IF(G120=0,"OK","FAIL")
+         now =IF(G121=0,"OK","FAIL")
+  *    Checks	Formula Manifest	244
+         was =E121-F121
+         now =E122-F122
+  *    Checks	Formula Manifest	245
+         was =IF(G121=0,"OK","FAIL")
+         now =IF(G122=0,"OK","FAIL")
+  *    Checks	Formula Manifest	247
+         was =E122-F122
+         now =E123-F123
+  *    Checks	Formula Manifest	248
+         was =IF(G122=0,"OK","FAIL")
+         now =IF(G123=0,"OK","FAIL")
+  *    Checks	Formula Manifest	25
+         was =E48-F48
+         now =E49-F49
+  *    Checks	Formula Manifest	250
+         was =E123-F123
+         now =E124-F124
+  *    Checks	Formula Manifest	251
+         was =IF(G123=0,"OK","FAIL")
+         now =IF(G124=0,"OK","FAIL")
+  *    Checks	Formula Manifest	253
+         was =E124-F124
+         now =E125-F125
+  *    Checks	Formula Manifest	254
+         was =IF(G124=0,"OK","FAIL")
+         now =IF(G125=0,"OK","FAIL")
+  *    Checks	Formula Manifest	256
+         was =E125-F125
+         now =E126-F126
+  *    Checks	Formula Manifest	257
+         was =IF(G125=0,"OK","FAIL")
+         now =IF(G126=0,"OK","FAIL")
+  *    Checks	Formula Manifest	259
+         was =E126-F126
+         now =E127-F127
+  *    Checks	Formula Manifest	26
+         was =IF(G48=0,"OK","FAIL")
+         now =IF(G49=0,"OK","FAIL")
+  *    Checks	Formula Manifest	260
+         was =IF(G126=0,"OK","FAIL")
+         now =IF(G127=0,"OK","FAIL")
+  *    Checks	Formula Manifest	262
+         was =E127-F127
+         now =E128-F128
+  *    Checks	Formula Manifest	263
+         was =IF(G127=0,"OK","FAIL")
+         now =IF(G128=0,"OK","FAIL")
+  *    Checks	Formula Manifest	265
+         was =E128-F128
+         now =E129-F129
+  *    Checks	Formula Manifest	266
+         was =IF(G128=0,"OK","FAIL")
+         now =IF(G129=0,"OK","FAIL")
+  *    Checks	Formula Manifest	268
+         was =E129-F129
+         now =E130-F130
+  *    Checks	Formula Manifest	269
+         was =IF(G129=0,"OK","FAIL")
+         now =IF(G130=0,"OK","FAIL")
+  *    Checks	Formula Manifest	271
+         was =E130-F130
+         now =E131-F131
+  *    Checks	Formula Manifest	272
+         was =IF(G130=0,"OK","FAIL")
+         now =IF(G131=0,"OK","FAIL")
+  *    Checks	Formula Manifest	274
+         was =E131-F131
+         now =E132-F132
+  *    Checks	Formula Manifest	275
+         was =IF(G131=0,"OK","FAIL")
+         now =IF(G132=0,"OK","FAIL")
+  *    Checks	Formula Manifest	277
+         was =E132-F132
+         now =E133-F133
+  *    Checks	Formula Manifest	278
+         was =IF(G132=0,"OK","FAIL")
+         now =IF(G133=0,"OK","FAIL")
+  *    Checks	Formula Manifest	28
+         was =E49-F49
+         now =E50-F50
+  *    Checks	Formula Manifest	280
+         was =E133-F133
+         now =E134-F134
+  *    Checks	Formula Manifest	281
+         was =IF(G133=0,"OK","FAIL")
+         now =IF(G134=0,"OK","FAIL")
+  *    Checks	Formula Manifest	283
+         was =E134-F134
+         now =E135-F135
+  *    Checks	Formula Manifest	284
+         was =IF(G134=0,"OK","FAIL")
+         now =IF(G135=0,"OK","FAIL")
+  *    Checks	Formula Manifest	286
+         was =E135-F135
+         now =E136-F136
+  *    Checks	Formula Manifest	287
+         was =IF(G135=0,"OK","FAIL")
+         now =IF(G136=0,"OK","FAIL")
+  *    Checks	Formula Manifest	289
+         was =E136-F136
+         now =E137-F137
+  *    Checks	Formula Manifest	29
+         was =IF(G49=0,"OK","FAIL")
+         now =IF(G50=0,"OK","FAIL")
+  *    Checks	Formula Manifest	290
+         was =IF(G136=0,"OK","FAIL")
+         now =IF(G137=0,"OK","FAIL")
+  *    Checks	Formula Manifest	292
+         was =E137-F137
+         now =E138-F138
+  *    Checks	Formula Manifest	293
+         was =IF(G137=0,"OK","FAIL")
+         now =IF(G138=0,"OK","FAIL")
+  *    Checks	Formula Manifest	295
+         was =E138-F138
+         now =E139-F139
+  *    Checks	Formula Manifest	296
+         was =IF(G138=0,"OK","FAIL")
+         now =IF(G139=0,"OK","FAIL")
+  *    Checks	Formula Manifest	298
+         was =E139-F139
+         now =E140-F140
+  *    Checks	Formula Manifest	299
+         was =IF(G139=0,"OK","FAIL")
+         now =IF(G140=0,"OK","FAIL")
+  *    Checks	Formula Manifest	301
+         was =E140-F140
+         now =E141-F141
+  *    Checks	Formula Manifest	302
+         was =IF(G140=0,"OK","FAIL")
+         now =IF(G141=0,"OK","FAIL")
+  *    Checks	Formula Manifest	304
+         was =E141-F141
+         now =E142-F142
+  *    Checks	Formula Manifest	305
+         was =IF(G141=0,"OK","FAIL")
+         now =IF(G142=0,"OK","FAIL")
+  *    Checks	Formula Manifest	307
+         was =E142-F142
+         now =E143-F143
+  *    Checks	Formula Manifest	308
+         was =IF(G142=0,"OK","FAIL")
+         now =IF(G143=0,"OK","FAIL")
+  *    Checks	Formula Manifest	31
+         was =E50-F50
+         now =E51-F51
+  *    Checks	Formula Manifest	310
+         was =E143-F143
+         now =E144-F144
+  *    Checks	Formula Manifest	311
+         was =IF(G143=0,"OK","FAIL")
+         now =IF(G144=0,"OK","FAIL")
+  *    Checks	Formula Manifest	313
+         was =E144-F144
+         now =E145-F145
+  *    Checks	Formula Manifest	314
+         was =IF(G144=0,"OK","FAIL")
+         now =IF(G145=0,"OK","FAIL")
+  *    Checks	Formula Manifest	316
+         was =E145-F145
+         now =E146-F146
+  *    Checks	Formula Manifest	317
+         was =IF(G145=0,"OK","FAIL")
+         now =IF(G146=0,"OK","FAIL")
+  *    Checks	Formula Manifest	319
+         was =E146-F146
+         now =E147-F147
+  *    Checks	Formula Manifest	32
+         was =IF(G50=0,"OK","FAIL")
+         now =IF(G51=0,"OK","FAIL")
+  *    Checks	Formula Manifest	320
+         was =IF(G146=0,"OK","FAIL")
+         now =IF(G147=0,"OK","FAIL")
+  *    Checks	Formula Manifest	322
+         was =E147-F147
+         now =E148-F148
+  *    Checks	Formula Manifest	323
+         was =IF(G147=0,"OK","FAIL")
+         now =IF(G148=0,"OK","FAIL")
+  *    Checks	Formula Manifest	325
+         was =E148-F148
+         now =E149-F149
+  *    Checks	Formula Manifest	326
+         was =IF(G148=0,"OK","FAIL")
+         now =IF(G149=0,"OK","FAIL")
+  *    Checks	Formula Manifest	328
+         was =E149-F149
+         now =E150-F150
+  *    Checks	Formula Manifest	329
+         was =IF(G149=0,"OK","FAIL")
+         now =IF(G150=0,"OK","FAIL")
+  *    Checks	Formula Manifest	331
+         was =E150-F150
+         now =E151-F151
+  *    Checks	Formula Manifest	332
+         was =IF(G150=0,"OK","FAIL")
+         now =IF(G151=0,"OK","FAIL")
+  *    Checks	Formula Manifest	334
+         was =E151-F151
+         now =E152-F152
+  *    Checks	Formula Manifest	335
+         was =IF(G151=0,"OK","FAIL")
+         now =IF(G152=0,"OK","FAIL")
+  *    Checks	Formula Manifest	337
+         was =E152-F152
+         now =E153-F153
+  *    Checks	Formula Manifest	338
+         was =IF(G152=0,"OK","FAIL")
+         now =IF(G153=0,"OK","FAIL")
+  *    Checks	Formula Manifest	34
+         was =E51-F51
+         now =E52-F52
+  *    Checks	Formula Manifest	340
+         was =E153-F153
+         now =E154-F154
+  *    Checks	Formula Manifest	341
+         was =IF(G153=0,"OK","FAIL")
+         now =IF(G154=0,"OK","FAIL")
+  *    Checks	Formula Manifest	343
+         was =E154-F154
+         now =E155-F155
+  *    Checks	Formula Manifest	344
+         was =IF(G154=0,"OK","FAIL")
+         now =IF(G155=0,"OK","FAIL")
+  *    Checks	Formula Manifest	346
+         was =E155-F155
+         now =E156-F156
+  *    Checks	Formula Manifest	347
+         was =IF(G155=0,"OK","FAIL")
+         now =IF(G156=0,"OK","FAIL")
+  *    Checks	Formula Manifest	349
+         was =E156-F156
+         now =E157-F157
+  *    Checks	Formula Manifest	35
+         was =IF(G51=0,"OK","FAIL")
+         now =IF(G52=0,"OK","FAIL")
+  *    Checks	Formula Manifest	350
+         was =IF(G156=0,"OK","FAIL")
+         now =IF(G157=0,"OK","FAIL")
+  *    Checks	Formula Manifest	352
+         was =E157-F157
+         now =E158-F158
+  *    Checks	Formula Manifest	353
+         was =IF(G157=0,"OK","FAIL")
+         now =IF(G158=0,"OK","FAIL")
+  *    Checks	Formula Manifest	355
+         was =E158-F158
+         now =E159-F159
+  *    Checks	Formula Manifest	356
+         was =IF(G158=0,"OK","FAIL")
+         now =IF(G159=0,"OK","FAIL")
+  *    Checks	Formula Manifest	358
+         was =E159-F159
+         now =E160-F160
+  *    Checks	Formula Manifest	359
+         was =IF(G159=0,"OK","FAIL")
+         now =IF(G160=0,"OK","FAIL")
+  *    Checks	Formula Manifest	361
+         was =E160-F160
+         now =E161-F161
+  *    Checks	Formula Manifest	362
+         was =IF(G160=0,"OK","FAIL")
+         now =IF(G161=0,"OK","FAIL")
+  *    Checks	Formula Manifest	364
+         was =E161-F161
+         now =E162-F162
+  *    Checks	Formula Manifest	365
+         was =IF(G161=0,"OK","FAIL")
+         now =IF(G162=0,"OK","FAIL")
+  *    Checks	Formula Manifest	367
+         was =E162-F162
+         now =E163-F163
+  *    Checks	Formula Manifest	368
+         was =IF(G162=0,"OK","FAIL")
+         now =IF(G163=0,"OK","FAIL")
+  *    Checks	Formula Manifest	37
+         was =E52-F52
+         now =E53-F53
+  *    Checks	Formula Manifest	370
+         was =E163-F163
+         now =E164-F164
+  *    Checks	Formula Manifest	371
+         was =IF(G163=0,"OK","FAIL")
+         now =IF(G164=0,"OK","FAIL")
+  *    Checks	Formula Manifest	373
+         was =E164-F164
+         now =E165-F165
+  *    Checks	Formula Manifest	374
+         was =IF(G164=0,"OK","FAIL")
+         now =IF(G165=0,"OK","FAIL")
+  *    Checks	Formula Manifest	376
+         was =E165-F165
+         now =E166-F166
+  *    Checks	Formula Manifest	377
+         was =IF(G165=0,"OK","FAIL")
+         now =IF(G166=0,"OK","FAIL")
+  *    Checks	Formula Manifest	379
+         was =E166-F166
+         now =E167-F167
+  *    Checks	Formula Manifest	38
+         was =IF(G52=0,"OK","FAIL")
+         now =IF(G53=0,"OK","FAIL")
+  *    Checks	Formula Manifest	380
+         was =IF(G166=0,"OK","FAIL")
+         now =IF(G167=0,"OK","FAIL")
+  *    Checks	Formula Manifest	382
+         was =E167-F167
+         now =E168-F168
+  *    Checks	Formula Manifest	383
+         was =IF(G167=0,"OK","FAIL")
+         now =IF(G168=0,"OK","FAIL")
+  *    Checks	Formula Manifest	385
+         was =E168-F168
+         now =E169-F169
+  *    Checks	Formula Manifest	386
+         was =IF(G168=0,"OK","FAIL")
+         now =IF(G169=0,"OK","FAIL")
+  *    Checks	Formula Manifest	388
+         was =E169-F169
+         now =E170-F170
+  *    Checks	Formula Manifest	389
+         was =IF(G169=0,"OK","FAIL")
+         now =IF(G170=0,"OK","FAIL")
+  *    Checks	Formula Manifest	391
+         was =E170-F170
+         now =E171-F171
+  *    Checks	Formula Manifest	392
+         was =IF(G170=0,"OK","FAIL")
+         now =IF(G171=0,"OK","FAIL")
+  *    Checks	Formula Manifest	394
+         was =E171-F171
+         now =E172-F172
+  *    Checks	Formula Manifest	395
+         was =IF(G171=0,"OK","FAIL")
+         now =IF(G172=0,"OK","FAIL")
+  *    Checks	Formula Manifest	397
+         was =E172-F172
+         now =E173-F173
+  *    Checks	Formula Manifest	398
+         was =IF(G172=0,"OK","FAIL")
+         now =IF(G173=0,"OK","FAIL")
+  *    Checks	Formula Manifest	4
+         was =E41-F41
+         now =E42-F42
+  *    Checks	Formula Manifest	40
+         was =E53-F53
+         now =E54-F54
+  *    Checks	Formula Manifest	400
+         was =E173-F173
+         now =E174-F174
+  *    Checks	Formula Manifest	401
+         was =IF(G173=0,"OK","FAIL")
+         now =IF(G174=0,"OK","FAIL")
+  *    Checks	Formula Manifest	403
+         was =E174-F174
+         now =E175-F175
+  *    Checks	Formula Manifest	404
+         was =IF(G174=0,"OK","FAIL")
+         now =IF(G175=0,"OK","FAIL")
+  *    Checks	Formula Manifest	406
+         was =E175-F175
+         now =E176-F176
+  *    Checks	Formula Manifest	407
+         was =IF(G175=0,"OK","FAIL")
+         now =IF(G176=0,"OK","FAIL")
+  *    Checks	Formula Manifest	409
+         was =E176-F176
+         now =E177-F177
+  *    Checks	Formula Manifest	41
+         was =IF(G53=0,"OK","FAIL")
+         now =IF(G54=0,"OK","FAIL")
+  *    Checks	Formula Manifest	410
+         was =IF(G176=0,"OK","FAIL")
+         now =IF(G177=0,"OK","FAIL")
+  *    Checks	Formula Manifest	412
+         was =E177-F177
+         now =E178-F178
+  *    Checks	Formula Manifest	413
+         was =IF(G177=0,"OK","FAIL")
+         now =IF(G178=0,"OK","FAIL")
+  *    Checks	Formula Manifest	415
+         was =E178-F178
+         now =E179-F179
+  *    Checks	Formula Manifest	416
+         was =IF(G178=0,"OK","FAIL")
+         now =IF(G179=0,"OK","FAIL")
+  *    Checks	Formula Manifest	418
+         was =E179-F179
+         now =E180-F180
+  *    Checks	Formula Manifest	419
+         was =IF(G179=0,"OK","FAIL")
+         now =IF(G180=0,"OK","FAIL")
+  *    Checks	Formula Manifest	421
+         was =E180-F180
+         now =E181-F181
+  *    Checks	Formula Manifest	422
+         was =IF(G180=0,"OK","FAIL")
+         now =IF(G181=0,"OK","FAIL")
+  *    Checks	Formula Manifest	424
+         was =E181-F181
+         now =E182-F182
+  *    Checks	Formula Manifest	425
+         was =IF(G181=0,"OK","FAIL")
+         now =IF(G182=0,"OK","FAIL")
+  *    Checks	Formula Manifest	427
+         was =E182-F182
+         now =E183-F183
+  *    Checks	Formula Manifest	428
+         was =IF(G182=0,"OK","FAIL")
+         now =IF(G183=0,"OK","FAIL")
+  *    Checks	Formula Manifest	43
+         was =E54-F54
+         now =E55-F55
+  *    Checks	Formula Manifest	430
+         was =E183-F183
+         now =E184-F184
+  *    Checks	Formula Manifest	431
+         was =IF(G183=0,"OK","FAIL")
+         now =IF(G184=0,"OK","FAIL")
+  *    Checks	Formula Manifest	433
+         was =E184-F184
+         now =E185-F185
+  *    Checks	Formula Manifest	434
+         was =IF(G184=0,"OK","FAIL")
+         now =IF(G185=0,"OK","FAIL")
+  *    Checks	Formula Manifest	436
+         was =E185-F185
+         now =E186-F186
+  *    Checks	Formula Manifest	437
+         was =IF(G185=0,"OK","FAIL")
+         now =IF(G186=0,"OK","FAIL")
+  *    Checks	Formula Manifest	439
+         was =E186-F186
+         now =E187-F187
+  *    Checks	Formula Manifest	44
+         was =IF(G54=0,"OK","FAIL")
+         now =IF(G55=0,"OK","FAIL")
+  *    Checks	Formula Manifest	440
+         was =IF(G186=0,"OK","FAIL")
+         now =IF(G187=0,"OK","FAIL")
+  *    Checks	Formula Manifest	442
+         was =E187-F187
+         now =E188-F188
+  *    Checks	Formula Manifest	443
+         was =IF(G187=0,"OK","FAIL")
+         now =IF(G188=0,"OK","FAIL")
+  *    Checks	Formula Manifest	445
+         was =E188-F188
+         now =E189-F189
+  *    Checks	Formula Manifest	446
+         was =IF(G188=0,"OK","FAIL")
+         now =IF(G189=0,"OK","FAIL")
+  *    Checks	Formula Manifest	448
+         was =E189-F189
+         now =E190-F190
+  *    Checks	Formula Manifest	449
+         was =IF(G189=0,"OK","FAIL")
+         now =IF(G190=0,"OK","FAIL")
+  *    Checks	Formula Manifest	451
+         was =E190-F190
+         now =E191-F191
+  *    Checks	Formula Manifest	452
+         was =IF(G190=0,"OK","FAIL")
+         now =IF(G191=0,"OK","FAIL")
+  *    Checks	Formula Manifest	454
+         was =E191-F191
+         now =E192-F192
+  *    Checks	Formula Manifest	455
+         was =IF(G191=0,"OK","FAIL")
+         now =IF(G192=0,"OK","FAIL")
+  *    Checks	Formula Manifest	457
+         was =E192-F192
+         now =E193-F193
+  *    Checks	Formula Manifest	458
+         was =IF(G192=0,"OK","FAIL")
+         now =IF(G193=0,"OK","FAIL")
+  *    Checks	Formula Manifest	46
+         was =E55-F55
+         now =E56-F56
+  *    Checks	Formula Manifest	460
+         was =E193-F193
+         now =E194-F194
+  *    Checks	Formula Manifest	461
+         was =IF(G193=0,"OK","FAIL")
+         now =IF(G194=0,"OK","FAIL")
+  *    Checks	Formula Manifest	463
+         was =E194-F194
+         now =E195-F195
+  *    Checks	Formula Manifest	464
+         was =IF(G194=0,"OK","FAIL")
+         now =IF(G195=0,"OK","FAIL")
+  *    Checks	Formula Manifest	466
+         was =E195-F195
+         now =E196-F196
+  *    Checks	Formula Manifest	467
+         was =IF(G195=0,"OK","FAIL")
+         now =IF(G196=0,"OK","FAIL")
+  *    Checks	Formula Manifest	469
+         was =E196-F196
+         now =E197-F197
+  *    Checks	Formula Manifest	47
+         was =IF(G55=0,"OK","FAIL")
+         now =IF(G56=0,"OK","FAIL")
+  *    Checks	Formula Manifest	470
+         was =IF(G196=0,"OK","FAIL")
+         now =IF(G197=0,"OK","FAIL")
+  *    Checks	Formula Manifest	472
+         was =E197-F197
+         now =E198-F198
+  *    Checks	Formula Manifest	473
+         was =IF(G197=0,"OK","FAIL")
+         now =IF(G198=0,"OK","FAIL")
+  *    Checks	Formula Manifest	475
+         was =E198-F198
+         now =E199-F199
+  *    Checks	Formula Manifest	476
+         was =IF(G198=0,"OK","FAIL")
+         now =IF(G199=0,"OK","FAIL")
+  *    Checks	Formula Manifest	478
+         was =E199-F199
+         now =E200-F200
+  *    Checks	Formula Manifest	479
+         was =IF(G199=0,"OK","FAIL")
+         now =IF(G200=0,"OK","FAIL")
+  *    Checks	Formula Manifest	481
+         was =E200-F200
+         now =E201-F201
+  *    Checks	Formula Manifest	482
+         was =IF(G200=0,"OK","FAIL")
+         now =IF(G201=0,"OK","FAIL")
+  *    Checks	Formula Manifest	49
+         was =E56-F56
+         now =E57-F57
+  *    Checks	Formula Manifest	5
+         was =IF(G41=0,"OK","FAIL")
+         now =IF(G42=0,"OK","FAIL")
+  *    Checks	Formula Manifest	50
+         was =IF(G56=0,"OK","FAIL")
+         now =IF(G57=0,"OK","FAIL")
+  *    Checks	Formula Manifest	52
+         was =E57-F57
+         now =E58-F58
+  *    Checks	Formula Manifest	53
+         was =IF(G57=0,"OK","FAIL")
+         now =IF(G58=0,"OK","FAIL")
+  *    Checks	Formula Manifest	55
+         was =E58-F58
+         now =E59-F59
+  *    Checks	Formula Manifest	56
+         was =IF(G58=0,"OK","FAIL")
+         now =IF(G59=0,"OK","FAIL")
+  *    Checks	Formula Manifest	58
+         was =E59-F59
+         now =E60-F60
+  *    Checks	Formula Manifest	59
+         was =IF(G59=0,"OK","FAIL")
+         now =IF(G60=0,"OK","FAIL")
+  *    Checks	Formula Manifest	61
+         was =E60-F60
+         now =E61-F61
+  *    Checks	Formula Manifest	62
+         was =IF(G60=0,"OK","FAIL")
+         now =IF(G61=0,"OK","FAIL")
+  *    Checks	Formula Manifest	64
+         was =E61-F61
+         now =E62-F62
+  *    Checks	Formula Manifest	65
+         was =IF(G61=0,"OK","FAIL")
+         now =IF(G62=0,"OK","FAIL")
+  *    Checks	Formula Manifest	67
+         was =E62-F62
+         now =E63-F63
+  *    Checks	Formula Manifest	68
+         was =IF(G62=0,"OK","FAIL")
+         now =IF(G63=0,"OK","FAIL")
+  *    Checks	Formula Manifest	7
+         was =E42-F42
+         now =E43-F43
+  *    Checks	Formula Manifest	70
+         was =E63-F63
+         now =E64-F64
+  *    Checks	Formula Manifest	71
+         was =IF(G63=0,"OK","FAIL")
+         now =IF(G64=0,"OK","FAIL")
+  *    Checks	Formula Manifest	73
+         was =E64-F64
+         now =E65-F65
+  *    Checks	Formula Manifest	74
+         was =IF(G64=0,"OK","FAIL")
+         now =IF(G65=0,"OK","FAIL")
+  *    Checks	Formula Manifest	76
+         was =E65-F65
+         now =E66-F66
+  *    Checks	Formula Manifest	77
+         was =IF(G65=0,"OK","FAIL")
+         now =IF(G66=0,"OK","FAIL")
+  *    Checks	Formula Manifest	79
+         was =E66-F66
+         now =E67-F67
+  *    Checks	Formula Manifest	8
+         was =IF(G42=0,"OK","FAIL")
+         now =IF(G43=0,"OK","FAIL")
+  *    Checks	Formula Manifest	80
+         was =IF(G66=0,"OK","FAIL")
+         now =IF(G67=0,"OK","FAIL")
+  *    Checks	Formula Manifest	82
+         was =E67-F67
+         now =E68-F68
+  *    Checks	Formula Manifest	83
+         was =IF(G67=0,"OK","FAIL")
+         now =IF(G68=0,"OK","FAIL")
+  *    Checks	Formula Manifest	85
+         was =E68-F68
+         now =E69-F69
+  *    Checks	Formula Manifest	86
+         was =IF(G68=0,"OK","FAIL")
+         now =IF(G69=0,"OK","FAIL")
+  *    Checks	Formula Manifest	88
+         was =E69-F69
+         now =E70-F70
+  *    Checks	Formula Manifest	89
+         was =IF(G69=0,"OK","FAIL")
+         now =IF(G70=0,"OK","FAIL")
+  *    Checks	Formula Manifest	91
+         was =E70-F70
+         now =E71-F71
+  *    Checks	Formula Manifest	92
+         was =IF(G70=0,"OK","FAIL")
+         now =IF(G71=0,"OK","FAIL")
+  *    Checks	Formula Manifest	94
+         was =E71-F71
+         now =E72-F72
+  *    Checks	Formula Manifest	95
+         was =IF(G71=0,"OK","FAIL")
+         now =IF(G72=0,"OK","FAIL")
+  *    Checks	Formula Manifest	97
+         was =E72-F72
+         now =E73-F73
+  *    Checks	Formula Manifest	98
+         was =IF(G72=0,"OK","FAIL")
+         now =IF(G73=0,"OK","FAIL")
+  *    Checks	Model Status	0
+         was =IF(COUNTIF(I7:I221,"FAIL")=0,"OK","FAIL")
+         now =IF(COUNTIF(I7:I222,"FAIL")=0,"OK","FAIL")
+  *    Checks	Persisted Baseline	10
+         was =E214-F214
+         now =E215-F215
+  *    Checks	Persisted Baseline	11
+         was =IF(ABS(G214)<=H214,"MATCH","CHANGED")
+         now =IF(ABS(G215)<=H215,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	14
+         was =E215-F215
+         now =E216-F216
+  *    Checks	Persisted Baseline	15
+         was =IF(ABS(G215)<=H215,"MATCH","CHANGED")
+         now =IF(ABS(G216)<=H216,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	18
+         was =E216-F216
+         now =E217-F217
+  *    Checks	Persisted Baseline	19
+         was =IF(ABS(G216)<=H216,"MATCH","CHANGED")
+         now =IF(ABS(G217)<=H217,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	2
+         was =E212-F212
+         now =E213-F213
+  *    Checks	Persisted Baseline	22
+         was =E217-F217
+         now =E218-F218
+  *    Checks	Persisted Baseline	23
+         was =IF(ABS(G217)<=H217,"MATCH","CHANGED")
+         now =IF(ABS(G218)<=H218,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	26
+         was =E218-F218
+         now =E219-F219
+  *    Checks	Persisted Baseline	27
+         was =IF(ABS(G218)<=H218,"MATCH","CHANGED")
+         now =IF(ABS(G219)<=H219,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	3
+         was =IF(ABS(G212)<=H212,"MATCH","CHANGED")
+         now =IF(ABS(G213)<=H213,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	30
+         was =E219-F219
+         now =E220-F220
+  *    Checks	Persisted Baseline	32
+         was =IF(ABS(G219)<=H219,"MATCH","CHANGED")
+         now =IF(ABS(G220)<=H220,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	35
+         was =E220-F220
+         now =E221-F221
+  *    Checks	Persisted Baseline	37
+         was =IF(ABS(G220)<=H220,"MATCH","CHANGED")
+         now =IF(ABS(G221)<=H221,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	40
+         was =E221-F221
+         now =E222-F222
+  *    Checks	Persisted Baseline	42
+         was =IF(ABS(G221)<=H221,"MATCH","CHANGED")
+         now =IF(ABS(G222)<=H222,"MATCH","CHANGED")
+  *    Checks	Persisted Baseline	6
+         was =E213-F213
+         now =E214-F214
+  *    Checks	Persisted Baseline	7
+         was =IF(ABS(G213)<=H213,"MATCH","CHANGED")
+         now =IF(ABS(G214)<=H214,"MATCH","CHANGED")
+  *    Checks	Schedule Coherence	1
+         was =E16-F16
+         now =E17-F17
+  *    Checks	Schedule Coherence	10
+         was =E19-F19
+         now =E20-F20
+  *    Checks	Schedule Coherence	11
+         was =IF(ABS(G19)<=H19,"OK","FAIL")
+         now =IF(ABS(G20)<=H20,"OK","FAIL")
+  *    Checks	Schedule Coherence	2
+         was =IF(ABS(G16)<=H16,"OK","FAIL")
+         now =IF(ABS(G17)<=H17,"OK","FAIL")
+  *    Checks	Schedule Coherence	4
+         was =E17-F17
+         now =E18-F18
+  *    Checks	Schedule Coherence	5
+         was =IF(ABS(G17)<=H17,"OK","FAIL")
+         now =IF(ABS(G18)<=H18,"OK","FAIL")
+  *    Checks	Schedule Coherence	7
+         was =E18-F18
+         now =E19-F19
+  *    Checks	Schedule Coherence	8
+         was =IF(ABS(G18)<=H18,"OK","FAIL")
+         now =IF(ABS(G19)<=H19,"OK","FAIL")
