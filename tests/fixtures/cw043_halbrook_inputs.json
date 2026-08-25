@@ -1,0 +1,665 @@
+{
+ "note": "CW-043 fixture: Halbrook Grounds Management (draft ecd0e148, 2026-08-24), the run that shipped the frozen capital lease. Real intake payloads, captured so the amortizer test exercises the production builder chain offline.",
+ "business_facts": {
+  "business_name": "Halbrook Grounds Management",
+  "name": "Halbrook Grounds Management",
+  "start_date": "2020-03-16"
+ },
+ "operating_model_json": {
+  "consumer_type": "b2b",
+  "business_type": "Grounds Maintenance",
+  "business_stage": "operating",
+  "business_description_summary": "Halbrook Grounds Management is a commercial grounds maintenance and landscaping company serving office parks, HOAs, and property managers on the Kansas side of the KC metro. Work is fulfilled by in-house crews running scheduled maintenance routes and dedicated install crews, loading trucks and equipment at the yard each morning and working on-site at client properties. The primary unit of work is a Maintenance contract-month and Install job delivered on a monthly and contract cadence for maintenance contracts, and one contract-sized install job from start to finish for installation work. Typical lead times for new work are days to a few weeks, with maintenance visits occurring on fixed route days and install projects booked into open calendar windows; overall capacity is constrained mainly by labor (crew hours and daylight) rather than demand or software systems. Standard licensing, insurance, and safety/compliance practices for commercial grounds maintenance and landscape installation in Kansas are assumed to be in place (e.g., business registration as a S-corp, appropriate liability/auto coverage, and any applicable equipment, environmental, and site-safety requirements), with exact requirements depending on local jurisdiction and specific service scope.",
+  "lob_models": [
+   {
+    "lob_name": "Maintenance contracts",
+    "products": [
+     {
+      "product_name": "Maintenance contract",
+      "unit_name": "Maintenance contract-month",
+      "unit_description": "One active maintenance contract for one commercial property for a month, covering all scheduled mowing, trimming, and clean-up visits at that site for that month.",
+      "unit_cadence": "monthly",
+      "units_per_week_capacity": 9.2308,
+      "units_per_period_capacity": 40,
+      "operating_periods_per_year": 12,
+      "utilization_rate": 0.85,
+      "unit_price": 2400,
+      "cogs_percent_of_line_revenue": 0.14,
+      "origin": null
+     }
+    ]
+   },
+   {
+    "lob_name": "Installation projects",
+    "products": [
+     {
+      "product_name": "Install project",
+      "unit_name": "Install job",
+      "unit_description": "One installation job at one commercial property, from start to finish, covering the agreed scope (e.g., new beds, irrigation, sod, or similar).",
+      "unit_cadence": "contract",
+      "units_per_week_capacity": 0.5769,
+      "units_per_period_capacity": 3,
+      "operating_periods_per_year": 10,
+      "utilization_rate": 0.85,
+      "unit_price": 18000,
+      "cogs_percent_of_line_revenue": 0.3,
+      "origin": null
+     }
+    ]
+   }
+  ],
+  "unit_description": null,
+  "shipping_method": "on-site service at client properties",
+  "sales_modality": "physical",
+  "geographic_scope": "local",
+  "geographic_coverage": "Overland Park, Lenexa, Shawnee, Olathe, Leawood (Johnson County, Kansas; not crossing into Missouri)",
+  "countries": [
+   "United States"
+  ],
+  "milestones": [
+   {
+    "description": "Reach 40 recurring maintenance properties by adding a third route with a hired crew lead",
+    "timing": "In about the next 12 months",
+    "timing_months_max": 12
+   }
+  ],
+  "capacity_driver": "labor",
+  "primary_growth_lever": "labor capacity (adding crew leads and routes to handle more properties)",
+  "legal_entity": "S-corp",
+  "confidence": 0.98,
+  "line_split_confidence": "confident_multi",
+  "split_rationale": "Client explicitly described two distinct lines \u2013 recurring commercial maintenance contracts billed monthly and one-off install projects billed per job \u2013 with different cadences, capacities, and pricing, and confirmed seasonal cleanups/mulch are embedded in maintenance while irrigation service is embedded in installs, supporting a two-line operating model.",
+  "competitive_advantage": "Exceptionally low crew turnover: the same experienced crews stay on the same properties year after year, building familiarity and consistency that property managers notice, unlike competitors who churn through staff each spring.",
+  "business_naics_6": "561730",
+  "stream_discovery": {
+   "version": 1,
+   "business_type": "Grounds Maintenance",
+   "naics_6": "561730",
+   "evidence": {
+    "level": "rich",
+    "reasons": []
+   },
+   "asked": true,
+   "asked_turn_index": 35,
+   "ask_text": "Before we wrap up operations: a lot of grounds maintenances also offer Seasonal cleanup services, Mulch and materials sales, Snow removal services, or Irrigation system service and repair - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.",
+   "candidates": [
+    {
+     "label": "Seasonal cleanup services",
+     "commonality": "most",
+     "answer": "merged_into:Maintenance contracts",
+     "answered_from": "Seasonal cleanups are in the maintenance contract, that's what the 2,400 a month covers. Mulch we don't sell as a product - it goes down as part of the work and it's in the contract or the install bid. Irrigation service and repair we do, but it's the same crew doing the same work as an install, jus",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Mulch and materials sales",
+     "commonality": "many",
+     "answer": "merged_into:Maintenance contracts",
+     "answered_from": "Seasonal cleanups are in the maintenance contract, that's what the 2,400 a month covers. Mulch we don't sell as a product - it goes down as part of the work and it's in the contract or the install bid. Irrigation service and repair we do, but it's the same crew doing the same work as an install, jus",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Snow removal services",
+     "commonality": "many",
+     "answer": "declined",
+     "answered_from": "Seasonal cleanups are in the maintenance contract, that's what the 2,400 a month covers. Mulch we don't sell as a product - it goes down as part of the work and it's in the contract or the install bid. Irrigation service and repair we do, but it's the same crew doing the same work as an install, jus",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Irrigation system service and repair",
+     "commonality": "many",
+     "answer": "merged_into:Install project",
+     "answered_from": "Seasonal cleanups are in the maintenance contract, that's what the 2,400 a month covers. Mulch we don't sell as a product - it goes down as part of the work and it's in the contract or the install bid. Irrigation service and repair we do, but it's the same crew doing the same work as an install, jus",
+     "read_by": "consultant_chat_turn"
+    }
+   ],
+   "proposed": [
+    "Seasonal cleanup services",
+    "Mulch and materials sales",
+    "Snow removal services",
+    "Irrigation system service and repair"
+   ],
+   "survivors": [
+    {
+     "label": "Seasonal cleanup services",
+     "commonality": "most"
+    },
+    {
+     "label": "Mulch and materials sales",
+     "commonality": "many"
+    },
+    {
+     "label": "Snow removal services",
+     "commonality": "many"
+    },
+    {
+     "label": "Irrigation system service and repair",
+     "commonality": "many"
+    },
+    {
+     "label": "Tree and shrub care services",
+     "commonality": "many"
+    },
+    {
+     "label": "Fertilization and weed control programs",
+     "commonality": "many"
+    },
+    {
+     "label": "Leaf removal services",
+     "commonality": "many"
+    }
+   ],
+   "proposal_cap": 4,
+   "dropped": [
+    {
+     "label": "Landscape enhancement projects",
+     "reason": "matches_existing_line"
+    }
+   ]
+  }
+ },
+ "financials_json": {
+  "current_revenue": 1400000.0,
+  "baseline_payroll_year1": 599000.0,
+  "current_payroll": 599000.0,
+  "payroll_total_year1": 599000.0,
+  "payroll_basis_people_roles": [
+   {
+    "source": "person",
+    "full_name": "Rafael Ostrowski",
+    "role_title": "Owner; sales lead and field operations",
+    "annual_wage": 95000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 95000.0
+   },
+   {
+    "source": "person",
+    "full_name": "Ignacio Ferreira-Sandoval",
+    "role_title": "Crew lead; runs maintenance routes",
+    "annual_wage": 64000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 64000.0
+   },
+   {
+    "source": "person",
+    "full_name": "Bethany Kowalczyk",
+    "role_title": "Crew lead; runs install crew and does takeoffs",
+    "annual_wage": 60000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 60000.0
+   },
+   {
+    "source": "rest_of_team_payroll",
+    "role_title": "Rest of team (client-stated total)",
+    "annual_wage": 380000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 380000.0
+   }
+  ],
+  "owner_compensation": 7916.67,
+  "_financials_revenue_intro_done": true,
+  "_cogs_baseline_resolution": {
+   "signature": "561730::[{\"annual_completed_units_year1\": null, \"annual_turns_per_year\": null, \"annual_units_year1\": 397.163121, \"avg_active_units_year1\": null, \"avg_units_per_month_year1\": 33.096927, \"avg_units_per_period_year1\": 33.096927, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"concurrent_capacity_units\": null, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"lob_name\": \"Maintenance contracts\", \"operating_periods_per_year\": 12.0, \"operating_weeks_per_year\": null, \"product_name\": \"Maintenance contract\", \"unit_cadence\": \"monthly\", \"unit_price\": 2400.0, \"units_per_month_capacity\": 38.937561, \"units_per_period_capacity\": 38.937561, \"units_per_week_capacity\": 9.2308}, {\"annual_completed_units_year1\": 24.822695, \"annual_turns_per_year\": 10.0, \"annual_units_year1\": 24.822695, \"avg_active_units_year1\": 2.48227, \"avg_units_per_month_year1\": null, \"avg_units_per_period_year1\": 2.48227, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 10.0, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 2.920317, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"lob_name\": \"Installation projects\", \"operating_periods_per_year\": 10.0, \"operating_weeks_per_year\": null, \"product_name\": \"Install project\", \"unit_cadence\": \"contract\", \"unit_price\": 18000.0, \"units_per_month_capacity\": null, \"units_per_period_capacity\": 2.920317, \"units_per_week_capacity\": 0.5769}]",
+   "baseline": {
+    "baseline_cogs_percent": 0.0721235,
+    "baseline_cogs": 100972.9,
+    "cogs_adjustment": 0.0,
+    "cogs_total_year1": 100972.9,
+    "cogs_basis_naics": "561730",
+    "cogs_basis_years_used": [],
+    "revenue_year1": 1400000.0,
+    "cogs_basis_rationale": "There is no usable public-company cohort cost-of-revenue figure for this NAICS, so this proposal is based entirely on how a small, labor-capacity\u2011driven commercial grounds maintenance and install contractor actually runs. In this intake, all field and production labor (crews, owner-operator time) sits in payroll, so COGS here is only materials, supplies, and direct non-labor job costs. For this kind of mostly-labor maintenance book with a modest install component, materials-only COGS in the mid\u2013single digits to high\u2013single digits of revenue (about 6\u20139%) is a reasonable range; this proposal use",
+    "cogs_fit_band": [
+     0.06,
+     0.09
+    ],
+    "cogs_per_line": [
+     {
+      "lob_name": "Maintenance contracts",
+      "product_name": "Maintenance contract",
+      "line_name": "Maintenance contracts / Maintenance contract",
+      "cogs_percent": 0.045,
+      "band": [
+       0.03,
+       0.06
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.6809,
+      "est_annual_revenue": 953191.49
+     },
+     {
+      "lob_name": "Installation projects",
+      "product_name": "Install project",
+      "line_name": "Installation projects / Install project",
+      "cogs_percent": 0.13,
+      "band": [
+       0.11,
+       0.16
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.3191,
+      "est_annual_revenue": 446808.51
+     }
+    ],
+    "per_line_status": {
+     "per_line": true,
+     "lines": 2
+    }
+   }
+  },
+  "_coherence": {
+   "early_eval": {
+    "stable_fail": false,
+    "q11": {
+     "revenue": 467255.16,
+     "cogs": 89275.56,
+     "payroll": 149750.0,
+     "rent": 15600.0,
+     "gna": 27234.3,
+     "marketing": 7342.58,
+     "ebitda": 178052.72,
+     "ebitda_margin": 0.381061,
+     "ni_margin": 0.370949,
+     "band_low_floor_dollars": 0.0
+    }
+   },
+   "digest_hash": "119d5d9b640ef8bc624adb6ac622c912a332f2a4adc2a36de5f7dc2e6bb29355",
+   "margin_band_judgment": {
+    "basis_contradiction": false,
+    "labor_treatment": "all_labor_in_payroll_line",
+    "labor_intensity_class": "high",
+    "q11": {
+     "low": 0.07,
+     "high": 0.16,
+     "target": 0.115
+    },
+    "q20": {
+     "low": 0.09,
+     "high": 0.18,
+     "target": 0.135
+    },
+    "gross_margin_floor_q11": 0.25,
+    "fixed_cost_burden_max_q11": 0.78,
+    "ni_margin_floor_q11": 0.03,
+    "margin_character": "labor-bound route-based commercial services",
+    "rationale": "This is a labor-bound commercial grounds maintenance company whose revenue is driven by crew hours on recurring contracts and install jobs, with all labor in payroll and COGS largely materials and subs. In this model, materials should run in the high-teens to mid-20s of revenue, so a minimum 25% gross margin (on materials-only COGS) is necessary for the business to have anything left to cover a structurally heavy payroll base, yard rent, vehicles, and overhead. Healthy operators at this scale typically carry payroll plus overhead in the high 60s to high 70s percent of revenue, leaving a single",
+    "notes": []
+   },
+   "demand_response": {
+    "evidence_level": "rich",
+    "evidence_reasons": [],
+    "rationale": "Judgment focuses on this specific business model: a local B2B commercial grounds maintenance and landscaping company serving office parks, HOAs, and property managers in Johnson County, KS. Demand characteristics are shaped by recurring maintenance contracts, route density, and switching friction for property managers, rather than one-off discretionary consumer work.\n\nPrice response: Because commercial grounds buyers balance cost with reliability, quality, and risk of change, and Halbrook\u2019s differentiated low crew turnover is valuable in that context, moving prices toward the top of a believable range will likely retain most existing demand. Some price-sensitive prospects may not convert or may negotiate harder, but the recurring nature and vendor-switch friction mean that 80\u201395% of unit d",
+    "price_response": {
+     "verdict": "holds_most",
+     "retained_fraction_band": [
+      0.8,
+      0.95
+     ],
+     "basis": "This is a B2B commercial grounds maintenance firm with recurring contracts, route density benefits, and switching friction for property managers/HOAs. The demand model assumes a focused subset of ~220 reachable firms with ~10% converted in Year 1, and pricing ($2.4k per maintenance contract-month equivalent; $18k per install) is within normal commercial grounds ranges where service quality and reliability matter more than being the cheapest. Their competitive edge is low crew turnover and consis"
+    },
+    "marketing_response": {
+     "verdict": "coupled",
+     "demand_at_reduced_spend_band": [
+      0.7,
+      0.9
+     ],
+     "basis": "The model assumes medium marketing intensity with about 8% of revenue dedicated to marketing, in a relationship- and referral-heavy B2B context. Demand comes from a mix of existing accounts, referrals, associations (BOMA/IFMA-style), LinkedIn outreach, and some search/directory presence. Cutting spend toward the floor would not collapse demand because of the recurring nature of contracts and word-of-mouth, but it would reduce new-account acquisition from the reachable pool of ~220 firms and slow"
+    },
+    "volume_headroom": {
+     "supported_units_max": 500.0,
+     "basis": "The reachable-market arithmetic anchors at ~220 reachable firms, with an expectation of ~22 active customers (\u224810% conversion) producing ~422 units (398 maintenance contract-months + 25 installs). Given the relationship-driven model and that many target customers control multiple properties and can add more contract-months or periodic installs over time, it is plausible to support somewhat higher unit volume\u2014on the order of a few more clients or deeper penetration into existing ones\u2014without chan"
+    },
+    "withheld": false,
+    "notes": []
+   },
+   "essentials_response": {
+    "evidence_level": "rich",
+    "evidence_reasons": [],
+    "rationale": "Halbrook Grounds Management is a labor-driven commercial grounds and landscaping contractor serving office parks and HOAs via in-house crews, with separate lines already carrying payroll, rent, and marketing. Other operating costs therefore most plausibly contain fleet and equipment financing or leases, repairs and maintenance, fuel, insurance, licenses, software, and professional services, plus yard/office utilities and supplies. These are structurally necessary to keep trucks and crews on the road and to meet commercial client requirements, while a minority of the line can reasonably be non-essential extras or upgrade-level spending. Direct costs, by contrast, reflect the physical materials and consumables that go into recurring maintenance and installation jobs for demanding commercial ",
+    "lines": {
+     "gna": {
+      "essential_fraction_band": [
+       0.6,
+       0.8
+      ],
+      "named_essentials": "equipment leases and repairs, fuel for trucks and mowers, business insurance, licensing and compliance fees, software for routing and billing, shop utilities and basic office overhead, accounting and ",
+      "basis": "This is an operating commercial grounds and landscaping company running daily truck-and-crew routes plus install crews across multiple cities in Johnson County. To dispatch crews, it must keep trucks, trailers, and powered equipment in working order and usually finances or leases a portion of that fleet; it must also buy fuel for local driving and on-site work. As a B2B vendor on commercial properties, it will carry general liability, auto, and workers-comp insurance and maintain required licens"
+     },
+     "cogs": {
+      "essential_fraction_band": [
+       0.75,
+       0.95
+      ],
+      "named_essentials": "mulch, plants and trees, sod, rock and edging materials, irrigation parts, fertilizers and weed control products, ice melt or seasonal materials, plus replacement blades and wear parts tied directly t",
+      "basis": "Direct costs for this business are dominated by job materials for maintenance contracts and installation projects: mulch, plants, sod, rock, edging, irrigation components, fertilizers and chemicals, and other landscape materials consumed on client sites, along with small wear parts clearly tied to specific jobs. Commercial property managers expect certain material standards (e.g., plant quality, mulch depth, irrigation spec) and contracts are typically bid with those inputs assumed, so most of t"
+     }
+    },
+    "withheld": false,
+    "notes": []
+   },
+   "judged_growth": {
+    "qoq_start": 0.019427,
+    "qoq_end": 0.009853,
+    "source": "coherence_gate_growth_judgment",
+    "year1_annual_growth": 0.08,
+    "mature_annual_growth": 0.04
+   },
+   "eval": {
+    "passed": true,
+    "failed": [],
+    "gap_quarterly": 0.0,
+    "q11": {
+     "revenue": 467255.16,
+     "cogs": 89275.56,
+     "payroll": 149750.0,
+     "rent": 15600.0,
+     "gna": 27234.3,
+     "marketing": 7342.58,
+     "ebitda": 178052.72,
+     "ebitda_margin": 0.381061,
+     "ni_margin": 0.370949,
+     "band_low_floor_dollars": 32707.86
+    },
+    "thresholds": {
+     "gm_floor": 0.25,
+     "burden_max": 0.78,
+     "band_low": 0.07,
+     "band_high": 0.16,
+     "ni_floor": 0.03,
+     "judged": true
+    },
+    "growth": {
+     "requested": 1.967151,
+     "capacity_ceiling_multiple": 1.335015,
+     "used": 1.335015,
+     "capped_by_stated_capacity": true
+    },
+    "binding": {
+     "key": "ebitda_band_low",
+     "sentence": "the quarter keeps $178,053, where a business like yours needs to keep at least $32,708",
+     "actual_display": "keeps $178,053",
+     "limit_display": "at least $32,708"
+    },
+    "q20_hold": {
+     "passed": true,
+     "margin_q11": 0.3811,
+     "q20_low": 0.09,
+     "direction": "holds_mature_floor"
+    }
+   },
+   "gap_open": 0.0,
+   "walls": {
+    "payroll_share": {
+     "passed": true,
+     "value": 0.4279,
+     "max_pct": 0.7,
+     "min_pct": 0.16,
+     "class": "high",
+     "revenue_to_clear": 855714.29,
+     "payroll_to_clear": 979901.85,
+     "mirror_ok": true
+    }
+   },
+   "status": "converged",
+   "eval_flat": {
+    "passed": true,
+    "q11": {
+     "revenue": 350000.0,
+     "cogs": 66872.34,
+     "payroll": 149750.0,
+     "rent": 15600.0,
+     "gna": 20400.0,
+     "marketing": 5500.0,
+     "ebitda": 91877.66,
+     "ebitda_margin": 0.262508,
+     "ni_margin": 0.249008,
+     "band_low_floor_dollars": 24500.0
+    }
+   },
+   "converged_suffix": " One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $178,053 (38.1% of revenue), that stress figure actually sits above the 7.0%-16.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 16.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $91,878 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours."
+  },
+  "cogs_percent_of_revenue": 0.1910638297142857,
+  "current_cogs": 267489.3616,
+  "cogs_total_year1": 267489.3616,
+  "cogs_basis": "ratio",
+  "marketing_total_year1": 22000.0,
+  "marketing_percent_of_revenue": 0.015714285714285715,
+  "_financials_marketing_stage_done": true,
+  "baseline_marketing_percent": 0.08,
+  "baseline_marketing": 112000.0,
+  "marketing_adjustment": -90000.0,
+  "monthly_rent_expense": 5200.0,
+  "future_rent_expected": true,
+  "other_operating_expense": 6800.0,
+  "other_opex_absolute": 81600.0,
+  "current_num_employees": 12,
+  "current_capex": 0.0,
+  "initial_assets": 420000.0,
+  "capital_lease_balance": 62000.0,
+  "initial_equity": 210000.0,
+  "total_debt_outstanding": 180000.0,
+  "other_monthly_debt_payments": 3800.0,
+  "annual_interest_payment": 12000.0,
+  "annual_principal_payment": 34000.0,
+  "cash_on_hand": 145000.0,
+  "ar_balance": 190000.0,
+  "ap_balance": 88000.0,
+  "inventory_balance": 35000.0,
+  "cash_strategy": "balanced",
+  "funding_preference": "debt"
+ },
+ "people_json": {
+  "people": [
+   {
+    "full_name": "Rafael Ostrowski",
+    "role_title": "Owner; sales lead and field operations",
+    "primary_responsibilities": "Leads sales and bidding with property managers, oversees field operations for both maintenance routes and install projects, manages client relationships, and ensures quality, safety, and schedule adherence across all routes and jobs.",
+    "relevant_background": "Nineteen years in commercial landscaping, including six years running Halbrook Grounds Management, supported by a two-year turf management degree and a Kansas pesticide applicator license.",
+    "experience_years": "19",
+    "why_strengthens_business": "Rafael\u2019s deep technical knowledge, licensing, and long-standing industry experience allow him to price and scope work accurately, maintain quality across multiple crews, and build the long-term client relationships that underpin recurring maintenance contracts and profitable install work.",
+    "paragraph": "Rafael Ostrowski serves as Owner and leads both sales and field operations for Halbrook Grounds Management, bringing nineteen years of commercial landscaping experience, including six years running the company. With a two-year turf management degree and a Kansas pesticide applicator license, he combines technical expertise with practical route and crew management. Rafael personally handles bids and site walks with property managers and oversees day-to-day execution on both maintenance routes and install projects, which ensures accurate pricing, consistent quality, and reliable delivery across the portfolio of commercial properties.",
+    "annual_wage": 95000.0,
+    "wage_source": "client_override"
+   },
+   {
+    "full_name": "Ignacio Ferreira-Sandoval",
+    "role_title": "Crew lead; runs maintenance routes",
+    "primary_responsibilities": "Leads the maintenance crews on scheduled routes, organizes daily work at the yard and on-site, manages mowing, trimming, and clean-up standards, and addresses minor equipment issues to keep the route on schedule.",
+    "relevant_background": "Five years of experience in the business, all with Halbrook Grounds Management, with hands-on expertise running commercial maintenance routes and troubleshooting equipment in the field.",
+    "experience_years": "5",
+    "why_strengthens_business": "Ignacio\u2019s reliability, route leadership, and mechanical know-how allow Halbrook Grounds Management to keep a full book of recurring properties on schedule with consistent quality, directly supporting the stability and renewal of its maintenance contracts.",
+    "paragraph": "Ignacio Ferreira-Sandoval is the crew lead responsible for running the maintenance routes at Halbrook Grounds Management, bringing five years of in-house experience on the company\u2019s commercial properties. He organizes daily work for the maintenance crews, ensures mowing, trimming, and clean-up are completed to standard on each visit, and uses his ability to fix equipment issues in the field to minimize downtime. Ignacio\u2019s steady leadership on route keeps recurring properties serviced reliably and protects the continuity and reputation of the maintenance contract side of the business.",
+    "annual_wage": 64000.0,
+    "wage_source": "client_override"
+   },
+   {
+    "full_name": "Bethany Kowalczyk",
+    "role_title": "Crew lead; runs install crew and does takeoffs",
+    "primary_responsibilities": "Leads the install crew on-site, coordinates installation sequencing and site logistics, performs takeoffs and basic scoping for new beds, irrigation, and sod jobs, and works with ownership to ensure jobs are executed to spec and budget.",
+    "relevant_background": "Four years of experience with Halbrook Grounds Management running commercial install work, supported by a horticulture certificate that underpins plant selection, layout, and installation practices.",
+    "experience_years": "4",
+    "why_strengthens_business": "Bethany\u2019s combination of hands-on install leadership and horticultural training enables Halbrook Grounds Management to deliver higher-margin projects efficiently and professionally, turning bids into well-executed jobs that complement the recurring maintenance book.",
+    "paragraph": "Bethany Kowalczyk leads the install crew for Halbrook Grounds Management and handles takeoffs for new beds, irrigation, and sod projects, drawing on four years of experience with the company and a horticulture certificate. She coordinates on-site installation work, manages crew activities and sequencing, and supports accurate scoping so that install jobs are bid and delivered in line with expectations. Bethany\u2019s role converts install opportunities into well-executed, higher-margin projects that fit smoothly alongside the maintenance routes and strengthen the company\u2019s value to commercial property managers.",
+    "annual_wage": 60000.0,
+    "wage_source": "client_override"
+   }
+  ],
+  "inferred_roles": [],
+  "inferred_roles_summary": "",
+  "business_naics_6": "561730",
+  "confidence": 0.94,
+  "rest_of_team_payroll_year1": 380000
+ },
+ "financials_year1_json": {
+  "lobs": [
+   {
+    "lob_name": "Maintenance contracts",
+    "products": [
+     {
+      "product_name": "Maintenance contract",
+      "unit_name": "Maintenance contract-month",
+      "unit_description": "One active maintenance contract for one commercial property for a month, covering all scheduled mowing, trimming, and clean-up visits at that site for that month.",
+      "unit_cadence": "monthly",
+      "unit_price": 2400.0,
+      "units_per_week_capacity": 9.2308,
+      "units_per_period_capacity": 38.93756083993881,
+      "avg_units_per_period_year1": 33.096926713947994,
+      "operating_periods_per_year": 12.0,
+      "utilization_rate": 0.8500000000000001,
+      "annual_units_year1": 397.1631205673759,
+      "revenue_total_year1": 953191.4893617022,
+      "driver_schema": {
+       "cadence_type": "monthly",
+       "capacity_semantics": "max units per month",
+       "realized_units_semantics": "average units per month during year 1",
+       "periods_semantics": "operating months per year",
+       "annual_units_semantics": "annual delivered units",
+       "revenue_semantics": "avg units/month x price x months/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "monthly",
+       "authoritative_avg_units_field": "avg_units_per_month_year1",
+       "authoritative_periods_field": "operating_months_per_year",
+       "authoritative_capacity_field": "units_per_month_capacity",
+       "capacity_interpretation": "monthly throughput capacity",
+       "volume_semantics": "average monthly delivered units",
+       "operating_periods_per_year": 12.0
+      },
+      "avg_units_per_month_year1": 33.096926713947994,
+      "operating_months_per_year": 12.0,
+      "units_per_month_capacity": 38.93756083993881
+     }
+    ],
+    "revenue_total_year1": 953191.4893617022
+   },
+   {
+    "lob_name": "Installation projects",
+    "products": [
+     {
+      "product_name": "Install project",
+      "unit_name": "Install job",
+      "unit_description": "One installation job at one commercial property, from start to finish, covering the agreed scope (e.g., new beds, irrigation, sod, or similar).",
+      "unit_cadence": "contract",
+      "unit_price": 18000.0,
+      "units_per_week_capacity": 0.5769,
+      "units_per_period_capacity": 2.920317062995411,
+      "avg_units_per_period_year1": 2.482269503546099,
+      "operating_periods_per_year": 10.0,
+      "utilization_rate": 0.85,
+      "annual_units_year1": 24.822695035460992,
+      "revenue_total_year1": 446808.5106382978,
+      "driver_schema": {
+       "cadence_type": "contract",
+       "capacity_semantics": "max concurrent active units",
+       "realized_units_semantics": "average active units during year 1",
+       "periods_semantics": "annual turns per active slot",
+       "annual_units_semantics": "annual completed units",
+       "revenue_semantics": "avg active units x price x turns/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "contract",
+       "authoritative_avg_units_field": "avg_active_units_year1",
+       "authoritative_periods_field": "annual_turns_per_year",
+       "authoritative_capacity_field": "concurrent_capacity_units",
+       "capacity_interpretation": "concurrent active-load capacity",
+       "volume_semantics": "average active concurrent units",
+       "operating_periods_per_year": 10.0
+      },
+      "avg_active_units_year1": 2.482269503546099,
+      "annual_turns_per_year": 10.0,
+      "annual_completed_units_year1": 24.822695035460992,
+      "concurrent_capacity_units": 2.920317062995411
+     }
+    ],
+    "revenue_total_year1": 446808.5106382978
+   }
+  ],
+  "company_revenue_total_year1": 1400000.0
+ },
+ "marketing_model_json": {
+  "ready": true,
+  "version": 3,
+  "signature": "{\"business\": {\"address_country\": \"United States\", \"address_state\": \"Kansas\", \"address_zip\": \"66214\"}, \"market\": {\"b2b_age_bands\": [\"5\", \"6-10\", \"11-15\", \"16-20\", \"21-25\", \"26+\"], \"b2b_naics_6\": [\"561730\", \"531311\", \"531312\", \"531390\"], \"b2b_size_bands\": [\"5-9\", \"10-19\", \"20-99\"], \"consumer_type\": \"b2b\", \"marketing_plan_summary\": \"Halbrook Grounds Management will be positioned as a local commercial grounds partner for office parks, medical campuses, HOAs, and non-retail commercial property managers in its Johnson County, Kansas service area, built around two complementary lines: recurring maintenance contracts billed per Maintenance contract-month and Install job on a monthly cadence, and one-off installation projects that are scoped and billed per completed job. The business operates on a relationship-driven, contract-based model rather than transactions, with pricing reflected in $2,400 per Maintenance contract-month and $18,000 per Install job, and capacity constrained primarily by crew labor and daylight rather than demand. Within that frame, the target segment is established (five-plus years) commercial property owners and mid-sized portfolio managers who control several buildings, value having the same crews on their sites year after year, and want a single partner to handle both routine maintenance and periodic install or irrigation work across properties.\\n\\nAcquisition will concentrate on a tight set of channels that match this operating reality and buyer. LinkedIn and direct outreach to local property managers and asset managers will be used to open conversations with mid-sized portfolios where a single relationship can yield multiple properties on a route. In-person networking through local real estate, BOMA/IFMA-style groups, and chamber or property-management associations will reinforce Halbrook Grounds Management\u2019s reputation for crew stability and reliability among office and medical campus decision-makers. Google Search (local SEO and basic search presence) will ensure property managers actively looking for commercial grounds maintenance in the Johnson County area can easily discover and qualify the business. Curated listings in regional commercial property and vendor directories will support credibility checks when managers compare bids. Finally, a deliberate referral network with existing property managers and a small number of complementary service providers (e.g., snow-only contractors, exterior cleaners) will formalize the \u201cmanagers who move buildings\u201d referral pattern into a steady source of route-friendly opportunities. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\", \"selections\": [], \"target_market_summary\": \"\"}, \"ops\": {\"business_naics_6\": \"561730\", \"business_type\": \"Grounds Maintenance\", \"capacity_driver\": \"labor\", \"competitive_advantage\": \"Exceptionally low crew turnover: the same experienced crews stay on the same properties year after year, building familiarity and consistency that property managers notice, unlike competitors who churn through staff each spring.\", \"consumer_type\": \"b2b\", \"countries\": [\"United States\"], \"geographic_coverage\": \"Overland Park, Lenexa, Shawnee, Olathe, Leawood (Johnson County, Kansas; not crossing into Missouri)\", \"geographic_scope\": \"local\", \"operating_periods_per_year\": null, \"primary_growth_lever\": \"labor capacity (adding crew leads and routes to handle more properties)\", \"sales_modality\": \"physical\", \"shipping_method\": \"on-site service at client properties\", \"unit_cadence\": \"\", \"unit_description\": \"\", \"unit_name\": \"\", \"unit_price\": null, \"units_per_period_capacity\": null, \"units_per_week_capacity\": null, \"utilization_rate\": null}, \"year1\": {\"company_revenue_total_year1\": 1400000.0, \"lobs\": [{\"lob_name\": \"Maintenance contracts\", \"products\": [{\"annual_units_year1\": 397.1631205673759, \"avg_units_per_month_year1\": 33.096926713947994, \"avg_units_per_period_year1\": 33.096926713947994, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"operating_months_per_year\": 12.0, \"operating_periods_per_year\": 12.0, \"product_name\": \"Maintenance contract\", \"revenue_total_year1\": 953191.4893617022, \"unit_cadence\": \"monthly\", \"unit_description\": \"One active maintenance contract for one commercial property for a month, covering all scheduled mowing, trimming, and clean-up visits at that site for that month.\", \"unit_name\": \"Maintenance contract-month\", \"unit_price\": 2400.0, \"units_per_month_capacity\": 38.93756083993881, \"units_per_period_capacity\": 38.93756083993881, \"units_per_week_capacity\": 9.2308, \"utilization_rate\": 0.8500000000000001}], \"revenue_total_year1\": 953191.4893617022}, {\"lob_name\": \"Installation projects\", \"products\": [{\"annual_completed_units_year1\": 24.822695035460992, \"annual_turns_per_year\": 10.0, \"annual_units_year1\": 24.822695035460992, \"avg_active_units_year1\": 2.482269503546099, \"avg_units_per_period_year1\": 2.482269503546099, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 10.0, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 2.920317062995411, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"operating_periods_per_year\": 10.0, \"product_name\": \"Install project\", \"revenue_total_year1\": 446808.5106382978, \"unit_cadence\": \"contract\", \"unit_description\": \"One installation job at one commercial property, from start to finish, covering the agreed scope (e.g., new beds, irrigation, sod, or similar).\", \"unit_name\": \"Install job\", \"unit_price\": 18000.0, \"units_per_period_capacity\": 2.920317062995411, \"units_per_week_capacity\": 0.5769, \"utilization_rate\": 0.85}], \"revenue_total_year1\": 446808.5106382978}]}}",
+  "geography_basis": {
+   "scope": "local",
+   "anchor_zip": "66214",
+   "state_fips": [
+    "20"
+   ],
+   "county_geoids": [
+    "20091"
+   ],
+   "coverage_summary": "Overland Park, Lenexa, Shawnee, Olathe, Leawood (Johnson County, Kansas; not crossing into Missouri)",
+   "explicit_zip_basis": []
+  },
+  "b2b_basis_counts": {
+   "cbp_basis": {
+    "match_level": 6,
+    "source_codes": [
+     "531311",
+     "531312",
+     "531390",
+     "561730"
+    ],
+    "employees_total": 12676.0,
+    "establishments_total": 1697.0
+   },
+   "age_signal": {
+    "latest_year": 2023,
+    "total_firms": 253727.0,
+    "selected_firms": 161867.0,
+    "selected_share": 0.6379573320931552,
+    "selected_buckets": [
+     "f) 5",
+     "g) 6 to 10",
+     "h) 11 to 15",
+     "i) 16 to 20",
+     "j) 21 to 25",
+     "k) 26+"
+    ]
+   },
+   "state_fips": [
+    "20"
+   ],
+   "size_signal": {
+    "latest_year": 2023,
+    "total_firms": 253727.0,
+    "selected_firms": 85048.0,
+    "selected_share": 0.33519491421882575,
+    "selected_buckets": [
+     "b) 5 to 9",
+     "c) 10 to 19",
+     "d) 20 to 99"
+    ]
+   },
+   "selected_naics_4": [
+    "5313",
+    "5617"
+   ],
+   "selected_naics_6": [
+    "561730",
+    "531311",
+    "531312",
+    "531390"
+   ]
+  },
+  "b2c_basis_counts": [],
+  "reachable_market": 220.0,
+  "estimation_method": "gpt_estimate",
+  "estimation_status": "gpt_estimate_ready",
+  "market_basis_type": "b2b",
+  "baseline_marketing": 112000.0,
+  "capture_rate_year1": 1.0,
+  "estimation_warning": "",
+  "marketing_intensity": "medium",
+  "expected_units_year1": 421.99,
+  "missing_dependencies": [],
+  "reachable_market_b2b": 220.0,
+  "reachable_market_b2c": 0.0,
+  "required_units_year1": 421.9858156028369,
+  "required_revenue_year1": 1400000.0,
+  "marketing_basis_summary": "Business stage: operating, with six years of history and owner-led relationship sales, but the plan is framed like a focused ramp year targeting a clear commercial segment in one county.\n\nB2B reach: The CBP universe shows 1,697 establishments in the relevant NAICS bands in Kansas, including Johnson County. Halbrook\u2019s true buyers are a narrower role-based group: established commercial property owners and management firms (office parks, medical campuses, HOAs, non\u2011retail commercial) that control multiple buildings and value stable crews. Within the Johnson County footprint (Overland Park, Lenexa, Shawnee, Olathe, Leawood), only a subset of those 1,697 are relevant and realistically reachable in Year 1 via Rafael\u2019s bandwidth, in\u2011person networking, LinkedIn outreach, and referrals. Treating the Johnson County slice plus the relevant size/age filters as roughly one-third of the state-level establishments, and then further limiting to non\u2011retail multi\u2011property managers and suitable HOAs, yields an order\u2011of\u2011magnitude reachable universe of about 200\u2013250 firms for planning. We anchor reachable_market_b2b at 220 firms as a realistic Year\u20111 reachable subset of the CBP universe, not the full set of establishments.\n\nDemand vs. reach: Year\u20111 revenue of $1.4M comes from ~398 maintenance contract\u2011months plus ~25 install jobs (\u2248422 total units). At an average of ~1.9 units per reachable firm, that can be supported by ~22 active client relationships if each controls multiple properties and/or books periodic install projects. A capture_rate_year1 of 1.92 units per reachable firm does not mean nearly 200% adoption; it reflects the unit structure: a single property on contract generates 12 maintenance contract\u2011months per year, and many target clients manage several properties plus occasional install work. Converting roughly 10% of reachable firms (\u224822 of 220) into active customers at this multi\u2011unit usage level fits the relationship-based, route-driven model.\n\nMarketing baseline: Channels are primarily targeted and relationship-based (LinkedIn outreach to known roles, BOMA/IFMA style groups, chamber/property associations, referrals, some search presence). These tend to be lower cash\u2011spend but higher time\u2011intensity, with modest paid media (Google/search, directory listings) and heavier investment in networking, association dues, and sales time. For an operating, owner\u2011led commercial grounds firm with strong word-of-mouth potential and local focus, a baseline marketing spend of about 8% of Year\u20111 revenue is appropriate: enough budget to support memberships, modest digital, and consistent prospecting without assuming heavy paid lead-gen or brand advertising. This supports acquiring ~20\u201325 route\u2011fit accounts while staying realistic about owner bandwidth and relationship-driven sales.\n\nCombined reachable_market: The 220 figure is a planning/reporting view of the reachable B2B firm universe in Johnson County for Year 1. There is no B2C component for this model, so reachable_market_b2c is 0. The combined reachable_market should not be read as a literal homogeneous TAM, but as the number of distinct firms that the described channels and sales model can plausibly touch and qualify in the first year.",
+  "baseline_marketing_percent": 0.08,
+  "demand_supports_required_units": true,
+  "expected_customers_or_clients_year1": 22.0
+ }
+}

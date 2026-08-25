@@ -421,16 +421,32 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   amortizing, so it does not belong in an amortization table; it is computed
   in the bridge from the lease columns and published under its existing keys.
 
-  NO AMORTIZING-PAYMENT REFERENCE COLUMN. It would need a debt term, and
-  there is none in the payload - not in model_input_json, not in the
-  schedules block, nowhere. Inventing or hard-coding one was ruled out, so
-  the column is left out.
+  PRINCIPAL COMPUTES; NOTHING IS PASTED (CW-043). The first vertical build
+  pasted principal as a literal - the one pasted cell in each row - so a
+  zero authored upstream froze the lease at its opening balance for five
+  years while the ROU asset depreciated to nothing, and every downstream
+  tie-out reconciled the frozen number with itself. Now, per block:
 
-  PAYMENT COMPUTES; PRINCIPAL IS THE INPUT. Today's repayment figure is
-  entirely principal - interest is a separate expense and total debt service
-  is interest plus repayment. So the amber column is Principal, seeded with
-  the engine's own repayment, and Payment is Interest + Principal. Any other
-  arrangement would move delivered numbers.
+    Scheduled principal = (Opening + New) / remaining term   (formula)
+    Extra principal     = engine repayment - scheduled       (INPUT column)
+    Principal           = MIN(Opening + New, MAX(0, Scheduled + Extra))
+    Payment             = Interest + Principal
+
+  Opening-over-remaining-term reproduces the engine's straight-line base
+  exactly (180,000/32 = 5,625; 174,375/31 = 5,625; ...) and re-amortizes on
+  its own after any client edit. The engine's cash sweeps - real, and never
+  to be smoothed away - land in Extra principal, explicit and editable, on
+  top of the scheduled amount. Scheduled + Extra equals the engine's
+  repayment by construction, so delivered numbers do not move.
+
+  THE DEBT TERM IS THE CASH PASS'S OWN JUDGMENT, read from
+  model_input_json.solver_input.cash_judgment.debt_term_quarters (the
+  earlier note here claiming no term existed in the payload was wrong -
+  it lives under solver_input, not schedules). When a draft predates that
+  judgment the term is implied from the engine's own base repayment
+  (seed / first repayment), and failing that the horizon; either way the
+  split is presentational - Extra absorbs any difference, so totals match
+  the engine regardless of the term shown.
   """
   ws = create_sheet(wb, DEBT_SHEET)
   apply_base_style(ws)
@@ -438,8 +454,10 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws,
     "Debt & Lease Amortization Schedule",
     "One row per quarter. Each balance opens where the quarter above it "
-    "closed. Amber cells are yours: new borrowing, interest rate, principal "
-    "repayment, lease additions, lease rate, lease term and lease principal.",
+    "closed. Amber cells are yours: new borrowing, rates, terms, extra "
+    "principal and lease additions. Every other cell computes - scheduled "
+    "principal comes from the balance over the remaining term, and payment "
+    "is interest plus principal.",
   )
   schedule_by_label = row_by_label(data.schedule_rows)
   expense_by_label = row_by_label(data.expense_rows)
@@ -475,11 +493,56 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   debt_principal = _walk(debt_seed, issuance_values, repay_values)
   lease_principal = _walk(lease_seed, lease_add_values, lease_principal_values)
 
+  def _judged_debt_term() -> int:
+    """The cash pass's own judged term, from the payload - never invented.
+
+    Fallbacks for drafts that predate the judgment: the term implied by the
+    engine's own base repayment, then the horizon. The choice only moves the
+    scheduled/extra SPLIT, never the totals - Extra absorbs the difference.
+    """
+    solver = data.model_input_json.get("solver_input")
+    judged = ((solver if isinstance(solver, dict) else {}).get("cash_judgment")
+              or {}).get("debt_term_quarters")
+    term = int(number(judged) or 0)
+    if term >= 1:
+      return term
+    seed = number(debt_seed) or 0.0
+    base = next((v for v in debt_principal[1:] if v and v > 0), 0.0)
+    if seed > 0 and base > 0:
+      return max(1, int(round(seed / base)))
+    return PERIOD_COUNT - 1
+
+  debt_term_quarters = _judged_debt_term()
+
+  def _extra_split(seed, adds, principal, term):
+    """Per-row EXTRA principal: engine repayment minus the scheduled amount.
+
+    Mirrors the sheet's own recurrence operation for operation - opening from
+    prior closing, scheduled = (opening + additions) / remaining term - so the
+    authored Extra plus the Excel-computed Scheduled reproduces the engine's
+    repayment in every row. Zero everywhere the engine amortizes on schedule;
+    the cash sweeps (and nothing else) surface here.
+    """
+    extra = []
+    balance = number(seed) or 0.0
+    for idx in range(PERIOD_COUNT):
+      add = 0.0 if idx == 0 else (adds[idx] or 0.0)
+      sched = 0.0 if idx == 0 else (balance + add) / max(1, term - (idx - 1))
+      take = principal[idx]
+      extra.append(take - sched)
+      balance = max(0.0, balance + add - take)
+    return extra
+
+  debt_extra = _extra_split(debt_seed, issuance_values, debt_principal, debt_term_quarters)
+  lease_extra = _extra_split(lease_seed, lease_add_values, lease_principal, lease_life_quarters)
+
   # ---- geometry -----------------------------------------------------------
   C_PERIOD = 1
-  C_D_OPEN, C_D_NEW, C_D_RATE, C_D_PAY, C_D_INT, C_D_PRIN, C_D_CLOSE = range(2, 9)
-  C_L_OPEN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_PAY, C_L_INT, C_L_PRIN, C_L_CLOSE = range(9, 17)
-  C_T_PAY, C_T_INT, C_T_CLOSE = 17, 18, 19
+  (C_D_OPEN, C_D_NEW, C_D_RATE, C_D_TERM, C_D_SCHED, C_D_EXTRA,
+   C_D_PRIN, C_D_INT, C_D_PAY, C_D_CLOSE) = range(2, 12)
+  (C_L_OPEN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_SCHED, C_L_EXTRA,
+   C_L_PRIN, C_L_INT, C_L_PAY, C_L_CLOSE) = range(12, 22)
+  C_T_PAY, C_T_INT, C_T_CLOSE = 22, 23, 24
   GROUP_ROW, HEAD_ROW = 5, 6
   FIRST_ROW = 7
 
@@ -499,12 +562,17 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
   headers = [
     (C_PERIOD, "Period", None), (C_D_OPEN, "Opening", CURRENCY_FORMAT),
     (C_D_NEW, "New borrowing", CURRENCY_FORMAT), (C_D_RATE, "Rate", PERCENT_FORMAT),
-    (C_D_PAY, "Payment", CURRENCY_FORMAT), (C_D_INT, "Interest", CURRENCY_FORMAT),
-    (C_D_PRIN, "Principal", CURRENCY_FORMAT), (C_D_CLOSE, "Closing", CURRENCY_FORMAT),
+    (C_D_TERM, "Term (q)", INTEGER_FORMAT),
+    (C_D_SCHED, "Scheduled principal", CURRENCY_FORMAT),
+    (C_D_EXTRA, "Extra principal", CURRENCY_FORMAT),
+    (C_D_PRIN, "Principal", CURRENCY_FORMAT), (C_D_INT, "Interest", CURRENCY_FORMAT),
+    (C_D_PAY, "Payment", CURRENCY_FORMAT), (C_D_CLOSE, "Closing", CURRENCY_FORMAT),
     (C_L_OPEN, "Opening", CURRENCY_FORMAT), (C_L_ADD, "Additions", CURRENCY_FORMAT),
     (C_L_RATE, "Rate", PERCENT_FORMAT), (C_L_TERM, "Term (q)", INTEGER_FORMAT),
-    (C_L_PAY, "Payment", CURRENCY_FORMAT), (C_L_INT, "Interest", CURRENCY_FORMAT),
-    (C_L_PRIN, "Principal", CURRENCY_FORMAT), (C_L_CLOSE, "Closing", CURRENCY_FORMAT),
+    (C_L_SCHED, "Scheduled principal", CURRENCY_FORMAT),
+    (C_L_EXTRA, "Extra principal", CURRENCY_FORMAT),
+    (C_L_PRIN, "Principal", CURRENCY_FORMAT), (C_L_INT, "Interest", CURRENCY_FORMAT),
+    (C_L_PAY, "Payment", CURRENCY_FORMAT), (C_L_CLOSE, "Closing", CURRENCY_FORMAT),
     (C_T_PAY, "Total payment", CURRENCY_FORMAT),
     (C_T_INT, "Total interest", CURRENCY_FORMAT),
     (C_T_CLOSE, "Total closing", CURRENCY_FORMAT),
@@ -519,7 +587,8 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.column_dimensions[get_column_letter(col)].width = 13
   ws.freeze_panes = ws.cell(FIRST_ROW, C_D_OPEN)
 
-  INPUT_COLS = {C_D_NEW, C_D_RATE, C_D_PRIN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_PRIN}
+  INPUT_COLS = {C_D_NEW, C_D_RATE, C_D_TERM, C_D_EXTRA,
+                C_L_ADD, C_L_RATE, C_L_TERM, C_L_EXTRA}
   periods = data.periods or []
 
   for idx in range(PERIOD_COUNT):
@@ -530,28 +599,54 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
     ws.cell(r, C_PERIOD, value="Stub" if stub else f"Q{idx}")
     ws.cell(r, C_PERIOD).font = design.font("label_strong")
 
+    period_ref = local_ref(r, C_PERIOD)
+    elapsed = max(0, idx - 1)
+
+    def _block(c_open, c_new, c_rate, c_term, c_sched, c_extra,
+               c_prin, c_int, c_pay, c_close, *,
+               seed, new_value, rate_value, term_value, extra_value,
+               interest_kind):
+      """One amortization block, principal COMPUTED - the only values are the
+      client's inputs (new/rate/term/extra) and the stub's opening seed."""
+      ws.cell(r, c_open, value=seed if stub else f"={local_ref(prev, c_close)}")
+      ws.cell(r, c_new, value=new_value)
+      ws.cell(r, c_rate, value=rate_value)
+      ws.cell(r, c_term, value=term_value)
+      # Straight-line on the CURRENT balance over the REMAINING term - which
+      # reproduces the engine's level base exactly on an untouched schedule
+      # and re-amortizes by itself after any edit or sweep. The stub is the
+      # historical anchor period: nothing is ever scheduled in it.
+      ws.cell(r, c_sched,
+              value=f'=IF({period_ref}="Stub",0,({local_ref(r, c_open)}'
+                    f'+{local_ref(r, c_new)})'
+                    f'/MAX(1,{local_ref(r, c_term)}-{elapsed}))')
+      ws.cell(r, c_extra, value=extra_value)
+      ws.cell(r, c_prin,
+              value=f"=MIN({local_ref(r, c_open)}+{local_ref(r, c_new)},"
+                    f"MAX(0,{local_ref(r, c_sched)}+{local_ref(r, c_extra)}))")
+      ws.cell(r, c_close, value=f"=MAX(0,{local_ref(r, c_open)}+{local_ref(r, c_new)}"
+                                f"-{local_ref(r, c_prin)})")
+      if interest_kind == "average_balance":
+        ws.cell(r, c_int, value=f"=(({local_ref(r, c_open)}+{local_ref(r, c_close)})/2)"
+                                f"*{local_ref(r, c_rate)}")
+      else:
+        ws.cell(r, c_int, value=f'=IF({period_ref}="Stub",0,'
+                                f'{local_ref(r, c_open)}*{local_ref(r, c_rate)})')
+      ws.cell(r, c_pay, value=f"={local_ref(r, c_int)}+{local_ref(r, c_prin)}")
+
     # ---- debt
-    ws.cell(r, C_D_OPEN, value=debt_seed if stub else f"={local_ref(prev, C_D_CLOSE)}")
-    ws.cell(r, C_D_NEW, value=0 if stub else issuance_values[idx])
-    ws.cell(r, C_D_RATE, value=rate_values[idx])
-    ws.cell(r, C_D_PRIN, value=debt_principal[idx])
-    ws.cell(r, C_D_CLOSE, value=f"=MAX(0,{local_ref(r, C_D_OPEN)}+{local_ref(r, C_D_NEW)}"
-                                f"-{local_ref(r, C_D_PRIN)})")
-    ws.cell(r, C_D_INT, value=f"=(({local_ref(r, C_D_OPEN)}+{local_ref(r, C_D_CLOSE)})/2)"
-                              f"*{local_ref(r, C_D_RATE)}")
-    ws.cell(r, C_D_PAY, value=f"={local_ref(r, C_D_INT)}+{local_ref(r, C_D_PRIN)}")
+    _block(C_D_OPEN, C_D_NEW, C_D_RATE, C_D_TERM, C_D_SCHED, C_D_EXTRA,
+           C_D_PRIN, C_D_INT, C_D_PAY, C_D_CLOSE,
+           seed=debt_seed, new_value=0 if stub else issuance_values[idx],
+           rate_value=rate_values[idx], term_value=debt_term_quarters,
+           extra_value=debt_extra[idx], interest_kind="average_balance")
 
     # ---- capital lease
-    ws.cell(r, C_L_OPEN, value=lease_seed if stub else f"={local_ref(prev, C_L_CLOSE)}")
-    ws.cell(r, C_L_ADD, value=0 if stub else lease_add_values[idx])
-    ws.cell(r, C_L_RATE, value=rate_values[idx])
-    ws.cell(r, C_L_TERM, value=lease_life_quarters)
-    ws.cell(r, C_L_PRIN, value=lease_principal[idx])
-    ws.cell(r, C_L_CLOSE, value=f"=MAX(0,{local_ref(r, C_L_OPEN)}+{local_ref(r, C_L_ADD)}"
-                                f"-{local_ref(r, C_L_PRIN)})")
-    ws.cell(r, C_L_INT, value=0 if stub else
-            f"={local_ref(r, C_L_OPEN)}*{local_ref(r, C_L_RATE)}")
-    ws.cell(r, C_L_PAY, value=f"={local_ref(r, C_L_INT)}+{local_ref(r, C_L_PRIN)}")
+    _block(C_L_OPEN, C_L_ADD, C_L_RATE, C_L_TERM, C_L_SCHED, C_L_EXTRA,
+           C_L_PRIN, C_L_INT, C_L_PAY, C_L_CLOSE,
+           seed=lease_seed, new_value=0 if stub else lease_add_values[idx],
+           rate_value=rate_values[idx], term_value=lease_life_quarters,
+           extra_value=lease_extra[idx], interest_kind="opening_balance")
 
     # ---- combined
     ws.cell(r, C_T_PAY, value=f"={local_ref(r, C_D_PAY)}+{local_ref(r, C_L_PAY)}")
@@ -569,6 +664,24 @@ def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildCon
         ws.cell(r, col).font = design.font("note")
 
   last_row = FIRST_ROW + PERIOD_COUNT - 1
+
+  # PRINCIPAL COMPUTED, NOT PASTED - enforced at build time (CW-043). The
+  # first vertical build pasted principal literals; a zero authored upstream
+  # then froze a $62,000 lease for five years and every tie-out reconciled
+  # the frozen number with itself. The input whitelist is exactly the amber
+  # columns plus the stub row's opening seeds (balance-sheet anchors, stated
+  # facts); a bare value anywhere else in the table kills the build.
+  for r_ in range(FIRST_ROW, last_row + 1):
+    for col, _text, _fmt in headers[1:]:
+      if col in INPUT_COLS:
+        continue
+      if r_ == FIRST_ROW and col in (C_D_OPEN, C_L_OPEN):
+        continue
+      v = ws.cell(r_, col).value
+      if not (isinstance(v, str) and v.startswith("=")):
+        raise AssertionError(
+          f"Debt Schedule literal where a formula belongs: "
+          f"{get_column_letter(col)}{r_} = {v!r}")
 
   # ---- THE HIDDEN BRIDGE --------------------------------------------------
   # One row per figure the rest of the workbook consumes, 21 columns wide, in

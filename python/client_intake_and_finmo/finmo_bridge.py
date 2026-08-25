@@ -4142,9 +4142,23 @@ def _build_model_input_overlay(
       from financial_model_engine.finmo_model import (  # type: ignore
         CAPITAL_LEASE_DEPRECIATION_QUARTERS as _LEASE_AMORT_QUARTERS,
       )
-      _lease_amort_seed = _annualized_lease_commitment(
-        (financials_json or {}).get("initial_lease")
-      ) or 0.0
+      # CW-043: the amortizer reads the SAME field the seed reads. The
+      # CW-041 field split (08-23) moved the seed to capital_lease_balance
+      # but left this author on initial_lease - None on new drafts, so
+      # principal authored 0 and the liability froze at opening while the
+      # ROU asset depreciated to zero (Halbrook ecd0e148: closing 62,000
+      # flat through Q20, payment == interest). The 07-13 design (6732816)
+      # is restored on the new field; initial_lease stays as the legacy
+      # fallback for old drafts, exactly like the seed branch above.
+      _capital_lease_bal = _safe_float(
+        (financials_json or {}).get("capital_lease_balance")
+      )
+      if _capital_lease_bal is not None:
+        _lease_amort_seed = round(max(0.0, _capital_lease_bal), 6)
+      else:
+        _lease_amort_seed = _annualized_lease_commitment(
+          (financials_json or {}).get("initial_lease")
+        ) or 0.0
       quarterly = (
         round(max(0.0, _lease_amort_seed) / float(max(1, _LEASE_AMORT_QUARTERS)), 6)
         if _lease_amort_seed > 0.0 else 0.0
