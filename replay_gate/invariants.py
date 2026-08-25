@@ -103,7 +103,15 @@ def _i_ack_matches_stored(ctx):
     claiming a $0 lease write, and nothing lands.
     """
     fin = ctx.completed_fin()
+    # The 'initial_lease' STAGE KEY survived CW-041 (ef2d6e7) but its
+    # completion field became capital_lease_balance, and completed_fin()
+    # fills every stage's completion field - so popping only the old field
+    # left the stage complete and the leg dark from ef2d6e7 on (mini,
+    # 2026-08-24: GREEN at 7480c5d, 'active stage is None' at HEAD). Both
+    # fields are popped: the old one makes the stage pending on the 7bcf307
+    # baseline, the new one on any build after CW-041.
     fin.pop("initial_lease", None)
+    fin.pop("capital_lease_balance", None)
     fin.pop("_financials_stage_confirms", None)
     stage = ctx.ic._next_financials_stage(fin)
     if stage != "initial_lease":
@@ -122,14 +130,21 @@ def _i_ack_matches_stored(ctx):
     claims_write = "i'll use $0" in msg.lower() or "i will use $0" in msg.lower()
     discloses = "$166,000" in msg
     fin_db, _p, _o = ctx.sections(did)
-    lease = fin_db.get("initial_lease")
-    if lease is None:
-        lease = (fin_out or {}).get("initial_lease")
+    # Whichever field the build under test writes for this stage: the legacy
+    # monthly payment (initial_lease) or the CW-041 balance still owed
+    # (capital_lease_balance). Neither may land silently as $0.
+    lease = None
+    for _field in ("capital_lease_balance", "initial_lease"):
+        lease = fin_db.get(_field)
+        if lease is None:
+            lease = (fin_out or {}).get(_field)
+        if lease is not None:
+            break
     silently_written = near(lease, 0.0, 1e-9)
     ok = (not claims_write) and discloses and (not silently_written)
     return ok, (f"reply ships a $0 write-claim = {claims_write} (must be False "
                 f"- nothing landed); client's stated $166,000 disclosed = "
-                f"{discloses}; stored initial_lease = {lease!r} (must not have "
+                f"{discloses}; stored lease field = {lease!r} (must not have "
                 f"been silently written)")
 
 
@@ -410,7 +425,7 @@ INVARIANTS += [
     Leg("I07", "INVARIANT", "ack-matches-stored",
         "prose claiming a write cannot ship unless the write landed",
         "7bcf307", "c3d83a9", _i_ack_matches_stored, issue="CW-025 rank-1",
-        surface="financials stage: initial_lease"),
+        surface="financials stage: initial_lease (capital_lease_balance since CW-041)"),
     Leg("I08", "INVARIANT", "owner-appears-once",
         "exactly one owner row survives a live turn and the persistence round-trip",
         "18f5ca5", "ff1da19", _i_owner_once, issue="CW-026 #1"),

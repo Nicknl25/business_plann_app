@@ -1,0 +1,1408 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/a3a058d7-ce45-4e2e-810e-949c3e715437/scratchpad/wt_oldbase
+SHA    4d71ac01c7d2af6153b989635b7094ce62a39cc1e3d3e4b3ca47a40793a96de6
+GRID   10 sheets, 7978 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    b4bb849f5e858162a2ee4aacf4aecd14f57c64a2890c60dfef87a531fce8af2e
+GRID   10 sheets, 8063 formula cells - ['Calc', 'CapEx Depreciation', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   7978 shared cells, 438 CHANGED, 0 only in wt_oldbase, 85 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  +    Debt Schedule	Q1	11	=MAX(0,L8+M8-R8)
+  +    Debt Schedule	Q1	12	=J8+T8
+  +    Debt Schedule	Q1	13	=I8+S8
+  +    Debt Schedule	Q1	14	=K8+U8
+  +    Debt Schedule	Q10	11	=MAX(0,L17+M17-R17)
+  +    Debt Schedule	Q10	12	=J17+T17
+  +    Debt Schedule	Q10	13	=I17+S17
+  +    Debt Schedule	Q10	14	=K17+U17
+  +    Debt Schedule	Q11	11	=MAX(0,L18+M18-R18)
+  +    Debt Schedule	Q11	12	=J18+T18
+  +    Debt Schedule	Q11	13	=I18+S18
+  +    Debt Schedule	Q11	14	=K18+U18
+  +    Debt Schedule	Q12	11	=MAX(0,L19+M19-R19)
+  +    Debt Schedule	Q12	12	=J19+T19
+  +    Debt Schedule	Q12	13	=I19+S19
+  +    Debt Schedule	Q12	14	=K19+U19
+  +    Debt Schedule	Q13	11	=MAX(0,L20+M20-R20)
+  +    Debt Schedule	Q13	12	=J20+T20
+  +    Debt Schedule	Q13	13	=I20+S20
+  +    Debt Schedule	Q13	14	=K20+U20
+  +    Debt Schedule	Q14	11	=MAX(0,L21+M21-R21)
+  +    Debt Schedule	Q14	12	=J21+T21
+  +    Debt Schedule	Q14	13	=I21+S21
+  +    Debt Schedule	Q14	14	=K21+U21
+  +    Debt Schedule	Q15	11	=MAX(0,L22+M22-R22)
+  +    Debt Schedule	Q15	12	=J22+T22
+  +    Debt Schedule	Q15	13	=I22+S22
+  +    Debt Schedule	Q15	14	=K22+U22
+  +    Debt Schedule	Q16	11	=MAX(0,L23+M23-R23)
+  +    Debt Schedule	Q16	12	=J23+T23
+  +    Debt Schedule	Q16	13	=I23+S23
+  +    Debt Schedule	Q16	14	=K23+U23
+  +    Debt Schedule	Q17	11	=MAX(0,L24+M24-R24)
+  +    Debt Schedule	Q17	12	=J24+T24
+  +    Debt Schedule	Q17	13	=I24+S24
+  +    Debt Schedule	Q17	14	=K24+U24
+  +    Debt Schedule	Q18	11	=MAX(0,L25+M25-R25)
+  +    Debt Schedule	Q18	12	=J25+T25
+  +    Debt Schedule	Q18	13	=I25+S25
+  +    Debt Schedule	Q18	14	=K25+U25
+  +    Debt Schedule	Q19	11	=MAX(0,L26+M26-R26)
+  +    Debt Schedule	Q19	12	=J26+T26
+  +    Debt Schedule	Q19	13	=I26+S26
+  +    Debt Schedule	Q19	14	=K26+U26
+  +    Debt Schedule	Q2	11	=MAX(0,L9+M9-R9)
+  +    Debt Schedule	Q2	12	=J9+T9
+  +    Debt Schedule	Q2	13	=I9+S9
+  +    Debt Schedule	Q2	14	=K9+U9
+  +    Debt Schedule	Q20	11	=MAX(0,L27+M27-R27)
+  +    Debt Schedule	Q20	12	=J27+T27
+  +    Debt Schedule	Q20	13	=I27+S27
+  +    Debt Schedule	Q20	14	=K27+U27
+  +    Debt Schedule	Q3	11	=MAX(0,L10+M10-R10)
+  +    Debt Schedule	Q3	12	=J10+T10
+  +    Debt Schedule	Q3	13	=I10+S10
+  +    Debt Schedule	Q3	14	=K10+U10
+  +    Debt Schedule	Q4	11	=MAX(0,L11+M11-R11)
+  +    Debt Schedule	Q4	12	=J11+T11
+  +    Debt Schedule	Q4	13	=I11+S11
+  +    Debt Schedule	Q4	14	=K11+U11
+  +    Debt Schedule	Q5	11	=MAX(0,L12+M12-R12)
+  +    Debt Schedule	Q5	12	=J12+T12
+  +    Debt Schedule	Q5	13	=I12+S12
+  +    Debt Schedule	Q5	14	=K12+U12
+  +    Debt Schedule	Q6	11	=MAX(0,L13+M13-R13)
+  +    Debt Schedule	Q6	12	=J13+T13
+  +    Debt Schedule	Q6	13	=I13+S13
+  +    Debt Schedule	Q6	14	=K13+U13
+  +    Debt Schedule	Q7	11	=MAX(0,L14+M14-R14)
+  +    Debt Schedule	Q7	12	=J14+T14
+  +    Debt Schedule	Q7	13	=I14+S14
+  +    Debt Schedule	Q7	14	=K14+U14
+  +    Debt Schedule	Q8	11	=MAX(0,L15+M15-R15)
+  +    Debt Schedule	Q8	12	=J15+T15
+  +    Debt Schedule	Q8	13	=I15+S15
+  +    Debt Schedule	Q8	14	=K15+U15
+  +    Debt Schedule	Q9	11	=MAX(0,L16+M16-R16)
+  +    Debt Schedule	Q9	12	=J16+T16
+  +    Debt Schedule	Q9	13	=I16+S16
+  +    Debt Schedule	Q9	14	=K16+U16
+  +    Debt Schedule	Stub	10	=J7+T7
+  +    Debt Schedule	Stub	11	=I7+S7
+  +    Debt Schedule	Stub	12	=K7+U7
+  +    Debt Schedule	Stub	8	=S7+R7
+  +    Debt Schedule	Stub	9	=MAX(0,L7+M7-R7)
+  *    Debt Schedule	Actual Debt Repayment	0
+         was =G7
+         now =H7
+  *    Debt Schedule	Actual Debt Repayment	1
+         was =G8
+         now =H8
+  *    Debt Schedule	Actual Debt Repayment	10
+         was =G17
+         now =H17
+  *    Debt Schedule	Actual Debt Repayment	11
+         was =G18
+         now =H18
+  *    Debt Schedule	Actual Debt Repayment	12
+         was =G19
+         now =H19
+  *    Debt Schedule	Actual Debt Repayment	13
+         was =G20
+         now =H20
+  *    Debt Schedule	Actual Debt Repayment	14
+         was =G21
+         now =H21
+  *    Debt Schedule	Actual Debt Repayment	15
+         was =G22
+         now =H22
+  *    Debt Schedule	Actual Debt Repayment	16
+         was =G23
+         now =H23
+  *    Debt Schedule	Actual Debt Repayment	17
+         was =G24
+         now =H24
+  *    Debt Schedule	Actual Debt Repayment	18
+         was =G25
+         now =H25
+  *    Debt Schedule	Actual Debt Repayment	19
+         was =G26
+         now =H26
+  *    Debt Schedule	Actual Debt Repayment	2
+         was =G9
+         now =H9
+  *    Debt Schedule	Actual Debt Repayment	20
+         was =G27
+         now =H27
+  *    Debt Schedule	Actual Debt Repayment	3
+         was =G10
+         now =H10
+  *    Debt Schedule	Actual Debt Repayment	4
+         was =G11
+         now =H11
+  *    Debt Schedule	Actual Debt Repayment	5
+         was =G12
+         now =H12
+  *    Debt Schedule	Actual Debt Repayment	6
+         was =G13
+         now =H13
+  *    Debt Schedule	Actual Debt Repayment	7
+         was =G14
+         now =H14
+  *    Debt Schedule	Actual Debt Repayment	8
+         was =G15
+         now =H15
+  *    Debt Schedule	Actual Debt Repayment	9
+         was =G16
+         now =H16
+  *    Debt Schedule	Closing Debt	0
+         was =H7
+         now =K7
+  *    Debt Schedule	Closing Debt	1
+         was =H8
+         now =K8
+  *    Debt Schedule	Closing Debt	10
+         was =H17
+         now =K17
+  *    Debt Schedule	Closing Debt	11
+         was =H18
+         now =K18
+  *    Debt Schedule	Closing Debt	12
+         was =H19
+         now =K19
+  *    Debt Schedule	Closing Debt	13
+         was =H20
+         now =K20
+  *    Debt Schedule	Closing Debt	14
+         was =H21
+         now =K21
+  *    Debt Schedule	Closing Debt	15
+         was =H22
+         now =K22
+  *    Debt Schedule	Closing Debt	16
+         was =H23
+         now =K23
+  *    Debt Schedule	Closing Debt	17
+         was =H24
+         now =K24
+  *    Debt Schedule	Closing Debt	18
+         was =H25
+         now =K25
+  *    Debt Schedule	Closing Debt	19
+         was =H26
+         now =K26
+  *    Debt Schedule	Closing Debt	2
+         was =H9
+         now =K9
+  *    Debt Schedule	Closing Debt	20
+         was =H27
+         now =K27
+  *    Debt Schedule	Closing Debt	3
+         was =H10
+         now =K10
+  *    Debt Schedule	Closing Debt	4
+         was =H11
+         now =K11
+  *    Debt Schedule	Closing Debt	5
+         was =H12
+         now =K12
+  *    Debt Schedule	Closing Debt	6
+         was =H13
+         now =K13
+  *    Debt Schedule	Closing Debt	7
+         was =H14
+         now =K14
+  *    Debt Schedule	Closing Debt	8
+         was =H15
+         now =K15
+  *    Debt Schedule	Closing Debt	9
+         was =H16
+         now =K16
+  *    Debt Schedule	Interest Expense	0
+         was =F7
+         now =I7
+  *    Debt Schedule	Interest Expense	1
+         was =F8
+         now =I8
+  *    Debt Schedule	Interest Expense	10
+         was =F17
+         now =I17
+  *    Debt Schedule	Interest Expense	11
+         was =F18
+         now =I18
+  *    Debt Schedule	Interest Expense	12
+         was =F19
+         now =I19
+  *    Debt Schedule	Interest Expense	13
+         was =F20
+         now =I20
+  *    Debt Schedule	Interest Expense	14
+         was =F21
+         now =I21
+  *    Debt Schedule	Interest Expense	15
+         was =F22
+         now =I22
+  *    Debt Schedule	Interest Expense	16
+         was =F23
+         now =I23
+  *    Debt Schedule	Interest Expense	17
+         was =F24
+         now =I24
+  *    Debt Schedule	Interest Expense	18
+         was =F25
+         now =I25
+  *    Debt Schedule	Interest Expense	19
+         was =F26
+         now =I26
+  *    Debt Schedule	Interest Expense	2
+         was =F9
+         now =I9
+  *    Debt Schedule	Interest Expense	20
+         was =F27
+         now =I27
+  *    Debt Schedule	Interest Expense	3
+         was =F10
+         now =I10
+  *    Debt Schedule	Interest Expense	4
+         was =F11
+         now =I11
+  *    Debt Schedule	Interest Expense	5
+         was =F12
+         now =I12
+  *    Debt Schedule	Interest Expense	6
+         was =F13
+         now =I13
+  *    Debt Schedule	Interest Expense	7
+         was =F14
+         now =I14
+  *    Debt Schedule	Interest Expense	8
+         was =F15
+         now =I15
+  *    Debt Schedule	Interest Expense	9
+         was =F16
+         now =I16
+  *    Debt Schedule	Lease Closing Balance	0
+         was =P7
+         now =U7
+  *    Debt Schedule	Lease Closing Balance	1
+         was =P8
+         now =U8
+  *    Debt Schedule	Lease Closing Balance	10
+         was =P17
+         now =U17
+  *    Debt Schedule	Lease Closing Balance	11
+         was =P18
+         now =U18
+  *    Debt Schedule	Lease Closing Balance	12
+         was =P19
+         now =U19
+  *    Debt Schedule	Lease Closing Balance	13
+         was =P20
+         now =U20
+  *    Debt Schedule	Lease Closing Balance	14
+         was =P21
+         now =U21
+  *    Debt Schedule	Lease Closing Balance	15
+         was =P22
+         now =U22
+  *    Debt Schedule	Lease Closing Balance	16
+         was =P23
+         now =U23
+  *    Debt Schedule	Lease Closing Balance	17
+         was =P24
+         now =U24
+  *    Debt Schedule	Lease Closing Balance	18
+         was =P25
+         now =U25
+  *    Debt Schedule	Lease Closing Balance	19
+         was =P26
+         now =U26
+  *    Debt Schedule	Lease Closing Balance	2
+         was =P9
+         now =U9
+  *    Debt Schedule	Lease Closing Balance	20
+         was =P27
+         now =U27
+  *    Debt Schedule	Lease Closing Balance	3
+         was =P10
+         now =U10
+  *    Debt Schedule	Lease Closing Balance	4
+         was =P11
+         now =U11
+  *    Debt Schedule	Lease Closing Balance	5
+         was =P12
+         now =U12
+  *    Debt Schedule	Lease Closing Balance	6
+         was =P13
+         now =U13
+  *    Debt Schedule	Lease Closing Balance	7
+         was =P14
+         now =U14
+  *    Debt Schedule	Lease Closing Balance	8
+         was =P15
+         now =U15
+  *    Debt Schedule	Lease Closing Balance	9
+         was =P16
+         now =U16
+  *    Debt Schedule	Lease Interest Expense	0
+         was =N7
+         now =S7
+  *    Debt Schedule	Lease Interest Expense	1
+         was =N8
+         now =S8
+  *    Debt Schedule	Lease Interest Expense	10
+         was =N17
+         now =S17
+  *    Debt Schedule	Lease Interest Expense	11
+         was =N18
+         now =S18
+  *    Debt Schedule	Lease Interest Expense	12
+         was =N19
+         now =S19
+  *    Debt Schedule	Lease Interest Expense	13
+         was =N20
+         now =S20
+  *    Debt Schedule	Lease Interest Expense	14
+         was =N21
+         now =S21
+  *    Debt Schedule	Lease Interest Expense	15
+         was =N22
+         now =S22
+  *    Debt Schedule	Lease Interest Expense	16
+         was =N23
+         now =S23
+  *    Debt Schedule	Lease Interest Expense	17
+         was =N24
+         now =S24
+  *    Debt Schedule	Lease Interest Expense	18
+         was =N25
+         now =S25
+  *    Debt Schedule	Lease Interest Expense	19
+         was =N26
+         now =S26
+  *    Debt Schedule	Lease Interest Expense	2
+         was =N9
+         now =S9
+  *    Debt Schedule	Lease Interest Expense	20
+         was =N27
+         now =S27
+  *    Debt Schedule	Lease Interest Expense	3
+         was =N10
+         now =S10
+  *    Debt Schedule	Lease Interest Expense	4
+         was =N11
+         now =S11
+  *    Debt Schedule	Lease Interest Expense	5
+         was =N12
+         now =S12
+  *    Debt Schedule	Lease Interest Expense	6
+         was =N13
+         now =S13
+  *    Debt Schedule	Lease Interest Expense	7
+         was =N14
+         now =S14
+  *    Debt Schedule	Lease Interest Expense	8
+         was =N15
+         now =S15
+  *    Debt Schedule	Lease Interest Expense	9
+         was =N16
+         now =S16
+  *    Debt Schedule	Lease Life in quarters	0
+         was =L7
+         now =O7
+  *    Debt Schedule	Lease Life in quarters	1
+         was =L8
+         now =O8
+  *    Debt Schedule	Lease Life in quarters	10
+         was =L17
+         now =O17
+  *    Debt Schedule	Lease Life in quarters	11
+         was =L18
+         now =O18
+  *    Debt Schedule	Lease Life in quarters	12
+         was =L19
+         now =O19
+  *    Debt Schedule	Lease Life in quarters	13
+         was =L20
+         now =O20
+  *    Debt Schedule	Lease Life in quarters	14
+         was =L21
+         now =O21
+  *    Debt Schedule	Lease Life in quarters	15
+         was =L22
+         now =O22
+  *    Debt Schedule	Lease Life in quarters	16
+         was =L23
+         now =O23
+  *    Debt Schedule	Lease Life in quarters	17
+         was =L24
+         now =O24
+  *    Debt Schedule	Lease Life in quarters	18
+         was =L25
+         now =O25
+  *    Debt Schedule	Lease Life in quarters	19
+         was =L26
+         now =O26
+  *    Debt Schedule	Lease Life in quarters	2
+         was =L9
+         now =O9
+  *    Debt Schedule	Lease Life in quarters	20
+         was =L27
+         now =O27
+  *    Debt Schedule	Lease Life in quarters	3
+         was =L10
+         now =O10
+  *    Debt Schedule	Lease Life in quarters	4
+         was =L11
+         now =O11
+  *    Debt Schedule	Lease Life in quarters	5
+         was =L12
+         now =O12
+  *    Debt Schedule	Lease Life in quarters	6
+         was =L13
+         now =O13
+  *    Debt Schedule	Lease Life in quarters	7
+         was =L14
+         now =O14
+  *    Debt Schedule	Lease Life in quarters	8
+         was =L15
+         now =O15
+  *    Debt Schedule	Lease Life in quarters	9
+         was =L16
+         now =O16
+  *    Debt Schedule	Lease Net Additions	0
+         was =J7
+         now =M7
+  *    Debt Schedule	Lease Net Additions	1
+         was =J8
+         now =M8
+  *    Debt Schedule	Lease Net Additions	10
+         was =J17
+         now =M17
+  *    Debt Schedule	Lease Net Additions	11
+         was =J18
+         now =M18
+  *    Debt Schedule	Lease Net Additions	12
+         was =J19
+         now =M19
+  *    Debt Schedule	Lease Net Additions	13
+         was =J20
+         now =M20
+  *    Debt Schedule	Lease Net Additions	14
+         was =J21
+         now =M21
+  *    Debt Schedule	Lease Net Additions	15
+         was =J22
+         now =M22
+  *    Debt Schedule	Lease Net Additions	16
+         was =J23
+         now =M23
+  *    Debt Schedule	Lease Net Additions	17
+         was =J24
+         now =M24
+  *    Debt Schedule	Lease Net Additions	18
+         was =J25
+         now =M25
+  *    Debt Schedule	Lease Net Additions	19
+         was =J26
+         now =M26
+  *    Debt Schedule	Lease Net Additions	2
+         was =J9
+         now =M9
+  *    Debt Schedule	Lease Net Additions	20
+         was =J27
+         now =M27
+  *    Debt Schedule	Lease Net Additions	3
+         was =J10
+         now =M10
+  *    Debt Schedule	Lease Net Additions	4
+         was =J11
+         now =M11
+  *    Debt Schedule	Lease Net Additions	5
+         was =J12
+         now =M12
+  *    Debt Schedule	Lease Net Additions	6
+         was =J13
+         now =M13
+  *    Debt Schedule	Lease Net Additions	7
+         was =J14
+         now =M14
+  *    Debt Schedule	Lease Net Additions	8
+         was =J15
+         now =M15
+  *    Debt Schedule	Lease Net Additions	9
+         was =J16
+         now =M16
+  *    Debt Schedule	Lease Opening Balance	0
+         was =I7
+         now =L7
+  *    Debt Schedule	Lease Opening Balance	1
+         was =I8
+         now =L8
+  *    Debt Schedule	Lease Opening Balance	10
+         was =I17
+         now =L17
+  *    Debt Schedule	Lease Opening Balance	11
+         was =I18
+         now =L18
+  *    Debt Schedule	Lease Opening Balance	12
+         was =I19
+         now =L19
+  *    Debt Schedule	Lease Opening Balance	13
+         was =I20
+         now =L20
+  *    Debt Schedule	Lease Opening Balance	14
+         was =I21
+         now =L21
+  *    Debt Schedule	Lease Opening Balance	15
+         was =I22
+         now =L22
+  *    Debt Schedule	Lease Opening Balance	16
+         was =I23
+         now =L23
+  *    Debt Schedule	Lease Opening Balance	17
+         was =I24
+         now =L24
+  *    Debt Schedule	Lease Opening Balance	18
+         was =I25
+         now =L25
+  *    Debt Schedule	Lease Opening Balance	19
+         was =I26
+         now =L26
+  *    Debt Schedule	Lease Opening Balance	2
+         was =I9
+         now =L9
+  *    Debt Schedule	Lease Opening Balance	20
+         was =I27
+         now =L27
+  *    Debt Schedule	Lease Opening Balance	3
+         was =I10
+         now =L10
+  *    Debt Schedule	Lease Opening Balance	4
+         was =I11
+         now =L11
+  *    Debt Schedule	Lease Opening Balance	5
+         was =I12
+         now =L12
+  *    Debt Schedule	Lease Opening Balance	6
+         was =I13
+         now =L13
+  *    Debt Schedule	Lease Opening Balance	7
+         was =I14
+         now =L14
+  *    Debt Schedule	Lease Opening Balance	8
+         was =I15
+         now =L15
+  *    Debt Schedule	Lease Opening Balance	9
+         was =I16
+         now =L16
+  *    Debt Schedule	Lease Principal Repayments	0
+         was =O7
+         now =R7
+  *    Debt Schedule	Lease Principal Repayments	1
+         was =O8
+         now =R8
+  *    Debt Schedule	Lease Principal Repayments	10
+         was =O17
+         now =R17
+  *    Debt Schedule	Lease Principal Repayments	11
+         was =O18
+         now =R18
+  *    Debt Schedule	Lease Principal Repayments	12
+         was =O19
+         now =R19
+  *    Debt Schedule	Lease Principal Repayments	13
+         was =O20
+         now =R20
+  *    Debt Schedule	Lease Principal Repayments	14
+         was =O21
+         now =R21
+  *    Debt Schedule	Lease Principal Repayments	15
+         was =O22
+         now =R22
+  *    Debt Schedule	Lease Principal Repayments	16
+         was =O23
+         now =R23
+  *    Debt Schedule	Lease Principal Repayments	17
+         was =O24
+         now =R24
+  *    Debt Schedule	Lease Principal Repayments	18
+         was =O25
+         now =R25
+  *    Debt Schedule	Lease Principal Repayments	19
+         was =O26
+         now =R26
+  *    Debt Schedule	Lease Principal Repayments	2
+         was =O9
+         now =R9
+  *    Debt Schedule	Lease Principal Repayments	20
+         was =O27
+         now =R27
+  *    Debt Schedule	Lease Principal Repayments	3
+         was =O10
+         now =R10
+  *    Debt Schedule	Lease Principal Repayments	4
+         was =O11
+         now =R11
+  *    Debt Schedule	Lease Principal Repayments	5
+         was =O12
+         now =R12
+  *    Debt Schedule	Lease Principal Repayments	6
+         was =O13
+         now =R13
+  *    Debt Schedule	Lease Principal Repayments	7
+         was =O14
+         now =R14
+  *    Debt Schedule	Lease Principal Repayments	8
+         was =O15
+         now =R15
+  *    Debt Schedule	Lease Principal Repayments	9
+         was =O16
+         now =R16
+  *    Debt Schedule	Q1	0
+         was =H7
+         now =K7
+  *    Debt Schedule	Q1	1
+         was =F8+G8
+         now =IF(A8="Stub",0,(B8+C8)/MAX(1,E8-0))
+  *    Debt Schedule	Q1	10
+         was =H8+P8
+         now =S8+R8
+  *    Debt Schedule	Q1	2
+         was =((B8+H8)/2)*D8
+         now =MIN(B8+C8,MAX(0,F8+G8))
+  *    Debt Schedule	Q1	3
+         was =MAX(0,B8+C8-G8)
+         now =((B8+K8)/2)*D8
+  *    Debt Schedule	Q1	4
+         was =P7
+         now =I8+H8
+  *    Debt Schedule	Q1	5
+         was =N8+O8
+         now =MAX(0,B8+C8-H8)
+  *    Debt Schedule	Q1	6
+         was =I8*K8
+         now =U7
+  *    Debt Schedule	Q1	7
+         was =MAX(0,I8+J8-O8)
+         now =IF(A8="Stub",0,(L8+M8)/MAX(1,O8-0))
+  *    Debt Schedule	Q1	8
+         was =E8+M8
+         now =MIN(L8+M8,MAX(0,P8+Q8))
+  *    Debt Schedule	Q1	9
+         was =F8+N8
+         now =IF(A8="Stub",0,L8*N8)
+  *    Debt Schedule	Q10	0
+         was =H16
+         now =K16
+  *    Debt Schedule	Q10	1
+         was =F17+G17
+         now =IF(A17="Stub",0,(B17+C17)/MAX(1,E17-9))
+  *    Debt Schedule	Q10	10
+         was =H17+P17
+         now =S17+R17
+  *    Debt Schedule	Q10	2
+         was =((B17+H17)/2)*D17
+         now =MIN(B17+C17,MAX(0,F17+G17))
+  *    Debt Schedule	Q10	3
+         was =MAX(0,B17+C17-G17)
+         now =((B17+K17)/2)*D17
+  *    Debt Schedule	Q10	4
+         was =P16
+         now =I17+H17
+  *    Debt Schedule	Q10	5
+         was =N17+O17
+         now =MAX(0,B17+C17-H17)
+  *    Debt Schedule	Q10	6
+         was =I17*K17
+         now =U16
+  *    Debt Schedule	Q10	7
+         was =MAX(0,I17+J17-O17)
+         now =IF(A17="Stub",0,(L17+M17)/MAX(1,O17-9))
+  *    Debt Schedule	Q10	8
+         was =E17+M17
+         now =MIN(L17+M17,MAX(0,P17+Q17))
+  *    Debt Schedule	Q10	9
+         was =F17+N17
+         now =IF(A17="Stub",0,L17*N17)
+  *    Debt Schedule	Q11	0
+         was =H17
+         now =K17
+  *    Debt Schedule	Q11	1
+         was =F18+G18
+         now =IF(A18="Stub",0,(B18+C18)/MAX(1,E18-10))
+  *    Debt Schedule	Q11	10
+         was =H18+P18
+         now =S18+R18
+  *    Debt Schedule	Q11	2
+         was =((B18+H18)/2)*D18
+         now =MIN(B18+C18,MAX(0,F18+G18))
+  *    Debt Schedule	Q11	3
+         was =MAX(0,B18+C18-G18)
+         now =((B18+K18)/2)*D18
+  *    Debt Schedule	Q11	4
+         was =P17
+         now =I18+H18
+  *    Debt Schedule	Q11	5
+         was =N18+O18
+         now =MAX(0,B18+C18-H18)
+  *    Debt Schedule	Q11	6
+         was =I18*K18
+         now =U17
+  *    Debt Schedule	Q11	7
+         was =MAX(0,I18+J18-O18)
+         now =IF(A18="Stub",0,(L18+M18)/MAX(1,O18-10))
+  *    Debt Schedule	Q11	8
+         was =E18+M18
+         now =MIN(L18+M18,MAX(0,P18+Q18))
+  *    Debt Schedule	Q11	9
+         was =F18+N18
+         now =IF(A18="Stub",0,L18*N18)
+  *    Debt Schedule	Q12	0
+         was =H18
+         now =K18
+  *    Debt Schedule	Q12	1
+         was =F19+G19
+         now =IF(A19="Stub",0,(B19+C19)/MAX(1,E19-11))
+  *    Debt Schedule	Q12	10
+         was =H19+P19
+         now =S19+R19
+  *    Debt Schedule	Q12	2
+         was =((B19+H19)/2)*D19
+         now =MIN(B19+C19,MAX(0,F19+G19))
+  *    Debt Schedule	Q12	3
+         was =MAX(0,B19+C19-G19)
+         now =((B19+K19)/2)*D19
+  *    Debt Schedule	Q12	4
+         was =P18
+         now =I19+H19
+  *    Debt Schedule	Q12	5
+         was =N19+O19
+         now =MAX(0,B19+C19-H19)
+  *    Debt Schedule	Q12	6
+         was =I19*K19
+         now =U18
+  *    Debt Schedule	Q12	7
+         was =MAX(0,I19+J19-O19)
+         now =IF(A19="Stub",0,(L19+M19)/MAX(1,O19-11))
+  *    Debt Schedule	Q12	8
+         was =E19+M19
+         now =MIN(L19+M19,MAX(0,P19+Q19))
+  *    Debt Schedule	Q12	9
+         was =F19+N19
+         now =IF(A19="Stub",0,L19*N19)
+  *    Debt Schedule	Q13	0
+         was =H19
+         now =K19
+  *    Debt Schedule	Q13	1
+         was =F20+G20
+         now =IF(A20="Stub",0,(B20+C20)/MAX(1,E20-12))
+  *    Debt Schedule	Q13	10
+         was =H20+P20
+         now =S20+R20
+  *    Debt Schedule	Q13	2
+         was =((B20+H20)/2)*D20
+         now =MIN(B20+C20,MAX(0,F20+G20))
+  *    Debt Schedule	Q13	3
+         was =MAX(0,B20+C20-G20)
+         now =((B20+K20)/2)*D20
+  *    Debt Schedule	Q13	4
+         was =P19
+         now =I20+H20
+  *    Debt Schedule	Q13	5
+         was =N20+O20
+         now =MAX(0,B20+C20-H20)
+  *    Debt Schedule	Q13	6
+         was =I20*K20
+         now =U19
+  *    Debt Schedule	Q13	7
+         was =MAX(0,I20+J20-O20)
+         now =IF(A20="Stub",0,(L20+M20)/MAX(1,O20-12))
+  *    Debt Schedule	Q13	8
+         was =E20+M20
+         now =MIN(L20+M20,MAX(0,P20+Q20))
+  *    Debt Schedule	Q13	9
+         was =F20+N20
+         now =IF(A20="Stub",0,L20*N20)
+  *    Debt Schedule	Q14	0
+         was =H20
+         now =K20
+  *    Debt Schedule	Q14	1
+         was =F21+G21
+         now =IF(A21="Stub",0,(B21+C21)/MAX(1,E21-13))
+  *    Debt Schedule	Q14	10
+         was =H21+P21
+         now =S21+R21
+  *    Debt Schedule	Q14	2
+         was =((B21+H21)/2)*D21
+         now =MIN(B21+C21,MAX(0,F21+G21))
+  *    Debt Schedule	Q14	3
+         was =MAX(0,B21+C21-G21)
+         now =((B21+K21)/2)*D21
+  *    Debt Schedule	Q14	4
+         was =P20
+         now =I21+H21
+  *    Debt Schedule	Q14	5
+         was =N21+O21
+         now =MAX(0,B21+C21-H21)
+  *    Debt Schedule	Q14	6
+         was =I21*K21
+         now =U20
+  *    Debt Schedule	Q14	7
+         was =MAX(0,I21+J21-O21)
+         now =IF(A21="Stub",0,(L21+M21)/MAX(1,O21-13))
+  *    Debt Schedule	Q14	8
+         was =E21+M21
+         now =MIN(L21+M21,MAX(0,P21+Q21))
+  *    Debt Schedule	Q14	9
+         was =F21+N21
+         now =IF(A21="Stub",0,L21*N21)
+  *    Debt Schedule	Q15	0
+         was =H21
+         now =K21
+  *    Debt Schedule	Q15	1
+         was =F22+G22
+         now =IF(A22="Stub",0,(B22+C22)/MAX(1,E22-14))
+  *    Debt Schedule	Q15	10
+         was =H22+P22
+         now =S22+R22
+  *    Debt Schedule	Q15	2
+         was =((B22+H22)/2)*D22
+         now =MIN(B22+C22,MAX(0,F22+G22))
+  *    Debt Schedule	Q15	3
+         was =MAX(0,B22+C22-G22)
+         now =((B22+K22)/2)*D22
+  *    Debt Schedule	Q15	4
+         was =P21
+         now =I22+H22
+  *    Debt Schedule	Q15	5
+         was =N22+O22
+         now =MAX(0,B22+C22-H22)
+  *    Debt Schedule	Q15	6
+         was =I22*K22
+         now =U21
+  *    Debt Schedule	Q15	7
+         was =MAX(0,I22+J22-O22)
+         now =IF(A22="Stub",0,(L22+M22)/MAX(1,O22-14))
+  *    Debt Schedule	Q15	8
+         was =E22+M22
+         now =MIN(L22+M22,MAX(0,P22+Q22))
+  *    Debt Schedule	Q15	9
+         was =F22+N22
+         now =IF(A22="Stub",0,L22*N22)
+  *    Debt Schedule	Q16	0
+         was =H22
+         now =K22
+  *    Debt Schedule	Q16	1
+         was =F23+G23
+         now =IF(A23="Stub",0,(B23+C23)/MAX(1,E23-15))
+  *    Debt Schedule	Q16	10
+         was =H23+P23
+         now =S23+R23
+  *    Debt Schedule	Q16	2
+         was =((B23+H23)/2)*D23
+         now =MIN(B23+C23,MAX(0,F23+G23))
+  *    Debt Schedule	Q16	3
+         was =MAX(0,B23+C23-G23)
+         now =((B23+K23)/2)*D23
+  *    Debt Schedule	Q16	4
+         was =P22
+         now =I23+H23
+  *    Debt Schedule	Q16	5
+         was =N23+O23
+         now =MAX(0,B23+C23-H23)
+  *    Debt Schedule	Q16	6
+         was =I23*K23
+         now =U22
+  *    Debt Schedule	Q16	7
+         was =MAX(0,I23+J23-O23)
+         now =IF(A23="Stub",0,(L23+M23)/MAX(1,O23-15))
+  *    Debt Schedule	Q16	8
+         was =E23+M23
+         now =MIN(L23+M23,MAX(0,P23+Q23))
+  *    Debt Schedule	Q16	9
+         was =F23+N23
+         now =IF(A23="Stub",0,L23*N23)
+  *    Debt Schedule	Q17	0
+         was =H23
+         now =K23
+  *    Debt Schedule	Q17	1
+         was =F24+G24
+         now =IF(A24="Stub",0,(B24+C24)/MAX(1,E24-16))
+  *    Debt Schedule	Q17	10
+         was =H24+P24
+         now =S24+R24
+  *    Debt Schedule	Q17	2
+         was =((B24+H24)/2)*D24
+         now =MIN(B24+C24,MAX(0,F24+G24))
+  *    Debt Schedule	Q17	3
+         was =MAX(0,B24+C24-G24)
+         now =((B24+K24)/2)*D24
+  *    Debt Schedule	Q17	4
+         was =P23
+         now =I24+H24
+  *    Debt Schedule	Q17	5
+         was =N24+O24
+         now =MAX(0,B24+C24-H24)
+  *    Debt Schedule	Q17	6
+         was =I24*K24
+         now =U23
+  *    Debt Schedule	Q17	7
+         was =MAX(0,I24+J24-O24)
+         now =IF(A24="Stub",0,(L24+M24)/MAX(1,O24-16))
+  *    Debt Schedule	Q17	8
+         was =E24+M24
+         now =MIN(L24+M24,MAX(0,P24+Q24))
+  *    Debt Schedule	Q17	9
+         was =F24+N24
+         now =IF(A24="Stub",0,L24*N24)
+  *    Debt Schedule	Q18	0
+         was =H24
+         now =K24
+  *    Debt Schedule	Q18	1
+         was =F25+G25
+         now =IF(A25="Stub",0,(B25+C25)/MAX(1,E25-17))
+  *    Debt Schedule	Q18	10
+         was =H25+P25
+         now =S25+R25
+  *    Debt Schedule	Q18	2
+         was =((B25+H25)/2)*D25
+         now =MIN(B25+C25,MAX(0,F25+G25))
+  *    Debt Schedule	Q18	3
+         was =MAX(0,B25+C25-G25)
+         now =((B25+K25)/2)*D25
+  *    Debt Schedule	Q18	4
+         was =P24
+         now =I25+H25
+  *    Debt Schedule	Q18	5
+         was =N25+O25
+         now =MAX(0,B25+C25-H25)
+  *    Debt Schedule	Q18	6
+         was =I25*K25
+         now =U24
+  *    Debt Schedule	Q18	7
+         was =MAX(0,I25+J25-O25)
+         now =IF(A25="Stub",0,(L25+M25)/MAX(1,O25-17))
+  *    Debt Schedule	Q18	8
+         was =E25+M25
+         now =MIN(L25+M25,MAX(0,P25+Q25))
+  *    Debt Schedule	Q18	9
+         was =F25+N25
+         now =IF(A25="Stub",0,L25*N25)
+  *    Debt Schedule	Q19	0
+         was =H25
+         now =K25
+  *    Debt Schedule	Q19	1
+         was =F26+G26
+         now =IF(A26="Stub",0,(B26+C26)/MAX(1,E26-18))
+  *    Debt Schedule	Q19	10
+         was =H26+P26
+         now =S26+R26
+  *    Debt Schedule	Q19	2
+         was =((B26+H26)/2)*D26
+         now =MIN(B26+C26,MAX(0,F26+G26))
+  *    Debt Schedule	Q19	3
+         was =MAX(0,B26+C26-G26)
+         now =((B26+K26)/2)*D26
+  *    Debt Schedule	Q19	4
+         was =P25
+         now =I26+H26
+  *    Debt Schedule	Q19	5
+         was =N26+O26
+         now =MAX(0,B26+C26-H26)
+  *    Debt Schedule	Q19	6
+         was =I26*K26
+         now =U25
+  *    Debt Schedule	Q19	7
+         was =MAX(0,I26+J26-O26)
+         now =IF(A26="Stub",0,(L26+M26)/MAX(1,O26-18))
+  *    Debt Schedule	Q19	8
+         was =E26+M26
+         now =MIN(L26+M26,MAX(0,P26+Q26))
+  *    Debt Schedule	Q19	9
+         was =F26+N26
+         now =IF(A26="Stub",0,L26*N26)
+  *    Debt Schedule	Q2	0
+         was =H8
+         now =K8
+  *    Debt Schedule	Q2	1
+         was =F9+G9
+         now =IF(A9="Stub",0,(B9+C9)/MAX(1,E9-1))
+  *    Debt Schedule	Q2	10
+         was =H9+P9
+         now =S9+R9
+  *    Debt Schedule	Q2	2
+         was =((B9+H9)/2)*D9
+         now =MIN(B9+C9,MAX(0,F9+G9))
+  *    Debt Schedule	Q2	3
+         was =MAX(0,B9+C9-G9)
+         now =((B9+K9)/2)*D9
+  *    Debt Schedule	Q2	4
+         was =P8
+         now =I9+H9
+  *    Debt Schedule	Q2	5
+         was =N9+O9
+         now =MAX(0,B9+C9-H9)
+  *    Debt Schedule	Q2	6
+         was =I9*K9
+         now =U8
+  *    Debt Schedule	Q2	7
+         was =MAX(0,I9+J9-O9)
+         now =IF(A9="Stub",0,(L9+M9)/MAX(1,O9-1))
+  *    Debt Schedule	Q2	8
+         was =E9+M9
+         now =MIN(L9+M9,MAX(0,P9+Q9))
+  *    Debt Schedule	Q2	9
+         was =F9+N9
+         now =IF(A9="Stub",0,L9*N9)
+  *    Debt Schedule	Q20	0
+         was =H26
+         now =K26
+  *    Debt Schedule	Q20	1
+         was =F27+G27
+         now =IF(A27="Stub",0,(B27+C27)/MAX(1,E27-19))
+  *    Debt Schedule	Q20	10
+         was =H27+P27
+         now =S27+R27
+  *    Debt Schedule	Q20	2
+         was =((B27+H27)/2)*D27
+         now =MIN(B27+C27,MAX(0,F27+G27))
+  *    Debt Schedule	Q20	3
+         was =MAX(0,B27+C27-G27)
+         now =((B27+K27)/2)*D27
+  *    Debt Schedule	Q20	4
+         was =P26
+         now =I27+H27
+  *    Debt Schedule	Q20	5
+         was =N27+O27
+         now =MAX(0,B27+C27-H27)
+  *    Debt Schedule	Q20	6
+         was =I27*K27
+         now =U26
+  *    Debt Schedule	Q20	7
+         was =MAX(0,I27+J27-O27)
+         now =IF(A27="Stub",0,(L27+M27)/MAX(1,O27-19))
+  *    Debt Schedule	Q20	8
+         was =E27+M27
+         now =MIN(L27+M27,MAX(0,P27+Q27))
+  *    Debt Schedule	Q20	9
+         was =F27+N27
+         now =IF(A27="Stub",0,L27*N27)
+  *    Debt Schedule	Q3	0
+         was =H9
+         now =K9
+  *    Debt Schedule	Q3	1
+         was =F10+G10
+         now =IF(A10="Stub",0,(B10+C10)/MAX(1,E10-2))
+  *    Debt Schedule	Q3	10
+         was =H10+P10
+         now =S10+R10
+  *    Debt Schedule	Q3	2
+         was =((B10+H10)/2)*D10
+         now =MIN(B10+C10,MAX(0,F10+G10))
+  *    Debt Schedule	Q3	3
+         was =MAX(0,B10+C10-G10)
+         now =((B10+K10)/2)*D10
+  *    Debt Schedule	Q3	4
+         was =P9
+         now =I10+H10
+  *    Debt Schedule	Q3	5
+         was =N10+O10
+         now =MAX(0,B10+C10-H10)
+  *    Debt Schedule	Q3	6
+         was =I10*K10
+         now =U9
+  *    Debt Schedule	Q3	7
+         was =MAX(0,I10+J10-O10)
+         now =IF(A10="Stub",0,(L10+M10)/MAX(1,O10-2))
+  *    Debt Schedule	Q3	8
+         was =E10+M10
+         now =MIN(L10+M10,MAX(0,P10+Q10))
+  *    Debt Schedule	Q3	9
+         was =F10+N10
+         now =IF(A10="Stub",0,L10*N10)
+  *    Debt Schedule	Q4	0
+         was =H10
+         now =K10
+  *    Debt Schedule	Q4	1
+         was =F11+G11
+         now =IF(A11="Stub",0,(B11+C11)/MAX(1,E11-3))
+  *    Debt Schedule	Q4	10
+         was =H11+P11
+         now =S11+R11
+  *    Debt Schedule	Q4	2
+         was =((B11+H11)/2)*D11
+         now =MIN(B11+C11,MAX(0,F11+G11))
+  *    Debt Schedule	Q4	3
+         was =MAX(0,B11+C11-G11)
+         now =((B11+K11)/2)*D11
+  *    Debt Schedule	Q4	4
+         was =P10
+         now =I11+H11
+  *    Debt Schedule	Q4	5
+         was =N11+O11
+         now =MAX(0,B11+C11-H11)
+  *    Debt Schedule	Q4	6
+         was =I11*K11
+         now =U10
+  *    Debt Schedule	Q4	7
+         was =MAX(0,I11+J11-O11)
+         now =IF(A11="Stub",0,(L11+M11)/MAX(1,O11-3))
+  *    Debt Schedule	Q4	8
+         was =E11+M11
+         now =MIN(L11+M11,MAX(0,P11+Q11))
+  *    Debt Schedule	Q4	9
+         was =F11+N11
+         now =IF(A11="Stub",0,L11*N11)
+  *    Debt Schedule	Q5	0
+         was =H11
+         now =K11
+  *    Debt Schedule	Q5	1
+         was =F12+G12
+         now =IF(A12="Stub",0,(B12+C12)/MAX(1,E12-4))
+  *    Debt Schedule	Q5	10
+         was =H12+P12
+         now =S12+R12
+  *    Debt Schedule	Q5	2
+         was =((B12+H12)/2)*D12
+         now =MIN(B12+C12,MAX(0,F12+G12))
+  *    Debt Schedule	Q5	3
+         was =MAX(0,B12+C12-G12)
+         now =((B12+K12)/2)*D12
+  *    Debt Schedule	Q5	4
+         was =P11
+         now =I12+H12
+  *    Debt Schedule	Q5	5
+         was =N12+O12
+         now =MAX(0,B12+C12-H12)
+  *    Debt Schedule	Q5	6
+         was =I12*K12
+         now =U11
+  *    Debt Schedule	Q5	7
+         was =MAX(0,I12+J12-O12)
+         now =IF(A12="Stub",0,(L12+M12)/MAX(1,O12-4))
+  *    Debt Schedule	Q5	8
+         was =E12+M12
+         now =MIN(L12+M12,MAX(0,P12+Q12))
+  *    Debt Schedule	Q5	9
+         was =F12+N12
+         now =IF(A12="Stub",0,L12*N12)
+  *    Debt Schedule	Q6	0
+         was =H12
+         now =K12
+  *    Debt Schedule	Q6	1
+         was =F13+G13
+         now =IF(A13="Stub",0,(B13+C13)/MAX(1,E13-5))
+  *    Debt Schedule	Q6	10
+         was =H13+P13
+         now =S13+R13
+  *    Debt Schedule	Q6	2
+         was =((B13+H13)/2)*D13
+         now =MIN(B13+C13,MAX(0,F13+G13))
+  *    Debt Schedule	Q6	3
+         was =MAX(0,B13+C13-G13)
+         now =((B13+K13)/2)*D13
+  *    Debt Schedule	Q6	4
+         was =P12
+         now =I13+H13
+  *    Debt Schedule	Q6	5
+         was =N13+O13
+         now =MAX(0,B13+C13-H13)
+  *    Debt Schedule	Q6	6
+         was =I13*K13
+         now =U12
+  *    Debt Schedule	Q6	7
+         was =MAX(0,I13+J13-O13)
+         now =IF(A13="Stub",0,(L13+M13)/MAX(1,O13-5))
+  *    Debt Schedule	Q6	8
+         was =E13+M13
+         now =MIN(L13+M13,MAX(0,P13+Q13))
+  *    Debt Schedule	Q6	9
+         was =F13+N13
+         now =IF(A13="Stub",0,L13*N13)
+  *    Debt Schedule	Q7	0
+         was =H13
+         now =K13
+  *    Debt Schedule	Q7	1
+         was =F14+G14
+         now =IF(A14="Stub",0,(B14+C14)/MAX(1,E14-6))
+  *    Debt Schedule	Q7	10
+         was =H14+P14
+         now =S14+R14
+  *    Debt Schedule	Q7	2
+         was =((B14+H14)/2)*D14
+         now =MIN(B14+C14,MAX(0,F14+G14))
+  *    Debt Schedule	Q7	3
+         was =MAX(0,B14+C14-G14)
+         now =((B14+K14)/2)*D14
+  *    Debt Schedule	Q7	4
+         was =P13
+         now =I14+H14
+  *    Debt Schedule	Q7	5
+         was =N14+O14
+         now =MAX(0,B14+C14-H14)
+  *    Debt Schedule	Q7	6
+         was =I14*K14
+         now =U13
+  *    Debt Schedule	Q7	7
+         was =MAX(0,I14+J14-O14)
+         now =IF(A14="Stub",0,(L14+M14)/MAX(1,O14-6))
+  *    Debt Schedule	Q7	8
+         was =E14+M14
+         now =MIN(L14+M14,MAX(0,P14+Q14))
+  *    Debt Schedule	Q7	9
+         was =F14+N14
+         now =IF(A14="Stub",0,L14*N14)
+  *    Debt Schedule	Q8	0
+         was =H14
+         now =K14
+  *    Debt Schedule	Q8	1
+         was =F15+G15
+         now =IF(A15="Stub",0,(B15+C15)/MAX(1,E15-7))
+  *    Debt Schedule	Q8	10
+         was =H15+P15
+         now =S15+R15
+  *    Debt Schedule	Q8	2
+         was =((B15+H15)/2)*D15
+         now =MIN(B15+C15,MAX(0,F15+G15))
+  *    Debt Schedule	Q8	3
+         was =MAX(0,B15+C15-G15)
+         now =((B15+K15)/2)*D15
+  *    Debt Schedule	Q8	4
+         was =P14
+         now =I15+H15
+  *    Debt Schedule	Q8	5
+         was =N15+O15
+         now =MAX(0,B15+C15-H15)
+  *    Debt Schedule	Q8	6
+         was =I15*K15
+         now =U14
+  *    Debt Schedule	Q8	7
+         was =MAX(0,I15+J15-O15)
+         now =IF(A15="Stub",0,(L15+M15)/MAX(1,O15-7))
+  *    Debt Schedule	Q8	8
+         was =E15+M15
+         now =MIN(L15+M15,MAX(0,P15+Q15))
+  *    Debt Schedule	Q8	9
+         was =F15+N15
+         now =IF(A15="Stub",0,L15*N15)
+  *    Debt Schedule	Q9	0
+         was =H15
+         now =K15
+  *    Debt Schedule	Q9	1
+         was =F16+G16
+         now =IF(A16="Stub",0,(B16+C16)/MAX(1,E16-8))
+  *    Debt Schedule	Q9	10
+         was =H16+P16
+         now =S16+R16
+  *    Debt Schedule	Q9	2
+         was =((B16+H16)/2)*D16
+         now =MIN(B16+C16,MAX(0,F16+G16))
+  *    Debt Schedule	Q9	3
+         was =MAX(0,B16+C16-G16)
+         now =((B16+K16)/2)*D16
+  *    Debt Schedule	Q9	4
+         was =P15
+         now =I16+H16
+  *    Debt Schedule	Q9	5
+         was =N16+O16
+         now =MAX(0,B16+C16-H16)
+  *    Debt Schedule	Q9	6
+         was =I16*K16
+         now =U15
+  *    Debt Schedule	Q9	7
+         was =MAX(0,I16+J16-O16)
+         now =IF(A16="Stub",0,(L16+M16)/MAX(1,O16-8))
+  *    Debt Schedule	Q9	8
+         was =E16+M16
+         now =MIN(L16+M16,MAX(0,P16+Q16))
+  *    Debt Schedule	Q9	9
+         was =F16+N16
+         now =IF(A16="Stub",0,L16*N16)
+  *    Debt Schedule	Stub	0
+         was =F7+G7
+         now =IF(A7="Stub",0,(B7+C7)/MAX(1,E7-0))
+  *    Debt Schedule	Stub	1
+         was =((B7+H7)/2)*D7
+         now =MIN(B7+C7,MAX(0,F7+G7))
+  *    Debt Schedule	Stub	2
+         was =MAX(0,B7+C7-G7)
+         now =((B7+K7)/2)*D7
+  *    Debt Schedule	Stub	3
+         was =N7+O7
+         now =I7+H7
+  *    Debt Schedule	Stub	4
+         was =MAX(0,I7+J7-O7)
+         now =MAX(0,B7+C7-H7)
+  *    Debt Schedule	Stub	5
+         was =E7+M7
+         now =IF(A7="Stub",0,(L7+M7)/MAX(1,O7-0))
+  *    Debt Schedule	Stub	6
+         was =F7+N7
+         now =MIN(L7+M7,MAX(0,P7+Q7))
+  *    Debt Schedule	Stub	7
+         was =H7+P7
+         now =IF(A7="Stub",0,L7*N7)
+  *    Debt Schedule	Total Debt Service	0
+         was =E7
+         now =J7
+  *    Debt Schedule	Total Debt Service	1
+         was =E8
+         now =J8
+  *    Debt Schedule	Total Debt Service	10
+         was =E17
+         now =J17
+  *    Debt Schedule	Total Debt Service	11
+         was =E18
+         now =J18
+  *    Debt Schedule	Total Debt Service	12
+         was =E19
+         now =J19
+  *    Debt Schedule	Total Debt Service	13
+         was =E20
+         now =J20
+  *    Debt Schedule	Total Debt Service	14
+         was =E21
+         now =J21
+  *    Debt Schedule	Total Debt Service	15
+         was =E22
+         now =J22
+  *    Debt Schedule	Total Debt Service	16
+         was =E23
+         now =J23
+  *    Debt Schedule	Total Debt Service	17
+         was =E24
+         now =J24
+  *    Debt Schedule	Total Debt Service	18
+         was =E25
+         now =J25
+  *    Debt Schedule	Total Debt Service	19
+         was =E26
+         now =J26
+  *    Debt Schedule	Total Debt Service	2
+         was =E9
+         now =J9
+  *    Debt Schedule	Total Debt Service	20
+         was =E27
+         now =J27
+  *    Debt Schedule	Total Debt Service	3
+         was =E10
+         now =J10
+  *    Debt Schedule	Total Debt Service	4
+         was =E11
+         now =J11
+  *    Debt Schedule	Total Debt Service	5
+         was =E12
+         now =J12
+  *    Debt Schedule	Total Debt Service	6
+         was =E13
+         now =J13
+  *    Debt Schedule	Total Debt Service	7
+         was =E14
+         now =J14
+  *    Debt Schedule	Total Debt Service	8
+         was =E15
+         now =J15
+  *    Debt Schedule	Total Debt Service	9
+         was =E16
+         now =J16
