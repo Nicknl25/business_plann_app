@@ -1,0 +1,103 @@
+mini audit of CW-043 TURN A - dc4d4ef (fix) + 4037b70 (R32/R49 re-bless) - 2026-08-25
+Build under test: 06f20f9 (= dc4d4ef + handoff commits). Baselines: worktrees 0b26ce8, 3609fe6.
+Instruments: mini_turnA_audit.py + mini_draft_export.py (this dir). Every number below was
+MEASURED on an Excel-recalculated workbook or the live DB, not read from source.
+
+UNTOUCHED DRAFTS (VS used Harrow 85f5825d / Falls City 76c6e0b9 / Halbrook ecd0e148):
+  Bellweather Auto Works 46ae584a (08-17)  debt 95,000 sweep payoff Q11, no lease, CapEx 22k
+  Copperline Interiors   3794e7c0 (07-31)  debt sweep payoff Q13, lease 3,000 -> 0 at Q20, ROU 3,000, CapEx 13.7k
+  Cedarhill Animal Hosp. f07466a3 (07-19)  debt 340,000 sweep payoff Q4, lease 19,200 -> 0 at Q20, ROU, CapEx 92k
+  Rootcycle Compost      d7b28b20 (07-19)  debt 280,000 sweep payoff Q17, lease 28,800 -> 0 at Q20, ROU, CapEx 57k
+  (North Ridge e4f5d0a7, a May draft with a lease paid off by Q4, does not export on EITHER tree:
+   FINMO_BUILD->WORKBOOK ContractViolation on model_input_json._muted_realism_metrics - stale shape, not TURN A.)
+
+(1) PAYOFF RESIDUE GONE - class detector 0<|v|<1e-4 on the schedules, |v|>1e9 anywhere:
+  Bellweather 0b26ce8: 129 crumbs (K18 3.64e-12 debt closing at the Q11 payoff, B19, F19..., interest
+                       7.1e-14 for nine quarters) and 42 blow-ups (FINMO Interest Coverage O91..
+                       4.9e17, DSCR 8.7e16 class) -> THE CLASS WAS LIVE ON A SECOND REAL DRAFT.
+  Bellweather HEAD   : 0 crumbs, 0 blow-ups. Debt payoff Q11 closing == 0 (int), nothing after.
+                       FINMO Interest Coverage row identical to the 3609fe6 build ('-' after Q12).
+  Copperline/Cedarhill/Rootcycle HEAD: 0 crumbs, 0 blow-ups; debt payoff (Q13/Q4/Q17) closing == 0 int,
+                       nothing after; lease payoff Q20 closing == 0 int, nothing after; ROU closes 0 at
+                       Q20 (150/step, 960/step, 1440/step); Closing PPE positive throughout.
+  Delivered 'Halbrook Grounds Management -- 08-25-2026 12-34-34.xlsx' (recalculated copy): 0 crumbs,
+                       0 blow-ups, Checks!B2 = OK.
+
+(2) SUB_CENT GUARD ON ALL FOUR FAMILIES - tampered as FORMULAS in the built workbook, Excel-recalculated:
+  DEBT (Harrow HEAD build, natural Q7 crumb):
+    intact                          K14=0  K15=0  I15=0  IC Q8='-'  DSCR Q8='-'
+    closing IF->MAX(0) only         all 0 / '-'      (ROUND layer alone absorbs the ulp)
+    ROUND removed only              all 0 / '-'      (closing guard alone absorbs it)
+    BOTH removed (= 0b26ce8 form)   K14=5.4569682106e-12 K15=5.24e-12 I15=1.27e-13 I27=6.5e-14, IC/DSCR still '-'
+    BOTH removed + ratio guard back to '<=0'   IC Q8 = 2.0193806814628154e+17, DSCR Q8 = 8.721174758185477e+16
+    intact schedule + ratio guard back to '<=0'   IC/DSCR '-'  (layer 1 alone suffices; layer 2 is belt+braces)
+  LEASE (Cedarhill HEAD, Q20 row 27; no stored draft crumbs naturally - injected one-crumb-short principal):
+    R27 = L27+M27-5e-12, closing guard intact    U27 = 0
+    same, U27 IF->MAX(0)                          U27 = 5.002220859751105e-12 (propagates to X27 total, W42 bridge)
+    crumb inside sched+extra, ROUND intact, closing unguarded   U27 = 0  (ROUND absorbs)
+  ROU (Cedarhill row 46, dep W45 = W44+W43-5e-12):  guard intact W46 = 0 ; IF->MAX(0) W46 = 5.002e-12
+  PPE (Cedarhill CapEx W12 = W10+W7-1e-9; 5e-12 is below the float ulp at 5.6e5):
+                                                    guard intact W13 = 0, FINMO PPE Q20 = 0 ;
+                                                    IF->MAX(0)  W13 = 1.0477e-09 -> FINMO PPE Q20 1.0477e-09, AB13
+
+(3) finmo_ratios.guarded() SCOPE - _grid_dump 0b26ce8 vs HEAD: FINMO 494 leaves = 19 rows x 26 cols, every
+  transition is exactly '<=0,"-"' -> '<0.005,"-"' (13 distinct shapes, all denominators dollar-valued).
+  ROIC / Cash Conversion Cycle / Revenue per Employee / Growth rows untouched. Values, exact by-address:
+    Cedarhill, Rootcycle 0b26ce8->HEAD: 0 FINMO diffs (bit-identical ratios).
+    Copperline: 215 numeric diffs, max relative 2.05e-15 (Net Cash Flow 1775.1974425627232 vs ...268) -
+      the deliberate ROUND(principal,6) at the Q13 payoff moves the cash chain by float noise; ratio formulas
+      unchanged; nothing > 1e-9 relative.
+    Bellweather: 372 crumb->0, 42 blow-up->'-' (and the matching 20 Calc DSCR cells '-'->NA() by design,
+      same as the 3609fe6 build), stub interest 1900->0 (6 cells). Nothing else.
+
+(4) NEIGHBOUR CHECK RE-DERIVED (3609fe6 vs HEAD, mini_draft_compare):
+  Harrow      off-Debt 13,026 cells 0 diffs; Debt table 4 diffs (Stub d_pay/d_int/t_pay/t_int 849.996->0) + bridge 2
+  Falls City  off-Debt 14,403 cells 0 diffs; Debt table 0; bridge 0
+  Halbrook    off-Debt 13,286 cells 0 diffs (VS: 14,056 - VS built the PRE-rerun payload; b1c5fcb2 rewrote it at 12:34);
+              Debt table 4 (3000.06->0) + bridge 2 (Total Debt Service, Interest Expense stub)
+
+(5) ENGINE SWEEP, my way: 2,006 drafts with quarter_rows, 42,126 rows, every numeric key.
+  sub-cent values exist: debt_interest_rate 396 (rates like 0.0045), accounting_equation_check 185,
+  changes_in_current_liabilities 175, owners_capital 168, changes_in_current_assets 42, other_equity 26,
+  equity 22 (one draft 4bc24e8f, equity ~0.004), debt_receive_repay 14, ...
+  closing keys (debt/lease/ppe/rou/lt+st debt/cap-lease/acc-dep): ZERO. The class is Excel-side only. VS's claim holds.
+
+(6) STUB INTEREST READERS, measured on the built HEAD workbook (every formula, every sheet, refs expanded):
+  stub interest cells: I7 (debt), S7 (lease), W7 (total), bridge C34 (=I7), C40 (=S7)
+  readers: J7/T7/W7 (same-row payment/total), C34, C40,
+           Model Inputs!C54 'Lease Interest Expense' = 'Debt Schedule'!C40   <- VS's list omitted this; S7 was
+             IF(Stub,0,...) before AND after, so the value (0) never moved,
+           Checks!E30 Debt Service tie-out over C33:W33 vs C34:W34+C35:W35 (spans the stub, self-consistent),
+           Checks!E213 error scan C7:W46.
+  Model Inputs 'Interest Expense' stub C = literal 0 (number, not formula) on both trees; live D = 'Debt Schedule'!D34.
+  Exactly 6 Debt Schedule cells moved on Harrow/Halbrook, 0 on Falls City; no statement cell moved (4).
+
+(7) RE-BLESS: python -m replay_gate._grid_dump 0b26ce8 <HEAD>: 8063 shared, 642 CHANGED, 0 added, 0 removed;
+  HEAD grid sha efe82d78f258... == BLESSED_SURFACES R32. Leaves: CapEx Closing PPE 21, Checks 'Formula Logic' 1,
+  Debt Schedule 126 = 20 live rows x 5 (prin x2 MIN/ROUND, closing x2 MAX->IF, lease interest IF(Stub)->bare)
+  + stub row 5 (prin x2, closing x2, debt interest bare->IF(Stub,0)) + ROU closing 21, FINMO 494.
+  Text: Checks!D31 'Debt Schedule'!C34:W34 -> D34:W34 (one cell). R32 and R49 bare --only: GREEN at
+  efe82d78f258 / d4fc95098fe0 on 06f20f9. VS's _prove_20260825_cw043_turnA.txt: 64 legs, 0 DRIFT, 0 UNEARNED.
+
+(8) b1c5fcb2 IS A REAL RECOMPUTATION: planning_runs created 12:30:50 completed 12:34:32, 7 checkpoints,
+  8 stage events (initialize -> balance-sheet seed -> stage ramp -> quarter grid -> finalize);
+  post_intake_run_diagnostics id 1005 captured_at 16:34:33Z, 30 diff lines vs id 1004 (9b538285): passed
+  false->true, hard_fail_count 1->0, in_band/skipped counts moved (realism recomputed, not copied);
+  acceptance_verdict_json 18/18 named checks all true; workbook_deliveries id 41 links the 12-34-34 file to
+  b1c5fcb2 (delivered 12:34:41); the file carries b1c5fcb2 on Cover!C14 and Diagnostics!B11; its recalculated
+  debt closings [180000,174375,...,22750,0,...] and lease closings [62000..3100,0] equal the DB quarter_rows.
+  One GPT call recorded (retention estimate, lock_replay=1) - the deterministic replay design, as intended.
+
+test_bug_a_...::test_pre_cash_pass_snapshot_still_violates: FAILS on HEAD, 3609fe6, c4fa47e (08-07) and
+  bcf818d (05-17) full worktrees -> pre-existing, May-era, VERIFIED. Cause: the validator emits reason
+  'term_principal_balance_not_declining_without_new_borrowing' (schedule.py:746) and the test filters on the
+  old token 'principal_balance_not_declining_without_new_borrowing'. Test-only; no delivered number.
+
+PRE-EXISTING, NOT TURN A: Checks!B2 = FAIL on Bellweather (3609fe6/0b26ce8/HEAD), Copperline, Cedarhill,
+  Rootcycle AND VS's Falls City (3609fe6 + HEAD) - one row every time: 'Marketing Schedule could not be built'
+  (Workbook Completeness, the intentional stale-payload check for drafts predating the marketing payload).
+  Every numeric tie-out passes on every file. Harrow and Halbrook read OK.
+
+RED-ON-BUG RE-DERIVED: tests/test_cw043_payoff_residue.py + fixture copied into a FULL 0b26ce8 worktree
+  (.env present): 5/5 FAIL - closing at Q7 = 5.4569682106375694e-12, Q8 opening not 0, 148 crumbs on the
+  schedule, Interest Coverage Q8..Q20 2.0e17..4.6e17, DSCR 8.9e16..1.2e17. On HEAD: 5 passed in 13.28s.
