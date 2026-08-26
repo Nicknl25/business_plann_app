@@ -76,12 +76,12 @@ BLESSED_SURFACES = {
         "finmo": "bcd8fce31066",
     },
     "R32": {
-        "at": "785c3bc",
-        "workbook_formulas": "8be04b725821",
+        "at": "b35b4e8",
+        "workbook_formulas": "2597e192ff6c",
     },
     "R49": {
-        "at": "785c3bc",
-        "workbook_text": "398db547073c",
+        "at": "b35b4e8",
+        "workbook_text": "30fe003a2efe",
     },
 }
 
