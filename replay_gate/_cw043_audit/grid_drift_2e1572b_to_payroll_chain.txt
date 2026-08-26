@@ -1,0 +1,1719 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    1523f7b663df9d6543652b9fa778131bd423c9d85eb432618662ab4967fba99a
+GRID   11 sheets, 8082 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    11280ca67ba8707d44e5e0d6ff3aa38274915321d40125b821e549d6f94a6292
+GRID   11 sheets, 8367 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8082 shared cells, 475 CHANGED, 0 only in wt_head, 285 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  +    Payroll Schedule	Named person	400	=J85
+  +    Payroll Schedule	Named person	401	=H90*I90/4
+  +    Payroll Schedule	Named person	402	=K90*J90
+  +    Payroll Schedule	Named person	403	=K90+L90
+  +    Payroll Schedule	Named person	404	=ROUND(G87,6)
+  +    Payroll Schedule	Named person	405	=E92+F92
+  +    Payroll Schedule	Named person	406	=(E92+G92)/2
+  +    Payroll Schedule	Named person	407	=I87
+  +    Payroll Schedule	Named person	408	=J87
+  +    Payroll Schedule	Named person	409	=H92*I92/4
+  +    Payroll Schedule	Named person	410	=K92*J92
+  +    Payroll Schedule	Named person	411	=K92+L92
+  +    Payroll Schedule	Named person	412	=ROUND(G88,6)
+  +    Payroll Schedule	Named person	413	=E93+F93
+  +    Payroll Schedule	Named person	414	=(E93+G93)/2
+  +    Payroll Schedule	Named person	415	=I88
+  +    Payroll Schedule	Named person	416	=J88
+  +    Payroll Schedule	Named person	417	=H93*I93/4
+  +    Payroll Schedule	Named person	418	=K93*J93
+  +    Payroll Schedule	Named person	419	=K93+L93
+  +    Payroll Schedule	Named person	420	=ROUND(G89,6)
+  +    Payroll Schedule	Named person	421	=E94+F94
+  +    Payroll Schedule	Named person	422	=(E94+G94)/2
+  +    Payroll Schedule	Named person	423	=I89
+  +    Payroll Schedule	Named person	424	=J89
+  +    Payroll Schedule	Named person	425	=H94*I94/4
+  +    Payroll Schedule	Named person	426	=K94*J94
+  +    Payroll Schedule	Named person	427	=K94+L94
+  +    Payroll Schedule	Named person	428	=ROUND(G90,6)
+  +    Payroll Schedule	Named person	429	=E95+F95
+  +    Payroll Schedule	Named person	430	=(E95+G95)/2
+  +    Payroll Schedule	Named person	431	=I90
+  +    Payroll Schedule	Named person	432	=J90
+  +    Payroll Schedule	Named person	433	=H95*I95/4
+  +    Payroll Schedule	Named person	434	=K95*J95
+  +    Payroll Schedule	Named person	435	=K95+L95
+  +    Payroll Schedule	Named person	436	=ROUND(G92,6)
+  +    Payroll Schedule	Named person	437	=E97+F97
+  +    Payroll Schedule	Named person	438	=(E97+G97)/2
+  +    Payroll Schedule	Named person	439	=I92
+  +    Payroll Schedule	Named person	440	=J92
+  +    Payroll Schedule	Named person	441	=H97*I97/4
+  +    Payroll Schedule	Named person	442	=K97*J97
+  +    Payroll Schedule	Named person	443	=K97+L97
+  +    Payroll Schedule	Named person	444	=ROUND(G93,6)
+  +    Payroll Schedule	Named person	445	=E98+F98
+  +    Payroll Schedule	Named person	446	=(E98+G98)/2
+  +    Payroll Schedule	Named person	447	=I93
+  +    Payroll Schedule	Named person	448	=J93
+  +    Payroll Schedule	Named person	449	=H98*I98/4
+  +    Payroll Schedule	Named person	450	=K98*J98
+  +    Payroll Schedule	Named person	451	=K98+L98
+  +    Payroll Schedule	Named person	452	=ROUND(G94,6)
+  +    Payroll Schedule	Named person	453	=E99+F99
+  +    Payroll Schedule	Named person	454	=(E99+G99)/2
+  +    Payroll Schedule	Named person	455	=I94
+  +    Payroll Schedule	Named person	456	=J94
+  +    Payroll Schedule	Named person	457	=H99*I99/4
+  +    Payroll Schedule	Named person	458	=K99*J99
+  +    Payroll Schedule	Named person	459	=K99+L99
+  +    Payroll Schedule	Named person	460	=ROUND(G95,6)
+  +    Payroll Schedule	Named person	461	=E100+F100
+  +    Payroll Schedule	Named person	462	=(E100+G100)/2
+  +    Payroll Schedule	Named person	463	=I95
+  +    Payroll Schedule	Named person	464	=J95
+  +    Payroll Schedule	Named person	465	=H100*I100/4
+  +    Payroll Schedule	Named person	466	=K100*J100
+  +    Payroll Schedule	Named person	467	=K100+L100
+  +    Payroll Schedule	Named person	468	=ROUND(G97,6)
+  +    Payroll Schedule	Named person	469	=E102+F102
+  +    Payroll Schedule	Named person	470	=(E102+G102)/2
+  +    Payroll Schedule	Named person	471	=I97
+  +    Payroll Schedule	Named person	472	=J97
+  +    Payroll Schedule	Named person	473	=H102*I102/4
+  +    Payroll Schedule	Named person	474	=K102*J102
+  +    Payroll Schedule	Named person	475	=K102+L102
+  +    Payroll Schedule	Named person	476	=ROUND(G98,6)
+  +    Payroll Schedule	Named person	477	=E103+F103
+  +    Payroll Schedule	Named person	478	=(E103+G103)/2
+  +    Payroll Schedule	Named person	479	=I98
+  +    Payroll Schedule	Named person	480	=J98
+  +    Payroll Schedule	Named person	481	=H103*I103/4
+  +    Payroll Schedule	Named person	482	=K103*J103
+  +    Payroll Schedule	Named person	483	=K103+L103
+  +    Payroll Schedule	Named person	484	=ROUND(G99,6)
+  +    Payroll Schedule	Named person	485	=E104+F104
+  +    Payroll Schedule	Named person	486	=(E104+G104)/2
+  +    Payroll Schedule	Named person	487	=I99
+  +    Payroll Schedule	Named person	488	=J99
+  +    Payroll Schedule	Named person	489	=H104*I104/4
+  +    Payroll Schedule	Named person	490	=K104*J104
+  +    Payroll Schedule	Named person	491	=K104+L104
+  +    Payroll Schedule	Named person	492	=ROUND(G100,6)
+  +    Payroll Schedule	Named person	493	=E105+F105
+  +    Payroll Schedule	Named person	494	=(E105+G105)/2
+  +    Payroll Schedule	Named person	495	=I100
+  +    Payroll Schedule	Named person	496	=J100
+  +    Payroll Schedule	Named person	497	=H105*I105/4
+  +    Payroll Schedule	Named person	498	=K105*J105
+  +    Payroll Schedule	Named person	499	=K105+L105
+  +    Payroll Schedule	Named person	500	=ROUND(G102,6)
+  +    Payroll Schedule	Named person	501	=E107+F107
+  +    Payroll Schedule	Named person	502	=(E107+G107)/2
+  +    Payroll Schedule	Named person	503	=I102
+  +    Payroll Schedule	Named person	504	=J102
+  +    Payroll Schedule	Named person	505	=H107*I107/4
+  +    Payroll Schedule	Named person	506	=K107*J107
+  +    Payroll Schedule	Named person	507	=K107+L107
+  +    Payroll Schedule	Named person	508	=ROUND(G103,6)
+  +    Payroll Schedule	Named person	509	=E108+F108
+  +    Payroll Schedule	Named person	510	=(E108+G108)/2
+  +    Payroll Schedule	Named person	511	=I103
+  +    Payroll Schedule	Named person	512	=J103
+  +    Payroll Schedule	Named person	513	=H108*I108/4
+  +    Payroll Schedule	Named person	514	=K108*J108
+  +    Payroll Schedule	Named person	515	=K108+L108
+  +    Payroll Schedule	Named person	516	=ROUND(G104,6)
+  +    Payroll Schedule	Named person	517	=E109+F109
+  +    Payroll Schedule	Named person	518	=(E109+G109)/2
+  +    Payroll Schedule	Named person	519	=ROUND(I104+983.0,6)
+  +    Payroll Schedule	Named person	520	=J104
+  +    Payroll Schedule	Named person	521	=H109*I109/4
+  +    Payroll Schedule	Named person	522	=K109*J109
+  +    Payroll Schedule	Named person	523	=K109+L109
+  +    Payroll Schedule	Named person	524	=ROUND(G105,6)
+  +    Payroll Schedule	Named person	525	=E110+F110
+  +    Payroll Schedule	Named person	526	=(E110+G110)/2
+  +    Payroll Schedule	Named person	527	=ROUND(I105+1376.0,6)
+  +    Payroll Schedule	Named person	528	=J105
+  +    Payroll Schedule	Named person	529	=H110*I110/4
+  +    Payroll Schedule	Named person	530	=K110*J110
+  +    Payroll Schedule	Named person	531	=K110+L110
+  +    Payroll Schedule	Named person	532	=ROUND(G107,6)
+  +    Payroll Schedule	Named person	533	=E112+F112
+  +    Payroll Schedule	Named person	534	=(E112+G112)/2
+  +    Payroll Schedule	Named person	535	=I107
+  +    Payroll Schedule	Named person	536	=J107
+  +    Payroll Schedule	Named person	537	=H112*I112/4
+  +    Payroll Schedule	Named person	538	=K112*J112
+  +    Payroll Schedule	Named person	539	=K112+L112
+  +    Payroll Schedule	Named person	540	=ROUND(G108,6)
+  +    Payroll Schedule	Named person	541	=E113+F113
+  +    Payroll Schedule	Named person	542	=(E113+G113)/2
+  +    Payroll Schedule	Named person	543	=I108
+  +    Payroll Schedule	Named person	544	=J108
+  +    Payroll Schedule	Named person	545	=H113*I113/4
+  +    Payroll Schedule	Named person	546	=K113*J113
+  +    Payroll Schedule	Named person	547	=K113+L113
+  +    Payroll Schedule	Named person	548	=ROUND(G109,6)
+  +    Payroll Schedule	Named person	549	=E114+F114
+  +    Payroll Schedule	Named person	550	=(E114+G114)/2
+  +    Payroll Schedule	Named person	551	=I109
+  +    Payroll Schedule	Named person	552	=J109
+  +    Payroll Schedule	Named person	553	=H114*I114/4
+  +    Payroll Schedule	Named person	554	=K114*J114
+  +    Payroll Schedule	Named person	555	=K114+L114
+  +    Payroll Schedule	Named person	556	=ROUND(G110,6)
+  +    Payroll Schedule	Named person	557	=E115+F115
+  +    Payroll Schedule	Named person	558	=(E115+G115)/2
+  +    Payroll Schedule	Named person	559	=I110
+  +    Payroll Schedule	Named person	560	=J110
+  +    Payroll Schedule	Named person	561	=H115*I115/4
+  +    Payroll Schedule	Named person	562	=K115*J115
+  +    Payroll Schedule	Named person	563	=K115+L115
+  +    Payroll Schedule	Named person	564	=ROUND(G112,6)
+  +    Payroll Schedule	Named person	565	=E117+F117
+  +    Payroll Schedule	Named person	566	=(E117+G117)/2
+  +    Payroll Schedule	Named person	567	=I112
+  +    Payroll Schedule	Named person	568	=J112
+  +    Payroll Schedule	Named person	569	=H117*I117/4
+  +    Payroll Schedule	Named person	570	=K117*J117
+  +    Payroll Schedule	Named person	571	=K117+L117
+  +    Payroll Schedule	Named person	572	=ROUND(G113,6)
+  +    Payroll Schedule	Named person	573	=E118+F118
+  +    Payroll Schedule	Named person	574	=(E118+G118)/2
+  +    Payroll Schedule	Named person	575	=I113
+  +    Payroll Schedule	Named person	576	=J113
+  +    Payroll Schedule	Named person	577	=H118*I118/4
+  +    Payroll Schedule	Named person	578	=K118*J118
+  +    Payroll Schedule	Named person	579	=K118+L118
+  +    Payroll Schedule	Named person	580	=ROUND(G114,6)
+  +    Payroll Schedule	Named person	581	=E119+F119
+  +    Payroll Schedule	Named person	582	=(E119+G119)/2
+  +    Payroll Schedule	Named person	583	=I114
+  +    Payroll Schedule	Named person	584	=J114
+  +    Payroll Schedule	Named person	585	=H119*I119/4
+  +    Payroll Schedule	Named person	586	=K119*J119
+  +    Payroll Schedule	Named person	587	=K119+L119
+  +    Payroll Schedule	Named person	588	=ROUND(G115,6)
+  +    Payroll Schedule	Named person	589	=E120+F120
+  +    Payroll Schedule	Named person	590	=(E120+G120)/2
+  +    Payroll Schedule	Named person	591	=I115
+  +    Payroll Schedule	Named person	592	=J115
+  +    Payroll Schedule	Named person	593	=H120*I120/4
+  +    Payroll Schedule	Named person	594	=K120*J120
+  +    Payroll Schedule	Named person	595	=K120+L120
+  +    Payroll Schedule	Named person	596	=ROUND(G117,6)
+  +    Payroll Schedule	Named person	597	=E122+F122
+  +    Payroll Schedule	Named person	598	=(E122+G122)/2
+  +    Payroll Schedule	Named person	599	=I117
+  +    Payroll Schedule	Named person	600	=J117
+  +    Payroll Schedule	Named person	601	=H122*I122/4
+  +    Payroll Schedule	Named person	602	=K122*J122
+  +    Payroll Schedule	Named person	603	=K122+L122
+  +    Payroll Schedule	Named person	604	=ROUND(G118,6)
+  +    Payroll Schedule	Named person	605	=E123+F123
+  +    Payroll Schedule	Named person	606	=(E123+G123)/2
+  +    Payroll Schedule	Named person	607	=I118
+  +    Payroll Schedule	Named person	608	=J118
+  +    Payroll Schedule	Named person	609	=H123*I123/4
+  +    Payroll Schedule	Named person	610	=K123*J123
+  +    Payroll Schedule	Named person	611	=K123+L123
+  +    Payroll Schedule	Named person	612	=ROUND(G119,6)
+  +    Payroll Schedule	Named person	613	=E124+F124
+  +    Payroll Schedule	Named person	614	=(E124+G124)/2
+  +    Payroll Schedule	Named person	615	=I119
+  +    Payroll Schedule	Named person	616	=J119
+  +    Payroll Schedule	Named person	617	=H124*I124/4
+  +    Payroll Schedule	Named person	618	=K124*J124
+  +    Payroll Schedule	Named person	619	=K124+L124
+  +    Payroll Schedule	Named person	620	=ROUND(G120,6)
+  +    Payroll Schedule	Named person	621	=E125+F125
+  +    Payroll Schedule	Named person	622	=(E125+G125)/2
+  +    Payroll Schedule	Named person	623	=I120
+  +    Payroll Schedule	Named person	624	=J120
+  +    Payroll Schedule	Named person	625	=H125*I125/4
+  +    Payroll Schedule	Named person	626	=K125*J125
+  +    Payroll Schedule	Named person	627	=K125+L125
+  +    Payroll Schedule	Staffed role	100	=K91+L91
+  +    Payroll Schedule	Staffed role	101	=ROUND(G91,6)
+  +    Payroll Schedule	Staffed role	102	=E96+F96
+  +    Payroll Schedule	Staffed role	103	=(E96+G96)/2
+  +    Payroll Schedule	Staffed role	104	=I91
+  +    Payroll Schedule	Staffed role	105	=J91
+  +    Payroll Schedule	Staffed role	106	=H96*I96/4
+  +    Payroll Schedule	Staffed role	107	=K96*J96
+  +    Payroll Schedule	Staffed role	108	=K96+L96
+  +    Payroll Schedule	Staffed role	109	=ROUND(G96,6)
+  +    Payroll Schedule	Staffed role	110	=E101+F101
+  +    Payroll Schedule	Staffed role	111	=(E101+G101)/2
+  +    Payroll Schedule	Staffed role	112	=I96
+  +    Payroll Schedule	Staffed role	113	=J96
+  +    Payroll Schedule	Staffed role	114	=H101*I101/4
+  +    Payroll Schedule	Staffed role	115	=K101*J101
+  +    Payroll Schedule	Staffed role	116	=K101+L101
+  +    Payroll Schedule	Staffed role	117	=ROUND(G101,6)
+  +    Payroll Schedule	Staffed role	118	=E106+F106
+  +    Payroll Schedule	Staffed role	119	=(E106+G106)/2
+  +    Payroll Schedule	Staffed role	120	=I101
+  +    Payroll Schedule	Staffed role	121	=J101
+  +    Payroll Schedule	Staffed role	122	=H106*I106/4
+  +    Payroll Schedule	Staffed role	123	=K106*J106
+  +    Payroll Schedule	Staffed role	124	=K106+L106
+  +    Payroll Schedule	Staffed role	125	=ROUND(G106,6)
+  +    Payroll Schedule	Staffed role	126	=E111+F111
+  +    Payroll Schedule	Staffed role	127	=(E111+G111)/2
+  +    Payroll Schedule	Staffed role	128	=ROUND(I106+2485.0,6)
+  +    Payroll Schedule	Staffed role	129	=J106
+  +    Payroll Schedule	Staffed role	130	=H111*I111/4
+  +    Payroll Schedule	Staffed role	131	=K111*J111
+  +    Payroll Schedule	Staffed role	132	=K111+L111
+  +    Payroll Schedule	Staffed role	133	=ROUND(G111,6)
+  +    Payroll Schedule	Staffed role	134	=E116+F116
+  +    Payroll Schedule	Staffed role	135	=(E116+G116)/2
+  +    Payroll Schedule	Staffed role	136	=I111
+  +    Payroll Schedule	Staffed role	137	=J111
+  +    Payroll Schedule	Staffed role	138	=H116*I116/4
+  +    Payroll Schedule	Staffed role	139	=K116*J116
+  +    Payroll Schedule	Staffed role	140	=K116+L116
+  +    Payroll Schedule	Staffed role	141	=ROUND(G116,6)
+  +    Payroll Schedule	Staffed role	142	=E121+F121
+  +    Payroll Schedule	Staffed role	143	=(E121+G121)/2
+  +    Payroll Schedule	Staffed role	144	=I116
+  +    Payroll Schedule	Staffed role	145	=J116
+  +    Payroll Schedule	Staffed role	146	=H121*I121/4
+  +    Payroll Schedule	Staffed role	147	=K121*J121
+  +    Payroll Schedule	Staffed role	148	=K121+L121
+  +    Payroll Schedule	Staffed role	149	=ROUND(G121,6)
+  +    Payroll Schedule	Staffed role	150	=E126+F126
+  +    Payroll Schedule	Staffed role	151	=(E126+G126)/2
+  +    Payroll Schedule	Staffed role	152	=I121
+  +    Payroll Schedule	Staffed role	153	=J121
+  +    Payroll Schedule	Staffed role	154	=H126*I126/4
+  +    Payroll Schedule	Staffed role	155	=K126*J126
+  +    Payroll Schedule	Staffed role	156	=K126+L126
+  *    Payroll Schedule	Named person	100
+         was =E52+F52
+         now =ROUND(G39,6)
+  *    Payroll Schedule	Named person	101
+         was =(E52+G52)/2
+         now =E44+F44
+  *    Payroll Schedule	Named person	102
+         was =H52*I52/4
+         now =(E44+G44)/2
+  *    Payroll Schedule	Named person	103
+         was =K52*J52
+         now =I39
+  *    Payroll Schedule	Named person	104
+         was =K52+L52
+         now =J39
+  *    Payroll Schedule	Named person	105
+         was =E53+F53
+         now =H44*I44/4
+  *    Payroll Schedule	Named person	106
+         was =(E53+G53)/2
+         now =K44*J44
+  *    Payroll Schedule	Named person	107
+         was =H53*I53/4
+         now =K44+L44
+  *    Payroll Schedule	Named person	108
+         was =K53*J53
+         now =ROUND(G40,6)
+  *    Payroll Schedule	Named person	109
+         was =K53+L53
+         now =E45+F45
+  *    Payroll Schedule	Named person	110
+         was =E54+F54
+         now =(E45+G45)/2
+  *    Payroll Schedule	Named person	111
+         was =(E54+G54)/2
+         now =I40
+  *    Payroll Schedule	Named person	112
+         was =H54*I54/4
+         now =J40
+  *    Payroll Schedule	Named person	113
+         was =K54*J54
+         now =H45*I45/4
+  *    Payroll Schedule	Named person	114
+         was =K54+L54
+         now =K45*J45
+  *    Payroll Schedule	Named person	115
+         was =E55+F55
+         now =K45+L45
+  *    Payroll Schedule	Named person	116
+         was =(E55+G55)/2
+         now =ROUND(G42,6)
+  *    Payroll Schedule	Named person	117
+         was =H55*I55/4
+         now =E47+F47
+  *    Payroll Schedule	Named person	118
+         was =K55*J55
+         now =(E47+G47)/2
+  *    Payroll Schedule	Named person	119
+         was =K55+L55
+         now =I42
+  *    Payroll Schedule	Named person	120
+         was =E57+F57
+         now =J42
+  *    Payroll Schedule	Named person	121
+         was =(E57+G57)/2
+         now =H47*I47/4
+  *    Payroll Schedule	Named person	122
+         was =H57*I57/4
+         now =K47*J47
+  *    Payroll Schedule	Named person	123
+         was =K57*J57
+         now =K47+L47
+  *    Payroll Schedule	Named person	124
+         was =K57+L57
+         now =ROUND(G43,6)
+  *    Payroll Schedule	Named person	125
+         was =E58+F58
+         now =E48+F48
+  *    Payroll Schedule	Named person	126
+         was =(E58+G58)/2
+         now =(E48+G48)/2
+  *    Payroll Schedule	Named person	127
+         was =H58*I58/4
+         now =I43
+  *    Payroll Schedule	Named person	128
+         was =K58*J58
+         now =J43
+  *    Payroll Schedule	Named person	129
+         was =K58+L58
+         now =H48*I48/4
+  *    Payroll Schedule	Named person	130
+         was =E59+F59
+         now =K48*J48
+  *    Payroll Schedule	Named person	131
+         was =(E59+G59)/2
+         now =K48+L48
+  *    Payroll Schedule	Named person	132
+         was =H59*I59/4
+         now =ROUND(G44,6)
+  *    Payroll Schedule	Named person	133
+         was =K59*J59
+         now =E49+F49
+  *    Payroll Schedule	Named person	134
+         was =K59+L59
+         now =(E49+G49)/2
+  *    Payroll Schedule	Named person	135
+         was =E60+F60
+         now =ROUND(I44+900.0,6)
+  *    Payroll Schedule	Named person	136
+         was =(E60+G60)/2
+         now =J44
+  *    Payroll Schedule	Named person	137
+         was =H60*I60/4
+         now =H49*I49/4
+  *    Payroll Schedule	Named person	138
+         was =K60*J60
+         now =K49*J49
+  *    Payroll Schedule	Named person	139
+         was =K60+L60
+         now =K49+L49
+  *    Payroll Schedule	Named person	140
+         was =E62+F62
+         now =ROUND(G45,6)
+  *    Payroll Schedule	Named person	141
+         was =(E62+G62)/2
+         now =E50+F50
+  *    Payroll Schedule	Named person	142
+         was =H62*I62/4
+         now =(E50+G50)/2
+  *    Payroll Schedule	Named person	143
+         was =K62*J62
+         now =ROUND(I45+1260.0,6)
+  *    Payroll Schedule	Named person	144
+         was =K62+L62
+         now =J45
+  *    Payroll Schedule	Named person	145
+         was =E63+F63
+         now =H50*I50/4
+  *    Payroll Schedule	Named person	146
+         was =(E63+G63)/2
+         now =K50*J50
+  *    Payroll Schedule	Named person	147
+         was =H63*I63/4
+         now =K50+L50
+  *    Payroll Schedule	Named person	148
+         was =K63*J63
+         now =ROUND(G47,6)
+  *    Payroll Schedule	Named person	149
+         was =K63+L63
+         now =E52+F52
+  *    Payroll Schedule	Named person	150
+         was =E64+F64
+         now =(E52+G52)/2
+  *    Payroll Schedule	Named person	151
+         was =(E64+G64)/2
+         now =I47
+  *    Payroll Schedule	Named person	152
+         was =H64*I64/4
+         now =J47
+  *    Payroll Schedule	Named person	153
+         was =K64*J64
+         now =H52*I52/4
+  *    Payroll Schedule	Named person	154
+         was =K64+L64
+         now =K52*J52
+  *    Payroll Schedule	Named person	155
+         was =E65+F65
+         now =K52+L52
+  *    Payroll Schedule	Named person	156
+         was =(E65+G65)/2
+         now =ROUND(G48,6)
+  *    Payroll Schedule	Named person	157
+         was =H65*I65/4
+         now =E53+F53
+  *    Payroll Schedule	Named person	158
+         was =K65*J65
+         now =(E53+G53)/2
+  *    Payroll Schedule	Named person	159
+         was =K65+L65
+         now =I48
+  *    Payroll Schedule	Named person	160
+         was =E67+F67
+         now =J48
+  *    Payroll Schedule	Named person	161
+         was =(E67+G67)/2
+         now =H53*I53/4
+  *    Payroll Schedule	Named person	162
+         was =H67*I67/4
+         now =K53*J53
+  *    Payroll Schedule	Named person	163
+         was =K67*J67
+         now =K53+L53
+  *    Payroll Schedule	Named person	164
+         was =K67+L67
+         now =ROUND(G49,6)
+  *    Payroll Schedule	Named person	165
+         was =E68+F68
+         now =E54+F54
+  *    Payroll Schedule	Named person	166
+         was =(E68+G68)/2
+         now =(E54+G54)/2
+  *    Payroll Schedule	Named person	167
+         was =H68*I68/4
+         now =I49
+  *    Payroll Schedule	Named person	168
+         was =K68*J68
+         now =J49
+  *    Payroll Schedule	Named person	169
+         was =K68+L68
+         now =H54*I54/4
+  *    Payroll Schedule	Named person	170
+         was =E69+F69
+         now =K54*J54
+  *    Payroll Schedule	Named person	171
+         was =(E69+G69)/2
+         now =K54+L54
+  *    Payroll Schedule	Named person	172
+         was =H69*I69/4
+         now =ROUND(G50,6)
+  *    Payroll Schedule	Named person	173
+         was =K69*J69
+         now =E55+F55
+  *    Payroll Schedule	Named person	174
+         was =K69+L69
+         now =(E55+G55)/2
+  *    Payroll Schedule	Named person	175
+         was =E70+F70
+         now =I50
+  *    Payroll Schedule	Named person	176
+         was =(E70+G70)/2
+         now =J50
+  *    Payroll Schedule	Named person	177
+         was =H70*I70/4
+         now =H55*I55/4
+  *    Payroll Schedule	Named person	178
+         was =K70*J70
+         now =K55*J55
+  *    Payroll Schedule	Named person	179
+         was =K70+L70
+         now =K55+L55
+  *    Payroll Schedule	Named person	180
+         was =E72+F72
+         now =ROUND(G52,6)
+  *    Payroll Schedule	Named person	181
+         was =(E72+G72)/2
+         now =E57+F57
+  *    Payroll Schedule	Named person	182
+         was =H72*I72/4
+         now =(E57+G57)/2
+  *    Payroll Schedule	Named person	183
+         was =K72*J72
+         now =I52
+  *    Payroll Schedule	Named person	184
+         was =K72+L72
+         now =J52
+  *    Payroll Schedule	Named person	185
+         was =E73+F73
+         now =H57*I57/4
+  *    Payroll Schedule	Named person	186
+         was =(E73+G73)/2
+         now =K57*J57
+  *    Payroll Schedule	Named person	187
+         was =H73*I73/4
+         now =K57+L57
+  *    Payroll Schedule	Named person	188
+         was =K73*J73
+         now =ROUND(G53,6)
+  *    Payroll Schedule	Named person	189
+         was =K73+L73
+         now =E58+F58
+  *    Payroll Schedule	Named person	190
+         was =E74+F74
+         now =(E58+G58)/2
+  *    Payroll Schedule	Named person	191
+         was =(E74+G74)/2
+         now =I53
+  *    Payroll Schedule	Named person	192
+         was =H74*I74/4
+         now =J53
+  *    Payroll Schedule	Named person	193
+         was =K74*J74
+         now =H58*I58/4
+  *    Payroll Schedule	Named person	194
+         was =K74+L74
+         now =K58*J58
+  *    Payroll Schedule	Named person	195
+         was =E75+F75
+         now =K58+L58
+  *    Payroll Schedule	Named person	196
+         was =(E75+G75)/2
+         now =ROUND(G54,6)
+  *    Payroll Schedule	Named person	197
+         was =H75*I75/4
+         now =E59+F59
+  *    Payroll Schedule	Named person	198
+         was =K75*J75
+         now =(E59+G59)/2
+  *    Payroll Schedule	Named person	199
+         was =K75+L75
+         now =I54
+  *    Payroll Schedule	Named person	20
+         was =E32+F32
+         now =ROUND(G27,6)
+  *    Payroll Schedule	Named person	200
+         was =E77+F77
+         now =J54
+  *    Payroll Schedule	Named person	201
+         was =(E77+G77)/2
+         now =H59*I59/4
+  *    Payroll Schedule	Named person	202
+         was =H77*I77/4
+         now =K59*J59
+  *    Payroll Schedule	Named person	203
+         was =K77*J77
+         now =K59+L59
+  *    Payroll Schedule	Named person	204
+         was =K77+L77
+         now =ROUND(G55,6)
+  *    Payroll Schedule	Named person	205
+         was =E78+F78
+         now =E60+F60
+  *    Payroll Schedule	Named person	206
+         was =(E78+G78)/2
+         now =(E60+G60)/2
+  *    Payroll Schedule	Named person	207
+         was =H78*I78/4
+         now =I55
+  *    Payroll Schedule	Named person	208
+         was =K78*J78
+         now =J55
+  *    Payroll Schedule	Named person	209
+         was =K78+L78
+         now =H60*I60/4
+  *    Payroll Schedule	Named person	21
+         was =(E32+G32)/2
+         now =E32+F32
+  *    Payroll Schedule	Named person	210
+         was =E79+F79
+         now =K60*J60
+  *    Payroll Schedule	Named person	211
+         was =(E79+G79)/2
+         now =K60+L60
+  *    Payroll Schedule	Named person	212
+         was =H79*I79/4
+         now =ROUND(G57,6)
+  *    Payroll Schedule	Named person	213
+         was =K79*J79
+         now =E62+F62
+  *    Payroll Schedule	Named person	214
+         was =K79+L79
+         now =(E62+G62)/2
+  *    Payroll Schedule	Named person	215
+         was =E80+F80
+         now =I57
+  *    Payroll Schedule	Named person	216
+         was =(E80+G80)/2
+         now =J57
+  *    Payroll Schedule	Named person	217
+         was =H80*I80/4
+         now =H62*I62/4
+  *    Payroll Schedule	Named person	218
+         was =K80*J80
+         now =K62*J62
+  *    Payroll Schedule	Named person	219
+         was =K80+L80
+         now =K62+L62
+  *    Payroll Schedule	Named person	22
+         was =H32*I32/4
+         now =(E32+G32)/2
+  *    Payroll Schedule	Named person	220
+         was =E82+F82
+         now =ROUND(G58,6)
+  *    Payroll Schedule	Named person	221
+         was =(E82+G82)/2
+         now =E63+F63
+  *    Payroll Schedule	Named person	222
+         was =H82*I82/4
+         now =(E63+G63)/2
+  *    Payroll Schedule	Named person	223
+         was =K82*J82
+         now =I58
+  *    Payroll Schedule	Named person	224
+         was =K82+L82
+         now =J58
+  *    Payroll Schedule	Named person	225
+         was =E83+F83
+         now =H63*I63/4
+  *    Payroll Schedule	Named person	226
+         was =(E83+G83)/2
+         now =K63*J63
+  *    Payroll Schedule	Named person	227
+         was =H83*I83/4
+         now =K63+L63
+  *    Payroll Schedule	Named person	228
+         was =K83*J83
+         now =ROUND(G59,6)
+  *    Payroll Schedule	Named person	229
+         was =K83+L83
+         now =E64+F64
+  *    Payroll Schedule	Named person	23
+         was =K32*J32
+         now =I27
+  *    Payroll Schedule	Named person	230
+         was =E84+F84
+         now =(E64+G64)/2
+  *    Payroll Schedule	Named person	231
+         was =(E84+G84)/2
+         now =I59
+  *    Payroll Schedule	Named person	232
+         was =H84*I84/4
+         now =J59
+  *    Payroll Schedule	Named person	233
+         was =K84*J84
+         now =H64*I64/4
+  *    Payroll Schedule	Named person	234
+         was =K84+L84
+         now =K64*J64
+  *    Payroll Schedule	Named person	235
+         was =E85+F85
+         now =K64+L64
+  *    Payroll Schedule	Named person	236
+         was =(E85+G85)/2
+         now =ROUND(G60,6)
+  *    Payroll Schedule	Named person	237
+         was =H85*I85/4
+         now =E65+F65
+  *    Payroll Schedule	Named person	238
+         was =K85*J85
+         now =(E65+G65)/2
+  *    Payroll Schedule	Named person	239
+         was =K85+L85
+         now =I60
+  *    Payroll Schedule	Named person	24
+         was =K32+L32
+         now =J27
+  *    Payroll Schedule	Named person	240
+         was =E87+F87
+         now =J60
+  *    Payroll Schedule	Named person	241
+         was =(E87+G87)/2
+         now =H65*I65/4
+  *    Payroll Schedule	Named person	242
+         was =H87*I87/4
+         now =K65*J65
+  *    Payroll Schedule	Named person	243
+         was =K87*J87
+         now =K65+L65
+  *    Payroll Schedule	Named person	244
+         was =K87+L87
+         now =ROUND(G62,6)
+  *    Payroll Schedule	Named person	245
+         was =E88+F88
+         now =E67+F67
+  *    Payroll Schedule	Named person	246
+         was =(E88+G88)/2
+         now =(E67+G67)/2
+  *    Payroll Schedule	Named person	247
+         was =H88*I88/4
+         now =I62
+  *    Payroll Schedule	Named person	248
+         was =K88*J88
+         now =J62
+  *    Payroll Schedule	Named person	249
+         was =K88+L88
+         now =H67*I67/4
+  *    Payroll Schedule	Named person	25
+         was =E33+F33
+         now =H32*I32/4
+  *    Payroll Schedule	Named person	250
+         was =E89+F89
+         now =K67*J67
+  *    Payroll Schedule	Named person	251
+         was =(E89+G89)/2
+         now =K67+L67
+  *    Payroll Schedule	Named person	252
+         was =H89*I89/4
+         now =ROUND(G63,6)
+  *    Payroll Schedule	Named person	253
+         was =K89*J89
+         now =E68+F68
+  *    Payroll Schedule	Named person	254
+         was =K89+L89
+         now =(E68+G68)/2
+  *    Payroll Schedule	Named person	255
+         was =E90+F90
+         now =I63
+  *    Payroll Schedule	Named person	256
+         was =(E90+G90)/2
+         now =J63
+  *    Payroll Schedule	Named person	257
+         was =H90*I90/4
+         now =H68*I68/4
+  *    Payroll Schedule	Named person	258
+         was =K90*J90
+         now =K68*J68
+  *    Payroll Schedule	Named person	259
+         was =K90+L90
+         now =K68+L68
+  *    Payroll Schedule	Named person	26
+         was =(E33+G33)/2
+         now =K32*J32
+  *    Payroll Schedule	Named person	260
+         was =E92+F92
+         now =ROUND(G64,6)
+  *    Payroll Schedule	Named person	261
+         was =(E92+G92)/2
+         now =E69+F69
+  *    Payroll Schedule	Named person	262
+         was =H92*I92/4
+         now =(E69+G69)/2
+  *    Payroll Schedule	Named person	263
+         was =K92*J92
+         now =ROUND(I64+927.0,6)
+  *    Payroll Schedule	Named person	264
+         was =K92+L92
+         now =J64
+  *    Payroll Schedule	Named person	265
+         was =E93+F93
+         now =H69*I69/4
+  *    Payroll Schedule	Named person	266
+         was =(E93+G93)/2
+         now =K69*J69
+  *    Payroll Schedule	Named person	267
+         was =H93*I93/4
+         now =K69+L69
+  *    Payroll Schedule	Named person	268
+         was =K93*J93
+         now =ROUND(G65,6)
+  *    Payroll Schedule	Named person	269
+         was =K93+L93
+         now =E70+F70
+  *    Payroll Schedule	Named person	27
+         was =H33*I33/4
+         now =K32+L32
+  *    Payroll Schedule	Named person	270
+         was =E94+F94
+         now =(E70+G70)/2
+  *    Payroll Schedule	Named person	271
+         was =(E94+G94)/2
+         now =ROUND(I65+1298.0,6)
+  *    Payroll Schedule	Named person	272
+         was =H94*I94/4
+         now =J65
+  *    Payroll Schedule	Named person	273
+         was =K94*J94
+         now =H70*I70/4
+  *    Payroll Schedule	Named person	274
+         was =K94+L94
+         now =K70*J70
+  *    Payroll Schedule	Named person	275
+         was =E95+F95
+         now =K70+L70
+  *    Payroll Schedule	Named person	276
+         was =(E95+G95)/2
+         now =ROUND(G67,6)
+  *    Payroll Schedule	Named person	277
+         was =H95*I95/4
+         now =E72+F72
+  *    Payroll Schedule	Named person	278
+         was =K95*J95
+         now =(E72+G72)/2
+  *    Payroll Schedule	Named person	279
+         was =K95+L95
+         now =I67
+  *    Payroll Schedule	Named person	28
+         was =K33*J33
+         now =ROUND(G28,6)
+  *    Payroll Schedule	Named person	280
+         was =E97+F97
+         now =J67
+  *    Payroll Schedule	Named person	281
+         was =(E97+G97)/2
+         now =H72*I72/4
+  *    Payroll Schedule	Named person	282
+         was =H97*I97/4
+         now =K72*J72
+  *    Payroll Schedule	Named person	283
+         was =K97*J97
+         now =K72+L72
+  *    Payroll Schedule	Named person	284
+         was =K97+L97
+         now =ROUND(G68,6)
+  *    Payroll Schedule	Named person	285
+         was =E98+F98
+         now =E73+F73
+  *    Payroll Schedule	Named person	286
+         was =(E98+G98)/2
+         now =(E73+G73)/2
+  *    Payroll Schedule	Named person	287
+         was =H98*I98/4
+         now =I68
+  *    Payroll Schedule	Named person	288
+         was =K98*J98
+         now =J68
+  *    Payroll Schedule	Named person	289
+         was =K98+L98
+         now =H73*I73/4
+  *    Payroll Schedule	Named person	29
+         was =K33+L33
+         now =E33+F33
+  *    Payroll Schedule	Named person	290
+         was =E99+F99
+         now =K73*J73
+  *    Payroll Schedule	Named person	291
+         was =(E99+G99)/2
+         now =K73+L73
+  *    Payroll Schedule	Named person	292
+         was =H99*I99/4
+         now =ROUND(G69,6)
+  *    Payroll Schedule	Named person	293
+         was =K99*J99
+         now =E74+F74
+  *    Payroll Schedule	Named person	294
+         was =K99+L99
+         now =(E74+G74)/2
+  *    Payroll Schedule	Named person	295
+         was =E100+F100
+         now =I69
+  *    Payroll Schedule	Named person	296
+         was =(E100+G100)/2
+         now =J69
+  *    Payroll Schedule	Named person	297
+         was =H100*I100/4
+         now =H74*I74/4
+  *    Payroll Schedule	Named person	298
+         was =K100*J100
+         now =K74*J74
+  *    Payroll Schedule	Named person	299
+         was =K100+L100
+         now =K74+L74
+  *    Payroll Schedule	Named person	30
+         was =E34+F34
+         now =(E33+G33)/2
+  *    Payroll Schedule	Named person	300
+         was =E102+F102
+         now =ROUND(G70,6)
+  *    Payroll Schedule	Named person	301
+         was =(E102+G102)/2
+         now =E75+F75
+  *    Payroll Schedule	Named person	302
+         was =H102*I102/4
+         now =(E75+G75)/2
+  *    Payroll Schedule	Named person	303
+         was =K102*J102
+         now =I70
+  *    Payroll Schedule	Named person	304
+         was =K102+L102
+         now =J70
+  *    Payroll Schedule	Named person	305
+         was =E103+F103
+         now =H75*I75/4
+  *    Payroll Schedule	Named person	306
+         was =(E103+G103)/2
+         now =K75*J75
+  *    Payroll Schedule	Named person	307
+         was =H103*I103/4
+         now =K75+L75
+  *    Payroll Schedule	Named person	308
+         was =K103*J103
+         now =ROUND(G72,6)
+  *    Payroll Schedule	Named person	309
+         was =K103+L103
+         now =E77+F77
+  *    Payroll Schedule	Named person	31
+         was =(E34+G34)/2
+         now =I28
+  *    Payroll Schedule	Named person	310
+         was =E104+F104
+         now =(E77+G77)/2
+  *    Payroll Schedule	Named person	311
+         was =(E104+G104)/2
+         now =I72
+  *    Payroll Schedule	Named person	312
+         was =H104*I104/4
+         now =J72
+  *    Payroll Schedule	Named person	313
+         was =K104*J104
+         now =H77*I77/4
+  *    Payroll Schedule	Named person	314
+         was =K104+L104
+         now =K77*J77
+  *    Payroll Schedule	Named person	315
+         was =E105+F105
+         now =K77+L77
+  *    Payroll Schedule	Named person	316
+         was =(E105+G105)/2
+         now =ROUND(G73,6)
+  *    Payroll Schedule	Named person	317
+         was =H105*I105/4
+         now =E78+F78
+  *    Payroll Schedule	Named person	318
+         was =K105*J105
+         now =(E78+G78)/2
+  *    Payroll Schedule	Named person	319
+         was =K105+L105
+         now =I73
+  *    Payroll Schedule	Named person	32
+         was =H34*I34/4
+         now =J28
+  *    Payroll Schedule	Named person	320
+         was =E107+F107
+         now =J73
+  *    Payroll Schedule	Named person	321
+         was =(E107+G107)/2
+         now =H78*I78/4
+  *    Payroll Schedule	Named person	322
+         was =H107*I107/4
+         now =K78*J78
+  *    Payroll Schedule	Named person	323
+         was =K107*J107
+         now =K78+L78
+  *    Payroll Schedule	Named person	324
+         was =K107+L107
+         now =ROUND(G74,6)
+  *    Payroll Schedule	Named person	325
+         was =E108+F108
+         now =E79+F79
+  *    Payroll Schedule	Named person	326
+         was =(E108+G108)/2
+         now =(E79+G79)/2
+  *    Payroll Schedule	Named person	327
+         was =H108*I108/4
+         now =I74
+  *    Payroll Schedule	Named person	328
+         was =K108*J108
+         now =J74
+  *    Payroll Schedule	Named person	329
+         was =K108+L108
+         now =H79*I79/4
+  *    Payroll Schedule	Named person	33
+         was =K34*J34
+         now =H33*I33/4
+  *    Payroll Schedule	Named person	330
+         was =E109+F109
+         now =K79*J79
+  *    Payroll Schedule	Named person	331
+         was =(E109+G109)/2
+         now =K79+L79
+  *    Payroll Schedule	Named person	332
+         was =H109*I109/4
+         now =ROUND(G75,6)
+  *    Payroll Schedule	Named person	333
+         was =K109*J109
+         now =E80+F80
+  *    Payroll Schedule	Named person	334
+         was =K109+L109
+         now =(E80+G80)/2
+  *    Payroll Schedule	Named person	335
+         was =E110+F110
+         now =I75
+  *    Payroll Schedule	Named person	336
+         was =(E110+G110)/2
+         now =J75
+  *    Payroll Schedule	Named person	337
+         was =H110*I110/4
+         now =H80*I80/4
+  *    Payroll Schedule	Named person	338
+         was =K110*J110
+         now =K80*J80
+  *    Payroll Schedule	Named person	339
+         was =K110+L110
+         now =K80+L80
+  *    Payroll Schedule	Named person	34
+         was =K34+L34
+         now =K33*J33
+  *    Payroll Schedule	Named person	340
+         was =E112+F112
+         now =ROUND(G77,6)
+  *    Payroll Schedule	Named person	341
+         was =(E112+G112)/2
+         now =E82+F82
+  *    Payroll Schedule	Named person	342
+         was =H112*I112/4
+         now =(E82+G82)/2
+  *    Payroll Schedule	Named person	343
+         was =K112*J112
+         now =I77
+  *    Payroll Schedule	Named person	344
+         was =K112+L112
+         now =J77
+  *    Payroll Schedule	Named person	345
+         was =E113+F113
+         now =H82*I82/4
+  *    Payroll Schedule	Named person	346
+         was =(E113+G113)/2
+         now =K82*J82
+  *    Payroll Schedule	Named person	347
+         was =H113*I113/4
+         now =K82+L82
+  *    Payroll Schedule	Named person	348
+         was =K113*J113
+         now =ROUND(G78,6)
+  *    Payroll Schedule	Named person	349
+         was =K113+L113
+         now =E83+F83
+  *    Payroll Schedule	Named person	35
+         was =E35+F35
+         now =K33+L33
+  *    Payroll Schedule	Named person	350
+         was =E114+F114
+         now =(E83+G83)/2
+  *    Payroll Schedule	Named person	351
+         was =(E114+G114)/2
+         now =I78
+  *    Payroll Schedule	Named person	352
+         was =H114*I114/4
+         now =J78
+  *    Payroll Schedule	Named person	353
+         was =K114*J114
+         now =H83*I83/4
+  *    Payroll Schedule	Named person	354
+         was =K114+L114
+         now =K83*J83
+  *    Payroll Schedule	Named person	355
+         was =E115+F115
+         now =K83+L83
+  *    Payroll Schedule	Named person	356
+         was =(E115+G115)/2
+         now =ROUND(G79,6)
+  *    Payroll Schedule	Named person	357
+         was =H115*I115/4
+         now =E84+F84
+  *    Payroll Schedule	Named person	358
+         was =K115*J115
+         now =(E84+G84)/2
+  *    Payroll Schedule	Named person	359
+         was =K115+L115
+         now =I79
+  *    Payroll Schedule	Named person	36
+         was =(E35+G35)/2
+         now =ROUND(G29,6)
+  *    Payroll Schedule	Named person	360
+         was =E117+F117
+         now =J79
+  *    Payroll Schedule	Named person	361
+         was =(E117+G117)/2
+         now =H84*I84/4
+  *    Payroll Schedule	Named person	362
+         was =H117*I117/4
+         now =K84*J84
+  *    Payroll Schedule	Named person	363
+         was =K117*J117
+         now =K84+L84
+  *    Payroll Schedule	Named person	364
+         was =K117+L117
+         now =ROUND(G80,6)
+  *    Payroll Schedule	Named person	365
+         was =E118+F118
+         now =E85+F85
+  *    Payroll Schedule	Named person	366
+         was =(E118+G118)/2
+         now =(E85+G85)/2
+  *    Payroll Schedule	Named person	367
+         was =H118*I118/4
+         now =I80
+  *    Payroll Schedule	Named person	368
+         was =K118*J118
+         now =J80
+  *    Payroll Schedule	Named person	369
+         was =K118+L118
+         now =H85*I85/4
+  *    Payroll Schedule	Named person	37
+         was =H35*I35/4
+         now =E34+F34
+  *    Payroll Schedule	Named person	370
+         was =E119+F119
+         now =K85*J85
+  *    Payroll Schedule	Named person	371
+         was =(E119+G119)/2
+         now =K85+L85
+  *    Payroll Schedule	Named person	372
+         was =H119*I119/4
+         now =ROUND(G82,6)
+  *    Payroll Schedule	Named person	373
+         was =K119*J119
+         now =E87+F87
+  *    Payroll Schedule	Named person	374
+         was =K119+L119
+         now =(E87+G87)/2
+  *    Payroll Schedule	Named person	375
+         was =E120+F120
+         now =I82
+  *    Payroll Schedule	Named person	376
+         was =(E120+G120)/2
+         now =J82
+  *    Payroll Schedule	Named person	377
+         was =H120*I120/4
+         now =H87*I87/4
+  *    Payroll Schedule	Named person	378
+         was =K120*J120
+         now =K87*J87
+  *    Payroll Schedule	Named person	379
+         was =K120+L120
+         now =K87+L87
+  *    Payroll Schedule	Named person	38
+         was =K35*J35
+         now =(E34+G34)/2
+  *    Payroll Schedule	Named person	380
+         was =E122+F122
+         now =ROUND(G83,6)
+  *    Payroll Schedule	Named person	381
+         was =(E122+G122)/2
+         now =E88+F88
+  *    Payroll Schedule	Named person	382
+         was =H122*I122/4
+         now =(E88+G88)/2
+  *    Payroll Schedule	Named person	383
+         was =K122*J122
+         now =I83
+  *    Payroll Schedule	Named person	384
+         was =K122+L122
+         now =J83
+  *    Payroll Schedule	Named person	385
+         was =E123+F123
+         now =H88*I88/4
+  *    Payroll Schedule	Named person	386
+         was =(E123+G123)/2
+         now =K88*J88
+  *    Payroll Schedule	Named person	387
+         was =H123*I123/4
+         now =K88+L88
+  *    Payroll Schedule	Named person	388
+         was =K123*J123
+         now =ROUND(G84,6)
+  *    Payroll Schedule	Named person	389
+         was =K123+L123
+         now =E89+F89
+  *    Payroll Schedule	Named person	39
+         was =K35+L35
+         now =I29
+  *    Payroll Schedule	Named person	390
+         was =E124+F124
+         now =(E89+G89)/2
+  *    Payroll Schedule	Named person	391
+         was =(E124+G124)/2
+         now =ROUND(I84+955.0,6)
+  *    Payroll Schedule	Named person	392
+         was =H124*I124/4
+         now =J84
+  *    Payroll Schedule	Named person	393
+         was =K124*J124
+         now =H89*I89/4
+  *    Payroll Schedule	Named person	394
+         was =K124+L124
+         now =K89*J89
+  *    Payroll Schedule	Named person	395
+         was =E125+F125
+         now =K89+L89
+  *    Payroll Schedule	Named person	396
+         was =(E125+G125)/2
+         now =ROUND(G85,6)
+  *    Payroll Schedule	Named person	397
+         was =H125*I125/4
+         now =E90+F90
+  *    Payroll Schedule	Named person	398
+         was =K125*J125
+         now =(E90+G90)/2
+  *    Payroll Schedule	Named person	399
+         was =K125+L125
+         now =ROUND(I85+1337.0,6)
+  *    Payroll Schedule	Named person	40
+         was =E37+F37
+         now =J29
+  *    Payroll Schedule	Named person	41
+         was =(E37+G37)/2
+         now =H34*I34/4
+  *    Payroll Schedule	Named person	42
+         was =H37*I37/4
+         now =K34*J34
+  *    Payroll Schedule	Named person	43
+         was =K37*J37
+         now =K34+L34
+  *    Payroll Schedule	Named person	44
+         was =K37+L37
+         now =ROUND(G30,6)
+  *    Payroll Schedule	Named person	45
+         was =E38+F38
+         now =E35+F35
+  *    Payroll Schedule	Named person	46
+         was =(E38+G38)/2
+         now =(E35+G35)/2
+  *    Payroll Schedule	Named person	47
+         was =H38*I38/4
+         now =I30
+  *    Payroll Schedule	Named person	48
+         was =K38*J38
+         now =J30
+  *    Payroll Schedule	Named person	49
+         was =K38+L38
+         now =H35*I35/4
+  *    Payroll Schedule	Named person	50
+         was =E39+F39
+         now =K35*J35
+  *    Payroll Schedule	Named person	51
+         was =(E39+G39)/2
+         now =K35+L35
+  *    Payroll Schedule	Named person	52
+         was =H39*I39/4
+         now =ROUND(G32,6)
+  *    Payroll Schedule	Named person	53
+         was =K39*J39
+         now =E37+F37
+  *    Payroll Schedule	Named person	54
+         was =K39+L39
+         now =(E37+G37)/2
+  *    Payroll Schedule	Named person	55
+         was =E40+F40
+         now =I32
+  *    Payroll Schedule	Named person	56
+         was =(E40+G40)/2
+         now =J32
+  *    Payroll Schedule	Named person	57
+         was =H40*I40/4
+         now =H37*I37/4
+  *    Payroll Schedule	Named person	58
+         was =K40*J40
+         now =K37*J37
+  *    Payroll Schedule	Named person	59
+         was =K40+L40
+         now =K37+L37
+  *    Payroll Schedule	Named person	60
+         was =E42+F42
+         now =ROUND(G33,6)
+  *    Payroll Schedule	Named person	61
+         was =(E42+G42)/2
+         now =E38+F38
+  *    Payroll Schedule	Named person	62
+         was =H42*I42/4
+         now =(E38+G38)/2
+  *    Payroll Schedule	Named person	63
+         was =K42*J42
+         now =I33
+  *    Payroll Schedule	Named person	64
+         was =K42+L42
+         now =J33
+  *    Payroll Schedule	Named person	65
+         was =E43+F43
+         now =H38*I38/4
+  *    Payroll Schedule	Named person	66
+         was =(E43+G43)/2
+         now =K38*J38
+  *    Payroll Schedule	Named person	67
+         was =H43*I43/4
+         now =K38+L38
+  *    Payroll Schedule	Named person	68
+         was =K43*J43
+         now =ROUND(G34,6)
+  *    Payroll Schedule	Named person	69
+         was =K43+L43
+         now =E39+F39
+  *    Payroll Schedule	Named person	70
+         was =E44+F44
+         now =(E39+G39)/2
+  *    Payroll Schedule	Named person	71
+         was =(E44+G44)/2
+         now =I34
+  *    Payroll Schedule	Named person	72
+         was =H44*I44/4
+         now =J34
+  *    Payroll Schedule	Named person	73
+         was =K44*J44
+         now =H39*I39/4
+  *    Payroll Schedule	Named person	74
+         was =K44+L44
+         now =K39*J39
+  *    Payroll Schedule	Named person	75
+         was =E45+F45
+         now =K39+L39
+  *    Payroll Schedule	Named person	76
+         was =(E45+G45)/2
+         now =ROUND(G35,6)
+  *    Payroll Schedule	Named person	77
+         was =H45*I45/4
+         now =E40+F40
+  *    Payroll Schedule	Named person	78
+         was =K45*J45
+         now =(E40+G40)/2
+  *    Payroll Schedule	Named person	79
+         was =K45+L45
+         now =I35
+  *    Payroll Schedule	Named person	80
+         was =E47+F47
+         now =J35
+  *    Payroll Schedule	Named person	81
+         was =(E47+G47)/2
+         now =H40*I40/4
+  *    Payroll Schedule	Named person	82
+         was =H47*I47/4
+         now =K40*J40
+  *    Payroll Schedule	Named person	83
+         was =K47*J47
+         now =K40+L40
+  *    Payroll Schedule	Named person	84
+         was =K47+L47
+         now =ROUND(G37,6)
+  *    Payroll Schedule	Named person	85
+         was =E48+F48
+         now =E42+F42
+  *    Payroll Schedule	Named person	86
+         was =(E48+G48)/2
+         now =(E42+G42)/2
+  *    Payroll Schedule	Named person	87
+         was =H48*I48/4
+         now =I37
+  *    Payroll Schedule	Named person	88
+         was =K48*J48
+         now =J37
+  *    Payroll Schedule	Named person	89
+         was =K48+L48
+         now =H42*I42/4
+  *    Payroll Schedule	Named person	90
+         was =E49+F49
+         now =K42*J42
+  *    Payroll Schedule	Named person	91
+         was =(E49+G49)/2
+         now =K42+L42
+  *    Payroll Schedule	Named person	92
+         was =H49*I49/4
+         now =ROUND(G38,6)
+  *    Payroll Schedule	Named person	93
+         was =K49*J49
+         now =E43+F43
+  *    Payroll Schedule	Named person	94
+         was =K49+L49
+         now =(E43+G43)/2
+  *    Payroll Schedule	Named person	95
+         was =E50+F50
+         now =I38
+  *    Payroll Schedule	Named person	96
+         was =(E50+G50)/2
+         now =J38
+  *    Payroll Schedule	Named person	97
+         was =H50*I50/4
+         now =H43*I43/4
+  *    Payroll Schedule	Named person	98
+         was =K50*J50
+         now =K43*J43
+  *    Payroll Schedule	Named person	99
+         was =K50+L50
+         now =K43+L43
+  *    Payroll Schedule	Staffed role	10
+         was =E41+F41
+         now =H36*I36/4
+  *    Payroll Schedule	Staffed role	11
+         was =(E41+G41)/2
+         now =K36*J36
+  *    Payroll Schedule	Staffed role	12
+         was =H41*I41/4
+         now =K36+L36
+  *    Payroll Schedule	Staffed role	13
+         was =K41*J41
+         now =ROUND(G36,6)
+  *    Payroll Schedule	Staffed role	14
+         was =K41+L41
+         now =E41+F41
+  *    Payroll Schedule	Staffed role	15
+         was =E46+F46
+         now =(E41+G41)/2
+  *    Payroll Schedule	Staffed role	16
+         was =(E46+G46)/2
+         now =I36
+  *    Payroll Schedule	Staffed role	17
+         was =H46*I46/4
+         now =J36
+  *    Payroll Schedule	Staffed role	18
+         was =K46*J46
+         now =H41*I41/4
+  *    Payroll Schedule	Staffed role	19
+         was =K46+L46
+         now =K41*J41
+  *    Payroll Schedule	Staffed role	20
+         was =E51+F51
+         now =K41+L41
+  *    Payroll Schedule	Staffed role	21
+         was =(E51+G51)/2
+         now =ROUND(G41,6)
+  *    Payroll Schedule	Staffed role	22
+         was =H51*I51/4
+         now =E46+F46
+  *    Payroll Schedule	Staffed role	23
+         was =K51*J51
+         now =(E46+G46)/2
+  *    Payroll Schedule	Staffed role	24
+         was =K51+L51
+         now =I41
+  *    Payroll Schedule	Staffed role	25
+         was =E56+F56
+         now =J41
+  *    Payroll Schedule	Staffed role	26
+         was =(E56+G56)/2
+         now =H46*I46/4
+  *    Payroll Schedule	Staffed role	27
+         was =H56*I56/4
+         now =K46*J46
+  *    Payroll Schedule	Staffed role	28
+         was =K56*J56
+         now =K46+L46
+  *    Payroll Schedule	Staffed role	29
+         was =K56+L56
+         now =ROUND(G46,6)
+  *    Payroll Schedule	Staffed role	30
+         was =E61+F61
+         now =E51+F51
+  *    Payroll Schedule	Staffed role	31
+         was =(E61+G61)/2
+         now =(E51+G51)/2
+  *    Payroll Schedule	Staffed role	32
+         was =H61*I61/4
+         now =ROUND(I46+2275.0,6)
+  *    Payroll Schedule	Staffed role	33
+         was =K61*J61
+         now =J46
+  *    Payroll Schedule	Staffed role	34
+         was =K61+L61
+         now =H51*I51/4
+  *    Payroll Schedule	Staffed role	35
+         was =E66+F66
+         now =K51*J51
+  *    Payroll Schedule	Staffed role	36
+         was =(E66+G66)/2
+         now =K51+L51
+  *    Payroll Schedule	Staffed role	37
+         was =H66*I66/4
+         now =ROUND(G51,6)
+  *    Payroll Schedule	Staffed role	38
+         was =K66*J66
+         now =E56+F56
+  *    Payroll Schedule	Staffed role	39
+         was =K66+L66
+         now =(E56+G56)/2
+  *    Payroll Schedule	Staffed role	40
+         was =E71+F71
+         now =I51
+  *    Payroll Schedule	Staffed role	41
+         was =(E71+G71)/2
+         now =J51
+  *    Payroll Schedule	Staffed role	42
+         was =H71*I71/4
+         now =H56*I56/4
+  *    Payroll Schedule	Staffed role	43
+         was =K71*J71
+         now =K56*J56
+  *    Payroll Schedule	Staffed role	44
+         was =K71+L71
+         now =K56+L56
+  *    Payroll Schedule	Staffed role	45
+         was =E76+F76
+         now =ROUND(G56,6)
+  *    Payroll Schedule	Staffed role	46
+         was =(E76+G76)/2
+         now =E61+F61
+  *    Payroll Schedule	Staffed role	47
+         was =H76*I76/4
+         now =(E61+G61)/2
+  *    Payroll Schedule	Staffed role	48
+         was =K76*J76
+         now =I56
+  *    Payroll Schedule	Staffed role	49
+         was =K76+L76
+         now =J56
+  *    Payroll Schedule	Staffed role	5
+         was =E36+F36
+         now =ROUND(G31,6)
+  *    Payroll Schedule	Staffed role	50
+         was =E81+F81
+         now =H61*I61/4
+  *    Payroll Schedule	Staffed role	51
+         was =(E81+G81)/2
+         now =K61*J61
+  *    Payroll Schedule	Staffed role	52
+         was =H81*I81/4
+         now =K61+L61
+  *    Payroll Schedule	Staffed role	53
+         was =K81*J81
+         now =ROUND(G61,6)
+  *    Payroll Schedule	Staffed role	54
+         was =K81+L81
+         now =E66+F66
+  *    Payroll Schedule	Staffed role	55
+         was =E86+F86
+         now =(E66+G66)/2
+  *    Payroll Schedule	Staffed role	56
+         was =(E86+G86)/2
+         now =I61
+  *    Payroll Schedule	Staffed role	57
+         was =H86*I86/4
+         now =J61
+  *    Payroll Schedule	Staffed role	58
+         was =K86*J86
+         now =H66*I66/4
+  *    Payroll Schedule	Staffed role	59
+         was =K86+L86
+         now =K66*J66
+  *    Payroll Schedule	Staffed role	6
+         was =(E36+G36)/2
+         now =E36+F36
+  *    Payroll Schedule	Staffed role	60
+         was =E91+F91
+         now =K66+L66
+  *    Payroll Schedule	Staffed role	61
+         was =(E91+G91)/2
+         now =ROUND(G66,6)
+  *    Payroll Schedule	Staffed role	62
+         was =H91*I91/4
+         now =E71+F71
+  *    Payroll Schedule	Staffed role	63
+         was =K91*J91
+         now =(E71+G71)/2
+  *    Payroll Schedule	Staffed role	64
+         was =K91+L91
+         now =ROUND(I66+2342.0,6)
+  *    Payroll Schedule	Staffed role	65
+         was =E96+F96
+         now =J66
+  *    Payroll Schedule	Staffed role	66
+         was =(E96+G96)/2
+         now =H71*I71/4
+  *    Payroll Schedule	Staffed role	67
+         was =H96*I96/4
+         now =K71*J71
+  *    Payroll Schedule	Staffed role	68
+         was =K96*J96
+         now =K71+L71
+  *    Payroll Schedule	Staffed role	69
+         was =K96+L96
+         now =ROUND(G71,6)
+  *    Payroll Schedule	Staffed role	7
+         was =H36*I36/4
+         now =(E36+G36)/2
+  *    Payroll Schedule	Staffed role	70
+         was =E101+F101
+         now =E76+F76
+  *    Payroll Schedule	Staffed role	71
+         was =(E101+G101)/2
+         now =(E76+G76)/2
+  *    Payroll Schedule	Staffed role	72
+         was =H101*I101/4
+         now =I71
+  *    Payroll Schedule	Staffed role	73
+         was =K101*J101
+         now =J71
+  *    Payroll Schedule	Staffed role	74
+         was =K101+L101
+         now =H76*I76/4
+  *    Payroll Schedule	Staffed role	75
+         was =E106+F106
+         now =K76*J76
+  *    Payroll Schedule	Staffed role	76
+         was =(E106+G106)/2
+         now =K76+L76
+  *    Payroll Schedule	Staffed role	77
+         was =H106*I106/4
+         now =ROUND(G76,6)
+  *    Payroll Schedule	Staffed role	78
+         was =K106*J106
+         now =E81+F81
+  *    Payroll Schedule	Staffed role	79
+         was =K106+L106
+         now =(E81+G81)/2
+  *    Payroll Schedule	Staffed role	8
+         was =K36*J36
+         now =I31
+  *    Payroll Schedule	Staffed role	80
+         was =E111+F111
+         now =I76
+  *    Payroll Schedule	Staffed role	81
+         was =(E111+G111)/2
+         now =J76
+  *    Payroll Schedule	Staffed role	82
+         was =H111*I111/4
+         now =H81*I81/4
+  *    Payroll Schedule	Staffed role	83
+         was =K111*J111
+         now =K81*J81
+  *    Payroll Schedule	Staffed role	84
+         was =K111+L111
+         now =K81+L81
+  *    Payroll Schedule	Staffed role	85
+         was =E116+F116
+         now =ROUND(G81,6)
+  *    Payroll Schedule	Staffed role	86
+         was =(E116+G116)/2
+         now =E86+F86
+  *    Payroll Schedule	Staffed role	87
+         was =H116*I116/4
+         now =(E86+G86)/2
+  *    Payroll Schedule	Staffed role	88
+         was =K116*J116
+         now =I81
+  *    Payroll Schedule	Staffed role	89
+         was =K116+L116
+         now =J81
+  *    Payroll Schedule	Staffed role	9
+         was =K36+L36
+         now =J31
+  *    Payroll Schedule	Staffed role	90
+         was =E121+F121
+         now =H86*I86/4
+  *    Payroll Schedule	Staffed role	91
+         was =(E121+G121)/2
+         now =K86*J86
+  *    Payroll Schedule	Staffed role	92
+         was =H121*I121/4
+         now =K86+L86
+  *    Payroll Schedule	Staffed role	93
+         was =K121*J121
+         now =ROUND(G86,6)
+  *    Payroll Schedule	Staffed role	94
+         was =K121+L121
+         now =E91+F91
+  *    Payroll Schedule	Staffed role	95
+         was =E126+F126
+         now =(E91+G91)/2
+  *    Payroll Schedule	Staffed role	96
+         was =(E126+G126)/2
+         now =ROUND(I86+2414.0,6)
+  *    Payroll Schedule	Staffed role	97
+         was =H126*I126/4
+         now =J86
+  *    Payroll Schedule	Staffed role	98
+         was =K126*J126
+         now =H91*I91/4
+  *    Payroll Schedule	Staffed role	99
+         was =K126+L126
+         now =K91*J91

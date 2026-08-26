@@ -382,30 +382,91 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     cell.font = design.font("colhead")
   row += 1
   detail_start_row = row
+  # THE DETAIL BLOCK IS CHAINED (Nick, 2026-08-25, Payroll Schedule part 2).
+  # It was 80 rows of independent literals - a wage raise meant editing 20
+  # cells, and a hire in Q4 never reached Q5's starting headcount. Now, for a
+  # role with a row in the PRIOR quarter:
+  #   Starting FTE  = ROUND(prior Ending FTE, 6)
+  #   Annual Wage   = prior wage, or ROUND(prior +/- the engine's delta, 6)
+  #                   at the engine's own bump quarters (3%/yr as authored)
+  #   Benefits %    = prior, same rule
+  #   Hires         = literal - a per-quarter flow, like Distributions
+  # The ROUND is the same guard the Debt Schedule payoff and the equity chain
+  # use: the engine authors FTE and hires on a 2-dp grid (6.41), and
+  # 6.06 + 0.35 in IEEE is 6.409999999999999 - without the grid the crumb
+  # compounds through Ending, Average, Wage Cost and the P&L (28 cells on
+  # Halbrook in the prototype). A role with NO prior-quarter row keeps its
+  # literals (0 such rows in the population today; the fallback ships anyway).
+  # Every chained cell stays amber: the client types over it and the chain
+  # picks their number up from that point down. Nothing editable was lost;
+  # Staffing Class, Title/Person and Wage Source become editable too
+  # (nothing computed reads them - the SUMIFS key on the numeric Quarter).
+  # ROLE IDENTITY across quarters is (staffing class, title, person, ordinal):
+  # 73 of 390 drafts carry two named people with the SAME title (two "Dental
+  # Hygienist" key persons), and the ordinal covers two identical supporting
+  # rows in one quarter. Keyed on title alone they collided and fell back to
+  # literals - right numbers, no chain.
+  prior_row_by_role: Dict[tuple, tuple] = {}
+  seen_this_quarter: Dict[tuple, int] = {}
+  current_quarter = None
   for item in root.get("rows") or []:
     if not isinstance(item, dict):
       continue
-    ws.cell(row=row, column=1, value=number(item.get("quarter_index")))
+    quarter = number(item.get("quarter_index"))
+    if quarter != current_quarter:
+      current_quarter, seen_this_quarter = quarter, {}
+    base_key = (
+      str(item.get("staffing_class") or "").strip(),
+      str(item.get("position_title") or "").strip(),
+      str(item.get("person_name") or "").strip(),
+    )
+    ordinal = seen_this_quarter.get(base_key, 0)
+    seen_this_quarter[base_key] = ordinal + 1
+    role_key = base_key + (ordinal,)
+    prior = prior_row_by_role.get(role_key)
+    prior_row = prior[0] if prior and quarter is not None and prior[1] == quarter - 1 else None
+    starting = number(item.get("starting_fte"))
+    wage = number(item.get("annual_wage"))
+    benefits = number(item.get("payroll_taxes_benefits_percent"))
+
+    def _chained(col: int, value, prev_value):
+      """prev, or ROUND(prev +/- delta, 6) where the engine's series steps."""
+      prev_ref = local_ref(prior_row, col)
+      delta = (value or 0.0) - (prev_value or 0.0)
+      if abs(delta) <= 1e-9:
+        return f"={prev_ref}"
+      sign = "-" if delta < 0 else "+"
+      return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
+
+    ws.cell(row=row, column=1, value=quarter)
     ws.cell(row=row, column=1).number_format = QUARTER_INDEX_FORMAT
     ws.cell(row=row, column=2, value=_plain(item.get("staffing_class"), _STAFFING_CLASS_TEXT))
     ws.cell(row=row, column=3, value=text(item.get("position_title") or item.get("person_name")))
     ws.cell(row=row, column=4, value=text(item.get("oews_occ_title") or item.get("oews_matched_title")))
-    ws.cell(row=row, column=5, value=number(item.get("starting_fte")))
+    if prior_row is not None:
+      ws.cell(row=row, column=5, value=f"=ROUND({local_ref(prior_row, 7)},6)")
+      ws.cell(row=row, column=9, value=_chained(9, wage, prior[2]))
+      ws.cell(row=row, column=10, value=_chained(10, benefits, prior[3]))
+    else:
+      ws.cell(row=row, column=5, value=starting)
+      ws.cell(row=row, column=9, value=wage)
+      ws.cell(row=row, column=10, value=benefits)
     ws.cell(row=row, column=6, value=number(item.get("hires")))
     ws.cell(row=row, column=7, value=f"={local_ref(row, 5)}+{local_ref(row, 6)}")
     ws.cell(row=row, column=8, value=f"=({local_ref(row, 5)}+{local_ref(row, 7)})/2")
-    ws.cell(row=row, column=9, value=number(item.get("annual_wage")))
-    ws.cell(row=row, column=10, value=number(item.get("payroll_taxes_benefits_percent")))
     ws.cell(row=row, column=11, value=f"={local_ref(row, 8)}*{local_ref(row, 9)}/4")
     ws.cell(row=row, column=12, value=f"={local_ref(row, 11)}*{local_ref(row, 10)}")
     ws.cell(row=row, column=13, value=f"={local_ref(row, 11)}+{local_ref(row, 12)}")
     ws.cell(row=row, column=14, value=_wage_source_plain(item.get("wage_source") or item.get("wage_source_code")))
+    for col in [2, 3, 14]:
+      set_input_style(ws.cell(row=row, column=col), number_format=design.FMT_TEXT)
     for col in [5, 6, 9, 10]:
       set_input_style(ws.cell(row=row, column=col), number_format=PERCENT_FORMAT if col == 10 else CURRENCY_FORMAT if col == 9 else NUMBER_FORMAT)
     for col in [7, 8]:
       set_formula_style(ws.cell(row=row, column=col), number_format=NUMBER_FORMAT, internal_link=True)
     for col in [11, 12, 13]:
       set_formula_style(ws.cell(row=row, column=col), number_format=CURRENCY_FORMAT, internal_link=True)
+    prior_row_by_role[role_key] = (row, quarter, wage, benefits)
     row += 1
   detail_last_row = row - 1
   ctx.add_schedule_row(PAYROLL_SHEET, "Payroll Detail First Row", detail_start_row)

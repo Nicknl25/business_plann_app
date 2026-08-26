@@ -1,0 +1,39 @@
+  progress 25/390 ok=25 miss=0 skip=0 94s
+  skip e00e5242: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip 241bbfa6: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip 0aa9cc31: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip 29d5c846: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip 8f1c539a: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip acbecef5: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip a00d233c: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  skip e606a5ee: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  progress 50/390 ok=42 miss=0 skip=8 151s
+  skip bf2b8c6b: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip c1d6991e: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  skip ad2c9469: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  skip e64d1361: ContractViolation: FINMO_BUILD→WORKBOOK: field 'model_input_json._pre_finalize_persist_marker' expe
+  progress 75/390 ok=63 miss=0 skip=12 223s
+  skip 11a8fdf5: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  progress 100/390 ok=87 miss=0 skip=13 298s
+  progress 125/390 ok=112 miss=0 skip=13 379s
+  progress 150/390 ok=137 miss=0 skip=13 463s
+  skip 3464962b: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  skip ff2ee40e: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  progress 175/390 ok=160 miss=0 skip=15 535s
+  skip fd448457: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  progress 200/390 ok=184 miss=0 skip=16 610s
+  skip 9d4439f0: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  progress 225/390 ok=208 miss=0 skip=17 683s
+  progress 250/390 ok=233 miss=0 skip=17 760s
+  skip 39847baf: ContractViolation: FINMO_BUILD→WORKBOOK: field 'debt_schedule.contract_version' expected Field requ
+  progress 275/390 ok=257 miss=0 skip=18 834s
+  progress 300/390 ok=282 miss=0 skip=18 909s
+  progress 325/390 ok=307 miss=0 skip=18 983s
+  skip 50658fff: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  skip probea13: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  skip probeefb: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  skip probe2ec: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  skip probed87: ContractViolation: FINMO_BUILD→WORKBOOK: field '<root>' expected Value error, planning_run_json pop
+  progress 350/390 ok=327 miss=0 skip=23 1043s
+  progress 375/390 ok=352 miss=0 skip=23 1117s
+SWEEP DONE: drafts=390 ok=367 miss=0 skip=23 in 1162s
