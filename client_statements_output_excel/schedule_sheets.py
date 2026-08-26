@@ -430,7 +430,18 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     benefits = number(item.get("payroll_taxes_benefits_percent"))
 
     def _chained(col: int, value, prev_value):
-      """prev, or ROUND(prev +/- delta, 6) where the engine's series steps."""
+      """prev, or ROUND(prev +/- delta, 6) where the engine's series steps.
+
+      HONEST NOTE ON THIS ROUND (mini, 2026-08-25): it is DEFENSIVE, not
+      earned. The FTE ROUND above is pinned by evidence - 239 of 390 drafts
+      miss the engine's 2-dp grid without it. This one has no value class
+      behind it: 0 of 390 drafts miss on a bare wage or benefits chain,
+      because the engine's wage bumps are whole dollars and the benefits
+      rate is flat. It stays because prev + delta in Excel is the same
+      shape as the equity chain and the guard costs nothing, and so that a
+      future engine that authors a fractional bump lands on the grid too.
+      Do not read it as pinned by a failing case; it is not.
+      """
       prev_ref = local_ref(prior_row, col)
       delta = (value or 0.0) - (prev_value or 0.0)
       if abs(delta) <= 1e-9:

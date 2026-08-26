@@ -183,3 +183,107 @@ class TheRecalculatedChainEqualsTheEngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# ROLE IDENTITY (mini's finding on cf87d2f, 2026-08-25). The chain keys a row
+# to its prior-quarter row by (staffing class, title, person, ordinal). Keyed
+# on title alone, two named people with the same title collide: person B is
+# chained to person A's prior row, so a client's typed wage or headcount on B
+# flows into A's next quarter - a wrong number in the client's own edited plan.
+# Halbrook cannot see this (no duplicate titles); Understory can, and its two
+# Grow Technicians earn DIFFERENT wages, so a collision shows as a wrong number
+# rather than two identical ones. RED under a title-only key, GREEN on HEAD.
+# ---------------------------------------------------------------------------
+UNDERSTORY = os.path.join(HERE, "fixtures", "cw043_understory_export_row.json.gz")
+
+
+def _role_identity(rows):
+  """(class, title, person, ordinal-in-quarter) per row - derived here from the
+  stored rows, independently of the builder."""
+  ids = []
+  seen = {}
+  current_q = None
+  for item in rows:
+    q = int(item.get("quarter_index") or 0)
+    if q != current_q:
+      current_q, seen = q, {}
+    base = (str(item.get("staffing_class") or "").strip(),
+            str(item.get("position_title") or "").strip(),
+            str(item.get("person_name") or "").strip())
+    ordinal = seen.get(base, 0)
+    seen[base] = ordinal + 1
+    ids.append((q, base + (ordinal,)))
+  return ids
+
+
+class TheChainFollowsThePersonNotTheTitleTests(unittest.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    import openpyxl
+    with gzip.open(UNDERSTORY, "rt", encoding="utf-8") as fh:
+      cls.fx = json.load(fh)
+    cls.rows = _payroll_rows(cls.fx)
+    cls.tmp = tempfile.mkdtemp(prefix="cw043_payroll_key_")
+    path = _build_workbook(cls.fx, cls.tmp)
+    cls.ws = openpyxl.load_workbook(str(path))["Payroll Schedule"]
+    cls.ids = _role_identity(cls.rows)
+
+  @classmethod
+  def tearDownClass(cls):
+    shutil.rmtree(cls.tmp, ignore_errors=True)
+
+  def test_the_fixture_has_two_people_with_one_title_and_different_wages(self):
+    q1 = [it for it in self.rows if int(it.get("quarter_index") or 0) == 1]
+    grow = [it for it in q1 if it.get("position_title") == "Grow Technician"]
+    self.assertEqual(len(grow), 2, "fixture no longer carries the duplicate-title class")
+    self.assertNotEqual(grow[0].get("annual_wage"), grow[1].get("annual_wage"),
+                        "the two need different wages so a collision is a wrong number")
+
+  def _referenced_row(self, r, col):
+    v = self.ws.cell(r, col).value
+    if not isinstance(v, str):
+      return None
+    m = re.search(r"([A-Z])(\d+)", v)
+    return int(m.group(2)) if m else None
+
+  def test_every_chained_cell_references_the_same_persons_prior_row(self):
+    row_of = {}
+    wrong = []
+    fallback = []
+    for i, (q, ident) in enumerate(self.ids):
+      r = FIRST_DETAIL_ROW + i
+      if q > 1:
+        prior = row_of.get((q - 1, ident))
+        self.assertIsNotNone(prior, f"row {r}: no prior-quarter row for {ident} - fixture shape changed")
+        for col in (5, 9, 10):
+          ref = self._referenced_row(r, col)
+          if ref is None:
+            fallback.append((r, col))
+          elif ref != prior:
+            wrong.append((r, col, "refers to", ref, "expected", prior,
+                          self.rows[ref - FIRST_DETAIL_ROW].get("person_name"),
+                          "->", self.rows[i].get("person_name")))
+      row_of[(q, ident)] = r
+    self.assertFalse(wrong, f"chained to ANOTHER person's row: {wrong[:4]}")
+    self.assertFalse(fallback, f"fell back to literals where a prior row exists: {fallback[:4]}")
+
+  def test_the_two_grow_technicians_keep_their_own_wages_down_the_chain(self):
+    """The value form of the same claim, evaluated in doubles: each person's
+    chain reproduces THEIR engine wage series, not the other's."""
+    got = {}
+    misses = []
+    for i, item in enumerate(self.rows):
+      r = FIRST_DETAIL_ROW + i
+      v = self.ws.cell(r, 9).value
+      if isinstance(v, str):
+        m = re.fullmatch(r"=ROUND\(I(\d+)([+-][0-9.eE+-]+),6\)|=I(\d+)", v)
+        self.assertIsNotNone(m, f"unexpected wage formula at row {r}: {v}")
+        val = round(got[int(m.group(1))] + float(m.group(2)), 6) if m.group(1) else got[int(m.group(3))]
+      else:
+        val = float(v or 0.0)
+      got[r] = val
+      if item.get("position_title") == "Grow Technician" and val != float(item.get("annual_wage") or 0.0):
+        misses.append((r, item.get("person_name"), float(item.get("annual_wage")), val))
+    self.assertFalse(misses, f"a Grow Technician inherited the other's wage: {misses[:4]}")
