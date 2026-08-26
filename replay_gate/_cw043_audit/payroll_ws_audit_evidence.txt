@@ -1,0 +1,88 @@
+mini audit - WAGE SOURCE AS A PERIOD ROW (F1: b35b4e8 + 5283f0c re-bless + 4730608 prove) and the PER-COLUMN BRIDGE PIN (F3: 236ac8b)
+2026-08-25 23:36 -> 23:58, headless turn 12. Tier audited at: NEIGHBOR-CHECK (the Payroll Schedule builder is shared workbook code -
+summary SUMIFS / Checks / FINMO flow through the bridge; engine math untouched). Every measurement is mine (instruments at the end);
+VS's proofs were read, not trusted.
+
+NEIGHBOUR SET (both trees built from the STORED draft rows, Excel-recalculated in one instance, Checks!B2 read on every build):
+  OLD = a scratch worktree at 785c3bc (per-role Wage source header cell); NEW = HEAD 63915c3 (same builder as b35b4e8/236ac8b).
+  The WHOLE owner-draw-deferral class VS did not use: 06f9fcd9, 270e7b3a, 411adb55, 8d6beff7, b2500419, f8bc1b50 (Sunny Glaze, 10 roles,
+  200 rows each), 7a489693, 8f395db0, aa58c32b (Riverbend, 5 roles, 100 rows) + Bellweather 46ae584a (standing rule; 3 roles, 60 rows).
+  My DB scan (scan_defer.py): exactly 10 drafts carry 'owner_draw_deferred' - these 9 + Bluestem 52cf5792 (VS's) - always ONE role, the
+  owner's, 'client_override|owner_draw_deferred' q1..q7 then 'client_override' q8..q20. No other draft has a role whose label varies by
+  quarter, so for the other 380 the per-quarter row equals the old per-role cell by construction.
+  Checks!B2 = FAIL on all 10, BOTH trees, the same 8 rows by label ('Marketing Schedule could not be built' + the seven Q20
+  persisted-baseline rows) - pre-existing, never this change.
+
+(a) TEXT-AWARE old vs new, 10/10 drafts, 1,560 engine rows, 78 roles (payroll_ws_audit_raw.txt, mini_ws_audit.py):
+    - every OTHER sheet by address, values AND formulas, STRINGS INCLUDED (only the OLD/NEW build tag excused): 0 diffs on ~12k cells
+      per draft; Checks non-OK rows identical by label; FINMO 'Payroll' row identical.
+    - Payroll Schedule by address, values AND formulas: the geometry is unchanged (same block rows, the bridge starts at the same row,
+      1,560 == 1,560 rows) and EVERY diff classifies into exactly three kinds - the old source cell in col B gone (1 per role), the new
+      per-quarter source cells added (1 per engine row), bridge column N (13 recalculated values per deferral draft; 1 formula per row).
+      UNCLASSIFIED = 0 on all 10. Bridge cols A..M value-for-value old==new: 0 diffs. Summary rows 1..24: 0 value diffs.
+    - bridge column N vs the engine's per-row plain-English label (_wage_source_plain of each row's wage_source): OLD disagreed on 13 per
+      deferral draft (117 total), NEW on 0 of 1,560. The visible Wage source row reads the engine's label quarter by quarter on every
+      engine row (0 misses) and is empty where the engine has no row (0 stray cells). On every deferral draft the owner's row reads
+      [('Your stated wage (owner draw deferred)', 7), ('Your stated wage', 13)] on the visible block AND in recalculated bridge N;
+      the OLD bridge read ('... owner draw deferred', 20). Exactly as the engine authored.
+
+(b) THE BLOCKS - 78 blocks == 78 identities, header title == position_title-or-person on every block; formula shapes EXACTLY the three
+    chain shapes + five derived shapes (1,560 Hires literals, 78 first-quarter literal triples, 1,482 Starting '=ROUND(prev Ending,6)',
+    wage =prev / =ROUND(prev+/-delta,6), benefits =prev, 7,800 derived exact); 0 re-seed rows; 0 cells where the engine has no row;
+    recalculated inputs == engine FLOAT-EXACT, 0 misses on 6,240 cells.
+
+(c) THE BRIDGE - note + header + every bridge row hidden (10/10); one row per engine row in engine order; ALL 13 non-quarter cells
+    formulas (0 non-formula); B/C/D the IF(ref="","",ref) shape at the OWN block's header/oews cells; N the same shape at the OWN block's
+    Wage source row AT ITS QUARTER COLUMN; the nine numeric cells plain refs into the OWN block at the right quarter column:
+    1,560/1,560. Text cells recalculate EMPTY where the engine's are empty (OEWS on 800 rows, 0 non-empty) - never 0 or 'None'.
+    => the bridge reproduces the old vertical block literally INCLUDING column N (the F1 evidence shape).
+
+(d) SUMMARY + CHECKS - all 63 summary SUMIFS key on the bridge's numeric column A range (10/10); the 18 payroll Checks rows read OK on
+    every draft; the 5 'Payroll Detail - <col>' formula-count checks: range == bridge rows and expected == MY independent count, 10/10.
+
+(e) EDITABLE SURFACE - numeric amber == 4 x engine rows (old == new, e.g. 800 on Sunny Glaze); text amber: header 2 per role (Title/Person,
+    Staffing Class) + Wage source 1 per ENGINE ROW (200 on Sunny Glaze), every engine quarter amber, none where the engine has no row;
+    old was 3 per role; bridge amber 0; unclassified amber 0; amber above the detail section old==new; amber on every OTHER sheet:
+    0 lost, 0 gained, 10/10.
+
+(f) RE-BLESS, re-derived against a 785c3bc tree with the gate's own instruments:
+    R32 `python -m replay_gate._grid_dump <785c3bc worktree> .`: 9,667 shared / 100 CHANGED / 0 only-old / 0 only-new, all Payroll
+    Schedule bridge column N ('was =IF(B<src>..' -> 'now =IF(<D..W><src>..', 100/100), sha 8be04b725821 -> 2597e192ff6c - byte-identical
+    to VS's grid_drift_785c3bc_to_wage_source_row.txt apart from the ROOT/DIFF path lines.
+    R49 mini_text_dump.py: 398db547073c (2,319 cells) -> 30fe003a2efe (2,414): 105 touched = 5 gone (B29/B42/B55/B68/B81, the per-role
+    header cells) + 100 added (D..W x the 5 source rows), 0 changed, all Payroll Schedule - VS's counts reproduce EXACTLY (the F2 class
+    is closed this turn: counts were read off the instruments).
+    Bare gate `--only R32,R49`: 2/2 HOLDS at 2597e192ff6c / 30fe003a2efe. Prove artifact 4730608: 64 legs, 56 CLEAN + 5 STRUCTURAL-ABSENCE
+    declared (unchanged set), R32/R49 GOLDEN 'SAME' on baseline b35b4e8 - the only lines that differ from the 785c3bc prove; committed
+    23:35:23, 33 s BEFORE the seed 7eadfc7 (23:35:56).
+
+(g) THE TESTS (13/13 incl. the Excel leg on HEAD, 12.7 s). Tampers applied to a scratch HEAD worktree, never the real tree, anchored on the
+    NEW column-14 line `_text_ref(R["Wage source"], qcol)` (mini_ws_mutate.py, payroll_ws_mutate_raw.txt); baseline in the worktree 13/13:
+    T2  ONLY bridge Starting FTE -> same-title twin's block ....... RED on the F3 test; the wage-only test stays GREEN (the gap F3 closes)
+    T3a ONLY bridge Total Payroll (M) -> twin ...................... RED (F3)
+    T3b text column N (Wage source) -> twin, same quarter .......... RED (F3)
+    T3c text column D (OEWS) -> twin ............................... RED (F3)
+    T3d column N on the OWN block but the PREVIOUS quarter column .. RED (F3 AND the F1 wage-source-follows-the-quarter test)
+    T3e text columns B/C (Title, Class) -> twin's header ........... RED (F3)
+    Every tamper caught by exactly the test that owns it; nothing else fails; the worktree restored clean after each.
+    Note (not a finding): the F1 test lives on Halbrook (no twins) so it pins quarter-following only; identity is F3's job on Understory.
+
+DEAL-BREAKER TRIAGE: nothing to triage - no wrong number, no false claim: the label now says what the engine says in every quarter,
+    the numbers did not move, the summary/Checks/FINMO are byte-identical, and the amber surface is exactly the declared shape.
+
+VS DECLARED-vs-ACTUAL (F1 plan 23:18:53): TASK/LOADING match the commit (schedule_sheets.py builder + test locator + mini_text_dump);
+    BLAST-RADIUS 'neighbor-check' is honest (one builder file, no engine math; goldens re-blessed off the instruments); VERIFY ran as
+    declared EXCEPT one item: 'population python' was declared and NOT run - no instrument, log or artifact for it in the commit, the
+    HANDOFF seed, README or VS's scratchpad after 23:15 (only ws_compare.py + the 6-draft ws_old/ws_new builds + the R49 dump).
+    >>> D1 (declared-vs-actual, narrative): closed by THIS audit - the whole per-quarter-varying class is 10 drafts (my DB scan) and all
+        10 are now measured (9 mine + Bluestem VS's); the other 380 cannot differ by construction. WONT-FIX beyond noting it; VS should
+        drop a VERIFY item it will not run rather than declare it.
+    F1 and F3 shipped as separate commits (split-by-blast-radius respected); the F1 turn's tier call was honest; the prove landed before
+    the seed. F3 plan: test-only as declared, no app code, R32/R49 bare unchanged (confirmed by the gate run above).
+
+MINI DECLARED-vs-ACTUAL: as declared (plan sent 23:37 before any work; neighbor-check; the 9 deferral drafts + Bellweather on both trees,
+    Excel-recalculated, Checks!B2 read on all 20 builds; (a)-(f) with my own instruments; canary skipped; legs R32+R49 bare only; VS's
+    64-leg prove read, not re-run; tampers in a scratch worktree only; every job in the foreground; worktrees removed at the end).
+
+INSTRUMENTS (this dir): mini_ws_audit.py (a)-(e), mini_ws_mutate.py (g), mini_text_dump.py + replay_gate._grid_dump (f),
+mini_pr_export.py (builds). Raw outputs: payroll_ws_audit_raw.txt, payroll_ws_mutate_raw.txt.

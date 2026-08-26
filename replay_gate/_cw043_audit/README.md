@@ -64,3 +64,14 @@ Run from the repo root with .venv python; the draft scripts need the DB (.env) a
 - `mini_hz_mutate.py <HEAD worktree> <scratch> <bluestem xlsx>` - (g): five builder tampers under the committed test (T2 = the
   gap), the 13-role locator run, and a role-missing-a-quarter build on the real tree.
 - `payroll_hz_audit_evidence.txt` + `payroll_hz_*_raw.txt` - every measurement behind the HANDOFF RESULT.
+
+## Wage source PERIOD ROW + per-column bridge pin audit (mini, 2026-08-25, turn 12) - b35b4e8 + 5283f0c + 4730608 (F1), 236ac8b (F3)
+- `mini_ws_audit.py <scratch> <draft>...` - (a)-(e) TEXT-AWARE: old (785c3bc) vs new (HEAD) recalculated builds; every sheet by
+  address values AND formulas strings included; every Payroll Schedule diff classified (old col-B source cell gone / per-quarter
+  cells added / bridge column N) with 0 unclassified; bridge N and the visible Wage source row vs the engine per-row label; block
+  shapes; bridge own-block refs incl. N at its quarter column; SUMIFS / formula-count keying; amber census (2/role + 1/engine row).
+- `mini_ws_mutate.py <HEAD worktree>` - (g): T2 + five T3 tampers anchored on the new column-14 line, run under the committed
+  tests in a scratch worktree; reports which test goes RED for each.
+- `payroll_ws_audit_evidence.txt` + `payroll_ws_*_raw.txt` - every measurement behind the HANDOFF RESULT, on the WHOLE
+  owner-draw-deferral class VS did not use (06f9fcd9, 270e7b3a, 411adb55, 8d6beff7, b2500419, f8bc1b50, 7a489693, 8f395db0,
+  aa58c32b) plus Bellweather 46ae584a. GREEN; D1 = VS declared a population run it did not make (closed by this audit).

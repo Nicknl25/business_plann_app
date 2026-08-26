@@ -1,0 +1,30 @@
+== T0 baseline in the worktree
+   [baseline] rc=0 13 passed in 10.71s
+      F3 own-identity test RED=False; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+== T2 ONLY the bridge Starting FTE column points at the first same-title block; every other column right
+   [T2 twin Starting FTE] rc=1 1 failed, 12 passed in 11.71s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+== T3a ONLY the bridge Total Payroll column (M) points at the twin's block
+   [T3a twin Total Payroll] rc=1 1 failed, 12 passed in 10.86s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+== T3b text column N (Wage source) points at the twin's block, same quarter column
+   [T3b twin Wage source] rc=1 1 failed, 12 passed in 11.64s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+== T3c text column D (OEWS title) points at the twin's block
+   [T3c twin OEWS] rc=1 1 failed, 12 passed in 11.45s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+== T3d column N on the OWN block but the PREVIOUS quarter column (the per-role collapse, one column back)
+   [T3d own block, wrong quarter] rc=1 2 failed, 11 passed in 11.04s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_bridge_wage_source_follows_the_quarter_not_the_role
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=True; wage-only test RED=False
+== T3e text columns B/C (Title, Class) point at the twin's header
+   [T3e twin Title/Class] rc=1 1 failed, 12 passed in 11.47s
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_cell_points_at_its_own_identitys_block
+      F3 own-identity test RED=True; F1 wage-source-per-quarter test RED=False; wage-only test RED=False
+
+T-SUMMARY {'T0': 0, 'T2': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block']), 'T3a': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block']), 'T3b': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block']), 'T3c': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block']), 'T3d': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block', 'test_the_bridge_wage_source_follows_the_quarter_not_the_role']), 'T3e': (1, ['test_every_bridge_cell_points_at_its_own_identitys_block'])}
