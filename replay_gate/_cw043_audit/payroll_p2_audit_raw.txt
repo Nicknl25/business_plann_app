@@ -1,0 +1,165 @@
+## RAW OUTPUTS - mini audit of Payroll Schedule part 2 (cf87d2f + 5440e47), 2026-08-25
+
+## (a)(b)(c)(e) mini_pr_audit.py over 10 old(2e1572b)/new(cf87d2f) Excel-recalculated pairs
+
+######## 1b9b4e45  old=OLD 1b9b4e45 -- 08-25-2026 21-31-07.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 1b9b4e45', 'NEW 1b9b4e45'), ((10, 3), 'OLD 1b9b4e45', 'NEW 1b9b4e45')] formula diffs=2 [((3, 2), 'OLD 1b9b4e45', 'NEW 1b9b4e45'), ((10, 3), 'OLD 1b9b4e45', 'NEW 1b9b4e45')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 1b9b4e45 - Dashboard', 'NEW 1b9b4e45 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 1b9b4e45 - Dashboard', 'NEW 1b9b4e45 - Dashboard')]
+   (a) all sheets cells=15121 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=627); FINMO rows ['Payroll'] old==new: True
+   (b) rows=220 shapes={'F literal': 220, 'E/I/J literal q1': 11, 'E =ROUND(G prior,6)': 209, 'I =prev': 165, 'J =prev': 209, 'I =ROUND(prev+/-delta,6)': 44} fallback rows=0 bad=[] (n=0); static cols identical old/new=2200/2200
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 660}; Payroll amber old=880 new=1540; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$246,$A$27:$A$246,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (44, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (213, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (214, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (215, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (216, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (217, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (218, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (219, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C14", "='Revenue Drivers'!N14"]
+
+######## 3963330f  old=OLD 3963330f -- 08-25-2026 21-31-11.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 3963330f', 'NEW 3963330f'), ((10, 3), 'OLD 3963330f', 'NEW 3963330f')] formula diffs=2 [((3, 2), 'OLD 3963330f', 'NEW 3963330f'), ((10, 3), 'OLD 3963330f', 'NEW 3963330f')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 3963330f - Dashboard', 'NEW 3963330f - Dashboard')] formula diffs=1 [((1, 1), 'OLD 3963330f - Dashboard', 'NEW 3963330f - Dashboard')]
+   (a) all sheets cells=15025 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=456); FINMO rows ['Payroll'] old==new: True
+   (b) rows=160 shapes={'F literal': 160, 'E/I/J literal q1': 8, 'E =ROUND(G prior,6)': 152, 'I =prev': 120, 'J =prev': 152, 'I =ROUND(prev+/-delta,6)': 32} fallback rows=0 bad=[] (n=0); static cols identical old/new=1600/1600
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 480}; Payroll amber old=640 new=1120; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$186,$A$27:$A$186,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (46, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (225, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (226, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (227, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (228, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (229, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (230, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (231, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C26", "='Revenue Drivers'!N26"]
+
+######## 52cf5792  old=OLD 52cf5792 -- 08-25-2026 21-31-15.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 52cf5792', 'NEW 52cf5792'), ((10, 3), 'OLD 52cf5792', 'NEW 52cf5792')] formula diffs=2 [((3, 2), 'OLD 52cf5792', 'NEW 52cf5792'), ((10, 3), 'OLD 52cf5792', 'NEW 52cf5792')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 52cf5792 - Dashboard', 'NEW 52cf5792 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 52cf5792 - Dashboard', 'NEW 52cf5792 - Dashboard')]
+   (a) all sheets cells=16003 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=741); FINMO rows ['Payroll'] old==new: True
+   (b) rows=260 shapes={'F literal': 260, 'E/I/J literal q1': 13, 'E =ROUND(G prior,6)': 247, 'I =prev': 192, 'J =prev': 247, 'I =ROUND(prev+/-delta,6)': 55} fallback rows=0 bad=[] (n=0); static cols identical old/new=2600/2600
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Crew Lead: rows [27, 28] C=['Crew Lead', 'Crew Lead'] person=['Luis', 'Dee'] E=[1, 1] I=[46000, 46000] -> referenced rows' C=[None, None]
+   (b) dup-title q1 key_person/Crew Member: rows [29, 30, 31] C=['Crew Member', 'Crew Member', 'Crew Member'] person=['Crew Member 1', 'Crew Member 2', 'Crew Member 3'] E=[1, 1, 1] I=[35000, 35000, 35000] -> referenced rows' C=[None, None, None]
+   (b) dup-title (quarter,class,title) groups=40; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 780}; Payroll amber old=1040 new=1820; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$286,$A$27:$A$286,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (45, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (219, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (220, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (221, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (222, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (223, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (224, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (225, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C20", "='Revenue Drivers'!N20"]
+
+######## 3794e7c0  old=OLD 3794e7c0 -- 08-25-2026 21-31-18.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 3794e7c0', 'NEW 3794e7c0'), ((10, 3), 'OLD 3794e7c0', 'NEW 3794e7c0')] formula diffs=2 [((3, 2), 'OLD 3794e7c0', 'NEW 3794e7c0'), ((10, 3), 'OLD 3794e7c0', 'NEW 3794e7c0')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 3794e7c0 - Dashboard', 'NEW 3794e7c0 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 3794e7c0 - Dashboard', 'NEW 3794e7c0 - Dashboard')]
+   (a) all sheets cells=15159 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=627); FINMO rows ['Payroll'] old==new: True
+   (b) rows=220 shapes={'F literal': 220, 'E/I/J literal q1': 11, 'E =ROUND(G prior,6)': 209, 'I =prev': 165, 'J =prev': 209, 'I =ROUND(prev+/-delta,6)': 44} fallback rows=0 bad=[] (n=0); static cols identical old/new=2200/2200
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Senior Designer: rows [29, 30] C=['Senior Designer', 'Senior Designer'] person=['Priya Nair', 'Tom Ellison'] E=[1, 1] I=[85000, 78000] -> referenced rows' C=[None, None]
+   (b) dup-title q2 key_person/Senior Designer: rows [40, 41] C=['Senior Designer', 'Senior Designer'] person=['Priya Nair', 'Tom Ellison'] E=['=ROUND(G29,6)', '=ROUND(G30,6)'] I=['=I29', '=I30'] -> referenced rows' C=['Senior Designer', 'Senior Designer']
+   (b) dup-title (quarter,class,title) groups=20; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 660}; Payroll amber old=880 new=1540; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$246,$A$27:$A$246,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (44, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (213, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (214, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (215, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (216, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (217, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (218, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (219, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C14", "='Revenue Drivers'!N14"]
+
+######## 76c6e0b9  old=OLD 76c6e0b9 -- 08-25-2026 21-31-22.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 76c6e0b9', 'NEW 76c6e0b9'), ((10, 3), 'OLD 76c6e0b9', 'NEW 76c6e0b9')] formula diffs=2 [((3, 2), 'OLD 76c6e0b9', 'NEW 76c6e0b9'), ((10, 3), 'OLD 76c6e0b9', 'NEW 76c6e0b9')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 76c6e0b9 - Dashboard', 'NEW 76c6e0b9 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 76c6e0b9 - Dashboard', 'NEW 76c6e0b9 - Dashboard')]
+   (a) all sheets cells=15287 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=513); FINMO rows ['Payroll'] old==new: True
+   (b) rows=180 shapes={'F literal': 180, 'E/I/J literal q1': 9, 'E =ROUND(G prior,6)': 171, 'I =prev': 135, 'J =prev': 171, 'I =ROUND(prev+/-delta,6)': 36} fallback rows=0 bad=[] (n=0); static cols identical old/new=1800/1800
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 540}; Payroll amber old=720 new=1260; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$206,$A$27:$A$206,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (46, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (225, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (226, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (227, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (228, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (229, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (230, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (231, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C26", "='Revenue Drivers'!N26"]
+
+######## ad38128d  old=OLD ad38128d -- 08-25-2026 21-31-25.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD ad38128d', 'NEW ad38128d'), ((10, 3), 'OLD ad38128d', 'NEW ad38128d')] formula diffs=2 [((3, 2), 'OLD ad38128d', 'NEW ad38128d'), ((10, 3), 'OLD ad38128d', 'NEW ad38128d')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD ad38128d - Dashboard', 'NEW ad38128d - Dashboard')] formula diffs=1 [((1, 1), 'OLD ad38128d - Dashboard', 'NEW ad38128d - Dashboard')]
+   (a) all sheets cells=14897 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=570); FINMO rows ['Payroll'] old==new: True
+   (b) rows=200 shapes={'F literal': 200, 'E/I/J literal q1': 10, 'E =ROUND(G prior,6)': 190, 'I =prev': 150, 'J =prev': 190, 'I =ROUND(prev+/-delta,6)': 40} fallback rows=0 bad=[] (n=0); static cols identical old/new=2000/2000
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Luxury Sales Specialist: rows [28, 29] C=['Luxury Sales Specialist', 'Luxury Sales Specialist'] person=['Alena Petrov', 'Grant Mueller'] E=[1, 1] I=[70000, 70000] -> referenced rows' C=[None, None]
+   (b) dup-title q2 key_person/Luxury Sales Specialist: rows [38, 39] C=['Luxury Sales Specialist', 'Luxury Sales Specialist'] person=['Alena Petrov', 'Grant Mueller'] E=['=ROUND(G28,6)', '=ROUND(G29,6)'] I=['=I28', '=I29'] -> referenced rows' C=['Luxury Sales Specialist', 'Luxury Sales Specialist']
+   (b) dup-title (quarter,class,title) groups=20; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 600}; Payroll amber old=800 new=1400; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$226,$A$27:$A$226,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (44, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (213, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (214, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (215, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (216, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (217, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (218, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (219, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C14", "='Revenue Drivers'!N14"]
+
+######## 0f0ef579  old=OLD 0f0ef579 -- 08-25-2026 21-31-28.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 0f0ef579', 'NEW 0f0ef579'), ((10, 3), 'OLD 0f0ef579', 'NEW 0f0ef579')] formula diffs=2 [((3, 2), 'OLD 0f0ef579', 'NEW 0f0ef579'), ((10, 3), 'OLD 0f0ef579', 'NEW 0f0ef579')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 0f0ef579 - Dashboard', 'NEW 0f0ef579 - Dashboard')] formula diffs=1 [((1, 1), 'OLD 0f0ef579 - Dashboard', 'NEW 0f0ef579 - Dashboard')]
+   (a) all sheets cells=14861 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=513); FINMO rows ['Payroll'] old==new: True
+   (b) rows=180 shapes={'F literal': 180, 'E/I/J literal q1': 9, 'E =ROUND(G prior,6)': 171, 'I =prev': 135, 'J =prev': 171, 'I =ROUND(prev+/-delta,6)': 36} fallback rows=0 bad=[] (n=0); static cols identical old/new=1800/1800
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Salesperson: rows [32, 33, 34] C=['Salesperson', 'Salesperson', 'Salesperson'] person=['Terrance Boyd', 'Luz Herrera', 'Andre Willis'] E=[1, 1, 1] I=[40000, 40000, 40000] -> referenced rows' C=[None, None, None]
+   (b) dup-title q2 key_person/Salesperson: rows [41, 42, 43] C=['Salesperson', 'Salesperson', 'Salesperson'] person=['Terrance Boyd', 'Luz Herrera', 'Andre Willis'] E=['=ROUND(G32,6)', '=ROUND(G33,6)', '=ROUND(G34,6)'] I=['=I32', '=I33', '=I34'] -> referenced rows' C=['Salesperson', 'Salesperson', 'Salesperson']
+   (b) dup-title (quarter,class,title) groups=20; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 540}; Payroll amber old=720 new=1260; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$206,$A$27:$A$206,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (45, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (219, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (220, 'Payroll Q20', 'FINMO vs Audit Source', 'MATCH'), (221, 'Net Income Q20', 'FINMO vs Audit Source', 'MATCH'), (222, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (223, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (224, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (225, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'MATCH', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C20", "='Revenue Drivers'!N20"]
+
+######## ce38f68d  old=OLD ce38f68d -- 08-25-2026 21-31-31.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD ce38f68d', 'NEW ce38f68d'), ((10, 3), 'OLD ce38f68d', 'NEW ce38f68d')] formula diffs=2 [((3, 2), 'OLD ce38f68d', 'NEW ce38f68d'), ((10, 3), 'OLD ce38f68d', 'NEW ce38f68d')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD ce38f68d - Dashboard', 'NEW ce38f68d - Dashboard')] formula diffs=1 [((1, 1), 'OLD ce38f68d - Dashboard', 'NEW ce38f68d - Dashboard')]
+   (a) all sheets cells=14637 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=513); FINMO rows ['Payroll'] old==new: True
+   (b) rows=180 shapes={'F literal': 180, 'E/I/J literal q1': 9, 'E =ROUND(G prior,6)': 171, 'I =prev': 135, 'J =prev': 171, 'I =ROUND(prev+/-delta,6)': 36} fallback rows=0 bad=[] (n=0); static cols identical old/new=1800/1800
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Barber: rows [27, 28] C=['Barber', 'Barber'] person=['Jerome Banks', 'Chris Nunez'] E=[1, 1] I=[40000, 40000] -> referenced rows' C=[None, None]
+   (b) dup-title q2 key_person/Barber: rows [36, 37] C=['Barber', 'Barber'] person=['Jerome Banks', 'Chris Nunez'] E=['=ROUND(G27,6)', '=ROUND(G28,6)'] I=['=I27', '=I28'] -> referenced rows' C=['Barber', 'Barber']
+   (b) dup-title (quarter,class,title) groups=20; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 540}; Payroll amber old=720 new=1260; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$206,$A$27:$A$206,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (44, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (213, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (214, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (215, 'Net Income Q20', 'FINMO vs Audit Source', 'MATCH'), (216, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (217, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (218, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (219, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C14", "='Revenue Drivers'!N14"]
+
+######## 7042ce1a  old=OLD 7042ce1a -- 08-25-2026 21-31-34.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 7042ce1a', 'NEW 7042ce1a'), ((10, 3), 'OLD 7042ce1a', 'NEW 7042ce1a')] formula diffs=2 [((3, 2), 'OLD 7042ce1a', 'NEW 7042ce1a'), ((10, 3), 'OLD 7042ce1a', 'NEW 7042ce1a')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 7042ce1a - Dashboard', 'NEW 7042ce1a - Dashboard')] formula diffs=1 [((1, 1), 'OLD 7042ce1a - Dashboard', 'NEW 7042ce1a - Dashboard')]
+   (a) all sheets cells=15221 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=570); FINMO rows ['Payroll'] old==new: True
+   (b) rows=200 shapes={'F literal': 200, 'E/I/J literal q1': 10, 'E =ROUND(G prior,6)': 190, 'I =prev': 154, 'J =prev': 190, 'I =ROUND(prev+/-delta,6)': 36} fallback rows=0 bad=[] (n=0); static cols identical old/new=2000/2000
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (b) dup-title q1 key_person/Grow Technician: rows [28, 29] C=['Grow Technician', 'Grow Technician'] person=['Devon Marsh', 'Priya Sen'] E=[1, 1] I=[36000, 34000] -> referenced rows' C=[None, None]
+   (b) dup-title q2 key_person/Grow Technician: rows [38, 39] C=['Grow Technician', 'Grow Technician'] person=['Devon Marsh', 'Priya Sen'] E=['=ROUND(G28,6)', '=ROUND(G29,6)'] I=['=I28', '=I29'] -> referenced rows' C=['Grow Technician', 'Grow Technician']
+   (b) dup-title (quarter,class,title) groups=20; every dup row chains to a row of the SAME person (and the grid matched my expected rows: bad=0 above): True
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 600}; Payroll amber old=800 new=1400; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$226,$A$27:$A$226,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (45, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (219, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (220, 'Payroll Q20', 'FINMO vs Audit Source', 'CHANGED'), (221, 'Net Income Q20', 'FINMO vs Audit Source', 'CHANGED'), (222, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (223, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (224, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (225, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C20", "='Revenue Drivers'!N20"]
+
+######## 46ae584a  old=OLD 46ae584a -- 08-25-2026 21-31-37.xlsx
+sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   DIFF Cover: value diffs=2 [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')] formula diffs=2 [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')]
+   DIFF Dashboard: value diffs=1 [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')] formula diffs=1 [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')]
+   (a) all sheets cells=12973 value diffs=3 formula diffs outside Payroll Schedule=3 (Payroll Schedule formula diffs=171); FINMO rows ['Payroll'] old==new: True
+   (b) rows=60 shapes={'F literal': 60, 'E/I/J literal q1': 3, 'E =ROUND(G prior,6)': 57, 'I =prev': 45, 'J =prev': 57, 'I =ROUND(prev+/-delta,6)': 12} fallback rows=0 bad=[] (n=0); static cols identical old/new=600/600
+   (a) recalculated E/I/J == engine float-exact: misses=[] (n=0); OLD literals==engine misses=0
+   (c) amber lost anywhere=none; gained={'Payroll Schedule': 180}; Payroll amber old=240 new=420; new-old == B/C/N x detail rows: True; old detail amber cols=[5, 6, 9, 10] new=[2, 3, 5, 6, 9, 10, 14]
+   (e) summary SUMIFS n=63 all keyed on col A=True keyed on B/C/N=0; example ('C15', '=SUMIFS($G$27:$G$86,$A$27:$A$86,0)')
+   (e) Checks payroll rows=[(13, 'Payroll Schedule total feeds Model Inputs Payroll', 'Cross-sheet', 'OK'), (17, 'Payroll summary totals equal payroll detail by quarter', 'Payroll Schedule', 'OK'), (18, 'Payroll productivity metrics', 'Payroll Schedule', 'OK'), (19, 'Payroll detail FTE math', 'Payroll Schedule', 'OK'), (20, 'Payroll detail wage and tax math', 'Payroll Schedule', 'OK'), (44, 'Payroll Schedule - Total Ending FTE', 'Payroll Schedule', 'OK')]; non-OK check rows new=[(7, 'Marketing Schedule could not be built', 'Marketing Schedule', 'FAIL'), (213, 'Revenue Q20', 'FINMO vs Audit Source', 'MATCH'), (214, 'Payroll Q20', 'FINMO vs Audit Source', 'MATCH'), (215, 'Net Income Q20', 'FINMO vs Audit Source', 'MATCH'), (216, 'Cash Q20', 'FINMO vs Audit Source', 'CHANGED'), (217, 'Total Assets Q20', 'FINMO vs Audit Source', 'CHANGED'), (218, 'Total Liabilities & Equity Q20', 'FINMO vs Audit Source', 'CHANGED'), (219, 'Ending Cash Q20', 'FINMO vs Audit Source', 'CHANGED')] old=['FAIL', 'MATCH', 'MATCH', 'MATCH', 'CHANGED', 'CHANGED', 'CHANGED', 'CHANGED']; formulas referencing Payroll B/C/N cells: cross-sheet=7 local=10 ["='Revenue Drivers'!C14", "='Revenue Drivers'!N14"]
+
+GRAND {'drafts': 10, 'value diffs': 30, 'formula diffs outside payroll': 30, 'eng misses': 0, 'fallback': 0, 'bad': 0, 'amber lost': 0, 'old-lit!=engine': 0}
+
+## (d)(e) mini_pr_typeover.py on Ironwood 1b9b4e45 NEW build
+layout: Total Payroll r17, Total Ending FTE r15, Q1 col 4 (hdr row 4); FINMO payroll rows {'Payroll': 14} Q1 col 4
+role: ('key_person', 'CNC Machinist', 'Tyler Brooks', 0) rows {1: 27, 7: 93, 10: 126, 20: 236}
+baseline Checks!B2: FAIL
+(d1) wage typed 64740.0 at Q7 row 93: I carries to Q20 with the engine's bumps on top, float-exact: True; bump quarters [9, 13, 17]; Q20 typed-chain=70280.0 engine=65280.0 (delta carried 5000.0)
+(d1) Q1-Q6 untouched True; Total Payroll moved by exactly avgFTE*dW/4*(1+ben) Q7-Q20 and 0 before: True (Q7 delta 1738.50 exp 1738.50; Q20 delta 2058.75 exp 2058.75); FINMO rows moved by the same: {'Payroll': True}; Checks!B2 FAIL
+(d2) Starting FTE typed 2.1799999999999997 at Q10 row 126: E carries to Q20 with later hires on top, float-exact: True; hire quarters after Q10 [10, 11, 12, 14, 15, 16, 18, 19]; Q20 typed-chain=2.34 engine=1.34
+(d2) Total Payroll moved by dFTE*wage/4*(1+ben) Q10-Q20, 0 before: True; Total Ending FTE moved by dFTE: True; FINMO rows moved by the same: {'Payroll': True}; Checks!B2 FAIL
+(e) B/C/N text typed over at row 93: Total Payroll/Total Ending FTE/FINMO/Checks!B2 all unchanged: True
+(e2) Hires +0.5 typed at Q5: Total Ending FTE Q5..Q20 all +0.5 (chain carried it): True; Checks statuses unchanged (tie-outs still reconcile through the chain): True
+TYPEOVER ALL OK: True
+
+## (g) _grid_dump 2e1572b -> HEAD (mine) - diff vs VS file = ROOT lines only
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/3e28851b-e941-4537-ad28-0e1031ef075b/scratchpad/wt_old
+SHA    1523f7b663df9d6543652b9fa778131bd423c9d85eb432618662ab4967fba99a
+GRID   11 sheets, 8082 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   .
+SHA    11280ca67ba8707d44e5e0d6ff3aa38274915321d40125b821e549d6f94a6292
+GRID   11 sheets, 8367 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   8082 shared cells, 475 CHANGED, 0 only in wt_old, 285 only in .
+...
+## (g) text surface 2e1572b -> HEAD (mini_text_dump.py)
+TEXT 2566 cells across 16 sheets
+ROOT .
+SHA  9a739c7bc77b491f9521a6dace4cbe498849220500e3afc89c431fb2db7e8485
+TEXT 2566 cells across 16 sheets
+
+DIFF shared=2566 changed=0 gone=0 added=0  (total touched 0)
+by sheet: {}
+old tie-out label at: [] | in new: []

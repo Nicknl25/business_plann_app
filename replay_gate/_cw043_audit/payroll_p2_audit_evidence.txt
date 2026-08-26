@@ -1,0 +1,76 @@
+PAYROLL SCHEDULE PART 2 - mini audit of cf87d2f (chained detail block) + 5440e47 (R32 re-bless)
+mini, 2026-08-25 21:24-21:50. VERDICT: green. Raw outputs: payroll_p2_audit_raw.txt. Instruments beside this file:
+  mini_pr_population_profile.py  - characterises all 390 drafts with payroll rows (roles, dup titles, fractional hires, fallback)
+  mini_pop.py                    - independent evaluation of the emitted chain in doubles; rounded / bare-FTE / bare-wage misses
+  mini_skips.py                  - re-derives the 23 unexportable drafts on a given tree (no Excel)
+  mini_pr_export.py              - builds drafts under <root>'s code, recalculates all in ONE Excel, reads Checks!B2
+  mini_pr_audit.py               - (a)(b)(c)(e) over old/new pairs: by-address values+formulas, shape census, amber census, SUMIFS keys
+  mini_pr_typeover.py            - (d)(e) COM type-over demos with expected deltas computed from the engine rows
+
+SAMPLE (VS never used any of these; Bellweather is the standing neighbour), built under a 2e1572b worktree AND HEAD, Excel-recalculated:
+  1b9b4e45 Ironwood Precision Machining   11 roles, 130 fractional-hire rows (the heaviest in the population)
+  3963330f Northwind Systems               8 roles, fractional hires in 18/20 quarters (the most quarters)
+  52cf5792 Bluestem Grounds P6 Retest     13 roles (the largest role count)
+  3794e7c0 Copperline Interiors           11 roles + duplicate titles
+  76c6e0b9 Falls City Mechanical           9 roles, 108 fractional-hire rows
+  ad38128d Meridian Motorcars / 0f0ef579 EZ Drive / ce38f68d Sharp Line / 7042ce1a Understory - the duplicate-title classes
+           (Understory's two Grow Technicians carry DIFFERENT wages 36000/34000 - the sharpest key test)
+  46ae584a Bellweather Auto Works          standing neighbour
+  NOTE: "fractional hires every quarter" exists in no draft (0/390 have hires fractional in all 20 quarters) - the two heaviest stand in.
+
+(a) DELIVERED VALUES  - GRAND over 10 drafts: value diffs=30 = exactly the 3 Cover/Dashboard cells carrying my OLD/NEW name tag, per draft;
+    formula diffs outside Payroll Schedule = the same 3 cells; FINMO 'Payroll' row old==new on all 10; recalculated E/I/J == engine
+    float-exact: 0 misses on 1,860 detail rows; OLD literals == engine: 0 misses (so new==old==engine). Checks!B2 read on all 10 on
+    BOTH trees: FAIL/FAIL every time with the SAME non-OK row set (r7 'Marketing Schedule could not be built' + the Q20 Persisted
+    Baseline CHANGED rows) - pre-existing, not this change. The 6 payroll Checks rows read OK on all 10.
+(b) MECHANISM on the built grid (my own prior-row map from the DB rows, key = class/title/person/ordinal):
+    E = '=ROUND(G<prior>,6)' on every chained row; I/J = '=<col><prior>' when the engine delta is 0, '=ROUND(<col><prior>+/-<|delta|>,6)'
+    at the engine's bumps, |delta| bit-equal to the engine's; F literal == hires; literals only on quarter-1 rows; 0 fallback rows;
+    0 shape deviations (bad=0) across 1,860 rows. The ten non-chained columns (A,B,C,D,G,H,K,L,M,N) are identical old/new cell for
+    cell (18,600/18,600) - so the drift file's "475 changed" is ordinal re-indexing of unchanged leaves, 0 edited formulas.
+    Duplicate titles: on every dup group (20 per draft) the referenced prior row is the SAME person's row (Meridian: Alena Petrov ->
+    her own row, Grant Mueller -> his; Understory 36000 and 34000 each chain to their own).
+(c) EDITABLE SURFACE on the styled grid, both trees, every sheet: amber cells LOST anywhere = 0; gained = exactly B/C/N x detail rows
+    (Ironwood 880 -> 1540, Bellweather 240 -> 420); detail amber columns [5,6,9,10] -> [2,3,5,6,9,10,14].
+(d) TYPE-OVER (Ironwood NEW build, role CNC Machinist / Tyler Brooks):
+    wage 59,740 -> 64,740 typed at Q7 (row 93): I carries to Q20 float-exact with the engine's bumps on top (Q9/Q13/Q17; Q20 70,280 vs
+    engine 65,280); Q1-Q6 untouched; Total Payroll moves by exactly avgFTE*dW/4*(1+ben) each quarter Q7-Q20 (Q7 +1,738.50, Q20 +2,058.75)
+    and 0 before; FINMO Payroll moves by the same.
+    Starting FTE 1.18 -> 2.18 typed at Q10 (row 126): E carries to Q20 float-exact with 8 later hire quarters on top (Q20 2.34 vs 1.34);
+    Total Payroll moves by dFTE*W/4*(1+ben) Q10-Q20, Total Ending FTE by dFTE, FINMO by the same.
+    Hires +0.5 typed at Q5: Total Ending FTE Q5..Q20 all +0.5; Checks statuses unchanged (the tie-outs reconcile through the chain).
+(e) 63 summary SUMIFS on every draft, all keyed on $A$27:$A$<last> with numeric criteria, 0 keyed on B/C/N; the Checks payroll
+    tie-outs are SUMIFS on 'Payroll Schedule'!$A (checks_sheet.py:271-282); 0 formulas anywhere in the workbook read a detail-block
+    B/C/N cell (9,294 / 9,294 / 8,038 formulas scanned on Ironwood / Copperline / Bellweather); B, C and N typed over with text ->
+    Total Payroll / Total Ending FTE / FINMO / Checks!B2 unchanged.
+(f) THE TEST (tests/test_cw043_payroll_chain_grid.py): 4/4 on HEAD incl. Excel. Mutations applied in a throwaway worktree at cf87d2f:
+    MUT-A drop ROUND on Starting FTE   -> RED in 2 tests for the RIGHT reason (6.41 vs 6.409999999999999, 6.48 vs 6.4799999999999995)
+    MUT-B drop ROUND on wages only     -> RED, but on formula SHAPE ("unexpected formula shape ... =I39+1800.0"), not value
+    MUT-C ROUND(...,15) on wages       -> RED on shape likewise
+    MUT-D key on title alone           -> 3/3 GREEN. The test cannot see the role key: Halbrook has no duplicate titles.
+    The control test proves the fixture carries the FTE class (bare drift > 0) - true. There is NO wage/benefits value class to pin:
+    my population evaluation finds 0/390 drafts where a bare wage/benefits chain misses (Halbrook included) - the wage ROUND is
+    defensive, and the test's shape assertion is the only thing holding it. MUT-D measured on Copperline + Meridian: 0 wrong values
+    (the twins carry identical numbers) but 19 fallback literal rows per draft AND person A chained to person B's prior row -
+    right numbers today; a client's typed edit on B would flow into A. Coverage gap in the gate, not a shipped defect.
+(g) RE-BLESS: python -m replay_gate._grid_dump <2e1572b worktree> . -> byte-identical to VS's grid_drift_2e1572b_to_payroll_chain.txt
+    modulo the two ROOT lines: 8082 shared, 475 CHANGED, 0 only-old, 285 only-new, 1523f7b663df -> 11280ca67ba8 (1719 lines both).
+    Text surface (mini_text_dump.py): 2566 cells / 16 sheets, changed=0 gone=0 added=0, sha 9a739c7bc77b on both trees - R49 neutral.
+    Bare gate --only R32,R49: 2/2 [ok] HOLDS at the blessed digests (11280ca67ba8 / 9a739c7bc77b).
+(h) POPULATION, my evaluation: 390 drafts, rounded-chain misses 0, bare-FTE misses 239, bare-wage misses 0, fallback rows 0 under the
+    full key; 0 rows anywhere with ordinal > 0 (dup_full = 0 drafts) - the ordinal is never exercised by today's population.
+    The 23 skips: 23/23 fail on HEAD and 23/23 on 2e1572b with the same ContractViolations (stale shapes) - unexportable on any tree.
+
+VS DECLARED-vs-ACTUAL (TURN PLAN 20:50:32): tier neighbor-check is honest (workbook builder emitter only, no engine math, goldens
+  re-blessed and measured); the commit touches schedule_sheets.py + test + fixture + the audit artifacts as declared; every VERIFY
+  item has an artifact. Two deviations, neither a scope lie: LOADING named tests/fixtures/cw043_harrow_export_row.json.gz, the
+  committed fixture is cw043_halbrook_export_row.json.gz (Halbrook is the draft that carries the class - right choice, wrong name);
+  VERIFY promised "prove artifact" - _prove_20260825_payroll_chain.txt exists and is CLEAN (56 behavioural / 5 structural-absence /
+  0 DRIFT / 0 UNEARNED) but its last write is 21:30:47, seven minutes AFTER the seed commit and my launch (21:24:23), and it is
+  untracked: the handoff was written before its own prove had landed. The seed claimed nothing about it, so no false claim - a
+  process finding.
+MINI DECLARED-vs-ACTUAL: as declared (plan sent 21:26:20 before any work; neighbor-check; 10 pairs both trees; bare R32/R49;
+  canary skipped - builder only). One substitution, stated above: no draft has fractional hires every quarter.
+WONT-FIX (none is a wrong number on a delivered plan): the "1,577 title-only fallback rows / 73 drafts" figure in the commit message
+  comes from an uncommitted prototype and cannot be re-derived (my title-only measure: 19 rows per dup-title draft) - narrative only;
+  the wage ROUND has no value class behind it - harmless; Checks!B2 FAIL on all 10 is the pre-existing marketing row on both trees.
