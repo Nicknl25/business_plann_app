@@ -1,0 +1,248 @@
+
+######## 1b9b4e45 'Ironwood Precision Machining, Inc.' engine rows=220 identities=11
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 1b9b4e45', 'NEW 1b9b4e45'), ((10, 3), 'OLD 1b9b4e45', 'NEW 1b9b4e45')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 1b9b4e45 - Dashboard', 'NEW 1b9b4e45 - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N246', 'A173:N392'), ((19, 4), 'E27:H246', 'E173:H392'), ((20, 4), 'I27:M246', 'I173:M392')]
+   (a) other sheets: cells=11834 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 1b9b4e45' -> 'NEW 1b9b4e45'
+       Cover!C10: 'OLD 1b9b4e45' -> 'NEW 1b9b4e45'
+       Dashboard!A1: 'OLD 1b9b4e45 - Dashboard' -> 'NEW 1b9b4e45 - Dashboard'
+       Checks!D17: 'A27:N246' -> 'A173:N392'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$246" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$173:$G$39"
+   (a) Checks by (category,line item), all cols but the range string: rows=208 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=220 (from 27) vs bridge rows=220 (from 173) == engine rows 220: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 100}
+   (b) blocks=11 == identities=11: True; broken blocks=[]; blocks within rows 27..168 < bridge 173: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 220, 'Starting FTE literal first': 11, 'Annual Wage literal first': 11, 'Benefits % literal first': 11, 'derived formula exact': 1100, 'Starting =ROUND(prev Ending,6)': 209, 'Annual Wage =prev': 165, 'Benefits % =prev': 209, 'Annual Wage =ROUND(prev+/-delta,6)': 44}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+220 bridge rows all hidden=True (hidden=222); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 220/220; non-formula cells=0; bad=[] (n=0)
+   (d) summary SUMIFS keyed on bridge $A$173:$A$392: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A173:N392', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E173:H392', 'OK'), ('Payroll detail wage and tax math', 'I173:M392', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W392", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 220, 220, 'OK'), ('verage FTE', True, 220, 220, 'OK'), ('age Cost', True, 220, 220, 'OK'), ('axes & Benefits', True, 220, 220, 'OK'), ('otal Payroll', True, 220, 220, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=880 new=880 == 4 x rows 880: True; text amber old=660 new=33 == 3 x roles 33: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 3963330f 'Northwind Systems, Inc.' engine rows=160 identities=8
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 3963330f', 'NEW 3963330f'), ((10, 3), 'OLD 3963330f', 'NEW 3963330f')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 3963330f - Dashboard', 'NEW 3963330f - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N186', 'A134:N293'), ((19, 4), 'E27:H186', 'E134:H293'), ((20, 4), 'I27:M186', 'I134:M293')]
+   (a) other sheets: cells=12518 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 3963330f' -> 'NEW 3963330f'
+       Cover!C10: 'OLD 3963330f' -> 'NEW 3963330f'
+       Dashboard!A1: 'OLD 3963330f - Dashboard' -> 'NEW 3963330f - Dashboard'
+       Checks!D17: 'A27:N186' -> 'A134:N293'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$186" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$134:$G$29"
+   (a) Checks by (category,line item), all cols but the range string: rows=220 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=160 (from 27) vs bridge rows=160 (from 134) == engine rows 160: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 40}
+   (b) blocks=8 == identities=8: True; broken blocks=[]; blocks within rows 27..129 < bridge 134: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 160, 'Starting FTE literal first': 8, 'Annual Wage literal first': 8, 'Benefits % literal first': 8, 'derived formula exact': 800, 'Starting =ROUND(prev Ending,6)': 152, 'Annual Wage =prev': 120, 'Benefits % =prev': 152, 'Annual Wage =ROUND(prev+/-delta,6)': 32}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+160 bridge rows all hidden=True (hidden=162); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 160/160; non-formula cells=0; bad=[] (n=0)
+   (d) summary SUMIFS keyed on bridge $A$134:$A$293: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A134:N293', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E134:H293', 'OK'), ('Payroll detail wage and tax math', 'I134:M293', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W293", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 160, 160, 'OK'), ('verage FTE', True, 160, 160, 'OK'), ('age Cost', True, 160, 160, 'OK'), ('axes & Benefits', True, 160, 160, 'OK'), ('otal Payroll', True, 160, 160, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=640 new=640 == 4 x rows 640: True; text amber old=480 new=24 == 3 x roles 24: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 52cf5792 'Bluestem Grounds P6 Retest' engine rows=260 identities=13
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 52cf5792', 'NEW 52cf5792'), ((10, 3), 'OLD 52cf5792', 'NEW 52cf5792')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 52cf5792 - Dashboard', 'NEW 52cf5792 - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N286', 'A199:N458'), ((19, 4), 'E27:H286', 'E199:H458'), ((20, 4), 'I27:M286', 'I199:M458')]
+   (a) other sheets: cells=12196 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 52cf5792' -> 'NEW 52cf5792'
+       Cover!C10: 'OLD 52cf5792' -> 'NEW 52cf5792'
+       Dashboard!A1: 'OLD 52cf5792 - Dashboard' -> 'NEW 52cf5792 - Dashboard'
+       Checks!D17: 'A27:N286' -> 'A199:N458'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$286" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$199:$G$45"
+   (a) Checks by (category,line item), all cols but the range string: rows=214 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=260 (from 27) vs bridge rows=260 (from 199) == engine rows 260: True; value-for-value diffs (exact, 14 cols)=[(97, 14, 'Your stated wage', 'Your stated wage (owner draw deferred)'), (110, 14, 'Your stated wage', 'Your stated wage (owner draw deferred)'), (123, 14, 'Your stated wage', 'Your stated wage (owner draw deferred)')] (n=13); text cells where old was empty: {'old None -> new None': 140}
+   (b) blocks=13 == identities=13: True; broken blocks=[]; blocks within rows 27..194 < bridge 199: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 260, 'Starting FTE literal first': 13, 'Annual Wage literal first': 13, 'Benefits % literal first': 13, 'derived formula exact': 1300, 'Starting =ROUND(prev Ending,6)': 247, 'Annual Wage =prev': 192, 'Benefits % =prev': 247, 'Annual Wage =ROUND(prev+/-delta,6)': 55}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+260 bridge rows all hidden=True (hidden=262); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 260/260; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=40; e.g. q1 'Crew Lead': engine persons=['Luis', 'Dee'] wages=[46000, 46000] -> bridge I refs rows [34, 47] -> block headers ['Crew Lead', 'Crew Lead'] recalculated I=[46000, 46000]
+   (d) summary SUMIFS keyed on bridge $A$199:$A$458: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A199:N458', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E199:H458', 'OK'), ('Payroll detail wage and tax math', 'I199:M458', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W458", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 260, 260, 'OK'), ('verage FTE', True, 260, 260, 'OK'), ('age Cost', True, 260, 260, 'OK'), ('axes & Benefits', True, 260, 260, 'OK'), ('otal Payroll', True, 260, 260, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=1040 new=1040 == 4 x rows 1040: True; text amber old=780 new=39 == 3 x roles 39: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 3794e7c0 'Copperline Interiors' engine rows=220 identities=11
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 3794e7c0', 'NEW 3794e7c0'), ((10, 3), 'OLD 3794e7c0', 'NEW 3794e7c0')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 3794e7c0 - Dashboard', 'NEW 3794e7c0 - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N246', 'A173:N392'), ((19, 4), 'E27:H246', 'E173:H392'), ((20, 4), 'I27:M246', 'I173:M392')]
+   (a) other sheets: cells=11872 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 3794e7c0' -> 'NEW 3794e7c0'
+       Cover!C10: 'OLD 3794e7c0' -> 'NEW 3794e7c0'
+       Dashboard!A1: 'OLD 3794e7c0 - Dashboard' -> 'NEW 3794e7c0 - Dashboard'
+       Checks!D17: 'A27:N246' -> 'A173:N392'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$246" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$173:$G$39"
+   (a) Checks by (category,line item), all cols but the range string: rows=208 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=220 (from 27) vs bridge rows=220 (from 173) == engine rows 220: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 100}
+   (b) blocks=11 == identities=11: True; broken blocks=[]; blocks within rows 27..168 < bridge 173: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 220, 'Starting FTE literal first': 11, 'Annual Wage literal first': 11, 'Benefits % literal first': 11, 'derived formula exact': 1100, 'Starting =ROUND(prev Ending,6)': 209, 'Annual Wage =prev': 165, 'Benefits % =prev': 209, 'Annual Wage =ROUND(prev+/-delta,6)': 44}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+220 bridge rows all hidden=True (hidden=222); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 220/220; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=20; e.g. q1 'Senior Designer': engine persons=['Priya Nair', 'Tom Ellison'] wages=[85000, 78000] -> bridge I refs rows [60, 73] -> block headers ['Senior Designer', 'Senior Designer'] recalculated I=[85000, 78000]
+   (d) summary SUMIFS keyed on bridge $A$173:$A$392: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A173:N392', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E173:H392', 'OK'), ('Payroll detail wage and tax math', 'I173:M392', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W392", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 220, 220, 'OK'), ('verage FTE', True, 220, 220, 'OK'), ('age Cost', True, 220, 220, 'OK'), ('axes & Benefits', True, 220, 220, 'OK'), ('otal Payroll', True, 220, 220, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=880 new=880 == 4 x rows 880: True; text amber old=660 new=33 == 3 x roles 33: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 76c6e0b9 'Falls City Mechanical' engine rows=180 identities=9
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 76c6e0b9', 'NEW 76c6e0b9'), ((10, 3), 'OLD 76c6e0b9', 'NEW 76c6e0b9')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 76c6e0b9 - Dashboard', 'NEW 76c6e0b9 - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N206', 'A147:N326'), ((19, 4), 'E27:H206', 'E147:H326'), ((20, 4), 'I27:M206', 'I147:M326')]
+   (a) other sheets: cells=12520 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 76c6e0b9' -> 'NEW 76c6e0b9'
+       Cover!C10: 'OLD 76c6e0b9' -> 'NEW 76c6e0b9'
+       Dashboard!A1: 'OLD 76c6e0b9 - Dashboard' -> 'NEW 76c6e0b9 - Dashboard'
+       Checks!D17: 'A27:N206' -> 'A147:N326'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$206" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$147:$G$32"
+   (a) Checks by (category,line item), all cols but the range string: rows=220 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=180 (from 27) vs bridge rows=180 (from 147) == engine rows 180: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 60}
+   (b) blocks=9 == identities=9: True; broken blocks=[]; blocks within rows 27..142 < bridge 147: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 180, 'Starting FTE literal first': 9, 'Annual Wage literal first': 9, 'Benefits % literal first': 9, 'derived formula exact': 900, 'Starting =ROUND(prev Ending,6)': 171, 'Annual Wage =prev': 135, 'Benefits % =prev': 171, 'Annual Wage =ROUND(prev+/-delta,6)': 36}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+180 bridge rows all hidden=True (hidden=182); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 180/180; non-formula cells=0; bad=[] (n=0)
+   (d) summary SUMIFS keyed on bridge $A$147:$A$326: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A147:N326', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E147:H326', 'OK'), ('Payroll detail wage and tax math', 'I147:M326', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W326", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 180, 180, 'OK'), ('verage FTE', True, 180, 180, 'OK'), ('age Cost', True, 180, 180, 'OK'), ('axes & Benefits', True, 180, 180, 'OK'), ('otal Payroll', True, 180, 180, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=720 new=720 == 4 x rows 720: True; text amber old=540 new=27 == 3 x roles 27: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## ad38128d 'Meridian Motorcars, LLC' engine rows=200 identities=10
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD ad38128d', 'NEW ad38128d'), ((10, 3), 'OLD ad38128d', 'NEW ad38128d')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD ad38128d - Dashboard', 'NEW ad38128d - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N226', 'A160:N359'), ((19, 4), 'E27:H226', 'E160:H359'), ((20, 4), 'I27:M226', 'I160:M359')]
+   (a) other sheets: cells=11870 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD ad38128d' -> 'NEW ad38128d'
+       Cover!C10: 'OLD ad38128d' -> 'NEW ad38128d'
+       Dashboard!A1: 'OLD ad38128d - Dashboard' -> 'NEW ad38128d - Dashboard'
+       Checks!D17: 'A27:N226' -> 'A160:N359'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$226" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$160:$G$35"
+   (a) Checks by (category,line item), all cols but the range string: rows=208 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=200 (from 27) vs bridge rows=200 (from 160) == engine rows 200: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 80}
+   (b) blocks=10 == identities=10: True; broken blocks=[]; blocks within rows 27..155 < bridge 160: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 200, 'Starting FTE literal first': 10, 'Annual Wage literal first': 10, 'Benefits % literal first': 10, 'derived formula exact': 1000, 'Starting =ROUND(prev Ending,6)': 190, 'Annual Wage =prev': 150, 'Benefits % =prev': 190, 'Annual Wage =ROUND(prev+/-delta,6)': 40}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+200 bridge rows all hidden=True (hidden=202); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 200/200; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=20; e.g. q1 'Luxury Sales Specialist': engine persons=['Alena Petrov', 'Grant Mueller'] wages=[70000, 70000] -> bridge I refs rows [47, 60] -> block headers ['Luxury Sales Specialist', 'Luxury Sales Specialist'] recalculated I=[70000, 70000]
+   (d) summary SUMIFS keyed on bridge $A$160:$A$359: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A160:N359', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E160:H359', 'OK'), ('Payroll detail wage and tax math', 'I160:M359', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W359", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 200, 200, 'OK'), ('verage FTE', True, 200, 200, 'OK'), ('age Cost', True, 200, 200, 'OK'), ('axes & Benefits', True, 200, 200, 'OK'), ('otal Payroll', True, 200, 200, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=800 new=800 == 4 x rows 800: True; text amber old=600 new=30 == 3 x roles 30: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 0f0ef579 'EZ Drive Auto Sales, LLC' engine rows=180 identities=9
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 0f0ef579', 'NEW 0f0ef579'), ((10, 3), 'OLD 0f0ef579', 'NEW 0f0ef579')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 0f0ef579 - Dashboard', 'NEW 0f0ef579 - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N206', 'A147:N326'), ((19, 4), 'E27:H206', 'E147:H326'), ((20, 4), 'I27:M206', 'I147:M326')]
+   (a) other sheets: cells=12194 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 0f0ef579' -> 'NEW 0f0ef579'
+       Cover!C10: 'OLD 0f0ef579' -> 'NEW 0f0ef579'
+       Dashboard!A1: 'OLD 0f0ef579 - Dashboard' -> 'NEW 0f0ef579 - Dashboard'
+       Checks!D17: 'A27:N206' -> 'A147:N326'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$206" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$147:$G$32"
+   (a) Checks by (category,line item), all cols but the range string: rows=214 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=180 (from 27) vs bridge rows=180 (from 147) == engine rows 180: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 160}
+   (b) blocks=9 == identities=9: True; broken blocks=[]; blocks within rows 27..142 < bridge 147: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 180, 'Starting FTE literal first': 9, 'Annual Wage literal first': 9, 'Benefits % literal first': 9, 'derived formula exact': 900, 'Starting =ROUND(prev Ending,6)': 171, 'Annual Wage =prev': 135, 'Benefits % =prev': 171, 'Annual Wage =ROUND(prev+/-delta,6)': 36}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+180 bridge rows all hidden=True (hidden=182); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 180/180; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=20; e.g. q1 'Salesperson': engine persons=['Terrance Boyd', 'Luz Herrera', 'Andre Willis'] wages=[40000, 40000, 40000] -> bridge I refs rows [99, 112, 125] -> block headers ['Salesperson', 'Salesperson', 'Salesperson'] recalculated I=[40000, 40000, 40000]
+   (d) summary SUMIFS keyed on bridge $A$147:$A$326: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A147:N326', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E147:H326', 'OK'), ('Payroll detail wage and tax math', 'I147:M326', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W326", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 180, 180, 'OK'), ('verage FTE', True, 180, 180, 'OK'), ('age Cost', True, 180, 180, 'OK'), ('axes & Benefits', True, 180, 180, 'OK'), ('otal Payroll', True, 180, 180, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=720 new=720 == 4 x rows 720: True; text amber old=540 new=27 == 3 x roles 27: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## ce38f68d 'Sharp Line Barber Co.' engine rows=180 identities=9
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD ce38f68d', 'NEW ce38f68d'), ((10, 3), 'OLD ce38f68d', 'NEW ce38f68d')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD ce38f68d - Dashboard', 'NEW ce38f68d - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N206', 'A147:N326'), ((19, 4), 'E27:H206', 'E147:H326'), ((20, 4), 'I27:M206', 'I147:M326')]
+   (a) other sheets: cells=11870 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD ce38f68d' -> 'NEW ce38f68d'
+       Cover!C10: 'OLD ce38f68d' -> 'NEW ce38f68d'
+       Dashboard!A1: 'OLD ce38f68d - Dashboard' -> 'NEW ce38f68d - Dashboard'
+       Checks!D17: 'A27:N206' -> 'A147:N326'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$206" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$147:$G$32"
+   (a) Checks by (category,line item), all cols but the range string: rows=208 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=180 (from 27) vs bridge rows=180 (from 147) == engine rows 180: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 60}
+   (b) blocks=9 == identities=9: True; broken blocks=[]; blocks within rows 27..142 < bridge 147: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 180, 'Starting FTE literal first': 9, 'Annual Wage literal first': 9, 'Benefits % literal first': 9, 'derived formula exact': 900, 'Starting =ROUND(prev Ending,6)': 171, 'Annual Wage =prev': 135, 'Benefits % =prev': 171, 'Annual Wage =ROUND(prev+/-delta,6)': 36}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+180 bridge rows all hidden=True (hidden=182); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 180/180; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=20; e.g. q1 'Barber': engine persons=['Jerome Banks', 'Chris Nunez'] wages=[40000, 40000] -> bridge I refs rows [34, 47] -> block headers ['Barber', 'Barber'] recalculated I=[40000, 40000]
+   (d) summary SUMIFS keyed on bridge $A$147:$A$326: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A147:N326', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E147:H326', 'OK'), ('Payroll detail wage and tax math', 'I147:M326', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W326", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 180, 180, 'OK'), ('verage FTE', True, 180, 180, 'OK'), ('age Cost', True, 180, 180, 'OK'), ('axes & Benefits', True, 180, 180, 'OK'), ('otal Payroll', True, 180, 180, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=720 new=720 == 4 x rows 720: True; text amber old=540 new=27 == 3 x roles 27: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 46ae584a 'Bellweather Auto Works' engine rows=60 identities=3
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 46ae584a', 'NEW 46ae584a'), ((10, 3), 'OLD 46ae584a', 'NEW 46ae584a')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 46ae584a - Dashboard', 'NEW 46ae584a - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N86', 'A69:N128'), ((19, 4), 'E27:H86', 'E69:H128'), ((20, 4), 'I27:M86', 'I69:M128')]
+   (a) other sheets: cells=11866 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 46ae584a' -> 'NEW 46ae584a'
+       Cover!C10: 'OLD 46ae584a' -> 'NEW 46ae584a'
+       Dashboard!A1: 'OLD 46ae584a - Dashboard' -> 'NEW 46ae584a - Dashboard'
+       Checks!D17: 'A27:N86' -> 'A69:N128'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$86," -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$69:$G$128"
+   (a) Checks by (category,line item), all cols but the range string: rows=208 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=60 (from 27) vs bridge rows=60 (from 69) == engine rows 60: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 40}
+   (b) blocks=3 == identities=3: True; broken blocks=[]; blocks within rows 27..64 < bridge 69: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 60, 'Starting FTE literal first': 3, 'Annual Wage literal first': 3, 'Benefits % literal first': 3, 'derived formula exact': 300, 'Starting =ROUND(prev Ending,6)': 57, 'Annual Wage =prev': 45, 'Benefits % =prev': 57, 'Annual Wage =ROUND(prev+/-delta,6)': 12}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+60 bridge rows all hidden=True (hidden=62); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 60/60; non-formula cells=0; bad=[] (n=0)
+   (d) summary SUMIFS keyed on bridge $A$69:$A$128: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A69:N128', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E69:H128', 'OK'), ('Payroll detail wage and tax math', 'I69:M128', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W128", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 60, 60, 'OK'), ('verage FTE', True, 60, 60, 'OK'), ('age Cost', True, 60, 60, 'OK'), ('axes & Benefits', True, 60, 60, 'OK'), ('otal Payroll', True, 60, 60, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=240 new=240 == 4 x rows 240: True; text amber old=180 new=9 == 3 x roles 9: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+######## 7042ce1a 'Understory Mushroom Co.' engine rows=200 identities=10
+   sheets old==new: True | Checks!B2 old/new: FAIL / FAIL
+   (a) VALUE DIFF Cover: n=2 [((3, 2), 'OLD 7042ce1a', 'NEW 7042ce1a'), ((10, 3), 'OLD 7042ce1a', 'NEW 7042ce1a')]
+   (a) VALUE DIFF Dashboard: n=1 [((1, 1), 'OLD 7042ce1a - Dashboard', 'NEW 7042ce1a - Dashboard')]
+   (a) VALUE DIFF Checks: n=9 [((17, 4), 'A27:N226', 'A160:N359'), ((19, 4), 'E27:H226', 'E160:H359'), ((20, 4), 'I27:M226', 'I160:M359')]
+   (a) other sheets: cells=12194 value diffs=12; formula/static diffs by sheet={'Cover': 2, 'Dashboard': 1, 'Checks': 13}
+       Cover!B3: 'OLD 7042ce1a' -> 'NEW 7042ce1a'
+       Cover!C10: 'OLD 7042ce1a' -> 'NEW 7042ce1a'
+       Dashboard!A1: 'OLD 7042ce1a - Dashboard' -> 'NEW 7042ce1a - Dashboard'
+       Checks!D17: 'A27:N226' -> 'A160:N359'
+       Checks!E17: "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$27:$G$226" -> "=SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$160:$G$35"
+   (a) Checks by (category,line item), all cols but the range string: rows=214 new-only=0 diffs=[] (n=0)
+   (a) Checks status col=I; non-OK rows old=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] new=['Marketing Schedule could not be built', 'Revenue Q20', 'Payroll Q20', 'Net Income Q20', 'Cash Q20', 'Total Assets Q20', 'Total Liabilities & Equity Q20', 'Ending Cash Q20'] same=True
+   (a) FINMO rows ['Payroll'] old==new: True
+   (a) summary rows 1..24: section header same row=True; value diffs=0; formula diffs=63; SUMIFS cells=63
+   (a) old detail rows=200 (from 27) vs bridge rows=200 (from 160) == engine rows 200: True; value-for-value diffs (exact, 14 cols)=[] (n=0); text cells where old was empty: {'old None -> new None': 80}
+   (b) blocks=10 == identities=10: True; broken blocks=[]; blocks within rows 27..155 < bridge 160: True
+   (b) header title mismatches=[] (n=0); shapes={'Hires literal': 200, 'Starting FTE literal first': 10, 'Annual Wage literal first': 10, 'Benefits % literal first': 10, 'derived formula exact': 1000, 'Starting =ROUND(prev Ending,6)': 190, 'Annual Wage =prev': 154, 'Benefits % =prev': 190, 'Annual Wage =ROUND(prev+/-delta,6)': 36}; bad=[] (n=0); recalculated block inputs == engine float-exact: misses=[] (n=0)
+   (c) hidden: note+header+200 bridge rows all hidden=True (hidden=202); hidden rows above the bridge note=[]
+   (c) bridge rows pointing at their OWN identity's block, right quarter column, all 13 formula cells: 200/200; non-formula cells=0; bad=[] (n=0)
+   (c) dup-title groups=20; e.g. q1 'Grow Technician': engine persons=['Devon Marsh', 'Priya Sen'] wages=[36000, 34000] -> bridge I refs rows [47, 60] -> block headers ['Grow Technician', 'Grow Technician'] recalculated I=[36000, 34000]
+   (d) summary SUMIFS keyed on bridge $A$160:$A$359: 63/63 (others: []); Checks payroll rows=[('Payroll summary totals equal pay', 'A160:N359', 'OK'), ('Payroll productivity metrics', 'A16:W22', 'OK'), ('Payroll detail FTE math', 'E160:H359', 'OK'), ('Payroll detail wage and tax math', 'I160:M359', 'OK'), ('Payroll Schedule - Total Ending ', "'Payroll Schedule'!C15:W15", 'OK'), ('Payroll Schedule - Total Average', "'Payroll Schedule'!C16:W16", 'OK'), ('Payroll Schedule - Total Payroll', "'Payroll Schedule'!C17:W17", 'OK'), ('Payroll Schedule - Total Revenue', "'Payroll Schedule'!C18:W18", 'OK'), ('Payroll Schedule - Total Capacit', "'Payroll Schedule'!C19:W19", 'OK'), ('Payroll Schedule - Revenue per E', "'Payroll Schedule'!C20:W20", 'OK'), ('Payroll Schedule - Units per Emp', "'Payroll Schedule'!C21:W21", 'OK'), ('Payroll Schedule - Payroll % of ', "'Payroll Schedule'!C22:W22", 'OK'), ('Payroll Schedule formula/error s', "'Payroll Schedule'!C15:W359", 'OK')]; detail ranges cover the bridge=True; Checks SUMIFS keyed on bridge col A=True
+   (d) formula-count checks (label, range==bridge, expected, MY count, status): [('nding FTE', True, 200, 200, 'OK'), ('verage FTE', True, 200, 200, 'OK'), ('age Cost', True, 200, 200, 'OK'), ('axes & Benefits', True, 200, 200, 'OK'), ('otal Payroll', True, 200, 200, 'OK')]
+   (e) other sheets amber lost=none gained=none; Payroll numeric amber old=800 new=800 == 4 x rows 800: True; text amber old=600 new=30 == 3 x roles 30: True; bridge amber=0; unclassified new amber=0; amber above the detail section old==new: True
+
+GRAND {'drafts': 10, 'other-sheet value diffs': 120, 'checks label diffs': 0, 'summary value diffs': 0, 'detail-vs-bridge diffs': 13, 'block bad': 0, 'block recalc misses': 0, 'bridge bad': 0, 'amber lost': 0, 'rows': 1860, 'roles': 93}

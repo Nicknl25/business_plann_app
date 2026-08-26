@@ -1,0 +1,120 @@
+mini audit - HORIZONTAL Payroll Schedule (785c3bc) + R32/R49 re-bless (e5161d5) + prove artifact (b82788a)
+2026-08-25 22:47 -> 23:10, headless turn 11. Tier audited at: NEIGHBOR-CHECK (workbook builder = shared code;
+engine math untouched). Every measurement below is mine (instruments listed at the end); VS's proofs were read, not trusted.
+
+NEIGHBOUR SET (both trees built from the STORED draft rows, Excel-recalculated, Checks!B2 read on every one):
+  OLD tree = a worktree at 730cb98 (the commit before 785c3bc); NEW tree = HEAD (354fc2c, same builder as 785c3bc).
+  Drafts VS did NOT use: Ironwood 1b9b4e45 (11 roles), Northwind 3963330f (8), Bluestem 52cf5792 (13 roles - the population's
+  largest, dup titles), Copperline 3794e7c0 (11, dup titles at DIFFERENT wages), Falls City 76c6e0b9 (9), Meridian ad38128d
+  (10, dup titles), EZ Drive 0f0ef579 (9, dup titles), Sharp Line ce38f68d (9, dup titles) + Bellweather 46ae584a (standing rule)
+  + Understory 7042ce1a (VS's dup-title fixture draft, kept for the own-person check only).
+  Checks!B2 = FAIL on all 10, BOTH trees, the same 8 rows by label on both ('Marketing Schedule could not be built' + the seven
+  Q20 persisted-baseline rows) - pre-existing, never this change. (VS reported Harrow/Halbrook OK; none of mine is.)
+
+(a) BIT-IDENTITY old vs new - 10/10 drafts, 1,860 engine rows, 93 roles (payroll_hz_audit_raw.txt):
+    - every sheet but Payroll Schedule, by address, values AND formulas: the only differences are the OLD/NEW build tag I put in
+      the business name (Cover 2, Dashboard 1) and the 9 Checks range strings + 4 Checks formulas re-addressed to the bridge rows.
+      Checks by (line item, sheet), every column but the range string: 0 diffs on all 10; non-OK rows identical by label.
+    - FINMO 'Payroll' row: identical on all 10.
+    - Payroll summary rows 1..24: 0 value diffs; exactly 63 formula diffs = the 63 SUMIFS re-addressed (3 rows x 21 columns).
+    - old detail rows (from row 27) vs the new bridge rows, value-for-value, 14 columns, engine order, recalculated:
+      NUMERIC columns 0 diffs on 1,860 rows; text columns 0 diffs on 9 drafts; empty OEWS titles stay empty (None on both
+      sides, 1,000 cells checked), never 0.
+      >>> FINDING F1 (Bluestem 52cf5792, 13 cells, column N 'Wage Source', rows q8..q20 of ONE role): old = 'Your stated wage',
+          new = 'Your stated wage (owner draw deferred)'. The block header carries the role's FIRST-quarter wage source for all
+          20 quarters; the engine's wage_source for this role is 'client_override|owner_draw_deferred' for q1..q7 and
+          'client_override' from q8. The bridge reproduces the header, so the hidden row and the visible block both say
+          'deferred' for 13 quarters in which the engine says the deferral is over. Numbers untouched (the wage row shows the
+          step-up itself). See (h) for the population size of this class.
+
+(b) THE BLOCKS - 93 blocks == 93 identities on 10/10; header title == position_title-or-person on every block; formula shapes
+    EXACTLY the three chain shapes and the five derived shapes: 1,860 Hires literals; 93 first-quarter literal triples (== engine);
+    1,767 Starting FTE '=ROUND(<Ending, prev col>,6)'; wage 1,404 '=prev' + 363 '=ROUND(prev+/-delta,6)' (delta == engine's);
+    benefits 1,767 '=prev'; 9,300 derived formulas exact; 0 re-seed rows; 0 cells present where the engine has no row.
+    Recalculated block inputs (Starting/Hires/Wage/Benefits) == engine FLOAT-EXACT: 0 misses on 7,440 cells.
+    TYPE-OVER (Northwind 3963330f, Excel, payroll_hz_typeover_raw.txt): Starting FTE q3 +1.0, Annual Wage q5 +1,000, Hires q2 +2.0
+    on block[1] 'Co-Founder and CTO': every later quarter carried the typed delta with the engine's bumps still on top
+    (wage: +1,000 flat through q20 across four 3%-bump quarters); block Total Payroll delta == summary Total Payroll delta
+    == FINMO Payroll delta in all 20 quarters; the 18 payroll Checks rows stayed OK; Checks!B2 unchanged. ALL HELD.
+
+(c) THE BRIDGE - note row + header row + every bridge row hidden (10/10; 0 hidden rows above the note); one row per engine row
+    in engine order (1,860 == 1,860); column A = the quarter literal; ALL 13 other cells formulas (0 non-formula cells); the four
+    text cells are the IF(ref="","",ref) shape pointing at the OWN block's header/oews/source rows; the nine numeric cells are
+    plain refs into the OWN identity's block at the RIGHT quarter column: 1,860/1,860. Dup-title drafts: Copperline
+    'Senior Designer' Priya Nair 85,000 / Tom Ellison 78,000 -> two blocks, two bridge rows, recalculated I = 85,000 / 78,000;
+    Meridian, EZ Drive, Sharp Line, Bluestem, Understory same shape (twins at equal wages still resolve to their own block).
+
+(d) SUMMARY + CHECKS - all 63 summary SUMIFS key on the numeric bridge column $A$<first>:$A$<last> (10/10; 0 keyed elsewhere);
+    the payroll Checks rows (summary-totals-by-quarter, FTE math, wage & tax math, productivity, the 3 summary-row formula counts,
+    the 5 detail formula counts, the FINMO/Model-Inputs payroll bridges) read OK on every draft; the four range-bearing checks
+    cover exactly the bridge rows; the 5 'Payroll Detail - <col>' formula-count checks: range == bridge rows, expected == bridge
+    row count, and MY independent count of formula cells in that range == expected on 10/10.
+    (Note, not a finding: the formula-count checks are static - actual is the literal expected count, "verified at export".)
+
+(e) EDITABLE SURFACE - numeric amber in the blocks == 4 x engine rows on 10/10 (e.g. Bluestem 1,040 = 4 x 260; Ironwood 880);
+    text amber == 3 per role (Title/Person, Staffing Class, Wage Source) on 10/10 (Bluestem 39 = 3 x 13, old 780 per-quarter);
+    bridge amber 0; unclassified new amber 0; amber above the detail section identical old==new; amber on every OTHER sheet:
+    0 lost, 0 gained, 10/10.
+
+(f) RE-BLESS - my `python -m replay_gate._grid_dump <730cb98 worktree> .` reproduces VS's grid_drift_730cb98_to_payroll_horizontal.txt
+    byte-for-byte apart from the two ROOT lines and the root labels in the DIFF line: 7,582 shared, 67 CHANGED, 785 only-old,
+    2,085 only-new, sha 11280ca67ba8 -> 8be04b725821. Every leaf accounted on the R32 fixture (100 engine rows, 5 roles):
+    67 = 63 summary SUMIFS + 4 Checks; 785 = 5 derived x 100 + 3 chained x 95 (the old detail formulas, relocated);
+    2,085 = 785 (the same formulas in the blocks) + 13 x 100 bridge formulas. R49 text surface (mini_text_dump.py):
+    9a739c7bc77b (2,566 cells, 730cb98) -> 398db547073c (2,319 cells): touched 413 = Checks 9 + Payroll 404. Payroll 404:
+    319 gone (100 title + 100 source + 89 class + 21 OEWS + the 9 old header labels E..M), 72 added (55 block period/oews/source
+    labels + 5 role names + 'Quarter' + the bridge note + 10 bridge header labels D..M), 13 changed (section header, the note
+    that replaced the 'Quarter' header, 8 old class cells now under block text, 3 header labels B/C/N at the new header row).
+    >>> FINDING F2 (declared-vs-actual, narrative only): VS's commit/re-bless message says 'Payroll 331 text cells (261 gone,
+        60 added, 10 changed)'. That does not reproduce on the gate's own fixture (404 = 319/72/13). The DIGESTS are right and
+        the classification (new geometry + bridge, zero mechanics) holds; the leaf narrative is wrong.
+    Bare gate `--only R32,R49`: 2/2 HOLDS at 8be04b725821 / 398db547073c (9,667 formulas / 2,319 text cells).
+
+(g) THE TESTS (tests/test_cw043_payroll_chain_grid.py, 11/11 incl. Excel on HEAD; tampers applied to a scratch HEAD worktree,
+    never the real tree - payroll_hz_mutate_raw.txt):
+    T1 bridge keyed on title only (all columns) ........ CAUGHT (own-person test, Understory)
+    T2 ONLY the bridge Starting FTE column points at the same-title twin's block (Annual Wage column right) ... NOT CAUGHT, 11/11 pass
+       >>> FINDING F3 (gate coverage gap): the own-person test pins column I alone, and the only Excel leg runs on Halbrook, which
+           has no duplicate titles. Today's code derives the block once per row (R = role_layout[key]) so all 13 cells agree -
+           no shipped defect; a per-column regression would put the twin's FTE into the summary/FINMO unseen. Test-only task.
+    T3 a block loses its 'Average FTE' label row ........ CAUGHT (the locator asserts, all 11 error loudly)
+    T4 bridge not hidden ................................ CAUGHT
+    T5 Starting FTE chain without ROUND (part-2 class) .. CAUGHT (3 tests)
+    T6 13-role draft (Bluestem) through the TEST's own locator: 13 blocks, 260 bridge rows.
+    T7 a role missing a quarter (Halbrook, role #2's q5 row removed, built by the REAL tree): builds; the block is blank at q5,
+       re-seeds q6 as literals == engine (1.29 / 65,920 / 0.22), chains again at q7 ('=ROUND(I45,6)'); bridge 79 == 79 rows; the
+       test's _evaluate_block reproduces the engine on every block; Excel-recalculated bridge inputs == engine, 0 misses;
+       Checks!B2 = OK, every payroll check OK.
+
+(h) POPULATION, my evaluation (mini_pop.py + the text-variation scan): 390 drafts; rounded-chain misses 0; a bare FTE chain would
+    miss 239; bare wage/benefits 0; fallback (re-seed) rows 0 under the full key; quarter_index always within 1..20; roles 2..13
+    (13 = Bluestem, 12 = 25 drafts); 73 dup-title drafts, 0 dup-full (ordinal never exercised).
+    TEXT THAT VARIES BY QUARTER WITHIN A ROLE: OEWS title 0 roles; wage_source 10 roles in 10 drafts (06f9fcd9, 270e7b3a,
+    411adb55, 52cf5792, 7a489693, 8d6beff7, 8f395db0, aa58c32b, b2500419, f8bc1b50) - always the OWNER's role,
+    'client_override|owner_draw_deferred' q1..q7 then 'client_override' q8..q20 (the cash-pass owner-draw deferral; the engine
+    also carries stated_annual_wage_before_deferral). This is the whole of F1's class: 10/390, guided path, one label.
+    VS's instruments could not see it: vs_payroll_hz_compare.py drops every string-vs-string difference by construction
+    (`not (isinstance(x,str) and isinstance(y,str))`), the 390-draft Excel sweep reads only the four numeric columns, and none of
+    VS's five neighbours is in the class.
+
+DEAL-BREAKER TRIAGE:
+  F1 - not a wrong number; a per-quarter label collapsed to the person's first-quarter text, stale for 13 of 20 quarters on the
+       owner's row of 10/390 drafts. Nick's ruling ('text belongs to the person, not the quarter') was made on the premise that
+       no text field is per-quarter; wage_source is, for exactly this class. NEEDS-RULING: accept as-is (the wage row shows the
+       step; WONT-FIX cosmetic) or give the wage source a period row / a 'deferred through Q7' annotation. Not auto-built.
+  F2 - documentation; no gate effect. WONT-FIX beyond noting it.
+  F3 - gate coverage; test-only task for VS (spot-check), queued behind the ruling.
+
+VS DECLARED-vs-ACTUAL: TASK/LOADING match the commit (schedule_sheets.py builder + checks reading + the test); BLAST-RADIUS
+'localized in code, system-touching for the goldens' is honest (one builder file + tests + legs re-bless); VERIFY as declared
+(390 python, 390 Excel sweep, 5-draft compare, goldens classified, prove b82788a 22:45:23 landed 32 s BEFORE the seed 2f6abbf
+22:45:55 - the part-2 process finding is closed). Two flags: the '0 value diffs' compare was string-blind (F1 invisible by
+construction) and the R49 leaf narrative does not reproduce (F2).
+
+MINI DECLARED-vs-ACTUAL: as declared (plan sent 22:47:27 before any work; neighbor-check; 10 pairs on both trees, Excel
+recalculated, Checks!B2 read on each; (a)-(h) with my own instruments; canary skipped; legs R32+R49 bare only; VS's 64-leg
+prove read, not re-run; every job in the foreground). One deviation: the '12-role synthetic' became the real 13-role draft.
+
+INSTRUMENTS (this dir): mini_hz_audit.py (a)-(e), mini_hz_typeover.py (b), mini_hz_mutate.py (g), mini_pop.py +
+mini_pr_population_profile.py + the inline text-variation scan (h), mini_text_dump.py + replay_gate._grid_dump (f),
+mini_pr_export.py (builds). Raw outputs: payroll_hz_audit_raw.txt, payroll_hz_typeover_raw.txt, payroll_hz_mutate_raw.txt.

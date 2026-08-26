@@ -54,3 +54,13 @@ Run from the repo root with .venv python; the draft scripts need the DB (.env) a
 - `cash_equity_B_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, drafts VS did not use: Cedar Ridge
   97a01a49 (Other Equity -7.39M to 0 at Q5), Orion 76915a55 (six negative steps Q15-Q20), Cedarhill 767dc360 (15 steps),
   plus Bellweather 46ae584a and Third Coast a051f479 (the task's demo draft); Halbrook only for the B2 OK->FAIL tamper.
+
+## HORIZONTAL Payroll Schedule audit (mini, 2026-08-25) - 785c3bc + e5161d5 + b82788a
+- `mini_hz_audit.py <scratch> <draft>...` - (a)-(e): old (730cb98) vs new (HEAD) recalculated builds; every sheet by address,
+  Checks by label, old detail rows vs the hidden bridge value-for-value, block formula shapes, bridge own-block refs, SUMIFS /
+  formula-count keying, amber census. FOUND F1: the per-role Wage Source header collapses the per-quarter owner-draw-deferred label.
+- `mini_hz_typeover.py <new xlsx> <scratch>` - (b): Excel type-overs (FTE / wage / hires) in a block, delta traced to the summary
+  and FINMO through the bridge.
+- `mini_hz_mutate.py <HEAD worktree> <scratch> <bluestem xlsx>` - (g): five builder tampers under the committed test (T2 = the
+  gap), the 13-role locator run, and a role-missing-a-quarter build on the real tree.
+- `payroll_hz_audit_evidence.txt` + `payroll_hz_*_raw.txt` - every measurement behind the HANDOFF RESULT.

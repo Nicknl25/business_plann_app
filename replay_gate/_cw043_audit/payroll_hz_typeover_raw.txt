@@ -1,0 +1,20 @@
+
+== fte: block[1] 'Co-Founder and CTO' Starting FTE q3: 1.0 -> 2.0
+   block Total Payroll delta by q: [0.0, 0.0, 106750.0, 106750.0, 109952.5, 109952.5, 109952.5, 109952.5, 113251.075, 113251.075, 113251.075, 113251.075, 116648.47, 116648.47, 116648.47, 116648.47, 120148.04, 120148.04, 120148.04, 120148.04]
+   summary Total Payroll delta == block delta: True; FINMO Payroll delta == block delta: True 
+   Checks!B2 before/after: FAIL/FAIL; non-OK rows unchanged: True; payroll checks after: ['OK'] (n=18)
+   every expected delta held (Starting/Ending/Average/Annual Wage/Total Payroll/summary/FINMO, all 20 quarters): True
+
+== wage: block[1] 'Co-Founder and CTO' Annual Wage q5: 360500.0 -> 361500.0
+   block Total Payroll delta by q: [0.0, 0.0, 0.0, 0.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0, 305.0]
+   summary Total Payroll delta == block delta: True; FINMO Payroll delta == block delta: True 
+   Checks!B2 before/after: FAIL/FAIL; non-OK rows unchanged: True; payroll checks after: ['OK'] (n=18)
+   every expected delta held (Starting/Ending/Average/Annual Wage/Total Payroll/summary/FINMO, all 20 quarters): True
+
+== hires: block[1] 'Co-Founder and CTO' Hires q2: 0.0 -> 2.0
+   block Total Payroll delta by q: [0.0, 106750.0, 213500.0, 213500.0, 219905.0, 219905.0, 219905.0, 219905.0, 226502.15, 226502.15, 226502.15, 226502.15, 233296.94, 233296.94, 233296.94, 233296.94, 240296.08, 240296.08, 240296.08, 240296.08]
+   summary Total Payroll delta == block delta: True; FINMO Payroll delta == block delta: True 
+   Checks!B2 before/after: FAIL/FAIL; non-OK rows unchanged: True; payroll checks after: ['OK'] (n=18)
+   every expected delta held (Starting/Ending/Average/Annual Wage/Total Payroll/summary/FINMO, all 20 quarters): True
+
+TYPE-OVER VERDICT: ALL HELD

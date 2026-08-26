@@ -1,0 +1,50 @@
+== T0 baseline in the worktree
+   [baseline] rc=0 ...........                                                              [100%]
+
+== T1 bridge row keyed on TITLE ONLY (every column points at the first same-title block)
+   [T1 title-only bridge] rc=1 'expected', 60)]
+
+tests\test_cw043_payroll_chain_grid.py:259: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_row_points_at_its_own_persons_block
+
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_row_points_at_its_own_persons_block
+== T2 ONLY the bridge Starting FTE column points at the wrong (same-title) block; Annual Wage column stays right
+   [T2 wrong-block Starting FTE only] rc=0 ...........                                                              [100%]
+
+== T3 a block loses its 'Average FTE' label row (label not written)
+   [T3 missing period-row label] rc=1 ck
+ERROR tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_every_bridge_row_points_at_its_own_persons_block
+ERROR tests/test_cw043_payroll_chain_grid.py::TheChainFollowsThePersonNotTheTitleTests::test_the_fixture_has_two_people_with_one_title_and_different_wages
+
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_every_chained_starting_fte_is_rounded_to_the_grid
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_one_block_per_role_identity
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_bare_chain_is_the_class_this_guard_exists_for
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_bridge_has_one_hidden_formula_row_per_engine_row_in_engine_order
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_emitted_chain_reproduces_the_engine_bit_for_bit
+       ERROR tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_visible_numeric_surface_is_four_inputs_per_engine_row
+== T4 the bridge is NOT hidden
+   [T4 visible bridge] rc=1 2 is visible
+
+tests\test_cw043_payroll_chain_grid.py:208: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_bridge_has_one_hidden_formula_row_per_engine_row_in_engine_order
+
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_bridge_has_one_hidden_formula_row_per_engine_row_in_engine_order
+== T5 the Starting FTE chain drops its ROUND (the part-2 class)
+   [T5 bare FTE chain] rc=1 ounded_to_the_grid
+FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_emitted_chain_reproduces_the_engine_bit_for_bit
+FAILED tests/test_cw043_payroll_chain_grid.py::TheRecalculatedBridgeEqualsTheEngineTests::test_recalculated_bridge_inputs_equal_the_engine_bit_for_bit
+
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_every_chained_starting_fte_is_rounded_to_the_grid
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheChainIsOnTheGridTests::test_the_emitted_chain_reproduces_the_engine_bit_for_bit
+       FAILED tests/test_cw043_payroll_chain_grid.py::TheRecalculatedBridgeEqualsTheEngineTests::test_recalculated_bridge_inputs_equal_the_engine_bit_for_bit
+== T6 13-role draft (Bluestem 52cf5792) through the TEST's locator: blocks=13 bridge rows=260
+== T7 a role missing a quarter (Halbrook, role #2 loses its q5 row) on the REAL tree
+   built OK: blocks=4 (identities 4), bridge rows=79 == 79: True
+   victim block q5 cells all blank: True; q6 Starting/Wage/Benefits are LITERALS (re-seed): [1.29, 65920, 0.22] engine q6: [1.29, 65920, 0.22]
+   q7 chains again: '=ROUND(I45,6)'
+   the TEST's _evaluate_block reproduces the engine on every block incl. the gapped one: misses=[] (n=0)
+   Excel-recalculated bridge inputs == engine on the gapped draft: misses=[] (n=0); Checks!B2=OK; payroll checks non-OK=[]
+
+T-SUMMARY {'T0': 0, 'T1': 1, 'T2': 0, 'T3': 1, 'T4': 1, 'T5': 1}
