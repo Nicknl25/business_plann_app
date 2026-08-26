@@ -262,6 +262,35 @@ class TheChainFollowsThePersonNotTheTitleTests(_Built):
           misses.append((ident[2], q, float(item.get("annual_wage")), vals["Annual Wage"][q]))
     self.assertFalse(misses, f"a Grow Technician inherited the other's wage: {misses[:4]}")
 
+  def test_every_bridge_cell_points_at_its_own_identitys_block(self):
+    """F3 (mini, 2026-08-25): ALL thirteen bridge formulas of every engine
+    row - not only Annual Wage - reference the block of that row's own
+    identity, at the right row for the column's label and the right quarter
+    column. A per-column regression would sum a same-title twin's FTE or
+    payroll into the summary and FINMO unseen."""
+    from openpyxl.utils import column_index_from_string
+    first, last = _bridge_rows(self.ws)
+    block_of = dict(zip(self.by_identity.keys(), self.blocks))
+    expect = {2: ("header", 2), 3: ("header", 1), 4: ("oews", 2),
+              5: ("Starting FTE", None), 6: ("Hires", None), 7: ("Ending FTE", None),
+              8: ("Average FTE", None), 9: ("Annual Wage", None), 10: ("Benefits %", None),
+              11: ("Wage Cost", None), 12: ("Taxes & Benefits", None), 13: ("Total Payroll", None),
+              14: ("source", None)}
+    wrong = []
+    for i, (q, ident) in enumerate(self.ids):
+      r = first + i
+      block = block_of[ident]
+      for col, (label, fixed_col) in expect.items():
+        v = str(self.ws.cell(r, col).value)
+        m = re.search(r"([A-Z]+)(\d+)", v)
+        self.assertIsNotNone(m, f"bridge {r},{col} has no reference: {v!r}")
+        ref_col, ref_row = column_index_from_string(m.group(1)), int(m.group(2))
+        want_row = block[label]
+        want_col = fixed_col if fixed_col else PERIOD_START_COL + q
+        if (ref_row, ref_col) != (want_row, want_col):
+          wrong.append((r, col, ident[2] or ident[1], "refs", (ref_row, ref_col), "expected", (want_row, want_col)))
+    self.assertFalse(wrong, f"bridge cells pointing outside their own block: {wrong[:4]}")
+
   def test_every_bridge_row_points_at_its_own_persons_block(self):
     first, last = _bridge_rows(self.ws)
     block_of = dict(zip(self.by_identity.keys(), self.blocks))
