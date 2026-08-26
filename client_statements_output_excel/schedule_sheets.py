@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -357,7 +357,172 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     row += 1
 
   row += 2
-  write_section_header(ws, row, "Payroll Detail")
+  write_section_header(ws, row, "Payroll Detail by Role")
+  row += 1
+  ws.cell(row=row, column=1,
+          value="One block per role, read left to right. Amber cells are yours: the "
+                "role's name, class and wage source once on its header row; starting "
+                "headcount, hires, wage and benefits by quarter. A number you type "
+                "carries to every later quarter, with the plan's own hires and wage "
+                "bumps added on top.").font = design.font("note")
+  row += 1
+
+  # THE SHEET IS HORIZONTAL (Nick, 2026-08-25). The detail used to be an
+  # 80-row vertical block - the one sheet in the workbook that read the wrong
+  # way round. Now each role is a block: a header row (Title/Person, Staffing
+  # Class, Wage Source - the properties of the PERSON, set once, not repeated
+  # twenty times) and nine period rows across the same quarter columns as
+  # every other schedule. The chain is the natural corkscrew:
+  #   Starting FTE(q) = ROUND(Ending FTE(q-1), 6)      (the engine's 2-dp grid)
+  #   Annual Wage(q)  = Wage(q-1), or ROUND(Wage(q-1) +/- the engine's delta, 6)
+  #   Benefits %(q)   = same rule
+  #   Hires           = literal, a per-quarter flow
+  # Role identity across quarters is (staffing class, title, person, ordinal-
+  # in-quarter) - two named people with one title get two blocks. A quarter
+  # with no engine row for the role (0 in the population today) is left
+  # blank and the chain restarts from a literal at the next row that exists.
+  #
+  # HOW IT STILL FEEDS THE SUMMARY AND CHECKS: a HIDDEN BRIDGE below the
+  # blocks reproduces the old vertical block, one row per engine row in the
+  # engine's own order and today's 14-column geometry, every cell a formula
+  # pointing back into the blocks. The summary SUMIFS, the Checks payroll
+  # tie-outs (by-quarter totals, row math, formula counts) and the "Payroll
+  # Detail First/Last Row" keys all range over the bridge, unchanged - the
+  # Debt Schedule pattern. Bit-identical by construction: the bridge cells
+  # ARE the values the SUMIFS summed before.
+  items = [it for it in (root.get("rows") or []) if isinstance(it, dict)]
+  roles: List[Dict[str, Any]] = []
+  by_key: Dict[tuple, Dict[str, Any]] = {}
+  seen_this_quarter: Dict[tuple, int] = {}
+  current_quarter = None
+  for item in items:
+    quarter = int(number(item.get("quarter_index")) or 0)
+    if quarter != current_quarter:
+      current_quarter, seen_this_quarter = quarter, {}
+    base_key = (
+      str(item.get("staffing_class") or "").strip(),
+      str(item.get("position_title") or "").strip(),
+      str(item.get("person_name") or "").strip(),
+    )
+    ordinal = seen_this_quarter.get(base_key, 0)
+    seen_this_quarter[base_key] = ordinal + 1
+    role_key = base_key + (ordinal,)
+    role = by_key.get(role_key)
+    if role is None:
+      role = {"key": role_key, "first": item, "by_q": {}}
+      by_key[role_key] = role
+      roles.append(role)
+    role["by_q"][quarter] = item
+
+  PERIOD_ROWS = [
+    ("Starting FTE", NUMBER_FORMAT, "input"),
+    ("Hires", NUMBER_FORMAT, "input"),
+    ("Ending FTE", NUMBER_FORMAT, "formula"),
+    ("Average FTE", NUMBER_FORMAT, "formula"),
+    ("Annual Wage", CURRENCY_FORMAT, "input"),
+    ("Benefits %", PERCENT_FORMAT, "input"),
+    ("Wage Cost", CURRENCY_FORMAT, "formula"),
+    ("Taxes & Benefits", CURRENCY_FORMAT, "formula"),
+    ("Total Payroll", CURRENCY_FORMAT, "formula"),
+  ]
+  role_layout: Dict[tuple, Dict[str, int]] = {}
+  for role in roles:
+    first = role["first"]
+    layout: Dict[str, int] = {"header": row, "oews": row + 1, "source": row + 2}
+    title_cell = ws.cell(row=row, column=1,
+                         value=text(first.get("position_title") or first.get("person_name")))
+    class_cell = ws.cell(row=row, column=2,
+                         value=_plain(first.get("staffing_class"), _STAFFING_CLASS_TEXT))
+    set_input_style(title_cell, number_format=design.FMT_TEXT)
+    set_input_style(class_cell, number_format=design.FMT_TEXT)
+    title_cell.font = design.font("label_strong")
+    ws.cell(row=row + 1, column=1, value="OEWS title")
+    oews_cell = ws.cell(row=row + 1, column=2,
+                        value=text(first.get("oews_occ_title") or first.get("oews_matched_title")))
+    set_formula_style(oews_cell, number_format=design.FMT_TEXT, internal_link=False)
+    ws.cell(row=row + 2, column=1, value="Wage source")
+    source_cell = ws.cell(row=row + 2, column=2,
+                          value=_wage_source_plain(first.get("wage_source") or first.get("wage_source_code")))
+    set_input_style(source_cell, number_format=design.FMT_TEXT)
+    for n, (label, _fmt, _kind) in enumerate(PERIOD_ROWS):
+      layout[label] = row + 3 + n
+      ws.cell(row=row + 3 + n, column=1, value=label)
+    R = layout
+    for q in range(1, PERIOD_COUNT):
+      col = PERIOD_START_COL + q
+      item = role["by_q"].get(q)
+      if item is None:
+        continue
+      prior = role["by_q"].get(q - 1)
+      prev_col = col - 1
+      starting = number(item.get("starting_fte"))
+      hires = number(item.get("hires"))
+      wage = number(item.get("annual_wage"))
+      benefits = number(item.get("payroll_taxes_benefits_percent"))
+
+      def _chained(row_of: int, value, prev_value):
+        """prev, or ROUND(prev +/- delta, 6) where the engine's series steps.
+
+        HONEST NOTE ON THIS ROUND (mini, 2026-08-25): for wages and benefits
+        it is DEFENSIVE, not earned - 0 of 390 drafts miss on a bare wage or
+        benefits chain (whole-dollar bumps, flat rate). The Starting FTE
+        ROUND is the one pinned by evidence (239 of 390 drafts). It stays so
+        that a future engine authoring a fractional bump lands on the grid.
+        """
+        prev_ref = local_ref(row_of, prev_col)
+        delta = (value or 0.0) - (prev_value or 0.0)
+        if abs(delta) <= 1e-9:
+          return f"={prev_ref}"
+        sign = "-" if delta < 0 else "+"
+        return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
+
+      if prior is not None:
+        ws.cell(row=R["Starting FTE"], column=col,
+                value=f"=ROUND({local_ref(R['Ending FTE'], prev_col)},6)")
+        ws.cell(row=R["Annual Wage"], column=col,
+                value=_chained(R["Annual Wage"], wage, number(prior.get("annual_wage"))))
+        ws.cell(row=R["Benefits %"], column=col,
+                value=_chained(R["Benefits %"], benefits, number(prior.get("payroll_taxes_benefits_percent"))))
+      else:
+        ws.cell(row=R["Starting FTE"], column=col, value=starting)
+        ws.cell(row=R["Annual Wage"], column=col, value=wage)
+        ws.cell(row=R["Benefits %"], column=col, value=benefits)
+      ws.cell(row=R["Hires"], column=col, value=hires)
+      ws.cell(row=R["Ending FTE"], column=col,
+              value=f"={local_ref(R['Starting FTE'], col)}+{local_ref(R['Hires'], col)}")
+      ws.cell(row=R["Average FTE"], column=col,
+              value=f"=({local_ref(R['Starting FTE'], col)}+{local_ref(R['Ending FTE'], col)})/2")
+      ws.cell(row=R["Wage Cost"], column=col,
+              value=f"={local_ref(R['Average FTE'], col)}*{local_ref(R['Annual Wage'], col)}/4")
+      ws.cell(row=R["Taxes & Benefits"], column=col,
+              value=f"={local_ref(R['Wage Cost'], col)}*{local_ref(R['Benefits %'], col)}")
+      ws.cell(row=R["Total Payroll"], column=col,
+              value=f"={local_ref(R['Wage Cost'], col)}+{local_ref(R['Taxes & Benefits'], col)}")
+      for label, fmt, kind in PERIOD_ROWS:
+        cell = ws.cell(row=R[label], column=col)
+        if kind == "input":
+          set_input_style(cell, number_format=fmt)
+        else:
+          set_formula_style(cell, number_format=fmt, internal_link=True)
+    for label, fmt, kind in PERIOD_ROWS:
+      style_row(ws, R[label], fill=FILL_GREEN if label == "Total Payroll" else None,
+                bold=(label == "Total Payroll"), number_format=fmt)
+    for label, fmt, kind in PERIOD_ROWS:
+      # style_row repaints the row; restore the amber on the client's cells
+      # (the same trap the CapEx sheet fell into).
+      if kind == "input":
+        for q in range(1, PERIOD_COUNT):
+          if role["by_q"].get(q) is not None:
+            set_input_style(ws.cell(row=R[label], column=PERIOD_START_COL + q), number_format=fmt)
+    role_layout[role["key"]] = layout
+    row += 3 + len(PERIOD_ROWS) + 1
+
+  # ---- THE HIDDEN BRIDGE ----------------------------------------------------
+  row += 1
+  ws.cell(row=row, column=1,
+          value="Feed to the summary and Checks - hidden by design; edit the role "
+                "blocks above, not these rows").font = design.font("note")
+  bridge_note_row = row
   row += 1
   detail_header_row = row
   headers = [
@@ -377,42 +542,18 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     "Wage Source",
   ]
   for col, header in enumerate(headers, start=1):
-    cell = ws.cell(row=row, column=col, value=header)
-    cell.fill = design.fill(design.NAVY_DEEP)
-    cell.font = design.font("colhead")
+    ws.cell(row=row, column=col, value=header).font = design.font("note")
   row += 1
   detail_start_row = row
-  # THE DETAIL BLOCK IS CHAINED (Nick, 2026-08-25, Payroll Schedule part 2).
-  # It was 80 rows of independent literals - a wage raise meant editing 20
-  # cells, and a hire in Q4 never reached Q5's starting headcount. Now, for a
-  # role with a row in the PRIOR quarter:
-  #   Starting FTE  = ROUND(prior Ending FTE, 6)
-  #   Annual Wage   = prior wage, or ROUND(prior +/- the engine's delta, 6)
-  #                   at the engine's own bump quarters (3%/yr as authored)
-  #   Benefits %    = prior, same rule
-  #   Hires         = literal - a per-quarter flow, like Distributions
-  # The ROUND is the same guard the Debt Schedule payoff and the equity chain
-  # use: the engine authors FTE and hires on a 2-dp grid (6.41), and
-  # 6.06 + 0.35 in IEEE is 6.409999999999999 - without the grid the crumb
-  # compounds through Ending, Average, Wage Cost and the P&L (28 cells on
-  # Halbrook in the prototype). A role with NO prior-quarter row keeps its
-  # literals (0 such rows in the population today; the fallback ships anyway).
-  # Every chained cell stays amber: the client types over it and the chain
-  # picks their number up from that point down. Nothing editable was lost;
-  # Staffing Class, Title/Person and Wage Source become editable too
-  # (nothing computed reads them - the SUMIFS key on the numeric Quarter).
-  # ROLE IDENTITY across quarters is (staffing class, title, person, ordinal):
-  # 73 of 390 drafts carry two named people with the SAME title (two "Dental
-  # Hygienist" key persons), and the ordinal covers two identical supporting
-  # rows in one quarter. Keyed on title alone they collided and fell back to
-  # literals - right numbers, no chain.
-  prior_row_by_role: Dict[tuple, tuple] = {}
-  seen_this_quarter: Dict[tuple, int] = {}
+  BRIDGE_COLS = [
+    (5, "Starting FTE"), (6, "Hires"), (7, "Ending FTE"), (8, "Average FTE"),
+    (9, "Annual Wage"), (10, "Benefits %"), (11, "Wage Cost"),
+    (12, "Taxes & Benefits"), (13, "Total Payroll"),
+  ]
+  seen_this_quarter = {}
   current_quarter = None
-  for item in root.get("rows") or []:
-    if not isinstance(item, dict):
-      continue
-    quarter = number(item.get("quarter_index"))
+  for item in items:
+    quarter = int(number(item.get("quarter_index")) or 0)
     if quarter != current_quarter:
       current_quarter, seen_this_quarter = quarter, {}
     base_key = (
@@ -422,64 +563,28 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     )
     ordinal = seen_this_quarter.get(base_key, 0)
     seen_this_quarter[base_key] = ordinal + 1
-    role_key = base_key + (ordinal,)
-    prior = prior_row_by_role.get(role_key)
-    prior_row = prior[0] if prior and quarter is not None and prior[1] == quarter - 1 else None
-    starting = number(item.get("starting_fte"))
-    wage = number(item.get("annual_wage"))
-    benefits = number(item.get("payroll_taxes_benefits_percent"))
+    R = role_layout[base_key + (ordinal,)]
+    qcol = PERIOD_START_COL + quarter
+    ws.cell(row=row, column=1, value=quarter).number_format = QUARTER_INDEX_FORMAT
 
-    def _chained(col: int, value, prev_value):
-      """prev, or ROUND(prev +/- delta, 6) where the engine's series steps.
+    def _text_ref(r_, c_):
+      # A reference to an EMPTY text cell evaluates to 0 in Excel; the old
+      # vertical block held None there. Keep the bridge value-identical.
+      ref_ = local_ref(r_, c_)
+      return f'=IF({ref_}="","",{ref_})'
 
-      HONEST NOTE ON THIS ROUND (mini, 2026-08-25): it is DEFENSIVE, not
-      earned. The FTE ROUND above is pinned by evidence - 239 of 390 drafts
-      miss the engine's 2-dp grid without it. This one has no value class
-      behind it: 0 of 390 drafts miss on a bare wage or benefits chain,
-      because the engine's wage bumps are whole dollars and the benefits
-      rate is flat. It stays because prev + delta in Excel is the same
-      shape as the equity chain and the guard costs nothing, and so that a
-      future engine that authors a fractional bump lands on the grid too.
-      Do not read it as pinned by a failing case; it is not.
-      """
-      prev_ref = local_ref(prior_row, col)
-      delta = (value or 0.0) - (prev_value or 0.0)
-      if abs(delta) <= 1e-9:
-        return f"={prev_ref}"
-      sign = "-" if delta < 0 else "+"
-      return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
-
-    ws.cell(row=row, column=1, value=quarter)
-    ws.cell(row=row, column=1).number_format = QUARTER_INDEX_FORMAT
-    ws.cell(row=row, column=2, value=_plain(item.get("staffing_class"), _STAFFING_CLASS_TEXT))
-    ws.cell(row=row, column=3, value=text(item.get("position_title") or item.get("person_name")))
-    ws.cell(row=row, column=4, value=text(item.get("oews_occ_title") or item.get("oews_matched_title")))
-    if prior_row is not None:
-      ws.cell(row=row, column=5, value=f"=ROUND({local_ref(prior_row, 7)},6)")
-      ws.cell(row=row, column=9, value=_chained(9, wage, prior[2]))
-      ws.cell(row=row, column=10, value=_chained(10, benefits, prior[3]))
-    else:
-      ws.cell(row=row, column=5, value=starting)
-      ws.cell(row=row, column=9, value=wage)
-      ws.cell(row=row, column=10, value=benefits)
-    ws.cell(row=row, column=6, value=number(item.get("hires")))
-    ws.cell(row=row, column=7, value=f"={local_ref(row, 5)}+{local_ref(row, 6)}")
-    ws.cell(row=row, column=8, value=f"=({local_ref(row, 5)}+{local_ref(row, 7)})/2")
-    ws.cell(row=row, column=11, value=f"={local_ref(row, 8)}*{local_ref(row, 9)}/4")
-    ws.cell(row=row, column=12, value=f"={local_ref(row, 11)}*{local_ref(row, 10)}")
-    ws.cell(row=row, column=13, value=f"={local_ref(row, 11)}+{local_ref(row, 12)}")
-    ws.cell(row=row, column=14, value=_wage_source_plain(item.get("wage_source") or item.get("wage_source_code")))
-    for col in [2, 3, 14]:
-      set_input_style(ws.cell(row=row, column=col), number_format=design.FMT_TEXT)
-    for col in [5, 6, 9, 10]:
-      set_input_style(ws.cell(row=row, column=col), number_format=PERCENT_FORMAT if col == 10 else CURRENCY_FORMAT if col == 9 else NUMBER_FORMAT)
-    for col in [7, 8]:
-      set_formula_style(ws.cell(row=row, column=col), number_format=NUMBER_FORMAT, internal_link=True)
-    for col in [11, 12, 13]:
-      set_formula_style(ws.cell(row=row, column=col), number_format=CURRENCY_FORMAT, internal_link=True)
-    prior_row_by_role[role_key] = (row, quarter, wage, benefits)
+    ws.cell(row=row, column=2, value=_text_ref(R["header"], 2))
+    ws.cell(row=row, column=3, value=_text_ref(R["header"], 1))
+    ws.cell(row=row, column=4, value=_text_ref(R["oews"], 2))
+    for col, label in BRIDGE_COLS:
+      ws.cell(row=row, column=col, value=f"={local_ref(R[label], qcol)}")
+    ws.cell(row=row, column=14, value=_text_ref(R["source"], 2))
+    for col in range(1, 15):
+      ws.cell(row=row, column=col).font = design.font("note")
     row += 1
   detail_last_row = row - 1
+  for r_ in range(bridge_note_row, max(detail_last_row, detail_header_row) + 1):
+    ws.row_dimensions[r_].hidden = True
   ctx.add_schedule_row(PAYROLL_SHEET, "Payroll Detail First Row", detail_start_row)
   ctx.add_schedule_row(PAYROLL_SHEET, "Payroll Detail Last Row", detail_last_row)
 
@@ -546,9 +651,8 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       number_format=fmt,
     )
 
-  for col in range(1, len(headers) + 1):
-    ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width or 12, 16)
-  ws.auto_filter.ref = f"A{detail_header_row}:N{max(detail_header_row, detail_last_row)}"
+  ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 12, 30)
+  ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 12, 34)
 
 
 def build_debt_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
