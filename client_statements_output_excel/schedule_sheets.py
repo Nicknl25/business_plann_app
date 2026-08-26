@@ -415,6 +415,12 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     role["by_q"][quarter] = item
 
   PERIOD_ROWS = [
+    # WAGE SOURCE IS PER QUARTER (mini's F1, Nick's ruling (C), 2026-08-25):
+    # the engine labels the owner's wage "... owner draw deferred" for the
+    # deferral quarters and plain after - a per-role header said "deferred"
+    # for all twenty. One cell per quarter, like the wage it describes, and
+    # the bridge reproduces the old block's label literally.
+    ("Wage source", design.FMT_TEXT, "text"),
     ("Starting FTE", NUMBER_FORMAT, "input"),
     ("Hires", NUMBER_FORMAT, "input"),
     ("Ending FTE", NUMBER_FORMAT, "formula"),
@@ -428,7 +434,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   role_layout: Dict[tuple, Dict[str, int]] = {}
   for role in roles:
     first = role["first"]
-    layout: Dict[str, int] = {"header": row, "oews": row + 1, "source": row + 2}
+    layout: Dict[str, int] = {"header": row, "oews": row + 1}
     title_cell = ws.cell(row=row, column=1,
                          value=text(first.get("position_title") or first.get("person_name")))
     class_cell = ws.cell(row=row, column=2,
@@ -440,13 +446,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     oews_cell = ws.cell(row=row + 1, column=2,
                         value=text(first.get("oews_occ_title") or first.get("oews_matched_title")))
     set_formula_style(oews_cell, number_format=design.FMT_TEXT, internal_link=False)
-    ws.cell(row=row + 2, column=1, value="Wage source")
-    source_cell = ws.cell(row=row + 2, column=2,
-                          value=_wage_source_plain(first.get("wage_source") or first.get("wage_source_code")))
-    set_input_style(source_cell, number_format=design.FMT_TEXT)
     for n, (label, _fmt, _kind) in enumerate(PERIOD_ROWS):
-      layout[label] = row + 3 + n
-      ws.cell(row=row + 3 + n, column=1, value=label)
+      layout[label] = row + 2 + n
+      ws.cell(row=row + 2 + n, column=1, value=label)
     R = layout
     for q in range(1, PERIOD_COUNT):
       col = PERIOD_START_COL + q
@@ -476,6 +478,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         sign = "-" if delta < 0 else "+"
         return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
 
+      source_cell = ws.cell(row=R["Wage source"], column=col,
+                            value=_wage_source_plain(item.get("wage_source") or item.get("wage_source_code")))
+      set_input_style(source_cell, number_format=design.FMT_TEXT)
       if prior is not None:
         ws.cell(row=R["Starting FTE"], column=col,
                 value=f"=ROUND({local_ref(R['Ending FTE'], prev_col)},6)")
@@ -500,7 +505,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
               value=f"={local_ref(R['Wage Cost'], col)}+{local_ref(R['Taxes & Benefits'], col)}")
       for label, fmt, kind in PERIOD_ROWS:
         cell = ws.cell(row=R[label], column=col)
-        if kind == "input":
+        if kind in ("input", "text"):
           set_input_style(cell, number_format=fmt)
         else:
           set_formula_style(cell, number_format=fmt, internal_link=True)
@@ -510,12 +515,12 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     for label, fmt, kind in PERIOD_ROWS:
       # style_row repaints the row; restore the amber on the client's cells
       # (the same trap the CapEx sheet fell into).
-      if kind == "input":
+      if kind in ("input", "text"):
         for q in range(1, PERIOD_COUNT):
           if role["by_q"].get(q) is not None:
             set_input_style(ws.cell(row=R[label], column=PERIOD_START_COL + q), number_format=fmt)
     role_layout[role["key"]] = layout
-    row += 3 + len(PERIOD_ROWS) + 1
+    row += 2 + len(PERIOD_ROWS) + 1
 
   # ---- THE HIDDEN BRIDGE ----------------------------------------------------
   row += 1
@@ -578,7 +583,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     ws.cell(row=row, column=4, value=_text_ref(R["oews"], 2))
     for col, label in BRIDGE_COLS:
       ws.cell(row=row, column=col, value=f"={local_ref(R[label], qcol)}")
-    ws.cell(row=row, column=14, value=_text_ref(R["source"], 2))
+    ws.cell(row=row, column=14, value=_text_ref(R["Wage source"], qcol))
     for col in range(1, 15):
       ws.cell(row=row, column=col).font = design.font("note")
     row += 1

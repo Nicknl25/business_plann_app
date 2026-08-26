@@ -210,6 +210,23 @@ class TheChainIsOnTheGridTests(_Built):
         v = self.ws.cell(r, c).value
         self.assertTrue(isinstance(v, str) and v.startswith("="), f"bridge {r},{c} is not a formula: {v!r}")
 
+  def test_the_bridge_wage_source_follows_the_quarter_not_the_role(self):
+    """Wage source is PER QUARTER in the engine (the owner-draw deferral reads
+    'deferred' for Q1-7 and plain after). The block carries it as a period
+    row and every bridge row's column N points at ITS quarter's cell."""
+    first, last = _bridge_rows(self.ws)
+    block_of = dict(zip(self.by_identity.keys(), self.blocks))
+    wrong = []
+    for i, (q, ident) in enumerate(self.ids):
+      v = str(self.ws.cell(first + i, 14).value)
+      m = re.fullmatch(r'=IF\(([A-Z]+)(\d+)="","",\1\2\)', v)
+      self.assertIsNotNone(m, f"bridge wage-source cell {first + i} is not a guarded reference: {v!r}")
+      exp_col = PERIOD_START_COL + q
+      from openpyxl.utils import column_index_from_string
+      if int(m.group(2)) != block_of[ident]["source"] or column_index_from_string(m.group(1)) != exp_col:
+        wrong.append((first + i, v, "expected row", block_of[ident]["source"], "col", exp_col))
+    self.assertFalse(wrong, f"bridge wage source not per quarter: {wrong[:4]}")
+
   def test_the_visible_numeric_surface_is_four_inputs_per_engine_row(self):
     import openpyxl
     amber = str(openpyxl.load_workbook(self.path)["Debt Schedule"].cell(8, 3).fill.fgColor.rgb)[-6:]

@@ -1,0 +1,52 @@
+ROOT C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA  398db547073c4762a2f6461ca16daa7c8897d2c7f66a55e293254312733ea4ba
+TEXT 2319 cells across 16 sheets
+ROOT C:/dev/business_plann_app
+SHA  30fe003a2efe72b4f414e2e8b971c41b4239cba2e53a9680c21e9af6e8630437
+TEXT 2414 cells across 16 sheets
+
+DIFF shared=2314 changed=0 gone=5 added=100  (total touched 105)
+by sheet: {'Payroll Schedule': 105}
+   105 ('Payroll Schedule', 'sheet-text')
+('Payroll Schedule', 'sheet-text')
+      ('B29', 'Your stated wage (raised to the wage floor)', 'None')
+      ('B42', 'Your stated wage (adjusted for part-time hours)', 'None')
+      ('B55', 'Your stated wage', 'None')
+      ('B68', 'Your stated wage', 'None')
+      ('B81', 'Market median for this title (BLS)', 'None')
+      ('D29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('D42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('D55', 'None', 'Your stated wage')
+      ('D68', 'None', 'Your stated wage')
+      ('D81', 'None', 'Market median for this title (BLS)')
+      ('E29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('E42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('E55', 'None', 'Your stated wage')
+      ('E68', 'None', 'Your stated wage')
+      ('E81', 'None', 'Market median for this title (BLS)')
+      ('F29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('F42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('F55', 'None', 'Your stated wage')
+      ('F68', 'None', 'Your stated wage')
+      ('F81', 'None', 'Market median for this title (BLS)')
+      ('G29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('G42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('G55', 'None', 'Your stated wage')
+      ('G68', 'None', 'Your stated wage')
+      ('G81', 'None', 'Market median for this title (BLS)')
+      ('H29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('H42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('H55', 'None', 'Your stated wage')
+      ('H68', 'None', 'Your stated wage')
+      ('H81', 'None', 'Market median for this title (BLS)')
+      ('I29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('I42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('I55', 'None', 'Your stated wage')
+      ('I68', 'None', 'Your stated wage')
+      ('I81', 'None', 'Market median for this title (BLS)')
+      ('J29', 'None', 'Your stated wage (raised to the wage floor)')
+      ('J42', 'None', 'Your stated wage (adjusted for part-time hours)')
+      ('J55', 'None', 'Your stated wage')
+      ('J68', 'None', 'Your stated wage')
+      ('J81', 'None', 'Market median for this title (BLS)')
+old tie-out label at: [] | in new: []

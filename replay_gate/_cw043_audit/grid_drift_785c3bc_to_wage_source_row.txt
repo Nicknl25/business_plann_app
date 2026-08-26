@@ -1,0 +1,309 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    8be04b725821f73aa8283598d63a03796bc70a010aa038c0394b704422f515e2
+GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    2597e192ff6cb7180b6d3519874aa372dddd5bf2e284c29d99020363c056e9ab
+GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   9667 shared cells, 100 CHANGED, 0 only in wt_head, 0 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  *    Payroll Schedule	row100	12
+         was =IF(B29="","",B29)
+         now =IF(E29="","",E29)
+  *    Payroll Schedule	row101	12
+         was =IF(B42="","",B42)
+         now =IF(E42="","",E42)
+  *    Payroll Schedule	row102	12
+         was =IF(B55="","",B55)
+         now =IF(E55="","",E55)
+  *    Payroll Schedule	row103	12
+         was =IF(B68="","",B68)
+         now =IF(E68="","",E68)
+  *    Payroll Schedule	row104	12
+         was =IF(B81="","",B81)
+         now =IF(E81="","",E81)
+  *    Payroll Schedule	row105	12
+         was =IF(B29="","",B29)
+         now =IF(F29="","",F29)
+  *    Payroll Schedule	row106	12
+         was =IF(B42="","",B42)
+         now =IF(F42="","",F42)
+  *    Payroll Schedule	row107	12
+         was =IF(B55="","",B55)
+         now =IF(F55="","",F55)
+  *    Payroll Schedule	row108	12
+         was =IF(B68="","",B68)
+         now =IF(F68="","",F68)
+  *    Payroll Schedule	row109	12
+         was =IF(B81="","",B81)
+         now =IF(F81="","",F81)
+  *    Payroll Schedule	row110	12
+         was =IF(B29="","",B29)
+         now =IF(G29="","",G29)
+  *    Payroll Schedule	row111	12
+         was =IF(B42="","",B42)
+         now =IF(G42="","",G42)
+  *    Payroll Schedule	row112	12
+         was =IF(B55="","",B55)
+         now =IF(G55="","",G55)
+  *    Payroll Schedule	row113	12
+         was =IF(B68="","",B68)
+         now =IF(G68="","",G68)
+  *    Payroll Schedule	row114	12
+         was =IF(B81="","",B81)
+         now =IF(G81="","",G81)
+  *    Payroll Schedule	row115	12
+         was =IF(B29="","",B29)
+         now =IF(H29="","",H29)
+  *    Payroll Schedule	row116	12
+         was =IF(B42="","",B42)
+         now =IF(H42="","",H42)
+  *    Payroll Schedule	row117	12
+         was =IF(B55="","",B55)
+         now =IF(H55="","",H55)
+  *    Payroll Schedule	row118	12
+         was =IF(B68="","",B68)
+         now =IF(H68="","",H68)
+  *    Payroll Schedule	row119	12
+         was =IF(B81="","",B81)
+         now =IF(H81="","",H81)
+  *    Payroll Schedule	row120	12
+         was =IF(B29="","",B29)
+         now =IF(I29="","",I29)
+  *    Payroll Schedule	row121	12
+         was =IF(B42="","",B42)
+         now =IF(I42="","",I42)
+  *    Payroll Schedule	row122	12
+         was =IF(B55="","",B55)
+         now =IF(I55="","",I55)
+  *    Payroll Schedule	row123	12
+         was =IF(B68="","",B68)
+         now =IF(I68="","",I68)
+  *    Payroll Schedule	row124	12
+         was =IF(B81="","",B81)
+         now =IF(I81="","",I81)
+  *    Payroll Schedule	row125	12
+         was =IF(B29="","",B29)
+         now =IF(J29="","",J29)
+  *    Payroll Schedule	row126	12
+         was =IF(B42="","",B42)
+         now =IF(J42="","",J42)
+  *    Payroll Schedule	row127	12
+         was =IF(B55="","",B55)
+         now =IF(J55="","",J55)
+  *    Payroll Schedule	row128	12
+         was =IF(B68="","",B68)
+         now =IF(J68="","",J68)
+  *    Payroll Schedule	row129	12
+         was =IF(B81="","",B81)
+         now =IF(J81="","",J81)
+  *    Payroll Schedule	row130	12
+         was =IF(B29="","",B29)
+         now =IF(K29="","",K29)
+  *    Payroll Schedule	row131	12
+         was =IF(B42="","",B42)
+         now =IF(K42="","",K42)
+  *    Payroll Schedule	row132	12
+         was =IF(B55="","",B55)
+         now =IF(K55="","",K55)
+  *    Payroll Schedule	row133	12
+         was =IF(B68="","",B68)
+         now =IF(K68="","",K68)
+  *    Payroll Schedule	row134	12
+         was =IF(B81="","",B81)
+         now =IF(K81="","",K81)
+  *    Payroll Schedule	row135	12
+         was =IF(B29="","",B29)
+         now =IF(L29="","",L29)
+  *    Payroll Schedule	row136	12
+         was =IF(B42="","",B42)
+         now =IF(L42="","",L42)
+  *    Payroll Schedule	row137	12
+         was =IF(B55="","",B55)
+         now =IF(L55="","",L55)
+  *    Payroll Schedule	row138	12
+         was =IF(B68="","",B68)
+         now =IF(L68="","",L68)
+  *    Payroll Schedule	row139	12
+         was =IF(B81="","",B81)
+         now =IF(L81="","",L81)
+  *    Payroll Schedule	row140	12
+         was =IF(B29="","",B29)
+         now =IF(M29="","",M29)
+  *    Payroll Schedule	row141	12
+         was =IF(B42="","",B42)
+         now =IF(M42="","",M42)
+  *    Payroll Schedule	row142	12
+         was =IF(B55="","",B55)
+         now =IF(M55="","",M55)
+  *    Payroll Schedule	row143	12
+         was =IF(B68="","",B68)
+         now =IF(M68="","",M68)
+  *    Payroll Schedule	row144	12
+         was =IF(B81="","",B81)
+         now =IF(M81="","",M81)
+  *    Payroll Schedule	row145	12
+         was =IF(B29="","",B29)
+         now =IF(N29="","",N29)
+  *    Payroll Schedule	row146	12
+         was =IF(B42="","",B42)
+         now =IF(N42="","",N42)
+  *    Payroll Schedule	row147	12
+         was =IF(B55="","",B55)
+         now =IF(N55="","",N55)
+  *    Payroll Schedule	row148	12
+         was =IF(B68="","",B68)
+         now =IF(N68="","",N68)
+  *    Payroll Schedule	row149	12
+         was =IF(B81="","",B81)
+         now =IF(N81="","",N81)
+  *    Payroll Schedule	row150	12
+         was =IF(B29="","",B29)
+         now =IF(O29="","",O29)
+  *    Payroll Schedule	row151	12
+         was =IF(B42="","",B42)
+         now =IF(O42="","",O42)
+  *    Payroll Schedule	row152	12
+         was =IF(B55="","",B55)
+         now =IF(O55="","",O55)
+  *    Payroll Schedule	row153	12
+         was =IF(B68="","",B68)
+         now =IF(O68="","",O68)
+  *    Payroll Schedule	row154	12
+         was =IF(B81="","",B81)
+         now =IF(O81="","",O81)
+  *    Payroll Schedule	row155	12
+         was =IF(B29="","",B29)
+         now =IF(P29="","",P29)
+  *    Payroll Schedule	row156	12
+         was =IF(B42="","",B42)
+         now =IF(P42="","",P42)
+  *    Payroll Schedule	row157	12
+         was =IF(B55="","",B55)
+         now =IF(P55="","",P55)
+  *    Payroll Schedule	row158	12
+         was =IF(B68="","",B68)
+         now =IF(P68="","",P68)
+  *    Payroll Schedule	row159	12
+         was =IF(B81="","",B81)
+         now =IF(P81="","",P81)
+  *    Payroll Schedule	row160	12
+         was =IF(B29="","",B29)
+         now =IF(Q29="","",Q29)
+  *    Payroll Schedule	row161	12
+         was =IF(B42="","",B42)
+         now =IF(Q42="","",Q42)
+  *    Payroll Schedule	row162	12
+         was =IF(B55="","",B55)
+         now =IF(Q55="","",Q55)
+  *    Payroll Schedule	row163	12
+         was =IF(B68="","",B68)
+         now =IF(Q68="","",Q68)
+  *    Payroll Schedule	row164	12
+         was =IF(B81="","",B81)
+         now =IF(Q81="","",Q81)
+  *    Payroll Schedule	row165	12
+         was =IF(B29="","",B29)
+         now =IF(R29="","",R29)
+  *    Payroll Schedule	row166	12
+         was =IF(B42="","",B42)
+         now =IF(R42="","",R42)
+  *    Payroll Schedule	row167	12
+         was =IF(B55="","",B55)
+         now =IF(R55="","",R55)
+  *    Payroll Schedule	row168	12
+         was =IF(B68="","",B68)
+         now =IF(R68="","",R68)
+  *    Payroll Schedule	row169	12
+         was =IF(B81="","",B81)
+         now =IF(R81="","",R81)
+  *    Payroll Schedule	row170	12
+         was =IF(B29="","",B29)
+         now =IF(S29="","",S29)
+  *    Payroll Schedule	row171	12
+         was =IF(B42="","",B42)
+         now =IF(S42="","",S42)
+  *    Payroll Schedule	row172	12
+         was =IF(B55="","",B55)
+         now =IF(S55="","",S55)
+  *    Payroll Schedule	row173	12
+         was =IF(B68="","",B68)
+         now =IF(S68="","",S68)
+  *    Payroll Schedule	row174	12
+         was =IF(B81="","",B81)
+         now =IF(S81="","",S81)
+  *    Payroll Schedule	row175	12
+         was =IF(B29="","",B29)
+         now =IF(T29="","",T29)
+  *    Payroll Schedule	row176	12
+         was =IF(B42="","",B42)
+         now =IF(T42="","",T42)
+  *    Payroll Schedule	row177	12
+         was =IF(B55="","",B55)
+         now =IF(T55="","",T55)
+  *    Payroll Schedule	row178	12
+         was =IF(B68="","",B68)
+         now =IF(T68="","",T68)
+  *    Payroll Schedule	row179	12
+         was =IF(B81="","",B81)
+         now =IF(T81="","",T81)
+  *    Payroll Schedule	row180	12
+         was =IF(B29="","",B29)
+         now =IF(U29="","",U29)
+  *    Payroll Schedule	row181	12
+         was =IF(B42="","",B42)
+         now =IF(U42="","",U42)
+  *    Payroll Schedule	row182	12
+         was =IF(B55="","",B55)
+         now =IF(U55="","",U55)
+  *    Payroll Schedule	row183	12
+         was =IF(B68="","",B68)
+         now =IF(U68="","",U68)
+  *    Payroll Schedule	row184	12
+         was =IF(B81="","",B81)
+         now =IF(U81="","",U81)
+  *    Payroll Schedule	row185	12
+         was =IF(B29="","",B29)
+         now =IF(V29="","",V29)
+  *    Payroll Schedule	row186	12
+         was =IF(B42="","",B42)
+         now =IF(V42="","",V42)
+  *    Payroll Schedule	row187	12
+         was =IF(B55="","",B55)
+         now =IF(V55="","",V55)
+  *    Payroll Schedule	row188	12
+         was =IF(B68="","",B68)
+         now =IF(V68="","",V68)
+  *    Payroll Schedule	row189	12
+         was =IF(B81="","",B81)
+         now =IF(V81="","",V81)
+  *    Payroll Schedule	row190	12
+         was =IF(B29="","",B29)
+         now =IF(W29="","",W29)
+  *    Payroll Schedule	row191	12
+         was =IF(B42="","",B42)
+         now =IF(W42="","",W42)
+  *    Payroll Schedule	row192	12
+         was =IF(B55="","",B55)
+         now =IF(W55="","",W55)
+  *    Payroll Schedule	row193	12
+         was =IF(B68="","",B68)
+         now =IF(W68="","",W68)
+  *    Payroll Schedule	row194	12
+         was =IF(B81="","",B81)
+         now =IF(W81="","",W81)
+  *    Payroll Schedule	row95	12
+         was =IF(B29="","",B29)
+         now =IF(D29="","",D29)
+  *    Payroll Schedule	row96	12
+         was =IF(B42="","",B42)
+         now =IF(D42="","",D42)
+  *    Payroll Schedule	row97	12
+         was =IF(B55="","",B55)
+         now =IF(D55="","",D55)
+  *    Payroll Schedule	row98	12
+         was =IF(B68="","",B68)
+         now =IF(D68="","",D68)
+  *    Payroll Schedule	row99	12
+         was =IF(B81="","",B81)
+         now =IF(D81="","",D81)
