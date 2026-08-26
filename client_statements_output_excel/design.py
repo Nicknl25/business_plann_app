@@ -169,6 +169,11 @@ FMT_DAYS = '#,##0" days"'
 FMT_DATE = "mmm yyyy"
 FMT_TEXT = "@"
 FMT_GENERAL = "General"
+#: A numeric quarter index that DISPLAYS as Stub / Q1 ... Q20 (Payroll Schedule
+#: column A): the value stays numeric so SUMIFS and the Checks tie-out that key
+#: on it are untouched, and a client reads the same period labels as every
+#: other sheet.
+FMT_QUARTER_INDEX = '[=0]"Stub";"Q"0'
 
 #: Axis formats (no negative/zero sections — Excel axes take the simple form).
 FMT_AXIS_MONEY = "$#,##0"
@@ -178,6 +183,7 @@ FMT_AXIS_UNITS = "#,##0.0"
 ALLOWED_NUMBER_FORMATS = frozenset({
   FMT_MONEY, FMT_MONEY_SIGNED, FMT_PERCENT, FMT_RATIO, FMT_UNITS, FMT_INTEGER,
   FMT_DAYS, FMT_DATE, FMT_TEXT, FMT_GENERAL,
+  FMT_QUARTER_INDEX,
 })
 
 # ---------------------------------------------------------------------------

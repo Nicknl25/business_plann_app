@@ -232,18 +232,91 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
   # from here either - it reads stage_ramp_contract.quarter_ramp_grid directly.
 
 
+# ---------------------------------------------------------------------------
+# PAYROLL SCHEDULE - CLIENT LANGUAGE (Nick, 2026-08-25). The payroll payload
+# carries code values (key_person, oews_title_catalog:oews_median,
+# labor_driven ...). They were printed verbatim into client-facing cells.
+# Nothing computed reads these strings - the summary SUMIFS and the Checks
+# tie-out key on the numeric Quarter in column A and on fixed column letters -
+# so the mapping is presentation only. Unknown values fall through unchanged
+# rather than failing a build over a label.
+# ---------------------------------------------------------------------------
+_STAFFING_CLASS_TEXT = {
+  "key_person": "Named person",
+  "supporting_staff": "Staffed role",
+}
+_WAGE_SOURCE_TEXT = {
+  "client_override": "Your stated wage",
+  "intake_oews_key_person": "Your stated wage",
+  "oews_title_catalog:oews_median": "Market median for this title (BLS)",
+  "oews_median": "Market median for this title (BLS)",
+  "oews_pct10": "Market 10th percentile for this title (BLS)",
+  "oews_pct25": "Market 25th percentile for this title (BLS)",
+  "oews_pct75": "Market 75th percentile for this title (BLS)",
+  "oews_pct90": "Market 90th percentile for this title (BLS)",
+}
+_WAGE_SOURCE_SUFFIX_TEXT = {
+  "floor_adapted": "raised to the wage floor",
+  "part_time_hours_adapted": "adjusted for part-time hours",
+  "owner_draw_deferred": "owner draw deferred",
+}
+_CAPACITY_MODEL_TEXT = {
+  "labor_driven": "Capacity grows with headcount",
+  "hybrid": "Capacity grows with headcount and systems",
+  "system_driven": "Capacity grows with systems, not headcount",
+  "expert_driven": "Capacity grows with expertise",
+}
+_LABOR_INTENSITY_TEXT = {
+  "low": "Low - few staff per unit of revenue",
+  "medium": "Medium",
+  "high": "High - many staff per unit of revenue",
+  "expert": "Expert - a few specialists",
+}
+_WAGE_TIER_TEXT = {
+  "floor": "Floor - 1.00 to 1.10x the market reference",
+  "market": "Market - 1.10 to 1.40x the market reference",
+  "premium": "Premium - 1.35 to 1.80x the market reference",
+  "specialized": "Specialized - 1.70 to 2.50x the market reference",
+}
+
+
+def _plain(value, table):
+  key = str(value or "").strip()
+  return table.get(key.lower(), key) if key else key
+
+
+def _wage_source_plain(value) -> str:
+  raw = str(value or "").strip()
+  if not raw:
+    return ""
+  base, _, rest = raw.partition("|")
+  words = _WAGE_SOURCE_TEXT.get(base.lower(), base)
+  notes = [_WAGE_SOURCE_SUFFIX_TEXT.get(x.strip().lower(), x.strip())
+           for x in rest.split("|") if x.strip()]
+  return words + (" (" + ", ".join(notes) + ")" if notes else "")
+
+
+#: Column A of the payroll detail keeps its NUMERIC quarter index - the
+#: summary SUMIFS and the Checks tie-out key on it - and only DISPLAYS as
+#: Stub / Q1 ... Q20 like every other sheet's period headers.
+QUARTER_INDEX_FORMAT = design.FMT_QUARTER_INDEX
+
+
 def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
   ws = create_sheet(wb, PAYROLL_SHEET)
   apply_base_style(ws)
-  set_title(ws, "Payroll Schedule", "OEWS-title, capacity/utilization-driven payroll source. Model Inputs links to Total Payroll.")
+  set_title(ws, "Payroll Schedule",
+            "Who is on payroll, quarter by quarter: each role's headcount, wage and "
+            "benefits, and what they add up to. Model Inputs takes Total Payroll from "
+            "this sheet.")
   write_period_headers(ws, data.periods)
   root = data.payroll_headcount
   summary_row = 6
   write_section_header(ws, summary_row, "Payroll Assumptions")
   assumptions = [
-    ("Capacity Labor Model", root.get("capacity_labor_model")),
-    ("Labor Intensity Class", root.get("labor_intensity_class")),
-    ("Wage Positioning Tier", root.get("wage_positioning_tier")),
+    ("Capacity Labor Model", _plain(root.get("capacity_labor_model"), _CAPACITY_MODEL_TEXT)),
+    ("Labor Intensity Class", _plain(root.get("labor_intensity_class"), _LABOR_INTENSITY_TEXT)),
+    ("Wage Positioning Tier", _plain(root.get("wage_positioning_tier"), _WAGE_TIER_TEXT)),
     ("Wage Positioning Multiplier", root.get("wage_positioning_multiplier")),
     ("Capacity Units per Supporting FTE", root.get("capacity_units_per_supporting_fte")),
     ("Target Payroll % of Revenue", root.get("target_payroll_percent_of_revenue")),
@@ -272,8 +345,12 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     detail = "Formula output from payroll detail"
     if key in {"revenue", "capacity_units"}:
       detail = "Linked from Revenue Drivers"
-    elif key in {"revenue_per_employee", "units_per_employee", "payroll_percent_of_revenue"}:
-      detail = "Python-built productivity formula"
+    elif key == "revenue_per_employee":
+      detail = "Revenue divided by average FTE"
+    elif key == "units_per_employee":
+      detail = "Capacity units divided by average FTE"
+    elif key == "payroll_percent_of_revenue":
+      detail = "Total payroll divided by revenue"
     ws.cell(row=row, column=2, value=detail)
     ctx.add_schedule_row(PAYROLL_SHEET, label, row)
     summary_rows[label] = (row, key, fmt)
@@ -309,7 +386,8 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     if not isinstance(item, dict):
       continue
     ws.cell(row=row, column=1, value=number(item.get("quarter_index")))
-    ws.cell(row=row, column=2, value=text(item.get("staffing_class")))
+    ws.cell(row=row, column=1).number_format = QUARTER_INDEX_FORMAT
+    ws.cell(row=row, column=2, value=_plain(item.get("staffing_class"), _STAFFING_CLASS_TEXT))
     ws.cell(row=row, column=3, value=text(item.get("position_title") or item.get("person_name")))
     ws.cell(row=row, column=4, value=text(item.get("oews_occ_title") or item.get("oews_matched_title")))
     ws.cell(row=row, column=5, value=number(item.get("starting_fte")))
@@ -321,7 +399,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     ws.cell(row=row, column=11, value=f"={local_ref(row, 8)}*{local_ref(row, 9)}/4")
     ws.cell(row=row, column=12, value=f"={local_ref(row, 11)}*{local_ref(row, 10)}")
     ws.cell(row=row, column=13, value=f"={local_ref(row, 11)}+{local_ref(row, 12)}")
-    ws.cell(row=row, column=14, value=text(item.get("wage_source") or item.get("wage_source_code")))
+    ws.cell(row=row, column=14, value=_wage_source_plain(item.get("wage_source") or item.get("wage_source_code")))
     for col in [5, 6, 9, 10]:
       set_input_style(ws.cell(row=row, column=col), number_format=PERCENT_FORMAT if col == 10 else CURRENCY_FORMAT if col == 9 else NUMBER_FORMAT)
     for col in [7, 8]:
