@@ -2297,11 +2297,31 @@ def enforce_labor_scaling_on_payload(
   # starting FTE is held (existing staff are never cut) -- the trim can only
   # defer growth, never fire anyone. The up-only ratchet (f = max(f, prev))
   # is skipped in this mode; continuity is enforced at the FTE level instead.
+  # The factor is solved on the SUPPORTING payroll alone, because that is the
+  # only part that scales now (named people are exempt, above). Named payroll
+  # is a fixed cost of the roster: the supporting block moves to
+  # (target - named) and the factor is that over what supporting authors
+  # today. Where named payroll alone meets or exceeds the target there is
+  # nothing left to scale and the supporting block goes to its floor - the
+  # over-budget case, left honest rather than clipped.
+  named_payroll_by_q: Dict[int, float] = {}
+  for r in (payload.get("rows") or []):
+    if not isinstance(r, dict):
+      continue
+    if str(r.get("staffing_class") or "").strip().lower() != "key_person":
+      continue
+    q_ = int(_safe_float(r.get("quarter_index")) or 0)
+    named_payroll_by_q[q_] = named_payroll_by_q.get(q_, 0.0) + float(
+      _safe_float(r.get("total_quarterly_payroll")) or 0.0
+    )
   factor_by_q: Dict[int, float] = {}
   prev = 1.0
   for q in range(1, horizon + 1):
-    authored = _safe_float((qt_by_q.get(q) or {}).get("payroll")) or 0.0
-    target = target_by_q.get(q)
+    authored_all = _safe_float((qt_by_q.get(q) or {}).get("payroll")) or 0.0
+    named_q = named_payroll_by_q.get(q, 0.0)
+    authored = max(0.0, authored_all - named_q)
+    target_all = target_by_q.get(q)
+    target = None if target_all is None else max(0.0, float(target_all) - named_q)
     f = 1.0
     if target is not None and authored > 0.0:
       if target > authored:
@@ -2315,11 +2335,33 @@ def enforce_labor_scaling_on_payload(
   if all(abs(f - 1.0) < 1e-6 for f in factor_by_q.values()):
     return None
 
-  # Scale each title's ending_fte by its quarter factor, then re-derive
-  # continuity (starting_fte = prior ending) and the wage math per row.
+  # A NAMED PERSON IS A PERSON (Nick, 2026-08-27). This scaler used to
+  # multiply EVERY title's FTE by the budget factor, named individuals
+  # included - so an owner the client named came out at 1.21 people, or at
+  # 0.39 of one, because that was the ratio that made payroll hit
+  # revenue x target_payroll_percent. The realism row for
+  # payroll_percent_of_revenue already states the doctrine this violated:
+  # "payroll is NOT clipped to fit revenue (Golden Rule preservation)".
+  # Shrinking a person is clipping payroll to fit revenue.
+  #
+  # Named people (staffing_class == "key_person") are now EXEMPT: they stay
+  # where intake put them - 1.0 for a full-timer, and the stated fraction for
+  # a real part-timer, which the part-time-hours adaptation sets before this
+  # runs and which must not be disturbed. The SUPPORTING block absorbs the
+  # whole adjustment, which is what it is for.
+  #
+  # MEASURED before the change: the scaler moved a named full-timer on 71 of
+  # 390 drafts (factors 0.39 to 2.65). 12 of those cannot fund their named
+  # people at 1.0 out of the target budget and now go OVER target - a true
+  # number, and the outcome Nick ruled for: a plan that cannot afford its own
+  # people should say so rather than fractionally delete one. 8 of the 12
+  # already fail the viability gate on their own merits; the rest are viable
+  # businesses carrying a small honest overage.
   rows = [r for r in (payload.get("rows") or []) if isinstance(r, dict)]
   by_title: Dict[Any, Dict[int, Dict[str, Any]]] = {}
   for r in rows:
+    if str(r.get("staffing_class") or "").strip().lower() == "key_person":
+      continue
     key = (
       str(r.get("position_title") or ""),
       str(r.get("person_name") or ""),
