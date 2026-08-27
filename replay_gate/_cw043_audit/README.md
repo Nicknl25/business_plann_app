@@ -75,3 +75,28 @@ Run from the repo root with .venv python; the draft scripts need the DB (.env) a
 - `payroll_ws_audit_evidence.txt` + `payroll_ws_*_raw.txt` - every measurement behind the HANDOFF RESULT, on the WHOLE
   owner-draw-deferral class VS did not use (06f9fcd9, 270e7b3a, 411adb55, 8d6beff7, b2500419, f8bc1b50, 7a489693, 8f395db0,
   aa58c32b) plus Bellweather 46ae584a. GREEN; D1 = VS declared a population run it did not make (closed by this audit).
+
+## STD clip + payroll exemption audit (mini, 2026-08-27, turn 14) - c45d131 + 735f2d4 + 3560a08
+- `mini_std_pop.py [since]` - the class re-derived off each draft's own persisted Debt Schedule rows: OLD `SUM(window)`
+  vs NEW `MIN(closing, window)` at every quarter, each compared to the engine's Layer 1 `short_term_debt`. 8 drafts carry
+  the class on either window (07-13 or back to the bug's origin 05-01), errors $521 .. $2,992,791, median $1,415,194.
+- `mini_std_equiv.py` - claim (a) ON DATA: the engine's ITERATIVE clip vs the workbook's CLOSED FORM, both evaluated on
+  the SAME snapshot so staleness cannot fake agreement. 18,107 cells / 953 drafts, 0 mismatches, incl. 724 partial clips
+  and 1,629 re-borrow windows. The algebra is in the evidence file.
+- `mini_std_delivered_sweep.py` - every delivered workbook in Client Plans, cached values only, |TA - TL&E| at EVERY
+  quarter + Checks!B2. 283 of 847 carry evaluated values; 2 unbalanced.
+- `mini_std_recalc_delivered.py <out> <name>...` - recalculates COPIES of uncached deliveries (originals never touched).
+  THIS FOUND THE SHIPPED DEAL BREAKER: Meridian Motorcars 07-15-2026 20-32-01 is out by $123,606 at Q16 with
+  Checks!B2 = 'OK', because the balance tie-out only runs at Q1 and Q20 (checks_sheet.py:665).
+- `mini_std_compare.py <old.xlsx> <new.xlsx> <tag>` - strict by-address compare of one draft built on BOTH trees,
+  values AND formulas, every diff classified, plus B2 and the per-quarter balance on each build.
+- `mini_payroll_drive.py <tree_root> <out.json>` (env `ASD=1` for allow_scale_down) - drives
+  enforce_labor_scaling_on_payload on every stored payload with the orchestrator's OWN synthetic anchor
+  (revenue x target%). OLD tree moves a named person on 693 (up-only) / 858 (scale-down) of 1,097 drafts; NEW tree, 0.
+- `mini_payroll_delta.py <old.json> <new.json>` - the tree-to-tree delta, incl. the over-target tail.
+- `grid_drift_b35b4e8_to_HEAD_mini.txt` - the R32 leaf diff re-derived against the b35b4e8 tree: 19 changed, 0 added,
+  0 removed, every leaf a FINMO Short Term Debt cell; new digest 08643e7e981d.
+- `std_and_payroll_audit_evidence.txt` - every measurement behind the HANDOFF RESULT, on drafts VS did not use
+  (Blueprint ee72251f + df00b8e6 broken; Apex 4fd8ccf0, Golden Ring c4c0f227, Cedar Ridge 02e9c154 clean; Sunny Glaze
+  537e824e for the named part-timer), plus Bellweather 46ae584a per the standing rule. FOUND: the payroll exemption is
+  unguarded - reverting it leaves all 57 payroll tests and all 27 scaler-adjacent tests GREEN.

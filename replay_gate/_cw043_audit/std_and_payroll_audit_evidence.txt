@@ -1,0 +1,238 @@
+mini's audit of c45d131 + 735f2d4 (STD clip) and 3560a08 (payroll exemption)
+2026-08-27, turn 14. Every measurement below is mini's own instrument on the
+artifacts; VS's proofs were read, not trusted. Drafts VS used are excluded from
+the verification set (Ironwood 1b9b4e45, Meridian 366f5f4d, Bellweather 46ae584a
+- kept only for the standing neighbour rule -, Halbrook ecd0e148, Sunny Glaze
+cc8b7081, Bluestem 52cf5792, Understory 7042ce1a).
+
+(a) THE CLOSED FORM IS THE ENGINE'S ITERATIVE CLIP - PROVEN
+----------------------------------------------------------
+ALGEBRA (mini's own derivation). The Layer 1 walk (finmo_model.py:541-551) is
+  S0 = C = debt_closing[q];  a_i = min(r_i, S_{i-1});  S_i = S_{i-1} - a_i
+with C >= 0 (Debt Schedule Closing = IF(open+new-prin < SUB_CENT, 0, ...), and
+prin = MIN(open+new, ...) so the subtrahend never exceeds the balance) and every
+r_i >= 0 (r_i = max(0, ...) in the engine; the workbook's Actual Debt Repayment
+is MIN(open+new, MAX(0, ROUND(sched+extra,6))), also >= 0). Greedy-with-remainder
+then totals exactly min(C, sum r_i): while the partial sums stay under C nothing
+clips, and once they pass C the balance is exhausted and the total pins at C.
+
+THE ONE WEDGE THAT COULD HAVE OPENED, AND WHY IT DOES NOT. The engine walks
+REQUESTED repayments; the workbook cell sums the Debt sheet's ACTUAL row, which
+is already clipped per quarter against open+new. So sum(actual) <= sum(requested)
+and the two sides could differ if sum(actual) < C < sum(requested). They cannot:
+if any quarter's actual was clipped, that quarter's real balance (which INCLUDES
+issuance) fell below its requested repayment, so the issuance-free simulated
+balance was already exhausted and the walk pins at C; and over that window
+sum(actual) = C + sum(new) - A_end with A_end <= sum(new), so sum(actual) >= C.
+Both sides are C. Equivalence holds in general.
+
+ON DATA (mini_std_equiv.py, all stored drafts updated >= 2026-05-01):
+  drafts=953   STD cells evaluated=18,107
+  CLOSED FORM != ENGINE WALK:            0 cells
+  cells where the walk clipped at all:   724   (all PARTIAL - window part-taken)
+  cells with a RE-BORROW inside window:  1,629 (issuance > 0 after the anchor)
+Both sub-cases the task named are covered and neither breaks the identity. e.g.
+Apex 4fd8ccf0 Q1: C=24,794 vs requested [24,794, 6,000, 6,000, 6,000] - walk
+24,794 = closed form 24,794 (partial clip). Cedar Ridge 02e9c154 Q1: issuance
+[710,745 / 623,146 / 567,040 / 2,180,007] inside the window, walk 2,321,145 =
+closed form 2,321,145 (re-borrow).
+
+The stub column is NOT this formula (finmo_sheet.py:368 writes the stated
+cash::Short Term Debt Opening Balance at q0), so the engine's STD=0 at the stub
+is not a divergence. LTD = MAX(0, closing - STD), so MIN() is what makes
+STD + LTD == closing hold; before it, STD > closing floored LTD at 0 and Total
+Liabilities carried (STD - closing) of phantom debt.
+
+(b) POPULATION, RE-DERIVED - AND A DELIVERED PLAN THAT LIED
+----------------------------------------------------------
+mini_std_pop.py, evaluating BOTH cell formulas off each draft's own persisted
+Debt Schedule rows:
+  drafts scanned since 2026-07-13: 383  |  since 2026-05-01: 953
+  drafts where SUM(window) != MIN(closing, window): 8, on EITHER window
+  error range $521 .. $2,992,791   (VS: $521 .. $2,992,791 - MATCHES)
+  true median of the 8 worst-quarter errors: $1,415,194  (VS: "$1.4M" - MATCHES)
+  the class: Cedar Ridge Bioenergy x4 (e606a5ee, d7b337ca, 8f1c539a, acbecef5),
+             Ironwood 1b9b4e45, Meridian 366f5f4d,
+             Blueprint & Ledger x2 (ee72251f, df00b8e6)
+The class does not grow when the window is opened back to the bug's origin
+(537efca, 2026-05-04): still exactly 8.
+
+VISIBILITY MECHANISM CONFIRMED AT SOURCE: checks_sheet.py:665 writes the
+"Balance Sheet balances" tie-out for q_col in [FIRST_LIVE_COL, LAST_LIVE_COL]
+only - Q1 and Q20, and Q20's STD cell is the literal "=0". Read off a built
+Checks sheet: rows 8 and 10 are the only two balance rows.
+
+*** DELIVERED WORKBOOKS (mini_std_delivered_sweep.py + mini_std_recalc_delivered.py)
+848 files in C:\dev\Cilient Plans; 847 carry a FINMO sheet; 283 carry cached
+values Excel had evaluated, 564 were never opened so their cells hold no values.
+Of the 283, exactly 2 are unbalanced - both today's Ironwood (17-58-46 and
+18-00-16), out at Q1-Q4 by 416,364 / 274,949 / 130,504 / 30,080, Checks!B2=FAIL.
+The 564 were closed a different way: the class is fully determined by the draft,
+so the class businesses' deliveries were RECALCULATED on copies (originals never
+touched):
+
+  Meridian Motorcars LLC -- 07-15-2026 20-32-01.xlsx
+      OUT OF BALANCE BY $123,606 AT Q16       Checks!B2 = 'OK'
+      STD 2,339,600  LTD 0
+  Blueprint Ledger Advisory LLC -- 07-14-2026 22-10-32.xlsx
+      out of balance by $521 at Q1            Checks!B2 = 'FAIL'
+  Meridian 07-16 11-52-23, Cedar Ridge 07-14 16-55-28, Ironwood 07-13 08-54-55:
+      balanced at every quarter, B2 OK.
+
+THE DEAL BREAKER IS REAL AND IT SHIPPED. A client holds a plan whose balance
+sheet is out by $123,606 and whose own tie-out tells them it balances. Wrong
+number AND false claim, delivered, on the guided path. c45d131 closes it.
+
+NOTE ON VS'S "ONLY 3 WERE EVER VISIBLE": it does not reproduce. 7 of the 8 carry
+their error at Q1, which the Q1 tie-out DOES catch; only Meridian's (Q16 alone)
+was invisible. Cedar Ridge's class drafts carry a Q1 error too, so the committed
+claim that Cedar's "$2.99M error sits at Q4" and "delivered without a word" is
+wrong on the mechanism (the delivered Cedar copies checked were balanced).
+
+(c) BOTH TREES, EXCEL-RECALCULATED (mini_std_compare.py)
+-------------------------------------------------------
+OLD = 57a8372 (c45d131^, bare SUM). NEW = HEAD 2e8f56e. Every sheet, every cell,
+values AND formulas, by address.
+
+BROKEN, VS did not use these:
+  ee72251f Blueprint  old: unbalanced Q1 (-521), Checks "Balance Sheet balances
+                           Q1" = FAIL      STD Q1..Q6 [7637,7637,6161,2824,0,0]
+                      new: unbalanced quarters NONE, that Checks row gone
+                           STD Q1..Q6 [7116,7637,6161,2824,0,0]
+  df00b8e6 Blueprint  identical old -> new behaviour.
+CLEAN (must move zero cells), VS did not use these:
+  4fd8ccf0 Apex Indoor Climbing (partial-clip window at Q1)   0 cells moved
+  c4c0f227 Golden Ring Donuts   (partial clips Q14-Q17)       0 cells moved
+  02e9c154 Cedar Ridge Bioenergy (STD 2.3M, re-borrow window) 0 cells moved
+  46ae584a Bellweather          (standing neighbour rule)     0 cells moved
+"0 cells moved" is exact: each clean pair shows 3 value diffs, and all three are
+the OLD/NEW business-name tag mini's own harness injects on Cover + Dashboard.
+Every pair shows exactly 19 FORMULA diffs, all on FINMO Short Term Debt.
+
+Checks!B2 read on EVERY build, both trees: the only real FAIL is row 7
+"Marketing Schedule could not be built", present identically on both trees on
+all 12 builds - an artifact of exporting a stored row through mini's harness,
+not of the fix. The Blueprint OLD builds carry one extra FAIL, row 8 "Balance
+Sheet balances Q1"; on the NEW tree it is OK. That row IS the fix.
+
+NOT EXPORTABLE ON EITHER TREE (VS's claim, confirmed): Cedar Ridge e606a5ee
+raises ContractViolation on _pre_finalize_persist_marker on both trees. Also
+3464962b Understory (business_world_contract missing) - the one draft whose
+persisted finmo_json disagrees with its persisted debt_schedule (engine STD 0
+and closing flat 45,000 vs a schedule closing 43,593 and repaying 1,407/q).
+Both formulas give the same number there, so c45d131 changed nothing on it, and
+it cannot reach a client. WONT-FIX.
+
+(d) THE PAYROLL EXEMPTION (mini_payroll_drive.py)
+------------------------------------------------
+The scaler was driven on EVERY stored payroll payload from both trees, with the
+anchor rebuilt independently as payroll_budget[q] = revenue[q] x
+target_payroll_percent_of_revenue - which is byte-for-byte the synthetic anchor
+the orchestrator itself builds (orchestrator.py:2987-2996 and :3589-3599), so
+this is the real anchor, not a proxy. Both call shapes were exercised: the
+round-1 up-only path and the Phase B allow_scale_down=True path (:3659), which
+is where a person gets shrunk.
+
+                              drafts driven   a NAMED row's FTE MOVED
+  OLD 57a8372, up-only            1,097               693
+  OLD 57a8372, scale-down         1,097               858
+  NEW HEAD,    up-only            1,097                 0
+  NEW HEAD,    scale-down         1,097                 0
+
+Named part-timers keep their stated fraction, on drafts VS did not use - 193 of
+them. e.g. Sunny Glaze 537e824e: the old tree moved named part-timer Maria
+Gonzalez 0.42 -> 0.41 across 21 rows; the new tree leaves her at her stated
+0.41 / 0.42 / 0.44 / 0.45 / 0.46 and every named full-timer at exactly 1.0.
+
+VS's live rerun, verified independently rather than taken on faith: draft
+1b9b4e45 run 086a5759412c46cdb42bab8903fffdcd, stage
+post_intake_finalize_validation_completed, diagnostics row 1006 -
+acceptance_passed=True, acceptance_score 18.0, label "18/18",
+realism hard_fail_count 0; the payload it produced carries all five named people
+(Tyler Brooks, Priya Nair, Daniel Kovac, James Okafor, Maria Alvarez) at exactly
+1.0 and Q1 payroll 149,249. That is a real end-to-end submit+build on the NEW
+payroll path, which is what a model-flow change owes.
+
+TAIL CLAIM THAT DOES NOT REPRODUCE. VS: "12 of those cannot fund their named
+people at 1.0 out of the target budget and now go OVER target". On mini's basis
+(mini_payroll_delta.py, 1,097 drafts, the orchestrator's own anchor):
+  drafts newly over target (old: never over, new: over):            3
+  drafts over target in MORE quarters on the new tree:            244
+  ... of those, any quarter where NAMED PAYROLL ALONE exceeds target: 68
+So the mechanism VS named explains a minority of the movement; the rest is the
+pre-existing per-title continuity floor on the supporting block, which cannot be
+cut below existing staff. The DIRECTION of VS's claim holds and the outcome is
+the one Nick ruled for - payroll stays honest rather than fractionally deleting
+a person - but the stated population is not reproducible on this basis.
+VS's own declared plan said "population model 390 (payroll identical on the 378
+...)"; the scaler in fact moved a named person on the large majority of drafts.
+
+(e) ROUTING - CONFIRMED AT SOURCE
+---------------------------------
+post_intake_realism/lookup.py:540  gate_kind="skip" on payroll_percent_of_revenue.
+post_intake_realism/validator.py:541  is_silenced = (gate_kind == "skip"), and at
+:1117 a silenced metric's status becomes "silenced" - it contributes to neither
+hard_fail_violations nor warnings (the module docstring at :8-10 says the same).
+Going over the payroll target therefore cannot reach the delivery question. The
+one live run verified above landed 18/18 with hard_fail_count 0.
+
+(f) TAMPER TESTS
+----------------
+STD, MIN -> bare SUM in a scratch worktree: 3 of the 5 tests go RED for exactly
+the right reasons -
+  workbook STD != engine: Q1 387,500 vs 803,864; Q2 549,218 vs 824,167;
+                          Q3 0 vs 130,504; Q4 117,043 vs 147,123
+  STD + LTD != closing debt: same four quarters
+  balance sheet does not balance: -416,364 / -274,949 / -130,504 / -30,080
+The 2 that stay green are the fixture-class legs (the engine clips and the bare
+sum does not; repayments exceed the balance inside the window) - they assert the
+FIXTURE still carries the revolver class, so staying green under a formula
+tamper is correct, not vacuous. 5/5 green untampered.
+(First run of this tamper produced 3 SETUP ERRORS, not failures - the worktree
+had no .env and the builder could not reach MySQL. Named here because a setup
+error must never be read as a red.)
+
+PAYROLL, exemption reverted (key_person rows scaled again AND the factor solved
+on full payroll again):
+  tests/test_payroll_producer_round1.py + the five other payroll suites:
+      57 passed untampered  ->  57 passed TAMPERED
+  every test file mentioning labor_scaling / staffing_class / labor_bound:
+      27 passed TAMPERED
+NOTHING GOES RED. The exemption is completely unguarded. 3560a08 changed one
+file, 46 insertions, and added no test; "53 tests green" in the commit is a
+regression check, not a red-on-bug proof. The STD half of the same bundle
+honoured RED ON BUG FIRST; this half did not.
+
+(g) GOLDENS - RE-DERIVED
+------------------------
+python -m replay_gate._grid_dump C:/dev/bpa_gate_baselines/b35b4e8 <HEAD>:
+  b35b4e8 sha 2597e192ff6c  |  HEAD sha 08643e7e981d
+  9,667 shared cells, 19 CHANGED, 0 only in b35b4e8, 0 only in HEAD
+  every one of the 19: FINMO / Short Term Debt, =SUM(...) -> =MIN(Model Inputs
+  closing, SUM(...)). Full leaf listing in grid_drift_b35b4e8_to_HEAD_mini.txt.
+Bare runs on HEAD:
+  R32 HOLDS  workbook_formulas = 08643e7e981d   (9,667 formulas, 11 sheets)
+  R49 HOLDS  workbook_text     = 30fe003a2efe   (2,414 static text cells) - neutral
+  R31 HOLDS  finmo=bcd8fce31066 model_input=1d50e46ab8e6 - the single-line floor
+  full fast tier: 64/64 legs clear, 4 not run (live tier, needs --tier full)
+
+VS'S DECLARED-vs-ACTUAL
+-----------------------
+STD turn (18:42:55 -> c45d131): clean. Declared neighbour-check on
+finmo_sheet.py with an R32 re-bless and R49 neutral, and that is exactly what
+landed. TIER CALL HONEST: the workbook builder is a named high-fan-out
+chokepoint and it moved a golden, so neighbour-check is the right tier - it does
+not change engine math, it makes the sheet match engine math that was already
+correct. Every declared VERIFY item was delivered.
+Payroll turn (16:34:45 -> 3560a08): three deviations.
+  1. Declared FIX 1 AND FIX 2 ("no supporting block when the budget will not
+     fund >= 0.25 FTE"); only FIX 1 shipped. Openly disclosed in the commit's
+     "NOT included" paragraph - a declared descope, not a hidden one.
+  2. Declared "canary required (Sunny_V3) before any batch". No Sunny_V3 canary
+     was run; an Ironwood live rerun was run instead. That rerun is a real E2E
+     on the real path and it satisfies VERIFY FORWARD, but it is not the
+     declared canary.
+  3. Declared population "390 (payroll identical on the 378, before/after on the
+     12)". Does not reproduce - see (d).
+
+mini's own DECLARED-vs-ACTUAL is recorded in the HANDOFF RESULT.
