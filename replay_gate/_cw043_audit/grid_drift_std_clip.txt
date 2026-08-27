@@ -1,0 +1,66 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    2597e192ff6cb7180b6d3519874aa372dddd5bf2e284c29d99020363c056e9ab
+GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    08643e7e981dc3f21703de2b5c4b62a47040966211d4d401a76d4fc0a079cf4c
+GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   9667 shared cells, 19 CHANGED, 0 only in wt_head, 0 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  *    FINMO	Short Term Debt	1
+         was =SUM('Debt Schedule'!E35:H35)
+         now =MIN('Model Inputs'!D44,SUM('Debt Schedule'!E35:H35))
+  *    FINMO	Short Term Debt	10
+         was =SUM('Debt Schedule'!N35:Q35)
+         now =MIN('Model Inputs'!M44,SUM('Debt Schedule'!N35:Q35))
+  *    FINMO	Short Term Debt	11
+         was =SUM('Debt Schedule'!O35:R35)
+         now =MIN('Model Inputs'!N44,SUM('Debt Schedule'!O35:R35))
+  *    FINMO	Short Term Debt	12
+         was =SUM('Debt Schedule'!P35:S35)
+         now =MIN('Model Inputs'!O44,SUM('Debt Schedule'!P35:S35))
+  *    FINMO	Short Term Debt	13
+         was =SUM('Debt Schedule'!Q35:T35)
+         now =MIN('Model Inputs'!P44,SUM('Debt Schedule'!Q35:T35))
+  *    FINMO	Short Term Debt	14
+         was =SUM('Debt Schedule'!R35:U35)
+         now =MIN('Model Inputs'!Q44,SUM('Debt Schedule'!R35:U35))
+  *    FINMO	Short Term Debt	15
+         was =SUM('Debt Schedule'!S35:V35)
+         now =MIN('Model Inputs'!R44,SUM('Debt Schedule'!S35:V35))
+  *    FINMO	Short Term Debt	16
+         was =SUM('Debt Schedule'!T35:W35)
+         now =MIN('Model Inputs'!S44,SUM('Debt Schedule'!T35:W35))
+  *    FINMO	Short Term Debt	17
+         was =SUM('Debt Schedule'!U35:W35)
+         now =MIN('Model Inputs'!T44,SUM('Debt Schedule'!U35:W35))
+  *    FINMO	Short Term Debt	18
+         was =SUM('Debt Schedule'!V35:W35)
+         now =MIN('Model Inputs'!U44,SUM('Debt Schedule'!V35:W35))
+  *    FINMO	Short Term Debt	19
+         was =SUM('Debt Schedule'!W35:W35)
+         now =MIN('Model Inputs'!V44,SUM('Debt Schedule'!W35:W35))
+  *    FINMO	Short Term Debt	2
+         was =SUM('Debt Schedule'!F35:I35)
+         now =MIN('Model Inputs'!E44,SUM('Debt Schedule'!F35:I35))
+  *    FINMO	Short Term Debt	3
+         was =SUM('Debt Schedule'!G35:J35)
+         now =MIN('Model Inputs'!F44,SUM('Debt Schedule'!G35:J35))
+  *    FINMO	Short Term Debt	4
+         was =SUM('Debt Schedule'!H35:K35)
+         now =MIN('Model Inputs'!G44,SUM('Debt Schedule'!H35:K35))
+  *    FINMO	Short Term Debt	5
+         was =SUM('Debt Schedule'!I35:L35)
+         now =MIN('Model Inputs'!H44,SUM('Debt Schedule'!I35:L35))
+  *    FINMO	Short Term Debt	6
+         was =SUM('Debt Schedule'!J35:M35)
+         now =MIN('Model Inputs'!I44,SUM('Debt Schedule'!J35:M35))
+  *    FINMO	Short Term Debt	7
+         was =SUM('Debt Schedule'!K35:N35)
+         now =MIN('Model Inputs'!J44,SUM('Debt Schedule'!K35:N35))
+  *    FINMO	Short Term Debt	8
+         was =SUM('Debt Schedule'!L35:O35)
+         now =MIN('Model Inputs'!K44,SUM('Debt Schedule'!L35:O35))
+  *    FINMO	Short Term Debt	9
+         was =SUM('Debt Schedule'!M35:P35)
+         now =MIN('Model Inputs'!L44,SUM('Debt Schedule'!M35:P35))

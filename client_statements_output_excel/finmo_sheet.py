@@ -138,6 +138,32 @@ def _short_term_debt_formula(ctx: WorkbookBuildContext, col: int) -> str:
   cells col+1..col+4 (exclusive of the current quarter), clipped to
   the live-period range. Q20's window is entirely beyond the horizon
   so the cell is literal "=0".
+
+  CLIPPED TO THE DEBT THAT EXISTS (2026-08-27). This was a bare SUM of the
+  window, which on a REVOLVER - a business that borrows and repays inside
+  those four quarters - counts money borrowed AFTER the balance-sheet date
+  as though it had been repaid out of the balance standing on it. Ironwood
+  (1b9b4e45) closes Q1 at 387,500 and repays 12,500 / 728,619 / 34,954 /
+  27,791 in Q2-Q5: the sum is 803,864, so Short Term Debt, Current
+  Liabilities, Total Liabilities and Total L&E were all overstated and the
+  Q1 balance sheet was out by 416,364.
+
+  The engine has always clipped (finmo_model.py, the Layer 1 STD walk):
+
+      _actual_clipped = min(_requested_repayment, max(0, _simulated_closing))
+      _simulated_closing = max(0, _simulated_closing - _actual_clipped)
+
+  That walk has a closed form. The simulated balance only ever decreases and
+  each quarter's take is capped by what is left, so the total the walk
+  accumulates is exactly MIN(closing balance, sum of the window) - it takes
+  the whole window when the balance covers it, and the whole balance when it
+  does not. So the cell is that MIN, which mirrors the engine in one term
+  and keeps STD + LTD == closing debt by construction (LTD is
+  closing - STD).
+
+  MEASURED across 400 drafts: 8 carried the class, errors $521 to
+  $2,992,791. Only 3 were ever visible - the Checks balance tie-out runs on
+  Q1 and Q20 only, and Cedar Ridge Bioenergy's $2.99M error sits at Q4.
   """
   start_col = col + 1
   end_col = col + 4
@@ -145,7 +171,9 @@ def _short_term_debt_formula(ctx: WorkbookBuildContext, col: int) -> str:
     return "=0"
   end_col = min(end_col, LAST_LIVE_COL)
   actual_repay_row = ctx.schedule_row(DEBT_SHEET, "Actual Debt Repayment")
-  return f"=SUM({range_ref(DEBT_SHEET, actual_repay_row, start_col, end_col)})"
+  window = f"SUM({range_ref(DEBT_SHEET, actual_repay_row, start_col, end_col)})"
+  closing = _mi(ctx, "cash::Debt Closing Balance", col)
+  return f"=MIN({closing},{window})"
 
 
 def _write_statement_rows(ws, ctx: WorkbookBuildContext, *, statement: str, lines: List[str], start_row: int) -> int:
