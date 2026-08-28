@@ -266,7 +266,15 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
   revenue_per_employee = ctx.schedule_row(PAYROLL_SHEET, "Revenue per Employee")
   units_per_employee = ctx.schedule_row(PAYROLL_SHEET, "Units per Employee")
   payroll_percent = ctx.schedule_row(PAYROLL_SHEET, "Payroll % of Revenue")
-  for idx in range(PERIOD_COUNT):
+  # LIVE QUARTERS ONLY (2026-08-28). The detail carries rows for the forecast
+  # quarters; the stub is the historical anchor and has no per-role detail,
+  # while the summary now shows the engine's real stub payroll rather than a
+  # false zero. Summing a detail that has no stub rows against a summary that
+  # does is not a coherence test, it is a units mismatch - it made Bluestem's
+  # workbook read FAIL by exactly its stub payroll (81,750) and the runtime
+  # model-status gate then refused to deliver a run that was otherwise 18/18.
+  # Same scoping as the Debt Schedule interest tie-out.
+  for idx in range(1, PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     fte_sum = (
       f"SUMIFS({qsheet(PAYROLL_SHEET)}!$G${first}:$G${last},"

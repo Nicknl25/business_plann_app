@@ -2,7 +2,7 @@ ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5
 SHA    08643e7e981dc3f21703de2b5c4b62a47040966211d4d401a76d4fc0a079cf4c
 GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
 ROOT   C:/dev/business_plann_app
-SHA    41467d5c6b155d21588c9a79eb695593f7ed75edcbd15a98dc79454ca4f7a885
+SHA    a7d2ebcd7f89c6947080b51957c43839d1e97509d526241bc35a7bf13b38cb8d
 GRID   11 sheets, 9664 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
 
 DIFF   9612 shared cells, 2112 CHANGED, 55 only in wt_head, 52 only in business_plann_app
@@ -119,7 +119,7 @@ DIFF   9612 shared cells, 2112 CHANGED, 55 only in wt_head, 52 only in business_
          now =SUMPRODUCT(--ISERROR('Payroll Schedule'!C15:W190))
   *    Checks	Schedule Coherence	0
          was =SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$95:$G$194,'Payroll Schedule'!$A$95:$A$194,0)),ABS
-         now =SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$91:$G$190,'Payroll Schedule'!$A$91:$A$190,0)),ABS
+         now =SUM(ABS('Payroll Schedule'!D15-SUMIFS('Payroll Schedule'!$G$91:$G$190,'Payroll Schedule'!$A$91:$A$190,1)),ABS
   *    Checks	Schedule Coherence	6
          was =SUMPRODUCT(ABS('Payroll Schedule'!G95:G194-('Payroll Schedule'!E95:E194+'Payroll Schedule'!F95:F194)))+SUMPRO
          now =SUMPRODUCT(ABS('Payroll Schedule'!G91:G190-('Payroll Schedule'!E91:E190+'Payroll Schedule'!F91:F190)))+SUMPRO
