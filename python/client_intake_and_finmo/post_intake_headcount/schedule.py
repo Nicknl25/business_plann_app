@@ -2096,7 +2096,7 @@ def _build_payroll_headcount_payload_from_contract(
   supporting_rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
   capacity_assumptions = _payroll_contract_capacity_assumptions(payroll_headcount_contract, policy=policy)
   _validate_payroll_title_rows(supporting_rows, policy=policy, require_annual_wage=False)
-  key_people_rows = _apply_headcount_coherence_to_key_rows(
+  key_people_rows = _headcount_coherence_is_recorded_not_applied(
     _key_people_rows_from_intake(
       people_json,
       policy=policy,
@@ -2434,66 +2434,44 @@ def enforce_labor_scaling_on_payload(
 _OWNER_TITLE_TOKENS = ("owner", "founder", "co-founder", "principal", "ceo", "president")
 
 
-def _apply_headcount_coherence_to_key_rows(
+def _headcount_coherence_is_recorded_not_applied(
   rows: List[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-  """EXECUTIVE HEADCOUNT RIGHT-SIZING (purely additive).
+  """The headcount-coherence judgment NO LONGER SHRINKS PEOPLE (Nick,
+  2026-08-28). It is recorded; it does not scale FTE.
 
-  When the viability-blind headcount-coherence judgment fired (the
-  stated team is genuinely overstaffed for the revenue), scale the
-  NON-OWNER key-person FTEs so the key-people payroll lands at the
-  judged coherent total. The OWNER is never cut (rows via
-  ``_is_owner_row`` keep 1.0 FTE); the judgment's rails already floor
-  the coherent total at 40% of stated and at the owner's own wage.
-  Inert judgment (correctly-staffed team / failed call) -> the rows
-  return untouched, byte-identical to today. All downstream machinery
-  (wage floors, part-time handling, rollups, trials) runs on the scaled
-  rows unchanged — nothing existing is modified.
+  This was "executive headcount right-sizing": when the viability-blind
+  judgment decided the stated team was overstaffed for the revenue, it
+  scaled every NON-OWNER named person's FTE by
+  (coherent total - owner) / (current non-owner), so the key-people payroll
+  landed on the judged number. The owner was exempt, which is why the owner
+  was the only named person reading 1.0 on an affected plan.
+
+  It is the same doctrine violation as the budget scaler, in different code.
+  The realism row for payroll_percent_of_revenue states the rule outright -
+  "payroll is NOT clipped to fit revenue (Golden Rule preservation)" - and
+  shrinking a person to make payroll fit revenue is exactly that. MEASURED
+  on drafts rerun through the real path: Bluestem and Ironwood fit their
+  target and came out at 1.0; Understory is tight and its two Grow
+  Technicians came out at 0.91; Sunny Glaze cannot fund its owner at all and
+  its Lead Baker came out at 0.11 - eleven hundredths of a named person, and
+  WORSE than the 0.39 the older path produced.
+
+  A named person is 1.0, or the stated fraction of a real part-timer, or
+  they are not on the plan. Fractionally deleting someone is not a staffing
+  decision a client can act on, and it hides the finding that matters: this
+  business cannot afford this team. The plan should say so - the viability
+  gate already does - rather than quietly employ a tenth of a baker.
+
+  The judgment itself is untouched: gpt_headcount_coherence still authors it
+  and it still lands in solver_input.headcount_coherence and the judgment
+  ledger (post_intake_acceptance.gate lists "headcount_coherence" among the
+  expected sites), so the consultant view and the audit trail keep it. Only
+  its application to FTE is gone. Rows return exactly as they arrived.
   """
-  try:
-    from client_intake_and_finmo.post_intake_headcount.gpt_headcount_coherence import (  # type: ignore  # noqa: E501
-      headcount_coherence_from_model_input,
-    )
-    coherence = headcount_coherence_from_model_input(model_input_json)
-  except Exception:
-    coherence = None
-  if not coherence:
-    return rows
-  # Per-quarter wage mass of the CURRENT rows (annualized): owner vs rest.
-  owner_annual = 0.0
-  nonowner_annual = 0.0
-  for row in rows:
-    if not isinstance(row, dict) or int(_safe_float(row.get("quarter_index")) or 0) != 1:
-      continue
-    _wage = float(_round_currency(row.get("annual_wage")))
-    _fte = float(_safe_float(row.get("ending_fte")) or 0.0)
-    if _is_owner_row(row):
-      owner_annual += _wage * _fte
-    else:
-      nonowner_annual += _wage * _fte
-  coherent_total = float(_safe_float(coherence.get("coherent_annual_payroll")) or 0.0)
-  if nonowner_annual <= 0 or coherent_total <= 0:
-    return rows
-  nonowner_target = max(0.0, coherent_total - owner_annual)
-  factor = max(0.0, min(1.0, nonowner_target / nonowner_annual))
-  if factor >= 1.0 - 1e-9:
-    return rows
-  scaled: List[Dict[str, Any]] = []
-  for row in rows:
-    if isinstance(row, dict) and not _is_owner_row(row):
-      row = dict(row)
-      row["starting_fte"] = round(float(_safe_float(row.get("starting_fte")) or 0.0) * factor, 2)
-      row["ending_fte"] = round(float(_safe_float(row.get("ending_fte")) or 0.0) * factor, 2)
-      row["hires"] = round(max(0.0, row["ending_fte"] - row["starting_fte"]), 2)
-      # Numeric marker only — the schedule contract forbids prose in
-      # machine rows; the judgment's structure text and rationale live
-      # in solver_input.headcount_coherence.
-      row["headcount_right_sized"] = {
-        "factor": round(factor, 4),
-      }
-    scaled.append(row)
-  return scaled
+  _ = model_input_json  # the judgment is read by the ledger, not applied here
+  return rows
 
 
 def _is_owner_row(row: Dict[str, Any]) -> bool:
@@ -2859,7 +2837,7 @@ def compute_round1_payroll_anchor(
       for pr in (qrow.get("product_rows") or [])
     )
 
-  key_rows = _apply_headcount_coherence_to_key_rows(
+  key_rows = _headcount_coherence_is_recorded_not_applied(
     _key_people_rows_from_intake(
       people_json, policy=policy, horizon=horizon,
       business_facts=business_facts, ops_json=ops_json,
@@ -3049,7 +3027,7 @@ def author_round1_payroll_contract(
     )
 
   # --- key people: fixed payroll per quarter (builder math) (Part B.5) ----
-  key_rows = _apply_headcount_coherence_to_key_rows(
+  key_rows = _headcount_coherence_is_recorded_not_applied(
     _key_people_rows_from_intake(
       people_json, policy=policy, horizon=horizon,
       business_facts=business_facts, ops_json=ops_json,
