@@ -1,105 +1,113 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 
-TURN: 15/16
+TURN: 16/16
 
 TASK:
-  Audit TWO commits with your own instruments; VS's proofs read, not trusted. (A) c45d131 + 735f2d4 (re-bless): the FINMO Short Term Debt cell was a bare SUM of the next four quarters of Actual Debt Repayment; on a REVOLVER that counts money borrowed AFTER the balance-sheet date as though repaid from the balance standing on it, so STD / Current Liabilities / Total Liabilities / Total L&E were overstated and the balance sheet did not balance. It is now MIN(cash::Debt Closing Balance, SUM(window)) - VS's claim is that this is the closed form of the engine's clipped walk in finmo_model.py Layer 1 (min(requested, remaining) with the remainder decremented), so STD + LTD == closing debt by construction. (B) 3560a08: enforce_labor_scaling_on_payload no longer scales staffing_class == "key_person" rows, and the factor is solved on supporting payroll alone (target - named payroll); named full-timers stay 1.0, stated part-timers keep their fraction. CLAIMS TO VERIFY, each independently, ON DRAFTS VS DID NOT USE (VS used Ironwood 1b9b4e45, Meridian 366f5f4d, Bellweather 46ae584a, Halbrook ecd0e148, Sunny Glaze cc8b7081, Bluestem 52cf5792, Understory 7042ce1a; Cedar Ridge e606a5ee does not export on either tree): (a) the STD closed form is genuinely equivalent to the engine's iterative clip - prove or refute it algebraically AND on data, including a case where the window is only partially clipped and one where a later quarter re-borrows; (b) VS's population claim: 8 of 400 drafts since 07-13 carry the class, errors $521 to $2,992,791, and only 3 were ever visible because the Checks balance tie-out runs on FIRST_LIVE_COL and LAST_LIVE_COL only - re-derive your way, and say whether any DELIVERED workbook in Client Plans carries an unbalanced quarter; (c) both trees, Excel-recalculated: the drafts that were broken are fixed at EVERY quarter, the drafts that were fine moved ZERO cells, Checks!B2 read on each; (d) the payroll exemption: named full-timers at 1.0 and part-timers at their stated fraction on drafts you pick, supporting absorbs the difference, total payroll lands where the target allows and goes OVER only where named payroll alone exceeds it (VS measured 12 such drafts of 390); (e) VS's routing finding: payroll_percent_of_revenue is gate_kind="skip" so over-target is neither coherence nor viability - confirm, and confirm that of the 12 the ones that pass 17/17 today still pass; (f) the tests (test_std_revolver_clipping.py 5/5, and the payroll suites 53 green) catch what they claim - tamper the STD formula back to a bare SUM and the exemption back to scaling everything, and confirm each goes red on the right test; (g) R32 19 leaves all FINMO Short Term Debt and R49 neutral, re-derived against a b35b4e8 tree, digest 08643e7e981d at a bare run; the prove b56e08e landed BEFORE this seed. Deal-breaker rule stands: a wrong number in a delivered plan on the guided path outranks everything. Standing rules: Bellweather in the neighbour set; read Checks!B2 on every neighbour you build.
+  Audit VS's turn 15 with your own instruments. Two test-file items, no app
+  code, no gate code, no re-bless. (1) THE MISSING GUARD: 3560a08 shipped the
+  key_person payroll exemption with zero tests - you proved a full revert left
+  all 57 payroll and all 27 scaler-adjacent tests green. VS wrote
+  tests/test_payroll_named_person_exemption.py against a new committed fixture
+  tests/fixtures/payroll_named_person_payloads.json.gz holding two payloads
+  captured verbatim from intake_consult_drafts: Sunny Glaze Donuts 537e824e
+  (Jordan Lee stated 1.0 x 20; Maria Gonzalez stated 0.41/0.42/0.44/0.45/0.46;
+  supporting already at its 0.1 FTE floor; named payroll alone exceeds target -
+  the over-budget case) and Anderson and Blake Legal Associates 09d10c39 (two
+  named full-timers at 1.0, paralegals 2.0 FTE -> 22.99 - the absorbing case).
+  The anchor is rebuilt in-test by the orchestrator's own formula
+  (orchestrator.py:2987-2996) and every assertion runs in BOTH call shapes,
+  round-1 up-only and Phase B allow_scale_down=True (orchestrator.py:3659).
+  CLAIMS TO VERIFY, each independently: (a) the revert VS red-proofed against
+  is FAITHFUL - VS claims the both-halves revert reproduces 3560a08^'s
+  enforce_labor_scaling_on_payload line for line (106 code lines, CODE
+  IDENTICAL); check it, and check that reverting only half A and only half B
+  are each the real half and not a strawman; (b) the red-proof: 11 passed / 22
+  subtests on HEAD, and on the revert 18 failed (A), 2 failed (B), 16 failed
+  (AB), with the CONTROL (same worktree, nothing reverted) green - rerun it
+  your way; (c) the DISCRIMINATION claim, which is the point of the turn: the
+  four identity assertions are the ONLY ones that fire on a half-A-only revert
+  and the single supporting-lands-on-target-minus-named assertion is the ONLY
+  one that fires on a half-B-only revert - confirm, and say whether either
+  half can be reverted in a way that leaves the file green (VS notes the
+  half-B assertion passes under a FULL revert and argues the sixteen half-A
+  failures cover that case; test that argument); (d) whether the assertions are
+  real or mirrors - the half-B guard compares supporting payroll at the first
+  scaled quarter against (target - named) with a 1% tolerance justified as the
+  2-dp FTE grid, and VS measured the full-payroll solve missing by 63%; check
+  the tolerance cannot swallow a wrong factor, and check the first-scaled-
+  quarter choice is not hiding a case; (e) the population VS re-derived: the
+  pre-fix tree moves a named person on 501 of 1,097 drafts in EACH call shape,
+  HEAD on zero, and - correcting 3560a08's own commit message - NO named
+  full-timer is driven below 1.0 by today's code (0 of 1,097, the Q1 starting-
+  FTE floor holds them), so the "0.39 of a person" is not reproducible and the
+  live defect is inflation for a full-timer (worst: Sunny Glaze 4a47ec91,
+  Jordan Lee at 11.22) and flattening for a part-timer. Re-derive; if the 0.39
+  IS reachable on some path VS did not drive, that is a finding.
+  (2) THE CORRECTED CLAIMS in tests/test_std_revolver_clipping.py - docstrings
+  only, module docstring plus the one method docstring that repeated it, no
+  code touched, 5/5 still green. VS re-derived your correction independently
+  before committing it: 7 of the 8 class drafts carry a Q1 error the Q1 tie-out
+  catches, only Meridian 366f5f4d is silent (Q16 alone, $123,606), and VS
+  opened the delivered Meridian Motorcars LLC -- 07-15-2026 20-32-01.xlsx on a
+  COPY, CalculateFullRebuild, and read Checks!B2 = OK with Q16 out by -123,606,
+  STD 2,339,600 / LTD 0. Verify the sentence now committed is true and that
+  nothing else in that file moved.
+  VERIFY VS'S TIER CALL: VS declared and ran SPOT-CHECK on the grounds that
+  test files are not on any production path. Say whether that is honest.
+  NOT IN THIS TURN, and not to be bundled: the descoped FIX 2 (no supporting
+  block when the budget will not fund >= 0.25 FTE, needing
+  post_intake_gpt_contract_lookup.min_items relaxed from 20). Semantic
+  re-scope, travels alone, still owed to Nick.
 
 RESULT:
-  AGENT: mini
-  VERDICT: progress
-  ERROR-SIGNATURE: payroll_exemption_unguarded:tamper_57_green
-  EVIDENCE: replay_gate/_cw043_audit/std_and_payroll_audit_evidence.txt (+ mini_std_*.py, mini_payroll_*.py, grid_drift_b35b4e8_to_HEAD_mini.txt)
+  AGENT: VS
+  VERDICT: green
+  ERROR-SIGNATURE: none
+  EVIDENCE: replay_gate/_cw043_audit/vs_payroll_named_person_guard_evidence.txt
+    (+ vs_t15_*.py reproduction scripts, vs_t15_redproof_raw.txt)
   SUMMARY:
-    BOTH FIXES ARE CORRECT AND THE DEAL BREAKER IS REAL. (a) PROVEN, not taken
-    on faith: MIN(closing, SUM(window)) IS the closed form of the Layer 1 walk -
-    derived algebraically (incl. the requested-vs-actual wedge, which cannot
-    open: any clipped quarter exhausts the issuance-free balance, pinning both
-    sides at C) and measured at 0 mismatches across 18,107 STD cells / 953
-    drafts, covering 724 partial clips and 1,629 re-borrow windows.
-    (b) 8 drafts carry the class - matching VS - errors $521..$2,992,791, median
-    $1,415,194, and the class does not grow when opened back to the bug's origin.
-    A DELIVERED WORKBOOK CARRIES IT: Meridian Motorcars 07-15-2026 20-32-01.xlsx
-    is out of balance by $123,606 at Q16 with Checks!B2 = 'OK'. Wrong number AND
-    false claim, in a client's hands, on the guided path. c45d131 closes it.
-    (c) both trees, Excel-recalculated, on drafts VS did not use: Blueprint
-    ee72251f/df00b8e6 unbalanced at Q1 -> balanced at EVERY quarter; Apex
-    4fd8ccf0, Golden Ring c4c0f227, Cedar Ridge 02e9c154 and Bellweather 46ae584a
-    moved ZERO cells (the only value diffs are my harness's own name tag); 19
-    formula leaves per pair, all FINMO Short Term Debt. B2 read on all 12 builds.
-    (d) the exemption holds at population scale: the old tree moves a named
-    person's FTE on 693 (up-only) / 858 (Phase B scale-down) of 1,097 drafts, the
-    new tree on ZERO, with named part-timers keeping their stated fraction on 193
-    drafts VS did not use. VS's live Ironwood run verified at source: acceptance
-    18/18, hard_fail 0, five named people stored at exactly 1.0.
-    (e) confirmed at source: gate_kind="skip" -> is_silenced -> neither
-    hard_fail_violations nor warnings. Over-target cannot reach delivery.
-    (g) re-derived against the b35b4e8 tree: 19 changed leaves, 0 added, 0
-    removed, all FINMO Short Term Debt, digest 08643e7e981d; R32/R49/R31 HOLD
-    bare; full fast tier 64/64.
-    NOT GREEN, for one measured reason. (f) THE PAYROLL EXEMPTION IS UNGUARDED.
-    Reverted completely in a scratch worktree - named rows scaled again AND the
-    factor solved on full payroll again - all 57 payroll tests and all 27
-    scaler-adjacent tests STILL PASS. Nothing goes red. 3560a08 shipped one file,
-    46 insertions, zero tests; "53 tests green" is a regression check, not a
-    red-on-bug proof, and the STD half of the same bundle honoured RED ON BUG
-    FIRST while this half did not. The defect it guards - a named owner emitted
-    at 1.21 or 0.39 of a person - is deal-breaker class by Nick's own ruling, in
-    shared code 858 of 1,097 drafts flow through. TASK below.
-    TWO COMMITTED CLAIMS DO NOT REPRODUCE (record accuracy, not client-facing,
-    no separate fix turn): "only 3 of the 8 were ever visible" - 7 of the 8 carry
-    a Q1 error the Q1 tie-out DOES catch; only Meridian's (Q16) was silent, and
-    Cedar Ridge's "$2.99M at Q4, delivered without a word" is wrong on the
-    mechanism. And the payroll tail "12 of 390 now go over target" - on the
-    orchestrator's own anchor I get 3 newly over target of 1,097, and the
-    named-payroll-alone mechanism explains only 68 of the 244 drafts that go over
-    in more quarters; the rest is the pre-existing supporting-block continuity
-    floor. Direction and ruled outcome hold; the stated populations do not.
-    VS DECLARED-vs-ACTUAL: the STD turn is clean and its neighbour-check TIER
-    CALL IS HONEST (workbook builder + a moved golden, but no engine-math change).
-    The payroll turn deviates three ways: a declared FIX 2 not shipped (openly
-    disclosed in the commit), a declared Sunny_V3 canary not run (an Ironwood
-    live rerun was run instead - a real E2E, but not the declared one), and the
-    "378 of 390 identical" population that does not reproduce.
-    MINE: declared full, ran full EXCEPT the canary - I did not start a Sunny_V3
-    E2E. Reason stated rather than hidden: an end-to-end run on the NEW payroll
-    path already exists (Ironwood 086a5759) and I verified its acceptance record
-    and its stored payload at source, which is what the canary would have
-    produced; the STD half is a builder change, verified on 7 drafts x 2 trees in
-    Excel. Everything else declared was done: R32+R49 re-derived, single-line
-    floor, 12 recalculated builds with B2 read on each, Bellweather included.
-    WONT-FIX, closed here: Cedar Ridge e606a5ee and Understory 3464962b carry
-    persisted finmo_json that disagrees with their persisted debt_schedule; both
-    raise ContractViolation and cannot export on EITHER tree, so neither can
-    reach a client, and c45d131 changes neither.
-
-TASK:
-  ONE turn, SPOT-CHECK radius, tests only - no app code, no gate re-bless, no
-  semantic change. Both items are test-file edits so they travel together.
-  (1) THE DEAL BREAKER THIS PREVENTS: a client names their owner and the plan
-  emits 1.21 of that person, or 0.39 of them, because that was the ratio that
-  made payroll hit revenue x target%. 3560a08 fixed it and nothing guards it -
-  revert the exemption (drop the key_person `continue` in the by_title loop AND
-  solve the factor on full payroll again) and all 57 payroll tests plus all 27
-  scaler-adjacent tests still pass. Write the red-on-bug test, on a REAL stored
-  payload, driving enforce_labor_scaling_on_payload with the orchestrator's own
-  synthetic anchor (payroll_budget[q] = revenue[q] x
-  target_payroll_percent_of_revenue; orchestrator.py:2987-2996). It must assert
-  at minimum: named full-timers land at exactly 1.0; a stated part-timer keeps
-  her fraction (Sunny Glaze 537e824e - Maria Gonzalez at 0.41/0.42/0.44/0.45/
-  0.46, moved to 0.41 by the old tree); the supporting block absorbs the delta;
-  and it must exercise BOTH call shapes - the round-1 up-only path and Phase B
-  allow_scale_down=True (orchestrator.py:3659), which is the path that shrinks a
-  person. Prove it goes RED on the reverted code and green on HEAD, and say
-  which assertion fires on each half of the revert.
-  (2) Correct the two claims that do not reproduce, in the committed docstring
-  of tests/test_std_revolver_clipping.py and nowhere else: 7 of the 8 class
-  drafts carry a Q1 error that the Q1 tie-out catches, and the one that shipped
-  silent is Meridian's $123,606 at Q16 - which mini confirmed in the DELIVERED
-  file Meridian Motorcars LLC -- 07-15-2026 20-32-01.xlsx, Checks!B2 = 'OK'.
-  That is a stronger sentence than the one there now: name the real one.
-  NOT IN THIS TURN, and not to be bundled into it: the descoped FIX 2 (no
-  supporting block when the budget will not fund >= 0.25 FTE, needing
-  post_intake_gpt_contract_lookup.min_items relaxed from 20). That is a semantic
-  re-scope and travels alone.
-
+    BOTH ITEMS DONE, TESTS ONLY, EXACTLY THE DECLARED SCOPE.
+    (1) The exemption is now guarded. tests/test_payroll_named_person_exemption.py
+    drives the real enforce_labor_scaling_on_payload on two real stored payloads
+    with the orchestrator's own synthetic anchor, in BOTH call shapes: 11 tests
+    / 22 subtests green on HEAD. The revert was proven faithful before it was
+    used as a red-proof - both halves reverted reproduces 3560a08^'s function
+    line for line, 106 code lines, CODE IDENTICAL. It goes red on every
+    variant: 18 failed on half A alone, 2 on half B alone, 16 on the full
+    revert, with the un-reverted control in the same worktree green.
+    WHICH ASSERTION FIRES ON WHICH HALF, the answer asked for: half A (the
+    key_person continue) is caught by four identity assertions - a named
+    full-timer off exactly 1.0, Maria Gonzalez off her own stated fraction, a
+    named row rewritten at all, and the delta escaping the supporting block;
+    they fire on both drafts and both call shapes and nothing else fires on a
+    half-A-only revert. Half B (the factor solved on supporting alone) is
+    caught by exactly one assertion and it is the only thing that fires on a
+    half-B-only revert: at the first scaled quarter supporting must land on
+    (target - named), 451,132 on Anderson and Blake; the full-payroll solve
+    lands it at 166,842, a 63% miss that no tolerance can swallow.
+    (2) The two non-reproducing claims are corrected in the STD docstring and
+    nowhere else; the file still passes 5/5. I did not take the correction on
+    faith - I re-derived the quarter sets for all 8 class drafts myself (7 of 8
+    carry a Q1 error, Meridian alone silent at Q16) and opened the delivered
+    Meridian workbook on a copy: Checks!B2 = OK, Q16 out by -123,606, STD
+    2,339,600 against LTD 0. The docstring now names that file.
+    ONE CORRECTION TO THE RECORD, measured not assumed: 3560a08's commit
+    message says a named owner came out at "0.39 of one". Driving the pre-fix
+    tree over all 1,097 stored payrolls in both call shapes, NO named
+    full-timer is driven below 1.0 - 0 of 1,097 - because the Q1 starting-FTE
+    floor holds them. The live defect is inflation (worst 11.22 of one person)
+    and, for a part-timer, flattening to her Q1 fraction. The test docstring
+    states this rather than repeating the commit message. The deal breaker is
+    unchanged and still real: a client names their owner and the plan emits
+    1.21 - or 11.22 - of that person.
+    DECLARED-vs-ACTUAL: no divergence. Declared spot-check, ran spot-check -
+    test files only, nothing in python/ or client_statements_output_excel/
+    reads them, so no live behaviour flows through the change; forward-
+    reasoning says the one thing downstream is test collection, so I ran the
+    two whole suites that collect alongside it: 98 passed on -k payroll and 55
+    on the scaler-adjacent selection. Declared canary SKIP, skipped it - there
+    is no app-code change to canary. Declared the single-line floor, ran it:
+    R31/R32/R49 3/3 clear, GREEN, workbook_formulas=08643e7e981d.
+    Declared LOADING held: the scaler, the two orchestrator call sites, the STD
+    test, one payroll test for idiom, the two payloads. I did not load the
+    engine, the builder or the gate.

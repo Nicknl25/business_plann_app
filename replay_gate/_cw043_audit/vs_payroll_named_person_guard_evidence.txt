@@ -1,0 +1,145 @@
+VS TURN 15 - the missing red-on-bug guard for the key_person payroll exemption
+(3560a08), plus the two non-reproducing claims corrected in the STD docstring.
+Tests only. No app code, no gate code, no re-bless. HEAD 14ff667.
+
+(1) THE GUARD - tests/test_payroll_named_person_exemption.py
+    fixture   tests/fixtures/payroll_named_person_payloads.json.gz (4,237 bytes)
+
+FIXTURE PROVENANCE: two payloads captured VERBATIM from intake_consult_drafts,
+payroll_headcount stored as the raw JSON string the test parses exactly as
+production does, plus the quarter_index/revenue pairs of finmo_json that the
+orchestrator's anchor is the only consumer of. The capture query and timestamp
+ride inside the fixture itself.
+  537e824e  Sunny Glaze Donuts               OVER-BUDGET case
+              Jordan Lee, Owner and Manager, stated 1.0 x 20 quarters
+              Maria Gonzalez, Lead Baker (part-time), stated
+                0.41 x4 / 0.42 x4 / 0.44 x4 / 0.45 x4 / 0.46 x4
+              supporting: one title, 0.1 FTE, already at its floor
+              named payroll Q1 13,402 vs target 11,466 - cannot fund its people
+  09d10c39  Anderson and Blake Legal Associates   ABSORBING case
+              Emily Anderson + Michael Blake, both stated 1.0 x 20
+              supporting: Paralegals, 2.0 FTE authored -> 22.99 after
+              named payroll Q1 87,518 vs target 538,650 - room to absorb
+
+ANCHOR: not invented. Rebuilt in-test by the orchestrator's own formula,
+payroll_budget[q] = revenue[q] x target_payroll_percent_of_revenue over
+finmo_json.quarter_rows (orchestrator.py:2987-2996).
+BOTH CALL SHAPES exercised on every assertion: round-1 up-only, and Phase B
+allow_scale_down=True (orchestrator.py:3659) - the shape that shrinks a person.
+
+GREEN ON HEAD:  11 tests, 22 subtests passed (0.57s).
+
+RED ON THE REVERT. The revert was done in a scratch worktree and PROVEN
+FAITHFUL first: with both halves reverted, enforce_labor_scaling_on_payload is
+line-for-line identical (code lines, comments aside) to 3560a08 parent -
+106 lines each, CODE IDENTICAL: True. Three variants were run:
+
+  REVERT A  (drop the key_person continue in the by_title loop only)
+      18 failed, 11 passed, 4 subtests passed
+        test_named_full_timers_land_at_exactly_one                   x6
+        test_every_named_row_comes_through_untouched                 x4
+        test_the_supporting_block_absorbs_the_whole_adjustment       x4
+        test_a_stated_part_timer_keeps_her_own_fraction              x2
+        test_supporting_lands_on_target_minus_named_...              x2
+  REVERT B  (solve the factor on FULL payroll again only)
+      2 failed, 11 passed, 20 subtests passed
+        test_supporting_lands_on_target_minus_named_at_the_first_scaled_quarter x2
+        > Q1: supporting landed at 166,842, target-minus-named is 451,132;
+        >     a factor solved on FULL payroll would land it at about 166,760
+  REVERT AB (the full pre-3560a08 function)
+      16 failed, 11 passed, 6 subtests passed
+        test_named_full_timers_land_at_exactly_one                   x6
+        test_every_named_row_comes_through_untouched                 x4
+        test_the_supporting_block_absorbs_the_whole_adjustment       x4
+        test_a_stated_part_timer_keeps_her_own_fraction              x2
+  CONTROL (same worktree, nothing reverted)
+      11 passed, 22 subtests passed
+
+WHICH ASSERTION FIRES ON WHICH HALF - the answer the task asked for:
+  HALF A (the exemption) is guarded by the four identity assertions. They are
+  the only ones that fire on a half-A-only revert and they fire on both drafts
+  and both call shapes: a named full-timer comes out off 1.0, a stated
+  part-timer comes off her own fraction, a named row is rewritten at all, and
+  the delta stops being confined to the supporting block.
+  HALF B (the factor) is guarded by exactly one assertion, and it is the ONLY
+  thing that fires on a half-B-only revert: at the first scaled quarter the
+  supporting block must land on (target - named). Solved on full payroll it
+  lands on supporting x (target / total) - 166,842 against 451,132 on
+  Anderson and Blake, a 63% miss, so the two cannot be confused by tolerance.
+  Under a FULL revert the half-B assertion happens to pass (named rows move
+  too, and target-minus-named-after lines up); the sixteen half-A failures
+  carry that case. No revert of either half is silent.
+
+POPULATION, re-derived my way on all 1,097 stored payrolls, both trees, both
+call shapes (vs_fixture_select.py, vs_shrink.py):
+  pre-fix tree: a NAMED person's ending_fte moves on 501 drafts up-only and
+                501 with allow_scale_down; a named PART-TIMER's on a further
+                230 / 395.
+  HEAD:         ZERO drafts, either shape.  (Agrees with mini's direction; my
+                counts are of drafts-with-any-named-cell-moved, not mini's
+                693/858 up-only/scale-down cut, so the two are not the same
+                statistic - both say the same thing about HEAD: zero.)
+  Worst inflation: Sunny Glaze Donuts 4a47ec91, Jordan Lee stated at 1.0,
+                   emitted at 11.22 of himself.
+  NOTE, and it corrects the commit message: no named full-timer is driven
+  BELOW 1.0 by today's code in either shape - 0 of 1,097. The Q1 starting-FTE
+  floor holds them. The 0.39-of-a-person in 3560a08's message is not
+  reproducible against today's tree; the observable defect is INFLATION for a
+  full-timer and FLATTENING for a part-timer (Maria's stated 0.42 pushed back
+  to her Q1 0.41 by the Phase B trim). The test docstring says this.
+
+(2) THE TWO CLAIMS CORRECTED - tests/test_std_revolver_clipping.py docstring
+    only (the module docstring and the one method docstring that repeated it).
+    Nothing else in that file changed; it still passes 5/5 with Excel.
+
+RE-DERIVED INDEPENDENTLY BEFORE COMMITTING THE SENTENCE (vs_std_q1.py): for
+each of the 8 class drafts, the quarters where bare SUM(window) overstates
+MIN(closing, SUM(window)):
+  e606a5ee Cedar Ridge Bioenergy   Q1..Q16   Q1 in set: YES   worst $2,992,791
+  d7b337ca Cedar Ridge Bioenergy   Q1..Q16   Q1 in set: YES   worst $2,992,791
+  8f1c539a Cedar Ridge Bioenergy   Q1..Q16   Q1 in set: YES   worst $2,762,119
+  acbecef5 Cedar Ridge Bioenergy   Q1..Q16   Q1 in set: YES   worst $2,762,119
+  1b9b4e45 Ironwood Precision      Q1..Q4    Q1 in set: YES   worst   $416,364
+  366f5f4d Meridian Motorcars      Q16 ONLY  Q1 in set: NO    worst   $123,606
+  ee72251f Blueprint and Ledger    Q1        Q1 in set: YES   worst     $4,813
+  df00b8e6 Blueprint and Ledger    Q1        Q1 in set: YES   worst     $4,813
+  => 7 of 8 carry a Q1 error the Q1 tie-out catches; 1 is silent.
+So "only 3 of the 8 were ever visible" was wrong, and Cedar Ridge's "$2.99M
+sits at Q4, delivered without a word" was wrong on the mechanism - Cedar's
+error is at Q1 too. mini's correction reproduces on my instruments.
+
+AND THE DELIVERED FILE, OPENED (vs_recalc.py, on a COPY - the original in
+C:\dev\Cilient Plans was never written to):
+  Meridian Motorcars LLC -- 07-15-2026 20-32-01.xlsx, CalculateFullRebuild:
+    Checks!B2 = OK
+    Checks 'Balance Sheet balances Q1'  -> OK
+    Checks 'Balance Sheet balances Q20' -> OK
+    FINMO Total Assets - Total L&E:  Q16 OUT BY -123,606
+                                     STD 2,339,600   LTD 0
+    every other quarter balances.
+  The Checks sheet carries balance rows for Q1 (r7) and Q20 (r9) and nothing
+  between, which is the whole mechanism. The docstring now names this file.
+
+VERIFICATION (spot-check tier - test files only, nothing production reads them)
+  new file green on HEAD                       11 passed, 22 subtests
+  new file red on each half of the revert      18 / 2 / 16 failed (above)
+  test_std_revolver_clipping.py after the edit  5 passed (Excel present)
+  pytest tests -k payroll                      98 passed, 22 subtests
+  pytest tests -k "scal or labor or headcount or fte or staffing"
+                                               55 passed, 2 subtests
+  single-line floor  R31,R32,R49               3/3 legs clear, GREEN
+                                               workbook_formulas=08643e7e981d
+                                               finmo=bcd8fce31066
+                                               model_input=1d50e46ab8e6
+  canary: SKIPPED, declared as skipped - no app-code change, nothing to canary.
+
+FORWARD REASONING: this change touches two test files and adds one fixture.
+Nothing in python/ or client_statements_output_excel/ reads any of them, so no
+live behaviour flows through it; what is one step downstream is test collection
+and runtime, and that is what the two whole-suite selections above check. The
+honest answer to "does this plausibly affect submit / build / the delivered
+plan" is no - it cannot, it is not on any production path.
+
+SCRIPTS (scratch, reproducible): revert.py (faithful two-half revert +
+pre-fix equivalence check), vs_fixture_select.py, vs_shrink.py, vs_detail.py,
+vs_capture_fixture.py, vs_std_q1.py, vs_recalc.py.

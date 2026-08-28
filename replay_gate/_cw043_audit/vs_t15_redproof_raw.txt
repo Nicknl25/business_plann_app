@@ -1,0 +1,42 @@
+############ REVERT A ############
+SUBFAILED(call='round1_up_only') ANamedPersonIsNeverResizedTests::test_a_stated_part_timer_keeps_her_own_fraction
+SUBFAILED(call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_a_stated_part_timer_keeps_her_own_fraction
+SUBFAILED(draft='537e824e', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='537e824e', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='09d10c39', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='09d10c39', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='537e824e', person='Jordan Lee', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='537e824e', person='Jordan Lee', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Emily Anderson', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Emily Anderson', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Michael Blake', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Michael Blake', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='537e824e', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='537e824e', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='09d10c39', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='09d10c39', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(call='round1_up_only') TheFactorIsSolvedOnSupportingPayrollAloneTests::test_supporting_lands_on_target_minus_named_at_the_first_scaled_quarter
+SUBFAILED(call='phase_b_allow_scale_down') TheFactorIsSolvedOnSupportingPayrollAloneTests::test_supporting_lands_on_target_minus_named_at_the_first_scaled_quarter
+18 failed, 11 passed, 4 subtests passed in 0.85s
+############ REVERT B ############
+SUBFAILED(call='round1_up_only') TheFactorIsSolvedOnSupportingPayrollAloneTests::test_supporting_lands_on_target_minus_named_at_the_first_scaled_quarter
+SUBFAILED(call='phase_b_allow_scale_down') TheFactorIsSolvedOnSupportingPayrollAloneTests::test_supporting_lands_on_target_minus_named_at_the_first_scaled_quarter
+2 failed, 11 passed, 20 subtests passed in 0.70s
+############ REVERT AB ############
+SUBFAILED(call='round1_up_only') ANamedPersonIsNeverResizedTests::test_a_stated_part_timer_keeps_her_own_fraction
+SUBFAILED(call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_a_stated_part_timer_keeps_her_own_fraction
+SUBFAILED(draft='537e824e', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='537e824e', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='09d10c39', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='09d10c39', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_every_named_row_comes_through_untouched
+SUBFAILED(draft='537e824e', person='Jordan Lee', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='537e824e', person='Jordan Lee', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Emily Anderson', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Emily Anderson', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Michael Blake', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='09d10c39', person='Michael Blake', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_named_full_timers_land_at_exactly_one
+SUBFAILED(draft='537e824e', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='537e824e', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='09d10c39', call='round1_up_only') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+SUBFAILED(draft='09d10c39', call='phase_b_allow_scale_down') ANamedPersonIsNeverResizedTests::test_the_supporting_block_absorbs_the_whole_adjustment
+16 failed, 11 passed, 6 subtests passed in 0.80s

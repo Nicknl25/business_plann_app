@@ -21,10 +21,15 @@ and clips each quarter to what is left:
 so this is the workbook learning what the engine already knew.
 
 MEASURED across 400 drafts since 2026-07-13: 8 carry the class, errors from
-$521 to $2,992,791 (median $1.4M). Only 3 of the 8 were ever visible, because
-the Checks balance tie-out runs on Q1 and Q20 only - Cedar Ridge Bioenergy's
-$2.99M error sits at Q4 and Meridian's $123,606 at Q16, and both delivered
-without a word.
+$521 to $2,992,791 (median $1,415,194). The Checks balance tie-out runs on Q1
+and Q20 only, so whether the client ever saw one is luck of the quarter: 7 of
+the 8 happen to carry a Q1 error, which that tie-out does catch. One does not,
+and it shipped. Meridian Motorcars (366f5f4d) carries its whole error at Q16:
+the delivered "Meridian Motorcars LLC -- 07-15-2026 20-32-01.xlsx",
+recalculated on a copy, is out of balance by $123,606 at Q16 - Short Term Debt
+2,339,600 against a Long Term Debt of 0 - and its own Checks!B2 reads "OK".
+A wrong number, and a false claim about that number, in a client's hands on
+the guided path.
 """
 from __future__ import annotations
 
@@ -148,8 +153,8 @@ class TheWorkbookMatchesTheEngineTests(unittest.TestCase):
     self.assertFalse(misses, f"workbook STD != engine: {misses[:5]}")
 
   def test_the_balance_sheet_balances_every_quarter(self):
-    """Not just Q1 and Q20 - the Checks tie-out only covers those two, which
-    is why the Cedar Ridge and Meridian errors were never seen."""
+    """Not just Q1 and Q20 - the Checks tie-out only covers those two, which is
+    why Meridian's Q16 error shipped under a Checks!B2 that read "OK"."""
     assets, liabilities = self._row("Total Assets"), self._row("Total Liabilities & Equity")
     out = []
     for q in range(1, 21):
