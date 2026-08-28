@@ -1520,7 +1520,16 @@ def _validate_payroll_title_rows(
 ) -> None:
   horizon = _contract_horizon_quarters()
   quarters = {int(row.get("quarter_index") or 0) for row in rows}
-  if quarters != set(range(1, horizon + 1)):
+  # AN EMPTY SUPPORTING GRID IS A LEGAL ANSWER (Nick, 2026-08-27). This
+  # required a supporting OEWS-title row in every quarter, which asserted
+  # that every business employs supporting staff - Bluestem is seven named
+  # people and nothing else, Understory four. The producer satisfied it by
+  # floating six titles at 0.01 FTE. NO rows means the business is its named
+  # people; rows present must still cover the whole horizon, so a title that
+  # starts and then vanishes is still caught, here and in the lifecycle
+  # check below. Mirrors allow_empty on the payroll_headcount_grid contract
+  # row (post_intake_mapping).
+  if rows and quarters != set(range(1, horizon + 1)):
     missing = sorted(set(range(1, horizon + 1)) - quarters)
     extra = sorted(quarter for quarter in quarters if quarter < 1 or quarter > horizon)
     _payroll_fail_fast(
@@ -2660,6 +2669,11 @@ ROUND1_DEFAULT_WAGE_POSITIONING_TIER = "floor"
 # every quarter (lookup._validate_supporting_title_lifecycle). Tiny early-
 # quarter budgets can round below this; floor to keep the schedule valid.
 ROUND1_SUPPORTING_FTE_FLOOR = 0.01
+# A supporting title is carried only when the budget funds at least this much
+# of a person. Below it the title is DROPPED, not floored (Nick, 2026-08-27):
+# one phantom role is no more honest than six, and a business whose budget
+# funds none of them has no supporting block at all.
+ROUND1_SUPPORTING_MIN_REAL_FTE = 0.25
 # Reported-productivity fallback for the degenerate no-supporting-FTE case only
 # (the contract field must be > 0); never a sizing input (Part G).
 ROUND1_REPORTED_PRODUCTIVITY_FALLBACK = 1.0
@@ -3089,6 +3103,43 @@ def author_round1_payroll_contract(
   else:
     weights = [1.0 / len(selected) for _ in selected]
   selected_base_wage = [int(_round_currency(c.get("annual_wage"))) for c in selected]
+
+  # ONLY AS MANY TITLES AS THE BUDGET ACTUALLY FUNDS (Nick, 2026-08-27).
+  # The mix used to be the top SIX occupations by national employment for the
+  # NAICS whatever the money was, with every share that rounded to nothing
+  # floored at ROUND1_SUPPORTING_FTE_FLOOR - so a four-person mushroom farm
+  # employed 0.01 of a logging equipment operator, and six such roles filled
+  # 72 rows of the client's schedule. MEASURED: 153 of 390 drafts carried
+  # roles under 0.1 FTE, and in 151 of them EVERY supporting role was one.
+  #
+  # Titles are taken in weight order while each would carry at least a real
+  # person's fraction; the rest are DROPPED, and the weights renormalised so
+  # the supporting budget still lands in full on the titles that remain. A
+  # title that never activates is not a lifecycle violation, so
+  # lookup._validate_supporting_title_lifecycle is untouched. When the budget
+  # funds not one real fraction there is NO supporting block: the business is
+  # its named people and the schedule says so - which the contract now
+  # permits (post_intake_mapping, allow_empty on payroll_headcount_grid).
+  _sizing_budget = max(
+    0.0,
+    float(revenue_by_q.get(1, 0.0)) * pct_mid - float(key_payroll_by_q.get(1, 0)),
+  )
+  _sizing_wage = sum(weights[i] * float(selected_base_wage[i]) for i in range(len(selected)))
+  _sizing_level = (
+    _sizing_budget * 4.0 / ((1.0 + benefits_pct) * _sizing_wage)
+    if _sizing_budget > 0.0 and _sizing_wage > 0.0 else 0.0
+  )
+  _funded = [
+    i for i in range(len(selected))
+    if _sizing_level * weights[i] >= ROUND1_SUPPORTING_MIN_REAL_FTE
+  ]
+  if _funded:
+    selected = [selected[i] for i in _funded]
+    selected_base_wage = [selected_base_wage[i] for i in _funded]
+    _kept = sum(weights[i] for i in _funded)
+    weights = [weights[i] / _kept for i in _funded] if _kept > 0 else [1.0 / len(_funded)] * len(_funded)
+  else:
+    selected, selected_base_wage, weights = [], [], []
 
   # --- dollar-path FTE per title per quarter (Part B.1, B.6) --------------
   # Flat within quarter (starting == ending) so average_fte == ending and the

@@ -2124,13 +2124,25 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     "payroll_headcount_grid",
     "payroll_headcount_grid",
     "array",
+    # A BUSINESS MAY BE ONLY ITS NAMED PEOPLE (Nick, 2026-08-27).
+    # min_items=20 plus q1_to_q20_at_least_once asserted that every business
+    # employs at least one supporting title in every quarter. That is not
+    # true: Bluestem is seven named staff and nothing else, Understory four.
+    # The contract made that shape unrepresentable, so the producer floored
+    # six OEWS titles at 0.01 FTE to satisfy it and a four-person mushroom
+    # farm employed a hundredth of a logging equipment operator.
+    # allow_empty lets the grid be EMPTY - and only empty. A grid with rows
+    # still has to carry at least 20 of them and still has to cover Q1-Q20,
+    # so the guarantee that a title, once started, runs the horizon is
+    # untouched.
     min_items=20,
     max_items=400,
+    allow_empty=True,
     item_contract_grid_name="payroll_headcount_grid",
     horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide active supporting-staff OEWS-title/FTE rows for every forecast quarter Q1 through Q20. GPT picks exact oews_occ_title rows from the full NAICS oews_title_catalog.title_candidates and states starting_fte, hires, ending_fte, and benefits percent for that title. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through the selected OEWS row, applies wage positioning and inflation from post_intake_headcount_policy_lookup, calculates payroll dollars, derives payroll-supported Capacity from average FTE, and stores intake_consult_drafts.payroll_headcount. If an OEWS title has no FTE in all 20 quarters, omit it. Once an OEWS title starts, keep it active through Q20. Staffing families and categories are deleted from the active payroll contract.",
+    prompt_required_instruction="Provide active supporting-staff OEWS-title/FTE rows for every forecast quarter Q1 through Q20. GPT picks exact oews_occ_title rows from the full NAICS oews_title_catalog.title_candidates and states starting_fte, hires, ending_fte, and benefits percent for that title. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through the selected OEWS row, applies wage positioning and inflation from post_intake_headcount_policy_lookup, calculates payroll dollars, derives payroll-supported Capacity from average FTE, and stores intake_consult_drafts.payroll_headcount. If an OEWS title has no FTE in all 20 quarters, omit it. Once an OEWS title starts, keep it active through Q20. IF THE BUSINESS SUPPORTS NO SUPPORTING STAFF AT ALL - the named people from intake are the whole payroll - return an EMPTY array rather than inventing a token role at a fraction of a person. An empty grid is a legal answer; a grid with rows must still cover every quarter Q1 through Q20. Staffing families and categories are deleted from the active payroll contract.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_labor_model", "capacity_labor_model", "enum", validation_kind="enum", enum_values=["labor_driven", "hybrid", "system_driven", "expert_driven"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one capacity labor model from post_intake_headcount_policy_lookup.capacity_labor_model_values. This is business judgment; Python validates it."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "labor_intensity_class", "labor_intensity_class", "enum", validation_kind="enum", enum_values=["low", "medium", "high", "expert"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one labor intensity class from post_intake_headcount_policy_lookup.labor_intensity_class_values."),
@@ -3140,7 +3152,7 @@ def _payroll_feasibility_repair_direction_rules(lever_id: Any) -> Dict[str, Any]
           },
           "supporting_staff_fte": {
             "direction": "decrease_only_if_operationally_plausible",
-            "reason": "FTE may fall only when role mix and supported capacity remain coherent.",
+            "reason": "FTE may fall only when role mix and supported capacity remain coherent. It may fall to ZERO supporting titles: a business whose named people are its whole payroll is a legitimate shape, and an empty supporting grid is preferred over a token role carried at a fraction of a person.",
           },
           "wage_positioning_multiplier": {
             "direction": "decrease_only_within_selected_table_tier_or_select_lower_valid_tier",
@@ -7516,7 +7528,12 @@ class PostIntakeGptContractLookup:
           continue
         min_items = row.get("min_items")
         max_items = row.get("max_items")
-        if min_items is not None and len(value) < int(min_items):
+        # allow_empty was stored on every contract row and never read. An
+        # EMPTY array is now a legal answer where the row says so - and only
+        # empty: a grid with rows still has to satisfy min_items, so
+        # "at least 20 rows" still means what it said (2026-08-27).
+        _empty_ok = bool(row.get("allow_empty")) and len(value) == 0
+        if min_items is not None and len(value) < int(min_items) and not _empty_ok:
           errors.append(f"{field_name} must contain at least {int(min_items)} rows")
         if max_items is not None and len(value) > int(max_items):
           errors.append(f"{field_name} must contain no more than {int(max_items)} rows")
@@ -7640,6 +7657,11 @@ class PostIntakeGptContractLookup:
         horizon_label = f"Q1-Q{len(expected_quarters)}"
         if not isinstance(value, list):
           errors.append(f"{contract}.{field_name} must be an array with {horizon_label}")
+          continue
+        if not value and bool(row.get("allow_empty")):
+          # An empty grid covers no quarters, which is the whole point of it:
+          # the business has no rows of this kind at all. Rows present still
+          # have to cover the horizon (2026-08-27).
           continue
         quarters = self._quarter_set_from_array(value)
         missing = sorted(expected_quarters - quarters)

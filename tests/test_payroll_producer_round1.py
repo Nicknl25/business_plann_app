@@ -96,8 +96,37 @@ class PayrollProducerRound1Test(unittest.TestCase):
     self.assertIn(contract["labor_intensity_class"], {"low", "medium", "high", "expert"})
     self.assertGreater(contract["capacity_units_per_supporting_fte"], 0.0)
     self.assertTrue(contract["rationale"].strip())
-    self.assertGreaterEqual(len(contract["payroll_headcount_grid"]), 20)
+    # THE GRID IS EMPTY OR IT COVERS THE HORIZON (2026-08-27). It used to be
+    # "at least 20 rows, always", which asserted every business employs
+    # supporting staff; a business whose named people are its whole payroll
+    # is a real shape and now returns an empty grid. THIS fixture is exactly
+    # that case - Jane Doe at 120,000/yr costs 36,600 a quarter against a
+    # 25,000 payroll budget - so zero supporting titles is the correct
+    # answer for it. The populated shape is covered by the no-key-person and
+    # higher-revenue fixtures below.
+    grid = contract["payroll_headcount_grid"]
+    if grid:
+      self.assertGreaterEqual(len(grid), 20)
+      self.assertEqual({int(row["q"]) for row in grid}, set(range(1, 21)),
+                       "a non-empty grid must still cover every quarter Q1-Q20")
     self.assertEqual(normalized["labor_intensity_class"], contract["labor_intensity_class"])
+
+  def test_an_unfunded_supporting_block_is_empty_and_a_funded_one_covers_the_horizon(self) -> None:
+    """The two legal shapes, side by side on the same producer: a business
+    whose named people outcost the payroll budget carries NO supporting
+    titles (rather than six floored at 0.01 of a person), and one that can
+    afford them carries rows for every quarter."""
+    unfunded = self._author()["payroll_headcount_grid"]
+    self.assertEqual(unfunded, [], "named people outcost the budget - expected no supporting titles")
+    from client_intake_and_finmo.post_intake_headcount.schedule import (
+      author_round1_payroll_contract,
+    )
+    funded = author_round1_payroll_contract(
+      **_inputs(with_key_person=False))["payroll_headcount_grid"]
+    self.assertGreaterEqual(len(funded), 20)
+    self.assertEqual({int(row["q"]) for row in funded}, set(range(1, 21)))
+    self.assertTrue(all(float(row["ending_fte"]) >= 0.25 for row in funded),
+                    "a carried title must be at least a quarter of a real person")
 
   def test_fte_reproduces_builder_payroll_exactly(self) -> None:
     """Verify #1 — the producer's FTE, fed to the builder, reproduces the

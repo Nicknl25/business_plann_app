@@ -311,6 +311,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
             "this sheet.")
   write_period_headers(ws, data.periods)
   root = data.payroll_headcount
+  expense_by_label = row_by_label(data.expense_rows)
   summary_row = 6
   write_section_header(ws, summary_row, "Payroll Assumptions")
   assumptions = [
@@ -434,7 +435,14 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   role_layout: Dict[tuple, Dict[str, int]] = {}
   for role in roles:
     first = role["first"]
-    layout: Dict[str, int] = {"header": row, "oews": row + 1}
+    # NO LABELLED EMPTY ROW (Nick, 2026-08-27). Only staffed roles carry an
+    # OEWS title; a named person has none, and the row rendered as the words
+    # "OEWS title" against an empty cell on every one of them. The row is
+    # written only when there is a title to put in it, and the block's
+    # geometry follows - so the period rows start one row higher on a named
+    # person's block. The bridge reads the layout dict, not a fixed offset.
+    _oews_title = text(first.get("oews_occ_title") or first.get("oews_matched_title"))
+    layout: Dict[str, int] = {"header": row}
     title_cell = ws.cell(row=row, column=1,
                          value=text(first.get("position_title") or first.get("person_name")))
     class_cell = ws.cell(row=row, column=2,
@@ -442,14 +450,20 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     set_input_style(title_cell, number_format=design.FMT_TEXT)
     set_input_style(class_cell, number_format=design.FMT_TEXT)
     title_cell.font = design.font("label_strong")
-    ws.cell(row=row + 1, column=1, value="OEWS title")
-    oews_cell = ws.cell(row=row + 1, column=2,
-                        value=text(first.get("oews_occ_title") or first.get("oews_matched_title")))
-    set_formula_style(oews_cell, number_format=design.FMT_TEXT, internal_link=False)
+    _next = row + 1
+    if _oews_title:
+      layout["oews"] = _next
+      ws.cell(row=_next, column=1, value="OEWS title")
+      oews_cell = ws.cell(row=_next, column=2, value=_oews_title)
+      set_formula_style(oews_cell, number_format=design.FMT_TEXT, internal_link=False)
+      _next += 1
     for n, (label, _fmt, _kind) in enumerate(PERIOD_ROWS):
-      layout[label] = row + 2 + n
-      ws.cell(row=row + 2 + n, column=1, value=label)
+      layout[label] = _next + n
+      ws.cell(row=_next + n, column=1, value=label)
     R = layout
+    last_source_text = None
+    last_source_col = None
+    source_col_by_q: Dict[int, int] = {}
     for q in range(1, PERIOD_COUNT):
       col = PERIOD_START_COL + q
       item = role["by_q"].get(q)
@@ -478,9 +492,20 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         sign = "-" if delta < 0 else "+"
         return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
 
-      source_cell = ws.cell(row=R["Wage source"], column=col,
-                            value=_wage_source_plain(item.get("wage_source") or item.get("wage_source_code")))
-      set_input_style(source_cell, number_format=design.FMT_TEXT)
+      # WRITTEN ONCE UNLESS IT VARIES (Nick, 2026-08-27). The engine's wage
+      # source label is per-quarter, but on 380 of 390 drafts it is the same
+      # string in all twenty - so the row repeated "Your stated wage" twenty
+      # times across. It is written in the FIRST quarter the role appears,
+      # and thereafter only when the label actually changes, which is the
+      # owner-draw deferral this row was built for. The bridge still reads a
+      # per-quarter cell, so it walks left to the last label written.
+      _src_text = _wage_source_plain(item.get("wage_source") or item.get("wage_source_code"))
+      if _src_text != last_source_text:
+        source_cell = ws.cell(row=R["Wage source"], column=col, value=_src_text)
+        set_input_style(source_cell, number_format=design.FMT_TEXT)
+        last_source_col = col
+      last_source_text = _src_text
+      source_col_by_q[q] = last_source_col
       if prior is not None:
         ws.cell(row=R["Starting FTE"], column=col,
                 value=f"=ROUND({local_ref(R['Ending FTE'], prev_col)},6)")
@@ -519,8 +544,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         for q in range(1, PERIOD_COUNT):
           if role["by_q"].get(q) is not None:
             set_input_style(ws.cell(row=R[label], column=PERIOD_START_COL + q), number_format=fmt)
+    layout["_source_col_by_q"] = source_col_by_q
     role_layout[role["key"]] = layout
-    row += 2 + len(PERIOD_ROWS) + 1
+    row = max(v for k, v in layout.items() if isinstance(v, int)) + 2
 
   # ---- THE HIDDEN BRIDGE ----------------------------------------------------
   row += 1
@@ -580,10 +606,14 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
 
     ws.cell(row=row, column=2, value=_text_ref(R["header"], 2))
     ws.cell(row=row, column=3, value=_text_ref(R["header"], 1))
-    ws.cell(row=row, column=4, value=_text_ref(R["oews"], 2))
+    # A named person's block has no OEWS row at all now; the old vertical
+    # block held nothing there, so the bridge holds nothing either.
+    ws.cell(row=row, column=4,
+            value=_text_ref(R["oews"], 2) if "oews" in R else '=""')
     for col, label in BRIDGE_COLS:
       ws.cell(row=row, column=col, value=f"={local_ref(R[label], qcol)}")
-    ws.cell(row=row, column=14, value=_text_ref(R["Wage source"], qcol))
+    _src_col = (R.get("_source_col_by_q") or {}).get(quarter, qcol)
+    ws.cell(row=row, column=14, value=_text_ref(R["Wage source"], _src_col))
     for col in range(1, 15):
       ws.cell(row=row, column=col).font = design.font("note")
     row += 1
@@ -598,10 +628,28 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       col = PERIOD_START_COL + q
       if key in {"ending_fte", "average_fte", "payroll"} and detail_last_row >= detail_start_row:
         source_col_letter = {"ending_fte": "G", "average_fte": "H", "payroll": "M"}[key]
-        formula = (
-          f"=SUMIFS(${source_col_letter}${detail_start_row}:${source_col_letter}${detail_last_row},"
-          f"$A${detail_start_row}:$A${detail_last_row},{q})"
-        )
+        if q == 0:
+          # THE STUB IS THE HISTORICAL ANCHOR, AND IT IS NOT ZERO (Nick,
+          # 2026-08-27). The detail carries rows for the forecast quarters
+          # only, so a SUMIFS over it returns 0 in the stub column - while
+          # the engine carries real stub payroll (Halbrook: 149,750, the
+          # figure Model Inputs and FINMO both use). The sheet was saying the
+          # business paid nobody in the period it was actually trading. Total
+          # Payroll now shows the engine's own stub figure; headcount has no
+          # stub detail to show, so those two cells are left empty rather
+          # than asserting zero people.
+          if key == "payroll":
+            _stub_payroll = values_21(
+              (expense_by_label.get("Payroll") or {}).get("values")
+            )[0]
+            formula = number(_stub_payroll) or 0
+          else:
+            formula = None
+        else:
+          formula = (
+            f"=SUMIFS(${source_col_letter}${detail_start_row}:${source_col_letter}${detail_last_row},"
+            f"$A${detail_start_row}:$A${detail_last_row},{q})"
+          )
       elif key == "revenue":
         source_row = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
         formula = f"={ref(REVENUE_SHEET, source_row, col)}" if source_row else "=0"
@@ -618,6 +666,8 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         formula = "=0"
       cell = ws.cell(row=summary_output_row, column=col, value=formula)
       set_formula_style(cell, number_format=fmt, internal_link=True)
+      if formula is None:
+        cell.value = None
     if key == "average_fte":
       _add_annual_average_formulas(ws, summary_output_row, number_format=fmt)
     elif key == "revenue_per_employee":

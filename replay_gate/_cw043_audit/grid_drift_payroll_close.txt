@@ -1,0 +1,6452 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/c--dev-business-plann-app/1b5df2b9-512c-4fc5-bfdd-b10c0712b978/scratchpad/wt_head
+SHA    08643e7e981dc3f21703de2b5c4b62a47040966211d4d401a76d4fc0a079cf4c
+GRID   11 sheets, 9667 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   C:/dev/business_plann_app
+SHA    41467d5c6b155d21588c9a79eb695593f7ed75edcbd15a98dc79454ca4f7a885
+GRID   11 sheets, 9664 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   9612 shared cells, 2112 CHANGED, 55 only in wt_head, 52 only in business_plann_app
+       (formulas only - static labels and formats are invisible here)
+  -    Payroll Schedule	Total Average FTE	25	=AVERAGE(T16:W16)
+  -    Payroll Schedule	Total Ending FTE	25	=W15
+  -    Payroll Schedule	Total Payroll	125	=W88+W89
+  -    Payroll Schedule	row191	0	=IF(B40="","",B40)
+  -    Payroll Schedule	row191	1	=IF(A40="","",A40)
+  -    Payroll Schedule	row191	10	=W50
+  -    Payroll Schedule	row191	11	=W51
+  -    Payroll Schedule	row191	12	=IF(W42="","",W42)
+  -    Payroll Schedule	row191	2	=IF(B41="","",B41)
+  -    Payroll Schedule	row191	3	=W43
+  -    Payroll Schedule	row191	4	=W44
+  -    Payroll Schedule	row191	5	=W45
+  -    Payroll Schedule	row191	6	=W46
+  -    Payroll Schedule	row191	7	=W47
+  -    Payroll Schedule	row191	8	=W48
+  -    Payroll Schedule	row191	9	=W49
+  -    Payroll Schedule	row192	0	=IF(B53="","",B53)
+  -    Payroll Schedule	row192	1	=IF(A53="","",A53)
+  -    Payroll Schedule	row192	10	=W63
+  -    Payroll Schedule	row192	11	=W64
+  -    Payroll Schedule	row192	12	=IF(W55="","",W55)
+  -    Payroll Schedule	row192	2	=IF(B54="","",B54)
+  -    Payroll Schedule	row192	3	=W56
+  -    Payroll Schedule	row192	4	=W57
+  -    Payroll Schedule	row192	5	=W58
+  -    Payroll Schedule	row192	6	=W59
+  -    Payroll Schedule	row192	7	=W60
+  -    Payroll Schedule	row192	8	=W61
+  -    Payroll Schedule	row192	9	=W62
+  -    Payroll Schedule	row193	0	=IF(B66="","",B66)
+  -    Payroll Schedule	row193	1	=IF(A66="","",A66)
+  -    Payroll Schedule	row193	10	=W76
+  -    Payroll Schedule	row193	11	=W77
+  -    Payroll Schedule	row193	12	=IF(W68="","",W68)
+  -    Payroll Schedule	row193	2	=IF(B67="","",B67)
+  -    Payroll Schedule	row193	3	=W69
+  -    Payroll Schedule	row193	4	=W70
+  -    Payroll Schedule	row193	5	=W71
+  -    Payroll Schedule	row193	6	=W72
+  -    Payroll Schedule	row193	7	=W73
+  -    Payroll Schedule	row193	8	=W74
+  -    Payroll Schedule	row193	9	=W75
+  -    Payroll Schedule	row194	0	=IF(B79="","",B79)
+  -    Payroll Schedule	row194	1	=IF(A79="","",A79)
+  -    Payroll Schedule	row194	10	=W89
+  -    Payroll Schedule	row194	11	=W90
+  -    Payroll Schedule	row194	12	=IF(W81="","",W81)
+  -    Payroll Schedule	row194	2	=IF(B80="","",B80)
+  -    Payroll Schedule	row194	3	=W82
+  -    Payroll Schedule	row194	4	=W83
+  -    Payroll Schedule	row194	5	=W84
+  -    Payroll Schedule	row194	6	=W85
+  -    Payroll Schedule	row194	7	=W86
+  -    Payroll Schedule	row194	8	=W87
+  -    Payroll Schedule	row194	9	=W88
+  +    Payroll Schedule	row91	0	=IF(B27="","",B27)
+  +    Payroll Schedule	row91	1	=IF(A27="","",A27)
+  +    Payroll Schedule	row91	10	=D36
+  +    Payroll Schedule	row91	11	=D37
+  +    Payroll Schedule	row91	12	=IF(D28="","",D28)
+  +    Payroll Schedule	row91	2	=""
+  +    Payroll Schedule	row91	3	=D29
+  +    Payroll Schedule	row91	4	=D30
+  +    Payroll Schedule	row91	5	=D31
+  +    Payroll Schedule	row91	6	=D32
+  +    Payroll Schedule	row91	7	=D33
+  +    Payroll Schedule	row91	8	=D34
+  +    Payroll Schedule	row91	9	=D35
+  +    Payroll Schedule	row92	0	=IF(B39="","",B39)
+  +    Payroll Schedule	row92	1	=IF(A39="","",A39)
+  +    Payroll Schedule	row92	10	=D48
+  +    Payroll Schedule	row92	11	=D49
+  +    Payroll Schedule	row92	12	=IF(D40="","",D40)
+  +    Payroll Schedule	row92	2	=""
+  +    Payroll Schedule	row92	3	=D41
+  +    Payroll Schedule	row92	4	=D42
+  +    Payroll Schedule	row92	5	=D43
+  +    Payroll Schedule	row92	6	=D44
+  +    Payroll Schedule	row92	7	=D45
+  +    Payroll Schedule	row92	8	=D46
+  +    Payroll Schedule	row92	9	=D47
+  +    Payroll Schedule	row93	0	=IF(B51="","",B51)
+  +    Payroll Schedule	row93	1	=IF(A51="","",A51)
+  +    Payroll Schedule	row93	10	=D60
+  +    Payroll Schedule	row93	11	=D61
+  +    Payroll Schedule	row93	12	=IF(D52="","",D52)
+  +    Payroll Schedule	row93	2	=""
+  +    Payroll Schedule	row93	3	=D53
+  +    Payroll Schedule	row93	4	=D54
+  +    Payroll Schedule	row93	5	=D55
+  +    Payroll Schedule	row93	6	=D56
+  +    Payroll Schedule	row93	7	=D57
+  +    Payroll Schedule	row93	8	=D58
+  +    Payroll Schedule	row93	9	=D59
+  +    Payroll Schedule	row94	0	=IF(B63="","",B63)
+  +    Payroll Schedule	row94	1	=IF(A63="","",A63)
+  +    Payroll Schedule	row94	10	=D72
+  +    Payroll Schedule	row94	11	=D73
+  +    Payroll Schedule	row94	12	=IF(D64="","",D64)
+  +    Payroll Schedule	row94	2	=""
+  +    Payroll Schedule	row94	3	=D65
+  +    Payroll Schedule	row94	4	=D66
+  +    Payroll Schedule	row94	5	=D67
+  +    Payroll Schedule	row94	6	=D68
+  +    Payroll Schedule	row94	7	=D69
+  +    Payroll Schedule	row94	8	=D70
+  +    Payroll Schedule	row94	9	=D71
+  *    Checks	Formula Error Scan	3
+         was =SUMPRODUCT(--ISERROR('Payroll Schedule'!C15:W194))
+         now =SUMPRODUCT(--ISERROR('Payroll Schedule'!C15:W190))
+  *    Checks	Schedule Coherence	0
+         was =SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$95:$G$194,'Payroll Schedule'!$A$95:$A$194,0)),ABS
+         now =SUM(ABS('Payroll Schedule'!C15-SUMIFS('Payroll Schedule'!$G$91:$G$190,'Payroll Schedule'!$A$91:$A$190,0)),ABS
+  *    Checks	Schedule Coherence	6
+         was =SUMPRODUCT(ABS('Payroll Schedule'!G95:G194-('Payroll Schedule'!E95:E194+'Payroll Schedule'!F95:F194)))+SUMPRO
+         now =SUMPRODUCT(ABS('Payroll Schedule'!G91:G190-('Payroll Schedule'!E91:E190+'Payroll Schedule'!F91:F190)))+SUMPRO
+  *    Checks	Schedule Coherence	9
+         was =SUMPRODUCT(ABS('Payroll Schedule'!K95:K194-('Payroll Schedule'!H95:H194*'Payroll Schedule'!I95:I194/4)))+SUMP
+         now =SUMPRODUCT(ABS('Payroll Schedule'!K91:K190-('Payroll Schedule'!H91:H190*'Payroll Schedule'!I91:I190/4)))+SUMP
+  *    Payroll Schedule	Annual Wage	0
+         was =D34
+         now =D33
+  *    Payroll Schedule	Annual Wage	1
+         was =E34
+         now =E33
+  *    Payroll Schedule	Annual Wage	10
+         was =N34
+         now =N33
+  *    Payroll Schedule	Annual Wage	11
+         was =O34
+         now =O33
+  *    Payroll Schedule	Annual Wage	12
+         was =P34
+         now =P33
+  *    Payroll Schedule	Annual Wage	13
+         was =Q34
+         now =Q33
+  *    Payroll Schedule	Annual Wage	14
+         was =R34
+         now =R33
+  *    Payroll Schedule	Annual Wage	15
+         was =S34
+         now =S33
+  *    Payroll Schedule	Annual Wage	16
+         was =T34
+         now =T33
+  *    Payroll Schedule	Annual Wage	17
+         was =U34
+         now =U33
+  *    Payroll Schedule	Annual Wage	18
+         was =V34
+         now =V33
+  *    Payroll Schedule	Annual Wage	19
+         was =D47
+         now =D45
+  *    Payroll Schedule	Annual Wage	2
+         was =F34
+         now =F33
+  *    Payroll Schedule	Annual Wage	20
+         was =E47
+         now =E45
+  *    Payroll Schedule	Annual Wage	21
+         was =F47
+         now =F45
+  *    Payroll Schedule	Annual Wage	22
+         was =G47
+         now =G45
+  *    Payroll Schedule	Annual Wage	23
+         was =H47
+         now =H45
+  *    Payroll Schedule	Annual Wage	24
+         was =I47
+         now =I45
+  *    Payroll Schedule	Annual Wage	25
+         was =J47
+         now =J45
+  *    Payroll Schedule	Annual Wage	26
+         was =K47
+         now =K45
+  *    Payroll Schedule	Annual Wage	27
+         was =L47
+         now =L45
+  *    Payroll Schedule	Annual Wage	28
+         was =M47
+         now =M45
+  *    Payroll Schedule	Annual Wage	29
+         was =N47
+         now =N45
+  *    Payroll Schedule	Annual Wage	3
+         was =G34
+         now =G33
+  *    Payroll Schedule	Annual Wage	30
+         was =O47
+         now =O45
+  *    Payroll Schedule	Annual Wage	31
+         was =P47
+         now =P45
+  *    Payroll Schedule	Annual Wage	32
+         was =Q47
+         now =Q45
+  *    Payroll Schedule	Annual Wage	33
+         was =R47
+         now =R45
+  *    Payroll Schedule	Annual Wage	34
+         was =S47
+         now =S45
+  *    Payroll Schedule	Annual Wage	35
+         was =T47
+         now =T45
+  *    Payroll Schedule	Annual Wage	36
+         was =U47
+         now =U45
+  *    Payroll Schedule	Annual Wage	37
+         was =V47
+         now =V45
+  *    Payroll Schedule	Annual Wage	38
+         was =D60
+         now =D57
+  *    Payroll Schedule	Annual Wage	39
+         was =E60
+         now =E57
+  *    Payroll Schedule	Annual Wage	4
+         was =H34
+         now =H33
+  *    Payroll Schedule	Annual Wage	40
+         was =F60
+         now =F57
+  *    Payroll Schedule	Annual Wage	41
+         was =ROUND(G60+900.0,6)
+         now =ROUND(G57+900.0,6)
+  *    Payroll Schedule	Annual Wage	42
+         was =H60
+         now =H57
+  *    Payroll Schedule	Annual Wage	43
+         was =I60
+         now =I57
+  *    Payroll Schedule	Annual Wage	44
+         was =J60
+         now =J57
+  *    Payroll Schedule	Annual Wage	45
+         was =ROUND(K60+927.0,6)
+         now =ROUND(K57+927.0,6)
+  *    Payroll Schedule	Annual Wage	46
+         was =L60
+         now =L57
+  *    Payroll Schedule	Annual Wage	47
+         was =M60
+         now =M57
+  *    Payroll Schedule	Annual Wage	48
+         was =N60
+         now =N57
+  *    Payroll Schedule	Annual Wage	49
+         was =ROUND(O60+955.0,6)
+         now =ROUND(O57+955.0,6)
+  *    Payroll Schedule	Annual Wage	5
+         was =I34
+         now =I33
+  *    Payroll Schedule	Annual Wage	50
+         was =P60
+         now =P57
+  *    Payroll Schedule	Annual Wage	51
+         was =Q60
+         now =Q57
+  *    Payroll Schedule	Annual Wage	52
+         was =R60
+         now =R57
+  *    Payroll Schedule	Annual Wage	53
+         was =ROUND(S60+983.0,6)
+         now =ROUND(S57+983.0,6)
+  *    Payroll Schedule	Annual Wage	54
+         was =T60
+         now =T57
+  *    Payroll Schedule	Annual Wage	55
+         was =U60
+         now =U57
+  *    Payroll Schedule	Annual Wage	56
+         was =V60
+         now =V57
+  *    Payroll Schedule	Annual Wage	57
+         was =D73
+         now =D69
+  *    Payroll Schedule	Annual Wage	58
+         was =E73
+         now =E69
+  *    Payroll Schedule	Annual Wage	59
+         was =F73
+         now =F69
+  *    Payroll Schedule	Annual Wage	6
+         was =J34
+         now =J33
+  *    Payroll Schedule	Annual Wage	60
+         was =ROUND(G73+1260.0,6)
+         now =ROUND(G69+1260.0,6)
+  *    Payroll Schedule	Annual Wage	61
+         was =H73
+         now =H69
+  *    Payroll Schedule	Annual Wage	62
+         was =I73
+         now =I69
+  *    Payroll Schedule	Annual Wage	63
+         was =J73
+         now =J69
+  *    Payroll Schedule	Annual Wage	64
+         was =ROUND(K73+1298.0,6)
+         now =ROUND(K69+1298.0,6)
+  *    Payroll Schedule	Annual Wage	65
+         was =L73
+         now =L69
+  *    Payroll Schedule	Annual Wage	66
+         was =M73
+         now =M69
+  *    Payroll Schedule	Annual Wage	67
+         was =N73
+         now =N69
+  *    Payroll Schedule	Annual Wage	68
+         was =ROUND(O73+1337.0,6)
+         now =ROUND(O69+1337.0,6)
+  *    Payroll Schedule	Annual Wage	69
+         was =P73
+         now =P69
+  *    Payroll Schedule	Annual Wage	7
+         was =K34
+         now =K33
+  *    Payroll Schedule	Annual Wage	70
+         was =Q73
+         now =Q69
+  *    Payroll Schedule	Annual Wage	71
+         was =R73
+         now =R69
+  *    Payroll Schedule	Annual Wage	72
+         was =ROUND(S73+1376.0,6)
+         now =ROUND(S69+1376.0,6)
+  *    Payroll Schedule	Annual Wage	73
+         was =T73
+         now =T69
+  *    Payroll Schedule	Annual Wage	74
+         was =U73
+         now =U69
+  *    Payroll Schedule	Annual Wage	75
+         was =V73
+         now =V69
+  *    Payroll Schedule	Annual Wage	76
+         was =D86
+         now =D82
+  *    Payroll Schedule	Annual Wage	77
+         was =E86
+         now =E82
+  *    Payroll Schedule	Annual Wage	78
+         was =F86
+         now =F82
+  *    Payroll Schedule	Annual Wage	79
+         was =ROUND(G86+2275.0,6)
+         now =ROUND(G82+2275.0,6)
+  *    Payroll Schedule	Annual Wage	8
+         was =L34
+         now =L33
+  *    Payroll Schedule	Annual Wage	80
+         was =H86
+         now =H82
+  *    Payroll Schedule	Annual Wage	81
+         was =I86
+         now =I82
+  *    Payroll Schedule	Annual Wage	82
+         was =J86
+         now =J82
+  *    Payroll Schedule	Annual Wage	83
+         was =ROUND(K86+2342.0,6)
+         now =ROUND(K82+2342.0,6)
+  *    Payroll Schedule	Annual Wage	84
+         was =L86
+         now =L82
+  *    Payroll Schedule	Annual Wage	85
+         was =M86
+         now =M82
+  *    Payroll Schedule	Annual Wage	86
+         was =N86
+         now =N82
+  *    Payroll Schedule	Annual Wage	87
+         was =ROUND(O86+2414.0,6)
+         now =ROUND(O82+2414.0,6)
+  *    Payroll Schedule	Annual Wage	88
+         was =P86
+         now =P82
+  *    Payroll Schedule	Annual Wage	89
+         was =Q86
+         now =Q82
+  *    Payroll Schedule	Annual Wage	9
+         was =M34
+         now =M33
+  *    Payroll Schedule	Annual Wage	90
+         was =R86
+         now =R82
+  *    Payroll Schedule	Annual Wage	91
+         was =ROUND(S86+2485.0,6)
+         now =ROUND(S82+2485.0,6)
+  *    Payroll Schedule	Annual Wage	92
+         was =T86
+         now =T82
+  *    Payroll Schedule	Annual Wage	93
+         was =U86
+         now =U82
+  *    Payroll Schedule	Annual Wage	94
+         was =V86
+         now =V82
+  *    Payroll Schedule	Average FTE	0
+         was =(D30+D32)/2
+         now =(D29+D31)/2
+  *    Payroll Schedule	Average FTE	1
+         was =(E30+E32)/2
+         now =(E29+E31)/2
+  *    Payroll Schedule	Average FTE	10
+         was =(N30+N32)/2
+         now =(N29+N31)/2
+  *    Payroll Schedule	Average FTE	11
+         was =(O30+O32)/2
+         now =(O29+O31)/2
+  *    Payroll Schedule	Average FTE	12
+         was =(P30+P32)/2
+         now =(P29+P31)/2
+  *    Payroll Schedule	Average FTE	13
+         was =(Q30+Q32)/2
+         now =(Q29+Q31)/2
+  *    Payroll Schedule	Average FTE	14
+         was =(R30+R32)/2
+         now =(R29+R31)/2
+  *    Payroll Schedule	Average FTE	15
+         was =(S30+S32)/2
+         now =(S29+S31)/2
+  *    Payroll Schedule	Average FTE	16
+         was =(T30+T32)/2
+         now =(T29+T31)/2
+  *    Payroll Schedule	Average FTE	17
+         was =(U30+U32)/2
+         now =(U29+U31)/2
+  *    Payroll Schedule	Average FTE	18
+         was =(V30+V32)/2
+         now =(V29+V31)/2
+  *    Payroll Schedule	Average FTE	19
+         was =(W30+W32)/2
+         now =(W29+W31)/2
+  *    Payroll Schedule	Average FTE	2
+         was =(F30+F32)/2
+         now =(F29+F31)/2
+  *    Payroll Schedule	Average FTE	20
+         was =(D43+D45)/2
+         now =(D41+D43)/2
+  *    Payroll Schedule	Average FTE	21
+         was =(E43+E45)/2
+         now =(E41+E43)/2
+  *    Payroll Schedule	Average FTE	22
+         was =(F43+F45)/2
+         now =(F41+F43)/2
+  *    Payroll Schedule	Average FTE	23
+         was =(G43+G45)/2
+         now =(G41+G43)/2
+  *    Payroll Schedule	Average FTE	24
+         was =(H43+H45)/2
+         now =(H41+H43)/2
+  *    Payroll Schedule	Average FTE	25
+         was =(I43+I45)/2
+         now =(I41+I43)/2
+  *    Payroll Schedule	Average FTE	26
+         was =(J43+J45)/2
+         now =(J41+J43)/2
+  *    Payroll Schedule	Average FTE	27
+         was =(K43+K45)/2
+         now =(K41+K43)/2
+  *    Payroll Schedule	Average FTE	28
+         was =(L43+L45)/2
+         now =(L41+L43)/2
+  *    Payroll Schedule	Average FTE	29
+         was =(M43+M45)/2
+         now =(M41+M43)/2
+  *    Payroll Schedule	Average FTE	3
+         was =(G30+G32)/2
+         now =(G29+G31)/2
+  *    Payroll Schedule	Average FTE	30
+         was =(N43+N45)/2
+         now =(N41+N43)/2
+  *    Payroll Schedule	Average FTE	31
+         was =(O43+O45)/2
+         now =(O41+O43)/2
+  *    Payroll Schedule	Average FTE	32
+         was =(P43+P45)/2
+         now =(P41+P43)/2
+  *    Payroll Schedule	Average FTE	33
+         was =(Q43+Q45)/2
+         now =(Q41+Q43)/2
+  *    Payroll Schedule	Average FTE	34
+         was =(R43+R45)/2
+         now =(R41+R43)/2
+  *    Payroll Schedule	Average FTE	35
+         was =(S43+S45)/2
+         now =(S41+S43)/2
+  *    Payroll Schedule	Average FTE	36
+         was =(T43+T45)/2
+         now =(T41+T43)/2
+  *    Payroll Schedule	Average FTE	37
+         was =(U43+U45)/2
+         now =(U41+U43)/2
+  *    Payroll Schedule	Average FTE	38
+         was =(V43+V45)/2
+         now =(V41+V43)/2
+  *    Payroll Schedule	Average FTE	39
+         was =(W43+W45)/2
+         now =(W41+W43)/2
+  *    Payroll Schedule	Average FTE	4
+         was =(H30+H32)/2
+         now =(H29+H31)/2
+  *    Payroll Schedule	Average FTE	40
+         was =(D56+D58)/2
+         now =(D53+D55)/2
+  *    Payroll Schedule	Average FTE	41
+         was =(E56+E58)/2
+         now =(E53+E55)/2
+  *    Payroll Schedule	Average FTE	42
+         was =(F56+F58)/2
+         now =(F53+F55)/2
+  *    Payroll Schedule	Average FTE	43
+         was =(G56+G58)/2
+         now =(G53+G55)/2
+  *    Payroll Schedule	Average FTE	44
+         was =(H56+H58)/2
+         now =(H53+H55)/2
+  *    Payroll Schedule	Average FTE	45
+         was =(I56+I58)/2
+         now =(I53+I55)/2
+  *    Payroll Schedule	Average FTE	46
+         was =(J56+J58)/2
+         now =(J53+J55)/2
+  *    Payroll Schedule	Average FTE	47
+         was =(K56+K58)/2
+         now =(K53+K55)/2
+  *    Payroll Schedule	Average FTE	48
+         was =(L56+L58)/2
+         now =(L53+L55)/2
+  *    Payroll Schedule	Average FTE	49
+         was =(M56+M58)/2
+         now =(M53+M55)/2
+  *    Payroll Schedule	Average FTE	5
+         was =(I30+I32)/2
+         now =(I29+I31)/2
+  *    Payroll Schedule	Average FTE	50
+         was =(N56+N58)/2
+         now =(N53+N55)/2
+  *    Payroll Schedule	Average FTE	51
+         was =(O56+O58)/2
+         now =(O53+O55)/2
+  *    Payroll Schedule	Average FTE	52
+         was =(P56+P58)/2
+         now =(P53+P55)/2
+  *    Payroll Schedule	Average FTE	53
+         was =(Q56+Q58)/2
+         now =(Q53+Q55)/2
+  *    Payroll Schedule	Average FTE	54
+         was =(R56+R58)/2
+         now =(R53+R55)/2
+  *    Payroll Schedule	Average FTE	55
+         was =(S56+S58)/2
+         now =(S53+S55)/2
+  *    Payroll Schedule	Average FTE	56
+         was =(T56+T58)/2
+         now =(T53+T55)/2
+  *    Payroll Schedule	Average FTE	57
+         was =(U56+U58)/2
+         now =(U53+U55)/2
+  *    Payroll Schedule	Average FTE	58
+         was =(V56+V58)/2
+         now =(V53+V55)/2
+  *    Payroll Schedule	Average FTE	59
+         was =(W56+W58)/2
+         now =(W53+W55)/2
+  *    Payroll Schedule	Average FTE	6
+         was =(J30+J32)/2
+         now =(J29+J31)/2
+  *    Payroll Schedule	Average FTE	60
+         was =(D69+D71)/2
+         now =(D65+D67)/2
+  *    Payroll Schedule	Average FTE	61
+         was =(E69+E71)/2
+         now =(E65+E67)/2
+  *    Payroll Schedule	Average FTE	62
+         was =(F69+F71)/2
+         now =(F65+F67)/2
+  *    Payroll Schedule	Average FTE	63
+         was =(G69+G71)/2
+         now =(G65+G67)/2
+  *    Payroll Schedule	Average FTE	64
+         was =(H69+H71)/2
+         now =(H65+H67)/2
+  *    Payroll Schedule	Average FTE	65
+         was =(I69+I71)/2
+         now =(I65+I67)/2
+  *    Payroll Schedule	Average FTE	66
+         was =(J69+J71)/2
+         now =(J65+J67)/2
+  *    Payroll Schedule	Average FTE	67
+         was =(K69+K71)/2
+         now =(K65+K67)/2
+  *    Payroll Schedule	Average FTE	68
+         was =(L69+L71)/2
+         now =(L65+L67)/2
+  *    Payroll Schedule	Average FTE	69
+         was =(M69+M71)/2
+         now =(M65+M67)/2
+  *    Payroll Schedule	Average FTE	7
+         was =(K30+K32)/2
+         now =(K29+K31)/2
+  *    Payroll Schedule	Average FTE	70
+         was =(N69+N71)/2
+         now =(N65+N67)/2
+  *    Payroll Schedule	Average FTE	71
+         was =(O69+O71)/2
+         now =(O65+O67)/2
+  *    Payroll Schedule	Average FTE	72
+         was =(P69+P71)/2
+         now =(P65+P67)/2
+  *    Payroll Schedule	Average FTE	73
+         was =(Q69+Q71)/2
+         now =(Q65+Q67)/2
+  *    Payroll Schedule	Average FTE	74
+         was =(R69+R71)/2
+         now =(R65+R67)/2
+  *    Payroll Schedule	Average FTE	75
+         was =(S69+S71)/2
+         now =(S65+S67)/2
+  *    Payroll Schedule	Average FTE	76
+         was =(T69+T71)/2
+         now =(T65+T67)/2
+  *    Payroll Schedule	Average FTE	77
+         was =(U69+U71)/2
+         now =(U65+U67)/2
+  *    Payroll Schedule	Average FTE	78
+         was =(V69+V71)/2
+         now =(V65+V67)/2
+  *    Payroll Schedule	Average FTE	79
+         was =(W69+W71)/2
+         now =(W65+W67)/2
+  *    Payroll Schedule	Average FTE	8
+         was =(L30+L32)/2
+         now =(L29+L31)/2
+  *    Payroll Schedule	Average FTE	80
+         was =(D82+D84)/2
+         now =(D78+D80)/2
+  *    Payroll Schedule	Average FTE	81
+         was =(E82+E84)/2
+         now =(E78+E80)/2
+  *    Payroll Schedule	Average FTE	82
+         was =(F82+F84)/2
+         now =(F78+F80)/2
+  *    Payroll Schedule	Average FTE	83
+         was =(G82+G84)/2
+         now =(G78+G80)/2
+  *    Payroll Schedule	Average FTE	84
+         was =(H82+H84)/2
+         now =(H78+H80)/2
+  *    Payroll Schedule	Average FTE	85
+         was =(I82+I84)/2
+         now =(I78+I80)/2
+  *    Payroll Schedule	Average FTE	86
+         was =(J82+J84)/2
+         now =(J78+J80)/2
+  *    Payroll Schedule	Average FTE	87
+         was =(K82+K84)/2
+         now =(K78+K80)/2
+  *    Payroll Schedule	Average FTE	88
+         was =(L82+L84)/2
+         now =(L78+L80)/2
+  *    Payroll Schedule	Average FTE	89
+         was =(M82+M84)/2
+         now =(M78+M80)/2
+  *    Payroll Schedule	Average FTE	9
+         was =(M30+M32)/2
+         now =(M29+M31)/2
+  *    Payroll Schedule	Average FTE	90
+         was =(N82+N84)/2
+         now =(N78+N80)/2
+  *    Payroll Schedule	Average FTE	91
+         was =(O82+O84)/2
+         now =(O78+O80)/2
+  *    Payroll Schedule	Average FTE	92
+         was =(P82+P84)/2
+         now =(P78+P80)/2
+  *    Payroll Schedule	Average FTE	93
+         was =(Q82+Q84)/2
+         now =(Q78+Q80)/2
+  *    Payroll Schedule	Average FTE	94
+         was =(R82+R84)/2
+         now =(R78+R80)/2
+  *    Payroll Schedule	Average FTE	95
+         was =(S82+S84)/2
+         now =(S78+S80)/2
+  *    Payroll Schedule	Average FTE	96
+         was =(T82+T84)/2
+         now =(T78+T80)/2
+  *    Payroll Schedule	Average FTE	97
+         was =(U82+U84)/2
+         now =(U78+U80)/2
+  *    Payroll Schedule	Average FTE	98
+         was =(V82+V84)/2
+         now =(V78+V80)/2
+  *    Payroll Schedule	Average FTE	99
+         was =(W82+W84)/2
+         now =(W78+W80)/2
+  *    Payroll Schedule	Benefits %	0
+         was =D35
+         now =D34
+  *    Payroll Schedule	Benefits %	1
+         was =E35
+         now =E34
+  *    Payroll Schedule	Benefits %	10
+         was =N35
+         now =N34
+  *    Payroll Schedule	Benefits %	11
+         was =O35
+         now =O34
+  *    Payroll Schedule	Benefits %	12
+         was =P35
+         now =P34
+  *    Payroll Schedule	Benefits %	13
+         was =Q35
+         now =Q34
+  *    Payroll Schedule	Benefits %	14
+         was =R35
+         now =R34
+  *    Payroll Schedule	Benefits %	15
+         was =S35
+         now =S34
+  *    Payroll Schedule	Benefits %	16
+         was =T35
+         now =T34
+  *    Payroll Schedule	Benefits %	17
+         was =U35
+         now =U34
+  *    Payroll Schedule	Benefits %	18
+         was =V35
+         now =V34
+  *    Payroll Schedule	Benefits %	19
+         was =D48
+         now =D46
+  *    Payroll Schedule	Benefits %	2
+         was =F35
+         now =F34
+  *    Payroll Schedule	Benefits %	20
+         was =E48
+         now =E46
+  *    Payroll Schedule	Benefits %	21
+         was =F48
+         now =F46
+  *    Payroll Schedule	Benefits %	22
+         was =G48
+         now =G46
+  *    Payroll Schedule	Benefits %	23
+         was =H48
+         now =H46
+  *    Payroll Schedule	Benefits %	24
+         was =I48
+         now =I46
+  *    Payroll Schedule	Benefits %	25
+         was =J48
+         now =J46
+  *    Payroll Schedule	Benefits %	26
+         was =K48
+         now =K46
+  *    Payroll Schedule	Benefits %	27
+         was =L48
+         now =L46
+  *    Payroll Schedule	Benefits %	28
+         was =M48
+         now =M46
+  *    Payroll Schedule	Benefits %	29
+         was =N48
+         now =N46
+  *    Payroll Schedule	Benefits %	3
+         was =G35
+         now =G34
+  *    Payroll Schedule	Benefits %	30
+         was =O48
+         now =O46
+  *    Payroll Schedule	Benefits %	31
+         was =P48
+         now =P46
+  *    Payroll Schedule	Benefits %	32
+         was =Q48
+         now =Q46
+  *    Payroll Schedule	Benefits %	33
+         was =R48
+         now =R46
+  *    Payroll Schedule	Benefits %	34
+         was =S48
+         now =S46
+  *    Payroll Schedule	Benefits %	35
+         was =T48
+         now =T46
+  *    Payroll Schedule	Benefits %	36
+         was =U48
+         now =U46
+  *    Payroll Schedule	Benefits %	37
+         was =V48
+         now =V46
+  *    Payroll Schedule	Benefits %	38
+         was =D61
+         now =D58
+  *    Payroll Schedule	Benefits %	39
+         was =E61
+         now =E58
+  *    Payroll Schedule	Benefits %	4
+         was =H35
+         now =H34
+  *    Payroll Schedule	Benefits %	40
+         was =F61
+         now =F58
+  *    Payroll Schedule	Benefits %	41
+         was =G61
+         now =G58
+  *    Payroll Schedule	Benefits %	42
+         was =H61
+         now =H58
+  *    Payroll Schedule	Benefits %	43
+         was =I61
+         now =I58
+  *    Payroll Schedule	Benefits %	44
+         was =J61
+         now =J58
+  *    Payroll Schedule	Benefits %	45
+         was =K61
+         now =K58
+  *    Payroll Schedule	Benefits %	46
+         was =L61
+         now =L58
+  *    Payroll Schedule	Benefits %	47
+         was =M61
+         now =M58
+  *    Payroll Schedule	Benefits %	48
+         was =N61
+         now =N58
+  *    Payroll Schedule	Benefits %	49
+         was =O61
+         now =O58
+  *    Payroll Schedule	Benefits %	5
+         was =I35
+         now =I34
+  *    Payroll Schedule	Benefits %	50
+         was =P61
+         now =P58
+  *    Payroll Schedule	Benefits %	51
+         was =Q61
+         now =Q58
+  *    Payroll Schedule	Benefits %	52
+         was =R61
+         now =R58
+  *    Payroll Schedule	Benefits %	53
+         was =S61
+         now =S58
+  *    Payroll Schedule	Benefits %	54
+         was =T61
+         now =T58
+  *    Payroll Schedule	Benefits %	55
+         was =U61
+         now =U58
+  *    Payroll Schedule	Benefits %	56
+         was =V61
+         now =V58
+  *    Payroll Schedule	Benefits %	57
+         was =D74
+         now =D70
+  *    Payroll Schedule	Benefits %	58
+         was =E74
+         now =E70
+  *    Payroll Schedule	Benefits %	59
+         was =F74
+         now =F70
+  *    Payroll Schedule	Benefits %	6
+         was =J35
+         now =J34
+  *    Payroll Schedule	Benefits %	60
+         was =G74
+         now =G70
+  *    Payroll Schedule	Benefits %	61
+         was =H74
+         now =H70
+  *    Payroll Schedule	Benefits %	62
+         was =I74
+         now =I70
+  *    Payroll Schedule	Benefits %	63
+         was =J74
+         now =J70
+  *    Payroll Schedule	Benefits %	64
+         was =K74
+         now =K70
+  *    Payroll Schedule	Benefits %	65
+         was =L74
+         now =L70
+  *    Payroll Schedule	Benefits %	66
+         was =M74
+         now =M70
+  *    Payroll Schedule	Benefits %	67
+         was =N74
+         now =N70
+  *    Payroll Schedule	Benefits %	68
+         was =O74
+         now =O70
+  *    Payroll Schedule	Benefits %	69
+         was =P74
+         now =P70
+  *    Payroll Schedule	Benefits %	7
+         was =K35
+         now =K34
+  *    Payroll Schedule	Benefits %	70
+         was =Q74
+         now =Q70
+  *    Payroll Schedule	Benefits %	71
+         was =R74
+         now =R70
+  *    Payroll Schedule	Benefits %	72
+         was =S74
+         now =S70
+  *    Payroll Schedule	Benefits %	73
+         was =T74
+         now =T70
+  *    Payroll Schedule	Benefits %	74
+         was =U74
+         now =U70
+  *    Payroll Schedule	Benefits %	75
+         was =V74
+         now =V70
+  *    Payroll Schedule	Benefits %	76
+         was =D87
+         now =D83
+  *    Payroll Schedule	Benefits %	77
+         was =E87
+         now =E83
+  *    Payroll Schedule	Benefits %	78
+         was =F87
+         now =F83
+  *    Payroll Schedule	Benefits %	79
+         was =G87
+         now =G83
+  *    Payroll Schedule	Benefits %	8
+         was =L35
+         now =L34
+  *    Payroll Schedule	Benefits %	80
+         was =H87
+         now =H83
+  *    Payroll Schedule	Benefits %	81
+         was =I87
+         now =I83
+  *    Payroll Schedule	Benefits %	82
+         was =J87
+         now =J83
+  *    Payroll Schedule	Benefits %	83
+         was =K87
+         now =K83
+  *    Payroll Schedule	Benefits %	84
+         was =L87
+         now =L83
+  *    Payroll Schedule	Benefits %	85
+         was =M87
+         now =M83
+  *    Payroll Schedule	Benefits %	86
+         was =N87
+         now =N83
+  *    Payroll Schedule	Benefits %	87
+         was =O87
+         now =O83
+  *    Payroll Schedule	Benefits %	88
+         was =P87
+         now =P83
+  *    Payroll Schedule	Benefits %	89
+         was =Q87
+         now =Q83
+  *    Payroll Schedule	Benefits %	9
+         was =M35
+         now =M34
+  *    Payroll Schedule	Benefits %	90
+         was =R87
+         now =R83
+  *    Payroll Schedule	Benefits %	91
+         was =S87
+         now =S83
+  *    Payroll Schedule	Benefits %	92
+         was =T87
+         now =T83
+  *    Payroll Schedule	Benefits %	93
+         was =U87
+         now =U83
+  *    Payroll Schedule	Benefits %	94
+         was =V87
+         now =V83
+  *    Payroll Schedule	Ending FTE	0
+         was =D30+D31
+         now =D29+D30
+  *    Payroll Schedule	Ending FTE	1
+         was =E30+E31
+         now =E29+E30
+  *    Payroll Schedule	Ending FTE	10
+         was =N30+N31
+         now =N29+N30
+  *    Payroll Schedule	Ending FTE	11
+         was =O30+O31
+         now =O29+O30
+  *    Payroll Schedule	Ending FTE	12
+         was =P30+P31
+         now =P29+P30
+  *    Payroll Schedule	Ending FTE	13
+         was =Q30+Q31
+         now =Q29+Q30
+  *    Payroll Schedule	Ending FTE	14
+         was =R30+R31
+         now =R29+R30
+  *    Payroll Schedule	Ending FTE	15
+         was =S30+S31
+         now =S29+S30
+  *    Payroll Schedule	Ending FTE	16
+         was =T30+T31
+         now =T29+T30
+  *    Payroll Schedule	Ending FTE	17
+         was =U30+U31
+         now =U29+U30
+  *    Payroll Schedule	Ending FTE	18
+         was =V30+V31
+         now =V29+V30
+  *    Payroll Schedule	Ending FTE	19
+         was =W30+W31
+         now =W29+W30
+  *    Payroll Schedule	Ending FTE	2
+         was =F30+F31
+         now =F29+F30
+  *    Payroll Schedule	Ending FTE	20
+         was =D43+D44
+         now =D41+D42
+  *    Payroll Schedule	Ending FTE	21
+         was =E43+E44
+         now =E41+E42
+  *    Payroll Schedule	Ending FTE	22
+         was =F43+F44
+         now =F41+F42
+  *    Payroll Schedule	Ending FTE	23
+         was =G43+G44
+         now =G41+G42
+  *    Payroll Schedule	Ending FTE	24
+         was =H43+H44
+         now =H41+H42
+  *    Payroll Schedule	Ending FTE	25
+         was =I43+I44
+         now =I41+I42
+  *    Payroll Schedule	Ending FTE	26
+         was =J43+J44
+         now =J41+J42
+  *    Payroll Schedule	Ending FTE	27
+         was =K43+K44
+         now =K41+K42
+  *    Payroll Schedule	Ending FTE	28
+         was =L43+L44
+         now =L41+L42
+  *    Payroll Schedule	Ending FTE	29
+         was =M43+M44
+         now =M41+M42
+  *    Payroll Schedule	Ending FTE	3
+         was =G30+G31
+         now =G29+G30
+  *    Payroll Schedule	Ending FTE	30
+         was =N43+N44
+         now =N41+N42
+  *    Payroll Schedule	Ending FTE	31
+         was =O43+O44
+         now =O41+O42
+  *    Payroll Schedule	Ending FTE	32
+         was =P43+P44
+         now =P41+P42
+  *    Payroll Schedule	Ending FTE	33
+         was =Q43+Q44
+         now =Q41+Q42
+  *    Payroll Schedule	Ending FTE	34
+         was =R43+R44
+         now =R41+R42
+  *    Payroll Schedule	Ending FTE	35
+         was =S43+S44
+         now =S41+S42
+  *    Payroll Schedule	Ending FTE	36
+         was =T43+T44
+         now =T41+T42
+  *    Payroll Schedule	Ending FTE	37
+         was =U43+U44
+         now =U41+U42
+  *    Payroll Schedule	Ending FTE	38
+         was =V43+V44
+         now =V41+V42
+  *    Payroll Schedule	Ending FTE	39
+         was =W43+W44
+         now =W41+W42
+  *    Payroll Schedule	Ending FTE	4
+         was =H30+H31
+         now =H29+H30
+  *    Payroll Schedule	Ending FTE	40
+         was =D56+D57
+         now =D53+D54
+  *    Payroll Schedule	Ending FTE	41
+         was =E56+E57
+         now =E53+E54
+  *    Payroll Schedule	Ending FTE	42
+         was =F56+F57
+         now =F53+F54
+  *    Payroll Schedule	Ending FTE	43
+         was =G56+G57
+         now =G53+G54
+  *    Payroll Schedule	Ending FTE	44
+         was =H56+H57
+         now =H53+H54
+  *    Payroll Schedule	Ending FTE	45
+         was =I56+I57
+         now =I53+I54
+  *    Payroll Schedule	Ending FTE	46
+         was =J56+J57
+         now =J53+J54
+  *    Payroll Schedule	Ending FTE	47
+         was =K56+K57
+         now =K53+K54
+  *    Payroll Schedule	Ending FTE	48
+         was =L56+L57
+         now =L53+L54
+  *    Payroll Schedule	Ending FTE	49
+         was =M56+M57
+         now =M53+M54
+  *    Payroll Schedule	Ending FTE	5
+         was =I30+I31
+         now =I29+I30
+  *    Payroll Schedule	Ending FTE	50
+         was =N56+N57
+         now =N53+N54
+  *    Payroll Schedule	Ending FTE	51
+         was =O56+O57
+         now =O53+O54
+  *    Payroll Schedule	Ending FTE	52
+         was =P56+P57
+         now =P53+P54
+  *    Payroll Schedule	Ending FTE	53
+         was =Q56+Q57
+         now =Q53+Q54
+  *    Payroll Schedule	Ending FTE	54
+         was =R56+R57
+         now =R53+R54
+  *    Payroll Schedule	Ending FTE	55
+         was =S56+S57
+         now =S53+S54
+  *    Payroll Schedule	Ending FTE	56
+         was =T56+T57
+         now =T53+T54
+  *    Payroll Schedule	Ending FTE	57
+         was =U56+U57
+         now =U53+U54
+  *    Payroll Schedule	Ending FTE	58
+         was =V56+V57
+         now =V53+V54
+  *    Payroll Schedule	Ending FTE	59
+         was =W56+W57
+         now =W53+W54
+  *    Payroll Schedule	Ending FTE	6
+         was =J30+J31
+         now =J29+J30
+  *    Payroll Schedule	Ending FTE	60
+         was =D69+D70
+         now =D65+D66
+  *    Payroll Schedule	Ending FTE	61
+         was =E69+E70
+         now =E65+E66
+  *    Payroll Schedule	Ending FTE	62
+         was =F69+F70
+         now =F65+F66
+  *    Payroll Schedule	Ending FTE	63
+         was =G69+G70
+         now =G65+G66
+  *    Payroll Schedule	Ending FTE	64
+         was =H69+H70
+         now =H65+H66
+  *    Payroll Schedule	Ending FTE	65
+         was =I69+I70
+         now =I65+I66
+  *    Payroll Schedule	Ending FTE	66
+         was =J69+J70
+         now =J65+J66
+  *    Payroll Schedule	Ending FTE	67
+         was =K69+K70
+         now =K65+K66
+  *    Payroll Schedule	Ending FTE	68
+         was =L69+L70
+         now =L65+L66
+  *    Payroll Schedule	Ending FTE	69
+         was =M69+M70
+         now =M65+M66
+  *    Payroll Schedule	Ending FTE	7
+         was =K30+K31
+         now =K29+K30
+  *    Payroll Schedule	Ending FTE	70
+         was =N69+N70
+         now =N65+N66
+  *    Payroll Schedule	Ending FTE	71
+         was =O69+O70
+         now =O65+O66
+  *    Payroll Schedule	Ending FTE	72
+         was =P69+P70
+         now =P65+P66
+  *    Payroll Schedule	Ending FTE	73
+         was =Q69+Q70
+         now =Q65+Q66
+  *    Payroll Schedule	Ending FTE	74
+         was =R69+R70
+         now =R65+R66
+  *    Payroll Schedule	Ending FTE	75
+         was =S69+S70
+         now =S65+S66
+  *    Payroll Schedule	Ending FTE	76
+         was =T69+T70
+         now =T65+T66
+  *    Payroll Schedule	Ending FTE	77
+         was =U69+U70
+         now =U65+U66
+  *    Payroll Schedule	Ending FTE	78
+         was =V69+V70
+         now =V65+V66
+  *    Payroll Schedule	Ending FTE	79
+         was =W69+W70
+         now =W65+W66
+  *    Payroll Schedule	Ending FTE	8
+         was =L30+L31
+         now =L29+L30
+  *    Payroll Schedule	Ending FTE	80
+         was =D82+D83
+         now =D78+D79
+  *    Payroll Schedule	Ending FTE	81
+         was =E82+E83
+         now =E78+E79
+  *    Payroll Schedule	Ending FTE	82
+         was =F82+F83
+         now =F78+F79
+  *    Payroll Schedule	Ending FTE	83
+         was =G82+G83
+         now =G78+G79
+  *    Payroll Schedule	Ending FTE	84
+         was =H82+H83
+         now =H78+H79
+  *    Payroll Schedule	Ending FTE	85
+         was =I82+I83
+         now =I78+I79
+  *    Payroll Schedule	Ending FTE	86
+         was =J82+J83
+         now =J78+J79
+  *    Payroll Schedule	Ending FTE	87
+         was =K82+K83
+         now =K78+K79
+  *    Payroll Schedule	Ending FTE	88
+         was =L82+L83
+         now =L78+L79
+  *    Payroll Schedule	Ending FTE	89
+         was =M82+M83
+         now =M78+M79
+  *    Payroll Schedule	Ending FTE	9
+         was =M30+M31
+         now =M29+M30
+  *    Payroll Schedule	Ending FTE	90
+         was =N82+N83
+         now =N78+N79
+  *    Payroll Schedule	Ending FTE	91
+         was =O82+O83
+         now =O78+O79
+  *    Payroll Schedule	Ending FTE	92
+         was =P82+P83
+         now =P78+P79
+  *    Payroll Schedule	Ending FTE	93
+         was =Q82+Q83
+         now =Q78+Q79
+  *    Payroll Schedule	Ending FTE	94
+         was =R82+R83
+         now =R78+R79
+  *    Payroll Schedule	Ending FTE	95
+         was =S82+S83
+         now =S78+S79
+  *    Payroll Schedule	Ending FTE	96
+         was =T82+T83
+         now =T78+T79
+  *    Payroll Schedule	Ending FTE	97
+         was =U82+U83
+         now =U78+U79
+  *    Payroll Schedule	Ending FTE	98
+         was =V82+V83
+         now =V78+V79
+  *    Payroll Schedule	Ending FTE	99
+         was =W82+W83
+         now =W78+W79
+  *    Payroll Schedule	Starting FTE	0
+         was =ROUND(D32,6)
+         now =ROUND(D31,6)
+  *    Payroll Schedule	Starting FTE	1
+         was =ROUND(E32,6)
+         now =ROUND(E31,6)
+  *    Payroll Schedule	Starting FTE	10
+         was =ROUND(N32,6)
+         now =ROUND(N31,6)
+  *    Payroll Schedule	Starting FTE	11
+         was =ROUND(O32,6)
+         now =ROUND(O31,6)
+  *    Payroll Schedule	Starting FTE	12
+         was =ROUND(P32,6)
+         now =ROUND(P31,6)
+  *    Payroll Schedule	Starting FTE	13
+         was =ROUND(Q32,6)
+         now =ROUND(Q31,6)
+  *    Payroll Schedule	Starting FTE	14
+         was =ROUND(R32,6)
+         now =ROUND(R31,6)
+  *    Payroll Schedule	Starting FTE	15
+         was =ROUND(S32,6)
+         now =ROUND(S31,6)
+  *    Payroll Schedule	Starting FTE	16
+         was =ROUND(T32,6)
+         now =ROUND(T31,6)
+  *    Payroll Schedule	Starting FTE	17
+         was =ROUND(U32,6)
+         now =ROUND(U31,6)
+  *    Payroll Schedule	Starting FTE	18
+         was =ROUND(V32,6)
+         now =ROUND(V31,6)
+  *    Payroll Schedule	Starting FTE	19
+         was =ROUND(D45,6)
+         now =ROUND(D43,6)
+  *    Payroll Schedule	Starting FTE	2
+         was =ROUND(F32,6)
+         now =ROUND(F31,6)
+  *    Payroll Schedule	Starting FTE	20
+         was =ROUND(E45,6)
+         now =ROUND(E43,6)
+  *    Payroll Schedule	Starting FTE	21
+         was =ROUND(F45,6)
+         now =ROUND(F43,6)
+  *    Payroll Schedule	Starting FTE	22
+         was =ROUND(G45,6)
+         now =ROUND(G43,6)
+  *    Payroll Schedule	Starting FTE	23
+         was =ROUND(H45,6)
+         now =ROUND(H43,6)
+  *    Payroll Schedule	Starting FTE	24
+         was =ROUND(I45,6)
+         now =ROUND(I43,6)
+  *    Payroll Schedule	Starting FTE	25
+         was =ROUND(J45,6)
+         now =ROUND(J43,6)
+  *    Payroll Schedule	Starting FTE	26
+         was =ROUND(K45,6)
+         now =ROUND(K43,6)
+  *    Payroll Schedule	Starting FTE	27
+         was =ROUND(L45,6)
+         now =ROUND(L43,6)
+  *    Payroll Schedule	Starting FTE	28
+         was =ROUND(M45,6)
+         now =ROUND(M43,6)
+  *    Payroll Schedule	Starting FTE	29
+         was =ROUND(N45,6)
+         now =ROUND(N43,6)
+  *    Payroll Schedule	Starting FTE	3
+         was =ROUND(G32,6)
+         now =ROUND(G31,6)
+  *    Payroll Schedule	Starting FTE	30
+         was =ROUND(O45,6)
+         now =ROUND(O43,6)
+  *    Payroll Schedule	Starting FTE	31
+         was =ROUND(P45,6)
+         now =ROUND(P43,6)
+  *    Payroll Schedule	Starting FTE	32
+         was =ROUND(Q45,6)
+         now =ROUND(Q43,6)
+  *    Payroll Schedule	Starting FTE	33
+         was =ROUND(R45,6)
+         now =ROUND(R43,6)
+  *    Payroll Schedule	Starting FTE	34
+         was =ROUND(S45,6)
+         now =ROUND(S43,6)
+  *    Payroll Schedule	Starting FTE	35
+         was =ROUND(T45,6)
+         now =ROUND(T43,6)
+  *    Payroll Schedule	Starting FTE	36
+         was =ROUND(U45,6)
+         now =ROUND(U43,6)
+  *    Payroll Schedule	Starting FTE	37
+         was =ROUND(V45,6)
+         now =ROUND(V43,6)
+  *    Payroll Schedule	Starting FTE	38
+         was =ROUND(D58,6)
+         now =ROUND(D55,6)
+  *    Payroll Schedule	Starting FTE	39
+         was =ROUND(E58,6)
+         now =ROUND(E55,6)
+  *    Payroll Schedule	Starting FTE	4
+         was =ROUND(H32,6)
+         now =ROUND(H31,6)
+  *    Payroll Schedule	Starting FTE	40
+         was =ROUND(F58,6)
+         now =ROUND(F55,6)
+  *    Payroll Schedule	Starting FTE	41
+         was =ROUND(G58,6)
+         now =ROUND(G55,6)
+  *    Payroll Schedule	Starting FTE	42
+         was =ROUND(H58,6)
+         now =ROUND(H55,6)
+  *    Payroll Schedule	Starting FTE	43
+         was =ROUND(I58,6)
+         now =ROUND(I55,6)
+  *    Payroll Schedule	Starting FTE	44
+         was =ROUND(J58,6)
+         now =ROUND(J55,6)
+  *    Payroll Schedule	Starting FTE	45
+         was =ROUND(K58,6)
+         now =ROUND(K55,6)
+  *    Payroll Schedule	Starting FTE	46
+         was =ROUND(L58,6)
+         now =ROUND(L55,6)
+  *    Payroll Schedule	Starting FTE	47
+         was =ROUND(M58,6)
+         now =ROUND(M55,6)
+  *    Payroll Schedule	Starting FTE	48
+         was =ROUND(N58,6)
+         now =ROUND(N55,6)
+  *    Payroll Schedule	Starting FTE	49
+         was =ROUND(O58,6)
+         now =ROUND(O55,6)
+  *    Payroll Schedule	Starting FTE	5
+         was =ROUND(I32,6)
+         now =ROUND(I31,6)
+  *    Payroll Schedule	Starting FTE	50
+         was =ROUND(P58,6)
+         now =ROUND(P55,6)
+  *    Payroll Schedule	Starting FTE	51
+         was =ROUND(Q58,6)
+         now =ROUND(Q55,6)
+  *    Payroll Schedule	Starting FTE	52
+         was =ROUND(R58,6)
+         now =ROUND(R55,6)
+  *    Payroll Schedule	Starting FTE	53
+         was =ROUND(S58,6)
+         now =ROUND(S55,6)
+  *    Payroll Schedule	Starting FTE	54
+         was =ROUND(T58,6)
+         now =ROUND(T55,6)
+  *    Payroll Schedule	Starting FTE	55
+         was =ROUND(U58,6)
+         now =ROUND(U55,6)
+  *    Payroll Schedule	Starting FTE	56
+         was =ROUND(V58,6)
+         now =ROUND(V55,6)
+  *    Payroll Schedule	Starting FTE	57
+         was =ROUND(D71,6)
+         now =ROUND(D67,6)
+  *    Payroll Schedule	Starting FTE	58
+         was =ROUND(E71,6)
+         now =ROUND(E67,6)
+  *    Payroll Schedule	Starting FTE	59
+         was =ROUND(F71,6)
+         now =ROUND(F67,6)
+  *    Payroll Schedule	Starting FTE	6
+         was =ROUND(J32,6)
+         now =ROUND(J31,6)
+  *    Payroll Schedule	Starting FTE	60
+         was =ROUND(G71,6)
+         now =ROUND(G67,6)
+  *    Payroll Schedule	Starting FTE	61
+         was =ROUND(H71,6)
+         now =ROUND(H67,6)
+  *    Payroll Schedule	Starting FTE	62
+         was =ROUND(I71,6)
+         now =ROUND(I67,6)
+  *    Payroll Schedule	Starting FTE	63
+         was =ROUND(J71,6)
+         now =ROUND(J67,6)
+  *    Payroll Schedule	Starting FTE	64
+         was =ROUND(K71,6)
+         now =ROUND(K67,6)
+  *    Payroll Schedule	Starting FTE	65
+         was =ROUND(L71,6)
+         now =ROUND(L67,6)
+  *    Payroll Schedule	Starting FTE	66
+         was =ROUND(M71,6)
+         now =ROUND(M67,6)
+  *    Payroll Schedule	Starting FTE	67
+         was =ROUND(N71,6)
+         now =ROUND(N67,6)
+  *    Payroll Schedule	Starting FTE	68
+         was =ROUND(O71,6)
+         now =ROUND(O67,6)
+  *    Payroll Schedule	Starting FTE	69
+         was =ROUND(P71,6)
+         now =ROUND(P67,6)
+  *    Payroll Schedule	Starting FTE	7
+         was =ROUND(K32,6)
+         now =ROUND(K31,6)
+  *    Payroll Schedule	Starting FTE	70
+         was =ROUND(Q71,6)
+         now =ROUND(Q67,6)
+  *    Payroll Schedule	Starting FTE	71
+         was =ROUND(R71,6)
+         now =ROUND(R67,6)
+  *    Payroll Schedule	Starting FTE	72
+         was =ROUND(S71,6)
+         now =ROUND(S67,6)
+  *    Payroll Schedule	Starting FTE	73
+         was =ROUND(T71,6)
+         now =ROUND(T67,6)
+  *    Payroll Schedule	Starting FTE	74
+         was =ROUND(U71,6)
+         now =ROUND(U67,6)
+  *    Payroll Schedule	Starting FTE	75
+         was =ROUND(V71,6)
+         now =ROUND(V67,6)
+  *    Payroll Schedule	Starting FTE	76
+         was =ROUND(D84,6)
+         now =ROUND(D80,6)
+  *    Payroll Schedule	Starting FTE	77
+         was =ROUND(E84,6)
+         now =ROUND(E80,6)
+  *    Payroll Schedule	Starting FTE	78
+         was =ROUND(F84,6)
+         now =ROUND(F80,6)
+  *    Payroll Schedule	Starting FTE	79
+         was =ROUND(G84,6)
+         now =ROUND(G80,6)
+  *    Payroll Schedule	Starting FTE	8
+         was =ROUND(L32,6)
+         now =ROUND(L31,6)
+  *    Payroll Schedule	Starting FTE	80
+         was =ROUND(H84,6)
+         now =ROUND(H80,6)
+  *    Payroll Schedule	Starting FTE	81
+         was =ROUND(I84,6)
+         now =ROUND(I80,6)
+  *    Payroll Schedule	Starting FTE	82
+         was =ROUND(J84,6)
+         now =ROUND(J80,6)
+  *    Payroll Schedule	Starting FTE	83
+         was =ROUND(K84,6)
+         now =ROUND(K80,6)
+  *    Payroll Schedule	Starting FTE	84
+         was =ROUND(L84,6)
+         now =ROUND(L80,6)
+  *    Payroll Schedule	Starting FTE	85
+         was =ROUND(M84,6)
+         now =ROUND(M80,6)
+  *    Payroll Schedule	Starting FTE	86
+         was =ROUND(N84,6)
+         now =ROUND(N80,6)
+  *    Payroll Schedule	Starting FTE	87
+         was =ROUND(O84,6)
+         now =ROUND(O80,6)
+  *    Payroll Schedule	Starting FTE	88
+         was =ROUND(P84,6)
+         now =ROUND(P80,6)
+  *    Payroll Schedule	Starting FTE	89
+         was =ROUND(Q84,6)
+         now =ROUND(Q80,6)
+  *    Payroll Schedule	Starting FTE	9
+         was =ROUND(M32,6)
+         now =ROUND(M31,6)
+  *    Payroll Schedule	Starting FTE	90
+         was =ROUND(R84,6)
+         now =ROUND(R80,6)
+  *    Payroll Schedule	Starting FTE	91
+         was =ROUND(S84,6)
+         now =ROUND(S80,6)
+  *    Payroll Schedule	Starting FTE	92
+         was =ROUND(T84,6)
+         now =ROUND(T80,6)
+  *    Payroll Schedule	Starting FTE	93
+         was =ROUND(U84,6)
+         now =ROUND(U80,6)
+  *    Payroll Schedule	Starting FTE	94
+         was =ROUND(V84,6)
+         now =ROUND(V80,6)
+  *    Payroll Schedule	Taxes & Benefits	0
+         was =D36*D35
+         now =D35*D34
+  *    Payroll Schedule	Taxes & Benefits	1
+         was =E36*E35
+         now =E35*E34
+  *    Payroll Schedule	Taxes & Benefits	10
+         was =N36*N35
+         now =N35*N34
+  *    Payroll Schedule	Taxes & Benefits	11
+         was =O36*O35
+         now =O35*O34
+  *    Payroll Schedule	Taxes & Benefits	12
+         was =P36*P35
+         now =P35*P34
+  *    Payroll Schedule	Taxes & Benefits	13
+         was =Q36*Q35
+         now =Q35*Q34
+  *    Payroll Schedule	Taxes & Benefits	14
+         was =R36*R35
+         now =R35*R34
+  *    Payroll Schedule	Taxes & Benefits	15
+         was =S36*S35
+         now =S35*S34
+  *    Payroll Schedule	Taxes & Benefits	16
+         was =T36*T35
+         now =T35*T34
+  *    Payroll Schedule	Taxes & Benefits	17
+         was =U36*U35
+         now =U35*U34
+  *    Payroll Schedule	Taxes & Benefits	18
+         was =V36*V35
+         now =V35*V34
+  *    Payroll Schedule	Taxes & Benefits	19
+         was =W36*W35
+         now =W35*W34
+  *    Payroll Schedule	Taxes & Benefits	2
+         was =F36*F35
+         now =F35*F34
+  *    Payroll Schedule	Taxes & Benefits	20
+         was =D49*D48
+         now =D47*D46
+  *    Payroll Schedule	Taxes & Benefits	21
+         was =E49*E48
+         now =E47*E46
+  *    Payroll Schedule	Taxes & Benefits	22
+         was =F49*F48
+         now =F47*F46
+  *    Payroll Schedule	Taxes & Benefits	23
+         was =G49*G48
+         now =G47*G46
+  *    Payroll Schedule	Taxes & Benefits	24
+         was =H49*H48
+         now =H47*H46
+  *    Payroll Schedule	Taxes & Benefits	25
+         was =I49*I48
+         now =I47*I46
+  *    Payroll Schedule	Taxes & Benefits	26
+         was =J49*J48
+         now =J47*J46
+  *    Payroll Schedule	Taxes & Benefits	27
+         was =K49*K48
+         now =K47*K46
+  *    Payroll Schedule	Taxes & Benefits	28
+         was =L49*L48
+         now =L47*L46
+  *    Payroll Schedule	Taxes & Benefits	29
+         was =M49*M48
+         now =M47*M46
+  *    Payroll Schedule	Taxes & Benefits	3
+         was =G36*G35
+         now =G35*G34
+  *    Payroll Schedule	Taxes & Benefits	30
+         was =N49*N48
+         now =N47*N46
+  *    Payroll Schedule	Taxes & Benefits	31
+         was =O49*O48
+         now =O47*O46
+  *    Payroll Schedule	Taxes & Benefits	32
+         was =P49*P48
+         now =P47*P46
+  *    Payroll Schedule	Taxes & Benefits	33
+         was =Q49*Q48
+         now =Q47*Q46
+  *    Payroll Schedule	Taxes & Benefits	34
+         was =R49*R48
+         now =R47*R46
+  *    Payroll Schedule	Taxes & Benefits	35
+         was =S49*S48
+         now =S47*S46
+  *    Payroll Schedule	Taxes & Benefits	36
+         was =T49*T48
+         now =T47*T46
+  *    Payroll Schedule	Taxes & Benefits	37
+         was =U49*U48
+         now =U47*U46
+  *    Payroll Schedule	Taxes & Benefits	38
+         was =V49*V48
+         now =V47*V46
+  *    Payroll Schedule	Taxes & Benefits	39
+         was =W49*W48
+         now =W47*W46
+  *    Payroll Schedule	Taxes & Benefits	4
+         was =H36*H35
+         now =H35*H34
+  *    Payroll Schedule	Taxes & Benefits	40
+         was =D62*D61
+         now =D59*D58
+  *    Payroll Schedule	Taxes & Benefits	41
+         was =E62*E61
+         now =E59*E58
+  *    Payroll Schedule	Taxes & Benefits	42
+         was =F62*F61
+         now =F59*F58
+  *    Payroll Schedule	Taxes & Benefits	43
+         was =G62*G61
+         now =G59*G58
+  *    Payroll Schedule	Taxes & Benefits	44
+         was =H62*H61
+         now =H59*H58
+  *    Payroll Schedule	Taxes & Benefits	45
+         was =I62*I61
+         now =I59*I58
+  *    Payroll Schedule	Taxes & Benefits	46
+         was =J62*J61
+         now =J59*J58
+  *    Payroll Schedule	Taxes & Benefits	47
+         was =K62*K61
+         now =K59*K58
+  *    Payroll Schedule	Taxes & Benefits	48
+         was =L62*L61
+         now =L59*L58
+  *    Payroll Schedule	Taxes & Benefits	49
+         was =M62*M61
+         now =M59*M58
+  *    Payroll Schedule	Taxes & Benefits	5
+         was =I36*I35
+         now =I35*I34
+  *    Payroll Schedule	Taxes & Benefits	50
+         was =N62*N61
+         now =N59*N58
+  *    Payroll Schedule	Taxes & Benefits	51
+         was =O62*O61
+         now =O59*O58
+  *    Payroll Schedule	Taxes & Benefits	52
+         was =P62*P61
+         now =P59*P58
+  *    Payroll Schedule	Taxes & Benefits	53
+         was =Q62*Q61
+         now =Q59*Q58
+  *    Payroll Schedule	Taxes & Benefits	54
+         was =R62*R61
+         now =R59*R58
+  *    Payroll Schedule	Taxes & Benefits	55
+         was =S62*S61
+         now =S59*S58
+  *    Payroll Schedule	Taxes & Benefits	56
+         was =T62*T61
+         now =T59*T58
+  *    Payroll Schedule	Taxes & Benefits	57
+         was =U62*U61
+         now =U59*U58
+  *    Payroll Schedule	Taxes & Benefits	58
+         was =V62*V61
+         now =V59*V58
+  *    Payroll Schedule	Taxes & Benefits	59
+         was =W62*W61
+         now =W59*W58
+  *    Payroll Schedule	Taxes & Benefits	6
+         was =J36*J35
+         now =J35*J34
+  *    Payroll Schedule	Taxes & Benefits	60
+         was =D75*D74
+         now =D71*D70
+  *    Payroll Schedule	Taxes & Benefits	61
+         was =E75*E74
+         now =E71*E70
+  *    Payroll Schedule	Taxes & Benefits	62
+         was =F75*F74
+         now =F71*F70
+  *    Payroll Schedule	Taxes & Benefits	63
+         was =G75*G74
+         now =G71*G70
+  *    Payroll Schedule	Taxes & Benefits	64
+         was =H75*H74
+         now =H71*H70
+  *    Payroll Schedule	Taxes & Benefits	65
+         was =I75*I74
+         now =I71*I70
+  *    Payroll Schedule	Taxes & Benefits	66
+         was =J75*J74
+         now =J71*J70
+  *    Payroll Schedule	Taxes & Benefits	67
+         was =K75*K74
+         now =K71*K70
+  *    Payroll Schedule	Taxes & Benefits	68
+         was =L75*L74
+         now =L71*L70
+  *    Payroll Schedule	Taxes & Benefits	69
+         was =M75*M74
+         now =M71*M70
+  *    Payroll Schedule	Taxes & Benefits	7
+         was =K36*K35
+         now =K35*K34
+  *    Payroll Schedule	Taxes & Benefits	70
+         was =N75*N74
+         now =N71*N70
+  *    Payroll Schedule	Taxes & Benefits	71
+         was =O75*O74
+         now =O71*O70
+  *    Payroll Schedule	Taxes & Benefits	72
+         was =P75*P74
+         now =P71*P70
+  *    Payroll Schedule	Taxes & Benefits	73
+         was =Q75*Q74
+         now =Q71*Q70
+  *    Payroll Schedule	Taxes & Benefits	74
+         was =R75*R74
+         now =R71*R70
+  *    Payroll Schedule	Taxes & Benefits	75
+         was =S75*S74
+         now =S71*S70
+  *    Payroll Schedule	Taxes & Benefits	76
+         was =T75*T74
+         now =T71*T70
+  *    Payroll Schedule	Taxes & Benefits	77
+         was =U75*U74
+         now =U71*U70
+  *    Payroll Schedule	Taxes & Benefits	78
+         was =V75*V74
+         now =V71*V70
+  *    Payroll Schedule	Taxes & Benefits	79
+         was =W75*W74
+         now =W71*W70
+  *    Payroll Schedule	Taxes & Benefits	8
+         was =L36*L35
+         now =L35*L34
+  *    Payroll Schedule	Taxes & Benefits	80
+         was =D88*D87
+         now =D84*D83
+  *    Payroll Schedule	Taxes & Benefits	81
+         was =E88*E87
+         now =E84*E83
+  *    Payroll Schedule	Taxes & Benefits	82
+         was =F88*F87
+         now =F84*F83
+  *    Payroll Schedule	Taxes & Benefits	83
+         was =G88*G87
+         now =G84*G83
+  *    Payroll Schedule	Taxes & Benefits	84
+         was =H88*H87
+         now =H84*H83
+  *    Payroll Schedule	Taxes & Benefits	85
+         was =I88*I87
+         now =I84*I83
+  *    Payroll Schedule	Taxes & Benefits	86
+         was =J88*J87
+         now =J84*J83
+  *    Payroll Schedule	Taxes & Benefits	87
+         was =K88*K87
+         now =K84*K83
+  *    Payroll Schedule	Taxes & Benefits	88
+         was =L88*L87
+         now =L84*L83
+  *    Payroll Schedule	Taxes & Benefits	89
+         was =M88*M87
+         now =M84*M83
+  *    Payroll Schedule	Taxes & Benefits	9
+         was =M36*M35
+         now =M35*M34
+  *    Payroll Schedule	Taxes & Benefits	90
+         was =N88*N87
+         now =N84*N83
+  *    Payroll Schedule	Taxes & Benefits	91
+         was =O88*O87
+         now =O84*O83
+  *    Payroll Schedule	Taxes & Benefits	92
+         was =P88*P87
+         now =P84*P83
+  *    Payroll Schedule	Taxes & Benefits	93
+         was =Q88*Q87
+         now =Q84*Q83
+  *    Payroll Schedule	Taxes & Benefits	94
+         was =R88*R87
+         now =R84*R83
+  *    Payroll Schedule	Taxes & Benefits	95
+         was =S88*S87
+         now =S84*S83
+  *    Payroll Schedule	Taxes & Benefits	96
+         was =T88*T87
+         now =T84*T83
+  *    Payroll Schedule	Taxes & Benefits	97
+         was =U88*U87
+         now =U84*U83
+  *    Payroll Schedule	Taxes & Benefits	98
+         was =V88*V87
+         now =V84*V83
+  *    Payroll Schedule	Taxes & Benefits	99
+         was =W88*W87
+         now =W84*W83
+  *    Payroll Schedule	Total Average FTE	0
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,0)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,1)
+  *    Payroll Schedule	Total Average FTE	1
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,1)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,2)
+  *    Payroll Schedule	Total Average FTE	10
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,10)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,11)
+  *    Payroll Schedule	Total Average FTE	11
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,11)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,12)
+  *    Payroll Schedule	Total Average FTE	12
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,12)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,13)
+  *    Payroll Schedule	Total Average FTE	13
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,13)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,14)
+  *    Payroll Schedule	Total Average FTE	14
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,14)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,15)
+  *    Payroll Schedule	Total Average FTE	15
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,15)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,16)
+  *    Payroll Schedule	Total Average FTE	16
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,16)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,17)
+  *    Payroll Schedule	Total Average FTE	17
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,17)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,18)
+  *    Payroll Schedule	Total Average FTE	18
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,18)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,19)
+  *    Payroll Schedule	Total Average FTE	19
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,19)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,20)
+  *    Payroll Schedule	Total Average FTE	2
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,2)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,3)
+  *    Payroll Schedule	Total Average FTE	20
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,20)
+         now =AVERAGE(D16:G16)
+  *    Payroll Schedule	Total Average FTE	21
+         was =AVERAGE(D16:G16)
+         now =AVERAGE(H16:K16)
+  *    Payroll Schedule	Total Average FTE	22
+         was =AVERAGE(H16:K16)
+         now =AVERAGE(L16:O16)
+  *    Payroll Schedule	Total Average FTE	23
+         was =AVERAGE(L16:O16)
+         now =AVERAGE(P16:S16)
+  *    Payroll Schedule	Total Average FTE	24
+         was =AVERAGE(P16:S16)
+         now =AVERAGE(T16:W16)
+  *    Payroll Schedule	Total Average FTE	3
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,3)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,4)
+  *    Payroll Schedule	Total Average FTE	4
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,4)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,5)
+  *    Payroll Schedule	Total Average FTE	5
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,5)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,6)
+  *    Payroll Schedule	Total Average FTE	6
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,6)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,7)
+  *    Payroll Schedule	Total Average FTE	7
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,7)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,8)
+  *    Payroll Schedule	Total Average FTE	8
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,8)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,9)
+  *    Payroll Schedule	Total Average FTE	9
+         was =SUMIFS($H$95:$H$194,$A$95:$A$194,9)
+         now =SUMIFS($H$91:$H$190,$A$91:$A$190,10)
+  *    Payroll Schedule	Total Ending FTE	0
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,0)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,1)
+  *    Payroll Schedule	Total Ending FTE	1
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,1)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,2)
+  *    Payroll Schedule	Total Ending FTE	10
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,10)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,11)
+  *    Payroll Schedule	Total Ending FTE	11
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,11)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,12)
+  *    Payroll Schedule	Total Ending FTE	12
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,12)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,13)
+  *    Payroll Schedule	Total Ending FTE	13
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,13)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,14)
+  *    Payroll Schedule	Total Ending FTE	14
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,14)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,15)
+  *    Payroll Schedule	Total Ending FTE	15
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,15)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,16)
+  *    Payroll Schedule	Total Ending FTE	16
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,16)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,17)
+  *    Payroll Schedule	Total Ending FTE	17
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,17)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,18)
+  *    Payroll Schedule	Total Ending FTE	18
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,18)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,19)
+  *    Payroll Schedule	Total Ending FTE	19
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,19)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,20)
+  *    Payroll Schedule	Total Ending FTE	2
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,2)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,3)
+  *    Payroll Schedule	Total Ending FTE	20
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,20)
+         now =G15
+  *    Payroll Schedule	Total Ending FTE	21
+         was =G15
+         now =K15
+  *    Payroll Schedule	Total Ending FTE	22
+         was =K15
+         now =O15
+  *    Payroll Schedule	Total Ending FTE	23
+         was =O15
+         now =S15
+  *    Payroll Schedule	Total Ending FTE	24
+         was =S15
+         now =W15
+  *    Payroll Schedule	Total Ending FTE	3
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,3)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,4)
+  *    Payroll Schedule	Total Ending FTE	4
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,4)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,5)
+  *    Payroll Schedule	Total Ending FTE	5
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,5)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,6)
+  *    Payroll Schedule	Total Ending FTE	6
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,6)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,7)
+  *    Payroll Schedule	Total Ending FTE	7
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,7)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,8)
+  *    Payroll Schedule	Total Ending FTE	8
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,8)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,9)
+  *    Payroll Schedule	Total Ending FTE	9
+         was =SUMIFS($G$95:$G$194,$A$95:$A$194,9)
+         now =SUMIFS($G$91:$G$190,$A$91:$A$190,10)
+  *    Payroll Schedule	Total Payroll	0
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,0)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,1)
+  *    Payroll Schedule	Total Payroll	1
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,1)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,2)
+  *    Payroll Schedule	Total Payroll	10
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,10)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,11)
+  *    Payroll Schedule	Total Payroll	100
+         was =R75+R76
+         now =S71+S72
+  *    Payroll Schedule	Total Payroll	101
+         was =S75+S76
+         now =T71+T72
+  *    Payroll Schedule	Total Payroll	102
+         was =T75+T76
+         now =U71+U72
+  *    Payroll Schedule	Total Payroll	103
+         was =U75+U76
+         now =V71+V72
+  *    Payroll Schedule	Total Payroll	104
+         was =V75+V76
+         now =W71+W72
+  *    Payroll Schedule	Total Payroll	105
+         was =W75+W76
+         now =D84+D85
+  *    Payroll Schedule	Total Payroll	106
+         was =D88+D89
+         now =E84+E85
+  *    Payroll Schedule	Total Payroll	107
+         was =E88+E89
+         now =F84+F85
+  *    Payroll Schedule	Total Payroll	108
+         was =F88+F89
+         now =G84+G85
+  *    Payroll Schedule	Total Payroll	109
+         was =G88+G89
+         now =H84+H85
+  *    Payroll Schedule	Total Payroll	11
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,11)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,12)
+  *    Payroll Schedule	Total Payroll	110
+         was =H88+H89
+         now =I84+I85
+  *    Payroll Schedule	Total Payroll	111
+         was =I88+I89
+         now =J84+J85
+  *    Payroll Schedule	Total Payroll	112
+         was =J88+J89
+         now =K84+K85
+  *    Payroll Schedule	Total Payroll	113
+         was =K88+K89
+         now =L84+L85
+  *    Payroll Schedule	Total Payroll	114
+         was =L88+L89
+         now =M84+M85
+  *    Payroll Schedule	Total Payroll	115
+         was =M88+M89
+         now =N84+N85
+  *    Payroll Schedule	Total Payroll	116
+         was =N88+N89
+         now =O84+O85
+  *    Payroll Schedule	Total Payroll	117
+         was =O88+O89
+         now =P84+P85
+  *    Payroll Schedule	Total Payroll	118
+         was =P88+P89
+         now =Q84+Q85
+  *    Payroll Schedule	Total Payroll	119
+         was =Q88+Q89
+         now =R84+R85
+  *    Payroll Schedule	Total Payroll	12
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,12)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,13)
+  *    Payroll Schedule	Total Payroll	120
+         was =R88+R89
+         now =S84+S85
+  *    Payroll Schedule	Total Payroll	121
+         was =S88+S89
+         now =T84+T85
+  *    Payroll Schedule	Total Payroll	122
+         was =T88+T89
+         now =U84+U85
+  *    Payroll Schedule	Total Payroll	123
+         was =U88+U89
+         now =V84+V85
+  *    Payroll Schedule	Total Payroll	124
+         was =V88+V89
+         now =W84+W85
+  *    Payroll Schedule	Total Payroll	13
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,13)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,14)
+  *    Payroll Schedule	Total Payroll	14
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,14)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,15)
+  *    Payroll Schedule	Total Payroll	15
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,15)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,16)
+  *    Payroll Schedule	Total Payroll	16
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,16)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,17)
+  *    Payroll Schedule	Total Payroll	17
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,17)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,18)
+  *    Payroll Schedule	Total Payroll	18
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,18)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,19)
+  *    Payroll Schedule	Total Payroll	19
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,19)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,20)
+  *    Payroll Schedule	Total Payroll	2
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,2)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,3)
+  *    Payroll Schedule	Total Payroll	20
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,20)
+         now =SUM(D17:G17)
+  *    Payroll Schedule	Total Payroll	21
+         was =SUM(D17:G17)
+         now =SUM(H17:K17)
+  *    Payroll Schedule	Total Payroll	22
+         was =SUM(H17:K17)
+         now =SUM(L17:O17)
+  *    Payroll Schedule	Total Payroll	23
+         was =SUM(L17:O17)
+         now =SUM(P17:S17)
+  *    Payroll Schedule	Total Payroll	24
+         was =SUM(P17:S17)
+         now =SUM(T17:W17)
+  *    Payroll Schedule	Total Payroll	25
+         was =SUM(T17:W17)
+         now =D35+D36
+  *    Payroll Schedule	Total Payroll	26
+         was =D36+D37
+         now =E35+E36
+  *    Payroll Schedule	Total Payroll	27
+         was =E36+E37
+         now =F35+F36
+  *    Payroll Schedule	Total Payroll	28
+         was =F36+F37
+         now =G35+G36
+  *    Payroll Schedule	Total Payroll	29
+         was =G36+G37
+         now =H35+H36
+  *    Payroll Schedule	Total Payroll	3
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,3)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,4)
+  *    Payroll Schedule	Total Payroll	30
+         was =H36+H37
+         now =I35+I36
+  *    Payroll Schedule	Total Payroll	31
+         was =I36+I37
+         now =J35+J36
+  *    Payroll Schedule	Total Payroll	32
+         was =J36+J37
+         now =K35+K36
+  *    Payroll Schedule	Total Payroll	33
+         was =K36+K37
+         now =L35+L36
+  *    Payroll Schedule	Total Payroll	34
+         was =L36+L37
+         now =M35+M36
+  *    Payroll Schedule	Total Payroll	35
+         was =M36+M37
+         now =N35+N36
+  *    Payroll Schedule	Total Payroll	36
+         was =N36+N37
+         now =O35+O36
+  *    Payroll Schedule	Total Payroll	37
+         was =O36+O37
+         now =P35+P36
+  *    Payroll Schedule	Total Payroll	38
+         was =P36+P37
+         now =Q35+Q36
+  *    Payroll Schedule	Total Payroll	39
+         was =Q36+Q37
+         now =R35+R36
+  *    Payroll Schedule	Total Payroll	4
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,4)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,5)
+  *    Payroll Schedule	Total Payroll	40
+         was =R36+R37
+         now =S35+S36
+  *    Payroll Schedule	Total Payroll	41
+         was =S36+S37
+         now =T35+T36
+  *    Payroll Schedule	Total Payroll	42
+         was =T36+T37
+         now =U35+U36
+  *    Payroll Schedule	Total Payroll	43
+         was =U36+U37
+         now =V35+V36
+  *    Payroll Schedule	Total Payroll	44
+         was =V36+V37
+         now =W35+W36
+  *    Payroll Schedule	Total Payroll	45
+         was =W36+W37
+         now =D47+D48
+  *    Payroll Schedule	Total Payroll	46
+         was =D49+D50
+         now =E47+E48
+  *    Payroll Schedule	Total Payroll	47
+         was =E49+E50
+         now =F47+F48
+  *    Payroll Schedule	Total Payroll	48
+         was =F49+F50
+         now =G47+G48
+  *    Payroll Schedule	Total Payroll	49
+         was =G49+G50
+         now =H47+H48
+  *    Payroll Schedule	Total Payroll	5
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,5)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,6)
+  *    Payroll Schedule	Total Payroll	50
+         was =H49+H50
+         now =I47+I48
+  *    Payroll Schedule	Total Payroll	51
+         was =I49+I50
+         now =J47+J48
+  *    Payroll Schedule	Total Payroll	52
+         was =J49+J50
+         now =K47+K48
+  *    Payroll Schedule	Total Payroll	53
+         was =K49+K50
+         now =L47+L48
+  *    Payroll Schedule	Total Payroll	54
+         was =L49+L50
+         now =M47+M48
+  *    Payroll Schedule	Total Payroll	55
+         was =M49+M50
+         now =N47+N48
+  *    Payroll Schedule	Total Payroll	56
+         was =N49+N50
+         now =O47+O48
+  *    Payroll Schedule	Total Payroll	57
+         was =O49+O50
+         now =P47+P48
+  *    Payroll Schedule	Total Payroll	58
+         was =P49+P50
+         now =Q47+Q48
+  *    Payroll Schedule	Total Payroll	59
+         was =Q49+Q50
+         now =R47+R48
+  *    Payroll Schedule	Total Payroll	6
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,6)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,7)
+  *    Payroll Schedule	Total Payroll	60
+         was =R49+R50
+         now =S47+S48
+  *    Payroll Schedule	Total Payroll	61
+         was =S49+S50
+         now =T47+T48
+  *    Payroll Schedule	Total Payroll	62
+         was =T49+T50
+         now =U47+U48
+  *    Payroll Schedule	Total Payroll	63
+         was =U49+U50
+         now =V47+V48
+  *    Payroll Schedule	Total Payroll	64
+         was =V49+V50
+         now =W47+W48
+  *    Payroll Schedule	Total Payroll	65
+         was =W49+W50
+         now =D59+D60
+  *    Payroll Schedule	Total Payroll	66
+         was =D62+D63
+         now =E59+E60
+  *    Payroll Schedule	Total Payroll	67
+         was =E62+E63
+         now =F59+F60
+  *    Payroll Schedule	Total Payroll	68
+         was =F62+F63
+         now =G59+G60
+  *    Payroll Schedule	Total Payroll	69
+         was =G62+G63
+         now =H59+H60
+  *    Payroll Schedule	Total Payroll	7
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,7)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,8)
+  *    Payroll Schedule	Total Payroll	70
+         was =H62+H63
+         now =I59+I60
+  *    Payroll Schedule	Total Payroll	71
+         was =I62+I63
+         now =J59+J60
+  *    Payroll Schedule	Total Payroll	72
+         was =J62+J63
+         now =K59+K60
+  *    Payroll Schedule	Total Payroll	73
+         was =K62+K63
+         now =L59+L60
+  *    Payroll Schedule	Total Payroll	74
+         was =L62+L63
+         now =M59+M60
+  *    Payroll Schedule	Total Payroll	75
+         was =M62+M63
+         now =N59+N60
+  *    Payroll Schedule	Total Payroll	76
+         was =N62+N63
+         now =O59+O60
+  *    Payroll Schedule	Total Payroll	77
+         was =O62+O63
+         now =P59+P60
+  *    Payroll Schedule	Total Payroll	78
+         was =P62+P63
+         now =Q59+Q60
+  *    Payroll Schedule	Total Payroll	79
+         was =Q62+Q63
+         now =R59+R60
+  *    Payroll Schedule	Total Payroll	8
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,8)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,9)
+  *    Payroll Schedule	Total Payroll	80
+         was =R62+R63
+         now =S59+S60
+  *    Payroll Schedule	Total Payroll	81
+         was =S62+S63
+         now =T59+T60
+  *    Payroll Schedule	Total Payroll	82
+         was =T62+T63
+         now =U59+U60
+  *    Payroll Schedule	Total Payroll	83
+         was =U62+U63
+         now =V59+V60
+  *    Payroll Schedule	Total Payroll	84
+         was =V62+V63
+         now =W59+W60
+  *    Payroll Schedule	Total Payroll	85
+         was =W62+W63
+         now =D71+D72
+  *    Payroll Schedule	Total Payroll	86
+         was =D75+D76
+         now =E71+E72
+  *    Payroll Schedule	Total Payroll	87
+         was =E75+E76
+         now =F71+F72
+  *    Payroll Schedule	Total Payroll	88
+         was =F75+F76
+         now =G71+G72
+  *    Payroll Schedule	Total Payroll	89
+         was =G75+G76
+         now =H71+H72
+  *    Payroll Schedule	Total Payroll	9
+         was =SUMIFS($M$95:$M$194,$A$95:$A$194,9)
+         now =SUMIFS($M$91:$M$190,$A$91:$A$190,10)
+  *    Payroll Schedule	Total Payroll	90
+         was =H75+H76
+         now =I71+I72
+  *    Payroll Schedule	Total Payroll	91
+         was =I75+I76
+         now =J71+J72
+  *    Payroll Schedule	Total Payroll	92
+         was =J75+J76
+         now =K71+K72
+  *    Payroll Schedule	Total Payroll	93
+         was =K75+K76
+         now =L71+L72
+  *    Payroll Schedule	Total Payroll	94
+         was =L75+L76
+         now =M71+M72
+  *    Payroll Schedule	Total Payroll	95
+         was =M75+M76
+         now =N71+N72
+  *    Payroll Schedule	Total Payroll	96
+         was =N75+N76
+         now =O71+O72
+  *    Payroll Schedule	Total Payroll	97
+         was =O75+O76
+         now =P71+P72
+  *    Payroll Schedule	Total Payroll	98
+         was =P75+P76
+         now =Q71+Q72
+  *    Payroll Schedule	Total Payroll	99
+         was =Q75+Q76
+         now =R71+R72
+  *    Payroll Schedule	Wage Cost	0
+         was =D33*D34/4
+         now =D32*D33/4
+  *    Payroll Schedule	Wage Cost	1
+         was =E33*E34/4
+         now =E32*E33/4
+  *    Payroll Schedule	Wage Cost	10
+         was =N33*N34/4
+         now =N32*N33/4
+  *    Payroll Schedule	Wage Cost	11
+         was =O33*O34/4
+         now =O32*O33/4
+  *    Payroll Schedule	Wage Cost	12
+         was =P33*P34/4
+         now =P32*P33/4
+  *    Payroll Schedule	Wage Cost	13
+         was =Q33*Q34/4
+         now =Q32*Q33/4
+  *    Payroll Schedule	Wage Cost	14
+         was =R33*R34/4
+         now =R32*R33/4
+  *    Payroll Schedule	Wage Cost	15
+         was =S33*S34/4
+         now =S32*S33/4
+  *    Payroll Schedule	Wage Cost	16
+         was =T33*T34/4
+         now =T32*T33/4
+  *    Payroll Schedule	Wage Cost	17
+         was =U33*U34/4
+         now =U32*U33/4
+  *    Payroll Schedule	Wage Cost	18
+         was =V33*V34/4
+         now =V32*V33/4
+  *    Payroll Schedule	Wage Cost	19
+         was =W33*W34/4
+         now =W32*W33/4
+  *    Payroll Schedule	Wage Cost	2
+         was =F33*F34/4
+         now =F32*F33/4
+  *    Payroll Schedule	Wage Cost	20
+         was =D46*D47/4
+         now =D44*D45/4
+  *    Payroll Schedule	Wage Cost	21
+         was =E46*E47/4
+         now =E44*E45/4
+  *    Payroll Schedule	Wage Cost	22
+         was =F46*F47/4
+         now =F44*F45/4
+  *    Payroll Schedule	Wage Cost	23
+         was =G46*G47/4
+         now =G44*G45/4
+  *    Payroll Schedule	Wage Cost	24
+         was =H46*H47/4
+         now =H44*H45/4
+  *    Payroll Schedule	Wage Cost	25
+         was =I46*I47/4
+         now =I44*I45/4
+  *    Payroll Schedule	Wage Cost	26
+         was =J46*J47/4
+         now =J44*J45/4
+  *    Payroll Schedule	Wage Cost	27
+         was =K46*K47/4
+         now =K44*K45/4
+  *    Payroll Schedule	Wage Cost	28
+         was =L46*L47/4
+         now =L44*L45/4
+  *    Payroll Schedule	Wage Cost	29
+         was =M46*M47/4
+         now =M44*M45/4
+  *    Payroll Schedule	Wage Cost	3
+         was =G33*G34/4
+         now =G32*G33/4
+  *    Payroll Schedule	Wage Cost	30
+         was =N46*N47/4
+         now =N44*N45/4
+  *    Payroll Schedule	Wage Cost	31
+         was =O46*O47/4
+         now =O44*O45/4
+  *    Payroll Schedule	Wage Cost	32
+         was =P46*P47/4
+         now =P44*P45/4
+  *    Payroll Schedule	Wage Cost	33
+         was =Q46*Q47/4
+         now =Q44*Q45/4
+  *    Payroll Schedule	Wage Cost	34
+         was =R46*R47/4
+         now =R44*R45/4
+  *    Payroll Schedule	Wage Cost	35
+         was =S46*S47/4
+         now =S44*S45/4
+  *    Payroll Schedule	Wage Cost	36
+         was =T46*T47/4
+         now =T44*T45/4
+  *    Payroll Schedule	Wage Cost	37
+         was =U46*U47/4
+         now =U44*U45/4
+  *    Payroll Schedule	Wage Cost	38
+         was =V46*V47/4
+         now =V44*V45/4
+  *    Payroll Schedule	Wage Cost	39
+         was =W46*W47/4
+         now =W44*W45/4
+  *    Payroll Schedule	Wage Cost	4
+         was =H33*H34/4
+         now =H32*H33/4
+  *    Payroll Schedule	Wage Cost	40
+         was =D59*D60/4
+         now =D56*D57/4
+  *    Payroll Schedule	Wage Cost	41
+         was =E59*E60/4
+         now =E56*E57/4
+  *    Payroll Schedule	Wage Cost	42
+         was =F59*F60/4
+         now =F56*F57/4
+  *    Payroll Schedule	Wage Cost	43
+         was =G59*G60/4
+         now =G56*G57/4
+  *    Payroll Schedule	Wage Cost	44
+         was =H59*H60/4
+         now =H56*H57/4
+  *    Payroll Schedule	Wage Cost	45
+         was =I59*I60/4
+         now =I56*I57/4
+  *    Payroll Schedule	Wage Cost	46
+         was =J59*J60/4
+         now =J56*J57/4
+  *    Payroll Schedule	Wage Cost	47
+         was =K59*K60/4
+         now =K56*K57/4
+  *    Payroll Schedule	Wage Cost	48
+         was =L59*L60/4
+         now =L56*L57/4
+  *    Payroll Schedule	Wage Cost	49
+         was =M59*M60/4
+         now =M56*M57/4
+  *    Payroll Schedule	Wage Cost	5
+         was =I33*I34/4
+         now =I32*I33/4
+  *    Payroll Schedule	Wage Cost	50
+         was =N59*N60/4
+         now =N56*N57/4
+  *    Payroll Schedule	Wage Cost	51
+         was =O59*O60/4
+         now =O56*O57/4
+  *    Payroll Schedule	Wage Cost	52
+         was =P59*P60/4
+         now =P56*P57/4
+  *    Payroll Schedule	Wage Cost	53
+         was =Q59*Q60/4
+         now =Q56*Q57/4
+  *    Payroll Schedule	Wage Cost	54
+         was =R59*R60/4
+         now =R56*R57/4
+  *    Payroll Schedule	Wage Cost	55
+         was =S59*S60/4
+         now =S56*S57/4
+  *    Payroll Schedule	Wage Cost	56
+         was =T59*T60/4
+         now =T56*T57/4
+  *    Payroll Schedule	Wage Cost	57
+         was =U59*U60/4
+         now =U56*U57/4
+  *    Payroll Schedule	Wage Cost	58
+         was =V59*V60/4
+         now =V56*V57/4
+  *    Payroll Schedule	Wage Cost	59
+         was =W59*W60/4
+         now =W56*W57/4
+  *    Payroll Schedule	Wage Cost	6
+         was =J33*J34/4
+         now =J32*J33/4
+  *    Payroll Schedule	Wage Cost	60
+         was =D72*D73/4
+         now =D68*D69/4
+  *    Payroll Schedule	Wage Cost	61
+         was =E72*E73/4
+         now =E68*E69/4
+  *    Payroll Schedule	Wage Cost	62
+         was =F72*F73/4
+         now =F68*F69/4
+  *    Payroll Schedule	Wage Cost	63
+         was =G72*G73/4
+         now =G68*G69/4
+  *    Payroll Schedule	Wage Cost	64
+         was =H72*H73/4
+         now =H68*H69/4
+  *    Payroll Schedule	Wage Cost	65
+         was =I72*I73/4
+         now =I68*I69/4
+  *    Payroll Schedule	Wage Cost	66
+         was =J72*J73/4
+         now =J68*J69/4
+  *    Payroll Schedule	Wage Cost	67
+         was =K72*K73/4
+         now =K68*K69/4
+  *    Payroll Schedule	Wage Cost	68
+         was =L72*L73/4
+         now =L68*L69/4
+  *    Payroll Schedule	Wage Cost	69
+         was =M72*M73/4
+         now =M68*M69/4
+  *    Payroll Schedule	Wage Cost	7
+         was =K33*K34/4
+         now =K32*K33/4
+  *    Payroll Schedule	Wage Cost	70
+         was =N72*N73/4
+         now =N68*N69/4
+  *    Payroll Schedule	Wage Cost	71
+         was =O72*O73/4
+         now =O68*O69/4
+  *    Payroll Schedule	Wage Cost	72
+         was =P72*P73/4
+         now =P68*P69/4
+  *    Payroll Schedule	Wage Cost	73
+         was =Q72*Q73/4
+         now =Q68*Q69/4
+  *    Payroll Schedule	Wage Cost	74
+         was =R72*R73/4
+         now =R68*R69/4
+  *    Payroll Schedule	Wage Cost	75
+         was =S72*S73/4
+         now =S68*S69/4
+  *    Payroll Schedule	Wage Cost	76
+         was =T72*T73/4
+         now =T68*T69/4
+  *    Payroll Schedule	Wage Cost	77
+         was =U72*U73/4
+         now =U68*U69/4
+  *    Payroll Schedule	Wage Cost	78
+         was =V72*V73/4
+         now =V68*V69/4
+  *    Payroll Schedule	Wage Cost	79
+         was =W72*W73/4
+         now =W68*W69/4
+  *    Payroll Schedule	Wage Cost	8
+         was =L33*L34/4
+         now =L32*L33/4
+  *    Payroll Schedule	Wage Cost	80
+         was =D85*D86/4
+         now =D81*D82/4
+  *    Payroll Schedule	Wage Cost	81
+         was =E85*E86/4
+         now =E81*E82/4
+  *    Payroll Schedule	Wage Cost	82
+         was =F85*F86/4
+         now =F81*F82/4
+  *    Payroll Schedule	Wage Cost	83
+         was =G85*G86/4
+         now =G81*G82/4
+  *    Payroll Schedule	Wage Cost	84
+         was =H85*H86/4
+         now =H81*H82/4
+  *    Payroll Schedule	Wage Cost	85
+         was =I85*I86/4
+         now =I81*I82/4
+  *    Payroll Schedule	Wage Cost	86
+         was =J85*J86/4
+         now =J81*J82/4
+  *    Payroll Schedule	Wage Cost	87
+         was =K85*K86/4
+         now =K81*K82/4
+  *    Payroll Schedule	Wage Cost	88
+         was =L85*L86/4
+         now =L81*L82/4
+  *    Payroll Schedule	Wage Cost	89
+         was =M85*M86/4
+         now =M81*M82/4
+  *    Payroll Schedule	Wage Cost	9
+         was =M33*M34/4
+         now =M32*M33/4
+  *    Payroll Schedule	Wage Cost	90
+         was =N85*N86/4
+         now =N81*N82/4
+  *    Payroll Schedule	Wage Cost	91
+         was =O85*O86/4
+         now =O81*O82/4
+  *    Payroll Schedule	Wage Cost	92
+         was =P85*P86/4
+         now =P81*P82/4
+  *    Payroll Schedule	Wage Cost	93
+         was =Q85*Q86/4
+         now =Q81*Q82/4
+  *    Payroll Schedule	Wage Cost	94
+         was =R85*R86/4
+         now =R81*R82/4
+  *    Payroll Schedule	Wage Cost	95
+         was =S85*S86/4
+         now =S81*S82/4
+  *    Payroll Schedule	Wage Cost	96
+         was =T85*T86/4
+         now =T81*T82/4
+  *    Payroll Schedule	Wage Cost	97
+         was =U85*U86/4
+         now =U81*U82/4
+  *    Payroll Schedule	Wage Cost	98
+         was =V85*V86/4
+         now =V81*V82/4
+  *    Payroll Schedule	Wage Cost	99
+         was =W85*W86/4
+         now =W81*W82/4
+  *    Payroll Schedule	row100	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row100	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row100	10
+         was =E37
+         now =E85
+  *    Payroll Schedule	row100	11
+         was =E38
+         now =E86
+  *    Payroll Schedule	row100	12
+         was =IF(E29="","",E29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row100	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row100	3
+         was =E30
+         now =E78
+  *    Payroll Schedule	row100	4
+         was =E31
+         now =E79
+  *    Payroll Schedule	row100	5
+         was =E32
+         now =E80
+  *    Payroll Schedule	row100	6
+         was =E33
+         now =E81
+  *    Payroll Schedule	row100	7
+         was =E34
+         now =E82
+  *    Payroll Schedule	row100	8
+         was =E35
+         now =E83
+  *    Payroll Schedule	row100	9
+         was =E36
+         now =E84
+  *    Payroll Schedule	row101	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row101	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row101	10
+         was =E50
+         now =F36
+  *    Payroll Schedule	row101	11
+         was =E51
+         now =F37
+  *    Payroll Schedule	row101	12
+         was =IF(E42="","",E42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row101	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row101	3
+         was =E43
+         now =F29
+  *    Payroll Schedule	row101	4
+         was =E44
+         now =F30
+  *    Payroll Schedule	row101	5
+         was =E45
+         now =F31
+  *    Payroll Schedule	row101	6
+         was =E46
+         now =F32
+  *    Payroll Schedule	row101	7
+         was =E47
+         now =F33
+  *    Payroll Schedule	row101	8
+         was =E48
+         now =F34
+  *    Payroll Schedule	row101	9
+         was =E49
+         now =F35
+  *    Payroll Schedule	row102	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row102	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row102	10
+         was =E63
+         now =F48
+  *    Payroll Schedule	row102	11
+         was =E64
+         now =F49
+  *    Payroll Schedule	row102	12
+         was =IF(E55="","",E55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row102	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row102	3
+         was =E56
+         now =F41
+  *    Payroll Schedule	row102	4
+         was =E57
+         now =F42
+  *    Payroll Schedule	row102	5
+         was =E58
+         now =F43
+  *    Payroll Schedule	row102	6
+         was =E59
+         now =F44
+  *    Payroll Schedule	row102	7
+         was =E60
+         now =F45
+  *    Payroll Schedule	row102	8
+         was =E61
+         now =F46
+  *    Payroll Schedule	row102	9
+         was =E62
+         now =F47
+  *    Payroll Schedule	row103	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row103	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row103	10
+         was =E76
+         now =F60
+  *    Payroll Schedule	row103	11
+         was =E77
+         now =F61
+  *    Payroll Schedule	row103	12
+         was =IF(E68="","",E68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row103	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row103	3
+         was =E69
+         now =F53
+  *    Payroll Schedule	row103	4
+         was =E70
+         now =F54
+  *    Payroll Schedule	row103	5
+         was =E71
+         now =F55
+  *    Payroll Schedule	row103	6
+         was =E72
+         now =F56
+  *    Payroll Schedule	row103	7
+         was =E73
+         now =F57
+  *    Payroll Schedule	row103	8
+         was =E74
+         now =F58
+  *    Payroll Schedule	row103	9
+         was =E75
+         now =F59
+  *    Payroll Schedule	row104	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row104	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row104	10
+         was =E89
+         now =F72
+  *    Payroll Schedule	row104	11
+         was =E90
+         now =F73
+  *    Payroll Schedule	row104	12
+         was =IF(E81="","",E81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row104	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row104	3
+         was =E82
+         now =F65
+  *    Payroll Schedule	row104	4
+         was =E83
+         now =F66
+  *    Payroll Schedule	row104	5
+         was =E84
+         now =F67
+  *    Payroll Schedule	row104	6
+         was =E85
+         now =F68
+  *    Payroll Schedule	row104	7
+         was =E86
+         now =F69
+  *    Payroll Schedule	row104	8
+         was =E87
+         now =F70
+  *    Payroll Schedule	row104	9
+         was =E88
+         now =F71
+  *    Payroll Schedule	row105	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row105	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row105	10
+         was =F37
+         now =F85
+  *    Payroll Schedule	row105	11
+         was =F38
+         now =F86
+  *    Payroll Schedule	row105	12
+         was =IF(F29="","",F29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row105	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row105	3
+         was =F30
+         now =F78
+  *    Payroll Schedule	row105	4
+         was =F31
+         now =F79
+  *    Payroll Schedule	row105	5
+         was =F32
+         now =F80
+  *    Payroll Schedule	row105	6
+         was =F33
+         now =F81
+  *    Payroll Schedule	row105	7
+         was =F34
+         now =F82
+  *    Payroll Schedule	row105	8
+         was =F35
+         now =F83
+  *    Payroll Schedule	row105	9
+         was =F36
+         now =F84
+  *    Payroll Schedule	row106	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row106	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row106	10
+         was =F50
+         now =G36
+  *    Payroll Schedule	row106	11
+         was =F51
+         now =G37
+  *    Payroll Schedule	row106	12
+         was =IF(F42="","",F42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row106	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row106	3
+         was =F43
+         now =G29
+  *    Payroll Schedule	row106	4
+         was =F44
+         now =G30
+  *    Payroll Schedule	row106	5
+         was =F45
+         now =G31
+  *    Payroll Schedule	row106	6
+         was =F46
+         now =G32
+  *    Payroll Schedule	row106	7
+         was =F47
+         now =G33
+  *    Payroll Schedule	row106	8
+         was =F48
+         now =G34
+  *    Payroll Schedule	row106	9
+         was =F49
+         now =G35
+  *    Payroll Schedule	row107	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row107	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row107	10
+         was =F63
+         now =G48
+  *    Payroll Schedule	row107	11
+         was =F64
+         now =G49
+  *    Payroll Schedule	row107	12
+         was =IF(F55="","",F55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row107	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row107	3
+         was =F56
+         now =G41
+  *    Payroll Schedule	row107	4
+         was =F57
+         now =G42
+  *    Payroll Schedule	row107	5
+         was =F58
+         now =G43
+  *    Payroll Schedule	row107	6
+         was =F59
+         now =G44
+  *    Payroll Schedule	row107	7
+         was =F60
+         now =G45
+  *    Payroll Schedule	row107	8
+         was =F61
+         now =G46
+  *    Payroll Schedule	row107	9
+         was =F62
+         now =G47
+  *    Payroll Schedule	row108	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row108	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row108	10
+         was =F76
+         now =G60
+  *    Payroll Schedule	row108	11
+         was =F77
+         now =G61
+  *    Payroll Schedule	row108	12
+         was =IF(F68="","",F68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row108	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row108	3
+         was =F69
+         now =G53
+  *    Payroll Schedule	row108	4
+         was =F70
+         now =G54
+  *    Payroll Schedule	row108	5
+         was =F71
+         now =G55
+  *    Payroll Schedule	row108	6
+         was =F72
+         now =G56
+  *    Payroll Schedule	row108	7
+         was =F73
+         now =G57
+  *    Payroll Schedule	row108	8
+         was =F74
+         now =G58
+  *    Payroll Schedule	row108	9
+         was =F75
+         now =G59
+  *    Payroll Schedule	row109	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row109	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row109	10
+         was =F89
+         now =G72
+  *    Payroll Schedule	row109	11
+         was =F90
+         now =G73
+  *    Payroll Schedule	row109	12
+         was =IF(F81="","",F81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row109	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row109	3
+         was =F82
+         now =G65
+  *    Payroll Schedule	row109	4
+         was =F83
+         now =G66
+  *    Payroll Schedule	row109	5
+         was =F84
+         now =G67
+  *    Payroll Schedule	row109	6
+         was =F85
+         now =G68
+  *    Payroll Schedule	row109	7
+         was =F86
+         now =G69
+  *    Payroll Schedule	row109	8
+         was =F87
+         now =G70
+  *    Payroll Schedule	row109	9
+         was =F88
+         now =G71
+  *    Payroll Schedule	row110	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row110	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row110	10
+         was =G37
+         now =G85
+  *    Payroll Schedule	row110	11
+         was =G38
+         now =G86
+  *    Payroll Schedule	row110	12
+         was =IF(G29="","",G29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row110	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row110	3
+         was =G30
+         now =G78
+  *    Payroll Schedule	row110	4
+         was =G31
+         now =G79
+  *    Payroll Schedule	row110	5
+         was =G32
+         now =G80
+  *    Payroll Schedule	row110	6
+         was =G33
+         now =G81
+  *    Payroll Schedule	row110	7
+         was =G34
+         now =G82
+  *    Payroll Schedule	row110	8
+         was =G35
+         now =G83
+  *    Payroll Schedule	row110	9
+         was =G36
+         now =G84
+  *    Payroll Schedule	row111	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row111	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row111	10
+         was =G50
+         now =H36
+  *    Payroll Schedule	row111	11
+         was =G51
+         now =H37
+  *    Payroll Schedule	row111	12
+         was =IF(G42="","",G42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row111	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row111	3
+         was =G43
+         now =H29
+  *    Payroll Schedule	row111	4
+         was =G44
+         now =H30
+  *    Payroll Schedule	row111	5
+         was =G45
+         now =H31
+  *    Payroll Schedule	row111	6
+         was =G46
+         now =H32
+  *    Payroll Schedule	row111	7
+         was =G47
+         now =H33
+  *    Payroll Schedule	row111	8
+         was =G48
+         now =H34
+  *    Payroll Schedule	row111	9
+         was =G49
+         now =H35
+  *    Payroll Schedule	row112	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row112	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row112	10
+         was =G63
+         now =H48
+  *    Payroll Schedule	row112	11
+         was =G64
+         now =H49
+  *    Payroll Schedule	row112	12
+         was =IF(G55="","",G55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row112	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row112	3
+         was =G56
+         now =H41
+  *    Payroll Schedule	row112	4
+         was =G57
+         now =H42
+  *    Payroll Schedule	row112	5
+         was =G58
+         now =H43
+  *    Payroll Schedule	row112	6
+         was =G59
+         now =H44
+  *    Payroll Schedule	row112	7
+         was =G60
+         now =H45
+  *    Payroll Schedule	row112	8
+         was =G61
+         now =H46
+  *    Payroll Schedule	row112	9
+         was =G62
+         now =H47
+  *    Payroll Schedule	row113	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row113	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row113	10
+         was =G76
+         now =H60
+  *    Payroll Schedule	row113	11
+         was =G77
+         now =H61
+  *    Payroll Schedule	row113	12
+         was =IF(G68="","",G68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row113	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row113	3
+         was =G69
+         now =H53
+  *    Payroll Schedule	row113	4
+         was =G70
+         now =H54
+  *    Payroll Schedule	row113	5
+         was =G71
+         now =H55
+  *    Payroll Schedule	row113	6
+         was =G72
+         now =H56
+  *    Payroll Schedule	row113	7
+         was =G73
+         now =H57
+  *    Payroll Schedule	row113	8
+         was =G74
+         now =H58
+  *    Payroll Schedule	row113	9
+         was =G75
+         now =H59
+  *    Payroll Schedule	row114	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row114	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row114	10
+         was =G89
+         now =H72
+  *    Payroll Schedule	row114	11
+         was =G90
+         now =H73
+  *    Payroll Schedule	row114	12
+         was =IF(G81="","",G81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row114	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row114	3
+         was =G82
+         now =H65
+  *    Payroll Schedule	row114	4
+         was =G83
+         now =H66
+  *    Payroll Schedule	row114	5
+         was =G84
+         now =H67
+  *    Payroll Schedule	row114	6
+         was =G85
+         now =H68
+  *    Payroll Schedule	row114	7
+         was =G86
+         now =H69
+  *    Payroll Schedule	row114	8
+         was =G87
+         now =H70
+  *    Payroll Schedule	row114	9
+         was =G88
+         now =H71
+  *    Payroll Schedule	row115	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row115	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row115	10
+         was =H37
+         now =H85
+  *    Payroll Schedule	row115	11
+         was =H38
+         now =H86
+  *    Payroll Schedule	row115	12
+         was =IF(H29="","",H29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row115	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row115	3
+         was =H30
+         now =H78
+  *    Payroll Schedule	row115	4
+         was =H31
+         now =H79
+  *    Payroll Schedule	row115	5
+         was =H32
+         now =H80
+  *    Payroll Schedule	row115	6
+         was =H33
+         now =H81
+  *    Payroll Schedule	row115	7
+         was =H34
+         now =H82
+  *    Payroll Schedule	row115	8
+         was =H35
+         now =H83
+  *    Payroll Schedule	row115	9
+         was =H36
+         now =H84
+  *    Payroll Schedule	row116	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row116	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row116	10
+         was =H50
+         now =I36
+  *    Payroll Schedule	row116	11
+         was =H51
+         now =I37
+  *    Payroll Schedule	row116	12
+         was =IF(H42="","",H42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row116	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row116	3
+         was =H43
+         now =I29
+  *    Payroll Schedule	row116	4
+         was =H44
+         now =I30
+  *    Payroll Schedule	row116	5
+         was =H45
+         now =I31
+  *    Payroll Schedule	row116	6
+         was =H46
+         now =I32
+  *    Payroll Schedule	row116	7
+         was =H47
+         now =I33
+  *    Payroll Schedule	row116	8
+         was =H48
+         now =I34
+  *    Payroll Schedule	row116	9
+         was =H49
+         now =I35
+  *    Payroll Schedule	row117	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row117	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row117	10
+         was =H63
+         now =I48
+  *    Payroll Schedule	row117	11
+         was =H64
+         now =I49
+  *    Payroll Schedule	row117	12
+         was =IF(H55="","",H55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row117	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row117	3
+         was =H56
+         now =I41
+  *    Payroll Schedule	row117	4
+         was =H57
+         now =I42
+  *    Payroll Schedule	row117	5
+         was =H58
+         now =I43
+  *    Payroll Schedule	row117	6
+         was =H59
+         now =I44
+  *    Payroll Schedule	row117	7
+         was =H60
+         now =I45
+  *    Payroll Schedule	row117	8
+         was =H61
+         now =I46
+  *    Payroll Schedule	row117	9
+         was =H62
+         now =I47
+  *    Payroll Schedule	row118	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row118	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row118	10
+         was =H76
+         now =I60
+  *    Payroll Schedule	row118	11
+         was =H77
+         now =I61
+  *    Payroll Schedule	row118	12
+         was =IF(H68="","",H68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row118	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row118	3
+         was =H69
+         now =I53
+  *    Payroll Schedule	row118	4
+         was =H70
+         now =I54
+  *    Payroll Schedule	row118	5
+         was =H71
+         now =I55
+  *    Payroll Schedule	row118	6
+         was =H72
+         now =I56
+  *    Payroll Schedule	row118	7
+         was =H73
+         now =I57
+  *    Payroll Schedule	row118	8
+         was =H74
+         now =I58
+  *    Payroll Schedule	row118	9
+         was =H75
+         now =I59
+  *    Payroll Schedule	row119	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row119	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row119	10
+         was =H89
+         now =I72
+  *    Payroll Schedule	row119	11
+         was =H90
+         now =I73
+  *    Payroll Schedule	row119	12
+         was =IF(H81="","",H81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row119	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row119	3
+         was =H82
+         now =I65
+  *    Payroll Schedule	row119	4
+         was =H83
+         now =I66
+  *    Payroll Schedule	row119	5
+         was =H84
+         now =I67
+  *    Payroll Schedule	row119	6
+         was =H85
+         now =I68
+  *    Payroll Schedule	row119	7
+         was =H86
+         now =I69
+  *    Payroll Schedule	row119	8
+         was =H87
+         now =I70
+  *    Payroll Schedule	row119	9
+         was =H88
+         now =I71
+  *    Payroll Schedule	row120	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row120	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row120	10
+         was =I37
+         now =I85
+  *    Payroll Schedule	row120	11
+         was =I38
+         now =I86
+  *    Payroll Schedule	row120	12
+         was =IF(I29="","",I29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row120	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row120	3
+         was =I30
+         now =I78
+  *    Payroll Schedule	row120	4
+         was =I31
+         now =I79
+  *    Payroll Schedule	row120	5
+         was =I32
+         now =I80
+  *    Payroll Schedule	row120	6
+         was =I33
+         now =I81
+  *    Payroll Schedule	row120	7
+         was =I34
+         now =I82
+  *    Payroll Schedule	row120	8
+         was =I35
+         now =I83
+  *    Payroll Schedule	row120	9
+         was =I36
+         now =I84
+  *    Payroll Schedule	row121	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row121	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row121	10
+         was =I50
+         now =J36
+  *    Payroll Schedule	row121	11
+         was =I51
+         now =J37
+  *    Payroll Schedule	row121	12
+         was =IF(I42="","",I42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row121	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row121	3
+         was =I43
+         now =J29
+  *    Payroll Schedule	row121	4
+         was =I44
+         now =J30
+  *    Payroll Schedule	row121	5
+         was =I45
+         now =J31
+  *    Payroll Schedule	row121	6
+         was =I46
+         now =J32
+  *    Payroll Schedule	row121	7
+         was =I47
+         now =J33
+  *    Payroll Schedule	row121	8
+         was =I48
+         now =J34
+  *    Payroll Schedule	row121	9
+         was =I49
+         now =J35
+  *    Payroll Schedule	row122	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row122	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row122	10
+         was =I63
+         now =J48
+  *    Payroll Schedule	row122	11
+         was =I64
+         now =J49
+  *    Payroll Schedule	row122	12
+         was =IF(I55="","",I55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row122	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row122	3
+         was =I56
+         now =J41
+  *    Payroll Schedule	row122	4
+         was =I57
+         now =J42
+  *    Payroll Schedule	row122	5
+         was =I58
+         now =J43
+  *    Payroll Schedule	row122	6
+         was =I59
+         now =J44
+  *    Payroll Schedule	row122	7
+         was =I60
+         now =J45
+  *    Payroll Schedule	row122	8
+         was =I61
+         now =J46
+  *    Payroll Schedule	row122	9
+         was =I62
+         now =J47
+  *    Payroll Schedule	row123	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row123	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row123	10
+         was =I76
+         now =J60
+  *    Payroll Schedule	row123	11
+         was =I77
+         now =J61
+  *    Payroll Schedule	row123	12
+         was =IF(I68="","",I68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row123	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row123	3
+         was =I69
+         now =J53
+  *    Payroll Schedule	row123	4
+         was =I70
+         now =J54
+  *    Payroll Schedule	row123	5
+         was =I71
+         now =J55
+  *    Payroll Schedule	row123	6
+         was =I72
+         now =J56
+  *    Payroll Schedule	row123	7
+         was =I73
+         now =J57
+  *    Payroll Schedule	row123	8
+         was =I74
+         now =J58
+  *    Payroll Schedule	row123	9
+         was =I75
+         now =J59
+  *    Payroll Schedule	row124	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row124	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row124	10
+         was =I89
+         now =J72
+  *    Payroll Schedule	row124	11
+         was =I90
+         now =J73
+  *    Payroll Schedule	row124	12
+         was =IF(I81="","",I81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row124	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row124	3
+         was =I82
+         now =J65
+  *    Payroll Schedule	row124	4
+         was =I83
+         now =J66
+  *    Payroll Schedule	row124	5
+         was =I84
+         now =J67
+  *    Payroll Schedule	row124	6
+         was =I85
+         now =J68
+  *    Payroll Schedule	row124	7
+         was =I86
+         now =J69
+  *    Payroll Schedule	row124	8
+         was =I87
+         now =J70
+  *    Payroll Schedule	row124	9
+         was =I88
+         now =J71
+  *    Payroll Schedule	row125	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row125	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row125	10
+         was =J37
+         now =J85
+  *    Payroll Schedule	row125	11
+         was =J38
+         now =J86
+  *    Payroll Schedule	row125	12
+         was =IF(J29="","",J29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row125	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row125	3
+         was =J30
+         now =J78
+  *    Payroll Schedule	row125	4
+         was =J31
+         now =J79
+  *    Payroll Schedule	row125	5
+         was =J32
+         now =J80
+  *    Payroll Schedule	row125	6
+         was =J33
+         now =J81
+  *    Payroll Schedule	row125	7
+         was =J34
+         now =J82
+  *    Payroll Schedule	row125	8
+         was =J35
+         now =J83
+  *    Payroll Schedule	row125	9
+         was =J36
+         now =J84
+  *    Payroll Schedule	row126	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row126	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row126	10
+         was =J50
+         now =K36
+  *    Payroll Schedule	row126	11
+         was =J51
+         now =K37
+  *    Payroll Schedule	row126	12
+         was =IF(J42="","",J42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row126	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row126	3
+         was =J43
+         now =K29
+  *    Payroll Schedule	row126	4
+         was =J44
+         now =K30
+  *    Payroll Schedule	row126	5
+         was =J45
+         now =K31
+  *    Payroll Schedule	row126	6
+         was =J46
+         now =K32
+  *    Payroll Schedule	row126	7
+         was =J47
+         now =K33
+  *    Payroll Schedule	row126	8
+         was =J48
+         now =K34
+  *    Payroll Schedule	row126	9
+         was =J49
+         now =K35
+  *    Payroll Schedule	row127	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row127	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row127	10
+         was =J63
+         now =K48
+  *    Payroll Schedule	row127	11
+         was =J64
+         now =K49
+  *    Payroll Schedule	row127	12
+         was =IF(J55="","",J55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row127	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row127	3
+         was =J56
+         now =K41
+  *    Payroll Schedule	row127	4
+         was =J57
+         now =K42
+  *    Payroll Schedule	row127	5
+         was =J58
+         now =K43
+  *    Payroll Schedule	row127	6
+         was =J59
+         now =K44
+  *    Payroll Schedule	row127	7
+         was =J60
+         now =K45
+  *    Payroll Schedule	row127	8
+         was =J61
+         now =K46
+  *    Payroll Schedule	row127	9
+         was =J62
+         now =K47
+  *    Payroll Schedule	row128	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row128	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row128	10
+         was =J76
+         now =K60
+  *    Payroll Schedule	row128	11
+         was =J77
+         now =K61
+  *    Payroll Schedule	row128	12
+         was =IF(J68="","",J68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row128	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row128	3
+         was =J69
+         now =K53
+  *    Payroll Schedule	row128	4
+         was =J70
+         now =K54
+  *    Payroll Schedule	row128	5
+         was =J71
+         now =K55
+  *    Payroll Schedule	row128	6
+         was =J72
+         now =K56
+  *    Payroll Schedule	row128	7
+         was =J73
+         now =K57
+  *    Payroll Schedule	row128	8
+         was =J74
+         now =K58
+  *    Payroll Schedule	row128	9
+         was =J75
+         now =K59
+  *    Payroll Schedule	row129	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row129	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row129	10
+         was =J89
+         now =K72
+  *    Payroll Schedule	row129	11
+         was =J90
+         now =K73
+  *    Payroll Schedule	row129	12
+         was =IF(J81="","",J81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row129	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row129	3
+         was =J82
+         now =K65
+  *    Payroll Schedule	row129	4
+         was =J83
+         now =K66
+  *    Payroll Schedule	row129	5
+         was =J84
+         now =K67
+  *    Payroll Schedule	row129	6
+         was =J85
+         now =K68
+  *    Payroll Schedule	row129	7
+         was =J86
+         now =K69
+  *    Payroll Schedule	row129	8
+         was =J87
+         now =K70
+  *    Payroll Schedule	row129	9
+         was =J88
+         now =K71
+  *    Payroll Schedule	row130	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row130	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row130	10
+         was =K37
+         now =K85
+  *    Payroll Schedule	row130	11
+         was =K38
+         now =K86
+  *    Payroll Schedule	row130	12
+         was =IF(K29="","",K29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row130	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row130	3
+         was =K30
+         now =K78
+  *    Payroll Schedule	row130	4
+         was =K31
+         now =K79
+  *    Payroll Schedule	row130	5
+         was =K32
+         now =K80
+  *    Payroll Schedule	row130	6
+         was =K33
+         now =K81
+  *    Payroll Schedule	row130	7
+         was =K34
+         now =K82
+  *    Payroll Schedule	row130	8
+         was =K35
+         now =K83
+  *    Payroll Schedule	row130	9
+         was =K36
+         now =K84
+  *    Payroll Schedule	row131	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row131	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row131	10
+         was =K50
+         now =L36
+  *    Payroll Schedule	row131	11
+         was =K51
+         now =L37
+  *    Payroll Schedule	row131	12
+         was =IF(K42="","",K42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row131	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row131	3
+         was =K43
+         now =L29
+  *    Payroll Schedule	row131	4
+         was =K44
+         now =L30
+  *    Payroll Schedule	row131	5
+         was =K45
+         now =L31
+  *    Payroll Schedule	row131	6
+         was =K46
+         now =L32
+  *    Payroll Schedule	row131	7
+         was =K47
+         now =L33
+  *    Payroll Schedule	row131	8
+         was =K48
+         now =L34
+  *    Payroll Schedule	row131	9
+         was =K49
+         now =L35
+  *    Payroll Schedule	row132	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row132	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row132	10
+         was =K63
+         now =L48
+  *    Payroll Schedule	row132	11
+         was =K64
+         now =L49
+  *    Payroll Schedule	row132	12
+         was =IF(K55="","",K55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row132	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row132	3
+         was =K56
+         now =L41
+  *    Payroll Schedule	row132	4
+         was =K57
+         now =L42
+  *    Payroll Schedule	row132	5
+         was =K58
+         now =L43
+  *    Payroll Schedule	row132	6
+         was =K59
+         now =L44
+  *    Payroll Schedule	row132	7
+         was =K60
+         now =L45
+  *    Payroll Schedule	row132	8
+         was =K61
+         now =L46
+  *    Payroll Schedule	row132	9
+         was =K62
+         now =L47
+  *    Payroll Schedule	row133	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row133	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row133	10
+         was =K76
+         now =L60
+  *    Payroll Schedule	row133	11
+         was =K77
+         now =L61
+  *    Payroll Schedule	row133	12
+         was =IF(K68="","",K68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row133	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row133	3
+         was =K69
+         now =L53
+  *    Payroll Schedule	row133	4
+         was =K70
+         now =L54
+  *    Payroll Schedule	row133	5
+         was =K71
+         now =L55
+  *    Payroll Schedule	row133	6
+         was =K72
+         now =L56
+  *    Payroll Schedule	row133	7
+         was =K73
+         now =L57
+  *    Payroll Schedule	row133	8
+         was =K74
+         now =L58
+  *    Payroll Schedule	row133	9
+         was =K75
+         now =L59
+  *    Payroll Schedule	row134	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row134	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row134	10
+         was =K89
+         now =L72
+  *    Payroll Schedule	row134	11
+         was =K90
+         now =L73
+  *    Payroll Schedule	row134	12
+         was =IF(K81="","",K81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row134	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row134	3
+         was =K82
+         now =L65
+  *    Payroll Schedule	row134	4
+         was =K83
+         now =L66
+  *    Payroll Schedule	row134	5
+         was =K84
+         now =L67
+  *    Payroll Schedule	row134	6
+         was =K85
+         now =L68
+  *    Payroll Schedule	row134	7
+         was =K86
+         now =L69
+  *    Payroll Schedule	row134	8
+         was =K87
+         now =L70
+  *    Payroll Schedule	row134	9
+         was =K88
+         now =L71
+  *    Payroll Schedule	row135	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row135	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row135	10
+         was =L37
+         now =L85
+  *    Payroll Schedule	row135	11
+         was =L38
+         now =L86
+  *    Payroll Schedule	row135	12
+         was =IF(L29="","",L29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row135	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row135	3
+         was =L30
+         now =L78
+  *    Payroll Schedule	row135	4
+         was =L31
+         now =L79
+  *    Payroll Schedule	row135	5
+         was =L32
+         now =L80
+  *    Payroll Schedule	row135	6
+         was =L33
+         now =L81
+  *    Payroll Schedule	row135	7
+         was =L34
+         now =L82
+  *    Payroll Schedule	row135	8
+         was =L35
+         now =L83
+  *    Payroll Schedule	row135	9
+         was =L36
+         now =L84
+  *    Payroll Schedule	row136	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row136	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row136	10
+         was =L50
+         now =M36
+  *    Payroll Schedule	row136	11
+         was =L51
+         now =M37
+  *    Payroll Schedule	row136	12
+         was =IF(L42="","",L42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row136	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row136	3
+         was =L43
+         now =M29
+  *    Payroll Schedule	row136	4
+         was =L44
+         now =M30
+  *    Payroll Schedule	row136	5
+         was =L45
+         now =M31
+  *    Payroll Schedule	row136	6
+         was =L46
+         now =M32
+  *    Payroll Schedule	row136	7
+         was =L47
+         now =M33
+  *    Payroll Schedule	row136	8
+         was =L48
+         now =M34
+  *    Payroll Schedule	row136	9
+         was =L49
+         now =M35
+  *    Payroll Schedule	row137	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row137	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row137	10
+         was =L63
+         now =M48
+  *    Payroll Schedule	row137	11
+         was =L64
+         now =M49
+  *    Payroll Schedule	row137	12
+         was =IF(L55="","",L55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row137	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row137	3
+         was =L56
+         now =M41
+  *    Payroll Schedule	row137	4
+         was =L57
+         now =M42
+  *    Payroll Schedule	row137	5
+         was =L58
+         now =M43
+  *    Payroll Schedule	row137	6
+         was =L59
+         now =M44
+  *    Payroll Schedule	row137	7
+         was =L60
+         now =M45
+  *    Payroll Schedule	row137	8
+         was =L61
+         now =M46
+  *    Payroll Schedule	row137	9
+         was =L62
+         now =M47
+  *    Payroll Schedule	row138	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row138	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row138	10
+         was =L76
+         now =M60
+  *    Payroll Schedule	row138	11
+         was =L77
+         now =M61
+  *    Payroll Schedule	row138	12
+         was =IF(L68="","",L68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row138	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row138	3
+         was =L69
+         now =M53
+  *    Payroll Schedule	row138	4
+         was =L70
+         now =M54
+  *    Payroll Schedule	row138	5
+         was =L71
+         now =M55
+  *    Payroll Schedule	row138	6
+         was =L72
+         now =M56
+  *    Payroll Schedule	row138	7
+         was =L73
+         now =M57
+  *    Payroll Schedule	row138	8
+         was =L74
+         now =M58
+  *    Payroll Schedule	row138	9
+         was =L75
+         now =M59
+  *    Payroll Schedule	row139	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row139	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row139	10
+         was =L89
+         now =M72
+  *    Payroll Schedule	row139	11
+         was =L90
+         now =M73
+  *    Payroll Schedule	row139	12
+         was =IF(L81="","",L81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row139	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row139	3
+         was =L82
+         now =M65
+  *    Payroll Schedule	row139	4
+         was =L83
+         now =M66
+  *    Payroll Schedule	row139	5
+         was =L84
+         now =M67
+  *    Payroll Schedule	row139	6
+         was =L85
+         now =M68
+  *    Payroll Schedule	row139	7
+         was =L86
+         now =M69
+  *    Payroll Schedule	row139	8
+         was =L87
+         now =M70
+  *    Payroll Schedule	row139	9
+         was =L88
+         now =M71
+  *    Payroll Schedule	row140	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row140	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row140	10
+         was =M37
+         now =M85
+  *    Payroll Schedule	row140	11
+         was =M38
+         now =M86
+  *    Payroll Schedule	row140	12
+         was =IF(M29="","",M29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row140	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row140	3
+         was =M30
+         now =M78
+  *    Payroll Schedule	row140	4
+         was =M31
+         now =M79
+  *    Payroll Schedule	row140	5
+         was =M32
+         now =M80
+  *    Payroll Schedule	row140	6
+         was =M33
+         now =M81
+  *    Payroll Schedule	row140	7
+         was =M34
+         now =M82
+  *    Payroll Schedule	row140	8
+         was =M35
+         now =M83
+  *    Payroll Schedule	row140	9
+         was =M36
+         now =M84
+  *    Payroll Schedule	row141	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row141	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row141	10
+         was =M50
+         now =N36
+  *    Payroll Schedule	row141	11
+         was =M51
+         now =N37
+  *    Payroll Schedule	row141	12
+         was =IF(M42="","",M42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row141	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row141	3
+         was =M43
+         now =N29
+  *    Payroll Schedule	row141	4
+         was =M44
+         now =N30
+  *    Payroll Schedule	row141	5
+         was =M45
+         now =N31
+  *    Payroll Schedule	row141	6
+         was =M46
+         now =N32
+  *    Payroll Schedule	row141	7
+         was =M47
+         now =N33
+  *    Payroll Schedule	row141	8
+         was =M48
+         now =N34
+  *    Payroll Schedule	row141	9
+         was =M49
+         now =N35
+  *    Payroll Schedule	row142	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row142	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row142	10
+         was =M63
+         now =N48
+  *    Payroll Schedule	row142	11
+         was =M64
+         now =N49
+  *    Payroll Schedule	row142	12
+         was =IF(M55="","",M55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row142	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row142	3
+         was =M56
+         now =N41
+  *    Payroll Schedule	row142	4
+         was =M57
+         now =N42
+  *    Payroll Schedule	row142	5
+         was =M58
+         now =N43
+  *    Payroll Schedule	row142	6
+         was =M59
+         now =N44
+  *    Payroll Schedule	row142	7
+         was =M60
+         now =N45
+  *    Payroll Schedule	row142	8
+         was =M61
+         now =N46
+  *    Payroll Schedule	row142	9
+         was =M62
+         now =N47
+  *    Payroll Schedule	row143	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row143	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row143	10
+         was =M76
+         now =N60
+  *    Payroll Schedule	row143	11
+         was =M77
+         now =N61
+  *    Payroll Schedule	row143	12
+         was =IF(M68="","",M68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row143	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row143	3
+         was =M69
+         now =N53
+  *    Payroll Schedule	row143	4
+         was =M70
+         now =N54
+  *    Payroll Schedule	row143	5
+         was =M71
+         now =N55
+  *    Payroll Schedule	row143	6
+         was =M72
+         now =N56
+  *    Payroll Schedule	row143	7
+         was =M73
+         now =N57
+  *    Payroll Schedule	row143	8
+         was =M74
+         now =N58
+  *    Payroll Schedule	row143	9
+         was =M75
+         now =N59
+  *    Payroll Schedule	row144	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row144	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row144	10
+         was =M89
+         now =N72
+  *    Payroll Schedule	row144	11
+         was =M90
+         now =N73
+  *    Payroll Schedule	row144	12
+         was =IF(M81="","",M81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row144	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row144	3
+         was =M82
+         now =N65
+  *    Payroll Schedule	row144	4
+         was =M83
+         now =N66
+  *    Payroll Schedule	row144	5
+         was =M84
+         now =N67
+  *    Payroll Schedule	row144	6
+         was =M85
+         now =N68
+  *    Payroll Schedule	row144	7
+         was =M86
+         now =N69
+  *    Payroll Schedule	row144	8
+         was =M87
+         now =N70
+  *    Payroll Schedule	row144	9
+         was =M88
+         now =N71
+  *    Payroll Schedule	row145	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row145	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row145	10
+         was =N37
+         now =N85
+  *    Payroll Schedule	row145	11
+         was =N38
+         now =N86
+  *    Payroll Schedule	row145	12
+         was =IF(N29="","",N29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row145	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row145	3
+         was =N30
+         now =N78
+  *    Payroll Schedule	row145	4
+         was =N31
+         now =N79
+  *    Payroll Schedule	row145	5
+         was =N32
+         now =N80
+  *    Payroll Schedule	row145	6
+         was =N33
+         now =N81
+  *    Payroll Schedule	row145	7
+         was =N34
+         now =N82
+  *    Payroll Schedule	row145	8
+         was =N35
+         now =N83
+  *    Payroll Schedule	row145	9
+         was =N36
+         now =N84
+  *    Payroll Schedule	row146	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row146	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row146	10
+         was =N50
+         now =O36
+  *    Payroll Schedule	row146	11
+         was =N51
+         now =O37
+  *    Payroll Schedule	row146	12
+         was =IF(N42="","",N42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row146	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row146	3
+         was =N43
+         now =O29
+  *    Payroll Schedule	row146	4
+         was =N44
+         now =O30
+  *    Payroll Schedule	row146	5
+         was =N45
+         now =O31
+  *    Payroll Schedule	row146	6
+         was =N46
+         now =O32
+  *    Payroll Schedule	row146	7
+         was =N47
+         now =O33
+  *    Payroll Schedule	row146	8
+         was =N48
+         now =O34
+  *    Payroll Schedule	row146	9
+         was =N49
+         now =O35
+  *    Payroll Schedule	row147	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row147	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row147	10
+         was =N63
+         now =O48
+  *    Payroll Schedule	row147	11
+         was =N64
+         now =O49
+  *    Payroll Schedule	row147	12
+         was =IF(N55="","",N55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row147	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row147	3
+         was =N56
+         now =O41
+  *    Payroll Schedule	row147	4
+         was =N57
+         now =O42
+  *    Payroll Schedule	row147	5
+         was =N58
+         now =O43
+  *    Payroll Schedule	row147	6
+         was =N59
+         now =O44
+  *    Payroll Schedule	row147	7
+         was =N60
+         now =O45
+  *    Payroll Schedule	row147	8
+         was =N61
+         now =O46
+  *    Payroll Schedule	row147	9
+         was =N62
+         now =O47
+  *    Payroll Schedule	row148	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row148	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row148	10
+         was =N76
+         now =O60
+  *    Payroll Schedule	row148	11
+         was =N77
+         now =O61
+  *    Payroll Schedule	row148	12
+         was =IF(N68="","",N68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row148	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row148	3
+         was =N69
+         now =O53
+  *    Payroll Schedule	row148	4
+         was =N70
+         now =O54
+  *    Payroll Schedule	row148	5
+         was =N71
+         now =O55
+  *    Payroll Schedule	row148	6
+         was =N72
+         now =O56
+  *    Payroll Schedule	row148	7
+         was =N73
+         now =O57
+  *    Payroll Schedule	row148	8
+         was =N74
+         now =O58
+  *    Payroll Schedule	row148	9
+         was =N75
+         now =O59
+  *    Payroll Schedule	row149	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row149	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row149	10
+         was =N89
+         now =O72
+  *    Payroll Schedule	row149	11
+         was =N90
+         now =O73
+  *    Payroll Schedule	row149	12
+         was =IF(N81="","",N81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row149	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row149	3
+         was =N82
+         now =O65
+  *    Payroll Schedule	row149	4
+         was =N83
+         now =O66
+  *    Payroll Schedule	row149	5
+         was =N84
+         now =O67
+  *    Payroll Schedule	row149	6
+         was =N85
+         now =O68
+  *    Payroll Schedule	row149	7
+         was =N86
+         now =O69
+  *    Payroll Schedule	row149	8
+         was =N87
+         now =O70
+  *    Payroll Schedule	row149	9
+         was =N88
+         now =O71
+  *    Payroll Schedule	row150	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row150	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row150	10
+         was =O37
+         now =O85
+  *    Payroll Schedule	row150	11
+         was =O38
+         now =O86
+  *    Payroll Schedule	row150	12
+         was =IF(O29="","",O29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row150	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row150	3
+         was =O30
+         now =O78
+  *    Payroll Schedule	row150	4
+         was =O31
+         now =O79
+  *    Payroll Schedule	row150	5
+         was =O32
+         now =O80
+  *    Payroll Schedule	row150	6
+         was =O33
+         now =O81
+  *    Payroll Schedule	row150	7
+         was =O34
+         now =O82
+  *    Payroll Schedule	row150	8
+         was =O35
+         now =O83
+  *    Payroll Schedule	row150	9
+         was =O36
+         now =O84
+  *    Payroll Schedule	row151	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row151	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row151	10
+         was =O50
+         now =P36
+  *    Payroll Schedule	row151	11
+         was =O51
+         now =P37
+  *    Payroll Schedule	row151	12
+         was =IF(O42="","",O42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row151	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row151	3
+         was =O43
+         now =P29
+  *    Payroll Schedule	row151	4
+         was =O44
+         now =P30
+  *    Payroll Schedule	row151	5
+         was =O45
+         now =P31
+  *    Payroll Schedule	row151	6
+         was =O46
+         now =P32
+  *    Payroll Schedule	row151	7
+         was =O47
+         now =P33
+  *    Payroll Schedule	row151	8
+         was =O48
+         now =P34
+  *    Payroll Schedule	row151	9
+         was =O49
+         now =P35
+  *    Payroll Schedule	row152	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row152	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row152	10
+         was =O63
+         now =P48
+  *    Payroll Schedule	row152	11
+         was =O64
+         now =P49
+  *    Payroll Schedule	row152	12
+         was =IF(O55="","",O55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row152	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row152	3
+         was =O56
+         now =P41
+  *    Payroll Schedule	row152	4
+         was =O57
+         now =P42
+  *    Payroll Schedule	row152	5
+         was =O58
+         now =P43
+  *    Payroll Schedule	row152	6
+         was =O59
+         now =P44
+  *    Payroll Schedule	row152	7
+         was =O60
+         now =P45
+  *    Payroll Schedule	row152	8
+         was =O61
+         now =P46
+  *    Payroll Schedule	row152	9
+         was =O62
+         now =P47
+  *    Payroll Schedule	row153	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row153	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row153	10
+         was =O76
+         now =P60
+  *    Payroll Schedule	row153	11
+         was =O77
+         now =P61
+  *    Payroll Schedule	row153	12
+         was =IF(O68="","",O68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row153	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row153	3
+         was =O69
+         now =P53
+  *    Payroll Schedule	row153	4
+         was =O70
+         now =P54
+  *    Payroll Schedule	row153	5
+         was =O71
+         now =P55
+  *    Payroll Schedule	row153	6
+         was =O72
+         now =P56
+  *    Payroll Schedule	row153	7
+         was =O73
+         now =P57
+  *    Payroll Schedule	row153	8
+         was =O74
+         now =P58
+  *    Payroll Schedule	row153	9
+         was =O75
+         now =P59
+  *    Payroll Schedule	row154	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row154	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row154	10
+         was =O89
+         now =P72
+  *    Payroll Schedule	row154	11
+         was =O90
+         now =P73
+  *    Payroll Schedule	row154	12
+         was =IF(O81="","",O81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row154	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row154	3
+         was =O82
+         now =P65
+  *    Payroll Schedule	row154	4
+         was =O83
+         now =P66
+  *    Payroll Schedule	row154	5
+         was =O84
+         now =P67
+  *    Payroll Schedule	row154	6
+         was =O85
+         now =P68
+  *    Payroll Schedule	row154	7
+         was =O86
+         now =P69
+  *    Payroll Schedule	row154	8
+         was =O87
+         now =P70
+  *    Payroll Schedule	row154	9
+         was =O88
+         now =P71
+  *    Payroll Schedule	row155	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row155	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row155	10
+         was =P37
+         now =P85
+  *    Payroll Schedule	row155	11
+         was =P38
+         now =P86
+  *    Payroll Schedule	row155	12
+         was =IF(P29="","",P29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row155	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row155	3
+         was =P30
+         now =P78
+  *    Payroll Schedule	row155	4
+         was =P31
+         now =P79
+  *    Payroll Schedule	row155	5
+         was =P32
+         now =P80
+  *    Payroll Schedule	row155	6
+         was =P33
+         now =P81
+  *    Payroll Schedule	row155	7
+         was =P34
+         now =P82
+  *    Payroll Schedule	row155	8
+         was =P35
+         now =P83
+  *    Payroll Schedule	row155	9
+         was =P36
+         now =P84
+  *    Payroll Schedule	row156	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row156	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row156	10
+         was =P50
+         now =Q36
+  *    Payroll Schedule	row156	11
+         was =P51
+         now =Q37
+  *    Payroll Schedule	row156	12
+         was =IF(P42="","",P42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row156	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row156	3
+         was =P43
+         now =Q29
+  *    Payroll Schedule	row156	4
+         was =P44
+         now =Q30
+  *    Payroll Schedule	row156	5
+         was =P45
+         now =Q31
+  *    Payroll Schedule	row156	6
+         was =P46
+         now =Q32
+  *    Payroll Schedule	row156	7
+         was =P47
+         now =Q33
+  *    Payroll Schedule	row156	8
+         was =P48
+         now =Q34
+  *    Payroll Schedule	row156	9
+         was =P49
+         now =Q35
+  *    Payroll Schedule	row157	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row157	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row157	10
+         was =P63
+         now =Q48
+  *    Payroll Schedule	row157	11
+         was =P64
+         now =Q49
+  *    Payroll Schedule	row157	12
+         was =IF(P55="","",P55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row157	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row157	3
+         was =P56
+         now =Q41
+  *    Payroll Schedule	row157	4
+         was =P57
+         now =Q42
+  *    Payroll Schedule	row157	5
+         was =P58
+         now =Q43
+  *    Payroll Schedule	row157	6
+         was =P59
+         now =Q44
+  *    Payroll Schedule	row157	7
+         was =P60
+         now =Q45
+  *    Payroll Schedule	row157	8
+         was =P61
+         now =Q46
+  *    Payroll Schedule	row157	9
+         was =P62
+         now =Q47
+  *    Payroll Schedule	row158	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row158	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row158	10
+         was =P76
+         now =Q60
+  *    Payroll Schedule	row158	11
+         was =P77
+         now =Q61
+  *    Payroll Schedule	row158	12
+         was =IF(P68="","",P68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row158	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row158	3
+         was =P69
+         now =Q53
+  *    Payroll Schedule	row158	4
+         was =P70
+         now =Q54
+  *    Payroll Schedule	row158	5
+         was =P71
+         now =Q55
+  *    Payroll Schedule	row158	6
+         was =P72
+         now =Q56
+  *    Payroll Schedule	row158	7
+         was =P73
+         now =Q57
+  *    Payroll Schedule	row158	8
+         was =P74
+         now =Q58
+  *    Payroll Schedule	row158	9
+         was =P75
+         now =Q59
+  *    Payroll Schedule	row159	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row159	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row159	10
+         was =P89
+         now =Q72
+  *    Payroll Schedule	row159	11
+         was =P90
+         now =Q73
+  *    Payroll Schedule	row159	12
+         was =IF(P81="","",P81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row159	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row159	3
+         was =P82
+         now =Q65
+  *    Payroll Schedule	row159	4
+         was =P83
+         now =Q66
+  *    Payroll Schedule	row159	5
+         was =P84
+         now =Q67
+  *    Payroll Schedule	row159	6
+         was =P85
+         now =Q68
+  *    Payroll Schedule	row159	7
+         was =P86
+         now =Q69
+  *    Payroll Schedule	row159	8
+         was =P87
+         now =Q70
+  *    Payroll Schedule	row159	9
+         was =P88
+         now =Q71
+  *    Payroll Schedule	row160	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row160	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row160	10
+         was =Q37
+         now =Q85
+  *    Payroll Schedule	row160	11
+         was =Q38
+         now =Q86
+  *    Payroll Schedule	row160	12
+         was =IF(Q29="","",Q29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row160	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row160	3
+         was =Q30
+         now =Q78
+  *    Payroll Schedule	row160	4
+         was =Q31
+         now =Q79
+  *    Payroll Schedule	row160	5
+         was =Q32
+         now =Q80
+  *    Payroll Schedule	row160	6
+         was =Q33
+         now =Q81
+  *    Payroll Schedule	row160	7
+         was =Q34
+         now =Q82
+  *    Payroll Schedule	row160	8
+         was =Q35
+         now =Q83
+  *    Payroll Schedule	row160	9
+         was =Q36
+         now =Q84
+  *    Payroll Schedule	row161	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row161	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row161	10
+         was =Q50
+         now =R36
+  *    Payroll Schedule	row161	11
+         was =Q51
+         now =R37
+  *    Payroll Schedule	row161	12
+         was =IF(Q42="","",Q42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row161	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row161	3
+         was =Q43
+         now =R29
+  *    Payroll Schedule	row161	4
+         was =Q44
+         now =R30
+  *    Payroll Schedule	row161	5
+         was =Q45
+         now =R31
+  *    Payroll Schedule	row161	6
+         was =Q46
+         now =R32
+  *    Payroll Schedule	row161	7
+         was =Q47
+         now =R33
+  *    Payroll Schedule	row161	8
+         was =Q48
+         now =R34
+  *    Payroll Schedule	row161	9
+         was =Q49
+         now =R35
+  *    Payroll Schedule	row162	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row162	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row162	10
+         was =Q63
+         now =R48
+  *    Payroll Schedule	row162	11
+         was =Q64
+         now =R49
+  *    Payroll Schedule	row162	12
+         was =IF(Q55="","",Q55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row162	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row162	3
+         was =Q56
+         now =R41
+  *    Payroll Schedule	row162	4
+         was =Q57
+         now =R42
+  *    Payroll Schedule	row162	5
+         was =Q58
+         now =R43
+  *    Payroll Schedule	row162	6
+         was =Q59
+         now =R44
+  *    Payroll Schedule	row162	7
+         was =Q60
+         now =R45
+  *    Payroll Schedule	row162	8
+         was =Q61
+         now =R46
+  *    Payroll Schedule	row162	9
+         was =Q62
+         now =R47
+  *    Payroll Schedule	row163	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row163	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row163	10
+         was =Q76
+         now =R60
+  *    Payroll Schedule	row163	11
+         was =Q77
+         now =R61
+  *    Payroll Schedule	row163	12
+         was =IF(Q68="","",Q68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row163	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row163	3
+         was =Q69
+         now =R53
+  *    Payroll Schedule	row163	4
+         was =Q70
+         now =R54
+  *    Payroll Schedule	row163	5
+         was =Q71
+         now =R55
+  *    Payroll Schedule	row163	6
+         was =Q72
+         now =R56
+  *    Payroll Schedule	row163	7
+         was =Q73
+         now =R57
+  *    Payroll Schedule	row163	8
+         was =Q74
+         now =R58
+  *    Payroll Schedule	row163	9
+         was =Q75
+         now =R59
+  *    Payroll Schedule	row164	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row164	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row164	10
+         was =Q89
+         now =R72
+  *    Payroll Schedule	row164	11
+         was =Q90
+         now =R73
+  *    Payroll Schedule	row164	12
+         was =IF(Q81="","",Q81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row164	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row164	3
+         was =Q82
+         now =R65
+  *    Payroll Schedule	row164	4
+         was =Q83
+         now =R66
+  *    Payroll Schedule	row164	5
+         was =Q84
+         now =R67
+  *    Payroll Schedule	row164	6
+         was =Q85
+         now =R68
+  *    Payroll Schedule	row164	7
+         was =Q86
+         now =R69
+  *    Payroll Schedule	row164	8
+         was =Q87
+         now =R70
+  *    Payroll Schedule	row164	9
+         was =Q88
+         now =R71
+  *    Payroll Schedule	row165	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row165	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row165	10
+         was =R37
+         now =R85
+  *    Payroll Schedule	row165	11
+         was =R38
+         now =R86
+  *    Payroll Schedule	row165	12
+         was =IF(R29="","",R29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row165	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row165	3
+         was =R30
+         now =R78
+  *    Payroll Schedule	row165	4
+         was =R31
+         now =R79
+  *    Payroll Schedule	row165	5
+         was =R32
+         now =R80
+  *    Payroll Schedule	row165	6
+         was =R33
+         now =R81
+  *    Payroll Schedule	row165	7
+         was =R34
+         now =R82
+  *    Payroll Schedule	row165	8
+         was =R35
+         now =R83
+  *    Payroll Schedule	row165	9
+         was =R36
+         now =R84
+  *    Payroll Schedule	row166	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row166	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row166	10
+         was =R50
+         now =S36
+  *    Payroll Schedule	row166	11
+         was =R51
+         now =S37
+  *    Payroll Schedule	row166	12
+         was =IF(R42="","",R42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row166	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row166	3
+         was =R43
+         now =S29
+  *    Payroll Schedule	row166	4
+         was =R44
+         now =S30
+  *    Payroll Schedule	row166	5
+         was =R45
+         now =S31
+  *    Payroll Schedule	row166	6
+         was =R46
+         now =S32
+  *    Payroll Schedule	row166	7
+         was =R47
+         now =S33
+  *    Payroll Schedule	row166	8
+         was =R48
+         now =S34
+  *    Payroll Schedule	row166	9
+         was =R49
+         now =S35
+  *    Payroll Schedule	row167	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row167	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row167	10
+         was =R63
+         now =S48
+  *    Payroll Schedule	row167	11
+         was =R64
+         now =S49
+  *    Payroll Schedule	row167	12
+         was =IF(R55="","",R55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row167	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row167	3
+         was =R56
+         now =S41
+  *    Payroll Schedule	row167	4
+         was =R57
+         now =S42
+  *    Payroll Schedule	row167	5
+         was =R58
+         now =S43
+  *    Payroll Schedule	row167	6
+         was =R59
+         now =S44
+  *    Payroll Schedule	row167	7
+         was =R60
+         now =S45
+  *    Payroll Schedule	row167	8
+         was =R61
+         now =S46
+  *    Payroll Schedule	row167	9
+         was =R62
+         now =S47
+  *    Payroll Schedule	row168	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row168	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row168	10
+         was =R76
+         now =S60
+  *    Payroll Schedule	row168	11
+         was =R77
+         now =S61
+  *    Payroll Schedule	row168	12
+         was =IF(R68="","",R68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row168	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row168	3
+         was =R69
+         now =S53
+  *    Payroll Schedule	row168	4
+         was =R70
+         now =S54
+  *    Payroll Schedule	row168	5
+         was =R71
+         now =S55
+  *    Payroll Schedule	row168	6
+         was =R72
+         now =S56
+  *    Payroll Schedule	row168	7
+         was =R73
+         now =S57
+  *    Payroll Schedule	row168	8
+         was =R74
+         now =S58
+  *    Payroll Schedule	row168	9
+         was =R75
+         now =S59
+  *    Payroll Schedule	row169	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row169	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row169	10
+         was =R89
+         now =S72
+  *    Payroll Schedule	row169	11
+         was =R90
+         now =S73
+  *    Payroll Schedule	row169	12
+         was =IF(R81="","",R81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row169	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row169	3
+         was =R82
+         now =S65
+  *    Payroll Schedule	row169	4
+         was =R83
+         now =S66
+  *    Payroll Schedule	row169	5
+         was =R84
+         now =S67
+  *    Payroll Schedule	row169	6
+         was =R85
+         now =S68
+  *    Payroll Schedule	row169	7
+         was =R86
+         now =S69
+  *    Payroll Schedule	row169	8
+         was =R87
+         now =S70
+  *    Payroll Schedule	row169	9
+         was =R88
+         now =S71
+  *    Payroll Schedule	row170	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row170	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row170	10
+         was =S37
+         now =S85
+  *    Payroll Schedule	row170	11
+         was =S38
+         now =S86
+  *    Payroll Schedule	row170	12
+         was =IF(S29="","",S29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row170	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row170	3
+         was =S30
+         now =S78
+  *    Payroll Schedule	row170	4
+         was =S31
+         now =S79
+  *    Payroll Schedule	row170	5
+         was =S32
+         now =S80
+  *    Payroll Schedule	row170	6
+         was =S33
+         now =S81
+  *    Payroll Schedule	row170	7
+         was =S34
+         now =S82
+  *    Payroll Schedule	row170	8
+         was =S35
+         now =S83
+  *    Payroll Schedule	row170	9
+         was =S36
+         now =S84
+  *    Payroll Schedule	row171	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row171	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row171	10
+         was =S50
+         now =T36
+  *    Payroll Schedule	row171	11
+         was =S51
+         now =T37
+  *    Payroll Schedule	row171	12
+         was =IF(S42="","",S42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row171	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row171	3
+         was =S43
+         now =T29
+  *    Payroll Schedule	row171	4
+         was =S44
+         now =T30
+  *    Payroll Schedule	row171	5
+         was =S45
+         now =T31
+  *    Payroll Schedule	row171	6
+         was =S46
+         now =T32
+  *    Payroll Schedule	row171	7
+         was =S47
+         now =T33
+  *    Payroll Schedule	row171	8
+         was =S48
+         now =T34
+  *    Payroll Schedule	row171	9
+         was =S49
+         now =T35
+  *    Payroll Schedule	row172	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row172	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row172	10
+         was =S63
+         now =T48
+  *    Payroll Schedule	row172	11
+         was =S64
+         now =T49
+  *    Payroll Schedule	row172	12
+         was =IF(S55="","",S55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row172	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row172	3
+         was =S56
+         now =T41
+  *    Payroll Schedule	row172	4
+         was =S57
+         now =T42
+  *    Payroll Schedule	row172	5
+         was =S58
+         now =T43
+  *    Payroll Schedule	row172	6
+         was =S59
+         now =T44
+  *    Payroll Schedule	row172	7
+         was =S60
+         now =T45
+  *    Payroll Schedule	row172	8
+         was =S61
+         now =T46
+  *    Payroll Schedule	row172	9
+         was =S62
+         now =T47
+  *    Payroll Schedule	row173	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row173	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row173	10
+         was =S76
+         now =T60
+  *    Payroll Schedule	row173	11
+         was =S77
+         now =T61
+  *    Payroll Schedule	row173	12
+         was =IF(S68="","",S68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row173	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row173	3
+         was =S69
+         now =T53
+  *    Payroll Schedule	row173	4
+         was =S70
+         now =T54
+  *    Payroll Schedule	row173	5
+         was =S71
+         now =T55
+  *    Payroll Schedule	row173	6
+         was =S72
+         now =T56
+  *    Payroll Schedule	row173	7
+         was =S73
+         now =T57
+  *    Payroll Schedule	row173	8
+         was =S74
+         now =T58
+  *    Payroll Schedule	row173	9
+         was =S75
+         now =T59
+  *    Payroll Schedule	row174	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row174	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row174	10
+         was =S89
+         now =T72
+  *    Payroll Schedule	row174	11
+         was =S90
+         now =T73
+  *    Payroll Schedule	row174	12
+         was =IF(S81="","",S81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row174	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row174	3
+         was =S82
+         now =T65
+  *    Payroll Schedule	row174	4
+         was =S83
+         now =T66
+  *    Payroll Schedule	row174	5
+         was =S84
+         now =T67
+  *    Payroll Schedule	row174	6
+         was =S85
+         now =T68
+  *    Payroll Schedule	row174	7
+         was =S86
+         now =T69
+  *    Payroll Schedule	row174	8
+         was =S87
+         now =T70
+  *    Payroll Schedule	row174	9
+         was =S88
+         now =T71
+  *    Payroll Schedule	row175	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row175	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row175	10
+         was =T37
+         now =T85
+  *    Payroll Schedule	row175	11
+         was =T38
+         now =T86
+  *    Payroll Schedule	row175	12
+         was =IF(T29="","",T29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row175	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row175	3
+         was =T30
+         now =T78
+  *    Payroll Schedule	row175	4
+         was =T31
+         now =T79
+  *    Payroll Schedule	row175	5
+         was =T32
+         now =T80
+  *    Payroll Schedule	row175	6
+         was =T33
+         now =T81
+  *    Payroll Schedule	row175	7
+         was =T34
+         now =T82
+  *    Payroll Schedule	row175	8
+         was =T35
+         now =T83
+  *    Payroll Schedule	row175	9
+         was =T36
+         now =T84
+  *    Payroll Schedule	row176	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row176	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row176	10
+         was =T50
+         now =U36
+  *    Payroll Schedule	row176	11
+         was =T51
+         now =U37
+  *    Payroll Schedule	row176	12
+         was =IF(T42="","",T42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row176	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row176	3
+         was =T43
+         now =U29
+  *    Payroll Schedule	row176	4
+         was =T44
+         now =U30
+  *    Payroll Schedule	row176	5
+         was =T45
+         now =U31
+  *    Payroll Schedule	row176	6
+         was =T46
+         now =U32
+  *    Payroll Schedule	row176	7
+         was =T47
+         now =U33
+  *    Payroll Schedule	row176	8
+         was =T48
+         now =U34
+  *    Payroll Schedule	row176	9
+         was =T49
+         now =U35
+  *    Payroll Schedule	row177	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row177	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row177	10
+         was =T63
+         now =U48
+  *    Payroll Schedule	row177	11
+         was =T64
+         now =U49
+  *    Payroll Schedule	row177	12
+         was =IF(T55="","",T55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row177	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row177	3
+         was =T56
+         now =U41
+  *    Payroll Schedule	row177	4
+         was =T57
+         now =U42
+  *    Payroll Schedule	row177	5
+         was =T58
+         now =U43
+  *    Payroll Schedule	row177	6
+         was =T59
+         now =U44
+  *    Payroll Schedule	row177	7
+         was =T60
+         now =U45
+  *    Payroll Schedule	row177	8
+         was =T61
+         now =U46
+  *    Payroll Schedule	row177	9
+         was =T62
+         now =U47
+  *    Payroll Schedule	row178	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row178	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row178	10
+         was =T76
+         now =U60
+  *    Payroll Schedule	row178	11
+         was =T77
+         now =U61
+  *    Payroll Schedule	row178	12
+         was =IF(T68="","",T68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row178	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row178	3
+         was =T69
+         now =U53
+  *    Payroll Schedule	row178	4
+         was =T70
+         now =U54
+  *    Payroll Schedule	row178	5
+         was =T71
+         now =U55
+  *    Payroll Schedule	row178	6
+         was =T72
+         now =U56
+  *    Payroll Schedule	row178	7
+         was =T73
+         now =U57
+  *    Payroll Schedule	row178	8
+         was =T74
+         now =U58
+  *    Payroll Schedule	row178	9
+         was =T75
+         now =U59
+  *    Payroll Schedule	row179	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row179	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row179	10
+         was =T89
+         now =U72
+  *    Payroll Schedule	row179	11
+         was =T90
+         now =U73
+  *    Payroll Schedule	row179	12
+         was =IF(T81="","",T81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row179	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row179	3
+         was =T82
+         now =U65
+  *    Payroll Schedule	row179	4
+         was =T83
+         now =U66
+  *    Payroll Schedule	row179	5
+         was =T84
+         now =U67
+  *    Payroll Schedule	row179	6
+         was =T85
+         now =U68
+  *    Payroll Schedule	row179	7
+         was =T86
+         now =U69
+  *    Payroll Schedule	row179	8
+         was =T87
+         now =U70
+  *    Payroll Schedule	row179	9
+         was =T88
+         now =U71
+  *    Payroll Schedule	row180	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row180	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row180	10
+         was =U37
+         now =U85
+  *    Payroll Schedule	row180	11
+         was =U38
+         now =U86
+  *    Payroll Schedule	row180	12
+         was =IF(U29="","",U29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row180	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row180	3
+         was =U30
+         now =U78
+  *    Payroll Schedule	row180	4
+         was =U31
+         now =U79
+  *    Payroll Schedule	row180	5
+         was =U32
+         now =U80
+  *    Payroll Schedule	row180	6
+         was =U33
+         now =U81
+  *    Payroll Schedule	row180	7
+         was =U34
+         now =U82
+  *    Payroll Schedule	row180	8
+         was =U35
+         now =U83
+  *    Payroll Schedule	row180	9
+         was =U36
+         now =U84
+  *    Payroll Schedule	row181	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row181	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row181	10
+         was =U50
+         now =V36
+  *    Payroll Schedule	row181	11
+         was =U51
+         now =V37
+  *    Payroll Schedule	row181	12
+         was =IF(U42="","",U42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row181	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row181	3
+         was =U43
+         now =V29
+  *    Payroll Schedule	row181	4
+         was =U44
+         now =V30
+  *    Payroll Schedule	row181	5
+         was =U45
+         now =V31
+  *    Payroll Schedule	row181	6
+         was =U46
+         now =V32
+  *    Payroll Schedule	row181	7
+         was =U47
+         now =V33
+  *    Payroll Schedule	row181	8
+         was =U48
+         now =V34
+  *    Payroll Schedule	row181	9
+         was =U49
+         now =V35
+  *    Payroll Schedule	row182	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row182	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row182	10
+         was =U63
+         now =V48
+  *    Payroll Schedule	row182	11
+         was =U64
+         now =V49
+  *    Payroll Schedule	row182	12
+         was =IF(U55="","",U55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row182	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row182	3
+         was =U56
+         now =V41
+  *    Payroll Schedule	row182	4
+         was =U57
+         now =V42
+  *    Payroll Schedule	row182	5
+         was =U58
+         now =V43
+  *    Payroll Schedule	row182	6
+         was =U59
+         now =V44
+  *    Payroll Schedule	row182	7
+         was =U60
+         now =V45
+  *    Payroll Schedule	row182	8
+         was =U61
+         now =V46
+  *    Payroll Schedule	row182	9
+         was =U62
+         now =V47
+  *    Payroll Schedule	row183	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row183	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row183	10
+         was =U76
+         now =V60
+  *    Payroll Schedule	row183	11
+         was =U77
+         now =V61
+  *    Payroll Schedule	row183	12
+         was =IF(U68="","",U68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row183	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row183	3
+         was =U69
+         now =V53
+  *    Payroll Schedule	row183	4
+         was =U70
+         now =V54
+  *    Payroll Schedule	row183	5
+         was =U71
+         now =V55
+  *    Payroll Schedule	row183	6
+         was =U72
+         now =V56
+  *    Payroll Schedule	row183	7
+         was =U73
+         now =V57
+  *    Payroll Schedule	row183	8
+         was =U74
+         now =V58
+  *    Payroll Schedule	row183	9
+         was =U75
+         now =V59
+  *    Payroll Schedule	row184	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row184	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row184	10
+         was =U89
+         now =V72
+  *    Payroll Schedule	row184	11
+         was =U90
+         now =V73
+  *    Payroll Schedule	row184	12
+         was =IF(U81="","",U81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row184	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row184	3
+         was =U82
+         now =V65
+  *    Payroll Schedule	row184	4
+         was =U83
+         now =V66
+  *    Payroll Schedule	row184	5
+         was =U84
+         now =V67
+  *    Payroll Schedule	row184	6
+         was =U85
+         now =V68
+  *    Payroll Schedule	row184	7
+         was =U86
+         now =V69
+  *    Payroll Schedule	row184	8
+         was =U87
+         now =V70
+  *    Payroll Schedule	row184	9
+         was =U88
+         now =V71
+  *    Payroll Schedule	row185	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row185	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row185	10
+         was =V37
+         now =V85
+  *    Payroll Schedule	row185	11
+         was =V38
+         now =V86
+  *    Payroll Schedule	row185	12
+         was =IF(V29="","",V29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row185	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row185	3
+         was =V30
+         now =V78
+  *    Payroll Schedule	row185	4
+         was =V31
+         now =V79
+  *    Payroll Schedule	row185	5
+         was =V32
+         now =V80
+  *    Payroll Schedule	row185	6
+         was =V33
+         now =V81
+  *    Payroll Schedule	row185	7
+         was =V34
+         now =V82
+  *    Payroll Schedule	row185	8
+         was =V35
+         now =V83
+  *    Payroll Schedule	row185	9
+         was =V36
+         now =V84
+  *    Payroll Schedule	row186	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row186	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row186	10
+         was =V50
+         now =W36
+  *    Payroll Schedule	row186	11
+         was =V51
+         now =W37
+  *    Payroll Schedule	row186	12
+         was =IF(V42="","",V42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row186	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row186	3
+         was =V43
+         now =W29
+  *    Payroll Schedule	row186	4
+         was =V44
+         now =W30
+  *    Payroll Schedule	row186	5
+         was =V45
+         now =W31
+  *    Payroll Schedule	row186	6
+         was =V46
+         now =W32
+  *    Payroll Schedule	row186	7
+         was =V47
+         now =W33
+  *    Payroll Schedule	row186	8
+         was =V48
+         now =W34
+  *    Payroll Schedule	row186	9
+         was =V49
+         now =W35
+  *    Payroll Schedule	row187	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row187	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row187	10
+         was =V63
+         now =W48
+  *    Payroll Schedule	row187	11
+         was =V64
+         now =W49
+  *    Payroll Schedule	row187	12
+         was =IF(V55="","",V55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row187	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row187	3
+         was =V56
+         now =W41
+  *    Payroll Schedule	row187	4
+         was =V57
+         now =W42
+  *    Payroll Schedule	row187	5
+         was =V58
+         now =W43
+  *    Payroll Schedule	row187	6
+         was =V59
+         now =W44
+  *    Payroll Schedule	row187	7
+         was =V60
+         now =W45
+  *    Payroll Schedule	row187	8
+         was =V61
+         now =W46
+  *    Payroll Schedule	row187	9
+         was =V62
+         now =W47
+  *    Payroll Schedule	row188	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row188	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row188	10
+         was =V76
+         now =W60
+  *    Payroll Schedule	row188	11
+         was =V77
+         now =W61
+  *    Payroll Schedule	row188	12
+         was =IF(V68="","",V68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row188	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row188	3
+         was =V69
+         now =W53
+  *    Payroll Schedule	row188	4
+         was =V70
+         now =W54
+  *    Payroll Schedule	row188	5
+         was =V71
+         now =W55
+  *    Payroll Schedule	row188	6
+         was =V72
+         now =W56
+  *    Payroll Schedule	row188	7
+         was =V73
+         now =W57
+  *    Payroll Schedule	row188	8
+         was =V74
+         now =W58
+  *    Payroll Schedule	row188	9
+         was =V75
+         now =W59
+  *    Payroll Schedule	row189	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row189	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row189	10
+         was =V89
+         now =W72
+  *    Payroll Schedule	row189	11
+         was =V90
+         now =W73
+  *    Payroll Schedule	row189	12
+         was =IF(V81="","",V81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row189	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row189	3
+         was =V82
+         now =W65
+  *    Payroll Schedule	row189	4
+         was =V83
+         now =W66
+  *    Payroll Schedule	row189	5
+         was =V84
+         now =W67
+  *    Payroll Schedule	row189	6
+         was =V85
+         now =W68
+  *    Payroll Schedule	row189	7
+         was =V86
+         now =W69
+  *    Payroll Schedule	row189	8
+         was =V87
+         now =W70
+  *    Payroll Schedule	row189	9
+         was =V88
+         now =W71
+  *    Payroll Schedule	row190	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row190	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row190	10
+         was =W37
+         now =W85
+  *    Payroll Schedule	row190	11
+         was =W38
+         now =W86
+  *    Payroll Schedule	row190	12
+         was =IF(W29="","",W29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row190	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row190	3
+         was =W30
+         now =W78
+  *    Payroll Schedule	row190	4
+         was =W31
+         now =W79
+  *    Payroll Schedule	row190	5
+         was =W32
+         now =W80
+  *    Payroll Schedule	row190	6
+         was =W33
+         now =W81
+  *    Payroll Schedule	row190	7
+         was =W34
+         now =W82
+  *    Payroll Schedule	row190	8
+         was =W35
+         now =W83
+  *    Payroll Schedule	row190	9
+         was =W36
+         now =W84
+  *    Payroll Schedule	row95	0
+         was =IF(B27="","",B27)
+         now =IF(B75="","",B75)
+  *    Payroll Schedule	row95	1
+         was =IF(A27="","",A27)
+         now =IF(A75="","",A75)
+  *    Payroll Schedule	row95	10
+         was =D37
+         now =D85
+  *    Payroll Schedule	row95	11
+         was =D38
+         now =D86
+  *    Payroll Schedule	row95	12
+         was =IF(D29="","",D29)
+         now =IF(D77="","",D77)
+  *    Payroll Schedule	row95	2
+         was =IF(B28="","",B28)
+         now =IF(B76="","",B76)
+  *    Payroll Schedule	row95	3
+         was =D30
+         now =D78
+  *    Payroll Schedule	row95	4
+         was =D31
+         now =D79
+  *    Payroll Schedule	row95	5
+         was =D32
+         now =D80
+  *    Payroll Schedule	row95	6
+         was =D33
+         now =D81
+  *    Payroll Schedule	row95	7
+         was =D34
+         now =D82
+  *    Payroll Schedule	row95	8
+         was =D35
+         now =D83
+  *    Payroll Schedule	row95	9
+         was =D36
+         now =D84
+  *    Payroll Schedule	row96	0
+         was =IF(B40="","",B40)
+         now =IF(B27="","",B27)
+  *    Payroll Schedule	row96	1
+         was =IF(A40="","",A40)
+         now =IF(A27="","",A27)
+  *    Payroll Schedule	row96	10
+         was =D50
+         now =E36
+  *    Payroll Schedule	row96	11
+         was =D51
+         now =E37
+  *    Payroll Schedule	row96	12
+         was =IF(D42="","",D42)
+         now =IF(D28="","",D28)
+  *    Payroll Schedule	row96	2
+         was =IF(B41="","",B41)
+         now =""
+  *    Payroll Schedule	row96	3
+         was =D43
+         now =E29
+  *    Payroll Schedule	row96	4
+         was =D44
+         now =E30
+  *    Payroll Schedule	row96	5
+         was =D45
+         now =E31
+  *    Payroll Schedule	row96	6
+         was =D46
+         now =E32
+  *    Payroll Schedule	row96	7
+         was =D47
+         now =E33
+  *    Payroll Schedule	row96	8
+         was =D48
+         now =E34
+  *    Payroll Schedule	row96	9
+         was =D49
+         now =E35
+  *    Payroll Schedule	row97	0
+         was =IF(B53="","",B53)
+         now =IF(B39="","",B39)
+  *    Payroll Schedule	row97	1
+         was =IF(A53="","",A53)
+         now =IF(A39="","",A39)
+  *    Payroll Schedule	row97	10
+         was =D63
+         now =E48
+  *    Payroll Schedule	row97	11
+         was =D64
+         now =E49
+  *    Payroll Schedule	row97	12
+         was =IF(D55="","",D55)
+         now =IF(D40="","",D40)
+  *    Payroll Schedule	row97	2
+         was =IF(B54="","",B54)
+         now =""
+  *    Payroll Schedule	row97	3
+         was =D56
+         now =E41
+  *    Payroll Schedule	row97	4
+         was =D57
+         now =E42
+  *    Payroll Schedule	row97	5
+         was =D58
+         now =E43
+  *    Payroll Schedule	row97	6
+         was =D59
+         now =E44
+  *    Payroll Schedule	row97	7
+         was =D60
+         now =E45
+  *    Payroll Schedule	row97	8
+         was =D61
+         now =E46
+  *    Payroll Schedule	row97	9
+         was =D62
+         now =E47
+  *    Payroll Schedule	row98	0
+         was =IF(B66="","",B66)
+         now =IF(B51="","",B51)
+  *    Payroll Schedule	row98	1
+         was =IF(A66="","",A66)
+         now =IF(A51="","",A51)
+  *    Payroll Schedule	row98	10
+         was =D76
+         now =E60
+  *    Payroll Schedule	row98	11
+         was =D77
+         now =E61
+  *    Payroll Schedule	row98	12
+         was =IF(D68="","",D68)
+         now =IF(D52="","",D52)
+  *    Payroll Schedule	row98	2
+         was =IF(B67="","",B67)
+         now =""
+  *    Payroll Schedule	row98	3
+         was =D69
+         now =E53
+  *    Payroll Schedule	row98	4
+         was =D70
+         now =E54
+  *    Payroll Schedule	row98	5
+         was =D71
+         now =E55
+  *    Payroll Schedule	row98	6
+         was =D72
+         now =E56
+  *    Payroll Schedule	row98	7
+         was =D73
+         now =E57
+  *    Payroll Schedule	row98	8
+         was =D74
+         now =E58
+  *    Payroll Schedule	row98	9
+         was =D75
+         now =E59
+  *    Payroll Schedule	row99	0
+         was =IF(B79="","",B79)
+         now =IF(B63="","",B63)
+  *    Payroll Schedule	row99	1
+         was =IF(A79="","",A79)
+         now =IF(A63="","",A63)
+  *    Payroll Schedule	row99	10
+         was =D89
+         now =E72
+  *    Payroll Schedule	row99	11
+         was =D90
+         now =E73
+  *    Payroll Schedule	row99	12
+         was =IF(D81="","",D81)
+         now =IF(D64="","",D64)
+  *    Payroll Schedule	row99	2
+         was =IF(B80="","",B80)
+         now =""
+  *    Payroll Schedule	row99	3
+         was =D82
+         now =E65
+  *    Payroll Schedule	row99	4
+         was =D83
+         now =E66
+  *    Payroll Schedule	row99	5
+         was =D84
+         now =E67
+  *    Payroll Schedule	row99	6
+         was =D85
+         now =E68
+  *    Payroll Schedule	row99	7
+         was =D86
+         now =E69
+  *    Payroll Schedule	row99	8
+         was =D87
+         now =E70
+  *    Payroll Schedule	row99	9
+         was =D88
+         now =E71

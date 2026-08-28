@@ -46,8 +46,12 @@ for path in (ROOT, os.path.join(ROOT, "python")):
 HALBROOK = os.path.join(HERE, "fixtures", "cw043_halbrook_export_row.json.gz")
 UNDERSTORY = os.path.join(HERE, "fixtures", "cw043_understory_export_row.json.gz")
 PERIOD_START_COL = 3  # stub; Q1 = 4
-PERIOD_ROWS = ["Starting FTE", "Hires", "Ending FTE", "Average FTE", "Annual Wage",
-               "Benefits %", "Wage Cost", "Taxes & Benefits", "Total Payroll"]
+#: The block's period rows, in order. "Wage source" leads them: it is a
+#: per-quarter label (the owner-draw deferral changes it mid-horizon), written
+#: only in the quarters where it CHANGES (2026-08-27).
+PERIOD_ROWS = ["Wage source", "Starting FTE", "Hires", "Ending FTE", "Average FTE",
+               "Annual Wage", "Benefits %", "Wage Cost", "Taxes & Benefits", "Total Payroll"]
+NUMERIC_PERIOD_ROWS = [r for r in PERIOD_ROWS if r != "Wage source"]
 
 
 def _fixture(path):
@@ -84,17 +88,52 @@ def _role_identity(rows):
   return ids
 
 
+def _wage_source_expected(item):
+  """The plain-English wage-source label for one engine row, derived here from
+  the stored value so the test does not simply restate the builder."""
+  raw = str(item.get("wage_source") or item.get("wage_source_code") or "").strip()
+  if not raw:
+    return ""
+  base, _, rest = raw.partition("|")
+  words = {
+    "client_override": "Your stated wage",
+    "intake_oews_key_person": "Your stated wage",
+    "oews_title_catalog:oews_median": "Market median for this title (BLS)",
+    "oews_median": "Market median for this title (BLS)",
+    "oews_pct10": "Market 10th percentile for this title (BLS)",
+    "oews_pct25": "Market 25th percentile for this title (BLS)",
+    "oews_pct75": "Market 75th percentile for this title (BLS)",
+    "oews_pct90": "Market 90th percentile for this title (BLS)",
+  }.get(base.lower(), base)
+  notes = {
+    "floor_adapted": "raised to the wage floor",
+    "part_time_hours_adapted": "adjusted for part-time hours",
+    "owner_draw_deferred": "owner draw deferred",
+  }
+  extra = [notes.get(x.strip().lower(), x.strip()) for x in rest.split("|") if x.strip()]
+  return words + (" (" + ", ".join(extra) + ")" if extra else "")
+
+
 def _role_blocks(ws):
-  """Visible role blocks: list of {label: row}, in sheet order."""
+  """Visible role blocks: list of {label: row}, in sheet order.
+
+  The geometry is VARIABLE: a staffed role carries an "OEWS title" row, a
+  named person does not (no labelled empty rows, 2026-08-27), so the block is
+  found by its period rows rather than a fixed offset."""
   blocks, r = [], 1
   while r <= ws.max_row:
-    if ws.cell(r, 1).value == "OEWS title" and ws.cell(r + 1, 1).value == "Wage source":
-      block = {"header": r - 1, "oews": r, "source": r + 1}
+    if (ws.cell(r, 1).value == PERIOD_ROWS[0]
+        and ws.cell(r + 1, 1).value == PERIOD_ROWS[1]):
+      has_oews = ws.cell(r - 1, 1).value == "OEWS title"
+      block = {"header": r - 2 if has_oews else r - 1}
+      if has_oews:
+        block["oews"] = r - 1
       for n, label in enumerate(PERIOD_ROWS):
-        assert ws.cell(r + 2 + n, 1).value == label, f"block at row {r-1} lost its {label} row"
-        block[label] = r + 2 + n
+        assert ws.cell(r + n, 1).value == label, f"block at row {r} lost its {label} row"
+        block[label] = r + n
+      block["source"] = block["Wage source"]
       blocks.append(block)
-      r += 2 + len(PERIOD_ROWS)
+      r += len(PERIOD_ROWS)
     else:
       r += 1
   return blocks
@@ -112,8 +151,8 @@ def _bridge_rows(ws):
 
 def _evaluate_block(ws, block, rows_by_q):
   """Evaluate the block's emitted formulas in doubles; returns {label: {q: value}}."""
-  row_label = {r_: l for l, r_ in block.items() if l in PERIOD_ROWS}
-  vals = {label: {} for label in PERIOD_ROWS}
+  row_label = {r_: l for l, r_ in block.items() if l in NUMERIC_PERIOD_ROWS}
+  vals = {label: {} for label in NUMERIC_PERIOD_ROWS}
   for q in range(1, 21):
     if q not in rows_by_q:
       continue
@@ -210,22 +249,32 @@ class TheChainIsOnTheGridTests(_Built):
         v = self.ws.cell(r, c).value
         self.assertTrue(isinstance(v, str) and v.startswith("="), f"bridge {r},{c} is not a formula: {v!r}")
 
-  def test_the_bridge_wage_source_follows_the_quarter_not_the_role(self):
-    """Wage source is PER QUARTER in the engine (the owner-draw deferral reads
-    'deferred' for Q1-7 and plain after). The block carries it as a period
-    row and every bridge row's column N points at ITS quarter's cell."""
-    first, last = _bridge_rows(self.ws)
+  def test_the_bridge_wage_source_resolves_to_this_quarters_label(self):
+    """Wage source is written only where it CHANGES (2026-08-27), so the
+    bridge points at the cell that holds the label in force for its quarter -
+    the most recent write at or before that quarter - and the TEXT it
+    resolves to must equal the engine's label for that row."""
+    from openpyxl.utils import column_index_from_string
+    first, _ = _bridge_rows(self.ws)
     block_of = dict(zip(self.by_identity.keys(), self.blocks))
     wrong = []
     for i, (q, ident) in enumerate(self.ids):
+      block = block_of[ident]
+      src_row = block["Wage source"]
+      # the label in force: the last written cell at or before this quarter
+      effective_col, effective_text = None, None
+      for c in range(PERIOD_START_COL + 1, PERIOD_START_COL + q + 1):
+        v = self.ws.cell(src_row, c).value
+        if v not in (None, ""):
+          effective_col, effective_text = c, v
       v = str(self.ws.cell(first + i, 14).value)
       m = re.fullmatch(r'=IF\(([A-Z]+)(\d+)="","",\1\2\)', v)
       self.assertIsNotNone(m, f"bridge wage-source cell {first + i} is not a guarded reference: {v!r}")
-      exp_col = PERIOD_START_COL + q
-      from openpyxl.utils import column_index_from_string
-      if int(m.group(2)) != block_of[ident]["source"] or column_index_from_string(m.group(1)) != exp_col:
-        wrong.append((first + i, v, "expected row", block_of[ident]["source"], "col", exp_col))
-    self.assertFalse(wrong, f"bridge wage source not per quarter: {wrong[:4]}")
+      got = (int(m.group(2)), column_index_from_string(m.group(1)))
+      engine = _wage_source_expected(self.rows[i])
+      if got != (src_row, effective_col) or effective_text != engine:
+        wrong.append((first + i, got, "expected", (src_row, effective_col), effective_text, engine))
+    self.assertFalse(wrong, f"bridge wage source does not resolve to this quarter's label: {wrong[:4]}")
 
   def test_the_visible_numeric_surface_is_four_inputs_per_engine_row(self):
     import openpyxl
@@ -271,11 +320,10 @@ class TheChainFollowsThePersonNotTheTitleTests(_Built):
     from openpyxl.utils import column_index_from_string
     first, last = _bridge_rows(self.ws)
     block_of = dict(zip(self.by_identity.keys(), self.blocks))
-    expect = {2: ("header", 2), 3: ("header", 1), 4: ("oews", 2),
+    expect = {2: ("header", 2), 3: ("header", 1),
               5: ("Starting FTE", None), 6: ("Hires", None), 7: ("Ending FTE", None),
               8: ("Average FTE", None), 9: ("Annual Wage", None), 10: ("Benefits %", None),
-              11: ("Wage Cost", None), 12: ("Taxes & Benefits", None), 13: ("Total Payroll", None),
-              14: ("source", None)}
+              11: ("Wage Cost", None), 12: ("Taxes & Benefits", None), 13: ("Total Payroll", None)}
     wrong = []
     for i, (q, ident) in enumerate(self.ids):
       r = first + i
@@ -289,6 +337,21 @@ class TheChainFollowsThePersonNotTheTitleTests(_Built):
         want_col = fixed_col if fixed_col else PERIOD_START_COL + q
         if (ref_row, ref_col) != (want_row, want_col):
           wrong.append((r, col, ident[2] or ident[1], "refs", (ref_row, ref_col), "expected", (want_row, want_col)))
+      # column 4 (OEWS title): a reference into THIS block's oews row, or an
+      # empty string where the role has no OEWS title (a named person).
+      v4 = str(self.ws.cell(r, 4).value)
+      if "oews" in block:
+        m4 = re.search(r"([A-Z]+)(\d+)", v4)
+        self.assertIsNotNone(m4, f"bridge {r},4 has no reference: {v4!r}")
+        if int(m4.group(2)) != block["oews"]:
+          wrong.append((r, 4, ident[2] or ident[1], "oews refs", int(m4.group(2)), "expected", block["oews"]))
+      elif v4 != '=""':
+        wrong.append((r, 4, ident[2] or ident[1], "expected an empty OEWS cell, got", v4))
+      # column 14 (wage source): into THIS block's Wage source row
+      m14 = re.search(r"([A-Z]+)(\d+)", str(self.ws.cell(r, 14).value))
+      self.assertIsNotNone(m14, f"bridge {r},14 has no reference")
+      if int(m14.group(2)) != block["Wage source"]:
+        wrong.append((r, 14, ident[2] or ident[1], "source refs", int(m14.group(2)), "expected", block["Wage source"]))
     self.assertFalse(wrong, f"bridge cells pointing outside their own block: {wrong[:4]}")
 
   def test_every_bridge_row_points_at_its_own_persons_block(self):
