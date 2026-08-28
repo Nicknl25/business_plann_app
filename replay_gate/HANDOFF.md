@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-Nick
 
 TURN: 16/16
 
