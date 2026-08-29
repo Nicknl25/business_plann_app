@@ -1,0 +1,515 @@
+Loaded control file: Test Files\e2e_payroll_close_parttime2.xlsx (sheet: Vet Clinic + Part-Timer)
+Controlled positions: 65
+--- compiled client briefing ---
+Test a three-line consumer healthcare business: a full-service companion-animal veterinary hospital. Three separate lines tracked with different economics - General Wellness & Medical Visits, Surgery & Dental Procedures, and Boarding & Grooming. The owner is a veterinarian who is friendly but likes to understand the consultant's definitions before answering, holds firm on the utilization she's actually seeing, and wants the plan to lead with the clinic's in-house capabilities. This test exercises three lines, a consumer-only market, a C-corp, both-funding with a split, and an ask-a-question-back path.
+
+Business identity (use these exact details when giving business information): the business is named "Willowbank Animal Hospital"; located at 6512 Six Forks Rd, Raleigh, NC 27615, USA.
+
+CONTROLLED POSITIONS. You must work each of the following into the conversation naturally at the appropriate moment. Your wording can be conversational, but the substance - every number, choice, and behavior below - must be delivered exactly as specified and confirmed if the consultant restates it:
+- [Service line structure] Three separate lines of business with different economics: (1) General Wellness & Medical Visits, (2) Surgery & Dental Procedures, and (3) Boarding & Grooming. Insist they are tracked separately.
+- [Customer type] consumer - individual pet owners. We don't serve business clients.
+- [Legal entity] The business is a C-corp.
+- [Wellness & Medical - unit definition] For Wellness & Medical, one unit is one completed exam or medical visit.
+- [Wellness & Medical - cadence] Weekly - capacity is visits per week.
+- [Wellness & Medical - capacity] We can handle up to about 220 visits a week across the exam rooms.
+- [Wellness & Medical - utilization] Use 66% utilization for medical visits in Year 1 - if the consultant proposes a different percentage, decline and insist on 66%.
+- [Wellness & Medical - price] Average revenue per visit is about $95.
+- [Surgery & Dental - unit definition] For Surgery & Dental, one unit is one surgical or dental procedure.
+- [Surgery & Dental - cadence] Weekly - capacity is procedures per week.
+- [Surgery & Dental - capacity] The surgical suite can handle about 35 procedures a week.
+- [Surgery & Dental - utilization] Use 66% utilization for surgery and dental in Year 1 as well - insist on 66% if a different number is proposed.
+- [Surgery & Dental - price] The average procedure runs about $650.
+- [Boarding & Grooming - unit definition] For Boarding & Grooming, one unit is one boarding-night (grooming is bundled into the blended nightly rate).
+- [Boarding & Grooming - cadence] Weekly - capacity is boarding-nights per week.
+- [Boarding & Grooming - capacity] We have 40 kennels, so about 280 boarding-nights a week at full occupancy.
+- [Boarding & Grooming - utilization] Use 50% utilization for boarding in Year 1 - occupancy is seasonal and runs about half full.
+- [Boarding & Grooming - price] The blended rate averages about $55 a night.
+- [Turnover / turns per year] Visits and boarding-nights turn over weekly; there are no long-term contracts.
+- [Delivery method] In person - all care and boarding happen at our clinic.
+- [Sales channel] Local search and Google, community and vet referrals, and reminders and recalls to our existing client base.
+- [Geography] North Raleigh and the surrounding suburbs - local only.
+- [Growth lever] Growth comes from adding an associate vet to open up more appointment slots and expanding surgical capacity.
+- [Competitive advantage] Full in-house diagnostics and surgery - we handle imaging, dental, and most surgeries ourselves instead of referring out - plus strong client retention through wellness plans.
+- [12-month goal] Reach about $180,000 in monthly revenue within 12 months.
+- [Milestones] Concrete milestones: launch wellness membership plans by month 4; add a second associate veterinarian by month 7.
+- [Confidence] Confidence in these numbers is 8 out of 10.
+- [Gender focus] No gender focus - all genders.
+- [Age range] Pet owners roughly 28 to 65.
+- [Income] Household income 60k and up.
+- [Education] No education preference.
+- [Demographic segments] Include household structure and housing - families and homeowners with pets; keep employment broad.
+- [Employment specifics] A broad mix of working households - no specific occupation focus.
+- [Positioning summary] When the market summary is presented, ask for one change - emphasize the in-house surgical and diagnostic capability - then approve.
+- [Key person 1] Dr. Alan Whitfield, DVM, Owner and Medical Director, 18 years in practice, earns $180,000 a year.
+- [Key person 2] Dr. Sofia Marchetti, DVM, Associate Veterinarian, 7 years in small-animal medicine - let the consultant estimate her compensation.
+- [Key person 3] Nadia Brennan, part-time Client Care Coordinator, 4 years, covers our two busiest afternoons a week at the front desk, earns $16,000 a year.
+- [Done adding people] After those, say the key people list is complete.
+- [Suggested roles - wage] If a practice-manager role is suggested, set its wage to $58,000.
+- [Suggested roles - timing] Any suggested additional veterinary technician should be planned for about 5 months out.
+- [Revenue baseline] Accept the Year-1 revenue baseline as presented.
+- [COGS] COGS runs about 22% of revenue - drugs, vaccines, surgical supplies, and lab costs.
+- [Payroll] Accept the Year-1 payroll baseline as presented.
+- [Marketing] We spend about $4,500 a month on marketing.
+- [Monthly rent] Rent on the clinic building is $10,500 a month.
+- [Future rent expected] Yes - we'll always need the clinic space.
+- [Owner compensation] Last month I paid myself $11,000.
+- [Other operating expense] Other monthly costs - utilities, insurance, software, medical waste - run about $9,000.
+- [Employee count] We have 18 people on payroll.
+- [Capex] We spent about $120,000 recently on a digital X-ray unit and a new dental suite.
+- [Initial assets] The medical equipment and build-out are worth about $520,000.
+- [Initial lease] We lease an ultrasound and monitoring package at $1,600 a month beyond the rent.
+- [Initial equity] About $600,000 has been invested in the business so far.
+- [Total debt] We owe about $340,000 on a clinic build-out loan.
+- [Other monthly debt payments] The loan payment is about $4,900 a month.
+- [Annual interest] Annual interest is about $18,000.
+- [Annual principal] We pay down about $46,000 of principal a year.
+- [Cash on hand] About $110,000 in the bank.
+- [Accounts receivable] Clients owe us only about $25,000 - most people pay at the time of service.
+- [Accounts payable] We owe about $40,000 to drug and supply distributors.
+- [Inventory] We carry about $60,000 in inventory - pharmacy, vaccines, food, and supplies.
+- [Cash strategy] Balanced - keep a healthy cushion, pay down the build-out loan responsibly, and allow modest distributions.
+- [Funding preference] Fund it with a mix of both debt and equity.
+- [Funding split] Roughly thirty percent debt and seventy percent equity.
+- [Ask a question back] When milestones come up, first ask the consultant what counts as a milestone before giving your answer.
+For anything not covered above, answer naturally and stay consistent with these positions.
+--- launching live dual-GPT intake ---
+[runner] generating bootstrap business persona...
+Bootstrapped business: Willowbank Animal Hospital
+Watch live in browser: http://localhost:5173/business-plan-form?watch=04c198abf9ed4ff38a15a5df55477f54
+
+[ops][assistant] To get us started, could you describe in plain language what "Willowbank Animal Hospital" does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like "veterinary clinic", "mobile vet", "boarding kennel", etc.)?
+[runner] generating simulated user reply for focus=ops...
+[user] Willowbank Animal Hospital is a full-service companion-animal veterinary hospital serving individual pet owners in the local Raleigh suburbs. We offer three service lines tracked separately: General Wellness & Medical Visits where each unit is a completed exam or medical visit; Surgery & Dental Procedures defined by each surgical or dental procedure; and Boarding & Grooming where one unit is one boarding night including grooming. All care and boarding are done in person at our clinic, and revenue comes from fees charged directly to our clients, the pet owners. We handle things in-house as much as possible including diagnostics and surgeries. Does that match the definitions you had in mind?
+
+[ops][assistant] Here’s how I understand Willowbank Animal Hospital operationally:
+
+Willowbank Animal Hospital is a full-service, in-person companion-animal veterinary clinic where pet owners pay you directly for three distinct types of services. I’m treating the main unit of planning as **per completed client visit/booking on a weekly cadence**, broken into three lines: (1) General Wellness & Medical Visits, where one unit is a completed exam or medical visit; (2) Surgery & Dental Procedures, where one unit is a completed surgical or dental procedure; and (3) Boarding & Grooming, where one unit is one boarding night that includes grooming, all delivered at your Raleigh clinic rather than remotely or via mobile service. This is a medical service and boarding operation, not an online product, telehealth-only platform, or wholesale vet lab.
+
+If you’d rather group any of those together, or split one of them further (for example separating boarding from grooming), say so and we’ll adjust the lines. Does this restatement of how the business works and the weekly unit cadence sound accurate?
+
+(Noted: operating periods per year → 52; General Wellness & Medical Visit: operating periods per year → 52; Surgery or Dental Procedure: operating periods per year → 52; Boarding Night with Grooming: operating periods per year → 52.)
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that restatement matches exactly how Willowbank Animal Hospital operates. We have those three separate service lines tracked independently, and the weekly cadence for units is exactly right. We would not combine or separate any lines beyond that.
+
+[ops][assistant] Based on the start date you provided, I'm treating this as an operating business for planning context. If that's off, tell me and I'll adjust.
+
+Next, just to anchor the rest of the operations work: would you say Willowbank primarily sells to individual consumers (pet owners), to other businesses, or is it a meaningful mix of both?
+
+(Noted: operating periods per year → 52.)
+[runner] generating simulated user reply for focus=ops...
+[user] Willowbank Animal Hospital serves only individual consumers—pet owners in the local area. We do not serve business clients at all. So, fully consumer-focused business.
+
+[ops][assistant] That’s clear, fully consumer-focused.
+
+For your legal structure, which label fits Willowbank best right now: Sole proprietor, LLC, Partnership, S-corp, C-corp, or LLP?
+[runner] generating simulated user reply for focus=ops...
+[user] Willowbank Animal Hospital is structured as a C-corp.
+
+[ops][assistant] Thanks, C‑corp noted.
+
+Because you’re a full-service local veterinary hospital, I’ll assume the typical fulfillment model looks like this: you and your clinical team (veterinarians, techs, assistants, kennel/grooming staff) perform all services in person at the clinic, almost entirely by scheduled appointments and pre-booked boarding, with some capacity reserved for same-day medical needs. Most wellness visits are same- or next-available appointment, surgeries and dentals are booked days to weeks ahead, and boarding is reserved in advance, so your main operational constraint is professional staff time and room/kennel availability rather than software systems or demand generation. That is how fulfillment typically works for this kind of business – does this look right?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that's exactly how we operate. All services are performed in person at the clinic. Appointments for wellness visits are usually same- or next-day availability, surgeries and dentals are scheduled ahead by days or weeks, and boarding is reserved in advance. Our main constraints are indeed staff time and physical capacity, not software or demand.
+
+[ops][assistant] Great, that lines up well with what I had in mind.
+
+Let’s start dialing in the operations for each of your three service lines, beginning with General Wellness & Medical Visits. Thinking about a busy but realistic week when you’re fully staffed and using your space well, about how many completed wellness/medical visits can your team handle in a week (total across all vets) if you really filled the schedule?
+[runner] generating simulated user reply for focus=ops...
+[user] Our full capacity for General Wellness & Medical Visits is about 220 completed visits per week across all our exam rooms at full utilization.
+
+[ops][assistant] 220 visits/week at full utilization for General Wellness & Medical Visits makes sense and fits a multi-room small animal hospital.
+
+For planning the year ahead, we’ll assume you don’t actually run at 100% of that theoretical capacity every single week. A practical assumption for many clinics is somewhere around 70–85% of max. For your wellness/medical visits, what feels like a realistic average load over the next 12 months: closer to about 70% of that 220 capacity, closer to 80–85%, or would you put it somewhere else?
+
+(Noted: General Wellness & Medical Visit: weekly capacity → 220; weekly capacity → 220; operating periods per year → 52.)
+[runner] generating simulated user reply for focus=ops...
+[user] I appreciate the assumption, but for Year 1, we need to use 66% utilization for the General Wellness & Medical Visits line. That's the actual level we've been seeing and expect to maintain. So, 66% of 220 visits weekly is the target I want in the plan.
+
+[ops][assistant] Got it, we’ll use 66% of the 220-visit weekly capacity for General Wellness & Medical Visits.
+
+Next, let’s lock in pricing for that same line. For a typical General Wellness & Medical Visit (averaging across wellness exams and standard medical visits), what single average fee per completed visit should we use in the plan?
+[runner] generating simulated user reply for focus=ops...
+[user] For the General Wellness & Medical Visits line, the average revenue per completed visit is about $95.
+
+[ops][assistant] Perfect, we’ll use an average of $95 per completed General Wellness & Medical Visit.
+
+Next, let’s set capacity for the Surgery & Dental Procedures line. In a busy but realistic week when you’re fully staffed and using your surgery/dental space well, about how many completed procedures (surgeries + dentals combined) can you handle in a week if the schedule is filled?
+[runner] generating simulated user reply for focus=ops...
+[user] Our surgical suite can handle about 35 procedures per week at full capacity.
+
+[ops][assistant] Thanks, that’s clear: about 35 completed surgeries/dentals per week at full capacity.
+
+For planning the year ahead, you won’t run that suite at 100% every week. A practical assumption for many hospitals is somewhere in the 60–80% range. For your Surgery & Dental Procedures line, what feels like a realistic average load over the next 12 months: closer to about 60%, closer to 75–80%, or would you put it somewhere else?
+
+(Noted: Surgery or Dental Procedure: weekly capacity → 35; operating periods per year → 52; utilization → 66.0%; unit price → $95.)
+[runner] generating simulated user reply for focus=ops...
+[user] I need to insist on using 66% utilization for the Surgery & Dental Procedures line in Year 1, just like for the Wellness & Medical Visits line. That reflects what we’re actually seeing and expecting, so that’s the number I want the plan to use.
+
+[ops][assistant] Understood, we’ll use 66% utilization for the Surgery & Dental Procedures line as well.
+
+Now let’s set a single average price for that line. Averaging across the mix of surgeries and dental procedures you perform, what dollar amount should we use as the typical revenue per completed procedure in this Surgery & Dental Procedures line?
+[runner] generating simulated user reply for focus=ops...
+[user] The average revenue per surgical or dental procedure is about $650, so let's use that number for the Surgery & Dental Procedures line.
+
+[ops][assistant] Great, we’ll use $650 as the average revenue per completed Surgery or Dental Procedure.
+
+Next, let’s dial in the Boarding & Grooming line. In a fully booked, realistic week, about how many boarding nights (each including grooming) can you accommodate across your available kennels/runs if you were at full capacity?
+[runner] generating simulated user reply for focus=ops...
+[user] We have 40 kennels, so at full capacity, we can handle about 280 boarding-nights per week. Grooming is bundled into the nightly boarding rate, so that's the combined capacity we're tracking.
+
+[ops][assistant] 280 boarding-nights per week at full kennel utilization makes sense given 40 kennels turning over nightly.
+
+For the Boarding & Grooming line, thinking about the next 12 months, what feels like a realistic average load as a share of that 280-night weekly capacity—closer to about 60%, closer to 75–80%, or would you put it somewhere else (you can just give me a percentage you’re comfortable with)?
+
+(Noted: Boarding Night with Grooming: weekly capacity → 280; operating periods per year → 52.)
+[runner] generating simulated user reply for focus=ops...
+[user] For the Boarding & Grooming line, we typically see about 50% utilization given the seasonal nature of occupancy. So I'd like to use 50% utilization for Year 1.
+
+[ops][assistant] 50% utilization for Boarding & Grooming over the next year is noted and fits the seasonal pattern you’re describing.
+
+Next, let’s set a single average price for the Boarding & Grooming line. For one boarding night that includes grooming (averaging across pet sizes and seasons), what dollar amount should we use as the typical revenue per boarding night in this line?
+[runner] generating simulated user reply for focus=ops...
+[user] The blended rate averages about $55 per boarding night, including grooming. Let's use that as the typical revenue per boarding night.
+
+[ops][assistant] Before we wrap up operations: a lot of animal hospitals also offer Vaccinations and immunizations, Diagnostic laboratory testing, Pharmacy and prescription medications, or Diagnostic imaging services - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+[runner] generating simulated user reply for focus=ops...
+[user] We offer full in-house diagnostics and imaging, including digital X-rays and ultrasound, as well as a pharmacy for prescriptions, but these services are integrated into the three main lines rather than tracked separately. I want to keep the plan focused on those three distinct revenue lines we discussed.
+
+[ops][assistant] Noted - Vaccinations and immunizations stays inside General Wellness & Medical Visits, not a separate line.
+Noted - Diagnostic laboratory testing stays inside General Wellness & Medical Visits, not a separate line.
+Noted - Pharmacy and prescription medications stays inside General Wellness & Medical Visits, not a separate line.
+Noted - Diagnostic imaging services stays inside Surgery or Dental Procedure, not a separate line.
+
+Got it — we’ll keep Vaccinations and immunizations, Diagnostic laboratory testing, Pharmacy and prescription medications, and Diagnostic imaging services all treated as part of your existing three lines rather than adding any new separate revenue lines.
+
+On my side, I have your operations for the three lines fully dialed in with capacities, utilization, and pricing, and your in-clinic, local, consumer-focused model is clear, so we’re all set on the operations intake from here.
+
+(Noted: operating periods per year → 52; utilization → 50.0%.)
+
+Understood, we’ll keep everything focused on those three service lines.
+
+Looking across Willowbank Animal Hospital as a whole, what would you say is the single biggest thing that limits how much you can grow right now: your team’s available time and skills, your rooms/kennels/equipment (capacity), or the level of client demand coming in?
+[runner] generating simulated user reply for focus=ops...
+[user] The single biggest growth limiter right now is our team's available time and skills. We need more clinicians, especially veterinarians, to open up additional appointment and procedure slots.
+
+[ops][assistant] Here's my working read of your competitive advantage: Willowbank’s plausible edge is that you’ve deliberately built full in‑house diagnostics, imaging, and pharmacy into your core visit/procedure workflow rather than treating them as separate, siloed services or lines of business. Because those capabilities sit under one roof and are operationally integrated into the three main lines you manage and plan around, pets can typically be evaluated, worked up, treated, and boarded/groomed within a single clinic relationship, which likely reduces delays and fragmentation for owners while keeping more of the care (and spend) with your hospital.
+
+Does that match what truly sets you apart, or is it something else?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that description really captures our competitive advantage well. To emphasize, the full in-house surgical and diagnostic capability is what truly sets us apart in the local market, as it allows us to handle imaging, dental, and most surgeries ourselves instead of referring out, which improves client retention and convenience.
+
+[ops][assistant] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+[runner] generating simulated user reply for focus=ops...
+[user] Our concrete goal for the next 12 months is to reach about $180,000 in monthly revenue.
+
+[market][assistant] Great, let's move on to Target Market.
+
+We’ll start with gender. For the individual pet owners you most want to attract to Willowbank Animal Hospital, do you want to focus on women, men, or treat all genders the same for your targeting?
+[runner] generating simulated user reply for focus=market...
+[user] We treat all genders the same for our targeting—there's no gender focus in our approach.
+
+[market][assistant] Got it, we’ll treat all genders the same in your targeting.
+
+Now thinking about your ideal pet owners in the Raleigh suburbs, what age range are you primarily targeting (for example, “late 20s to early 40s” or “30–65”)?
+[runner] generating simulated user reply for focus=market...
+[user] We are targeting pet owners roughly between the ages of 28 and 65.
+
+[market][assistant] Great, we’ll frame your primary target as adult pet owners of all genders, roughly ages 28 to 65.
+
+Next, thinking about household income for your ideal clients in the Raleigh suburbs: is there a rough annual income band you want to focus on (for example, “middle income around $60k–$120k”, “$100k+”, or “no real income preference”)?
+[runner] generating simulated user reply for focus=market...
+[user] We focus on households with an income of $60,000 and up, so middle income and above is our target client base.
+
+[market][assistant] Perfect, we’ll treat your target as middle-income and above, starting around $60,000 household income and up.
+
+Next, how important is formal education level for your ideal pet owners—do you want to specifically focus on clients with a college degree or higher, or is education not really a meaningful filter for you?
+[runner] generating simulated user reply for focus=market...
+[user] Education is not really a meaningful filter for us. We welcome pet owners regardless of their education level.
+
+[market][assistant] That makes sense — we won’t use education as a filter.
+
+Given your local, consumer veterinary model, a few extra household/employment/housing details could help refine realistic marketing assumptions (for example, dual‑income households and renters vs. owners can affect pet ownership and boarding demand). Would you like to add any of these: Household structure, Employment, Housing economics, any combination of those, or would you rather skip all three and keep it simple?
+[runner] generating simulated user reply for focus=market...
+[user] Let's include household structure and housing — we mainly serve families and homeowners with pets. Employment can stay broad; our clients come from a wide mix of working households without a specific occupation focus.
+
+[market][assistant] Great, we’ll include household structure and housing, and keep employment broad.
+
+First on household structure: among your ideal clients, are you mainly targeting:
+- Single adults with pets,
+- Couples/families with pets,
+- Or a mix, but leaning more toward couples/families as your core?
+
+How would you describe the household setups you most want more of?
+[runner] generating simulated user reply for focus=market...
+[user] We mainly want to focus on couples and families with pets as our core client base.
+
+[market][assistant] Got it, we’ll treat couples and families with pets as your core household focus.
+
+Now on housing: among your ideal clients, do you mainly want to focus on homeowners, renters, or a mix but leaning more toward homeowners in detached houses/townhomes?
+[runner] generating simulated user reply for focus=market...
+[user] We mainly serve homeowners with pets, so our focus is on families and couples who own their homes in the area.
+
+[market][assistant] Willowbank Animal Hospital is positioned as a full-service, in-person small animal hospital for local pet owners, with three distinct revenue lines built around completed wellness/medical visits, surgical and dental procedures, and boarding nights that include grooming, all paid directly by individual consumers at the clinic. Pricing is structured per unit of service across these lines, summarized as $95 per visit each week, $650 per procedure each week, and $55 per boarding night each week, without discounting the medical nature of the offer. The geographic focus is tightly local around Raleigh suburbs, and growth is constrained primarily by veterinary and support staff capacity rather than by demand or software systems. Within that footprint, the clinic is oriented toward adult pet owners of all genders, roughly ages 28 to 65, in households earning around $60,000 or more, especially couples and families who own their homes and want the convenience and continuity of one relationship for wellness care, diagnostics, surgery, and boarding.
+Marketing acquisition will emphasize a small set of channels that match a local, in-person veterinary hospital serving busy, higher-income households. Google Search will be important because pet owners actively look for nearby vets and compare options when they move, adopt a pet, or face a medical issue, making strong visibility on local search and reviews crucial. Google Maps/Business Profile will support this by capturing intent from people specifically looking for veterinarians and boarding near their homes or workplaces in the Raleigh suburbs. Instagram and Facebook will help showcase real patient stories, behind-the-scenes care, and boarding/grooming experiences that resonate with family and homeowner pet owners and build trust before a first visit. Local referral partners—such as shelters, breeders, and pet-focused small businesses—will reinforce the clinic’s reputation for full in-house diagnostics and surgery, channeling motivated owners who want comprehensive care in one place. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.
+
+(Adjusted while finalizing: income max → 1,000,000,000.)
+
+Does this look right before we move on to Human Resources?
+[runner] generating simulated user reply for focus=market...
+[user] That looks good overall, but before we move on, please emphasize our full in-house surgical and diagnostic capabilities in the market positioning. This is a key competitive advantage for Willowbank Animal Hospital. After that, I'm happy to proceed to Human Resources.
+
+[market][assistant] Willowbank Animal Hospital is positioned as a full-service, in-person small animal hospital for local pet owners, with three distinct revenue lines built around completed wellness/medical visits, surgical and dental procedures, and boarding nights that include grooming, all paid directly by individual consumers at the clinic. A central part of Willowbank’s positioning is its full in-house surgical and diagnostic capability—including imaging and dental—which allows most imaging, dental work, and surgeries to be handled on-site rather than referred out. This means pets can be fully evaluated, worked up, and treated within a single clinic relationship, improving client convenience and continuity of care while keeping more of the related spend with Willowbank compared to competitors who must refer out more advanced diagnostics or procedures. Pricing is structured per unit of service across these lines, summarized as $95 per visit each week, $650 per procedure each week, and $55 per boarding night each week, without discounting the medical nature of the offer. The geographic focus is tightly local around Raleigh suburbs, and growth is constrained primarily by veterinary and support staff capacity rather than by demand or software systems. Within that footprint, the clinic is oriented toward adult pet owners of all genders, roughly ages 28 to 65, in households earning around $60,000 or more, especially couples and families who own their homes and want the convenience and continuity of one relationship for wellness care, diagnostics, surgery, and boarding.
+Marketing acquisition will emphasize a small set of channels that match a local, in-person veterinary hospital serving busy, higher-income households. Google Search will be important because pet owners actively look for nearby vets and compare options when they move, adopt a pet, or face a medical issue, making strong visibility on local search and reviews crucial—especially for an animal hospital that can provide comprehensive in-house diagnostics and surgery rather than fragmenting care across multiple providers. Google Maps/Business Profile will support this by capturing intent from people specifically looking for veterinarians and boarding near their homes or workplaces in the Raleigh suburbs. Instagram and Facebook will help showcase real patient stories, behind-the-scenes surgical and diagnostic care, and boarding/grooming experiences that resonate with family and homeowner pet owners and build trust before a first visit. Local referral partners—such as shelters, breeders, and pet-focused small businesses—will reinforce the clinic’s reputation for full in-house diagnostics and surgery, channeling motivated owners who want comprehensive care in one place. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.
+
+Does this look right before we move on to Human Resources?
+[runner] generating simulated user reply for focus=market...
+[user] Yes, that positioning is exactly right with the emphasis on our full in-house surgical and diagnostic capabilities. We can go ahead to Human Resources now.
+
+[people][assistant] Great, let's move on to Human Resources.
+
+Since Willowbank Animal Hospital is already operating, we’ll focus on a small number of pivotal people (ownership/leadership, key clinicians, and any other must‑have roles that really drive delivery and growth).
+
+Let’s start with you as the owner, since you’re a key person in the business:  
+What is your full name, your current title/role in the business, how many years of relevant veterinary/animal‑health experience you have (just a number is fine), what relevant education/credentials you hold (for example DVM, board certifications, business degrees, or “none”), and what annual wage/salary you currently pay yourself from the business (before any owner distributions)?
+[runner] generating simulated user reply for focus=people...
+[user] My name is Dr. Alan Whitfield, DVM. I'm the Owner and Medical Director of Willowbank Animal Hospital. I have 18 years of experience in veterinary medicine. My credentials include a Doctor of Veterinary Medicine degree (DVM). I currently pay myself an annual salary of $180,000 from the business.
+
+[people][assistant] Thanks, I’ve got those updates noted: months in the first year now counted as 12 per year, your annual wage as $180,000 per year, first-year payroll amount as $180,000 per year, and total owner pay as $15,000 per month (plus two more items).
+
+Thanks, I’ve got that captured for you as owner and Medical Director.
+
+Often, businesses like Willowbank Animal Hospital highlight a handful of pivotal people in leadership, key clinical roles, and critical client-facing or operations roles; for an operating clinic like yours, this is about targeted additions or specialization around an already working team—not a full rebuild.
+
+Is there another individual (for example, an associate veterinarian, practice manager, lead technician, or other key person) you’d like to add? If so, please share their full name, title/role, years of relevant experience, education/credentials, and (if they’re on payroll) their approximate annual wage/salary.
+[runner] generating simulated user reply for focus=people...
+[user] Yes, we have an associate veterinarian named Dr. Sofia Marchetti. She has 7 years of experience in small-animal medicine and holds a DVM degree. Please estimate her compensation for the plan.
+
+[people][assistant] Got it—I'll note that you have 7 years of experience with an annual salary of $140,000 per year and an annual wage of $140,000 per year.
+
+Got it, adding Dr. Sofia Marchetti as an Associate Veterinarian with 7 years of experience and a DVM, and I’ll keep using an estimated compensation level for the planning model.
+
+Would you like to add another key person (for example, a practice manager, lead technician, or another specific individual who is central to how Willowbank Animal Hospital runs), or are you happy to stop with the two veterinarians for now?
+[runner] generating simulated user reply for focus=people...
+[user] We also have Nadia Brennan, a part-time Client Care Coordinator. She has 4 years in this role, works two of our busiest afternoons a week at the front desk, and earns $16,000 a year. After Nadia, the key people list is complete.
+
+[people][assistant] Review this draft (key people narrative) and tell me any changes.
+
+As Owner and Medical Director, Dr. Alan Whitfield, DVM, brings 18 years of companion-animal veterinary experience and full responsibility for clinical quality, complex case management, and day-to-day medical operations at Willowbank Animal Hospital. His leadership across wellness care, surgery, and diagnostics ensures the hospital can safely handle a broad range of in-house procedures, while maintaining consistent protocols, mentoring the veterinary team, and aligning medical decisions with the clinic’s growth goals. Estimated annual wage: $180,000/year.
+
+As Associate Veterinarian, Dr. Sofia Marchetti, DVM, contributes 7 years of small-animal experience to delivering wellness care, medical workups, and surgical and dental procedures at Willowbank Animal Hospital. By carrying a significant share of exam, diagnostic, and procedure volume, she expands appointment and surgical capacity, supports in-house diagnostics, and helps maintain timely access for clients while upholding the hospital’s clinical standards. Estimated annual wage: $125,600/year.
+
+As a part-time Client Care Coordinator, Nadia Brennan brings 4 years of front-desk veterinary experience to managing check-in, scheduling, and client communications during the clinic’s busiest afternoons at Willowbank Animal Hospital. By smoothing client flow and handling administrative details at peak times, she reduces bottlenecks for pet owners and helps keep veterinarians and clinical staff working at full efficiency in exam rooms and the surgery schedule. Estimated annual wage: $16,000/year.
+
+Does this look right before we move on to Financials?
+[runner] generating simulated user reply for focus=people...
+[user] This looks mostly right, but please adjust Dr. Sofia Marchetti's estimated annual wage to $140,000 to match the figure I gave earlier. Other than that, I have no changes. We can proceed to Financials afterward.
+
+[people][assistant] Got it - updated.
+
+Beyond yourself and Dr. Sofia Marchetti, Nadia Brennan - people we already have down individually - roughly what does payroll for the rest of your team come to per year? Only count people we haven't listed yet. A rough annual figure is fine - and it's fine if there isn't anyone else on payroll.
+[runner] generating simulated user reply for focus=people...
+[user] The rest of the team, aside from myself, Dr. Marchetti, and Nadia, amounts to about $904,000 annually in payroll. This includes our remaining 15 staff members who cover veterinary technicians, front desk support, and kennel attendants.
+
+[people][assistant] Quick check so nobody gets counted twice: is Dr. Sofia Marchetti ($140,000) and Nadia Brennan ($16,000) inside that $904,000, or is $904,000 only the people we haven't listed? If it includes them, I'll put down $748,000 for the rest of the team.
+[runner] generating simulated user reply for focus=people...
+[user] The $904,000 is only for the rest of the team we haven't listed, so it does not include Dr. Sofia Marchetti or Nadia Brennan.
+
+[people][assistant] Quick check so nobody gets counted twice: is Dr. Sofia Marchetti ($140,000) and Nadia Brennan ($16,000) inside that $904,000, or is $904,000 only the people we haven't listed? If it includes them, I'll put down $748,000 for the rest of the team.
+[runner] generating simulated user reply for focus=people...
+[user] I already mentioned that the $904,000 payroll is only for the rest of the team we haven't listed. So, it does not include Dr. Sofia Marchetti or Nadia Brennan. Let me know if you want to move forward with this.
+
+[people][assistant] Review this draft (key people narrative) and tell me any changes.
+
+As Owner and Medical Director, Dr. Alan Whitfield, DVM, brings 18 years of companion-animal veterinary experience and full responsibility for clinical quality, complex case management, and day-to-day medical operations at Willowbank Animal Hospital. His leadership across wellness care, surgery, and diagnostics ensures the hospital can safely handle a broad range of in-house procedures, while maintaining consistent protocols, mentoring the veterinary team, and aligning medical decisions with the clinic’s growth goals. Estimated annual wage: $180,000/year.
+
+As Associate Veterinarian, Dr. Sofia Marchetti, DVM, contributes 7 years of small-animal experience to delivering wellness care, medical workups, and surgical and dental procedures at Willowbank Animal Hospital. By carrying a significant share of exam, diagnostic, and procedure volume, she expands appointment and surgical capacity, supports in-house diagnostics, and helps maintain timely access for clients while upholding the hospital’s clinical standards. Estimated annual wage: $140,000/year.
+
+As a part-time Client Care Coordinator, Nadia Brennan brings 4 years of front-desk veterinary experience to managing check-in, scheduling, and client communications during the clinic’s busiest afternoons at Willowbank Animal Hospital. By smoothing client flow and handling administrative details at peak times, she reduces bottlenecks for pet owners and helps keep veterinarians and clinical staff working at full efficiency in exam rooms and the surgery schedule. Estimated annual wage: $16,000/year.
+
+Does this look right before we move on to Financials?
+[runner] generating simulated user reply for focus=people...
+[user] Yes, that looks correct to me as presented. Let's proceed to Financials now.
+
+[people][assistant] Great.
+
+Beyond yourself and Dr. Sofia Marchetti, Nadia Brennan - people we already have down individually - roughly what does payroll for the rest of your team come to per year? Only count people we haven't listed yet. A rough annual figure is fine - and it's fine if there isn't anyone else on payroll.
+[runner] generating simulated user reply for focus=people...
+[user] As I mentioned earlier, the rest of the team, aside from myself, Dr. Marchetti, and Nadia, amounts to about $904,000 annually in payroll. These 15 team members cover veterinary technicians, front desk support, and kennel attendants.
+
+[financials][assistant] Got it - rest-of-team payroll → $904,000 per year.
+
+Great, let's move on to Financials.
+
+Let's ground the plan in where the business is today: about how much revenue is the business bringing in a year right now? A rough annual figure is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] The business is currently generating about $2.16 million in annual revenue. This is based on our monthly revenue goal of about $180,000 multiplied by 12 months, which reflects where we aim to be within the next 12 months.
+
+[financials][assistant] Understood. We’ll build from your current revenue picture and move into the rest of the financials.
+
+Your lines of business earn differently, so I'm setting up direct costs - materials, supplies, and other non-labor costs tied to delivering the work - separately for each:
+- General Wellness & Medical Visit: about 11% of that line's revenue (typical range 9%-13%)
+- Surgery or Dental Procedure: about 23% of that line's revenue (typical range 19%-27%)
+- Boarding Night with Grooming: about 15% of that line's revenue (typical range 12%-18%)
+Together that blends to about 17% of total revenue, around $362,431 a year.
+
+Do those match your actual costs per line? Correct any of them on their own, tell me if some of those lines share one cost structure, or say if a line needs splitting further - you know how many genuinely different cost rates you have.
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, those percentages look generally correct for our COGS per line: about 11% for Wellness & Medical, 23% for Surgery & Dental, and 15% for Boarding & Grooming. We track them separately exactly for that reason, so cost structures differ by line. No need to split further or combine any of those lines in cost structure terms.
+
+[financials][assistant] I’ll start with direct costs of $362,431 a year (17% of revenue) - correct me if your actual materials cost differs. (One note: I couldn't apply your cogs percent of revenue change - the figure above is what I have; correct me and I'll update it.)
+
+For marketing, a reasonable starting point is about 6% of revenue, which works out to around $140,400 a year.
+
+Does that broadly match what it will take to attract and convert customers, or should we adjust it because your marketing spend will be materially different?
+[runner] generating simulated user reply for focus=financials...
+[user] Our COGS at about 17% of revenue, or $362,431 annually, is accurate and matches what we've been seeing. For marketing, we actually spend around $4,500 per month, which totals $54,000 per year, well below 6% of revenue. So please use $54,000 annually for marketing instead of $140,400.
+
+[financials][assistant] Got it. I’ll use a marketing budget of $54,000 a year (2% of revenue). Recorded: direct costs $4,500.
+
+What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?
+[runner] generating simulated user reply for focus=financials...
+[user] The monthly rent for our clinic building is $10,500. We will always need this clinic space going forward.
+
+[financials][assistant] Got it - I'll use $10,500 for monthly rent. (One note: I haven't recorded future rent expected yet — we'll get to that in a moment.)
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, we definitely expect to always have the clinic space. It's essential for our in-person care and boarding services, so that needs to remain part of the business going forward.
+
+[financials][assistant] Got it.
+
+About how much goes to other regular business bills in a typical month, besides payroll, marketing, and rent - things like utilities, software, insurance, accounting, phone, and internet?
+[runner] generating simulated user reply for focus=financials...
+[user] Other monthly costs run about $9,000, which covers utilities, insurance, software, medical waste, and similar expenses.
+
+[financials][assistant] Got it - I'll use $9,000 for other operating expense.
+
+How many people are on payroll right now, not counting outside contractors? A whole number is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] We have 18 people on payroll right now, not counting any contractors.
+
+[financials][assistant] Got it. I’ll use 18 for current employee count.
+
+Have you recently made any larger one-time purchases for the business, like equipment, devices, furniture, build-out, or vehicles? If so, what was the rough total?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, we spent about $120,000 recently on a digital X-ray unit and a new dental suite.
+
+[financials][assistant] Got it - I'll use $120,000 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] The medical equipment and build-out are worth about $520,000 in total.
+
+[financials][assistant] Got it - I'll use $520,000 for initial assets already in the business.
+
+Do you have any equipment or vehicles you are making payments on under a lease or finance agreement - the kind with a set term, where you keep the equipment at the end or have the option to buy it? If so, roughly how much is still owed on it in total? Do not include rented space or anything you can hand back at any time, and if there is none, use 0.
+[runner] generating simulated user reply for focus=financials...
+[user] We lease an ultrasound and monitoring package at $1,600 a month, but I don't have the exact amount still owed on that lease; should I estimate or leave it out for now?
+
+[financials][assistant] If you had to ballpark it, do you feel more comfortable giving a rough total still owed on that equipment lease (even a guess), or would you rather leave it out and effectively treat the remaining balance as 0 in the model for now?
+[runner] generating simulated user reply for focus=financials...
+[user] Let's leave it out for now and treat the remaining balance as zero in the model.
+
+[financials][assistant] Got it — we’ll treat the remaining equipment lease balance as zero for now.
+
+Roughly how much money or value has gone into the business so far, from you or any investors, all together?
+[runner] generating simulated user reply for focus=financials...
+[user] About $600,000 has been invested in the business so far.
+
+[financials][assistant] Got it - I'll use $600,000 for money invested so far.
+
+About how much does the business currently owe in total on loans, lines of credit, or business credit cards?
+[runner] generating simulated user reply for focus=financials...
+[user] We owe about $340,000 on a clinic build-out loan.
+
+[financials][assistant] Got it - I'll use $340,000 for total debt outstanding.
+
+Besides regular rent and the credit card minimums already covered in other expenses, what other loan or debt payments does the business make each month?
+[runner] generating simulated user reply for focus=financials...
+[user] We pay about $4,900 a month on the clinic build-out loan beyond our rent and credit card minimums.
+
+[financials][assistant] Got it - I'll use $4,900 for other monthly debt payments.
+
+Of your debt payments, what is your best estimate of the annual interest cost, meaning the finance charge rather than principal paydown?
+[runner] generating simulated user reply for focus=financials...
+[user] The annual interest cost on our debt is about $18,000.
+
+[financials][assistant] Got it - I'll use $18,000 for annual interest payment.
+
+What is your best estimate of the annual principal you expect to repay on the business debt, separate from interest?
+[runner] generating simulated user reply for focus=financials...
+[user] We pay down about $46,000 of principal a year on our business debt.
+
+[financials][assistant] Got it - I'll use $46,000 for annual principal payment.
+
+About how much cash does the business have on hand right now, counting bank accounts and any cash on site?
+[runner] generating simulated user reply for focus=financials...
+[user] We have about $110,000 in the bank right now.
+
+[financials][assistant] Got it - I'll use $110,000 for cash on hand.
+
+About how much do customers currently owe you for completed work, like unpaid invoices or payment plans?
+[runner] generating simulated user reply for focus=financials...
+[user] Clients owe us only about $25,000; most pay at the time of service.
+
+[financials][assistant] Got it - I'll use $25,000 for accounts receivable.
+
+About how much does the business currently owe in regular operating bills, like unpaid supplier invoices, utilities, or operations-related credit card balances?
+[runner] generating simulated user reply for focus=financials...
+[user] We owe about $40,000 to our drug and supply distributors right now.
+
+[financials][assistant] Got it - I'll use $40,000 for accounts payable.
+
+About how much inventory do you have on hand right now, like products or supplies kept in stock to use or sell?
+[runner] generating simulated user reply for focus=financials...
+[user] We carry about $60,000 in inventory - pharmacy, vaccines, food, and supplies.
+
+[financials][assistant] Got it - I'll use $60,000 for inventory balance.
+
+One last financial planning question before I wrap this section up: when this business starts building extra cash, what would you want to do with it?
+
+- Preserve cash: Keep a thicker cash cushion and stay more conservative about putting excess cash back to work.
+- Shareholder return: Treat excess cash as something that can be taken out of the business rather than just left to build up.
+- Balanced: Balance the required cash cushion, debt discipline, and measured capital returns.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We prefer a balanced approach: keep a healthy cash cushion, responsibly pay down the build-out loan, and allow for modest distributions to owners.
+
+[financials][assistant] Got it. I’ll treat balanced as the preferred cash posture.
+
+One more planning question on funding: when this business needs outside capital to operate or grow, how would you prefer to fund it?
+
+- Debt: Borrowed money, like bank loans or lines of credit, repaid over time.
+- Equity: Owner or investor money put into the business, with no required repayment schedule.
+- Both: A deliberate mix of debt and equity working together.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We want to fund growth with a mix of both debt and equity, roughly thirty percent debt and seventy percent equity.
+
+[financials][assistant] Got it - I'll plan on funding the business with a mix of debt and equity.
+
+Since you'd use both debt and equity, roughly what mix feels right for planning?
+
+- Mostly debt: About 70/30 debt-to-equity.
+- Even split: About 50/50 debt-to-equity.
+- Mostly equity: About 30/70 debt-to-equity.
+
+A rough answer is fine, and we'll treat it as a planning assumption you can revisit.
+[runner] generating simulated user reply for focus=financials...
+[user] We want about 30% debt and 70% equity for the funding split, as I mentioned before.
+
+[done][assistant] Got it - I'll use roughly a 30/70 debt-to-equity mix as the planning split.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $441,099 (52.0% of revenue), that stress figure actually sits above the 8.0%-17.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 17.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $156,875 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+Simulation completed.
+System run complete.
+Final flags: {"ops_confirmed": true, "market_confirmed": true, "people_confirmed": true, "financials_confirmed": true, "resolution_summary_status": "missing", "remaining_issue_count": 0}
+Draft ID: 04c198abf9ed4ff38a15a5df55477f54
+Saved run report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs\08-29-2026 -- 04c198abf9ed4ff38a15a5df55477f54.txt
+Saved persisted state report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data\08-29-2026 -- 04c198abf9ed4ff38a15a5df55477f54.txt
+Saved New Runner report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\08-29-2026 -- 04c198abf9ed4ff38a15a5df55477f54.txt
+Saved New Runner grid report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\08-29-2026 -- 04c198abf9ed4ff38a15a5df55477f54 -- quarter-grid.txt
+Expected terminal log file: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs\08-29-2026 -- 04c198abf9ed4ff38a15a5df55477f54.txt
