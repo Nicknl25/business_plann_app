@@ -1,0 +1,6 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-09 18:40:07.519 INFO api: REQ GET /api/business-types -> 200 141ms draft=-
+2026-08-09 18:40:10.540 INFO api: TURN_BEGIN draft=50658fff105e480c896f714fa519f22e turn=132 starting=False focus=done msg_chars=99
+2026-08-09 18:40:12.647 INFO api: TURN_INTENT draft=50658fff105e480c896f714fa519f22e action=edit_patch patch={'financials.current_cogs': 5900, 'financials.cash_strategy': 'preserve_cash'}
+2026-08-09 18:40:55.311 INFO api: REQ POST /api/intake-consult -> 200 45359ms draft=50658fff105e480c896f714fa519f22e

@@ -1,0 +1,3 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-16 16:36:01.537 INFO api: REQ GET /api/business-types -> 200 250ms draft=-

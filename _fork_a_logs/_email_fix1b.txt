@@ -1,0 +1,29 @@
+FIX 1b deep-localized via instrumentation. The disease is the SOLVER's inner finmo build, NOT the rent
+gate (symptom). I did NOT repoint the gate -- I traced the actual collapse, per your instruction.
+
+INSTRUMENTED TRACE (Sunny, REVTRACE at each finmo reassignment):
+- orchestrator.py:1517 inner_baseline: revenue ALREADY flat+collapsed -- q1=q10=q20=3414 (=> a FLAT capacity
+  ~2845), vs the AUTHORED RAMP (capacity 15000->17400 => revenue 18000->32538) that the CASCADE finmo
+  correctly carries (that's what gets persisted; I verified the persisted finmo ramps 18000->32538).
+- path_stamp_rebuild (2183) drops it slightly more (3414 -> 2766).
+So the gate's "phantom revenue" = the solver handed build_finmo a model_input whose CAPACITY VALUES were
+overwritten to a flat payroll-FTE-implied ~2845.
+
+RULED OUT as the source (so I don't fix the wrong thing):
+- apply_payroll_supported_capacity (schedule.py:3033) is NON-mutating -- it keeps the authored capacity
+  values, only sets the row marker derived_driver=payroll_supported_capacity and records an
+  implied-vs-anchor CHECK. A guard (schedule.py:3170) REQUIRES that marker, so the marker must stay.
+- build_finmo (finmo_bridge.py:1486/1586) PRESERVES the authored capacity for marked rows.
+So the capacity VALUES are overwritten to flat ~2845 in the SOLVER's model_input prep, BETWEEN the cascade
+output (correct 15000 ramp) and the inner finmo build (orchestrator ~1500-1517). That is the exact remaining
+hop to instrument (the finmo rows don't expose capacity, so next I trace the model_input Capacity row VALUES
+at solver entry).
+
+I tried the obvious shortcut (mark the Capacity row controller_write=True in revenue authoring) -- REVERTED:
+wrong-headed, because the marker must stay (guard + finmo freeze) and a downstream step re-marks it anyway;
+the bug is the VALUE overwrite, not the marker.
+
+STATUS: FIX 1a + FIX 2 shipped + universal (be941ac). Rent wall debunked (real rent 32%). FIX 1b localized to
+the solver model_input prep collapsing authored capacity to a flat FTE-implied value -- universal (affects
+any revenue-authored plan); the fix keeps the marker and stops the VALUE overwrite. Tree clean, debug
+reverted, handoff memory has the exact next step (trace model_input Capacity values at solver entry).

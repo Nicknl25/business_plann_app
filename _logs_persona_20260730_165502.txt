@@ -1,0 +1,112 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-07-30 16:55:04.081 INFO api: REQ GET /api/business-types -> 200 266ms draft=-
+2026-07-30 16:55:23.059 INFO api: REQ POST /api/intake-consult/session -> 200 578ms draft=-
+2026-07-30 16:55:23.113 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=0 starting=True focus=ops msg_chars=0
+2026-07-30 16:55:28.096 INFO api: REQ POST /api/intake-consult -> 200 5031ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:55:28.161 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:55:30.317 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=1 starting=False focus=ops msg_chars=244
+2026-07-30 16:55:35.580 INFO api: REQ POST /api/intake-consult -> 200 5282ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:55:35.634 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:55:45.374 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=3 starting=False focus=ops msg_chars=143
+2026-07-30 16:56:12.839 WARNING api_handlers.intake_consult: business_type_reduced_candidates=['Alternative Health Practitioner', 'Aromatherapy Service', 'Acupuncture Clinic', 'Child Care Facility', 'Chiropractic Clinic', 'College', 'Community Center', 'Dance Academy', 'Counseling Center', 'Fitness Center', 'Family Entertainment Center', 'Family Counseling Center', 'Gym', 'Health Club', 'Golf Academy', 'Internal Medicine Clinic', 'Managed Care Medical Center', 'Long-Term Care Facility', 'Massage Studio', 'Naturopathic Clinic', 'Nutrition Counseling Center', 'Pilates Studio', 'Physical Therapy Clinic', 'Pain Management Center', 'Professional School', 'Public Speaking School', 'Religious Congregation', 'Slimming Center', 'Swim Instructor', 'Sleep Disorder Center', 'Tennis Lessons', 'Therapist Office', 'Urgent Care Center', 'Yoga Studio', "Women's Haircut Salon", 'Weight Loss Center']
+2026-07-30 16:56:12.839 WARNING api_handlers.intake_consult: business_type_final_pick index=34 value='Yoga Studio'
+2026-07-30 16:56:12.861 WARNING api_handlers.intake_consult: BUSINESS TYPE CANDIDATES (ranked):
+1. Yoga Studio
+2026-07-30 16:56:12.862 WARNING api_handlers.intake_consult: business_type_persisted business_type='Yoga Studio' business_naics_6='713940'
+2026-07-30 16:56:17.746 INFO api: REQ POST /api/intake-consult -> 200 32406ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:17.813 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:25.116 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=5 starting=False focus=ops msg_chars=143
+2026-07-30 16:56:34.317 INFO api: REQ POST /api/intake-consult -> 200 9219ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:34.382 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:36.533 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=7 starting=False focus=ops msg_chars=128
+2026-07-30 16:56:44.516 INFO api: REQ POST /api/intake-consult -> 200 8016ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:44.568 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:46.457 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=9 starting=False focus=ops msg_chars=96
+2026-07-30 16:56:55.624 INFO api: REQ POST /api/intake-consult -> 200 9187ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:55.681 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:56:57.279 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=11 starting=False focus=ops msg_chars=101
+2026-07-30 16:57:06.166 INFO api: REQ POST /api/intake-consult -> 200 8906ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:06.221 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:07.966 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=13 starting=False focus=ops msg_chars=144
+2026-07-30 16:57:16.915 INFO api: REQ POST /api/intake-consult -> 200 9000ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:16.953 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:18.638 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=15 starting=False focus=ops msg_chars=68
+2026-07-30 16:57:27.377 INFO api: REQ POST /api/intake-consult -> 200 8765ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:27.439 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:28.935 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=17 starting=False focus=ops msg_chars=60
+2026-07-30 16:57:36.257 INFO api: REQ POST /api/intake-consult -> 200 7343ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:36.301 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:37.991 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=19 starting=False focus=ops msg_chars=43
+2026-07-30 16:57:45.494 INFO api: REQ POST /api/intake-consult -> 200 7531ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:45.554 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:47.920 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=21 starting=False focus=ops msg_chars=198
+2026-07-30 16:57:59.027 INFO api: REQ POST /api/intake-consult -> 200 11141ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:57:59.089 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:58:01.132 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=23 starting=False focus=ops msg_chars=173
+2026-07-30 16:58:28.458 INFO api: REQ POST /api/intake-consult -> 200 27344ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:58:28.514 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:58:30.525 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=25 starting=False focus=ops msg_chars=208
+2026-07-30 16:58:39.837 INFO api: REQ POST /api/intake-consult -> 200 9329ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:58:39.896 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:58:42.086 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=27 starting=False focus=ops msg_chars=169
+2026-07-30 16:59:01.010 INFO api: REQ POST /api/intake-consult -> 200 18953ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:01.061 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:02.717 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=29 starting=False focus=market msg_chars=143
+2026-07-30 16:59:07.154 INFO api: REQ POST /api/intake-consult -> 200 4469ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:07.206 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:09.542 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=31 starting=False focus=market msg_chars=125
+2026-07-30 16:59:14.257 INFO api: REQ POST /api/intake-consult -> 200 4734ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:14.299 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:16.205 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=33 starting=False focus=market msg_chars=184
+2026-07-30 16:59:20.549 INFO api: REQ POST /api/intake-consult -> 200 4359ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:20.609 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:22.551 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=35 starting=False focus=market msg_chars=141
+2026-07-30 16:59:27.691 INFO api: REQ POST /api/intake-consult -> 200 5156ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:27.749 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:29.801 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=37 starting=False focus=market msg_chars=148
+2026-07-30 16:59:42.687 INFO api: REQ POST /api/intake-consult -> 200 12906ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:42.740 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:45.066 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=39 starting=False focus=market msg_chars=121
+2026-07-30 16:59:58.223 INFO api: REQ POST /api/intake-consult -> 200 13187ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 16:59:58.268 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:00.439 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=41 starting=False focus=people msg_chars=328
+2026-07-30 17:00:14.880 INFO api: REQ POST /api/intake-consult -> 200 14468ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:14.938 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:17.076 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=43 starting=False focus=people msg_chars=103
+2026-07-30 17:00:29.532 INFO api: REQ POST /api/intake-consult -> 200 12485ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:29.592 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:31.807 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=45 starting=False focus=people msg_chars=196
+2026-07-30 17:00:45.933 INFO api: REQ POST /api/intake-consult -> 200 14156ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:45.988 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:00:48.542 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=47 starting=False focus=people msg_chars=65
+2026-07-30 17:01:18.498 INFO api: REQ POST /api/intake-consult -> 200 29984ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:18.550 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:20.864 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=49 starting=False focus=people msg_chars=215
+2026-07-30 17:01:28.437 INFO api: REQ POST /api/intake-consult -> 200 7594ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:28.497 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:31.397 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=51 starting=False focus=people msg_chars=54
+2026-07-30 17:01:34.169 INFO api: REQ POST /api/intake-consult -> 200 2828ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:34.221 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:36.066 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=53 starting=False focus=financials msg_chars=48
+2026-07-30 17:01:38.488 INFO api: REQ POST /api/intake-consult -> 200 2438ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:38.546 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:01:41.083 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=55 starting=False focus=financials msg_chars=115
+2026-07-30 17:02:00.776 INFO api: REQ POST /api/intake-consult -> 200 19719ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:00.828 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:02.576 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=57 starting=False focus=financials msg_chars=116
+2026-07-30 17:02:04.997 INFO api: REQ POST /api/intake-consult -> 200 2453ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:05.057 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:07.089 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=59 starting=False focus=financials msg_chars=23
+2026-07-30 17:02:11.564 INFO api: REQ POST /api/intake-consult -> 200 4500ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:11.621 INFO api: REQ GET /api/intake-consult/draft -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:13.769 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=61 starting=False focus=financials msg_chars=4
+2026-07-30 17:02:16.223 INFO api: REQ POST /api/intake-consult -> 200 2484ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:16.262 INFO api: REQ GET /api/intake-consult/draft -> 200 16ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:21.906 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=63 starting=False focus=financials msg_chars=4
+2026-07-30 17:02:24.547 INFO api: REQ POST /api/intake-consult -> 200 2672ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:24.594 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:26.502 INFO api: TURN_BEGIN draft=e7c4de7f5ae748a4b5d9240b58d8ba87 turn=65 starting=False focus=financials msg_chars=4
+2026-07-30 17:02:26.587 INFO api: REQ POST /api/intake-consult -> 200 94ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:02:26.625 INFO api: REQ GET /api/intake-consult/draft -> 200 15ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87
+2026-07-30 17:03:57.508 INFO api: REQ POST /api/issues -> 200 31ms draft=e7c4de7f5ae748a4b5d9240b58d8ba87

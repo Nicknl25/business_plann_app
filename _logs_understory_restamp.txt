@@ -1,0 +1,111 @@
+
+=== Scenario: Understory_Mushroom (baseline=blank_business) ===
+  Applied 115 row(s) from sheet (100 edits vs baseline).
+    - draft.business_name: 'New Business' -> 'Understory Mushroom Co.'
+    - draft.business_address: '100 Main St, Springfield, IL 62701, USA' -> '2915 Bellevue St, Detroit, MI 48207, USA'
+    - draft.address_street: '100 Main St' -> '2915 Bellevue St'
+    - draft.address_city: 'Springfield' -> 'Detroit'
+    - draft.address_state: 'IL' -> 'MI'
+    - draft.address_zip: '62701' -> '48207'
+    - draft.business_start_date: '01/01/2024' -> '06/01/2024'
+    - operating_model_json.business_type: '<your business type>' -> 'Urban gourmet mushroom farm'
+    - operating_model_json.business_description_summary: '<one-line description of what you sell>' -> "Early-stage urban mushroom farm growing oyster, lion's mane, and shiitake in a climate-controlled Detroit warehouse. Sells fresh mushrooms by the pound to restaurants and at farmers markets, and sells grow-your-own kits, dried mushrooms, and lion's mane extract direct to consumers. Still ramping utilization and currently operating at a loss while it builds accounts and raises capital."
+    - operating_model_json.competitive_advantage: '<why you win>' -> 'A founder who is both a skilled cultivator and a former line cook, giving the farm direct chef relationships and a fresher, more reliable local supply than distributors, plus a value-added retail line (kits and extracts) that turns the same harvest into higher-margin consumer products.'
+    - operating_model_json.geographic_coverage: '<your market area>' -> 'Detroit metro restaurants and farmers markets; retail kits and extracts shipped regionally'
+    - operating_model_json.primary_growth_lever: '<main growth lever>' -> 'capacity_ramp_and_new_accounts'
+    - operating_model_json.capacity_driver: 'labor' -> 'facility'
+    - operating_model_json.business_naics_6: '000000' -> '111411'
+    - operating_model_json.unit_name: None -> 'pound of fresh mushrooms'
+    - operating_model_json.unit_price: None -> 12.0
+    - operating_model_json.units_per_week_capacity: None -> 692.8
+    - operating_model_json.units_per_period_capacity: None -> 3000.0
+    - operating_model_json.utilization_rate: None -> 0.55
+    - operating_model_json.initial_assets: 100000 -> 45000
+    - operating_model_json.initial_equity: 80000 -> 0
+    - operating_model_json.total_debt_outstanding: 0 -> 45000
+    - operating_model_json.lob_models[0].lob_name: 'Line of business A' -> 'Fresh Gourmet Mushrooms'
+    - operating_model_json.lob_models[0].products[0].product_name: 'Product / service A' -> 'Fresh Mushrooms'
+    - operating_model_json.lob_models[0].products[0].unit_name: 'Product / service A' -> 'pound of fresh mushrooms'
+    - operating_model_json.lob_models[0].products[0].unit_description: 'Product / service A' -> "one pound of fresh gourmet mushrooms (oyster, lion's mane, or shiitake) sold to a restaurant or at a farmers market"
+    - operating_model_json.lob_models[0].products[0].units_per_week_capacity: 200.0 -> 692.8
+    - operating_model_json.lob_models[0].products[0].units_per_period_capacity: 2400.0 -> 3000.0
+    - operating_model_json.lob_models[0].products[0].utilization_rate: 0.6 -> 0.55
+    - operating_model_json.lob_models[0].products[0].unit_price: 100.0 -> 12.0
+    - operating_model_json.lob_models[1].lob_name: None -> 'Retail Kits & Value-Added'
+    - operating_model_json.lob_models[1].products[0].product_name: None -> 'Grow Kit / Dried & Extract'
+    - operating_model_json.lob_models[1].products[0].unit_name: None -> 'retail unit'
+    - operating_model_json.lob_models[1].products[0].unit_description: None -> "one grow-your-own kit or value-added product (dried mushrooms or lion's mane extract) sold direct to consumers"
+    - operating_model_json.lob_models[1].products[0].unit_cadence: None -> 'monthly'
+    - operating_model_json.lob_models[1].products[0].units_per_week_capacity: None -> 92.4
+    - operating_model_json.lob_models[1].products[0].units_per_period_capacity: None -> 400.0
+    - operating_model_json.lob_models[1].products[0].operating_periods_per_year: None -> 12.0
+    - operating_model_json.lob_models[1].products[0].utilization_rate: None -> 0.45
+    - operating_model_json.lob_models[1].products[0].unit_price: None -> 28.0
+    - operating_model_json.shipping_method: 'none' -> 'local delivery to restaurants, farmers-market pickup, and parcel for retail kits and extracts'
+    - operating_model_json.sales_modality: 'in_person' -> 'physical'
+    - operating_model_json.confidence: 0.7 -> 0.78
+    - target_market_json.marketing_plan_summary: '<how you reach customers>' -> "Chef-direct outreach and samples to independent restaurants, a weekend farmers-market stall for fresh sales and brand-building, and Instagram/TikTok grow content driving DTC kit and extract sales through a simple online store. Lion's mane extract is positioned to the functional-wellness audience."
+    - people_json.business_naics_6: '000000' -> '111411'
+    - people_json.confidence: 0.7 -> 0.78
+    - people_json.inferred_roles_summary: '' -> 'Four-person startup on lean pay: a founder-grower (no owner capital, below-market salary), two grow technicians, and a part-time market/sales lead.'
+    - people_json.people[0].full_name: '<founder name>' -> 'Mara Ellison'
+    - people_json.people[0].role_title: 'Owner / Operator' -> 'Founder / Head Grower'
+    - people_json.people[0].primary_responsibilities: '<what they do day to day>' -> 'Runs cultivation across all species, dials in substrate and fruiting conditions, sells to chefs, and runs the business - on a minimal founder salary while bootstrapping.'
+    - people_json.people[0].relevant_background: '<relevant experience>' -> '6 years in specialty mushroom cultivation and 3 years line-cooking that built the chef relationships.'
+    - people_json.people[0].experience_years: '5' -> '6'
+    - people_json.people[0].why_strengthens_business: '<why they make this business work>' -> 'Founder-grower whose cultivation skill and chef network are the entire early business; she took no owner capital and works for a below-market wage.'
+    - people_json.people[0].paragraph: '<short bio>' -> 'Mara grows the mushrooms, sells the chefs, and runs everything else.'
+    - people_json.people[0].annual_wage: 60000.0 -> 42000.0
+    - people_json.people[1].full_name: None -> 'Devon Marsh'
+    - people_json.people[1].role_title: None -> 'Grow Technician'
+    - people_json.people[1].primary_responsibilities: None -> 'Inoculation, substrate prep, fruiting-room management, harvesting, and packing.'
+    - people_json.people[1].relevant_background: None -> '4 years in indoor agriculture.'
+    - people_json.people[1].experience_years: None -> 4.0
+    - people_json.people[1].why_strengthens_business: None -> 'Consistent yields and clean rooms are what keep restaurant accounts; Devon protects both.'
+    - people_json.people[1].paragraph: None -> 'Devon keeps the grow rooms producing and contamination-free.'
+    - people_json.people[1].annual_wage: None -> 36000.0
+    - people_json.people[1].wage_source: None -> 'client_override'
+    - people_json.people[1].months_until_hire: None -> 0.0
+    - people_json.people[2].full_name: None -> 'Priya Sen'
+    - people_json.people[2].role_title: None -> 'Grow Technician'
+    - people_json.people[2].primary_responsibilities: None -> 'Harvesting, packing, value-added processing (drying, extracts), and deliveries.'
+    - people_json.people[2].relevant_background: None -> '3 years in food production.'
+    - people_json.people[2].experience_years: None -> 3.0
+    - people_json.people[2].why_strengthens_business: None -> 'Turns fresh yield into higher-margin dried and extract products.'
+    - people_json.people[2].paragraph: None -> 'Priya runs harvest, processing, and the value-added line.'
+    - people_json.people[2].annual_wage: None -> 34000.0
+    - people_json.people[2].wage_source: None -> 'client_override'
+    - people_json.people[2].months_until_hire: None -> 0.0
+    - people_json.people[3].full_name: None -> 'Cole Barnes'
+    - people_json.people[3].role_title: None -> 'Market & Sales Lead (part-time)'
+    - people_json.people[3].primary_responsibilities: None -> 'Runs the farmers-market stall, DTC kit sales, social media, and new-restaurant outreach.'
+    - people_json.people[3].relevant_background: None -> '3 years in farmers-market and small-brand retail.'
+    - people_json.people[3].experience_years: None -> 3.0
+    - people_json.people[3].why_strengthens_business: None -> 'Builds the consumer brand and pipeline of new accounts that the raise is meant to fund.'
+    - people_json.people[3].paragraph: None -> 'Cole builds the brand and brings in new accounts.'
+    - people_json.people[3].annual_wage: None -> 18000.0
+    - people_json.people[3].wage_source: None -> 'client_override'
+    - people_json.people[3].months_until_hire: None -> 0.0
+    - financials_json.cogs_percent_of_revenue: 0.3 -> 0.35
+    - financials_json.payroll_total_year1: 60000 -> 130000
+    - financials_json.current_revenue: 300000 -> 298080
+    - financials_json.cash_on_hand: 50000 -> 8000
+    - financials_json.initial_assets: 100000 -> 45000
+    - financials_json.initial_equity: 80000 -> 0
+    - financials_json.total_debt_outstanding: 0 -> 45000
+    - financials_json.other_operating_expense: 24000 -> 55000
+    - financials_json.marketing_total_year1: 15000 -> 18000
+    - financials_json.monthly_rent_expense: 2000 -> 6500
+    - financials_json.current_capex: 5000 -> 12000
+    - financials_json.current_cogs: 90000 -> 104328
+    - financials_json.current_payroll: 60000 -> 130000
+    - financials_json.current_num_employees: 3 -> 4
+    - financials_json.funding_preference: None -> 'equity'
+  Draft 8bc7c339c9e24689861d62c75f3109bf written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  System run complete.
+  Duration: 2095492 ms
+  Workbook: C:\dev\Cilient Plans\Understory Mushroom Co. -- 07-17-2026 05-33-26.xlsx
+
+=== Summary ===
+  Understory_Mushroom          system_run_complete draft=8bc7c339c9e24689861d62c75f3109bf workbook=C:\dev\Cilient Plans\Understory Mushroom Co. -- 07-17-2026 05-33-26.xlsx

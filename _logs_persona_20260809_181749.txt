@@ -1,0 +1,5 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-09 18:17:50.356 INFO api: REQ GET /api/business-types -> 200 172ms draft=-
+2026-08-09 18:17:53.573 INFO api: TURN_BEGIN draft=4aa25e243a9d430f80c482d32052f2a9 turn=129 starting=False focus=done msg_chars=53
+2026-08-09 18:18:02.323 INFO api: REQ POST /api/intake-consult -> 200 9344ms draft=4aa25e243a9d430f80c482d32052f2a9

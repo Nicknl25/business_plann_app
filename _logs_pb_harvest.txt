@@ -1,0 +1,125 @@
+
+=== Scenario: Harvest_Lane_Market (baseline=blank_business) ===
+  Applied 128 row(s) from sheet (114 edits vs baseline).
+    - draft.business_name: 'New Business' -> 'Harvest Lane Market, LLC'
+    - draft.business_address: '100 Main St, Springfield, IL 62701, USA' -> '3400 State St, Boise, ID 83703, USA'
+    - draft.address_street: '100 Main St' -> '3400 State St'
+    - draft.address_city: 'Springfield' -> 'Boise'
+    - draft.address_state: 'IL' -> 'ID'
+    - draft.address_zip: '62701' -> '83703'
+    - draft.business_start_date: '01/01/2024' -> '05/01/2012'
+    - operating_model_json.business_type: '<your business type>' -> 'Independent full-service grocery store / supermarket'
+    - operating_model_json.business_description_summary: '<one-line description of what you sell>' -> 'Medium-size independent full-service supermarket of about 20,000 square feet serving a Boise neighborhood. Carries grocery, produce, meat, deli/prepared foods, dairy, and frozen, ringing roughly 1,080 customer transactions a day at an average basket near $38. Owner-operated with about 70 mostly part-time staff across departments.'
+    - operating_model_json.competitive_advantage: '<why you win>' -> 'A well-run fresh program (produce, meat, and deli) and neighborhood service that a full-line independent can deliver better than big-box competitors, combined with disciplined buying and shrink control that protect thin grocery margins.'
+    - operating_model_json.geographic_coverage: '<your market area>' -> 'North and west Boise neighborhoods within a few miles of the store'
+    - operating_model_json.primary_growth_lever: '<main growth lever>' -> 'basket_and_traffic'
+    - operating_model_json.capacity_driver: 'labor' -> 'facility'
+    - operating_model_json.business_naics_6: '000000' -> '445110'
+    - operating_model_json.unit_name: None -> 'customer transaction'
+    - operating_model_json.unit_price: None -> 38.0
+    - operating_model_json.units_per_week_capacity: None -> 9699.8
+    - operating_model_json.units_per_period_capacity: None -> 42000.0
+    - operating_model_json.utilization_rate: None -> 0.78
+    - operating_model_json.initial_assets: 100000 -> 3600000
+    - operating_model_json.initial_equity: 80000 -> 1600000
+    - operating_model_json.initial_lease: 0 -> '2800000,one-time'
+    - operating_model_json.total_debt_outstanding: 0 -> 2000000
+    - operating_model_json.lob_models[0].lob_name: 'Line of business A' -> 'Grocery Retail'
+    - operating_model_json.lob_models[0].products[0].product_name: 'Product / service A' -> 'Customer Transaction'
+    - operating_model_json.lob_models[0].products[0].unit_name: 'Product / service A' -> 'customer transaction'
+    - operating_model_json.lob_models[0].products[0].unit_description: 'Product / service A' -> 'one customer checkout transaction (a basket of grocery, produce, meat, deli, dairy, and frozen items)'
+    - operating_model_json.lob_models[0].products[0].units_per_week_capacity: 200.0 -> 9699.8
+    - operating_model_json.lob_models[0].products[0].units_per_period_capacity: 2400.0 -> 42000.0
+    - operating_model_json.lob_models[0].products[0].utilization_rate: 0.6 -> 0.78
+    - operating_model_json.lob_models[0].products[0].unit_price: 100.0 -> 38.0
+    - operating_model_json.shipping_method: 'none' -> 'none - in-store checkout and carryout'
+    - operating_model_json.legal_entity: 'LLC' -> 'S-Corp'
+    - operating_model_json.confidence: 0.7 -> 0.84
+    - target_market_json.marketing_plan_summary: '<how you reach customers>' -> 'Weekly print and digital circulars, a loyalty/rewards program, and social posts highlighting fresh and local products, supported by strong on-corridor visibility. Community sponsorships and in-store events build the neighborhood-store relationship that keeps regulars shopping the full basket.'
+    - target_market_json.confidence: 0.7 -> 0.75
+    - people_json.business_naics_6: '000000' -> '445110'
+    - people_json.confidence: 0.7 -> 0.82
+    - people_json.inferred_roles_summary: '' -> 'Owner-operator over a ~70-person, mostly part-time workforce; a management layer of store, grocery, perishables, front-end, and receiving managers runs the departments.'
+    - people_json.people[0].full_name: '<founder name>' -> 'Frank Delgado'
+    - people_json.people[0].role_title: 'Owner / Operator' -> 'Owner / Store Operator'
+    - people_json.people[0].primary_responsibilities: '<what they do day to day>' -> 'Owns and runs the store: buying, pricing, vendor and lease relationships, staffing, and the P&L.'
+    - people_json.people[0].relevant_background: '<relevant experience>' -> '24 years in independent grocery retail.'
+    - people_json.people[0].experience_years: '5' -> '24'
+    - people_json.people[0].why_strengthens_business: '<why they make this business work>' -> "Owner-operator whose buying and merchandising set the store's margins."
+    - people_json.people[0].paragraph: '<short bio>' -> 'Frank owns the store and runs it day to day.'
+    - people_json.people[0].annual_wage: 60000.0 -> 110000.0
+    - people_json.people[1].full_name: None -> 'Sandra Choi'
+    - people_json.people[1].role_title: None -> 'Store Manager'
+    - people_json.people[1].primary_responsibilities: None -> 'Daily store operations, department coordination, scheduling, and customer experience.'
+    - people_json.people[1].relevant_background: None -> '15 years in supermarket management.'
+    - people_json.people[1].experience_years: None -> 15.0
+    - people_json.people[1].why_strengthens_business: None -> 'Keeps a 70-person, multi-department operation running smoothly.'
+    - people_json.people[1].paragraph: None -> 'Sandra runs the floor across every department.'
+    - people_json.people[1].annual_wage: None -> 72000.0
+    - people_json.people[1].wage_source: None -> 'client_override'
+    - people_json.people[1].months_until_hire: None -> 0.0
+    - people_json.people[2].full_name: None -> 'Miguel Ramos'
+    - people_json.people[2].role_title: None -> 'Grocery / Assistant Manager'
+    - people_json.people[2].primary_responsibilities: None -> 'Center-store grocery ordering, inventory, shrink control, and resets.'
+    - people_json.people[2].relevant_background: None -> '12 years in grocery operations.'
+    - people_json.people[2].experience_years: None -> 12.0
+    - people_json.people[2].why_strengthens_business: None -> 'Center-store inventory and shrink discipline protect thin margins.'
+    - people_json.people[2].paragraph: None -> 'Miguel controls grocery inventory and shrink.'
+    - people_json.people[2].annual_wage: None -> 58000.0
+    - people_json.people[2].wage_source: None -> 'client_override'
+    - people_json.people[2].months_until_hire: None -> 0.0
+    - people_json.people[3].full_name: None -> 'Angela Pierce'
+    - people_json.people[3].role_title: None -> 'Perishables & Deli Manager'
+    - people_json.people[3].primary_responsibilities: None -> 'Produce, meat, and deli/prepared-foods buying, quality, and food safety.'
+    - people_json.people[3].relevant_background: None -> '13 years in fresh/perishable departments.'
+    - people_json.people[3].experience_years: None -> 13.0
+    - people_json.people[3].why_strengthens_business: None -> "Fresh departments drive both traffic and the store's best margins."
+    - people_json.people[3].paragraph: None -> 'Angela runs the high-margin fresh departments.'
+    - people_json.people[3].annual_wage: None -> 52000.0
+    - people_json.people[3].wage_source: None -> 'client_override'
+    - people_json.people[3].months_until_hire: None -> 0.0
+    - people_json.people[4].full_name: None -> 'Devin Brooks'
+    - people_json.people[4].role_title: None -> 'Front-End Supervisor'
+    - people_json.people[4].primary_responsibilities: None -> 'Cashiers, checkout flow, cash handling, and front-end scheduling.'
+    - people_json.people[4].relevant_background: None -> '9 years in front-end supermarket operations.'
+    - people_json.people[4].experience_years: None -> 9.0
+    - people_json.people[4].why_strengthens_business: None -> 'Front-end throughput and accuracy protect customer experience and cash.'
+    - people_json.people[4].paragraph: None -> 'Devin runs the checkouts and the cashier team.'
+    - people_json.people[4].annual_wage: None -> 44000.0
+    - people_json.people[4].wage_source: None -> 'client_override'
+    - people_json.people[4].months_until_hire: None -> 0.0
+    - people_json.people[5].full_name: None -> 'Rosa Nunez'
+    - people_json.people[5].role_title: None -> 'Receiving & Inventory Manager'
+    - people_json.people[5].primary_responsibilities: None -> 'Receiving, vendor deliveries, backroom inventory, and DSD reconciliation.'
+    - people_json.people[5].relevant_background: None -> '11 years in grocery receiving/inventory.'
+    - people_json.people[5].experience_years: None -> 11.0
+    - people_json.people[5].why_strengthens_business: None -> 'Accurate receiving and inventory keep shelves full and shrink low.'
+    - people_json.people[5].paragraph: None -> 'Rosa manages everything coming in the back door.'
+    - people_json.people[5].annual_wage: None -> 46000.0
+    - people_json.people[5].wage_source: None -> 'client_override'
+    - people_json.people[5].months_until_hire: None -> 0.0
+    - financials_json.cogs_percent_of_revenue: 0.3 -> 0.74
+    - financials_json.payroll_total_year1: 60000 -> 1650000
+    - financials_json.current_revenue: 300000 -> 14938560
+    - financials_json.cash_on_hand: 50000 -> 400000
+    - financials_json.initial_assets: 100000 -> 3600000
+    - financials_json.initial_equity: 80000 -> 1600000
+    - financials_json.initial_lease: '0,none' -> '2800000,one-time'
+    - financials_json.total_debt_outstanding: 0 -> 2000000
+    - financials_json.other_operating_expense: 24000 -> 1100000
+    - financials_json.marketing_total_year1: 15000 -> 180000
+    - financials_json.monthly_rent_expense: 2000 -> 30000
+    - financials_json.current_capex: 5000 -> 300000
+    - financials_json.current_cogs: 90000 -> 11054534
+    - financials_json.current_payroll: 60000 -> 1650000
+    - financials_json.current_num_employees: 3 -> 70
+    - financials_json.funding_preference: None -> 'both'
+    - financials_json.funding_split_debt_share: None -> 0.5
+  Draft 9408bd78c98f4d03bd6ef15216849b0f written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  System run complete.
+  Duration: 263385 ms
+  Workbook: C:\dev\Cilient Plans\Harvest Lane Market LLC -- 07-22-2026 09-38-36.xlsx
+
+=== Summary ===
+  Harvest_Lane_Market          system_run_complete draft=9408bd78c98f4d03bd6ef15216849b0f workbook=C:\dev\Cilient Plans\Harvest Lane Market LLC -- 07-22-2026 09-38-36.xlsx

@@ -1,0 +1,31 @@
+baseline: ALL CLEAN
+
+[RED, RIGHT REASON] B1 the per-line transport keys consumed at the correction door
+    turns red: ['1a transport key not stored', '1d the group transport key not stored']
+[RED, RIGHT REASON] B3 the N>=3 floor under the value-equality net
+    turns red: ['2a N=2 coincidence mints NO group', '2b the receipt does not claim a collapse']
+[RED, RIGHT REASON] B4 POST-WRITE state (back to the one-patch condition)
+    turns red: ['2h the second message completes the collapse (POST-WRITE state)']
+[RED, RIGHT REASON] B5 the DECLARED provenance stamp
+    turns red: ['2i a DECLARED all-lines collapse is recorded as declared']
+[RED, RIGHT REASON] B6 the INFERRED provenance stamp
+    turns red: ['2d the stored group names its own authority', "2f the assertion passes it WITHOUT calling it the client's own"]
+[RED, RIGHT REASON] B7 the receipt sentence that makes the inference correctable
+    turns red: ['2e the receipt names the inference as an inference']
+[RED, RIGHT REASON] B8 the verdict naming WHOSE collapse it read
+    turns red: ["2f the assertion passes it WITHOUT calling it the client's own"]
+[RED, RIGHT REASON] B9 the stage blend's refusal (back to _normalize_ratio_like's rescaling)
+    turns red: ['3c stage - a non-fraction is REFUSED, never rescaled']
+[RED, RIGHT REASON] B10 the correction blend's refusal (back to storing it raw)
+    turns red: ['3g correction path REFUSES a non-fraction and asks', '3h the blend question does not borrow the per-line wording']
+[RED, RIGHT REASON] B11 the per-line transport keys kept out of the say-do dropped list
+    turns red: ['3k a transport key is never reported as an unapplied field']
+[RED, RIGHT REASON] B12 the blend refusal's own wording
+    turns red: ['3h the blend question does not borrow the per-line wording']
+
+restored; git status of the ablated files:
+  M python/api_handlers/intake_consult.py
+ M python/client_intake_and_finmo/issue_registry.py
+post-ablation re-run: ALL CLEAN
+
+EVERY FIX IS LOAD-BEARING -- each one, removed alone, turns its own checks red

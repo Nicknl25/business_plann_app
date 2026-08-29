@@ -1,0 +1,15 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-15 14:44:11.563 INFO api: REQ GET /api/business-types -> 200 172ms draft=-
+2026-08-15 14:44:20.525 INFO api: TURN_BEGIN draft=sdthin9b54cbec6d024205afdb57a285 turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 14:45:15.111 INFO api: REQ POST /api/intake-consult -> 200 55094ms draft=sdthin9b54cbec6d024205afdb57a285
+2026-08-15 14:45:15.573 INFO api: TURN_BEGIN draft=sdrichd054d7842acb4fb38ea755534a turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 14:46:03.908 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['Bulk mulch and soil delivery fees', 'Event and workshop fees'] dropped=['Holiday greenery and seasonal decor sales', 'Bagged fertilizer and chemical sales', 'Pottery and outdoor decor sales', 'Gift card sales', 'Wholesale plant sales to landscapers and institutions', 'Container planting and maintenance services', 'Snow removal services']
+2026-08-15 14:46:04.144 INFO api: REQ POST /api/intake-consult -> 200 48625ms draft=sdrichd054d7842acb4fb38ea755534a
+2026-08-15 14:46:04.242 INFO api: TURN_BEGIN draft=sdrichd054d7842acb4fb38ea755534a turn=33 starting=False focus=ops msg_chars=68
+2026-08-15 14:46:04.491 INFO api_handlers.intake_consult: STREAM_DISCOVERY answered yes=['Bulk mulch and soil delivery fees'] no=[] unclear=['Event and workshop fees']
+2026-08-15 14:46:24.708 INFO api: REQ POST /api/intake-consult -> 200 20531ms draft=sdrichd054d7842acb4fb38ea755534a
+2026-08-15 14:46:24.843 INFO api: TURN_BEGIN draft=sdrichd054d7842acb4fb38ea755534a turn=35 starting=False focus=ops msg_chars=70
+2026-08-15 14:46:45.243 INFO api: REQ POST /api/intake-consult -> 200 20484ms draft=sdrichd054d7842acb4fb38ea755534a
+2026-08-15 14:46:45.344 INFO api: TURN_BEGIN draft=sdrichd054d7842acb4fb38ea755534a turn=37 starting=False focus=ops msg_chars=70
+2026-08-15 14:47:06.003 INFO api: REQ POST /api/intake-consult -> 200 20719ms draft=sdrichd054d7842acb4fb38ea755534a

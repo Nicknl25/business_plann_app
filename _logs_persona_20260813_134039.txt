@@ -1,0 +1,13 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-13 13:40:41.166 INFO api: REQ GET /api/business-types -> 200 203ms draft=-
+2026-08-13 13:40:41.465 INFO api: REQ GET /api/shared-context -> 200 250ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:40:48.330 INFO api: TURN_BEGIN draft=a110c1f224d7dc6e4fca9f52eeba4dcd turn=115 starting=False focus=done msg_chars=304
+2026-08-13 13:40:48.932 INFO api: TURN_INTENT draft=a110c1f224d7dc6e4fca9f52eeba4dcd action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Plant/nursery sales', 'cogs_percent': 0.48}, {'line_name': 'Hard goods & materials', 'cogs_percent': 0.71}, {'line_name': 'Landscaping & installation', 'cogs_percent': 0.19}, {'line_name': 'Garden design consultations', 'cogs_percent': 0.04}]}
+2026-08-13 13:41:41.421 INFO api: REQ GET /api/shared-context -> 200 172ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:41:46.226 INFO api: REQ POST /api/intake-consult -> 200 58594ms draft=a110c1f224d7dc6e4fca9f52eeba4dcd
+2026-08-13 13:41:46.275 INFO api: TURN_BEGIN draft=a110c1f224d7dc6e4fca9f52eeba4dcd turn=117 starting=False focus=done msg_chars=126
+2026-08-13 13:41:49.877 INFO api: TURN_INTENT draft=a110c1f224d7dc6e4fca9f52eeba4dcd action=edit_patch patch={'financials.cogs_shared_structure_groups': [['Plant/nursery sales', 'Hard goods & materials']]}
+2026-08-13 13:42:29.285 INFO api: REQ POST /api/intake-consult -> 200 43031ms draft=a110c1f224d7dc6e4fca9f52eeba4dcd
+2026-08-13 13:42:41.436 INFO api: REQ GET /api/shared-context -> 200 203ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:43:41.535 INFO api: REQ GET /api/shared-context -> 200 297ms draft=1070c6a560a04f3d971019a3787180bf

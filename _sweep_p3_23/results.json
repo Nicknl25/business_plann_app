@@ -1,0 +1,992 @@
+{
+  "sweep_started_at": "2026-05-18T14:06:06+00:00",
+  "drafts": {
+    "25f746500d1d456da638ee216669b78e": {
+      "source_draft_id": "25f746500d1d456da638ee216669b78e",
+      "start_iso": "2026-05-18T14:06:06+00:00",
+      "end_iso": "2026-05-18T14:12:58+00:00",
+      "wall_clock_sec": 411.84,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "new_draft_id": "a2585b3f5402425abc6c5eea8e046c16",
+        "new_client_id": "-%VASABGX80699272145",
+        "source_draft_id": "25f746500d1d456da638ee216669b78e",
+        "source_client_id": "&@YPBSCIN65757163111",
+        "business_name": "Anderson & Blake Legal Associates",
+        "runner_error_lines": [
+          "ERROR: POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'acceptance_verdict': {'checked_at': '2026-05-18T14:12:41.589119+00:00', 'checks': [{'detail': {'current_stage': 'post_intake_finalize_validation_completed', 'expected_stage': 'post_intake_finalize_validation_completed'}, 'name': 'stage_reached_finalize', 'passed': True}, {'detail': {'cascade_landed_tier': 0}, 'name': 'cascade_landed_tier_set', 'passed': True}, {'detail': {'plan_confidence': 'high_no_adaptation'}, 'name': 'plan_confidence_recorded', 'passed': True}, {'detail': {'band_sources_seen': ['phase_3_calibrated', 'phase_3_calibrated_with_planning_mode_floor', 'universal_viability_doctrine'], 'result_count': 504, 'rows_with_band_source_provenance': 504}, 'name': 'realism_gate_provenance_recorded', 'passed': True}, {'detail': {'hard_fail_violations': [{'actual_value': 0.2930307754686711, 'band_source': 'phase_3_calibrated', 'effective_max': 1.167862, 'effective_min': 0.320145, 'metric_key': 'current_assets_minus_cash', 'quarter_index': 1}, {'actual_value': 0.030464167268199147, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 1}, {'actual_value': 0.23893817244697726, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 2}, {'actual_value': 0.22725339098744013, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 3}, {'actual_value': 0.21441684898161387, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 4}, {'actual_value': 0.20666096485451652, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 5}, {'actual_value': 0.20115401743686578, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 6}, {'actual_value': 0.22233920505164587, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 7}, {'actual_value': 0.27142770353071816, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 8}, {'actual_value': 0.39039868187079146, 'band_source': 'phase_3_calibrated', 'effective_max': 1.933481, 'effective_min': 0.39262199999999997, 'metric_key': 'current_liabilities_to_revenue', 'quarter_index': 9}]}, 'name': 'realism_gate_no_hard_fail_violations', 'passed': False}, {'detail': {'solver_target_assertion_checked': True, 'solver_target_assertion_reason': None, 'solver_target_assertion_status': 'ok', 'solver_target_checked_metric_count': 33}, 'name': 'solver_target_assertion_checked', 'passed': True}, {'detail': {'solver_target_hard_violations': [], 'solver_target_total_violations': 0}, 'name': 'solver_target_assertion_no_hard_violations', 'passed': True}, {'detail': {'mean': 473779.73, 'q10_over_q1_delta': 1.10164, 'q10_over_q1_delta_threshold': 0.05, 'stdev': 106365.02, 'stdev_over_mean': 0.224503, 'stdev_over_mean_threshold': 0.02, 'values_q1_q10': [283808.448, 319349.001403, 383841.512978, 439985.50523, 488861.689338, 531410.878908, 552957.043039, 557062.625908, 584057.294398, 596463.293163]}, 'name': 'revenue_not_flat_q1_q10', 'passed': True}, {'detail': {'negative_cash_with_no_interest_quarters': [], 'per_quarter_summary': [{'cash': 167269.785148, 'interest': 0.0, 'q': 1}, {'cash': 180153.14032, 'interest': 0.0, 'q': 2}, {'cash': 203658.160457, 'interest': 0.0, 'q': 3}, {'cash': 223964.182594, 'interest': 0.0, 'q': 4}, {'cash': 243159.477364, 'interest': 0.0, 'q': 5}, {'cash': 258273.032961, 'interest': 0.0, 'q': 6}, {'cash': 276794.855455, 'interest': 0.0, 'q': 7}, {'cash': 321636.623629, 'interest': 0.0, 'q': 8}, {'cash': 370101.565721, 'interest': 0.0, 'q': 9}, {'cash': 375342.473644, 'interest': 0.0, 'q': 10}]}, 'name': 'cash_legitimate_q1_q10', 'passed': True}, {'detail': {'non_positive_current_assets_quarters': []}, 'name': 'current_assets_positive_q1_q10', 'passed': True}, {'detail': {'min_required_delta': 0.02, 'min_required_q11_margin': 0.0, 'q11_ni_margin': 0.0496, 'q5_ni_margin': 0.0041, 'q5_to_q11_delta': 0.0456}, 'name': 'net_income_trajectory_viable', 'passed': True}, {'detail': {'interest_revenue_ratio': 0.0, 'q11_interest': 0.0, 'q11_revenue': 609202.72, 'threshold': 0.05}, 'name': 'cash_health_operational_not_debt_funded', 'passed': True}, {'detail': {'band_source_distinct_count': 3, 'cascade_landed_tier': 0, 'phase_3_calibrated_bands_present': True, 'tier_attempts_recorded': 0}, 'name': 'cascade_exercised_or_documented', 'passed': True}, {'detail': {'calibrated_band_metric_count': 498, 'examples_calibrated': ['advertising_percent_of_revenue', 'advertising_percent_of_revenue', 'advertising_percent_of_revenue', 'advertising_percent_of_revenue', 'advertising_percent_of_revenue'], 'naics_baseline_only_metric_count': 0}, 'name': 'phase_3_calibrated_bands_consulted', 'passed': True}, {'detail': {'q20_ar_to_quarter_opex': 0.78, 'q20_cash_to_quarter_opex': 1.08, 'q20_inventory_to_quarter_opex': 0.4, 'threshold': 5.0}, 'name': 'balance_sheet_growth_plausible', 'passed': True}, {'detail': {'expected_metric_count': 6, 'viability_timeline_metrics_failed': [], 'viability_timeline_metrics_found': ['ebitda_margin_q20_holds_or_improves_vs_q11', 'ebitda_positive_by_q11', 'ebitda_recovery_trend_q5_q11', 'fixed_cost_burden_reduced_or_scaled_by_q11', 'gross_margin_supports_ebitda_recovery', 'loss_window_funded_through_q5'], 'viability_timeline_metrics_missing': []}, 'name': 'viability_timeline_landed', 'passed': True}], 'draft_id': 'a2585b3f5402425abc6c5eea8e046c16', 'failed_checks': ['realism_gate_no_hard_fail_violations'], 'field_snapshot': {'cascade_landed_tier': 0, 'current_stage': 'post_intake_finalize_validation_completed', 'draft_id': 'a2585b3f5402425abc6c5eea8e046c16', 'finmo_quarter_row_count': 21, 'plan_confidence': 'high_no_adaptation', 'planning_run_id': '65d5e7c086ec4798847a7f96c4832214', 'planning_run_json_present': True, 'realism_memo_present': True, 'run_status': 'completed'}, 'gate_version': 'phase_9_g_v1', 'passed': False, 'planning_run_id': '65d5e7c086ec4798847a7f96c4832214'}, 'auto_email': {'attached': ['C:\\\\dev\\\\Cilient Plans\\\\Anderson Blake Legal Associates -- 05-18-2026 10-12-42.xlsx'], 'recipient': 'ignatius.henry@tithefinancial.com', 'sent': True, 'skipped': []}, 'client_workbook_path': 'C:\\\\dev\\\\Cilient Plans\\\\Anderson Blake Legal Associates -- 05-18-2026 10-12-42.xlsx', 'detail': 'run_did_not_meet_acceptance_criteria', 'draft_id': 'a2585b3f5402425abc6c5eea8e046c16', 'error': 'acceptance_gate_failed', 'planning_run_id': '65d5e7c086ec4798847a7f96c4832214', 'run_diagnostics': {'acceptance_passed': False, 'acceptance_score': '15/16', 'budget_extension_triggered': None, 'business_naics_6': '541110', 'business_name': 'Anderson & Blake Legal Associates', 'business_stage': 'pre-revenue', 'business_start_date': '06/19/2026', 'captured_at': '2026-05-18T14:12:41.770507Z', 'cash_strategy_name': 'balanced', 'draft_id': 'a2585b3f5402425abc6c5eea8e046c16', 'handler_fired': False, 'handler_scope': None, 'handler_status': None, 'planning_mode': 'normalize', 'planning_run_id': '65d5e7c086ec4798847a7f96c4832214', 'realism_checks': [{'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'advertising_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 20, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'ap_days_dpo', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'ar_days_dso', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 6, 'metric_key': 'capex_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 6, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'cogs_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 1, 'in_band_count': 19, 'metric_key': 'current_assets_minus_cash', 'muted': False, 'passed': False, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 9, 'in_band_count': 11, 'metric_key': 'current_liabilities_to_revenue', 'muted': False, 'passed': False, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 10, 'metric_key': 'current_ratio', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'debt_to_assets', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 20, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'debt_to_equity', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 20, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'deferred_revenue_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'depreciation_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 5, 'in_band_count': 15, 'metric_key': 'ebitda_margin', 'muted': False, 'passed': False, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'ebitda_margin_q20_holds_or_improves_vs_q11', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'ebitda_positive_by_q11', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'ebitda_recovery_trend_q5_q11', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'effective_tax_rate', 'muted': False, 'passed': True, 'row_count': 6, 'skipped_count': 6, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'fixed_cost_burden_reduced_or_scaled_by_q11', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'gross_margin_percent', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'gross_margin_supports_ebitda_recovery', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'inventory_days', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 20, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 1, 'metric_key': 'loss_window_funded_through_q5', 'muted': False, 'passed': True, 'row_count': 1, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'marketing_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 15, 'metric_key': 'net_income_margin', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'operating_cash_flow_margin', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 15, 'metric_key': 'operating_margin_percent', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 0, 'metric_key': 'payroll_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'prepaid_expenses_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 19, 'metric_key': 'quick_ratio', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'r_and_d_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'rent_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 20, 'metric_key': 'sga_percent_of_revenue', 'muted': False, 'passed': True, 'row_count': 20, 'skipped_count': 0, 'warn_count': 0}, {'hard_fail_count': 0, 'in_band_count': 5, 'metric_key': 'total_assets_to_revenue', 'muted': False, 'passed': True, 'row_count': 6, 'skipped_count': 1, 'warn_count': 0}], 'tool_calls_used': None, 'workbook_path': None}, 'run_diagnostics_persisted': True, 'workbook_export_error': None}"
+        ]
+      },
+      "new_runner_report": {
+        "new_runner_report_path": "C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Management\\Apps\\New Runner\\05-18-2026 -- a2585b3f5402425abc6c5eea8e046c16.txt",
+        "business_name": "Anderson & Blake Legal Associates",
+        "planning_mode": "normalize",
+        "planning_mode_reason": "app_classified_overstated_or_overoptimistic_case",
+        "accounting_all_ok": "True",
+        "applied_lever_updates": 180,
+        "applied_levers": 9,
+        "quarters": [
+          {
+            "q": "Q1",
+            "revenue": "283808.45",
+            "ebitda": "-50729.59",
+            "cash": "167269.79",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q2",
+            "revenue": "319349.00",
+            "ebitda": "-40955.70",
+            "cash": "180153.14",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q3",
+            "revenue": "383841.51",
+            "ebitda": "-23474.02",
+            "cash": "203658.16",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q4",
+            "revenue": "439985.51",
+            "ebitda": "-7941.22",
+            "cash": "223964.18",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q5",
+            "revenue": "488861.69",
+            "ebitda": "2544.65",
+            "cash": "243159.48",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q6",
+            "revenue": "531410.88",
+            "ebitda": "14865.78",
+            "cash": "258273.03",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q7",
+            "revenue": "552957.04",
+            "ebitda": "21698.33",
+            "cash": "276794.86",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q8",
+            "revenue": "557062.63",
+            "ebitda": "23884.87",
+            "cash": "321636.62",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q9",
+            "revenue": "584057.29",
+            "ebitda": "28904.88",
+            "cash": "370101.57",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q10",
+            "revenue": "596463.29",
+            "ebitda": "33450.67",
+            "cash": "375342.47",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q11",
+            "revenue": "609202.72",
+            "ebitda": "38137.58",
+            "cash": "380710.26",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q12",
+            "revenue": "608561.15",
+            "ebitda": "37959.88",
+            "cash": "380399.50",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q13",
+            "revenue": "657693.14",
+            "ebitda": "43376.18",
+            "cash": "409544.26",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q14",
+            "revenue": "702408.00",
+            "ebitda": "46325.21",
+            "cash": "437388.15",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q15",
+            "revenue": "730282.30",
+            "ebitda": "48163.58",
+            "cash": "454745.78",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q16",
+            "revenue": "748491.64",
+            "ebitda": "49364.52",
+            "cash": "466083.84",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q17",
+            "revenue": "761336.05",
+            "ebitda": "50211.63",
+            "cash": "474082.46",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q18",
+            "revenue": "771091.62",
+            "ebitda": "50855.03",
+            "cash": "480157.67",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q19",
+            "revenue": "778922.81",
+            "ebitda": "51371.52",
+            "cash": "485033.63",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q20",
+            "revenue": "785436.72",
+            "ebitda": "51801.12",
+            "cash": "489089.74",
+            "accounting_check": "0.000000"
+          }
+        ]
+      },
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\25f746500d1d456da638ee216669b78e.log"
+    },
+    "201d0ad18ae243dba933703d19cda4df": {
+      "source_draft_id": "201d0ad18ae243dba933703d19cda4df",
+      "start_iso": "2026-05-18T14:13:26+00:00",
+      "end_iso": "2026-05-18T14:15:03+00:00",
+      "wall_clock_sec": 97.53,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "new_draft_id": "7456b1eec9d94d6ca89f89d9a2daf397",
+        "new_client_id": "^#FMKSAVK55735884050",
+        "source_draft_id": "201d0ad18ae243dba933703d19cda4df",
+        "source_client_id": "-#QNFFXDD18651492833",
+        "business_name": "CareFirst Home Health Services",
+        "runner_error_lines": [
+          "ERROR: POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': 'POST_INTAKE:post_intake_schedule_marker_missing@quarter_grid_applied: Payroll schedule fail-fast failed; payroll must use the table-backed headcount schedule: POST_INTAKE:payroll_revenue_economic_feasibility_failed@quarter_grid_applied_global_payroll_revenue_feasibility: Payroll/revenue economics are outside the table-backed headcount policy range; recompute drivers instead of clipping outputs.', 'details': {'exception': 'POST_INTAKE:payroll_revenue_economic_feasibility_failed@quarter_grid_applied_global_payroll_revenue_feasibility: Payroll/revenue economics are outside the table-backed headcount policy range; recompute drivers instead of clipping outputs.'}, 'diagnostics': {}, 'error': 'system_run_failed', 'failure_email': {'attached': [], 'recipient': 'ignatius.henry@tithefinancial.com', 'sent': True, 'skipped': [], 'subject': 'POST-INTAKE FAILURE: CareFirst Home Health Services - FailFastError'}}"
+        ]
+      },
+      "new_runner_report": {
+        "new_runner_report_path": "C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Management\\Apps\\New Runner\\05-18-2026 -- 7456b1eec9d94d6ca89f89d9a2daf397.txt",
+        "business_name": "CareFirst Home Health Services",
+        "planning_mode": "Planning Mode Reason:",
+        "planning_mode_reason": "Prompt File:",
+        "accounting_all_ok": "True",
+        "quarters": [
+          {
+            "q": "Q1",
+            "revenue": "234000.00",
+            "ebitda": "-89261.24",
+            "cash": "-91472.73",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q2",
+            "revenue": "234000.00",
+            "ebitda": "-89261.24",
+            "cash": "-181684.92",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q3",
+            "revenue": "234000.00",
+            "ebitda": "-89261.24",
+            "cash": "-273975.82",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q4",
+            "revenue": "234000.00",
+            "ebitda": "-89261.24",
+            "cash": "-363139.45",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q5",
+            "revenue": "234000.00",
+            "ebitda": "-93423.24",
+            "cash": "-455991.54",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q6",
+            "revenue": "234000.00",
+            "ebitda": "-93423.24",
+            "cash": "-550369.07",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q7",
+            "revenue": "234000.00",
+            "ebitda": "-93423.24",
+            "cash": "-645769.34",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q8",
+            "revenue": "234000.00",
+            "ebitda": "-93423.24",
+            "cash": "-740148.25",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q9",
+            "revenue": "234000.00",
+            "ebitda": "-97705.24",
+            "cash": "-837276.25",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q10",
+            "revenue": "234000.00",
+            "ebitda": "-97705.24",
+            "cash": "-935938.36",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q11",
+            "revenue": "234000.00",
+            "ebitda": "-97705.24",
+            "cash": "-1036656.40",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q12",
+            "revenue": "234000.00",
+            "ebitda": "-97705.24",
+            "cash": "-1134280.52",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q13",
+            "revenue": "234000.00",
+            "ebitda": "-102117.24",
+            "cash": "-1235812.61",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q14",
+            "revenue": "234000.00",
+            "ebitda": "-102117.24",
+            "cash": "-1338888.52",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q15",
+            "revenue": "234000.00",
+            "ebitda": "-102117.24",
+            "cash": "-1444008.45",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q16",
+            "revenue": "234000.00",
+            "ebitda": "-102117.24",
+            "cash": "-1546051.90",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q17",
+            "revenue": "234000.00",
+            "ebitda": "-106662.24",
+            "cash": "-1652120.09",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q18",
+            "revenue": "234000.00",
+            "ebitda": "-106662.24",
+            "cash": "-1759742.01",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q19",
+            "revenue": "234000.00",
+            "ebitda": "-106662.24",
+            "cash": "-1869395.66",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q20",
+            "revenue": "234000.00",
+            "ebitda": "-106662.24",
+            "cash": "-1975990.80",
+            "accounting_check": "0.000000"
+          }
+        ]
+      },
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\201d0ad18ae243dba933703d19cda4df.log"
+    },
+    "41f014a5567041d99b2572a67fe6b03d": {
+      "source_draft_id": "41f014a5567041d99b2572a67fe6b03d",
+      "start_iso": "2026-05-18T14:15:03+00:00",
+      "end_iso": "2026-05-18T14:19:30+00:00",
+      "wall_clock_sec": 267.15,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "new_draft_id": "5a89fd66f19348589284dbd604c84214",
+        "new_client_id": "#^UVNSLDD68751337896",
+        "source_draft_id": "41f014a5567041d99b2572a67fe6b03d",
+        "source_client_id": "@^LQPWIMJ00164423104",
+        "business_name": "Skyward Express Airlines",
+        "runner_error_lines": [
+          "ERROR: POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': 'POST_INTAKE:payroll_headcount_contract_timeout@payroll_headcount_contract_request: GPT headcount schedule exceeded total 180s payroll cycle budget before convergence.', 'details': {'elapsed_seconds': 175.65, 'hard_cap_rounds': 10, 'round_n': 4, 'source_table': 'post_intake_process_sequence_lookup', 'step_key': 'payroll_gpt_contract_request', 'timeout_seconds': 180.0}, 'diagnostics': {}, 'error': 'system_run_failed', 'failure_email': {'attached': [], 'recipient': 'ignatius.henry@tithefinancial.com', 'sent': True, 'skipped': [], 'subject': 'POST-INTAKE FAILURE: Skyward Express Airlines - FailFastError'}}"
+        ]
+      },
+      "new_runner_report": {
+        "new_runner_report_path": "C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Management\\Apps\\New Runner\\05-18-2026 -- 5a89fd66f19348589284dbd604c84214.txt",
+        "business_name": "Skyward Express Airlines",
+        "planning_mode": "Planning Mode Reason:",
+        "planning_mode_reason": "Prompt File:",
+        "accounting_all_ok": "True",
+        "quarters": [
+          {
+            "q": "Q1",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "-461858.13",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q2",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "1935428.51",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q3",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "4229866.59",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q4",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "6679142.60",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q5",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "9127288.41",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q6",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "11524575.05",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q7",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "13871002.51",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q8",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "16268289.15",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q9",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "18716434.96",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q10",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "21113721.60",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q11",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "23408159.68",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q12",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "25857435.69",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q13",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "28305581.50",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q14",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "30702868.14",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q15",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "32997306.23",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q16",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "35446582.24",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q17",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "37894728.05",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q18",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "40292014.69",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q19",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "42586452.77",
+            "accounting_check": "0.000000"
+          },
+          {
+            "q": "Q20",
+            "revenue": "22113000.00",
+            "ebitda": "3016661.55",
+            "cash": "45035728.78",
+            "accounting_check": "0.000000"
+          }
+        ]
+      },
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\41f014a5567041d99b2572a67fe6b03d.log"
+    },
+    "6d37c6b98ace41ee9c91dd5fbf68b83e": {
+      "source_draft_id": "6d37c6b98ace41ee9c91dd5fbf68b83e",
+      "start_iso": "2026-05-18T14:19:30+00:00",
+      "end_iso": "2026-05-18T14:20:21+00:00",
+      "wall_clock_sec": 50.67,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "new_draft_id": "3d6a90827788438d84f4c975884367f5",
+        "new_client_id": "&_BRCIMFG13287705304",
+        "source_draft_id": "6d37c6b98ace41ee9c91dd5fbf68b83e",
+        "source_client_id": "!-XGQNZFN92898077503",
+        "business_name": "Sunny Glaze Donuts",
+        "runner_error_lines": [
+          "ERROR: ('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\6d37c6b98ace41ee9c91dd5fbf68b83e.log"
+    },
+    "4aaa94e10efc4968866844197f96f24c": {
+      "source_draft_id": "4aaa94e10efc4968866844197f96f24c",
+      "start_iso": "2026-05-18T14:20:21+00:00",
+      "end_iso": "2026-05-18T14:20:24+00:00",
+      "wall_clock_sec": 2.72,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "4aaa94e10efc4968866844197f96f24c",
+        "source_client_id": "^#WHVHBIE09548791964",
+        "business_name": "Sweet Crumbs Bakery",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\4aaa94e10efc4968866844197f96f24c.log"
+    },
+    "290547bbe8cf48899d897cc5ce865111": {
+      "source_draft_id": "290547bbe8cf48899d897cc5ce865111",
+      "start_iso": "2026-05-18T14:20:24+00:00",
+      "end_iso": "2026-05-18T14:20:26+00:00",
+      "wall_clock_sec": 2.54,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "290547bbe8cf48899d897cc5ce865111",
+        "source_client_id": "!!CJTBQOP00960553523",
+        "business_name": "Anderson & Clark Law Group",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\290547bbe8cf48899d897cc5ce865111.log"
+    },
+    "52ba2e2c1f4f439c9868541606f3affd": {
+      "source_draft_id": "52ba2e2c1f4f439c9868541606f3affd",
+      "start_iso": "2026-05-18T14:20:26+00:00",
+      "end_iso": "2026-05-18T14:20:29+00:00",
+      "wall_clock_sec": 2.57,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "52ba2e2c1f4f439c9868541606f3affd",
+        "source_client_id": "@-QCMWFHO32257688491",
+        "business_name": "Harrison & Greene Law Firm",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\52ba2e2c1f4f439c9868541606f3affd.log"
+    },
+    "4207488106054d72afbe16480e1de100": {
+      "source_draft_id": "4207488106054d72afbe16480e1de100",
+      "start_iso": "2026-05-18T14:20:29+00:00",
+      "end_iso": "2026-05-18T14:20:31+00:00",
+      "wall_clock_sec": 2.54,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "4207488106054d72afbe16480e1de100",
+        "source_client_id": "^&QQGUNNI30764777190",
+        "business_name": "Caring Hands Home Health Services",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\4207488106054d72afbe16480e1de100.log"
+    },
+    "25b8e17eda804fa7a46adf72a3503900": {
+      "source_draft_id": "25b8e17eda804fa7a46adf72a3503900",
+      "start_iso": "2026-05-18T14:20:31+00:00",
+      "end_iso": "2026-05-18T14:20:34+00:00",
+      "wall_clock_sec": 2.53,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "25b8e17eda804fa7a46adf72a3503900",
+        "source_client_id": "$_PXISENG36251894944",
+        "business_name": "Luna Boutique",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\25b8e17eda804fa7a46adf72a3503900.log"
+    },
+    "5dcd919aae314bd5af67849172aa52bb": {
+      "source_draft_id": "5dcd919aae314bd5af67849172aa52bb",
+      "start_iso": "2026-05-18T14:20:34+00:00",
+      "end_iso": "2026-05-18T14:20:37+00:00",
+      "wall_clock_sec": 2.65,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "5dcd919aae314bd5af67849172aa52bb",
+        "source_client_id": "%$UPKAMBV00783630881",
+        "business_name": "Elegant Threads Boutique",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\5dcd919aae314bd5af67849172aa52bb.log"
+    },
+    "5af71d361b324f62a3598e8da40c98c7": {
+      "source_draft_id": "5af71d361b324f62a3598e8da40c98c7",
+      "start_iso": "2026-05-18T14:20:37+00:00",
+      "end_iso": "2026-05-18T14:20:39+00:00",
+      "wall_clock_sec": 2.73,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "5af71d361b324f62a3598e8da40c98c7",
+        "source_client_id": "&#PPTARTH67543910135",
+        "business_name": "Revitalize Mobile IV Therapy",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\5af71d361b324f62a3598e8da40c98c7.log"
+    },
+    "2aeae92f95f44fbd9a38b6e319c1bcc7": {
+      "source_draft_id": "2aeae92f95f44fbd9a38b6e319c1bcc7",
+      "start_iso": "2026-05-18T14:20:39+00:00",
+      "end_iso": "2026-05-18T14:20:42+00:00",
+      "wall_clock_sec": 3.0,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "2aeae92f95f44fbd9a38b6e319c1bcc7",
+        "source_client_id": "&#CKEHVAA02332107751",
+        "business_name": "Luminous Glow Med Spa",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\2aeae92f95f44fbd9a38b6e319c1bcc7.log"
+    },
+    "d345194155584588a77cfb0c8dbedc8c": {
+      "source_draft_id": "d345194155584588a77cfb0c8dbedc8c",
+      "start_iso": "2026-05-18T14:20:42+00:00",
+      "end_iso": "2026-05-18T14:20:45+00:00",
+      "wall_clock_sec": 2.77,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "d345194155584588a77cfb0c8dbedc8c",
+        "source_client_id": "%-PLMUADC09532257597",
+        "business_name": "ExpressLogix Shipping Services",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\d345194155584588a77cfb0c8dbedc8c.log"
+    },
+    "28af3a88a2294237a1aa6294bf02e078": {
+      "source_draft_id": "28af3a88a2294237a1aa6294bf02e078",
+      "start_iso": "2026-05-18T14:20:45+00:00",
+      "end_iso": "2026-05-18T14:20:48+00:00",
+      "wall_clock_sec": 2.72,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "28af3a88a2294237a1aa6294bf02e078",
+        "source_client_id": "@^EOIUUII98352955318",
+        "business_name": "Precision Aesthetics Lab",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\28af3a88a2294237a1aa6294bf02e078.log"
+    },
+    "0459723bad0e461f95dbfe5fbf14631f": {
+      "source_draft_id": "0459723bad0e461f95dbfe5fbf14631f",
+      "start_iso": "2026-05-18T14:20:48+00:00",
+      "end_iso": "2026-05-18T14:20:51+00:00",
+      "wall_clock_sec": 2.77,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "0459723bad0e461f95dbfe5fbf14631f",
+        "source_client_id": "#-NVJNSRW97917853924",
+        "business_name": "Harborview Kitchen & Co.",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\0459723bad0e461f95dbfe5fbf14631f.log"
+    },
+    "1bef9076e6504af9a9fe223af128110b": {
+      "source_draft_id": "1bef9076e6504af9a9fe223af128110b",
+      "start_iso": "2026-05-18T14:20:51+00:00",
+      "end_iso": "2026-05-18T14:20:53+00:00",
+      "wall_clock_sec": 2.62,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "1bef9076e6504af9a9fe223af128110b",
+        "source_client_id": "&%DUULRJF20144045679",
+        "business_name": "North Ridge Auto Care",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\1bef9076e6504af9a9fe223af128110b.log"
+    },
+    "0bda87acc8a945cb81c63a8940ef5044": {
+      "source_draft_id": "0bda87acc8a945cb81c63a8940ef5044",
+      "start_iso": "2026-05-18T14:20:53+00:00",
+      "end_iso": "2026-05-18T14:20:56+00:00",
+      "wall_clock_sec": 2.61,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "0bda87acc8a945cb81c63a8940ef5044",
+        "source_client_id": "^^YRECJFI55914497475",
+        "business_name": "ValueMart Superstores",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\0bda87acc8a945cb81c63a8940ef5044.log"
+    },
+    "077e83b679eb4be7be5febabf05f6379": {
+      "source_draft_id": "077e83b679eb4be7be5febabf05f6379",
+      "start_iso": "2026-05-18T14:20:56+00:00",
+      "end_iso": "2026-05-18T14:20:59+00:00",
+      "wall_clock_sec": 2.7,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "077e83b679eb4be7be5febabf05f6379",
+        "source_client_id": "#$NNIUIQD17683759281",
+        "business_name": "Evergreen Superstores Inc.",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\077e83b679eb4be7be5febabf05f6379.log"
+    },
+    "194c29fed27c4fa39498ed95f8d45343": {
+      "source_draft_id": "194c29fed27c4fa39498ed95f8d45343",
+      "start_iso": "2026-05-18T14:20:59+00:00",
+      "end_iso": "2026-05-18T14:21:01+00:00",
+      "wall_clock_sec": 2.6,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "194c29fed27c4fa39498ed95f8d45343",
+        "source_client_id": "@-XOFFNXX87974663720",
+        "business_name": "North Ridge Auto Care",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\194c29fed27c4fa39498ed95f8d45343.log"
+    },
+    "0d0fb60aca754e00954f402a4fdec0ab": {
+      "source_draft_id": "0d0fb60aca754e00954f402a4fdec0ab",
+      "start_iso": "2026-05-18T14:21:01+00:00",
+      "end_iso": "2026-05-18T14:21:04+00:00",
+      "wall_clock_sec": 2.72,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "0d0fb60aca754e00954f402a4fdec0ab",
+        "source_client_id": "$$EVNCULM75208704995",
+        "business_name": "ValueMart Superstores",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\0d0fb60aca754e00954f402a4fdec0ab.log"
+    },
+    "0fe6f320519f412eb113f413d803d338": {
+      "source_draft_id": "0fe6f320519f412eb113f413d803d338",
+      "start_iso": "2026-05-18T14:21:04+00:00",
+      "end_iso": "2026-05-18T14:21:07+00:00",
+      "wall_clock_sec": 2.76,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "0fe6f320519f412eb113f413d803d338",
+        "source_client_id": "_@IDEXJOS92075308923",
+        "business_name": "SwiftLogix Shipping Solutions",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\0fe6f320519f412eb113f413d803d338.log"
+    },
+    "56b8623063a34e6d9c1803568a730825": {
+      "source_draft_id": "56b8623063a34e6d9c1803568a730825",
+      "start_iso": "2026-05-18T14:21:07+00:00",
+      "end_iso": "2026-05-18T14:21:09+00:00",
+      "wall_clock_sec": 2.68,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "56b8623063a34e6d9c1803568a730825",
+        "source_client_id": "^_WNYSOHO03543582220",
+        "business_name": "Freedom Freight Logistics",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\56b8623063a34e6d9c1803568a730825.log"
+    },
+    "11d6cd0c19c3430e8aaf8916b550ea7f": {
+      "source_draft_id": "11d6cd0c19c3430e8aaf8916b550ea7f",
+      "start_iso": "2026-05-18T14:21:09+00:00",
+      "end_iso": "2026-05-18T14:21:12+00:00",
+      "wall_clock_sec": 2.63,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "11d6cd0c19c3430e8aaf8916b550ea7f",
+        "source_client_id": "_#ZUPLNKM03857109530",
+        "business_name": "Pinnacle Logistics Inc.",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\11d6cd0c19c3430e8aaf8916b550ea7f.log"
+    },
+    "26fc7c5b8d1349048a538f65b4f85beb": {
+      "source_draft_id": "26fc7c5b8d1349048a538f65b4f85beb",
+      "start_iso": "2026-05-18T14:21:12+00:00",
+      "end_iso": "2026-05-18T14:21:15+00:00",
+      "wall_clock_sec": 2.73,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "26fc7c5b8d1349048a538f65b4f85beb",
+        "source_client_id": "-^VKHSUWM89530916406",
+        "business_name": "SwiftCargo Logistics",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\26fc7c5b8d1349048a538f65b4f85beb.log"
+    },
+    "0e1d881125b543aea68c603782e00da9": {
+      "source_draft_id": "0e1d881125b543aea68c603782e00da9",
+      "start_iso": "2026-05-18T14:21:15+00:00",
+      "end_iso": "2026-05-18T14:21:18+00:00",
+      "wall_clock_sec": 2.74,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "0e1d881125b543aea68c603782e00da9",
+        "source_client_id": "_@RJIKUBI44309835265",
+        "business_name": "Arrowline Freight Services",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\0e1d881125b543aea68c603782e00da9.log"
+    },
+    "03516b40b43d4592b8d7681a4f57dc67": {
+      "source_draft_id": "03516b40b43d4592b8d7681a4f57dc67",
+      "start_iso": "2026-05-18T14:21:18+00:00",
+      "end_iso": "2026-05-18T14:21:20+00:00",
+      "wall_clock_sec": 2.77,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "03516b40b43d4592b8d7681a4f57dc67",
+        "source_client_id": "%^PWDEDIC25250909449",
+        "business_name": "Express Global Shipping Inc.",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\03516b40b43d4592b8d7681a4f57dc67.log"
+    },
+    "4c6ff03a7e474f57a3a1ff412860cc2f": {
+      "source_draft_id": "4c6ff03a7e474f57a3a1ff412860cc2f",
+      "start_iso": "2026-05-18T14:21:20+00:00",
+      "end_iso": "2026-05-18T14:21:23+00:00",
+      "wall_clock_sec": 2.9,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "4c6ff03a7e474f57a3a1ff412860cc2f",
+        "source_client_id": "&#BXILPLQ84262729117",
+        "business_name": "NexGen Software Solutions Inc.",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\4c6ff03a7e474f57a3a1ff412860cc2f.log"
+    },
+    "1aa5d27085e44aee98d401a5cd56bad0": {
+      "source_draft_id": "1aa5d27085e44aee98d401a5cd56bad0",
+      "start_iso": "2026-05-18T14:21:23+00:00",
+      "end_iso": "2026-05-18T14:21:26+00:00",
+      "wall_clock_sec": 2.75,
+      "returncode": 1,
+      "timed_out": false,
+      "outcome": "FAIL",
+      "parsed_stdout": {
+        "source_draft_id": "1aa5d27085e44aee98d401a5cd56bad0",
+        "source_client_id": "$#DOWTFGB82039595368",
+        "business_name": "ExpressLogix Shipping Services",
+        "runner_error_lines": [
+          "ERROR: HTTPConnectionPool(host='127.0.0.1', port=5050): Max retries exceeded with url: /api/intake-consult/session (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=5050): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+        ]
+      },
+      "new_runner_report": null,
+      "log_path": "C:\\dev\\business_plann_app\\_sweep_p3_23\\per_draft_logs\\1aa5d27085e44aee98d401a5cd56bad0.log"
+    }
+  },
+  "sweep_finished_at": "2026-05-18T14:21:26+00:00"
+}

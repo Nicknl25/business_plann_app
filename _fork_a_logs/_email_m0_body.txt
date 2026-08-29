@@ -1,0 +1,33 @@
+M0 GROUND TRUTH — result of running the live system on Luna Boutique.
+
+SETUP (real run, not code-reading):
+- Runner: Test Files/run_persisted_system_run.py --draft-id 25b8e17eda804fa7a46adf72a3503900 --base-url http://127.0.0.1:5050
+- Server: python/api.py on :5050. api.py:35 calls load_dotenv(.env, override=True), so OPENAI_API_KEY IS loaded into the server process. OPENAI_MODEL is unset -> responder default "gpt-5.1". CONVERGENCE_TEST_MODE=true (left ON).
+- DB: local biz_plan_revert. All three drafts confirmed intake-complete (Luna / Sunny Glaze Donuts / Anderson & Blake Legal).
+
+RESULT — the run does NOT reach the cascade/executive:
+HTTP 500 from /api/intake-consult/system-run:
+  post_intake_fail_fast::fail_round1_set_tool_rejected:
+  set_payroll_schedule(contract=None) rejected:
+  payroll_headcount_contract_continuity_failed @ payroll_headcount_title_row_validation:
+  "Q5 First-Line Supervisors of Retail Sales Workers starting_fte must equal prior quarter ending_fte."
+
+So GPT/executive invocation is NOT YET OBSERVABLE: the pipeline dies at ROUND-1 payroll authoring, UPSTREAM of the amalgamated cascade. The "is GPT firing?" question cannot be answered until this wall is cleared. (Env/key/model are fine; the executive should fire once round-1 passes — I will prove that after the fix.)
+
+THE WALL (precise, with evidence):
+- Round-1 payroll producer author_round1_payroll_contract builds each quarter INDEPENDENTLY:
+  schedule.py:2333-2354 sets, per quarter q, starting_fte = ending_fte = level_q (the per-quarter dollar-path FTE level solved from that quarter's revenue budget). Comment at :2329 states the intent: "Flat within quarter (starting == ending) so average_fte == ending and the builder's average-based payroll reproduces the supporting budget exactly."
+- Payroll IS average-based: avg_fte = (starting_fte + ending_fte)/2  (schedule.py:1603). So flat starting==ending makes avg == level_q, reproducing the budget exactly.
+- The continuity validator (schedule.py:1512) requires, for q>1, starting_fte(q) == ending_fte(q-1). For a growing business (Luna revenue ramps), level_q rises, so Q5 starting (= new higher level) != Q4 ending (prior lower level) -> hard fail.
+- ROOT CONFLICT: the producer's "flat within quarter for exact budget reproduction" is mathematically incompatible with the validator's "cross-quarter continuity (start(q)=end(q-1), growth booked as hires)." One of the two models has to give.
+
+PROPOSED FIX (universal — applies to every plan/title/quarter, no per-draft special-casing):
+Make the producer carry continuity exactly as the validator's own hint prescribes (schedule.py:1527-1530: "set starting_fte equal to the prior quarter ending_fte; put the increase in hires so starting_fte + hires = ending_fte; do not make starting_fte jump"):
+  - q==1:  starting_fte = ending_fte = level_1            (continuity check only applies for q>1)
+  - q>1:   starting_fte = ending_fte(q-1);  ending_fte = level_q (target);  hires = ending - starting
+  - apply ROUND1_SUPPORTING_FTE_FLOOR; clamp reductions so start+hires==ending holds.
+TRADEOFF: budget reproduction becomes approximate during ramp quarters, because avg_fte = (prior_end + level_q)/2 rather than level_q. The exact-budget alternative (ending = 2*level_q - prior_end, which forces avg == level_q) preserves the budget but can drive ending negative on a sharp decline. I am going with the validator-endorsed continuity model (it is the documented contract) and will confirm the payroll %-of-revenue still lands within the policy band after the change.
+
+NEXT: implementing the producer continuity fix, then re-running M0 to (a) confirm round-1 passes and (b) finally observe whether the executive (GPT) is invoked. Will report.
+
+(This wall is outside the B1-B4 operating_model scope but blocks every run, so it must be cleared first. Reporting per directive; proceeding now.)

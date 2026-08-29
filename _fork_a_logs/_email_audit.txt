@@ -1,0 +1,62 @@
+REVENUE AUTHORING AUDIT (Sunny, live) -- saw-vs-authored, per field. Your instinct is right: the rent
+wall is largely an ARTIFACT. But the scope is NOT mainly price -- read the headline.
+
+==================== WHAT GPT SAW vs WHAT GPT AUTHORED ====================
+PRICE:
+  saw (compact): unit_price = $2.00 (intake), AND positioning text literally says "roughly $2 per donut."
+  authored: $2.00 (Q1) held through yr1, then ~5% steps to $2.40 by Q20.
+  verdict: UNDER-AUTHORED / anchored. GPT reasoned (cited comparables "$1.50-2.00 classic, $2.00-2.75
+  specialty") but stamped the intake $2 and held it -- it did NOT author a market-real BLENDED price for the
+  "classic AND specialty" mix it acknowledges (a blend would justify ~$2.50-3.00). It treated the intake $2
+  (reinforced by the positioning text) as fixed market truth. THIS is the one transcribed field.
+
+CAPACITY:
+  saw: units_per_week_capacity = 1,200 (15,600/qtr).
+  authored: 15,600/qtr held yr1, ramping to 18,720 by Q20.
+  verdict: GENUINELY AUTHORED. capacity_grounding ties each step to staffing (owner+baker+counter -> 1,200/wk;
+  +planned part-time baker at month 6 -> +5%; etc.). Grounded in the team slice, not transcribed.
+
+UTILIZATION:
+  saw: utilization_rate = 0.75 (flat, intake).
+  authored: 0.45 (Q1) ramping to 0.90 (Q20).
+  verdict: GENUINELY AUTHORED -- GPT replaced the flat 0.75 with a ramp. Not transcription.
+
+CUSTOMERS vs UNITS (reconciliation):
+  reachable_market = 8,000  -> ADULTS (addressable audience; "~8,000 local adults" per marketing_basis).
+  expected_units_year1 = 46,800  -> DONUTS/yr.
+  expected_customers_or_clients_year1 = 1,600  -> captured CUSTOMERS/yr.
+  verdict: NOT CONFLATED. GPT correctly read units=donuts, reachable=adults, and reconciled ("46,800 donuts =
+  ~900/week ~11,700/qtr; under ~1 donut/month per reachable adult"). Minor looseness: it referenced 8,000
+  reachable rather than 1,600 expected customers, but the unit count (46,800) -- the thing that drives revenue
+  -- was used correctly to bound capacity.
+
+==================== THE HEADLINE: THE RENT WALL IS AN ARTIFACT ====================
+Sunny's lease = $6,000/QUARTER = $24,000/YEAR. That is reasonable for a Springfield donut shop.
+At the AUTHORED revenue (~$78k/yr), rent is ~31% of revenue -- HIGH but viable, NOT 217%.
+The gate's "rent_percent_of_revenue = 2.169 (217%), effective_max = 0.01 (1%)" is a DOUBLE artifact:
+  (1) it divides lease by a PHANTOM revenue ~1/5 of the authored line (back-solving 6,000/2.169 => ~$2,766/qtr
+      i.e. ~$11-16k/yr, vs the authored $14,040/qtr that actually flows to the finmo), and
+  (2) the ceiling resolved to 0.01 (1% of revenue) for this SMB NAICS -- implausibly tight (no business runs
+      rent at 1%); the cohort lease_max band did not resolve and defaulted hard.
+So "Sunny is revenue-constrained" was WRONG. It is a measurement artifact in the pre-cash rent% check, not
+real economics. Even at the conservative $2 price, rent is ~31% of the authored revenue.
+
+==================== SCOPE (your question: one-field or pattern?) ====================
+GPT authoring is LARGELY SOUND -- capacity + utilization are genuinely authored from the portrait; demand is
+reconciled. It is essentially a ONE-FIELD problem: PRICE is anchored to the intake $2 (and the positioning
+text that repeats $2). NOT a broad "everything transcribed" pattern.
+
+BUT the bigger driver of the fake rent wall is the rent% GATE measuring against a phantom revenue + a 1%
+ceiling -- that is the pre-cash-gate (C) artifact, not GPT authoring.
+
+==================== RECOMMENDED FIX SCOPE ====================
+1. PRICE authoring (narrow, per your directive): make the intake price a REFERENCE, not a lock. GPT authors
+   the market-real price grounded in the portrait (positioning, income $35-75k, specialty mix, comparables),
+   may OVERRIDE the intake $2 when justified, with the guardrail: raise ONLY because the portrait supports it
+   (specialty mix / income), NEVER for viability. Also stop letting the positioning text's embedded "$2"
+   read as fixed truth.
+2. (Bigger, but it's the deferred C item) the rent% pre-cash gate measures against a phantom revenue + a 1%
+   ceiling -> that is what actually manufactured the wall. Worth fixing regardless of price.
+
+Per your instruction I did NOT touch C + Task 3. Awaiting your nod on scope, then I implement the price-
+authoring fix (#1) and show: grounded price on Sunny + re-run revenue + whether the (real) rent ratio is fine.

@@ -1,0 +1,47 @@
+KEYSTONE: hit the one stop condition you named (lever_id<->band mapping ambiguous, unresolvable from
+source) -- and it's the heart of Fork A. Need your design call. Source evidence is airtight.
+
+WHAT I CONFIRMED (from source + DB, before trusting anything):
+- The cascade's lever-margin computation (_compute_lever_margins) reads post_intake_cohort_bands, which
+  is EMPTY for these drafts because resolve_cohort_band (EDGAR/Alpha cohort) has no SMB-NAICS coverage
+  (populate_cohort_bands_for_run resolves 0 -> hard-fails -> runner swallows it -> empty table).
+- The realism gate uses a DIFFERENT, populated source: assemble_finmo_output_targets (phase_3_calibrated)
+  + universal_viability_doctrine, keyed by metric_key.
+- The industry metric registry has 49 band metrics. ZERO are operating_model inputs. They are ALL
+  ratios/margins/days/growth-rates (cogs_percent_of_revenue, ebitda_margin, marketing_percent_of_revenue,
+  ar_days_dso, gross_margin_percent, net_income_margin, ...).
+
+THE AMBIGUITY (the stop): the operating_model levers the executive is supposed to DRIVE in Fork A --
+unit_price, utilization_rate, units_per_week_capacity, per_employee_productivity (cascade tiers
+V3/V4/V5, G2/G3/G4, C1/C2/C3/C5) -- have NO band anywhere. They are not ratio metrics; they are the
+INPUTS you tune to hit the ratio bands (ebitda_margin etc.) -- which is the solver's target-seeking
+job. The cascade tier directions ("to_band_target", "to_favorable_edge") assume an operating_model
+band that does not exist. So "single-source the cascade band to the realism gate" cannot be done for
+operating_model -- there is nothing to source.
+
+WHAT IS RESOLVABLE (no decision needed, I can build now): drivers (cogs%/marketing%/ga%/rd%),
+stage_ramp ceilings, balance_sheet (AR/AP/Inventory days) ARE ratio metrics with bands in the 49-metric
+registry. I can re-source _compute_lever_margins for these from assemble_finmo_output_targets (the same
+bands the realism gate enforces) instead of the empty cohort table -> real deltas on V1/V2/V7, G1/G5,
+B-tiers. For cost-heavy Sunny (rent 217%, ebitda -22%) these cost-ratio levers are the relevant ones.
+
+THE DECISION I NEED (operating_model mechanism -- this is B2 / the cascade<->solver split, settled by
+Fork A in principle but the band-less mechanism is undecided):
+  Option A (recommended): executive picks DIRECTION on an operating_model lever (e.g. raise price /
+    raise utilization); the SOLVER finds the MAGNITUDE that moves the failing RATIO (ebitda_margin,
+    etc.) into its band. Solver sits UNDER the executive's direction -- matches your "solver = precision
+    under the cascade" model. operating_model tiers stop pretending to have a band; they carry a
+    direction + the ratio target they serve.
+  Option B: operating_model levers use doctrine ENVELOPE bounds (feasible min/max) only -- executive
+    picks a value within bounds; no cohort "target".
+  Option C: operating_model stays SOLVER-OWNED (original design); the cascade/executive does NOT
+    band-drive them; the executive drives only the band-having sections (drivers/stage_ramp/payroll/WC).
+    (Contradicts "executive drives the revenue levers".)
+
+MY PLAN pending your call: build the resolvable drivers/stage_ramp/balance band-sourcing now (real
+deltas there), and implement operating_model per your choice (I recommend A). I did NOT guess the
+operating_model mechanism -- it changes the cascade<->solver contract, which is yours to set.
+
+(Banked this session: adfecee payroll, 0fd10a1 Wall A, 71e9163 Wall B/end-to-end, 5b72aa1 B1 wiring.
+Pipeline runs end-to-end to an honest verdict; executive proven judging; real deltas blocked on this
+band-source keystone + the operating_model decision.)

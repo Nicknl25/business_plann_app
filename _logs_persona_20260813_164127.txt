@@ -1,0 +1,19 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-13 16:41:28.312 INFO api: REQ GET /api/business-types -> 200 141ms draft=-
+2026-08-13 16:41:39.006 INFO api: REQ GET /api/shared-context -> 200 172ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 16:41:45.216 INFO api: TURN_BEGIN draft=m8d26da42ce2e240ef80c0f2e1df9ece turn=115 starting=False focus=done msg_chars=58
+2026-08-13 16:41:48.369 INFO api: TURN_INTENT draft=m8d26da42ce2e240ef80c0f2e1df9ece action=confirm_clarify patch=None
+2026-08-13 16:41:49.198 INFO api: REQ POST /api/intake-consult -> 200 4531ms draft=m8d26da42ce2e240ef80c0f2e1df9ece
+2026-08-13 16:41:49.871 INFO api: TURN_BEGIN draft=m89c5a669161c649fbaaef6edf884bda turn=115 starting=False focus=done msg_chars=50
+2026-08-13 16:41:52.610 INFO api: TURN_INTENT draft=m89c5a669161c649fbaaef6edf884bda action=confirm_clarify patch=None
+2026-08-13 16:41:53.313 INFO api: REQ POST /api/intake-consult -> 200 3516ms draft=m89c5a669161c649fbaaef6edf884bda
+2026-08-13 16:41:53.993 INFO api: TURN_BEGIN draft=m8f96eca13e2ee48709a57cadf9804ea turn=115 starting=False focus=done msg_chars=60
+2026-08-13 16:41:56.763 INFO api: TURN_INTENT draft=m8f96eca13e2ee48709a57cadf9804ea action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Landscaping & installation', 'cogs_percent': 22, 'cogs_percent_unit': 'percent'}]}
+2026-08-13 16:41:56.764 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=['Landscaping & installation / Install project'] grouped=[] unmatched=[] unit_unclear=[]
+2026-08-13 16:42:37.198 INFO api: REQ POST /api/intake-consult -> 200 43281ms draft=m8f96eca13e2ee48709a57cadf9804ea
+2026-08-13 16:42:37.711 INFO api: TURN_BEGIN draft=m8d4ede58684c24f6ebe7052e98abf3d turn=115 starting=False focus=done msg_chars=78
+2026-08-13 16:42:38.966 INFO api: REQ GET /api/shared-context -> 200 125ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 16:42:40.386 INFO api: TURN_INTENT draft=m8d4ede58684c24f6ebe7052e98abf3d action=edit_patch patch={'financials.cogs_shared_structure_groups': [['Plant/nursery sales', 'Hard goods & materials']]}
+2026-08-13 16:42:40.388 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=[] grouped=['shared:hard goods sale+plant sale'] unmatched=[] unit_unclear=[]
+2026-08-13 16:42:53.665 INFO api: REQ POST /api/intake-consult -> 200 16016ms draft=m8d4ede58684c24f6ebe7052e98abf3d

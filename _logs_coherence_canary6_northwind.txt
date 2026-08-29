@@ -1,0 +1,481 @@
+﻿Loaded control file: C:\dev\business_plann_app\Test Files\Steerable Intake Scenarios.xlsx (sheet: Software Co (3-LOB Enterprise))
+Controlled positions: 67
+--- compiled client briefing ---
+Test a large, established B2B software company. It has been operating for several years and runs at scale - tens of millions in revenue and hundreds of employees. Three separate lines tracked with different economics - self-serve SaaS subscriptions, enterprise annual contracts, and professional services. The finance lead is precise, sets exact figures rather than accepting rough baselines, asks the consultant to clarify definitions, and expects the plan to reflect enterprise SaaS economics. This test exercises large-dollar figures, a B2B/enterprise market, a real office and equipment lease, venture-debt-plus-equity funding, and a zero-inventory software business.
+
+Business identity (use these exact details when giving business information): the business is named "Northwind Systems, Inc."; located at 500 108th Ave NE, Bellevue, WA 98004, USA.
+
+CONTROLLED POSITIONS. You must work each of the following into the conversation naturally at the appropriate moment. Your wording can be conversational, but the substance - every number, choice, and behavior below - must be delivered exactly as specified and confirmed if the consultant restates it:
+- [Service line structure] Three separate lines of business with different economics: (1) Self-Serve SaaS Subscriptions, (2) Enterprise Annual Contracts, and (3) Professional Services & Implementation. Insist they are tracked separately.
+- [Customer type] b2b - we sell to businesses, from small self-serve customers up to large enterprises.
+- [Legal entity] The business is a C-corp.
+- [SaaS Subscriptions - unit definition] For SaaS Subscriptions, one unit is one active monthly subscription account.
+- [SaaS Subscriptions - cadence] Monthly - capacity is active subscriptions we can serve per month.
+- [SaaS Subscriptions - capacity] The platform can support up to about 60,000 active subscription accounts.
+- [SaaS Subscriptions - utilization] Use 70% utilization for Year 1 - if the consultant proposes a different percentage, decline and insist on 70%.
+- [SaaS Subscriptions - price] Subscriptions average about $85 per account per month.
+- [Enterprise Contracts - unit definition] For Enterprise Contracts, one unit is one active enterprise annual contract.
+- [Enterprise Contracts - cadence] Contract - annual contracts; capacity is how many enterprise accounts we can carry at once.
+- [Enterprise Contracts - capacity] We can carry up to about 900 concurrent enterprise contracts.
+- [Enterprise Contracts - utilization] Use 65% utilization on enterprise for Year 1 - insist on 65% if a different number is proposed.
+- [Enterprise Contracts - price] Enterprise contracts average about $95,000 a year each.
+- [Professional Services - unit definition] For Professional Services, one unit is one implementation or services engagement.
+- [Professional Services - cadence] Monthly - capacity is engagements our services team can deliver per month.
+- [Professional Services - capacity] The services team can deliver about 100 engagements a month.
+- [Professional Services - utilization] Use 60% utilization on services for Year 1 - insist on 60% if a different number is proposed.
+- [Professional Services - price] Services engagements average about $22,000 each.
+- [Turnover / turns per year] Subscriptions renew monthly; enterprise contracts renew annually; services engagements turn over as they're delivered.
+- [Delivery method] Online - the product is cloud-based SaaS delivered over the web, with remote implementation and support.
+- [Sales channel] An enterprise sales team for large accounts, self-serve online signup for smaller customers, and a partner and reseller channel.
+- [Geography] National and international - we sell across North America and Europe.
+- [Growth lever] Growth comes from landing and expanding enterprise accounts and moving up-market to larger customers.
+- [Competitive advantage] Deep product integrations and a platform ecosystem that raise switching costs, plus enterprise-grade security and compliance that win large deals.
+- [12-month goal] Reach about $12 million in monthly revenue within 12 months.
+- [Milestones] Concrete milestones: close our first eight-figure enterprise contract by month 6; launch the public platform API and partner marketplace by month 9.
+- [Confidence] Confidence in these numbers is 8 out of 10.
+- [Gender focus] No gender focus - all genders; our buyers are businesses.
+- [Age range] Decision-makers are roughly 30 to 55 - but no strict age preference.
+- [Income] Not really applicable - we sell to businesses, not consumers.
+- [Education] No education preference.
+- [Demographic segments] Keep the consumer demographic segments broad - the meaningful targeting is the B2B firmographics below.
+- [Employment specifics] Not applicable at the consumer level - our targeting is firmographic.
+- [B2B industries] Target mid-market and enterprise companies in technology, financial services, healthcare, and retail.
+- [B2B size / age] Companies from about 200 to 5,000-plus employees; established organizations.
+- [Positioning summary] When the market summary is presented, ask for one change - emphasize the enterprise security and compliance strength - then approve.
+- [Key person 1] Elena Vasquez, Co-Founder and CEO, 16 years in enterprise software, prior VP of Product at a public SaaS company, earns $650,000 a year in total cash compensation.
+- [Key person 2] Rajan Mehta, Co-Founder and CTO, 15 years in distributed systems - let the consultant estimate his compensation.
+- [Done adding people] After the two co-founders, say the key people list is complete.
+- [Suggested roles - wage] If a VP of Sales or similar executive role is suggested, set its wage to $300,000.
+- [Suggested roles - timing] Any suggested additional executive hire should be planned for about 3 months out.
+- [Revenue baseline] Accept the Year-1 revenue baseline as presented.
+- [COGS] Set COGS at about 24% of revenue - hosting, infrastructure, support, and services delivery.
+- [Payroll] The People-derived baseline will be far too low for our size - set Year-1 payroll to about $52 million; we run around 380 employees. Confirm when it's restated.
+- [Marketing] We spend about $34 million a year on sales and marketing.
+- [Monthly rent] Office rent on our Bellevue headquarters is about $220,000 a month.
+- [Future rent expected] Yes - we'll continue to need office space.
+- [Owner compensation] As CEO I take about $650,000 a year in cash compensation.
+- [Other operating expense] Other operating costs - software tools, travel, professional services, insurance - run about $900,000 a month.
+- [Employee count] We have about 380 employees on payroll.
+- [Capex] We spent about $4,000,000 recently on data-center hardware and office build-out.
+- [Initial assets] Capitalized equipment, servers, and build-out are worth about $18,000,000.
+- [Initial lease] Beyond the office rent, we lease data-center and network equipment at about $60,000 a month.
+- [Initial equity] About $85,000,000 of equity has been raised into the business to date.
+- [Total debt] We carry about $40,000,000 in venture debt and a term loan.
+- [Other monthly debt payments] The debt service runs about $930,000 a month.
+- [Annual interest] Annual interest is about $3,200,000.
+- [Annual principal] We pay down about $8,000,000 of principal a year.
+- [Cash on hand] About $30,000,000 in the bank.
+- [Accounts receivable] Enterprise customers owe us about $14,000,000 on net-30 and net-60 terms.
+- [Accounts payable] We owe about $6,000,000 to vendors and infrastructure providers.
+- [Inventory] None - we're a software business, no inventory.
+- [Cash strategy] Preserve cash - we're reinvesting into growth and extending our runway, no distributions.
+- [Funding preference] Fund it with a mix of both debt and equity.
+- [Funding split] Roughly thirty percent debt and seventy percent equity - mostly venture equity with some venture debt.
+- [Ask a question back] When milestones come up, first ask the consultant what counts as a milestone before giving your answer.
+- [Compound answer] When asked about delivery, answer that and also volunteer the sales channel in the same reply.
+For anything not covered above, answer naturally and stay consistent with these positions.
+--- launching live dual-GPT intake ---
+[runner] generating bootstrap business persona...
+Bootstrapped business: Northwind Systems, Inc.
+Watch live in browser: http://localhost:5173/business-plan-form?watch=be1c0b1bea2645a1b05de3976ec5dd89
+
+[ops][assistant] To get us started, could you describe in plain language what "Northwind Systems, Inc." does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like "fitness gym", "law firm", "restaurant", etc.)?
+[runner] generating simulated user reply for focus=ops...
+[user] Northwind Systems, Inc. is a B2B software company that operates three distinct service lines, each tracked separately: (1) Self-Serve SaaS Subscriptions where businesses purchase monthly subscription accounts, (2) Enterprise Annual Contracts sold annually to large clients, and (3) Professional Services & Implementation engagements delivered monthly. Our product is cloud-based SaaS delivered online with a distributed sales model that includes enterprise sales teams, self-serve signups, and partner/reseller channels across North America and Europe. We earn revenue from subscriptions, enterprise contracts, and services fees, all paid on monthly or annual cadence depending on the line.
+
+[ops][assistant] Here’s how I’m understanding Northwind Systems, Inc. operationally: it’s a cloud-based B2B software company with three distinct lines, all centered on your SaaS platform. First, you sell self-serve SaaS subscriptions where business customers pay for accounts on a recurring basis (this is best treated as a monthly cadence). Second, you sell larger enterprise contracts to big clients that are negotiated and billed on an annual basis (we’ll treat those as contract-style annual deals). Third, you deliver professional services and implementation work tied to your software, where clients are billed based on services delivered on a recurring monthly cadence rather than one-off projects.
+
+This is a recurring-revenue software and services business (not a one-time project shop or a physical/retail product business), with value delivered online via the SaaS platform and services wrapped around it, and revenue coming from ongoing subscriptions, enterprise agreements, and services fees on monthly or annual cycles.
+
+Is that description of the three lines and their monthly/annual cadences accurate?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that's accurate. We track the three lines separately, and delivery is entirely online with sales through enterprise teams, self-serve signups, and partner channels.
+
+[ops][assistant] Based on the start date you provided, I'm treating this as operating for planning context. If that's off, tell me and I'll adjust.
+
+Next, to ground the rest of the intake: you’ve described Northwind as a B2B SaaS company—would you say you primarily sell to businesses, to individual consumers, or a mix of both?
+[runner] generating simulated user reply for focus=ops...
+[user] We sell exclusively to businesses, from small self-serve customers up to large enterprises. It's purely B2B.
+
+[ops][assistant] Got it, purely B2B.
+
+Let’s start by tightening up the “unit” for each of the three lines, beginning with Self-Serve SaaS Subscriptions so we can anchor pricing and capacity there.
+
+For the self-serve line, what do you consider one unit for planning purposes: a single customer account/seat, a customer organization/tenant (regardless of seat count), or something else?
+[runner] generating simulated user reply for focus=ops...
+[user] For the Self-Serve SaaS Subscriptions line, one unit is one active monthly subscription account.
+
+[ops][assistant] Great, one unit for Self-Serve is one active monthly subscription account.
+
+For that self-serve subscription account, can you briefly describe what’s included in a typical unit (for example, core SaaS access for one user or tenant, standard support tier, typical feature bundle)?
+[runner] generating simulated user reply for focus=ops...
+[user] A typical self-serve subscription account includes full core SaaS platform access for one user, the standard support tier, and the standard feature bundle appropriate for our small to mid-sized business customers.
+
+[ops][assistant] Thanks, that’s clear.
+
+For the Self-Serve SaaS Subscriptions line, thinking about the platform and infrastructure you have now, what’s a realistic upper limit of active self-serve subscription accounts you could support in a typical month over the next year (assuming you’re fully “booked” for that line)?
+[runner] generating simulated user reply for focus=ops...
+[user] We can support up to about 60,000 active self-serve subscription accounts per month on the platform.
+
+[ops][assistant] Understood, we’ll treat 60,000 active self-serve subscription accounts as your practical monthly capacity for the self-serve line.
+
+For planning the next 12 months, you usually won’t be running at absolute max all the time, so I’d like to set an average load assumption: would it be reasonable to say you’ll operate at about 70% of that self-serve capacity on average (around 42,000 active accounts), or does a different percentage feel closer to what you expect?
+[runner] generating simulated user reply for focus=ops...
+[user] I insist on using 70% utilization for the self-serve subscriptions in Year 1; that's the figure we work with.
+
+[ops][assistant] Perfect, we’ll lock in 70% utilization for the self-serve subscriptions for the first 12 months.
+
+Next, we should agree on an average price per active self-serve subscription account per month so we can model revenue: what’s the single average monthly price you want to use for one self-serve subscription account (you can give it as something like “$X per account per month”)?
+[runner] generating simulated user reply for focus=ops...
+[user] Subscriptions average about $85 per account per month.
+
+[ops][assistant] Great, we’ll use an average of $85 per active self-serve subscription account per month for the self-serve line.
+
+Now let’s define the “unit” for the Enterprise Annual Contracts line. For those enterprise deals, what should we treat as one unit for planning: one enterprise customer contract (regardless of number of users/seats), or something else?
+[runner] generating simulated user reply for focus=ops...
+[user] For Enterprise Annual Contracts, one unit is one active enterprise annual contract, regardless of number of users within that contract.
+
+[ops][assistant] Got it: for Enterprise Annual Contracts, one unit is one active enterprise annual contract, regardless of how many users are inside that deal.
+
+To define that unit more clearly, can you briefly describe what’s typically included in a standard enterprise annual contract (for example, enterprise-tier platform access, SSO/security features, SLAs, dedicated support, typical term/renewal)?
+[runner] generating simulated user reply for focus=ops...
+[user] A standard enterprise annual contract includes enterprise-tier platform access with enhanced features, single sign-on and advanced security and compliance, guaranteed SLAs, dedicated account management and support teams, and a typical term of one year with annual renewal.
+
+[ops][assistant] That’s a solid definition for the enterprise contract offering.
+
+Because we’re treating these enterprise deals on a contract cadence, I want to anchor your concurrent capacity next: at any given time over the next year, about how many active enterprise annual contracts do you believe you could realistically support at once with your current team and infrastructure (even if demand isn’t there yet)?
+[runner] generating simulated user reply for focus=ops...
+[user] We can carry up to about 900 concurrent enterprise annual contracts at once with our current resources.
+
+[ops][assistant] Thanks, we’ll treat 900 as your practical concurrent capacity for active enterprise annual contracts.
+
+Over the next 12 months, you’re unlikely to run all 900 slots at full load all the time. For planning, would you be comfortable using the same 70% average load assumption here (so on average about 630 active enterprise annual contracts at any given time), or do you want a different utilization percentage for this enterprise line?
+[runner] generating simulated user reply for focus=ops...
+[user] For enterprise contracts, I insist on using 65% utilization for Year 1, not 70%. That's the figure we work with.
+
+[ops][assistant] Got it, we’ll use 65% utilization for enterprise contracts, on a base capacity of 900 concurrent contracts.
+
+Because these are one-year enterprise deals, the next piece is how many times, on average, a single “slot” can realistically turn over in a year (for example, most clients simply renew annually, so you might treat this as roughly 1 turn per year; in faster-churn or expansion models it could be higher). For your planning, do you want to assume that each active enterprise contract slot effectively turns over about once per year, or a different number of turns per year?
+[runner] generating simulated user reply for focus=ops...
+[user] Each enterprise contract renews annually, so you should count about 1 turn per year for these contracts.
+
+[ops][assistant] Understood, we’ll treat each enterprise contract slot as turning over about once per year (1 turn annually).
+
+Next, we should lock in an average annual price per active enterprise contract so we can model that line properly. On average, what’s the total annual contract value you want to use for one standard enterprise annual contract (a single number like “$X per contract per year”)?
+[runner] generating simulated user reply for focus=ops...
+[user] Enterprise contracts average about $95,000 a year each.
+
+[ops][assistant] Great, we’ll use an average of $95,000 per enterprise contract per year for the Enterprise Annual Contracts line.
+
+Now let’s define the unit for your Professional Services & Implementation line so we can pin down capacity and pricing there. For that services line, what do you want to treat as one unit for planning: for example, one billable hour, one billable day, or one standard monthly services package/engagement?
+[runner] generating simulated user reply for focus=ops...
+[user] One unit for Professional Services & Implementation is one implementation or services engagement.
+
+[ops][assistant] Great, one unit in the Professional Services & Implementation line is one implementation or services engagement.
+
+To tighten that up for planning, can you briefly describe what’s typically included in a standard engagement (for example, a typical implementation/services package over a period of weeks or months, with configuration, training, and ongoing advisory), so we can capture a short description of what one engagement usually looks like?
+[runner] generating simulated user reply for focus=ops...
+[user] Each engagement typically includes a tailored implementation of our platform, configuration to the client's needs, training sessions for their staff, and ongoing advisory support during the engagement period, which varies but often spans several weeks to a few months.
+
+[ops][assistant] That’s helpful, thank you—that’s a clear picture of a typical implementation/services engagement.
+
+For this Professional Services & Implementation line, thinking about your current team and delivery model, what’s a realistic upper limit of active engagements you can be working on in a typical month over the next year (assuming you’re comfortably “full” but not overloaded)?
+[runner] generating simulated user reply for focus=ops...
+[user] We can deliver about 100 engagements per month comfortably with our current Professional Services team capacity.
+
+[ops][assistant] Thanks, we’ll treat 100 active implementations/services engagements per month as your practical capacity for the Professional Services & Implementation line.
+
+For planning the next 12 months, you won’t be running at maximum all the time here either. For this services line specifically, would you like to use the same 65% average load assumption you’ve used elsewhere (so roughly 65 active engagements in a typical month), or a different utilization percentage for this line?
+[runner] generating simulated user reply for focus=ops...
+[user] For the Professional Services & Implementation line, please use a 60% utilization rate for Year 1 — that's what we work with.
+
+[ops][assistant] Understood, we’ll use a 60% utilization rate for the Professional Services & Implementation line on a base capacity of 100 engagements per month (so on average about 60 active engagements in a typical month).
+
+Next, we should lock in an average price for one Professional Services & Implementation engagement so we can model that revenue line. On average, what’s the total price you want to use for a standard implementation/services engagement (a single number like “$X per engagement”)?
+[runner] generating simulated user reply for focus=ops...
+[user] Professional Services engagements average about $22,000 each.
+
+[ops][assistant] Thanks, we’ll use an average of $22,000 per Professional Services & Implementation engagement.
+
+Because your SaaS platform and services are delivered online, I’m assuming customers receive everything digitally/virtually (access provisioned in the cloud, remote implementation, training via calls/web sessions) rather than anything being shipped physically—does “digital delivery / remote service” accurately describe how customers receive what they buy?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that accurately describes it. Our product is cloud-based SaaS delivered over the web, and the implementation and support are all provided remotely. Additionally, our sales channels include an enterprise sales team for large accounts, self-serve online signup for smaller customers, and partner and reseller channels.
+
+[ops][assistant] That matches what I expected: everything is cloud-based and delivered remotely, with no physical shipping involved.
+
+Given that, I’m going to assume your primary sales/fulfillment modality is effectively “hybrid”: sales are a mix of enterprise sales reps, self-serve online signups, and partner/reseller channels, while fulfillment is handled by your SaaS platform and remote services teams. That typically means fulfillment is performed by your internal product/engineering/ops teams plus Professional Services and Support staff, with SaaS access provisioned almost instantly after purchase and implementation projects running over weeks to a few months, and that your main operational constraint is people and their time (labor) rather than pure system capacity. That is how fulfillment typically works for this kind of business – does this look right?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that looks exactly right. Our fulfillment relies heavily on our skilled teams to deliver both the SaaS platform services and the Professional Services engagements efficiently through digital and remote channels.
+
+[ops][assistant] Great, we’re aligned on how fulfillment works for Northwind.
+
+Given your model and that you’re serving customers across North America and Europe via cloud delivery and remote services, I’d characterize your operating reach as international. To keep it concrete, I’d summarize your primary coverage as “United States, Canada, and key European markets (including the UK and EU member countries where you actively sell).” Does that list accurately capture the main countries/regions where you’re actually selling and servicing customers today?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that accurately captures our main markets. We sell and service customers across the U.S., Canada, and key European countries including the UK and the EU.
+
+[ops][assistant] Thanks, that’s clear—we’ll keep your operating reach as the U.S., Canada, and key European markets including the UK and EU.
+
+One last structural point before we wrap this intake: what legal structure does Northwind Systems, Inc. currently use—Sole proprietor, LLC, LLP, S-corp, C-corp, or Partnership?
+[runner] generating simulated user reply for focus=ops...
+[user] Northwind Systems, Inc. is structured as a C-corp.
+
+[ops][assistant] Proposed competitive advantage: Northwind’s primary competitive advantage is that it runs a single, shared SaaS codebase and infrastructure that is explicitly optimized to serve both high‑volume self‑serve SMB accounts and complex enterprise contracts, and it has organized product, engineering, and services teams around this shared platform instead of splitting into separate “SMB” and “enterprise” products. This structural choice lets you amortize development, compliance, and hosting costs over a much larger base of users while still selling a premium enterprise tier (with SSO, SLAs, and implementation services) at very high unit economics, and gives customers a smoother upgrade path from self‑serve to enterprise without migrations or re‑platforming. It’s hard for competitors to copy because most have already diverged into separate codebases, teams, and go‑to‑market motions for SMB vs. enterprise, making consolidation and true shared-platform economics and experience extremely costly and risky to unwind.
+
+Does this accurately reflect what truly sets the business apart?
+[runner] generating simulated user reply for focus=ops...
+[user] That's close, but I'd like to emphasize our enterprise-grade security and compliance strengths as a key part of our competitive advantage. These are critical in winning large enterprise deals and raising switching costs, complementing the shared platform benefits you described. Otherwise, I approve this summary.
+
+[ops][assistant] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+[runner] generating simulated user reply for focus=ops...
+[user] Our goal for the next 12 months is to reach about $12 million in monthly revenue.
+
+[market][assistant] Great, let's move on to Target Market.
+
+To start on your B2B targeting, which broad types of industries or organizations are the best fit for your platform today—for example, more regulated/data‑sensitive sectors (like financial services, healthcare, or SaaS/tech) or more general mid‑market/enterprise across many industries?
+[runner] generating simulated user reply for focus=market...
+[user] We primarily target mid-market and enterprise companies in technology, financial services, healthcare, and retail industries. These sectors benefit most from our platform's enterprise-grade security and compliance capabilities.
+
+[market][assistant] Got it—you’re primarily focused on mid‑market and enterprise companies in technology, financial services, healthcare, and retail, which fits well with your enterprise‑grade security and compliance positioning.
+
+Next, thinking about the size of your ideal customer organizations, do you have a general employee-count sweet spot (for example, mid‑market firms with dozens to hundreds of employees, or larger enterprises with thousands of employees)?
+[runner] generating simulated user reply for focus=market...
+[user] We target established companies with roughly 200 to 5,000-plus employees. Our focus is on organizations mature enough to need enterprise-level security and compliance, not on startups or very small businesses.
+
+[market][assistant] Thanks, that’s helpful—your sweet spot is established organizations with around 200 to 5,000+ employees that already feel the need for enterprise‑level security and compliance.
+
+For how long the companies have been around, do you care whether they’re relatively young high‑growth firms versus long‑established enterprises, or are you open to companies of any age as long as they meet your size and industry criteria?
+[runner] generating simulated user reply for focus=market...
+[user] We prefer established organizations rather than very young or startup companies. The companies we target are mature enough to require the enterprise-level security and compliance features our platform offers.
+
+[market][assistant] Positioning for Northwind Systems, Inc. is built around an operating-stage, cloud-based SaaS and services model that earns recurring revenue from self-serve subscriptions, enterprise annual contracts, and implementation engagements, with pricing that spans value-to-mid-market tiers for self-serve and clearly premium economics for enterprise contracts and services (for example, $85-$95,000 per Active monthly subscription account, Active enterprise annual contract, Implementation or services engagement in each line). The geographic posture is international, focused on North America and key European markets, with capacity primarily constrained by skilled labor rather than platform infrastructure, so marketing must emphasize high-intent, high-fit prospects rather than sheer volume. Core firmographic targets are established technology, financial services, healthcare, and retail organizations in the 100–499, 500–999, 1,000–2,499, 2,500–4,999, 5,000–9,999, and 10,000+ employee ranges, and generally at least three years old so that enterprise-grade security, compliance, and governance requirements are already in place and can be translated directly into demand for the unified platform and services offering.
+
+Acquisition architecture should concentrate on a small set of channels that align with your hybrid sales motion and enterprise focus: Google Search to capture high-intent buyers actively seeking compliant, secure SaaS solutions and to feed the self-serve and inbound enterprise pipeline; LinkedIn (organic presence and targeted outreach/paid) to reach specific decision-makers inside mid-market and enterprise accounts in your priority industries; curated industry directories and review platforms relevant to B2B software buyers to validate your security and compliance posture and support vendor-selection workflows; structured referral networks and customer advocacy programs that leverage satisfied enterprise and mid-market customers to open doors with similar organizations; and a focused partner and reseller ecosystem, particularly in security/compliance-oriented and regional integrator channels, to extend geographic reach and bundle your platform into broader transformation or compliance initiatives. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.
+
+Does this look right before we move on to Human Resources?
+[runner] generating simulated user reply for focus=market...
+[user] This looks good overall, but could you please emphasize our enterprise-grade security and compliance strengths a bit more in the positioning summary before we move on? That's a critical part of how we win large deals.
+
+[market][assistant] "Positioning for Northwind Systems, Inc. is built around an operating-stage, cloud-based SaaS and services model that earns recurring revenue from self-serve subscriptions, enterprise annual contracts, and implementation engagements, with pricing that spans value-to-mid-market tiers for self-serve and clearly premium economics for enterprise contracts and services (for example, $85-$95,000 per Active monthly subscription account, Active enterprise annual contract, Implementation or services engagement in each line). A core pillar of the positioning is Northwind’s enterprise-grade security, compliance, and governance capabilities, which are designed to meet demanding requirements in regulated and security-sensitive industries and to stand up to rigorous vendor-risk, audit, and certification reviews. This security and compliance strength is central to how you win and retain large, complex deals, and it underpins both the self-serve and enterprise offerings on a unified, hardened platform.
+
+The geographic posture is international, focused on North America and key European markets, with capacity primarily constrained by skilled labor rather than platform infrastructure, so marketing must emphasize high-intent, high-fit prospects rather than sheer volume. Core firmographic targets are established technology, financial services, healthcare, and retail organizations in the 100–499, 500–999, 1,000–2,499, 2,500–4,999, 5,000–9,999, and 10,000+ employee ranges, and generally at least three years old so that enterprise-grade security, compliance, and governance requirements are already in place and can be translated directly into demand for the unified platform and services offering.
+
+Acquisition architecture should concentrate on a small set of channels that align with your hybrid sales motion and enterprise focus: Google Search to capture high-intent buyers actively seeking compliant, secure SaaS solutions and to feed the self-serve and inbound enterprise pipeline; LinkedIn (organic presence and targeted outreach/paid) to reach specific decision-makers inside mid-market and enterprise accounts in your priority industries; curated industry directories and review platforms relevant to B2B software buyers to validate your security and compliance posture and support vendor-selection workflows; structured referral networks and customer advocacy programs that leverage satisfied enterprise and mid-market customers to open doors with similar organizations; and a focused partner and reseller ecosystem, particularly in security/compliance-oriented and regional integrator channels, to extend geographic reach and bundle your platform into broader transformation or compliance initiatives. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
+
+Does this look right before we move on to Human Resources?
+[runner] generating simulated user reply for focus=market...
+[user] Yes, that summary looks accurate and properly emphasizes our enterprise-grade security and compliance strengths as a critical competitive advantage. We can proceed to discussing Human Resources.
+
+[people][assistant] Great, let's move on to Human Resources.
+
+At this stage, most operating businesses highlight a few pivotal people—typically around leadership, operations, technical/engineering, and key client-facing or licensed roles—but there’s no fixed checklist; we’ll just capture whoever is actually important today. Since you’re already operating, this will frame the current team that powers and scales the business, not a full rebuild.
+
+Let’s start with the first key person:  
+What is their full name, current title/role in the business, how many years of relevant experience do they have (number of years), and what are their relevant education or professional credentials (if any; you can say “none” if not applicable or unknown)?
+[runner] generating simulated user reply for focus=people...
+[user] The first key person is Elena Vasquez, our Co-Founder and CEO. She has 16 years of experience in enterprise software and previously served as VP of Product at a public SaaS company. Her total cash compensation is about $650,000 a year.
+
+[people][assistant] Thanks, that’s helpful context on Elena.
+
+For Elena, could you also share her relevant education or professional credentials (for example, degrees, notable certifications, etc.; if nothing is particularly relevant or you’re not sure, “none” is fine)?
+
+And once we’ve captured that, do you want to add another key person after Elena?
+[runner] generating simulated user reply for focus=people...
+[user] Elena holds an MBA from a top-tier business school and a Bachelor's degree in Computer Science. Yes, let's add another key person after Elena.
+
+[people][assistant] Great, thanks.
+
+For the next key person, what is their full name, current title/role in the business, how many years of relevant experience they have (number of years), and their relevant education or professional credentials (if any; “none” is fine if not applicable or unknown)?
+[runner] generating simulated user reply for focus=people...
+[user] The second key person is Rajan Mehta, our Co-Founder and CTO. He has 15 years of experience specializing in distributed systems. His education credentials are not specified. After Rajan, the list of key people is complete.
+
+[people][assistant] Review this draft (key people narrative) and tell me any changes.
+
+As Co-Founder and CEO, Elena Vasquez brings 16 years of enterprise software experience, including serving as VP of Product at a public SaaS company, alongside an MBA from a top-tier business school and a Bachelor’s degree in Computer Science. She leads overall strategy and execution for Northwind Systems, Inc., aligning product, engineering, sales, and services teams around a single, security-hardened SaaS platform that serves both self-serve and enterprise customers. Elena’s background in scaling complex SaaS products positions her to drive disciplined growth across all three revenue lines while maintaining the enterprise-grade security and compliance standards that underpin the company’s ability to win and retain large, high-value customers. Estimated annual wage: $650,000/year.
+
+As Co-Founder and CTO, Rajan Mehta brings 15 years of experience specializing in distributed systems and leading teams that build and operate large-scale, cloud-based software platforms. He is responsible for the technical vision and architecture of Northwind Systems, Inc.’s unified SaaS platform, directing engineering and infrastructure efforts to ensure secure, compliant, and highly available delivery for self-serve, enterprise, and professional services customers. Rajan’s track record in scaling distributed systems is critical to maintaining the reliability, performance, and enterprise-grade security that the company’s multi-line operating model and large, regulated clients demand. Estimated annual wage: $202,210/year.
+
+Does this look right before we move on to Financials?
+[runner] generating simulated user reply for focus=people...
+[user] The draft looks accurate for Elena Vasquez, including her experience and compensation. For Rajan Mehta, I confirm his experience and role, and the estimated wage of $202,210 per year is fine. The key people list is complete as stated. Let's move on to Financials.
+
+[people][assistant] Great.
+
+Beyond yourself and the key people we just covered, roughly what does payroll for the rest of your team come to per year? A rough annual figure is fine - and it's fine if there isn't anyone else on payroll.
+[runner] generating simulated user reply for focus=people...
+[user] The total payroll for our team, including all employees beyond the two co-founders, is about $52 million annually. We have around 380 employees overall.
+
+[financials][assistant] Got it - updated.
+
+Great, let's move on to Financials.
+
+Let's ground the plan in where the business is today: about how much revenue is the business bringing in a year right now? A rough annual figure is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] Year 1 revenue baseline is about $144 million annually, reflecting the combined revenue from our three service lines at their specified utilization and pricing levels.
+
+[financials][assistant] Got it — I’ll use about $144 million in annual revenue as the starting point for the plan.
+
+For direct costs - things like materials, supplies, and other costs tied directly to delivering the work - a reasonable starting point is about 26% of revenue, which works out to around $29,902,704.
+
+Does that broadly match how your business works, or should we adjust it because your direct costs are materially different?
+[runner] generating simulated user reply for focus=financials...
+[user] Direct costs are about 24% of revenue, not 26%. That includes hosting, infrastructure, support, and services delivery. Please adjust to 24%.
+
+[financials][assistant] Thanks for clarifying — I’ll set direct costs to 24% of revenue instead of 26%.
+
+For marketing, a reasonable starting point is about 30% of revenue, which works out to around $43,200,000 a year.
+
+Does that broadly match what it will take to attract and convert customers, or should we adjust it because your marketing spend will be materially different?
+[runner] generating simulated user reply for focus=financials...
+[user] Our marketing spend is about $34 million annually, which is less than 30% of revenue. Please adjust the marketing budget to $34 million a year.
+
+[financials][assistant] Got it — I’ll set the annual marketing budget to $34 million and update the implied percent of revenue accordingly.
+
+What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?
+[runner] generating simulated user reply for focus=financials...
+[user] Our office rent on our Bellevue headquarters is about $220,000 per month.
+
+[financials][assistant] Got it — I’ll record your Bellevue office rent as about $220,000 per month.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, we'll definitely continue to need dedicated office space moving forward.
+
+[financials][assistant] Got it — I’ll note that you expect to keep paying for dedicated office space going forward.
+
+About how much do you pay yourself from the business per month, counting wages, draws, or other owner compensation? A rough dollar amount is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] As CEO, I take about $650,000 a year in total cash compensation, which breaks down to roughly $54,167 per month.
+
+[financials][assistant] Got it — I’ll record your owner compensation based on about $54,167 per month.
+
+About how much goes to other regular business bills in a typical month, besides payroll, marketing, and rent - things like utilities, software, insurance, accounting, phone, and internet?
+[runner] generating simulated user reply for focus=financials...
+[user] Other operating expenses such as software tools, travel, professional services, and insurance run about $900,000 per month.
+
+[financials][assistant] Thanks, I’ll plug in $900,000 per month for other operating expenses.
+
+How many people are on payroll right now, not counting outside contractors? A whole number is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] We have about 380 employees on payroll.
+
+[financials][assistant] Got it, I’ll record 380 current employees on payroll.
+
+Have you recently made any larger one-time purchases for the business, like equipment, devices, furniture, build-out, or vehicles? If so, what was the rough total?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, we spent about $4,000,000 recently on data-center hardware and office build-out.
+
+[financials][assistant] Thanks, I’ll record about 4,000,000 in recent capital spending for data-center hardware and office build-out.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] The capitalized equipment, servers, and office build-out assets are worth about $18,000,000 in total.
+
+[financials][assistant] Got it — I’ll record your existing equipment, servers, and build‑out assets at about 18,000,000 in total.
+
+Now let's capture any leased or rented equipment or space beyond your main rent. What monthly amount should we use for any leased equipment, vehicles, servers, or additional space you do not own? If there is none, use 0.
+[runner] generating simulated user reply for focus=financials...
+[user] We lease data-center and network equipment at about $60,000 per month beyond the office rent.
+
+[financials][assistant] Got it — I’ll record 60,000 per month for leased data‑center and network equipment beyond your main rent.
+
+Roughly how much money or value has gone into the business so far, from you or any investors, all together?
+[runner] generating simulated user reply for focus=financials...
+[user] We have raised about $85,000,000 of equity all told into the business so far.
+
+[financials][assistant] Thanks, I’ll record 85,000,000 as the total equity invested so far.
+
+About how much does the business currently owe in total on loans, lines of credit, or business credit cards?
+[runner] generating simulated user reply for focus=financials...
+[user] We carry about $40,000,000 in total debt, including venture debt and a term loan.
+
+[financials][assistant] Got it — I’ll record total debt outstanding as 40,000,000.
+
+Besides regular rent and the credit card minimums already covered in other expenses, what other loan or debt payments does the business make each month?
+[runner] generating simulated user reply for focus=financials...
+[user] The debt service payments run about $930,000 each month.
+
+[financials][assistant] Thanks, I’ll record other monthly debt payments as 930,000.
+
+Of your debt payments, what is your best estimate of the annual interest cost, meaning the finance charge rather than principal paydown?
+[runner] generating simulated user reply for focus=financials...
+[user] Annual interest is about 3,200,000.
+
+[financials][assistant] Got it, I’ll record your annual interest cost as 3,200,000.
+
+What is your best estimate of the annual principal you expect to repay on the business debt, separate from interest?
+[runner] generating simulated user reply for focus=financials...
+[user] We pay down about $8,000,000 of principal a year on our business debt.
+
+[financials][assistant] Got it, I’ll record 8,000,000 as the annual principal you expect to repay on the business debt.
+
+About how much cash does the business have on hand right now, counting bank accounts and any cash on site?
+[runner] generating simulated user reply for focus=financials...
+[user] We have about $30,000,000 in cash on hand in the bank right now.
+
+[financials][assistant] Thanks, I’ll record 30,000,000 as your current cash on hand.
+
+About how much do customers currently owe you for completed work, like unpaid invoices or payment plans?
+[runner] generating simulated user reply for focus=financials...
+[user] Enterprise customers currently owe us about $14,000,000 on net-30 and net-60 payment terms.
+
+[financials][assistant] Got it — I’ll record 14,000,000 as your current accounts receivable balance.
+
+About how much does the business currently owe in regular operating bills, like unpaid supplier invoices, utilities, or operations-related credit card balances?
+[runner] generating simulated user reply for focus=financials...
+[user] We owe about $6,000,000 to vendors and infrastructure providers in accounts payable.
+
+[financials][assistant] Got it — I’ll record 6,000,000 as your current accounts payable balance.
+
+About how much inventory do you have on hand right now, like products or supplies kept in stock to use or sell?
+[runner] generating simulated user reply for focus=financials...
+[user] We have no inventory. We're a software business with zero inventory.
+
+[financials][assistant] Got it — I’ll record your inventory balance as zero.
+
+One last financial planning question before I wrap this section up: when this business starts building extra cash, what would you want to do with it?
+
+- Preserve cash: Keep a thicker cash cushion and stay more conservative about putting excess cash back to work.
+- Shareholder return: Treat excess cash as something that can be taken out of the business rather than just left to build up.
+- Balanced: Balance the required cash cushion, debt discipline, and measured capital returns.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We want to preserve cash. We're reinvesting into growth and extending our runway, so we're not planning to make distributions or return cash to shareholders at this time.
+
+[financials][assistant] Got it — I’ll mark your cash approach as preserving cash and reinvesting to extend runway.
+
+One more planning question on funding: when this business needs outside capital to operate or grow, how would you prefer to fund it?
+
+- Debt: Borrowed money, like bank loans or lines of credit, repaid over time.
+- Equity: Owner or investor money put into the business, with no required repayment schedule.
+- Both: A deliberate mix of debt and equity working together.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We prefer to fund with a mix of both debt and equity — roughly thirty percent debt and seventy percent equity, mainly venture equity with some venture debt.
+
+[financials][assistant] Got it — I’ll record your preference as a mix of debt and equity, leaning more toward equity overall.
+
+Since you'd use both debt and equity, roughly what mix feels right for planning?
+
+- Mostly debt: About 70/30 debt-to-equity.
+- Even split: About 50/50 debt-to-equity.
+- Mostly equity: About 30/70 debt-to-equity.
+
+A rough answer is fine, and we'll treat it as a planning assumption you can revisit.
+[runner] generating simulated user reply for focus=financials...
+[user] We want to use mostly equity: about 30% debt and 70% equity for planning purposes.
+
+[done][assistant] Got it — I’ll record the funding mix as mostly equity, with about 30% debt and 70% equity for planning.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now - a typical mature quarter keeps about $17,753,612 (25.1% of revenue), inside the 16.0%-28.0% range judged believable for your kind of business. The full build will shape the quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+Simulation completed.
+System run complete.
+Final flags: {"ops_confirmed": true, "market_confirmed": true, "people_confirmed": true, "financials_confirmed": true, "resolution_summary_status": "missing", "remaining_issue_count": 0}
+Draft ID: be1c0b1bea2645a1b05de3976ec5dd89
+Saved run report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs\07-23-2026 -- be1c0b1bea2645a1b05de3976ec5dd89.txt
+Saved persisted state report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data\07-23-2026 -- be1c0b1bea2645a1b05de3976ec5dd89.txt
+Saved New Runner report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\07-23-2026 -- be1c0b1bea2645a1b05de3976ec5dd89.txt
+Saved New Runner grid report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\07-23-2026 -- be1c0b1bea2645a1b05de3976ec5dd89 -- quarter-grid.txt
+Expected terminal log file: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs\07-23-2026 -- be1c0b1bea2645a1b05de3976ec5dd89.txt

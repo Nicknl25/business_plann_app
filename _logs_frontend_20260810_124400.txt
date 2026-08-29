@@ -1,0 +1,24 @@
+
+> business-plan-frontend@0.0.1 dev
+> vite --strictPort
+
+Re-optimizing dependencies because vite config has changed
+
+  VITE v5.4.21  ready in 734 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://10.0.0.67:5173/
+1:12:08 PM [vite] .env.local changed, restarting server...
+1:12:08 PM [vite] server restarted.
+1:55:55 PM [vite] .env.local changed, restarting server...
+1:55:55 PM [vite] server restarted.
+2:21:17 PM [vite] .env.local changed, restarting server...
+2:21:17 PM [vite] server restarted.
+3:56:03 PM [vite] .env.local changed, restarting server...
+3:56:03 PM [vite] server restarted.
+4:59:50 PM [vite] .env.local changed, restarting server...
+4:59:50 PM [vite] server restarted.
+5:44:15 PM [vite] .env.local changed, restarting server...
+5:44:15 PM [vite] server restarted.
+6:36:51 PM [vite] .env.local changed, restarting server...
+6:36:51 PM [vite] server restarted.

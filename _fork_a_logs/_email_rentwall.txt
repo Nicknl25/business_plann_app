@@ -1,0 +1,32 @@
+RENT WALL DEBUNKED + two universal fixes shipped. Your instinct was right: "Sunny is revenue-constrained"
+was an ARTIFACT. All fixes are universal (fix the app, not Sunny).
+
+GROUND TRUTH (from the real persisted finmo): Sunny's real rent% = 32% (q1 revenue $18,720, lease
+$6,000/qtr = $24k/yr), dropping to ~25%. NOT 217%. At real economics ($2 price, 29% COGS, 32% rent) Sunny
+is THIN-MARGIN but plausible -- not catastrophically non-viable. The "217%" was a gate artifact.
+
+SHIPPED (be941ac, both universal):
+- FIX 1a -- sane-floor band guard: a resolved NAICS band may RAISE a ceiling but never TIGHTEN it below the
+  conservative default. Killed the 1% rent ceiling (now 0.12). This is the systemic "SMB cohort resolves to a
+  mismatched-segment band and hard-applies it" pathology -- rent 1% AND cogs 72% target both came from NAICS
+  311811 (food MANUFACTURING) applied to a retail donut shop; same family as the empty margin table.
+- FIX 2 -- price authoring: the intake price AND the positioning text's "$2" are now a REFERENCE GPT authors
+  FROM (may override; author a blended classic+specialty price; guardrail = raise only if the portrait
+  supports it, never for viability). On Sunny GPT still chose $2 -- its grounded call (comparables
+  $1.50-2.75, neighborhood mid-market). Universal: premium portrait -> GPT can go higher.
+
+COGS sanity check (FIX 3): the NEW system uses a realistic 29% COGS for Sunny. The 72% was only the garbage
+band, never applied to the baseline. Baseline is trustworthy.
+
+THE ONE REMAINING UNIVERSAL BUG (FIX 1b -- localized, not yet fixed): the pre-cash rent% gate measures
+against final_finmo_json, whose revenue is COLLAPSED ~6x (~$2,766/qtr) vs the authored/cascade finmo
+($18,720). The cascade finmo is correct; the solver rebuilds final_finmo_json ~20x through target-seeking +
+repair passes and ONE of them discards the authored revenue (likely a finmo rebuild re-deriving
+capacity/revenue without the authored drivers). The rent% formula itself is fine (lease / row.revenue) --
+it's just handed a phantom revenue. FIX: make the gate measure against the AUTHORED finmo revenue / stop the
+solver rebuild from discarding it. Universal -- affects any revenue-authored plan. This is the last piece
+that fully dissolves the fake wall.
+
+C + Task 3 stay KILLED (no wall to climb). Next: trace the final_finmo_json collapse point and fix it
+universally, then re-run Sunny on the fully-trusted baseline and report real viability. Handoff memory has
+the exact localization (orchestrator.py:1516-3558 reassignments; gate at :2482; rent% check fail_fast.py:674).

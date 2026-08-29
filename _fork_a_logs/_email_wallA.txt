@@ -1,0 +1,39 @@
+WALL A PUSHED (0fd10a1) — the executive is HITCHED and JUDGING. Parity holds. Honest gap below.
+
+WHAT CHANGED: the in-cascade standard no longer uses the post-run acceptance gate (whose
+completion checks are always-False mid-cascade -> META-halt -> executive never judged). It now
+scores the live finmo on the restructurable economic checks only (net_income_trajectory_viable,
+revenue_not_flat), excluding completion/realism/solver/cash checks; real exceptions still halt
+(structural META-halt survives); the 4 completion checks stay enforced at the FINAL gate.
+session_factory rebuilds the live finmo each round and propagates commits into it. The strictness
+contract was extended with "in_cascade_economic" (+ test).
+
+PROOF (live, CONVERGENCE_TEST_MODE=true):
+- (a) PARITY HELD — neither Luna nor Sunny tripped fork_a_round1_finmo_parity_failed; the
+  mandatory round-1 finmo == in-cascade recompute assertion passed (provable by construction:
+  build_python_finmo_json is deterministic and seeded from applied_model_input_json).
+- (b) EXECUTIVE JUDGING — Sunny's post_intake_restructuring_log:
+      amalgamated_gpt_confirmed = 5   (V1 COGS, V2 cogs_max, V4 utilization, V5 capacity, V7 R&D)
+      amalgamated_gpt_chose     = 2   (V3 pricing, V6 payroll -- Type-B choices)
+  Before this fix the same draft produced a single META_ESCALATED with ZERO executive judgments.
+  The executive is now genuinely in the loop across the VIABILITY ladder.
+- Luna: round-1 economics already pass the 2 in-loop checks -> cascade resolves, no restructure
+  (correct -- a passing plan is not restructured).
+
+HONEST GAP -- (c) REAL per-round deltas NOT yet achieved (this is a BUG to fix, not a verdict):
+  Every applied_value=None and worst_distance None->None, then deterministic-floor re-walks ->
+  no-progress-floor. The executive JUDGES but the moves don't APPLY. Root cause (from the audit):
+  _commit_proposal only applies when the section's revise tool returns accepted=True; for
+  - drivers V1: revise_drivers REJECTS the empty round-1 drivers anchors (drivers are deferred to
+    the cascade, so there's nothing to "revise" yet -> needs author-on-empty);
+  - operating_model V3/V4/V5: no writer yet (that's B1 -- revise_operating_model);
+  - worst_distance isn't populated, so even an applied move can't be scored as progress.
+  Because no commit is accepted, the live_model_input never updates -> finmo never changes -> no
+  deltas. Fixing this (drivers author-on-empty + B1 operating_model writers + distance population)
+  is the immediate next work; then I re-run to prove real per-round deltas before calling it done.
+
+NEXT, in order: (1) make the cascade's moves actually apply + populate progress distance, rolling
+in B1 (revise_operating_model + per_employee_productivity writer) since V3/V4/V5 need it; (2) Wall B
+(Contract-3 fact_template + payroll-row title) so the run completes to a verdict; (3) re-run all
+three drafts for the full evidence (executive + real deltas + honest verdict). Will commit/push/email
+each.

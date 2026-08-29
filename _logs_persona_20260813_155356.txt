@@ -1,0 +1,21 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-13 15:53:58.301 INFO api: REQ GET /api/business-types -> 200 187ms draft=-
+2026-08-13 15:54:39.053 INFO api: REQ GET /api/shared-context -> 200 219ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 15:55:31.684 INFO api: TURN_BEGIN draft=r8912128f326394f97a1d68cbbf6422d turn=115 starting=False focus=done msg_chars=79
+2026-08-13 15:55:39.019 INFO api: REQ GET /api/shared-context -> 200 172ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 15:55:39.494 INFO api: TURN_INTENT draft=r8912128f326394f97a1d68cbbf6422d action=confirm_clarify patch=None
+2026-08-13 15:55:40.304 INFO api: REQ POST /api/intake-consult -> 200 9516ms draft=r8912128f326394f97a1d68cbbf6422d
+2026-08-13 15:55:41.091 INFO api: TURN_BEGIN draft=r88be032d182f54bdc96e72cb230a260 turn=115 starting=False focus=done msg_chars=59
+2026-08-13 15:55:44.034 INFO api: TURN_INTENT draft=r88be032d182f54bdc96e72cb230a260 action=confirm_clarify patch=None
+2026-08-13 15:55:44.859 INFO api: REQ POST /api/intake-consult -> 200 3844ms draft=r88be032d182f54bdc96e72cb230a260
+2026-08-13 15:55:45.620 INFO api: TURN_BEGIN draft=r86a50818d64984ee0bf993936161736 turn=115 starting=False focus=done msg_chars=88
+2026-08-13 15:55:49.240 INFO api: TURN_INTENT draft=r86a50818d64984ee0bf993936161736 action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Plant/nursery sales', 'cogs_percent': 48, 'cogs_percent_unit': 'percent'}, {'line_name': 'Landscaping & installation', 'cogs_percent': 0.19, 'cogs_percent_unit': 'ratio'}]}
+2026-08-13 15:55:49.242 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=['Plant/nursery sales / Plant sale', 'Landscaping & installation / Install project'] grouped=[] unmatched=[] unit_unclear=[]
+2026-08-13 15:56:29.820 INFO api: REQ POST /api/intake-consult -> 200 44281ms draft=r86a50818d64984ee0bf993936161736
+2026-08-13 15:56:30.662 INFO api: TURN_BEGIN draft=r86a2cef18e028447183e3beb45cf016 turn=115 starting=False focus=done msg_chars=113
+2026-08-13 15:56:34.237 INFO api: TURN_INTENT draft=r86a2cef18e028447183e3beb45cf016 action=confirm_clarify patch=None
+2026-08-13 15:56:35.168 INFO api: REQ POST /api/intake-consult -> 200 4562ms draft=r86a2cef18e028447183e3beb45cf016
+2026-08-13 15:56:39.053 INFO api: REQ GET /api/shared-context -> 200 219ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 15:57:39.050 INFO api: REQ GET /api/shared-context -> 200 187ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 15:58:39.023 INFO api: REQ GET /api/shared-context -> 200 187ms draft=1070c6a560a04f3d971019a3787180bf

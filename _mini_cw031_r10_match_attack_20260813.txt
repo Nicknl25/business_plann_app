@@ -1,0 +1,22 @@
+﻿A1 coincidence: stated 3500 (a price) -> matched leaf [('monthly_rent', 3500.0)]
+   spoken: 'monthly rent is $3,500'
+A2 stated 1,553,000 vs stored 1,553,000 -> MATCH
+A2 stated 1,548,000 vs stored 1,553,000 -> MATCH
+A2 stated 1,546,000 vs stored 1,553,000 -> MATCH
+A2 stated 1,545,000 vs stored 1,553,000 -> no match
+A3 sub-floor figure 45 -> [] (must be [])
+A3b big-match + small figure -> [] (documented: [] — small figure kills the match, failed-change register)
+A4 census: 4674 drafts with >=1 leaf >= 1,000; 4334 (92.7%) carry at least one value >= 1000 stored under TWO OR MORE different leaf names
+   e.g. 00050e6d9f27: 18,000.00 under ['units_per_period_capacity', 'units_per_week_capacity']
+   e.g. 000f0e0c03c0: 254,400.00 under ['cogs_total_year1', 'current_cogs']
+   e.g. 00139af56a6c: 254,400.00 under ['cogs_total_year1', 'current_cogs']
+   e.g. 001cd6a7a507: 133,000.00 under ['baseline_payroll_year1', 'current_payroll', 'payroll_total_year1']
+   e.g. 001dbbb608b5: 27,144.00 under ['baseline_cogs', 'cogs_total_year1', 'current_cogs']
+   e.g. 004fd4725294: 254,400.00 under ['cogs_total_year1', 'current_cogs']
+   e.g. 005705e05e37: 280,000.00 under ['current_capex', 'owner_compensation']
+   e.g. 00965e2ea9b4: 1,042,015.00 under ['cogs_total_year1', 'current_cogs']
+==============================================================================
+FINDING: A1 CONFIRMED: stated a price, sentence names 'monthly_rent' — the match names whichever leaf walks first, not the field the client meant
+FINDING: A2 CONFIRMED: stated 1,548,000 (a correction, 5,000 off) is spoken as 'that matches what I have' — a correction swallowed as a confirmation
+FINDING: A2 CONFIRMED: stated 1,546,000 (a correction, 7,000 off) is spoken as 'that matches what I have' — a correction swallowed as a confirmation
+MATCH-ATTACK: mechanisms verified; findings above are judgment input
