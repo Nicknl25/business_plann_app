@@ -1,0 +1,37 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-07-24 07:59:58.151 INFO api: REQ GET /api/business-types -> 200 219ms draft=-
+2026-07-24 08:00:07.157 INFO api: REQ POST /api/intake-consult/session -> 200 532ms draft=-
+2026-07-24 08:00:07.975 INFO api: REQ POST /api/intake-consult/session -> 200 15ms draft=-
+2026-07-24 08:00:28.450 ERROR api: System run failed for draft 1f1ad166180c4401b577bfecbf5ea432
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\.venv\Lib\site-packages\mysql\connector\connection_cext.py", line 772, in cmd_query
+    self._cmysql.query(
+_mysql_connector.MySQLInterfaceError: Unknown column 'cohort_query' in 'field list'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 7570, in post_intake_consult_system_run_handler
+    result = _run_planning_system_for_draft(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 7427, in _run_planning_system_for_draft
+    return _run_planning_system_for_draft_unified(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\api_handlers\intake_consult.py", line 7356, in _run_planning_system_for_draft_unified
+    initial_grid_state = prepare_initial_grid_for_draft(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\post_intake_initial_grid\runner.py", line 618, in prepare_initial_grid_for_draft
+    _bands_summary = populate_cohort_bands_for_run(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\python\client_intake_and_finmo\post_intake_solver\cohort_bands_table.py", line 208, in populate_cohort_bands_for_run
+    cur.execute(
+  File "C:\dev\business_plann_app\.venv\Lib\site-packages\mysql\connector\cursor_cext.py", line 353, in execute
+    self._connection.cmd_query(
+  File "C:\dev\business_plann_app\.venv\Lib\site-packages\mysql\connector\opentelemetry\context_propagation.py", line 97, in wrapper
+    return method(cnx, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\business_plann_app\.venv\Lib\site-packages\mysql\connector\connection_cext.py", line 781, in cmd_query
+    raise get_mysql_exception(
+mysql.connector.errors.ProgrammingError: 1054 (42S22): Unknown column 'cohort_query' in 'field list'
+2026-07-24 08:00:30.371 INFO api: REQ POST /api/intake-consult/system-run -> 500 22390ms draft=1f1ad166180c4401b577bfecbf5ea432

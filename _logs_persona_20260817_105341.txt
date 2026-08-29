@@ -1,0 +1,45 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-17 10:53:42.589 INFO api: REQ GET /api/business-types -> 200 172ms draft=-
+2026-08-17 10:53:52.095 INFO api: TURN_BEGIN draft=sdcorva9fc85a6990eb4987815a702c0 turn=23 starting=False focus=ops msg_chars=320
+2026-08-17 10:53:52.204 INFO api_handlers.intake_consult: STREAM_DISCOVERY window open labels=['Digital printing services', 'Copying and duplicating services', 'Graphic design and prepress services', 'Bindery and finishing services'] round=ask reader=consultant_chat_turn
+2026-08-17 10:54:16.442 INFO api: REQ POST /api/intake-consult -> 200 24891ms draft=sdcorva9fc85a6990eb4987815a702c0
+2026-08-17 10:54:22.418 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=25 starting=False focus=ops msg_chars=250
+2026-08-17 10:54:41.570 INFO api: REQ POST /api/intake-consult -> 200 19172ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:54:41.600 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=27 starting=False focus=ops msg_chars=130
+2026-08-17 10:54:49.520 INFO api: REQ POST /api/intake-consult -> 200 7922ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:54:49.581 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=29 starting=False focus=ops msg_chars=136
+2026-08-17 10:54:58.271 INFO api: REQ POST /api/intake-consult -> 200 8718ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:54:58.324 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=31 starting=False focus=ops msg_chars=18
+2026-08-17 10:55:06.794 INFO api: REQ POST /api/intake-consult -> 200 8484ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:55:06.854 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=33 starting=False focus=ops msg_chars=18
+2026-08-17 10:55:23.507 INFO api: REQ POST /api/intake-consult -> 200 16672ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:55:23.576 INFO api: TURN_BEGIN draft=sdcorvbd41cd85c889741c6952d9b370 turn=35 starting=False focus=ops msg_chars=18
+2026-08-17 10:55:57.762 INFO api: REQ POST /api/intake-consult -> 200 34219ms draft=sdcorvbd41cd85c889741c6952d9b370
+2026-08-17 10:56:22.128 INFO api: TURN_BEGIN draft=sdnine60867214e22b4602b8e0aa3d9a turn=23 starting=False focus=ops msg_chars=106
+2026-08-17 10:56:59.545 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts'] survivors=['direct-to-consumer online coffee sales', 'recurring coffee subscriptions', 'office coffee supply accounts', 'restaurant and cafe wholesale accounts'] dropped=['wholesale retail bags', 'wholesale grocery bags', 'private label roasting for other brands']
+2026-08-17 10:56:59.927 INFO api: REQ POST /api/intake-consult -> 200 37860ms draft=sdnine60867214e22b4602b8e0aa3d9a
+2026-08-17 10:57:00.038 INFO api: TURN_BEGIN draft=sdnine60867214e22b4602b8e0aa3d9a turn=25 starting=False focus=ops msg_chars=180
+2026-08-17 10:57:00.375 INFO api_handlers.intake_consult: STREAM_DISCOVERY window open labels=['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts'] round=ask reader=consultant_chat_turn
+2026-08-17 10:57:47.382 INFO api: REQ POST /api/intake-consult -> 200 47422ms draft=sdnine60867214e22b4602b8e0aa3d9a
+2026-08-17 10:59:17.503 INFO api: TURN_BEGIN draft=sdnineabcbe8b43989442099cdc162ba turn=25 starting=False focus=ops msg_chars=279
+2026-08-17 10:59:17.686 INFO api_handlers.intake_consult: STREAM_DISCOVERY window open labels=['retail coffee bags', 'wholesale coffee sales to grocery stores', 'brew gear and merchandise sales'] round=ask reader=consultant_chat_turn
+2026-08-17 11:00:03.012 INFO api: REQ POST /api/intake-consult -> 200 45563ms draft=sdnineabcbe8b43989442099cdc162ba
+2026-08-17 11:00:03.113 INFO api: TURN_BEGIN draft=sdnineabcbe8b43989442099cdc162ba turn=27 starting=False focus=ops msg_chars=77
+2026-08-17 11:00:23.187 INFO api: REQ POST /api/intake-consult -> 200 20125ms draft=sdnineabcbe8b43989442099cdc162ba
+2026-08-17 11:00:23.268 INFO api: TURN_BEGIN draft=sdnineabcbe8b43989442099cdc162ba turn=29 starting=False focus=ops msg_chars=108
+2026-08-17 11:00:33.369 INFO api: REQ POST /api/intake-consult -> 200 10156ms draft=sdnineabcbe8b43989442099cdc162ba
+2026-08-17 11:00:33.446 INFO api: TURN_BEGIN draft=sdnineabcbe8b43989442099cdc162ba turn=31 starting=False focus=ops msg_chars=146
+2026-08-17 11:01:22.754 INFO api: REQ POST /api/intake-consult -> 200 49344ms draft=sdnineabcbe8b43989442099cdc162ba
+2026-08-17 11:01:22.852 INFO api: TURN_BEGIN draft=sdnineabcbe8b43989442099cdc162ba turn=33 starting=False focus=ops msg_chars=139
+2026-08-17 11:02:21.640 INFO api: REQ POST /api/intake-consult -> 200 58844ms draft=sdnineabcbe8b43989442099cdc162ba
+2026-08-17 11:02:49.187 INFO api: TURN_BEGIN draft=sdnineeed8dcde9ee5453ca4001eabff turn=23 starting=False focus=ops msg_chars=106
+2026-08-17 11:03:09.812 INFO api: REQ POST /api/intake-consult -> 200 20672ms draft=sdnineeed8dcde9ee5453ca4001eabff
+2026-08-17 11:03:09.991 INFO api: TURN_BEGIN draft=sdnineeed8dcde9ee5453ca4001eabff turn=25 starting=False focus=ops msg_chars=121
+2026-08-17 11:03:31.309 INFO api: REQ POST /api/intake-consult -> 200 21438ms draft=sdnineeed8dcde9ee5453ca4001eabff
+2026-08-17 11:03:31.385 INFO api: TURN_BEGIN draft=sdnineeed8dcde9ee5453ca4001eabff turn=27 starting=False focus=ops msg_chars=61
+2026-08-17 11:04:33.062 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts'] survivors=['direct-to-consumer online coffee sales', 'recurring coffee subscriptions', 'office coffee supply accounts', 'restaurant and cafe wholesale accounts'] dropped=['wholesale retail bags', 'wholesale grocery bags', 'private label roasting for other brands']
+2026-08-17 11:04:33.323 INFO api: REQ POST /api/intake-consult -> 200 61984ms draft=sdnineeed8dcde9ee5453ca4001eabff
+2026-08-17 11:04:33.411 INFO api: TURN_BEGIN draft=sdnineeed8dcde9ee5453ca4001eabff turn=29 starting=False focus=ops msg_chars=180
+2026-08-17 11:04:33.661 INFO api_handlers.intake_consult: STREAM_DISCOVERY window open labels=['direct-to-consumer online coffee sales', 'restaurant and cafe wholesale accounts', 'recurring coffee subscriptions', 'office coffee supply accounts'] round=ask reader=consultant_chat_turn
+2026-08-17 11:04:52.857 INFO api: REQ POST /api/intake-consult -> 200 19500ms draft=sdnineeed8dcde9ee5453ca4001eabff

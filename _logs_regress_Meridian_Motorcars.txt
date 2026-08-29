@@ -1,0 +1,103 @@
+
+=== Scenario: Meridian_Motorcars (baseline=blank_business) ===
+  Applied 106 row(s) from sheet (92 edits vs baseline).
+    - draft.business_name: 'New Business' -> 'Meridian Motorcars, LLC'
+    - draft.business_address: '100 Main St, Springfield, IL 62701, USA' -> '7150 E Camelback Rd, Scottsdale, AZ 85251, USA'
+    - draft.address_street: '100 Main St' -> '7150 E Camelback Rd'
+    - draft.address_city: 'Springfield' -> 'Scottsdale'
+    - draft.address_state: 'IL' -> 'AZ'
+    - draft.address_zip: '62701' -> '85251'
+    - draft.business_start_date: '01/01/2024' -> '03/01/2016'
+    - operating_model_json.business_type: '<your business type>' -> 'Luxury and exotic pre-owned car dealership'
+    - operating_model_json.business_description_summary: '<one-line description of what you sell>' -> 'Boutique pre-owned dealership specializing in luxury and exotic vehicles (Porsche, Mercedes-AMG, and select supercars) from a Scottsdale showroom. Sells roughly 50 highly curated vehicles a year at an average price near $95,000, with a high-touch, appointment-driven sales experience and nationwide buyer sourcing.'
+    - operating_model_json.competitive_advantage: '<why you win>' -> 'Deep specialist knowledge of the luxury/exotic segment, a curated low-volume inventory that protects per-unit gross, and a reputation and clientele that bring repeat high-net-worth buyers and consignments other lots cannot access.'
+    - operating_model_json.geographic_scope: 'local' -> 'national'
+    - operating_model_json.geographic_coverage: '<your market area>' -> 'Scottsdale/Phoenix showroom serving buyers nationwide via shipping and online sales'
+    - operating_model_json.primary_growth_lever: '<main growth lever>' -> 'inventory_quality_and_gross'
+    - operating_model_json.capacity_driver: 'labor' -> 'inventory'
+    - operating_model_json.business_naics_6: '000000' -> '441120'
+    - operating_model_json.unit_name: None -> 'luxury pre-owned vehicle'
+    - operating_model_json.unit_price: None -> 95000.0
+    - operating_model_json.units_per_week_capacity: None -> 1.4
+    - operating_model_json.units_per_period_capacity: None -> 6.0
+    - operating_model_json.utilization_rate: None -> 0.7
+    - operating_model_json.initial_assets: 100000 -> 1600000
+    - operating_model_json.initial_equity: 80000 -> 500000
+    - operating_model_json.initial_lease: 0 -> '700000,one-time'
+    - operating_model_json.total_debt_outstanding: 0 -> 1100000
+    - operating_model_json.lob_models[0].lob_name: 'Line of business A' -> 'Luxury Vehicle Sales'
+    - operating_model_json.lob_models[0].products[0].product_name: 'Product / service A' -> 'Luxury Pre-Owned Vehicle'
+    - operating_model_json.lob_models[0].products[0].unit_name: 'Product / service A' -> 'luxury pre-owned vehicle sold'
+    - operating_model_json.lob_models[0].products[0].unit_description: 'Product / service A' -> 'one curated luxury or exotic pre-owned vehicle sold at retail'
+    - operating_model_json.lob_models[0].products[0].units_per_week_capacity: 200.0 -> 1.4
+    - operating_model_json.lob_models[0].products[0].units_per_period_capacity: 2400.0 -> 6.0
+    - operating_model_json.lob_models[0].products[0].utilization_rate: 0.6 -> 0.7
+    - operating_model_json.lob_models[0].products[0].unit_price: 100.0 -> 95000.0
+    - operating_model_json.shipping_method: 'none' -> 'enclosed transport nationwide or showroom pickup'
+    - operating_model_json.confidence: 0.7 -> 0.83
+    - target_market_json.marketing_plan_summary: '<how you reach customers>' -> 'High-end marketplace listings (Bring a Trailer, duPont Registry, AutoTrader exotics), an inventory-forward Instagram presence, and a referral network of collectors and repeat clients. Emphasis on curated photography/video and relationship selling rather than volume advertising.'
+    - target_market_json.confidence: 0.7 -> 0.8
+    - people_json.business_naics_6: '000000' -> '441120'
+    - people_json.confidence: 0.7 -> 0.8
+    - people_json.inferred_roles_summary: '' -> 'Small high-touch team of four: owner, two luxury sales specialists, and a logistics/detail lead.'
+    - people_json.people[0].full_name: '<founder name>' -> 'Victor Sloane'
+    - people_json.people[0].role_title: 'Owner / Operator' -> 'Owner / Principal'
+    - people_json.people[0].primary_responsibilities: '<what they do day to day>' -> 'Sources and prices inventory, manages consignments, floorplan, and closes high-value deals.'
+    - people_json.people[0].relevant_background: '<relevant experience>' -> '20 years in luxury and exotic auto retail.'
+    - people_json.people[0].experience_years: '5' -> '20'
+    - people_json.people[0].why_strengthens_business: '<why they make this business work>' -> 'Reputation and sourcing network bring cars and buyers other dealers cannot.'
+    - people_json.people[0].paragraph: '<short bio>' -> 'Victor sources the cars, sets the price, and closes the big deals.'
+    - people_json.people[0].annual_wage: 60000.0 -> 120000.0
+    - people_json.people[1].full_name: None -> 'Alena Petrov'
+    - people_json.people[1].role_title: None -> 'Luxury Sales Specialist'
+    - people_json.people[1].primary_responsibilities: None -> 'Manages client relationships, appointments, and the full high-touch sales process.'
+    - people_json.people[1].relevant_background: None -> '10 years in luxury retail sales.'
+    - people_json.people[1].experience_years: None -> 10.0
+    - people_json.people[1].why_strengthens_business: None -> 'Relationship selling to HNW clients drives repeat and referral business.'
+    - people_json.people[1].paragraph: None -> 'Alena runs the client experience end to end.'
+    - people_json.people[1].annual_wage: None -> 70000.0
+    - people_json.people[1].wage_source: None -> 'client_override'
+    - people_json.people[1].months_until_hire: None -> 0.0
+    - people_json.people[2].full_name: None -> 'Grant Mueller'
+    - people_json.people[2].role_title: None -> 'Luxury Sales Specialist'
+    - people_json.people[2].primary_responsibilities: None -> 'Handles buyer inquiries, remote sales, and closing for out-of-state buyers.'
+    - people_json.people[2].relevant_background: None -> '8 years in exotic car sales.'
+    - people_json.people[2].experience_years: None -> 8.0
+    - people_json.people[2].why_strengthens_business: None -> 'Nationwide remote selling expands the buyer pool beyond the local market.'
+    - people_json.people[2].paragraph: None -> 'Grant closes the national and online buyers.'
+    - people_json.people[2].annual_wage: None -> 70000.0
+    - people_json.people[2].wage_source: None -> 'client_override'
+    - people_json.people[2].months_until_hire: None -> 0.0
+    - people_json.people[3].full_name: None -> 'Diego Salas'
+    - people_json.people[3].role_title: None -> 'Logistics & Detailing Lead'
+    - people_json.people[3].primary_responsibilities: None -> 'Coordinates enclosed transport, PPI/reconditioning, and concours-level detailing.'
+    - people_json.people[3].relevant_background: None -> '9 years in exotic vehicle logistics and detailing.'
+    - people_json.people[3].experience_years: None -> 9.0
+    - people_json.people[3].why_strengthens_business: None -> 'Presentation and flawless delivery protect the premium price and the brand.'
+    - people_json.people[3].paragraph: None -> 'Diego makes every car flawless and gets it delivered.'
+    - people_json.people[3].annual_wage: None -> 40000.0
+    - people_json.people[3].wage_source: None -> 'client_override'
+    - people_json.people[3].months_until_hire: None -> 0.0
+    - financials_json.cogs_percent_of_revenue: 0.3 -> 0.83
+    - financials_json.payroll_total_year1: 60000 -> 300000
+    - financials_json.current_revenue: 300000 -> 4788000
+    - financials_json.cash_on_hand: 50000 -> 150000
+    - financials_json.initial_assets: 100000 -> 1600000
+    - financials_json.initial_equity: 80000 -> 500000
+    - financials_json.initial_lease: '0,none' -> '700000,one-time'
+    - financials_json.total_debt_outstanding: 0 -> 1100000
+    - financials_json.other_operating_expense: 24000 -> 180000
+    - financials_json.marketing_total_year1: 15000 -> 90000
+    - financials_json.monthly_rent_expense: 2000 -> 12000
+    - financials_json.current_capex: 5000 -> 30000
+    - financials_json.current_cogs: 90000 -> 3974040
+    - financials_json.current_payroll: 60000 -> 300000
+    - financials_json.current_num_employees: 3 -> 4
+  Draft f9f3fa83b97547519ee3fcaae7d00522 written. active_focus=done ops/mkt/ppl/fin/fy1=11111
+  Triggering post-intake system-run...
+  System run complete.
+  Duration: 209160 ms
+  Workbook: C:\dev\Cilient Plans\Meridian Motorcars LLC -- 07-17-2026 16-40-14.xlsx
+
+=== Summary ===
+  Meridian_Motorcars           system_run_complete draft=f9f3fa83b97547519ee3fcaae7d00522 workbook=C:\dev\Cilient Plans\Meridian Motorcars LLC -- 07-17-2026 16-40-14.xlsx

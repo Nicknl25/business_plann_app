@@ -1,0 +1,34 @@
+
+> business-plan-frontend@0.0.1 dev
+> vite --host 0.0.0.0
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+  VITE v5.4.21  ready in 470 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://10.0.0.67:5173/
+  ➜  press h + enter to show help
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+7:25:31 AM [vite] vite.config.ts changed, restarting server...
+7:25:31 AM [vite] vite.config.ts changed, restarting server...
+7:25:31 AM [vite] server restarted.
+8:29:41 AM [vite] .env.local changed, restarting server...
+8:29:41 AM [vite] server restarted.
+12:13:59 PM [vite] .env.local changed, restarting server...
+12:13:59 PM [vite] server restarted.
+1:13:50 PM [vite] .env.local changed, restarting server...
+1:13:50 PM [vite] server restarted.
+1:21:50 PM [vite] .env.local changed, restarting server...
+1:21:50 PM [vite] server restarted.
+2:27:11 PM [vite] .env.local changed, restarting server...
+2:27:11 PM [vite] server restarted.
+3:58:10 PM [vite] .env.local changed, restarting server...
+3:58:10 PM [vite] server restarted.
+4:06:14 PM [vite] .env.local changed, restarting server...
+4:06:14 PM [vite] server restarted.
+9:05:39 PM [vite] .env.local changed, restarting server...
+9:05:39 PM [vite] server restarted.

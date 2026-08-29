@@ -1,0 +1,32 @@
+THE CASCADE MACHINE NOW WORKS END-TO-END (proven on a live run). 3 commits since the digest:
+4119229 margin keystone, c2938c5 apply-fix, 564ccbe distance-fix.
+
+Proven chain (live Sunny, each step verified in the audit log):
+  margins populate (assemble bands + live finmo; correspondence proven: each lever -> its OWN metric band)
+  -> proposer computes REAL targets (V1 COGS 0.28 -> 0.715 = the cogs band target; was proposed_value=None)
+  -> executive judges WITH the business portrait (3 confirm / 2 choose / 2 VETO -- real judgment)
+  -> the move APPLIES (V1 COGS applied_value=0.715; was None -- fixed a set_drivers writer-signature bug)
+  -> finmo recomputes -> worst_distance MOVES round-to-round (-1.0543 -> -1.4884; was None->None -- fixed a
+     _gate_distance key-name mismatch).
+Every mechanical piece you asked for is now real and verified: margins, proposer targets, executive judging
+with business context, moves landing, progress measurable.
+
+HONEST on the delta DIRECTION (this is the real remaining work, not a bug):
+For Sunny the distance moved the WRONG way. V1 raised COGS 28% -> 71.5% toward the realistic cohort
+(Sunny's 28% is BELOW the NAICS 311811 band -- raising it is realism-correct but hurts viability), and no
+later tier recovers it. Why: Sunny's ONLY real viability lever is more REVENUE (rent is 217% of revenue),
+and the revenue levers (price/utilization/capacity) have NO band -- so the proposer can't target them
+(proposed_value=None for V3/V4/V5). So worst_distance can't SHRINK for a revenue-constrained plan until the
+operating_model magnitude mechanism exists.
+
+REMAINING (final work -- policy + mechanism, all scoped):
+  A. operating_model MAGNITUDE = your Option A. Executive DIRECTS (raise price/util), solver/python finds the
+     MAGNITUDE that moves the failing ratio (ebitda_margin / net_income) into band. This is THE fix that makes
+     revenue-constrained plans like Sunny viable (and the only way worst_distance shrinks for them).
+  B. Cost-lever direction: a viability tier should NOT raise a cost lever that's already on the favorable side
+     of its band (Sunny COGS below band). Skip favorably-pinned cost levers -- don't make harmful moves.
+  C. Pre-cash gate land-not-crash: Sunny still 500s at the pre-cash gpt-authorable gate (rent 217%, Lease --
+     not a cascade lever) before a verdict. Genuine non-viability must render a VERDICT with exhaustion proof.
+
+A is the big one and is your settled Option A; B is a direction guard; C is the B3 land-not-crash.
+Building A next. 8 Fork-A commits banked this session, all pushed to intake-stable.

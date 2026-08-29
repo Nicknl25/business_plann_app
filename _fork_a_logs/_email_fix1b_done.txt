@@ -1,0 +1,39 @@
+FIX 1b DONE + PROVEN UNIVERSAL (d512003). The disease is cured, not the symptom.
+
+THE DISEASE (traced with per-pass capacity instrumentation, not guessed): the feasibility-restoration pass
+(_apply_restoration_to_model_input) FLAT-OVERWROTE the GPT-authored Capacity ramp with the raw intake
+scalar (ops_json.units_per_period_capacity). On Sunny the authored ramp 15,600 -> 29,640 collapsed to a
+flat ~1,200 (the weekly intake value), cratering revenue ~6x -> the gate measured rent against ~$2,766/qtr
+and reported the fake 217%. That is exactly the doctrine violation you named: FTE/intake scalars
+back-driving the capacity anchor (Part-E loop-break).
+
+CAPTRACE proof (capacity at EVERY solver pass): the collapse happened EXACTLY at the restoration patch and
+nowhere else (entry, pre-flight, path-stamp, gate all otherwise preserved it). So I fixed that pass, not
+the gate.
+
+THE FIX (universal, doctrine-level -- enforce the anchor):
+- revenue authoring marks the model_input as revenue_authored (in solver_input, because a new top-level key
+  is rejected by the AMALGAMATED_SESSION->MODEL_INPUT contract).
+- the restoration pass SKIPS revenue-row overwrites when revenue is authored (still adjusts payroll/costs).
+The authored per-quarter ramps are authoritative; nothing back-drives them.
+
+PROVEN UNIVERSAL (live Sunny, capacity traced at every pass):
+- capacity holds the authored ramp 15,600 -> 21,840 -> 29,640 at solver entry, post-restoration,
+  post-pre-flight, AND at the gate. It survives EVERY pass, not just the one I instrumented.
+- final_finmo revenue == authored.
+- rent% is now REAL 22.8% (dropping as revenue ramps), NOT the phantom 217%.
+- pre-cash violations dropped 40 -> 14: the payroll_percent_of_revenue violations that rode the collapsed
+  revenue CLEARED (as you predicted FIX 1b might dissolve them).
+- Tests green (151).
+
+REMAINING -- REAL economics, not a bug (your decision):
+The 14 residual violations are rent_percent_of_revenue ~22.8% in the early ramp vs the 0.12 ceiling. At the
+conservative $2 authored price Sunny genuinely runs high rent early. Three levers, your call:
+  (a) the 0.12 rent ceiling may be too tight for a small storefront (calibration);
+  (b) GPT chose $2 (FIX 2 permits higher; a blended classic+specialty price ~$3 would push rent% under the
+      ceiling) -- the price is GPT's grounded-but-conservative call;
+  (c) per your frame-correction, high-but-real rent should inform the forecast, not hard-crash the pre-cash
+      gate.
+This is no longer the phantom-revenue disease -- that is cured and the baseline is now trustworthy.
+
+Commits: FIX 1a + FIX 2 (be941ac), FIX 1b (d512003). All pushed. Handoff memory updated.

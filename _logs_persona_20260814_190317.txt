@@ -1,0 +1,1229 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-14 19:03:19.042 INFO api: REQ GET /api/business-types -> 200 141ms draft=-
+2026-08-14 19:03:37.878 INFO api: REQ GET /api/shared-context -> 200 406ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:03:40.424 INFO api: TURN_BEGIN draft=vs33w174f368d42d744f27b7e6fb48ab turn=75 starting=False focus=financials msg_chars=70
+2026-08-14 19:03:42.079 INFO api: REQ POST /api/intake-consult -> 200 2234ms draft=vs33w174f368d42d744f27b7e6fb48ab
+2026-08-14 19:03:42.515 INFO api: TURN_BEGIN draft=vs33w2c54c0262377142a08a30eb54b8 turn=99 starting=False focus=financials msg_chars=107
+2026-08-14 19:04:00.192 INFO api: REQ POST /api/intake-consult -> 200 17734ms draft=vs33w2c54c0262377142a08a30eb54b8
+2026-08-14 19:04:00.278 INFO api: TURN_BEGIN draft=vs33w38d499e715d42497f8b6de67523 turn=103 starting=False focus=financials msg_chars=54
+2026-08-14 19:04:00.567 INFO api: REQ POST /api/intake-consult -> 200 312ms draft=vs33w38d499e715d42497f8b6de67523
+2026-08-14 19:04:00.938 INFO api: TURN_BEGIN draft=vs33w45a5ee4fa4f3145daa37026159f turn=119 starting=False focus=financials msg_chars=107
+2026-08-14 19:04:37.687 INFO api: REQ GET /api/shared-context -> 200 219ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:05:08.606 INFO api: REQ POST /api/intake-consult -> 200 67704ms draft=vs33w45a5ee4fa4f3145daa37026159f
+2026-08-14 19:05:09.224 INFO api: TURN_BEGIN draft=vs33w57eebd65ebef24536901c299295 turn=89 starting=False focus=financials msg_chars=97
+2026-08-14 19:05:25.673 INFO api: REQ POST /api/intake-consult -> 200 16500ms draft=vs33w57eebd65ebef24536901c299295
+2026-08-14 19:05:26.108 INFO api: TURN_BEGIN draft=vs33w63e3a57bf899c4fe8aa1eeaaaca turn=89 starting=False focus=financials msg_chars=140
+2026-08-14 19:05:31.055 INFO api: REQ POST /api/intake-consult -> 200 4985ms draft=vs33w63e3a57bf899c4fe8aa1eeaaaca
+2026-08-14 19:05:37.678 INFO api: REQ GET /api/shared-context -> 200 219ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:06:37.729 INFO api: REQ GET /api/shared-context -> 200 266ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:06:52.517 INFO api: REQ POST /api/intake-consult/session -> 200 16ms draft=-
+2026-08-14 19:06:53.422 INFO api: REQ POST /api/intake-consult/session -> 200 16ms draft=-
+2026-08-14 19:06:53.457 INFO api_handlers.intake_consult: RUN_ENTRY_RECALC draft=24b150bc9e774f0f9be59ba0df024867 recomputed sections=['financials_json', 'operating_model_json']
+2026-08-14 19:07:37.710 INFO api: REQ GET /api/shared-context -> 200 234ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:08:14.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:08:14.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:08:14.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:08:14.508 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:08:14.508 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:08:14.508 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:08:14.508 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:08:14.508 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:08:14.509 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:08:14.510 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:08:20.016 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:08:20.017 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:08:20.018 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:08:20.019 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:08:20.019 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:08:20.019 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:08:20.019 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:08:20.268 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:08:20.268 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:08:20.269 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:08:20.270 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:08:20.271 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:08:20.271 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:08:20.271 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:08:37.627 INFO api: REQ GET /api/shared-context -> 200 140ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:09:02.043 INFO client_intake_and_finmo.post_intake_headcount.schedule: payroll_wage_floor_adapted: 40 row(s) grounded up to their wage floor (titles=['Barista / Counter Lead', 'Counter Associate (part-time)'], floor_sources=['part_time_hours_at_floor_rate', 'state_min_p10']) -- run continues per ground-don't-crash doctrine.
+2026-08-14 19:09:05.447 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:05.447 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:05.447 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:05.447 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:05.448 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:05.449 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:06.469 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:06.469 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:06.469 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:06.469 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:06.470 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:06.471 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:08.198 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:08.198 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:08.198 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:08.198 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:08.199 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:08.200 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:08.201 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:08.201 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:10.661 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:10.661 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:10.661 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:10.661 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:10.662 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:10.663 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:12.073 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:12.073 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:12.074 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:12.075 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:12.076 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:12.076 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:13.302 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:13.303 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:13.304 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:13.783 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:13.783 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:13.783 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:13.783 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:13.783 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:13.784 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:13.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:09:37.765 INFO api: REQ GET /api/shared-context -> 200 297ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:09:44.713 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:09:44.714 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:09:44.715 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:09:44.716 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:09:44.716 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:09:44.716 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:10:09.704 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:10:09.704 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:10:09.704 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:10:09.704 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:10:09.704 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:10:09.705 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:10:09.706 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:10:31.046 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:10:31.047 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:10:31.048 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:10:31.049 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:10:31.049 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:10:31.049 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:10:31.049 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:10:37.677 INFO api: REQ GET /api/shared-context -> 200 203ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:10:56.058 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:10:56.059 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:10:56.060 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:10:56.061 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:10:56.061 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:10:56.061 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:10:56.061 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:11:22.257 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:11:22.258 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:11:22.259 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:11:22.260 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:11:22.260 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:11:22.260 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:11:22.260 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:11:37.644 INFO api: REQ GET /api/shared-context -> 200 172ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:11:48.428 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:11:48.429 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:11:48.429 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:11:48.429 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:11:48.430 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:11:48.431 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:11:48.432 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:11:48.432 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:11:48.432 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:11:48.432 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:12.433 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:12.434 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:12.435 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:12.436 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:12.436 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:12.436 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:12.436 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:12.436 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:12.935 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:12.936 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:12.937 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:12.938 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:12.938 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:12.938 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:37.682 INFO api: REQ GET /api/shared-context -> 200 203ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:12:48.479 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:48.480 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:48.480 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:48.480 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:48.480 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:48.481 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:48.482 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:48.483 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:48.483 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:48.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:48.759 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:48.760 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:48.760 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:48.760 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:48.760 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:48.760 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:49.122 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:49.123 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:49.123 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:49.123 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:49.123 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:49.124 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:49.125 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:49.126 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:49.126 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:49.126 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:50.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:50.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:50.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:50.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:50.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:50.841 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:50.841 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:50.841 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:50.841 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:50.841 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:50.842 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:50.843 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:51.212 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:51.213 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:51.214 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:51.215 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:51.215 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:51.215 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:51.215 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:51.215 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:52.355 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:52.355 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:52.355 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:52.356 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:52.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:52.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:52.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:52.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:52.755 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:52.755 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:52.755 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:52.756 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:52.757 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:52.758 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:53.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:53.039 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:53.039 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:53.039 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:53.039 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:53.039 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:53.040 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:53.041 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:53.041 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:53.041 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:53.041 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:12:53.403 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:12:53.403 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:12:53.404 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:12:53.405 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:12:53.406 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:13:18.293 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:13:18.293 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:13:18.293 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:13:18.294 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:13:18.296 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:13:18.296 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:13:18.296 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:13:18.635 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:13:18.636 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:13:18.902 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:13:18.903 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:13:18.904 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:13:18.905 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:13:18.905 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:13:37.693 INFO api: REQ GET /api/shared-context -> 200 234ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:14:00.914 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:14:00.914 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:14:00.915 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:00.915 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:00.915 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:00.916 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:00.917 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=1 ending_cash=5578 operating_expense_quarter=67848 cash_buffer_required=33924 cash_ceiling=45232 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=2 ending_cash=7660 operating_expense_quarter=67767 cash_buffer_required=33884 cash_ceiling=45178 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=3 ending_cash=9997 operating_expense_quarter=67434 cash_buffer_required=33717 cash_ceiling=44956 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=4 ending_cash=12667 operating_expense_quarter=67961 cash_buffer_required=33981 cash_ceiling=45308 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=5 ending_cash=16505 operating_expense_quarter=70984 cash_buffer_required=35492 cash_ceiling=47322 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=6 ending_cash=22121 operating_expense_quarter=72803 cash_buffer_required=36402 cash_ceiling=48536 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=7 ending_cash=29676 operating_expense_quarter=73301 cash_buffer_required=36651 cash_ceiling=48868 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=8 ending_cash=37296 operating_expense_quarter=73347 cash_buffer_required=36674 cash_ceiling=48898 debt_repayment=0
+2026-08-14 19:14:01.514 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=9 ending_cash=44257 operating_expense_quarter=74304 cash_buffer_required=37152 cash_ceiling=49536 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=10 ending_cash=51119 operating_expense_quarter=74348 cash_buffer_required=37174 cash_ceiling=49566 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=11 ending_cash=57928 operating_expense_quarter=74391 cash_buffer_required=37196 cash_ceiling=49594 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=12 ending_cash=65883 operating_expense_quarter=75357 cash_buffer_required=37678 cash_ceiling=50238 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=13 ending_cash=74642 operating_expense_quarter=77199 cash_buffer_required=38600 cash_ceiling=51466 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=14 ending_cash=84647 operating_expense_quarter=78284 cash_buffer_required=39142 cash_ceiling=52190 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=15 ending_cash=95231 operating_expense_quarter=78673 cash_buffer_required=39336 cash_ceiling=52448 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=16 ending_cash=105862 operating_expense_quarter=78721 cash_buffer_required=39360 cash_ceiling=52480 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=17 ending_cash=115878 operating_expense_quarter=79638 cash_buffer_required=39819 cash_ceiling=53092 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=18 ending_cash=125730 operating_expense_quarter=79773 cash_buffer_required=39886 cash_ceiling=53182 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=19 ending_cash=135510 operating_expense_quarter=79817 cash_buffer_required=39909 cash_ceiling=53212 debt_repayment=0
+2026-08-14 19:14:01.516 WARNING api_handlers.intake_consult: cash_strategy_input_trace q=20 ending_cash=145262 operating_expense_quarter=79860 cash_buffer_required=39930 cash_ceiling=53240 debt_repayment=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_trace mode=balanced allowed_sources=["balance_sheet::Owner's Capital", 'schedules::Debt Issuance (New Borrowing)'] excluded_sources=['balance_sheet::Other Equity'] required_funding_quarters=[{'q': 1, 'gap': 0}] violation_quarters=[1, 2, 3, 4, 5, 6, 7] residual_gap_quarters=[1, 2, 3, 4, 5, 6, 7] lever_bounds_violating_quarters={"balance_sheet::Owner's Capital": [{'q': 1, 'current': 20000, 'max': 48346, 'headroom': 28346}], 'balance_sheet::Distributions': [{'q': 1, 'current': 0, 'max': 0, 'headroom': 0}], 'balance_sheet::Other Equity': [{'q': 1, 'current': 0, 'max': 28346, 'headroom': 28346}], 'schedules::Debt Issuance (New Borrowing)': [{'q': 1, 'current': 0, 'max': 28687, 'headroom': 28687}], 'schedules::Debt Repayment (Scheduled)': [{'q': 1, 'current': 0, 'max': 0, 'headroom': 0}]} proposer_quarter_funding_plan=[{'q': 1, 'sources': [{'lever': "balance_sheet::Owner's Capital", 'amount': 25000, 'exact': 0}, {'lever': 'schedules::Debt Issuance (New Borrowing)', 'amount': 3346, 'exact': 0}]}] proposer_recommendation_mode=adjust
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=1 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=2 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=3 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=4 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=5 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=6 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=7 current=0 max=0 headroom=0
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=8 current=0 max=622 headroom=622
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=9 current=0 max=7105 headroom=7105
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=10 current=0 max=13945 headroom=13945
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=11 current=0 max=20732 headroom=20732
+2026-08-14 19:14:01.518 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=12 current=0 max=28205 headroom=28205
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=13 current=0 max=32957 headroom=32957
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=14 current=0 max=35195 headroom=35195
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=15 current=0 max=36486 headroom=36486
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=16 current=0 max=36831 headroom=36831
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=17 current=0 max=35797 headroom=35797
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=18 current=0 max=36331 headroom=36331
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=19 current=0 max=36349 headroom=36349
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=20 current=0 max=36337 headroom=36337
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=1 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=2 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=3 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=4 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=5 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=6 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=7 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=8 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=9 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=10 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=11 current=0 max=0 headroom=0
+2026-08-14 19:14:01.519 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=12 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=13 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=14 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=15 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=16 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=17 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=18 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=19 current=0 max=0 headroom=0
+2026-08-14 19:14:01.520 WARNING api_handlers.intake_consult: cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=20 current=0 max=0 headroom=0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:02.145 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:02.147 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:02.148 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:02.148 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:02.148 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:02.148 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:02.148 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:02.989 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:02.990 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:02.991 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:02.992 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:02.992 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:02.992 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:03.151 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=1 q=8 surplus_amount=1085 distributions_attempted=1085 distributions_applied=1085 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=25533 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:03.874 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:03.875 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:03.876 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:03.877 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:03.877 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:03.877 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:03.877 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:03.877 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:04.051 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=2 q=9 surplus_amount=6163 distributions_attempted=6163 distributions_applied=6163 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=30931 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:04.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:04.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:04.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:04.785 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:04.786 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:04.787 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:04.950 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=3 q=10 surplus_amount=6824 distributions_attempted=6824 distributions_applied=6824 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=31608 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:05.678 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:05.678 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:05.678 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:05.679 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:05.680 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:05.849 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=4 q=11 surplus_amount=6775 distributions_attempted=6775 distributions_applied=6775 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=31571 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:06.568 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:06.568 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:06.569 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:06.570 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:06.571 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:06.750 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=5 q=12 surplus_amount=7149 distributions_attempted=7149 distributions_applied=7149 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=32269 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:07.524 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:07.525 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:07.525 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:07.525 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:07.525 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:07.525 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:07.526 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:07.527 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:07.527 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:07.527 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:07.527 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:07.527 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:07.808 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=6 q=13 surplus_amount=7225 distributions_attempted=7225 distributions_applied=7225 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=32957 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:08.425 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:08.426 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:08.427 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:08.427 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:08.427 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:08.427 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:08.427 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:08.428 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:08.774 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=7 q=14 surplus_amount=9099 distributions_attempted=9099 distributions_applied=9099 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=35195 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:09.505 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:09.505 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:09.505 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:09.505 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:09.505 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:09.506 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:09.507 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:09.675 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=8 q=15 surplus_amount=10262 distributions_attempted=10262 distributions_applied=10262 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=36486 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:10.437 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:10.437 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:10.437 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:10.437 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:10.437 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:10.438 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:10.439 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:10.611 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=9 q=16 surplus_amount=10591 distributions_attempted=10591 distributions_applied=10591 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=36831 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:11.357 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:11.358 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:11.359 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:11.360 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:11.360 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:11.360 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:11.360 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:11.527 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=10 q=17 surplus_amount=9251 distributions_attempted=9251 distributions_applied=9251 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=35797 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:12.261 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:12.261 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:12.261 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:12.261 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:12.261 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:12.262 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:12.263 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:12.442 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=11 q=18 surplus_amount=9739 distributions_attempted=9739 distributions_applied=9739 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=36172 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:13.178 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:13.178 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:13.178 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:13.179 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:13.180 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:13.180 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:13.180 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:13.180 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:13.181 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:13.181 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:13.181 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:13.181 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:13.181 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:13.182 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:13.359 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=12 q=19 surplus_amount=9743 distributions_attempted=9743 distributions_applied=9743 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=35059 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:14.118 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:14.118 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:14.118 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:14.119 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:14.120 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:14.406 WARNING api_handlers.intake_consult: surplus_cleanup_trace pass=13 q=20 surplus_amount=9717 distributions_attempted=9717 distributions_applied=9717 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=33907 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=0 distribution_weight=0.5000 debt_paydown_weight=0.5000
+2026-08-14 19:14:15.035 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:15.036 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:15.036 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:15.036 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:15.036 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:15.036 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:15.037 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:15.038 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:15.585 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:15.586 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:15.587 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:15.588 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:15.588 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:15.588 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:15.588 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:16.062 WARNING api_handlers.intake_consult: cash_post_pass_trace keep_changes=True all_hard_rules_cleared=True cash_buffer_violations=[] cash_distribution_violations=[] cash_surplus_ceiling_violations=[] cash_contract_failures_count=0 failed_rule_codes=[]
+2026-08-14 19:14:16.537 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:16.538 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:16.538 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:16.538 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:16.539 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:16.540 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:16.541 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:16.541 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:37.662 INFO api: REQ GET /api/shared-context -> 200 187ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:14:41.599 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=1 ending_cash=33925 operating_expense_quarter=67848 cash_buffer_required=33924 cash_ceiling=45232 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.599 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=2 ending_cash=33904 operating_expense_quarter=67767 cash_buffer_required=33884 cash_ceiling=45178 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.600 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=3 ending_cash=34908 operating_expense_quarter=67434 cash_buffer_required=33717 cash_ceiling=44956 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.600 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=4 ending_cash=37578 operating_expense_quarter=67961 cash_buffer_required=33981 cash_ceiling=45308 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.600 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=5 ending_cash=41416 operating_expense_quarter=70984 cash_buffer_required=35492 cash_ceiling=47322 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.600 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=6 ending_cash=47032 operating_expense_quarter=72803 cash_buffer_required=36402 cash_ceiling=48536 buffer_violation=False surplus_violation=False
+2026-08-14 19:14:41.600 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=7 ending_cash=54587 operating_expense_quarter=73301 cash_buffer_required=36651 cash_ceiling=48868 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.601 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=8 ending_cash=61122 operating_expense_quarter=73347 cash_buffer_required=36674 cash_ceiling=48898 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.601 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=9 ending_cash=61920 operating_expense_quarter=74304 cash_buffer_required=37152 cash_ceiling=49536 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.601 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=10 ending_cash=61958 operating_expense_quarter=74348 cash_buffer_required=37174 cash_ceiling=49566 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.601 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=11 ending_cash=61992 operating_expense_quarter=74391 cash_buffer_required=37196 cash_ceiling=49594 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.601 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=12 ending_cash=62798 operating_expense_quarter=75357 cash_buffer_required=37678 cash_ceiling=50238 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.602 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=13 ending_cash=64332 operating_expense_quarter=77199 cash_buffer_required=38600 cash_ceiling=51466 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.602 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=14 ending_cash=65238 operating_expense_quarter=78284 cash_buffer_required=39142 cash_ceiling=52190 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.602 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=15 ending_cash=65560 operating_expense_quarter=78673 cash_buffer_required=39336 cash_ceiling=52448 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.602 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=16 ending_cash=65600 operating_expense_quarter=78721 cash_buffer_required=39360 cash_ceiling=52480 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.603 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=17 ending_cash=66365 operating_expense_quarter=79638 cash_buffer_required=39819 cash_ceiling=53092 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.603 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=18 ending_cash=66478 operating_expense_quarter=79773 cash_buffer_required=39886 cash_ceiling=53182 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.603 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=19 ending_cash=66515 operating_expense_quarter=79817 cash_buffer_required=39909 cash_ceiling=53212 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:41.603 WARNING client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake: finalize_input_trace q=20 ending_cash=66550 operating_expense_quarter=79860 cash_buffer_required=39930 cash_ceiling=53240 buffer_violation=False surplus_violation=True
+2026-08-14 19:14:44.065 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=3379.0
+2026-08-14 19:14:44.065 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=1321.0
+2026-08-14 19:14:44.065 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+2026-08-14 19:14:44.065 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+2026-08-14 19:14:44.065 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+2026-08-14 19:14:44.066 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=19 window=[20] value=0.0
+2026-08-14 19:14:44.067 WARNING financial_model_engine.finmo_model: finmo_std_layer1_trace q=20 window=[] value=0.0
+2026-08-14 19:14:55.692 INFO api: finmo model workbook delivered to C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Sunny Glaze Donuts -- 08-14-2026 19-14-47.xlsx for draft 24b150bc9e774f0f9be59ba0df024867
+2026-08-14 19:14:58.293 INFO api: REQ POST /api/intake-consult/system-run -> 200 484859ms draft=24b150bc9e774f0f9be59ba0df024867
+2026-08-14 19:14:58.422 INFO api: REQ GET /api/intake-consult/draft -> 200 109ms draft=24b150bc9e774f0f9be59ba0df024867
+2026-08-14 19:15:37.708 INFO api: REQ GET /api/shared-context -> 200 234ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:16:37.565 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:17:37.672 INFO api: REQ GET /api/shared-context -> 200 172ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:18:37.657 INFO api: REQ GET /api/shared-context -> 200 187ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:19:37.576 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:20:37.723 INFO api: REQ GET /api/shared-context -> 200 250ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:21:37.674 INFO api: REQ GET /api/shared-context -> 200 203ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:22:37.703 INFO api: REQ GET /api/shared-context -> 200 203ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:23:37.582 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:24:37.627 INFO api: REQ GET /api/shared-context -> 200 156ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:25:37.595 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:26:37.588 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:27:37.574 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:28:37.583 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:29:37.703 INFO api: REQ GET /api/shared-context -> 200 250ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:30:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:31:37.588 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:32:26.588 INFO api: TURN_BEGIN draft=mn33a1246a43c75af7401b84dd6bc70d turn=75 starting=False focus=financials msg_chars=89
+2026-08-14 19:32:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:32:42.528 INFO api_handlers.intake_consult: MISROUTE_GUARD field=marketing_total_year1 reverted - message names the active stage family, never this one
+2026-08-14 19:32:42.528 INFO api_handlers.intake_consult: MISROUTE_GUARD field=marketing_percent_of_revenue reverted - message names the active stage family, never this one
+2026-08-14 19:32:43.510 INFO api: REQ POST /api/intake-consult -> 200 16985ms draft=mn33a1246a43c75af7401b84dd6bc70d
+2026-08-14 19:32:43.957 INFO api: TURN_BEGIN draft=mn33a2b88850494baf4effbb2ed63c59 turn=75 starting=False focus=financials msg_chars=76
+2026-08-14 19:32:50.014 INFO api: REQ POST /api/intake-consult -> 200 6110ms draft=mn33a2b88850494baf4effbb2ed63c59
+2026-08-14 19:32:50.510 INFO api: TURN_BEGIN draft=mn33a3ba64acf742df4d2e81f9d53803 turn=75 starting=False focus=financials msg_chars=65
+2026-08-14 19:32:55.936 INFO api: REQ POST /api/intake-consult -> 200 5485ms draft=mn33a3ba64acf742df4d2e81f9d53803
+2026-08-14 19:32:56.479 INFO api: TURN_BEGIN draft=mn33a43906e235fca9439fa6b615be83 turn=75 starting=False focus=financials msg_chars=69
+2026-08-14 19:33:01.565 INFO api: REQ POST /api/intake-consult -> 200 5125ms draft=mn33a43906e235fca9439fa6b615be83
+2026-08-14 19:33:02.074 INFO api: TURN_BEGIN draft=mn33b120ac75d7007c4cd7bd88339c85 turn=99 starting=False focus=financials msg_chars=43
+2026-08-14 19:33:37.583 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:34:09.273 INFO api: REQ POST /api/intake-consult -> 200 67250ms draft=mn33b120ac75d7007c4cd7bd88339c85
+2026-08-14 19:34:09.784 INFO api: TURN_BEGIN draft=mn33b220640aea3cf347c78a6892bb08 turn=99 starting=False focus=financials msg_chars=62
+2026-08-14 19:34:28.226 INFO api: REQ POST /api/intake-consult -> 200 18532ms draft=mn33b220640aea3cf347c78a6892bb08
+2026-08-14 19:34:28.696 INFO api: TURN_BEGIN draft=mn33c1629b9e3ed54e47be96ca35e0a3 turn=119 starting=False focus=financials msg_chars=75
+2026-08-14 19:34:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:34:57.480 INFO api: REQ POST /api/intake-consult -> 200 28829ms draft=mn33c1629b9e3ed54e47be96ca35e0a3
+2026-08-14 19:34:57.948 INFO api: TURN_BEGIN draft=mn33c25aedbbbd4ae64e89851e01b271 turn=119 starting=False focus=financials msg_chars=53
+2026-08-14 19:35:15.959 INFO api: REQ POST /api/intake-consult -> 200 18063ms draft=mn33c25aedbbbd4ae64e89851e01b271
+2026-08-14 19:35:16.047 INFO api: TURN_BEGIN draft=mn33c362479d74eef446c1aff0789950 turn=103 starting=False focus=financials msg_chars=49
+2026-08-14 19:35:37.577 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:35:51.272 INFO api: REQ POST /api/intake-consult -> 200 35250ms draft=mn33c362479d74eef446c1aff0789950
+2026-08-14 19:35:51.327 INFO api: TURN_BEGIN draft=mn33c362479d74eef446c1aff0789950 turn=105 starting=False focus=done msg_chars=37
+2026-08-14 19:36:08.243 INFO api: TURN_INTENT draft=mn33c362479d74eef446c1aff0789950 action=edit_patch patch={'ops.units_per_week_capacity': 40, 'ops.units_per_period_capacity': 40, 'financials.financials_summary': 'Updated mowing capacity to 40 property contracts per week (still modeled as about 40 concurrent contracts as the practical monthly capacity), which will flow through to the volume and revenue calculations in the detailed build.'}
+2026-08-14 19:36:37.638 INFO api: REQ GET /api/shared-context -> 200 188ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:36:58.808 INFO api: REQ POST /api/intake-consult -> 200 67500ms draft=mn33c362479d74eef446c1aff0789950
+2026-08-14 19:36:58.905 INFO api: TURN_BEGIN draft=mn33c4a18f4d13d361415eb0a96570b3 turn=103 starting=False focus=financials msg_chars=54
+2026-08-14 19:36:59.352 INFO api: REQ POST /api/intake-consult -> 200 469ms draft=mn33c4a18f4d13d361415eb0a96570b3
+2026-08-14 19:36:59.769 INFO api: TURN_BEGIN draft=mn33c545a7284013d64ed499c79e9eb8 turn=119 starting=False focus=financials msg_chars=107
+2026-08-14 19:37:05.343 INFO api: REQ POST /api/intake-consult -> 200 5625ms draft=mn33c545a7284013d64ed499c79e9eb8
+2026-08-14 19:37:05.412 INFO api: TURN_BEGIN draft=mn33c63d40d7464ba348a59f0252fa0b turn=103 starting=False focus=financials msg_chars=64
+2026-08-14 19:37:37.600 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:38:11.982 INFO api: REQ POST /api/intake-consult -> 200 66579ms draft=mn33c63d40d7464ba348a59f0252fa0b
+2026-08-14 19:38:12.078 INFO api: TURN_BEGIN draft=mn33x14dccfd996bd54f1fbf9d1f7046 turn=103 starting=False focus=people msg_chars=64
+2026-08-14 19:38:14.811 INFO api: REQ POST /api/intake-consult -> 200 2750ms draft=mn33x14dccfd996bd54f1fbf9d1f7046
+2026-08-14 19:38:37.598 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:39:37.591 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:40:37.597 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:41:37.586 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:42:37.604 INFO api: REQ GET /api/shared-context -> 200 157ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:43:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:44:37.630 INFO api: REQ GET /api/shared-context -> 200 188ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:45:37.585 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:46:37.588 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:47:37.582 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:48:37.587 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:49:37.589 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:50:37.580 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:51:37.600 INFO api: REQ GET /api/shared-context -> 200 157ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:52:37.597 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:53:37.690 INFO api: REQ GET /api/shared-context -> 200 235ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:54:37.566 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:55:37.591 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:56:37.576 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:57:37.598 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:58:37.557 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 19:59:37.562 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:00:37.568 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:01:37.572 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:02:37.540 INFO api: REQ GET /api/shared-context -> 200 94ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:03:37.570 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:04:37.539 INFO api: REQ GET /api/shared-context -> 200 94ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:05:37.556 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:06:37.562 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:07:37.562 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:08:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:09:37.581 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:10:37.560 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:11:37.571 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:12:37.565 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:13:37.578 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:14:37.565 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:15:37.572 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:16:37.556 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:17:37.571 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:18:37.576 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:19:37.534 INFO api: REQ GET /api/shared-context -> 200 78ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:20:37.579 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:21:37.570 INFO api: REQ GET /api/shared-context -> 200 125ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:22:37.565 INFO api: REQ GET /api/shared-context -> 200 110ms draft=d9b17850350545e9911fa09b3e333429
+2026-08-14 20:23:37.585 INFO api: REQ GET /api/shared-context -> 200 141ms draft=d9b17850350545e9911fa09b3e333429

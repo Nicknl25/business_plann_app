@@ -1,0 +1,22 @@
+PAYROLL MILESTONE PUSHED + M0 RESULT + TWO WALLS (with evidence + fixes).
+
+PUSHED to intake-stable:
+  adfecee  Fork A: GPT-authors-anchored round-1 payroll (executive authors, Python grounds+validates)
+
+M0 RESULT (live run, Luna Boutique 25b8e17e -> cloned eee467d5, server :5050, root .env, CONVERGENCE_TEST_MODE=true):
+- The run now PASSES round-1 payroll and REACHES the amalgamated cascade. Previously it died at round-1 payroll continuity. 
+- Is GPT invoked? YES for round-1 payroll authoring. Evidence (run-based, not inference): Luna's deterministic producer provably fails round-1 continuity (the first M0 died exactly there; producer logic unchanged). The run advancing past round-1 with a FLAT, continuity-valid payroll grid (server log: rows step 13414->13817->...->15097 = constant FTE + wage inflation) is only possible if the executive authored a valid contract -- the producer cannot. So the corrected GPT-authors-anchored payroll path is live and working.
+- Is GPT invoked IN THE CASCADE? NOT THIS RUN -- blocked by Wall A below. The cascade META-halted at entry (post_intake_restructuring_log has exactly ONE row: META_ESCALATED, clean _meta_halt). The executive never got to judge.
+- The run then died at the Contract-3 MODEL_INPUT->SOLVER boundary (Wall B).
+
+WALL A (THE BIG ONE -- the executive is structurally dead-on-arrival):
+evaluate_plan (the in-cascade standard) includes acceptance-gate checks classified as META_INVARIANT (evaluate_plan.py:84-93): stage_reached_finalize, cascade_landed_tier_set, plan_confidence_recorded, cascade_exercised_or_documented. These are POST-HOC "did the pipeline finish / did acceptance record these" checks -- they are ALWAYS False during round-1/the cascade. So evaluate_plan returns a META failure at session entry; SessionDriver._meta_failing sees it and _meta_halt fires BEFORE walking any tier (session_driver.py:259-260). Result: the cascade never restructures and the executive is never consulted -- for ANY plan, not just Luna. This is the core reason the executive looks "unhitched."
+PROPOSED FIX: split the standard. The in-cascade evaluate_plan must score only the RESTRUCTURABLE plan-quality checks (viability/growth/capacity/band/coherence). The post-hoc completion/acceptance META checks (stage_reached_finalize, cascade_landed_tier_set, plan_confidence_recorded, cascade_exercised_or_documented) belong to the FINAL acceptance gate, not the in-loop standard -- exclude them from the cascade's evaluate_plan so the executive gets to judge the real economic checks. Universal, no per-draft logic.
+
+WALL B (run cannot complete -- newly exposed now that round-1 passes):
+Contract-3 SolverInputContract is stricter than the produced shapes (42 errors):
+  1. business_facts.fact_template REQUIRED (solver_input_contract.py:164) but the runtime business_facts is the flat draft dict (name/business_name/address/start_date/...) with no fact_template. The contract was "typed minimally for first cut" expecting a fact_template wrapper that the producer never emits.
+  2. ALL payroll rows rejected: "payroll row must have oews_occ_title or oews_matched_title" -- the built payload's rows (incl. key_person/owner rows) don't carry an OEWS title field the contract requires.
+PROPOSED FIX: align the contract to the actually-produced shapes (this is contract-strictness, not a data bug): make fact_template optional (or wrap business_facts at the producer boundary), and relax the payroll-row title rule to accept key_person rows (person_name) / the built-payload row shape. Pre-existing latent wall, only reachable now that round-1 passes.
+
+NEXT: fixing Wall A first (it unblocks the executive in the cascade -- the whole point of Fork A), then Wall B (so the run completes to a verdict), then re-run M0 to prove the executive actually judges (restructuring_log AMALGAMATED_GPT_* rows). Then B1 (operating_model levers). Will commit/push/email each.

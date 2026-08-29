@@ -1,0 +1,69 @@
+{
+  "started_at": "2026-05-22T07:39:54.641692",
+  "stage": "k12_stage1_targeted",
+  "drafts": [
+    {
+      "name": "Sunny Glaze Donuts",
+      "source_id": "6d37c6b98ace41ee9c91dd5fbf68b83e",
+      "runs": [
+        {
+          "new_draft_id": "55c3a4b959994574ab0dff3cef80c571",
+          "outcome": "POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': 'post_intake_finalize_validation_failed: global_invariants_invalid: POST_INTAKE:stage_ramp_revenue_path_not_applied@post_intake_finalize_validation_global: Actual F",
+          "duration_s": 347.3,
+          "mode": "B1",
+          "traces": {
+            "total": 60,
+            "h2": 30,
+            "hc": 8
+          },
+          "hc_latencies_ms": [
+            2203,
+            15092,
+            22516,
+            21875,
+            3437
+          ],
+          "run_idx": 1
+        },
+        {
+          "new_draft_id": "82fe14529ad44aeca2487608ab9c42ae",
+          "outcome": "POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': 'post_intake_finalize_validation_failed: global_invariants_invalid: POST_INTAKE:stage_ramp_revenue_path_not_applied@post_intake_finalize_validation_global: Actual F",
+          "duration_s": 372.0,
+          "mode": "B1",
+          "traces": {
+            "total": 39,
+            "h2": 16,
+            "hc": 8
+          },
+          "hc_latencies_ms": [
+            2250,
+            34937,
+            25108,
+            27842,
+            6453
+          ],
+          "run_idx": 2
+        },
+        {
+          "new_draft_id": "3c523826177a4ff6bbdcc4b0e0a82d63",
+          "outcome": "POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': 'post_intake_finalize_validation_failed: global_invariants_invalid: POST_INTAKE:stage_ramp_revenue_path_not_applied@post_intake_finalize_validation_global: Actual F",
+          "duration_s": 465.5,
+          "mode": "B1",
+          "traces": {
+            "total": 33,
+            "h2": 12,
+            "hc": 8
+          },
+          "hc_latencies_ms": [
+            2516,
+            73625,
+            27015,
+            25296,
+            3733
+          ],
+          "run_idx": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-13 14:13:45.422 INFO api: REQ GET /api/business-types -> 200 157ms draft=-
+2026-08-13 14:14:38.643 INFO api: TURN_BEGIN draft=minice267ed9a999456fa861d381512c turn=115 starting=False focus=done msg_chars=108
+2026-08-13 14:14:41.340 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:14:43.727 INFO api: TURN_INTENT draft=minice267ed9a999456fa861d381512c action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Hard goods & materials', 'cogs_percent': 0.71}]}
+2026-08-13 14:14:43.729 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=['Hard goods & materials / Hard goods sale'] grouped=[] unmatched=[]
+2026-08-13 14:15:41.389 INFO api: REQ GET /api/shared-context -> 200 187ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:15:42.379 INFO api: REQ POST /api/intake-consult -> 200 64375ms draft=minice267ed9a999456fa861d381512c
+2026-08-13 14:15:43.049 INFO api: TURN_BEGIN draft=mini5eaec2d4d1be457082365b309686 turn=115 starting=False focus=done msg_chars=115
+2026-08-13 14:15:46.277 INFO api: TURN_INTENT draft=mini5eaec2d4d1be457082365b309686 action=edit_patch patch={'financials.cogs_shared_structure_groups': [['Plant/nursery sales', 'Hard goods & materials']]}
+2026-08-13 14:15:46.278 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=[] grouped=['shared:hard goods sale+plant sale'] unmatched=[]
+2026-08-13 14:16:04.749 INFO api: REQ POST /api/intake-consult -> 200 21766ms draft=mini5eaec2d4d1be457082365b309686
+2026-08-13 14:16:05.421 INFO api: TURN_BEGIN draft=minif0b3796a8d7a4b188da1ee89c0c6 turn=115 starting=False focus=done msg_chars=90
+2026-08-13 14:16:09.115 INFO api: TURN_INTENT draft=minif0b3796a8d7a4b188da1ee89c0c6 action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Plant/nursery sales', 'cogs_percent': 0.55}, {'line_name': 'Hard goods & materials', 'cogs_percent': 0.55}, {'line_name': 'Landscaping & installation', 'cogs_percent': 0.55}]}
+2026-08-13 14:16:09.116 INFO api_handlers.intake_consult: PER_LINE_COGS_DOOR wrote=True lines=['Plant/nursery sales / Plant sale', 'Hard goods & materials / Hard goods sale', 'Landscaping & installation / Install project'] grouped=[] unmatched=[]
+2026-08-13 14:16:23.046 INFO api: REQ POST /api/intake-consult -> 200 17672ms draft=minif0b3796a8d7a4b188da1ee89c0c6
+2026-08-13 14:16:41.655 INFO api: REQ GET /api/shared-context -> 200 406ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:17:41.411 INFO api: REQ GET /api/shared-context -> 200 187ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:18:41.567 INFO api: REQ GET /api/shared-context -> 200 328ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:19:41.588 INFO api: REQ GET /api/shared-context -> 200 360ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:20:41.612 INFO api: REQ GET /api/shared-context -> 200 390ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:21:41.522 INFO api: REQ GET /api/shared-context -> 200 281ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:22:41.514 INFO api: REQ GET /api/shared-context -> 200 296ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:23:41.424 INFO api: REQ GET /api/shared-context -> 200 219ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:24:41.332 INFO api: REQ GET /api/shared-context -> 200 125ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:25:41.341 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:26:41.507 INFO api: REQ GET /api/shared-context -> 200 281ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:27:41.460 INFO api: REQ GET /api/shared-context -> 200 234ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:28:41.434 INFO api: REQ GET /api/shared-context -> 200 218ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:29:41.443 INFO api: REQ GET /api/shared-context -> 200 203ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:30:41.327 INFO api: REQ GET /api/shared-context -> 200 125ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:31:41.483 INFO api: REQ GET /api/shared-context -> 200 250ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:32:41.459 INFO api: REQ GET /api/shared-context -> 200 234ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:33:41.442 INFO api: REQ GET /api/shared-context -> 200 218ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:34:41.439 INFO api: REQ GET /api/shared-context -> 200 218ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:35:41.436 INFO api: REQ GET /api/shared-context -> 200 234ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:36:41.311 INFO api: REQ GET /api/shared-context -> 200 109ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:37:41.367 INFO api: REQ GET /api/shared-context -> 200 140ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 14:38:41.523 INFO api: REQ GET /api/shared-context -> 200 281ms draft=1070c6a560a04f3d971019a3787180bf

@@ -1,0 +1,40 @@
+WALL B + CONTRACT ALIGNMENT PUSHED (71e9163) — THE PIPELINE NOW RUNS END-TO-END TO A VERDICT.
+
+The P3.40 contract layer was systematically stricter/mismatched vs the real runtime, and had never
+run end-to-end -- every run died at the first contract it hit. Aligned the contracts to the truth the
+system produces (alignment, not bypass) + fixed a latent NameError reachable only once the tail was
+reached:
+  - business_facts.fact_template -> Optional (runtime is the flat draft dict).
+  - payroll-row title rule -> accept key-person rows; supporting rows STILL require OEWS title (a
+    builder bug would not be masked).
+  - planning_mode taxonomy -> canonical ALLOWED_PLANNING_MODES (normalize/turnaround/rebalance/
+    growth_investment/preservation), single-sourced, in BOTH the contract and the solver guard (both
+    had the wrong growth/stability/runway_extension/survival vocabulary).
+  - model_input rows -> allow the solver provenance field applied_by_target_solver_quarters.
+  - SolverOutputContract -> allow abort_reason.
+  - orchestrator._run_post_cascade_completion -> its own _emit_diag (was a NameError).
+  - Contract suite green: 268 passed.
+
+VERIFIED (live, Luna, CONVERGENCE_TEST_MODE=true): the run COMPLETES end-to-end now --
+cascade -> solver -> cash -> realism -> finalize (solver_target_assertion status=ok, 0 hard
+violations, NO crash) -> persist -> acceptance gate renders a FULL verdict. The viability standard
+returned verdict="non_viable" for Luna. Previously every run died at a contract boundary; this is the
+first end-to-end completion.
+
+CRITICAL HONEST FLAG -- this non_viable is NOT a valid verdict yet, per your verdict rule:
+Luna landed cascade_landed_tier=0, plan_confidence=high_no_adaptation -- the cascade did NOT engage.
+Its round-1 in-cascade economic checks passed, so a deeply non-viable plan (ebitda ~ -22%, revenue
+FLAT at 342,604 every quarter) passed through UNADAPTED. That is the "quit early / levers no-op" BUG,
+not a verdict. The executive judges (proven on Sunny) but the moves don't apply (applied_value=None),
+and Luna never even engaged the cascade.
+
+NEXT (the core remaining work = real deltas): B1 + apply-fix --
+  (1) revise_operating_model + the missing per_employee_productivity writer so V3/V4/V5/G2/G3/G4/
+      C1/C2/C3/C5 stop no-op'ing;
+  (2) drivers author-on-empty so V1 actually applies (revise_drivers currently rejects the empty
+      round-1 drivers anchors);
+  (3) populate worst_distance so progress is measured (today it's None -> no-progress-floor);
+  (4) ensure the in-cascade standard actually engages a non-viable plan (Luna passing round-1 while
+      being non-viable needs investigation -- likely the round-1 finmo differs from the realized one).
+Then re-run all three drafts to prove real per-round deltas + an honest verdict only after in-band
+lever exhaustion. Minor: workbook export wants run_diagnostics.acceptance_score numeric (got "12/16").

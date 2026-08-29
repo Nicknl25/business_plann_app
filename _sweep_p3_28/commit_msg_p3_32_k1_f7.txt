@@ -1,0 +1,124 @@
+phase_9_p3_32_k1_f7_pre_cash_gate_rich_payroll_violations_to_handler_c
+
+ROOT CAUSE — F5 GAVE HANDLER C EMPTY FEEDBACK
+The K1 F5 implementation (orchestrator.py pre-cash gate Handler C
+route) constructed failure_details from the orchestrator translated
+failing_metrics. Those translated metrics carry actual_value=0.0 and
+bounds=None for payroll violations, because the translator at
+_evaluate_gpt_authorable_pre_cash_checks (orchestrator.py:310-325)
+reads keys "actual_ratio" and "stage_ramp_max_ratio" that only
+exist on stage_ramp_expense violations — NOT on the payroll
+feasibility violations returned by
+payroll_revenue_feasibility_violations.
+
+Handler C compactor _compact_payroll_failure_for_gpt at
+schedule.py:514 looks for keys "violations" or
+"payroll_revenue_feasibility_violations" with rich fields:
+  - payroll_percent_of_revenue
+  - effective_min_pct_with_tolerance
+  - effective_max_pct_with_tolerance
+  - deterministic_driver_math (precise quantitative repair
+    direction including required_capacity_units_per_supporting_fte_
+    direction and safe_target_with_buffer)
+
+F5 put violations under the WRONG key (payroll_touching_violations_
+sample) with WRONG values (translated zeros). Compactor found
+nothing. Handler C GPT iterated with empty previous_contract_failure
+context — i.e. blind.
+
+EMPIRICAL EVIDENCE — SKYWARD INVESTIGATION
+Draft 3 Skyward (NAICS 481111, airline, $16-21M revenue, 7 OEWS
+roles) timed out at 180s budget on the F5 route. Pre-F7 retry
+exhibit "payroll_headcount_contract_timeout" exactly because GPT
+iterated blind through 2-3 rounds before budget exhausted.
+
+CareFirst (smaller, 3 roles) passed despite this bug because
+simpler problem space let GPT converge by random exploration.
+Skyward complexity exposed the underlying bug.
+
+F7 FIX SHAPE
+1. F5 calls payroll_revenue_feasibility_violations directly to
+   compute fresh rich violations from current state (payroll_
+   headcount + finmo_json).
+2. Puts them under failure_details["violations"] — the canonical
+   key the compactor reads.
+3. Compactor finds them, extracts payroll_percent_of_revenue +
+   policy bounds + deterministic_driver_math, feeds to GPT.
+4. GPT receives precise repair direction.
+
+The fix mirrors the pattern P3.26 Commit 2 Site B uses at
+orchestrator.py:2716+ for finalize-stage payroll feasibility
+routing (which passes the original exception details with full
+violations array).
+
+DOCTRINE THREE-SURFACE CHECK
+Q1. Surfaces: payroll feasibility violations are computed by
+    payroll_revenue_feasibility_violations() from payroll_
+    headcount + finmo_json. Consumed by Handler C via
+    _compact_payroll_failure_for_gpt.
+Q2. Alignment mechanism: the compactor s interface contract.
+    Caller must put violations under "violations" or
+    "payroll_revenue_feasibility_violations" key with the
+    documented rich fields.
+Q3. This fix preserves alignment: YES. F7 uses the canonical
+    helper directly to compute violations; puts them under the
+    compactor canonical key. Mirror Flavor 1 alignment of
+    payroll_headcount + model_input + finmo (enforced by F6
+    re-sync earlier in the function) is the input data the
+    helper reads.
+
+REGRESSION GUARDS
+New test file tests/test_phase_9_p3_32_k1_f7_pre_cash_gate_rich_
+payroll_violations.py — 10 unit tests across 5 test classes:
+  - F7 imports + calls payroll_revenue_feasibility_violations
+  - F7 marker comment present
+  - Failure details contains canonical "violations" key
+  - Compactor still reads the expected lookup keys
+  - payroll_revenue_feasibility_violations carries rich fields
+    (payroll_percent_of_revenue, effective_min_pct_with_tolerance,
+    effective_max_pct_with_tolerance, deterministic_driver_math)
+  - K1 F1+F2 invariant preserved (exhaustion handler still
+    excludes Payroll)
+  - K1 F3+F4 invariant preserved (target-solver still excludes
+    Payroll)
+  - route_payroll_feasibility_to_handler_c primitive still
+    callable
+
+TEST SUITE STATUS
+  Pre-F7:   424/427 pass (3 pre-existing failures)
+  Post-F7:  434/437 pass (same 3 pre-existing; +10 new F7 tests)
+  Net delta: ZERO new failures.
+
+LOC: ~85 total.
+  Code:   ~40 LOC in orchestrator.py (F7 block within F5)
+  Tests:  ~45 LOC new regression guard file
+
+EMPIRICAL VALIDATION (PARTIAL) — SKYWARD RE-RUN
+Post-F7 Skyward run:
+  - Handler C used all 10 rounds (was timing out at 180s/2-3
+    rounds with empty feedback)
+  - Failed at round 10 with payroll_iterative_refinement_
+    exhausted: validator rejected GPT structured output
+    (target_payroll_percent_of_revenue=0.105 below min=0.16 for
+    labor_intensity_class="high")
+  - GPT rationale claims "moved from 11% to 20%" but structured
+    field carries 0.105 — classic H2 (P3.23a) rationale-vs-
+    structured drift
+  - Surfaces NEW issue (K8): Handler C lacks class-switching
+    feedback. When validator rejects value-X-for-class-C, GPT
+    should be told which alternative classes would accept X
+    (e.g., "value 0.105 falls in 'medium' class bounds 0.05-0.4
+    or 'low' class bounds 0.01-0.2 — switch labor_intensity_
+    class").
+
+K8 is a separate follow-up. F7 is independently valuable: it
+unblocks Handler C from iterating blind, surfaces the real
+remaining issues, and works correctly on businesses that converge
+within the bounds GPT chooses.
+
+NEXT
+  - Skyward investigation continues with K8 design.
+  - Sweep can continue with drafts 5-28 in parallel; F7 fix
+    benefits all of them if they hit F5 route.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

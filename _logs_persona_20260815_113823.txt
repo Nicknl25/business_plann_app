@@ -1,0 +1,13 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-15 11:38:24.725 INFO api: REQ GET /api/business-types -> 200 188ms draft=-
+2026-08-15 11:38:45.395 INFO api: TURN_BEGIN draft=vs33te8fd3ea9d99a3483c8654ed663c turn=103 starting=False focus=financials msg_chars=49
+2026-08-15 11:39:31.840 INFO api: REQ POST /api/intake-consult -> 200 47281ms draft=vs33te8fd3ea9d99a3483c8654ed663c
+2026-08-15 11:39:31.908 INFO api: TURN_BEGIN draft=vs33te8fd3ea9d99a3483c8654ed663c turn=105 starting=False focus=done msg_chars=37
+2026-08-15 11:39:35.851 INFO api: TURN_INTENT draft=vs33te8fd3ea9d99a3483c8654ed663c action=edit_patch patch={'ops.units_per_week_capacity': 40, 'ops.units_per_period_capacity': 40, 'financials.financials_summary': 'Updated mowing capacity to 40 units per week (with monthly capacity remaining modeled at 40 concurrent contracts), which will flow through to the route-based revenue and capacity math in the detailed plan.'}
+2026-08-15 11:39:37.278 INFO api: REQ POST /api/intake-consult -> 200 5390ms draft=vs33te8fd3ea9d99a3483c8654ed663c
+2026-08-15 11:39:45.985 INFO api: TURN_BEGIN draft=vs33te95b66136db984e83b06df95d92 turn=103 starting=False focus=financials msg_chars=49
+2026-08-15 11:39:58.468 INFO api: REQ POST /api/intake-consult -> 200 12500ms draft=vs33te95b66136db984e83b06df95d92
+2026-08-15 11:39:58.536 INFO api: TURN_BEGIN draft=vs33te95b66136db984e83b06df95d92 turn=105 starting=False focus=done msg_chars=37
+2026-08-15 11:39:58.855 INFO api: TURN_INTENT draft=vs33te95b66136db984e83b06df95d92 action=edit_patch patch={'ops.units_per_week_capacity': 40, 'ops.units_per_period_capacity': 40, 'financials.financials_summary': 'Updated mowing capacity to 40 units per week (with monthly capacity remaining modeled at 40 concurrent contracts), which will flow through to the route-based revenue and capacity math in the detailed plan.'}
+2026-08-15 11:40:00.291 INFO api: REQ POST /api/intake-consult -> 200 1781ms draft=vs33te95b66136db984e83b06df95d92

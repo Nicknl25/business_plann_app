@@ -1,0 +1,971 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=0.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=0.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=0.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=0.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=0.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=0.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=0.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=0.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=0.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=0.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=0.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=0.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=0.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=0.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=0.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=0.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=0.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=100000.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=100000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=100000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=75000.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=50000.0
+finmo_std_layer1_trace q=19 window=[20] value=25000.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+cash_strategy_input_trace q=1 ending_cash=-1102025 operating_expense_quarter=2672032 cash_buffer_required=1336016 cash_ceiling=1781354 debt_repayment=25000
+cash_strategy_input_trace q=2 ending_cash=-1162109 operating_expense_quarter=2698390 cash_buffer_required=1349194 cash_ceiling=1798926 debt_repayment=25000
+cash_strategy_input_trace q=3 ending_cash=-1156126 operating_expense_quarter=2719697 cash_buffer_required=1359849 cash_ceiling=1813132 debt_repayment=25000
+cash_strategy_input_trace q=4 ending_cash=-1166729 operating_expense_quarter=2736937 cash_buffer_required=1368468 cash_ceiling=1824624 debt_repayment=25000
+cash_strategy_input_trace q=5 ending_cash=-1156258 operating_expense_quarter=2745697 cash_buffer_required=1372848 cash_ceiling=1830464 debt_repayment=25000
+cash_strategy_input_trace q=6 ending_cash=-1133867 operating_expense_quarter=2764691 cash_buffer_required=1382346 cash_ceiling=1843128 debt_repayment=25000
+cash_strategy_input_trace q=7 ending_cash=-1096391 operating_expense_quarter=2780079 cash_buffer_required=1390040 cash_ceiling=1853386 debt_repayment=25000
+cash_strategy_input_trace q=8 ending_cash=-1057111 operating_expense_quarter=2802471 cash_buffer_required=1401236 cash_ceiling=1868314 debt_repayment=25000
+cash_strategy_input_trace q=9 ending_cash=-1014845 operating_expense_quarter=2838120 cash_buffer_required=1419060 cash_ceiling=1892080 debt_repayment=25000
+cash_strategy_input_trace q=10 ending_cash=-966700 operating_expense_quarter=2889478 cash_buffer_required=1444738 cash_ceiling=1926318 debt_repayment=25000
+cash_strategy_input_trace q=11 ending_cash=-893130 operating_expense_quarter=2947468 cash_buffer_required=1473734 cash_ceiling=1964978 debt_repayment=25000
+cash_strategy_input_trace q=12 ending_cash=-829710 operating_expense_quarter=3013027 cash_buffer_required=1506513 cash_ceiling=2008684 debt_repayment=25000
+cash_strategy_input_trace q=13 ending_cash=-749788 operating_expense_quarter=3059931 cash_buffer_required=1529966 cash_ceiling=2039954 debt_repayment=25000
+cash_strategy_input_trace q=14 ending_cash=-658213 operating_expense_quarter=3090317 cash_buffer_required=1545159 cash_ceiling=2060212 debt_repayment=25000
+cash_strategy_input_trace q=15 ending_cash=-544859 operating_expense_quarter=3110144 cash_buffer_required=1555072 cash_ceiling=2073430 debt_repayment=25000
+cash_strategy_input_trace q=16 ending_cash=-455275 operating_expense_quarter=3124089 cash_buffer_required=1562044 cash_ceiling=2082726 debt_repayment=25000
+cash_strategy_input_trace q=17 ending_cash=-360470 operating_expense_quarter=3134858 cash_buffer_required=1567430 cash_ceiling=2089906 debt_repayment=25000
+cash_strategy_input_trace q=18 ending_cash=-263427 operating_expense_quarter=3143841 cash_buffer_required=1571920 cash_ceiling=2095894 debt_repayment=25000
+cash_strategy_input_trace q=19 ending_cash=-149307 operating_expense_quarter=3151737 cash_buffer_required=1575868 cash_ceiling=2101158 debt_repayment=25000
+cash_strategy_input_trace q=20 ending_cash=-65032 operating_expense_quarter=3158905 cash_buffer_required=1579452 cash_ceiling=2105936 debt_repayment=25000
+cash_proposer_trace mode=balanced allowed_sources=["balance_sheet::Owner's Capital", 'balance_sheet::Other Equity', 'schedules::Debt Issuance (New Borrowing)'] excluded_sources=[] required_funding_quarters=[{'q': 1, 'gap': 0}, {'q': 2, 'gap': 0}, {'q': 3, 'gap': 0}, {'q': 4, 'gap': 0}] violation_quarters=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] residual_gap_quarters=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] lever_bounds_violating_quarters={"balance_sheet::Owner's Capital": [{'q': 1, 'current': 2500000, 'max': 5035197, 'headroom': 2535197}, {'q': 2, 'current': 2500000, 'max': 5035197, 'headroom': 2535197}, {'q': 3, 'current': 2500000, 'max': 5035197, 'headroom': 2535197}, {'q': 4, 'current': 2500000, 'max': 5035197, 'headroom': 2535197}], 'balance_sheet::Distributions': [{'q': 1, 'current': 0, 'max': 0, 'headroom': 0}, {'q': 2, 'current': 0, 'max': 0, 'headroom': 0}, {'q': 3, 'current': 0, 'max': 0, 'headroom': 0}, {'q': 4, 'current': 0, 'max': 0, 'headroom': 0}], 'balance_sheet::Other Equity': [{'q': 1, 'current': 0, 'max': 2535197, 'headroom': 2535197}, {'q': 2, 'current': 0, 'max': 2535197, 'headroom': 2535197}, {'q': 3, 'current': 0, 'max': 2535197, 'headroom': 2535197}, {'q': 4, 'current': 0, 'max': 2535197, 'headroom': 2535197}], 'schedules::Debt Issuance (New Borrowing)': [{'q': 1, 'current': 0, 'max': 2568102, 'headroom': 2568102}, {'q': 2, 'current': 0, 'max': 2568102, 'headroom': 2568102}, {'q': 3, 'current': 0, 'max': 2568102, 'headroom': 2568102}, {'q': 4, 'current': 0, 'max': 2568102, 'headroom': 2568102}], 'schedules::Debt Repayment (Scheduled)': [{'q': 1, 'current': 25000, 'max': 25000, 'headroom': 0}, {'q': 2, 'current': 25000, 'max': 25000, 'headroom': 0}, {'q': 3, 'current': 25000, 'max': 25000, 'headroom': 0}, {'q': 4, 'current': 25000, 'max': 25000, 'headroom': 0}]} proposer_quarter_funding_plan=[{'q': 1, 'sources': [{'lever': "balance_sheet::Owner's Capital", 'amount': 2438041, 'exact': 0}]}, {'q': 2, 'sources': [{'lever': "balance_sheet::Owner's Capital", 'amount': 73262, 'exact': 0}]}, {'q': 3, 'sources': [{'lever': "balance_sheet::Owner's Capital", 'amount': 4672, 'exact': 0}]}, {'q': 4, 'sources': [{'lever': "balance_sheet::Owner's Capital", 'amount': 19222, 'exact': 0}]}] proposer_recommendation_mode=adjust
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=1 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=2 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=3 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=4 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=5 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=6 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=7 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=8 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=9 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=10 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=11 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=12 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=13 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=14 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=15 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=16 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=17 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=18 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=19 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=balance_sheet::Distributions q=20 current=0 max=0 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=1 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=2 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=3 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=4 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=5 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=6 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=7 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=8 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=9 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=10 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=11 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=12 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=13 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=14 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=15 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=16 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=17 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=18 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=19 current=25000 max=25000 headroom=0
+cash_proposer_lever_bounds_full_horizon lever=schedules::Debt Repayment (Scheduled) q=20 current=25000 max=25000 headroom=0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=100000.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=100000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=100000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=75000.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=50000.0
+finmo_std_layer1_trace q=19 window=[20] value=25000.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=100000.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=100000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=100000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=75000.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=50000.0
+finmo_std_layer1_trace q=19 window=[20] value=25000.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=1 q=17 surplus_amount=84821 distributions_attempted=42411 distributions_applied=42411 debt_paydown_attempted=42410 debt_paydown_applied=42410 distributions_lever_max=607297 debt_repayment_lever_max=75000 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=25000 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142410.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=142410.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32590.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=7590.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=2 q=17 surplus_amount=444 distributions_attempted=222 distributions_applied=222 debt_paydown_attempted=222 debt_paydown_applied=222 distributions_lever_max=522920 debt_repayment_lever_max=444 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=42411 current_debt_repayment=67410 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142632.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=142632.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32368.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=7368.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=3 q=17 surplus_amount=2 distributions_attempted=1 distributions_applied=1 debt_paydown_attempted=1 debt_paydown_applied=1 distributions_lever_max=522478 debt_repayment_lever_max=2 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=42633 current_debt_repayment=67632 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=142633.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=7367.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=4 q=18 surplus_amount=91947 distributions_attempted=84580 distributions_applied=84580 debt_paydown_attempted=7367 debt_paydown_applied=7367 distributions_lever_max=615921 debt_repayment_lever_max=7367 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=25000 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=5 q=18 surplus_amount=77 distributions_attempted=77 distributions_applied=77 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=524051 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=84580 current_debt_repayment=32367 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=6 q=19 surplus_amount=134640 distributions_attempted=134640 distributions_applied=134640 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=659930 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=25000 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+surplus_cleanup_trace pass=7 q=20 surplus_amount=104758 distributions_attempted=104758 distributions_applied=104758 debt_paydown_attempted=0 debt_paydown_applied=0 distributions_lever_max=631242 debt_repayment_lever_max=0 remaining_surplus=0 reason_stopped=fully_deployed current_distribution=0 current_debt_repayment=25000 distribution_weight=0.5000 debt_paydown_weight=0.5000
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+cash_post_pass_trace keep_changes=True all_hard_rules_cleared=True cash_buffer_violations=[] cash_distribution_violations=[] cash_surplus_ceiling_violations=[] cash_contract_failures_count=0 failed_rule_codes=[]
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0
+finalize_input_trace q=1 ending_cash=1336016 operating_expense_quarter=2672032 cash_buffer_required=1336016 cash_ceiling=1781354 buffer_violation=False surplus_violation=False
+finalize_input_trace q=2 ending_cash=1349194 operating_expense_quarter=2698390 cash_buffer_required=1349194 cash_ceiling=1798926 buffer_violation=False surplus_violation=False
+finalize_input_trace q=3 ending_cash=1359849 operating_expense_quarter=2719697 cash_buffer_required=1359849 cash_ceiling=1813132 buffer_violation=False surplus_violation=False
+finalize_input_trace q=4 ending_cash=1368468 operating_expense_quarter=2736937 cash_buffer_required=1368468 cash_ceiling=1824624 buffer_violation=False surplus_violation=False
+finalize_input_trace q=5 ending_cash=1378939 operating_expense_quarter=2745697 cash_buffer_required=1372848 cash_ceiling=1830464 buffer_violation=False surplus_violation=False
+finalize_input_trace q=6 ending_cash=1401330 operating_expense_quarter=2764691 cash_buffer_required=1382346 cash_ceiling=1843128 buffer_violation=False surplus_violation=False
+finalize_input_trace q=7 ending_cash=1438806 operating_expense_quarter=2780079 cash_buffer_required=1390040 cash_ceiling=1853386 buffer_violation=False surplus_violation=False
+finalize_input_trace q=8 ending_cash=1478086 operating_expense_quarter=2802471 cash_buffer_required=1401236 cash_ceiling=1868314 buffer_violation=False surplus_violation=False
+finalize_input_trace q=9 ending_cash=1520352 operating_expense_quarter=2838120 cash_buffer_required=1419060 cash_ceiling=1892080 buffer_violation=False surplus_violation=False
+finalize_input_trace q=10 ending_cash=1568497 operating_expense_quarter=2889478 cash_buffer_required=1444738 cash_ceiling=1926318 buffer_violation=False surplus_violation=False
+finalize_input_trace q=11 ending_cash=1642067 operating_expense_quarter=2947468 cash_buffer_required=1473734 cash_ceiling=1964978 buffer_violation=False surplus_violation=False
+finalize_input_trace q=12 ending_cash=1705487 operating_expense_quarter=3013027 cash_buffer_required=1506513 cash_ceiling=2008684 buffer_violation=False surplus_violation=False
+finalize_input_trace q=13 ending_cash=1785409 operating_expense_quarter=3059931 cash_buffer_required=1529966 cash_ceiling=2039954 buffer_violation=False surplus_violation=False
+finalize_input_trace q=14 ending_cash=1876984 operating_expense_quarter=3090317 cash_buffer_required=1545159 cash_ceiling=2060212 buffer_violation=False surplus_violation=False
+finalize_input_trace q=15 ending_cash=1990338 operating_expense_quarter=3110144 cash_buffer_required=1555072 cash_ceiling=2073430 buffer_violation=False surplus_violation=False
+finalize_input_trace q=16 ending_cash=2079922 operating_expense_quarter=3124089 cash_buffer_required=1562044 cash_ceiling=2082726 buffer_violation=False surplus_violation=False
+finalize_input_trace q=17 ending_cash=2089906 operating_expense_quarter=3134858 cash_buffer_required=1567430 cash_ceiling=2089906 buffer_violation=False surplus_violation=False
+finalize_input_trace q=18 ending_cash=2095894 operating_expense_quarter=3143841 cash_buffer_required=1571920 cash_ceiling=2095894 buffer_violation=False surplus_violation=False
+finalize_input_trace q=19 ending_cash=2101158 operating_expense_quarter=3151737 cash_buffer_required=1575868 cash_ceiling=2101158 buffer_violation=False surplus_violation=False
+finalize_input_trace q=20 ending_cash=2105936 operating_expense_quarter=3158905 cash_buffer_required=1579452 cash_ceiling=2105936 buffer_violation=False surplus_violation=False
+finmo_std_layer1_trace q=1 window=[2, 3, 4, 5] value=100000.0
+finmo_std_layer1_trace q=2 window=[3, 4, 5, 6] value=100000.0
+finmo_std_layer1_trace q=3 window=[4, 5, 6, 7] value=100000.0
+finmo_std_layer1_trace q=4 window=[5, 6, 7, 8] value=100000.0
+finmo_std_layer1_trace q=5 window=[6, 7, 8, 9] value=100000.0
+finmo_std_layer1_trace q=6 window=[7, 8, 9, 10] value=100000.0
+finmo_std_layer1_trace q=7 window=[8, 9, 10, 11] value=100000.0
+finmo_std_layer1_trace q=8 window=[9, 10, 11, 12] value=100000.0
+finmo_std_layer1_trace q=9 window=[10, 11, 12, 13] value=100000.0
+finmo_std_layer1_trace q=10 window=[11, 12, 13, 14] value=100000.0
+finmo_std_layer1_trace q=11 window=[12, 13, 14, 15] value=100000.0
+finmo_std_layer1_trace q=12 window=[13, 14, 15, 16] value=100000.0
+finmo_std_layer1_trace q=13 window=[14, 15, 16, 17] value=142633.0
+finmo_std_layer1_trace q=14 window=[15, 16, 17, 18] value=150000.0
+finmo_std_layer1_trace q=15 window=[16, 17, 18, 19] value=125000.0
+finmo_std_layer1_trace q=16 window=[17, 18, 19, 20] value=100000.0
+finmo_std_layer1_trace q=17 window=[18, 19, 20] value=32367.0
+finmo_std_layer1_trace q=18 window=[19, 20] value=0.0
+finmo_std_layer1_trace q=19 window=[20] value=0.0
+finmo_std_layer1_trace q=20 window=[] value=0.0

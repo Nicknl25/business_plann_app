@@ -1,0 +1,48 @@
+==== persona_stack_button Thu 07/30/2026  7:02:27.10 ==== 
+backend already serving on :5050 (leaving it; restart manually after app-code edits)
+frontend starting (pid 10744), log -> C:\dev\business_plann_app\_logs_frontend_20260730_070230.txt
+frontend did NOT come up; tail of C:\dev\business_plann_app\_logs_frontend_20260730_070230.txt :
+
+> business-plan-frontend@0.0.1 dev
+> vite
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m2577[22m[2m[0m ms[22m
+
+  [32mƒzo[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32mƒzo[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ƒzo[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+exitcode=1 
+==== persona_stack_button Thu 07/30/2026  7:55:48.84 ==== 
+frontend/.env.local -> VITE_API_BASE_URL=http://127.0.0.1:5050
+backend starting (pid 21188), log -> C:\dev\business_plann_app\_logs_persona_20260730_075553.txt
+backend is up on http://127.0.0.1:5050 (BPLAN_TRACE_VERBOSE=1)
+next: cd frontend; npm run dev   (then open http://localhost:5173)
+watch: "C:\dev\business_plann_app\.venv\Scripts\python.exe" scripts\run_live_e2e_monitor.py --watch-only --stall-seconds 300
+frontend starting (pid 20512), log -> C:\dev\business_plann_app\_logs_frontend_20260730_075558.txt
+
+STACK READY
+  client entry : http://localhost:5173/business-plan-form  (fresh tab per run)
+  backend      : http://127.0.0.1:5050 (BPLAN_TRACE_VERBOSE=1)
+  watcher      : .venv\Scripts\python.exe scripts\persona_session_watch.py
+==== persona_stack_button Thu 07/30/2026 17:50:22.58 ==== 
+backend already serving on :5050 (leaving it; restart manually after app-code edits)
+frontend starting (pid 5788), log -> C:\dev\business_plann_app\_logs_frontend_20260730_175029.txt
+
+STACK READY
+  client entry : http://localhost:5173/business-plan-form  (fresh tab per run)
+  backend      : http://127.0.0.1:5050 (BPLAN_TRACE_VERBOSE=1)
+  watcher      : .venv\Scripts\python.exe scripts\persona_session_watch.py
+==== persona_stack_button Fri 07/31/2026 15:12:44.46 ==== 
+backend already serving on :5050 (leaving it; restart manually after app-code edits)
+frontend starting (pid 31732), log -> C:\dev\business_plann_app\_logs_frontend_20260731_151251.txt
+
+STACK READY
+  client entry : http://localhost:5173/business-plan-form  (fresh tab per run)
+  backend      : http://127.0.0.1:5050 (BPLAN_TRACE_VERBOSE=1)
+  watcher      : .venv\Scripts\python.exe scripts\persona_session_watch.py

@@ -1,0 +1,15 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-13 13:21:02.784 INFO api: REQ GET /api/business-types -> 200 250ms draft=-
+2026-08-13 13:21:41.473 INFO api: REQ GET /api/shared-context -> 200 266ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:22:41.352 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:23:41.354 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:24:41.357 INFO api: REQ GET /api/shared-context -> 200 156ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:25:41.348 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:26:41.367 INFO api: REQ GET /api/shared-context -> 200 140ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:27:41.370 INFO api: REQ GET /api/shared-context -> 200 172ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:28:41.342 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:29:41.351 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:30:41.352 INFO api: REQ GET /api/shared-context -> 200 141ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:31:41.357 INFO api: REQ GET /api/shared-context -> 200 156ms draft=1070c6a560a04f3d971019a3787180bf
+2026-08-13 13:32:41.404 INFO api: REQ GET /api/shared-context -> 200 187ms draft=1070c6a560a04f3d971019a3787180bf

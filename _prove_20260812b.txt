@@ -1,0 +1,1630 @@
+﻿Proving 43 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R01   completed-financials-freeze      5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] R01 REGRESSION completed-financials-freeze [CW-026]
+         |           the completed-financials dead end (the freeze)
+         |           FREEZE: dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |           replayed "My unit price is now 650 instead of 520." -> stored unit_price = None (want 650, was 520)
+         |           [captured client answer, draft 2ecc759c]
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: completed-financials-freeze [CW-026]  (R01)
+         |         the completed-financials dead end (the freeze)
+         |         dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |         replayed "My unit price is now 650 instead of 520." -> stored unit_price = None (want 650, was 520)
+         |           [captured client answer, draft 2ecc759c]
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R01 REGRESSION completed-financials-freeze [CW-026]
+         |           the completed-financials dead end (the freeze)
+         |           LAND: value landed in the stored field
+         |           replayed "My unit price is now 650 instead of 520." -> stored unit_price = 650.0 (want 650, was 520)
+         |           [captured client answer, draft 2ecc759c]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R02   payroll-correction-lands         c3d83a9   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\c3d83a9 @ c3d83a9
+         | ==============================================================================
+         | [ FAIL ] R02 REGRESSION payroll-correction-lands [CW-025 rank-1]
+         |           a stated total payroll lands on the stored field
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           handler state current_payroll = 133000.0 (want 120,000; at c3d83a9 the completed-state early return skips the router entirely so the door never applies and it stays 133,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: payroll-correction-lands [CW-025 rank-1]  (R02)
+         |         a stated total payroll lands on the stored field
+         |         no forward move: value did not land and nothing was proposed
+         |         handler state current_payroll = 133000.0 (want 120,000; at c3d83a9 the completed-state early return skips the router entirely so the door never applies and it stays 133,000)
+         |         fixed at 7bcf307, was live at c3d83a9
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R02 REGRESSION payroll-correction-lands [CW-025 rank-1]
+         |           a stated total payroll lands on the stored field
+         |           LAND: value landed in the stored field
+         |           stored current_payroll = 120000.0 (want 120,000; at c3d83a9 the completed-state early return skips the router entirely so the door never applies and it stays 133,000)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R03   sumac-revert                     5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] R03 REGRESSION sumac-revert [CW-026]
+         |           the correction survives reload + the next turn's Recalc
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           after reload + next-turn Recalc: current_payroll = 133000.0 (want 120,000; the live revert rebuilt 133,000 from the stale roster)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: sumac-revert [CW-026]  (R03)
+         |         the correction survives reload + the next turn's Recalc
+         |         no forward move: value did not land and nothing was proposed
+         |         after reload + next-turn Recalc: current_payroll = 133000.0 (want 120,000; the live revert rebuilt 133,000 from the stale roster)
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R03 REGRESSION sumac-revert [CW-026]
+         |           the correction survives reload + the next turn's Recalc
+         |           LAND: value landed in the stored field
+         |           after reload + next-turn Recalc: current_payroll = 120000.0 (want 120,000; the live revert rebuilt 133,000 from the stale roster)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R04   crew-double-count                7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] R04 REGRESSION crew-double-count [CW-024 #108]
+         |           a crew group row is deduped, not counted twice
+         |           REGRESSED: rollup = 332000.0; deduped = 196,000, double-counted = 332,000 (the group row counted twice)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: crew-double-count [CW-024 #108]  (R04)
+         |         a crew group row is deduped, not counted twice
+         |         rollup = 332000.0; deduped = 196,000, double-counted = 332,000 (the group row counted twice)
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R04 REGRESSION crew-double-count [CW-024 #108]
+         |           a crew group row is deduped, not counted twice
+         |           HOLDS: rollup = 196000.0; deduped = 196,000, double-counted = 332,000 (the group row counted twice)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R05   capex-zero                       7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] R05 REGRESSION capex-zero [CW-024 #115]
+         |           prose cannot zero capex
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           stored current_capex = None (must not be zeroed by a message that never mentions capex); reply claims a zero write = True (at 7b9f481 the router's prose ships verbatim and confirms a write that never happened)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: capex-zero [CW-024 #115]  (R05)
+         |         prose cannot zero capex
+         |         no forward move: value did not land and nothing was proposed
+         |         stored current_capex = None (must not be zeroed by a message that never mentions capex); reply claims a zero write = True (at 7b9f481 the router's prose ships verbatim and confirms a write that never happened)
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R05 REGRESSION capex-zero [CW-024 #115]
+         |           prose cannot zero capex
+         |           LAND: value landed in the stored field
+         |           stored current_capex = None (must not be zeroed by a message that never mentions capex); reply claims a zero write = False (at 7b9f481 the router's prose ships verbatim and confirms a write that never happened)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R06   price-ratchet                    7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] R06 REGRESSION price-ratchet [CW-024]
+         |           accepting a price cannot raise the judged ceiling
+         |           REGRESSED: _effective_pmax -> 1.15; next offer = 125.64 (must stay <= the 109.25 market fact; at 7b9f481 the market fact is not consulted and the full relative +15% re-grants off the just-accepted price -> 125.64)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: price-ratchet [CW-024]  (R06)
+         |         accepting a price cannot raise the judged ceiling
+         |         _effective_pmax -> 1.15; next offer = 125.64 (must stay <= the 109.25 market fact; at 7b9f481 the market fact is not consulted and the full relative +15% re-grants off the just-accepted price -> 125.64)
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R06 REGRESSION price-ratchet [CW-024]
+         |           accepting a price cannot raise the judged ceiling
+         |           HOLDS: _effective_pmax -> 1.0; next offer = 109.25 (must stay <= the 109.25 market fact; at 7b9f481 the market fact is not consulted and the full relative +15% re-grants off the just-accepted price -> 125.64)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R07   ask-then-ignore                  7b9f481   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'. Honest but NOT behavioural - the capability did not exist at this commit. _acceptance_mismatch_hold = 0 occurrences anywhere under python/ at 7b9f481 - the guard did not exist, so no behavioural red was available through it. Its green side IS behavioural. Promote to BEHAVIOURAL by driving the contradictory acceptance through the turn chain and asserting the value recorded, the way R01/I01-I06 do.
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] R07 REGRESSION ask-then-ignore [CW-024 #117]
+         |           a solicitation has a consumer; mismatched acceptance holds
+         |           ERROR: leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: ask-then-ignore [CW-024 #117]  (R07)
+         |         a solicitation has a consumer; mismatched acceptance holds
+         |         leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R07 REGRESSION ask-then-ignore [CW-024 #117]
+         |           a solicitation has a consumer; mismatched acceptance holds
+         |           HOLDS: contradicting acceptance -> hold="Before I write that down - you said that's nothing like what you actually spend on supplies and materials today. Let's use your real number as the starting point: roughly what do you spend now, per month or per year? (I'll keep the recommended level in view separately.)"; clean acceptance -> None (want a hold, then None)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R08   cogs-basis-ratio-stamp           eb7529b   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\eb7529b @ eb7529b
+         | ==============================================================================
+         | [ FAIL ] R08 REGRESSION cogs-basis-ratio-stamp [CW-024 #112]
+         |           an explicit cogs_basis survives the production apply path
+         |           REGRESSED: normalized patch cogs_basis = None (want 'ratio'; the bug filtered the field and the twin inference re-tagged 'dollars')
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: cogs-basis-ratio-stamp [CW-024 #112]  (R08)
+         |         an explicit cogs_basis survives the production apply path
+         |         normalized patch cogs_basis = None (want 'ratio'; the bug filtered the field and the twin inference re-tagged 'dollars')
+         |         fixed at be7dbb6, was live at eb7529b
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R08 REGRESSION cogs-basis-ratio-stamp [CW-024 #112]
+         |           an explicit cogs_basis survives the production apply path
+         |           HOLDS: normalized patch cogs_basis = 'ratio' (want 'ratio'; the bug filtered the field and the twin inference re-tagged 'dollars')
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R09   owner-comp-one-door              66cc26b   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\66cc26b @ 66cc26b
+         | ==============================================================================
+         | [ FAIL ] R09 REGRESSION owner-comp-one-door [CW-022 #8]
+         |           owner pay lives in PEOPLE only - the financials door is gone
+         |           REGRESSED: owner_compensation in stage order=True, in a stage spec=True, in router patch schema=True (all must be False - the door is gone, not deprecated)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: owner-comp-one-door [CW-022 #8]  (R09)
+         |         owner pay lives in PEOPLE only - the financials door is gone
+         |         owner_compensation in stage order=True, in a stage spec=True, in router patch schema=True (all must be False - the door is gone, not deprecated)
+         |         fixed at 000edda, was live at 66cc26b
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R09 REGRESSION owner-comp-one-door [CW-022 #8]
+         |           owner pay lives in PEOPLE only - the financials door is gone
+         |           HOLDS: owner_compensation in stage order=False, in a stage spec=False, in router patch schema=False (all must be False - the door is gone, not deprecated)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R10   role-wage-rollup-recompute       000edda   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\000edda @ 000edda
+         | ==============================================================================
+         | [ FAIL ] R10 REGRESSION role-wage-rollup-recompute [CW-023]
+         |           a role-wage correction recomputes the rollup, never hand-patches
+         |           REGRESSED: owner annual_wage = 48000.0 (want 48,000); rollup fields = {'current_payroll': 133000.0} (all must equal 147,000 - the bug left them stale) [dropped ops_json (not a parameter at this commit)]
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: role-wage-rollup-recompute [CW-023]  (R10)
+         |         a role-wage correction recomputes the rollup, never hand-patches
+         |         owner annual_wage = 48000.0 (want 48,000); rollup fields = {'current_payroll': 133000.0} (all must equal 147,000 - the bug left them stale) [dropped ops_json (not a parameter at this commit)]
+         |         fixed at 28e9fce, was live at 000edda
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R10 REGRESSION role-wage-rollup-recompute [CW-023]
+         |           a role-wage correction recomputes the rollup, never hand-patches
+         |           HOLDS: owner annual_wage = 48000.0 (want 48,000); rollup fields = {'current_payroll': 147000.0, 'payroll_total_year1': 147000.0, 'baseline_payroll_year1': 147000.0} (all must equal 147,000 - the bug left them stale) [no adaptation needed]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R11   cedar-double-correction          582cef7   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\582cef7 @ 582cef7
+         | ==============================================================================
+         | [ FAIL ] R11 REGRESSION cedar-double-correction
+         |           the door is a TARGET; the delta is computed post-dedupe
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           stored current_payroll = 133000.0 (want exactly 225,000; the pre-dedupe delta subtracted twice and landed 89k)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: cedar-double-correction  (R11)
+         |         the door is a TARGET; the delta is computed post-dedupe
+         |         no forward move: value did not land and nothing was proposed
+         |         stored current_payroll = 133000.0 (want exactly 225,000; the pre-dedupe delta subtracted twice and landed 89k)
+         |         fixed at 51e2d79, was live at 582cef7
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R11 REGRESSION cedar-double-correction
+         |           the door is a TARGET; the delta is computed post-dedupe
+         |           LAND: value landed in the stored field
+         |           stored current_payroll = 225000.0 (want exactly 225,000; the pre-dedupe delta subtracted twice and landed 89k)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R12   rest-inclusion-tripwire          7bcf307   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'. Honest but NOT behavioural - the capability did not exist at this commit. _rest_inclusion_check = 0 occurrences under python/ at 7bcf307 - the tripwire did not exist. Promote by driving the rest-of-team figure through the turn and asserting it recorded silently.
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7bcf307 @ 7bcf307
+         | ==============================================================================
+         | [ FAIL ] R12 REGRESSION rest-inclusion-tripwire [CW-025 rank-2]
+         |           a rest-of-team figure that may contain a named wage cannot record silently
+         |           ERROR: leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: rest-inclusion-tripwire [CW-025 rank-2]  (R12)
+         |         a rest-of-team figure that may contain a named wage cannot record silently
+         |         leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'
+         |         fixed at 5b5ffbb, was live at 7bcf307
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R12 REGRESSION rest-inclusion-tripwire [CW-025 rank-2]
+         |           a rest-of-team figure that may contain a named wage cannot record silently
+         |           HOLDS: inclusion-ambiguous answer -> hold=raised; clean capture -> None (want a hold, then None)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R15   completed-financials-no-routing  c3d83a9   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\c3d83a9 @ c3d83a9
+         | ==============================================================================
+         | [ FAIL ] R15 REGRESSION completed-financials-no-routing [CW-025 rank-1]
+         |           a correction turn cannot return before the router runs
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           router calls = 0 (want >= 1 - the early return made zero); stored current_payroll = 133000.0 (want 120,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: completed-financials-no-routing [CW-025 rank-1]  (R15)
+         |         a correction turn cannot return before the router runs
+         |         no forward move: value did not land and nothing was proposed
+         |         router calls = 0 (want >= 1 - the early return made zero); stored current_payroll = 133000.0 (want 120,000)
+         |         fixed at 7bcf307, was live at c3d83a9
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R15 REGRESSION completed-financials-no-routing [CW-025 rank-1]
+         |           a correction turn cannot return before the router runs
+         |           LAND: value landed in the stored field
+         |           router calls = 1 (want >= 1 - the early return made zero); stored current_payroll = 120000.0 (want 120,000)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R16   inclusion-resolver-references    ff1da19   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\ff1da19 @ ff1da19
+         | ==============================================================================
+         | [ FAIL ] R16 REGRESSION inclusion-resolver-references [CW-026 #3]
+         |           frame figures are references; the fresh figure wins
+         |           REGRESSED: actual Sumac confirmation -> 37000.0 (want 62,000, the bug returned 37,000); fresh figure -> 90000.0 (90,000); separate -> 99000.0 (99,000); agreement -> 62000.0 (62,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: inclusion-resolver-references [CW-026 #3]  (R16)
+         |         frame figures are references; the fresh figure wins
+         |         actual Sumac confirmation -> 37000.0 (want 62,000, the bug returned 37,000); fresh figure -> 90000.0 (90,000); separate -> 99000.0 (99,000); agreement -> 62000.0 (62,000)
+         |         fixed at 18f5ca5, was live at ff1da19
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R16 REGRESSION inclusion-resolver-references [CW-026 #3]
+         |           frame figures are references; the fresh figure wins
+         |           HOLDS: actual Sumac confirmation -> 62000.0 (want 62,000, the bug returned 37,000); fresh figure -> 90000.0 (90,000); separate -> 99000.0 (99,000); agreement -> 62000.0 (62,000)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R17   cogs-echo-guard                  ff1da19   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\ff1da19 @ ff1da19
+         | ==============================================================================
+         | [ FAIL ] R17 REGRESSION cogs-echo-guard [CW-026 #4]
+         |           the basis flips only on a figure in the client's own message
+         |           REGRESSED: echoed anchor -> cogs_basis 'dollars' (want 'ratio'); client-stated -> 'dollars' @ 30000.0 (want 'dollars' @ 30,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: cogs-echo-guard [CW-026 #4]  (R17)
+         |         the basis flips only on a figure in the client's own message
+         |         echoed anchor -> cogs_basis 'dollars' (want 'ratio'); client-stated -> 'dollars' @ 30000.0 (want 'dollars' @ 30,000)
+         |         fixed at 18f5ca5, was live at ff1da19
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R17 REGRESSION cogs-echo-guard [CW-026 #4]
+         |           the basis flips only on a figure in the client's own message
+         |           HOLDS: echoed anchor -> cogs_basis 'ratio' (want 'ratio'); client-stated -> 'dollars' @ 30000.0 (want 'dollars' @ 30,000)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R18   rejected-figure-reference        18f5ca5   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\18f5ca5 @ 18f5ca5
+         | ==============================================================================
+         | [ FAIL ] R18 REGRESSION rejected-figure-reference [CW-027 #130]
+         |           a rejected or echoed figure is a reference and cannot be captured
+         |           NOT-FIXED: moved forward but the pinned value did not land
+         |           marketing = 4800.0 (want 4,800); current_cogs = 28000.0 (want 99,840 untouched - the bug inferred 28,000); reply free of a $28,000 capture = False; W2 bundled statement -> current_payroll 210000.0 (want 210,000); DB financials_json.current_cogs = 28000.0
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: rejected-figure-reference [CW-027 #130]  (R18)
+         |         a rejected or echoed figure is a reference and cannot be captured
+         |         moved forward but the pinned value did not land
+         |         marketing = 4800.0 (want 4,800); current_cogs = 28000.0 (want 99,840 untouched - the bug inferred 28,000); reply free of a $28,000 capture = False; W2 bundled statement -> current_payroll 210000.0 (want 210,000); DB financials_json.current_cogs = 28000.0
+         |         fixed at af791ec, was live at 18f5ca5
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R18 REGRESSION rejected-figure-reference [CW-027 #130]
+         |           a rejected or echoed figure is a reference and cannot be captured
+         |           LAND: value landed in the stored field
+         |           marketing = 4800.0 (want 4,800); current_cogs = 99840.0 (want 99,840 untouched - the bug inferred 28,000); reply free of a $28,000 capture = True; W2 bundled statement -> current_payroll 210000.0 (want 210,000); DB financials_json.current_cogs = 99840.0
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R19   retention-consumed               18f5ca5   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'. Honest but NOT behavioural - the capability did not exist at this commit. SETTLED ON SOURCE, not on the grep alone. At 18f5ca5 the frame DOES exist (retention_pending is written at section.py:2082 with prices + retained_used) and a consumer DOES exist - but only INLINE inside the coherence round-resolution path, keyed on a router patch 'coherence.retention_answer' (section.py:1115-1160). What is entirely absent is the link from the client's PROSE to that value: _parse_retention_answer = 0 occurrences, and apply_retention_answer = 0 (af791ec extracted the inline consumer into a callable AND added the parser AND wired it at any surface). So there is no behavioural red available: a leg aimed at the consumer would go GREEN on 18f5ca5 (the consumer worked - that was never the bug), and the bug's actual behaviour - a retention answer arriving at the done-focus surface and moving nothing - is only exercised inside post_intake_consult_handler, which the gate does not drive (its surface is _run_financials_turn_and_sync). PROMOTION PATH: if the deterministic resolve is ever lifted out of the HTTP handler into the turn chain, re-fixture to drive MSG_97 through ctx.turn with the frame stamped and assert stored utilization 0.78 -> 0.702.
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\18f5ca5 @ 18f5ca5
+         | ==============================================================================
+         | [ FAIL ] R19 REGRESSION retention-consumed [CW-027 #131]
+         |           the retention answer is consumed at any surface and moves utilization
+         |           ERROR: leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: retention-consumed [CW-027 #131]  (R19)
+         |         the retention answer is consumed at any surface and moves utilization
+         |         leg raised AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+         |         fixed at af791ec, was live at 18f5ca5
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R19 REGRESSION retention-consumed [CW-027 #131]
+         |           the retention answer is consumed at any surface and moves utilization
+         |           HOLDS: applied = True; stored utilization = 0.702 (want 0.702, was 0.78); revenue = 379080.0 (want 379,080 from 421,200); frame cleared = True; W4 bare figures parsed as retention = (None, None) (want (None, None))
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R20   capacity-twin-invariant          af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R20 REGRESSION capacity-twin-invariant [CW-028 #1]
+         |           the period capacity twin derives from weekly - they cannot diverge
+         |           REGRESSED: period twin 2.0 -> 2.0 against weekly 185.0 (weekly cadence: the twins must agree; the stale 2 is the loop's trigger)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: capacity-twin-invariant [CW-028 #1]  (R20)
+         |         the period capacity twin derives from weekly - they cannot diverge
+         |         period twin 2.0 -> 2.0 against weekly 185.0 (weekly cadence: the twins must agree; the stale 2 is the loop's trigger)
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R20 REGRESSION capacity-twin-invariant [CW-028 #1]
+         |           the period capacity twin derives from weekly - they cannot diverge
+         |           HOLDS: period twin 2.0 -> 185.0 against weekly 185.0 (weekly cadence: the twins must agree; the stale 2 is the loop's trigger)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R21   reconciliation-hold-consumes     af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R21 REGRESSION reconciliation-hold-consumes [CW-028 #2]
+         |           the reconciliation hold moves the driver and never re-issues verbatim
+         |           REGRESSED: second hold differs from the first = False; exposes its stored operands = False (the repeat must show what it is computing from, never re-issue the same text)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: reconciliation-hold-consumes [CW-028 #2]  (R21)
+         |         the reconciliation hold moves the driver and never re-issues verbatim
+         |         second hold differs from the first = False; exposes its stored operands = False (the repeat must show what it is computing from, never re-issue the same text)
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R21 REGRESSION reconciliation-hold-consumes [CW-028 #2]
+         |           the reconciliation hold moves the driver and never re-issues verbatim
+         |           HOLDS: second hold differs from the first = True; exposes its stored operands = True (the repeat must show what it is computing from, never re-issue the same text)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R22   sibling-attribution              af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R22 REGRESSION sibling-attribution [CW-028 #3]
+         |           a figure already attributed by the client cannot capture on a sibling
+         |           REGRESSED: FAILED: ratio-twin: 48% re-captured as unit price; arithmetic: marketing = 9360.0 (want 6,000 untouched); count-of-persons: ar = 2000.0, capacity named in ack = True; POSITIVE miss on 'I do about 40 jobs a week.' - a real capacity statement stopped capturing; repair receipt: the extra applied field was not named (a silent fix is invisible to the client)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: sibling-attribution [CW-028 #3]  (R22)
+         |         a figure already attributed by the client cannot capture on a sibling
+         |         FAILED: ratio-twin: 48% re-captured as unit price; arithmetic: marketing = 9360.0 (want 6,000 untouched); count-of-persons: ar = 2000.0, capacity named in ack = True; POSITIVE miss on 'I do about 40 jobs a week.' - a real capacity statement stopped capturing; repair receipt: the extra applied field was not named (a silent fix is invisible to the client)
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R22 REGRESSION sibling-attribution [CW-028 #3]
+         |           a figure already attributed by the client cannot capture on a sibling
+         |           HOLDS: all five forms clear
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R23   compound-word-numbers            af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R23 REGRESSION compound-word-numbers [CW-028 #4]
+         |           'one hundred and eighty-five' is 185, never the 85 fragment
+         |           REGRESSED: _message_figures -> [1.0, 85.0] (want 185 present, 85 absent); ack attributes 185 and never 'capacity 85' = False (fixture holds week/period=100 so 185 is a genuine correction, not a restatement of an engine-unrepresentable row)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: compound-word-numbers [CW-028 #4]  (R23)
+         |         'one hundred and eighty-five' is 185, never the 85 fragment
+         |         _message_figures -> [1.0, 85.0] (want 185 present, 85 absent); ack attributes 185 and never 'capacity 85' = False (fixture holds week/period=100 so 185 is a genuine correction, not a restatement of an engine-unrepresentable row)
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R23 REGRESSION compound-word-numbers [CW-028 #4]
+         |           'one hundred and eighty-five' is 185, never the 85 fragment
+         |           HOLDS: _message_figures -> [185.0] (want 185 present, 85 absent); ack attributes 185 and never 'capacity 85' = True (fixture holds week/period=100 so 185 is a genuine correction, not a restatement of an engine-unrepresentable row)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R24   owner-not-enumerated             af791ec   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\af791ec @ af791ec
+         | ==============================================================================
+         | [ FAIL ] R24 REGRESSION owner-not-enumerated [CW-028 #5]
+         |           the rest-of-team question never names the owner alongside 'yourself'
+         |           REGRESSED: owner named as a third party = True (must be False); non-owner staff still enumerated = True (must be True); question: 'Beyond yourself and Marisol Okafor, Priya Raghunathan - people we already have down individually - roughly what does payroll for the rest of your team come to p'
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: owner-not-enumerated [CW-028 #5]  (R24)
+         |         the rest-of-team question never names the owner alongside 'yourself'
+         |         owner named as a third party = True (must be False); non-owner staff still enumerated = True (must be True); question: 'Beyond yourself and Marisol Okafor, Priya Raghunathan - people we already have down individually - roughly what does payroll for the rest of your team come to p'
+         |         fixed at 8bfbbb6, was live at af791ec
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R24 REGRESSION owner-not-enumerated [CW-028 #5]
+         |           the rest-of-team question never names the owner alongside 'yourself'
+         |           HOLDS: owner named as a third party = False (must be False); non-owner staff still enumerated = True (must be True); question: 'Beyond yourself and Priya Raghunathan - people we already have down individually - roughly what does payroll for the rest of your team come to per year? Only co'
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U01   capacity-derivation-invariant    909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U01 REGRESSION capacity-derivation-invariant [ENGINE p1]
+         |           capacity is canonical-per-cadence at every pass; twins cannot diverge
+         |           REGRESSED: FAILED: contract week derived 80.0, want 10.3846 (per*periods/52); at 909f66f it stays the stale 80; adopt-once gave None, want 52 (a mirror-only legacy row must gain its canonical cell); multi-product row 2 week = 99.0, want 2.3077 - derivation must cover EVERY row
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: capacity-derivation-invariant [ENGINE p1]  (U01)
+         |         capacity is canonical-per-cadence at every pass; twins cannot diverge
+         |         FAILED: contract week derived 80.0, want 10.3846 (per*periods/52); at 909f66f it stays the stale 80; adopt-once gave None, want 52 (a mirror-only legacy row must gain its canonical cell); multi-product row 2 week = 99.0, want 2.3077 - derivation must cover EVERY row
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] U01 REGRESSION capacity-derivation-invariant [ENGINE p1]
+         |           capacity is canonical-per-cadence at every pass; twins cannot diverge
+         |           HOLDS: all four derivation forms hold (weekly, contract, adopt-once, multi-product)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U02   fernhill-round-trip              909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U02 REGRESSION fernhill-round-trip [ENGINE p1]
+         |           PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           SQL read-back: units_per_period_capacity = 45.0, want 80 - the landing did NOT survive the persist (the receipt said it landed; the database disagrees)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: fernhill-round-trip [ENGINE p1]  (U02)
+         |         PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |         no forward move: value did not land and nothing was proposed
+         |         SQL read-back: units_per_period_capacity = 45.0, want 80 - the landing did NOT survive the persist (the receipt said it landed; the database disagrees)
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] U02 REGRESSION fernhill-round-trip [ENGINE p1]
+         |           PERSISTENCE: a landing survives the caller's persist and reads back from SQL
+         |           LAND: value landed in the stored field
+         |           receipt landed, SQL read-back period = 80.0 (survived), and the next turn's conflict check cleared = True (if it re-fires, the corrected value never reached the gate)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U03   product-pattern-total            909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U03 REGRESSION product-pattern-total [ENGINE p1]
+         |           '4 x 20 = 80' lands the stated total, never a factor
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           ack must attribute the stated total 80 and never the per-person factor 20 - contains '80' = False, contains 'capacity 20' = True
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: product-pattern-total [ENGINE p1]  (U03)
+         |         '4 x 20 = 80' lands the stated total, never a factor
+         |         no forward move: value did not land and nothing was proposed
+         |         ack must attribute the stated total 80 and never the per-person factor 20 - contains '80' = False, contains 'capacity 20' = True
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] U03 REGRESSION product-pattern-total [ENGINE p1]
+         |           '4 x 20 = 80' lands the stated total, never a factor
+         |           LAND: value landed in the stored field
+         |           ack must attribute the stated total 80 and never the per-person factor 20 - contains '80' = True, contains 'capacity 20' = False
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U04   no-op-never-receipts             13fae7c   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\13fae7c @ 13fae7c
+         | ==============================================================================
+         | [ FAIL ] U04 REGRESSION no-op-never-receipts [ENGINE p5]
+         |           a door echo never says Recorded:; a real door write still does
+         |           REGRESSED: the echo RECEIPTED - ack: 'Recorded: total team payroll $621,000 a year.\n\nThanks. I have everything I need for financials, and the intake is complete.'; the row already held 621,000, so nothing changed and nothing was recorded
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: no-op-never-receipts [ENGINE p5]  (U04)
+         |         a door echo never says Recorded:; a real door write still does
+         |         the echo RECEIPTED - ack: 'Recorded: total team payroll $621,000 a year.\n\nThanks. I have everything I need for financials, and the intake is complete.'; the row already held 621,000, so nothing changed and nothing was recorded
+         |         fixed at 9d2c41c, was live at 13fae7c
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] U04 REGRESSION no-op-never-receipts [ENGINE p5]
+         |           a door echo never says Recorded:; a real door write still does
+         |           HOLDS: door echo (row already holds 621,000): silent, stored field untouched; a genuine write to 655,000 still lands and still acknowledges - the door is live and the no-op rule is what is doing the work
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+U05   pin-escalation                   909f66f   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\909f66f @ 909f66f
+         | ==============================================================================
+         | [ FAIL ] U05 REGRESSION pin-escalation [ENGINE p1]
+         |           three holds, three distinct messages, the third offers the direct set
+         |           REGRESSED: three holds produced 2 distinct messages (want 3); the third escalates to the direct set = False (at 909f66f the operand message repeats verbatim from the second onward)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: pin-escalation [ENGINE p1]  (U05)
+         |         three holds, three distinct messages, the third offers the direct set
+         |         three holds produced 2 distinct messages (want 3); the third escalates to the direct set = False (at 909f66f the operand message repeats verbatim from the second onward)
+         |         fixed at 539fb17, was live at 909f66f
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] U05 REGRESSION pin-escalation [ENGINE p1]
+         |           three holds, three distinct messages, the third offers the direct set
+         |           HOLDS: three holds produced 3 distinct messages (want 3); the third escalates to the direct set = True (at 909f66f the operand message repeats verbatim from the second onward)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R25   goal-anchor-roadmap              539fb17   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\539fb17 @ 539fb17
+         | ==============================================================================
+         | [ FAIL ] R25 REGRESSION goal-anchor-roadmap [conv-state #1]
+         |           the roadmap builds toward the client's own stated 12-month goal
+         |           REGRESSED: ANCHOR: the roadmap never names the client's goal - msg: "First: that change is recorded exactly as you chose it. It didn't move the numbers the way we hoped, so here's the honest picture. Here's where things honestly stand. The business you've described is " (at 539fb17 the paths are framed as distance with nothing to be distant FROM)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: goal-anchor-roadmap [conv-state #1]  (R25)
+         |         the roadmap builds toward the client's own stated 12-month goal
+         |         ANCHOR: the roadmap never names the client's goal - msg: "First: that change is recorded exactly as you chose it. It didn't move the numbers the way we hoped, so here's the honest picture. Here's where things honestly stand. The business you've described is " (at 539fb17 the paths are framed as distance with nothing to be distant FROM)
+         |         fixed at 13fae7c, was live at 539fb17
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R25 REGRESSION goal-anchor-roadmap [conv-state #1]
+         |           the roadmap builds toward the client's own stated 12-month goal
+         |           HOLDS: capture holds, the roadmap names the client's own goal ('60 visits'), and with no goal captured the copy stays untouched
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R13   fitted-cogs-covered              613a19a   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\613a19a @ 613a19a
+         | ==============================================================================
+         | [ FAIL ] R13 REGRESSION fitted-cogs-covered
+         |           covered NAICS proposes materials-only with a band
+         |           REGRESSED: proposed cogs pct = 0.8733, band = None, cohort cost-of-revenue seen = None (materials-only, not the cohort; at 613a19a there is no band at all) [supplied estimate_cogs_percent_from_context from the app's own production wiring]
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: fitted-cogs-covered  (R13)
+         |         covered NAICS proposes materials-only with a band
+         |         proposed cogs pct = 0.8733, band = None, cohort cost-of-revenue seen = None (materials-only, not the cohort; at 613a19a there is no band at all) [supplied estimate_cogs_percent_from_context from the app's own production wiring]
+         |         fixed at eb7529b, was live at 613a19a
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R13 REGRESSION fitted-cogs-covered
+         |           covered NAICS proposes materials-only with a band
+         |           HOLDS: proposed cogs pct = 0.0700, band = [0.05, 0.09], cohort cost-of-revenue seen = 0.8733 (materials-only, not the cohort; at 613a19a there is no band at all) [no adaptation needed]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+R14   fitted-cogs-fallback             7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] R14 REGRESSION fitted-cogs-fallback
+         |           uncovered NAICS still yields a fitted band (no dead estimator)
+         |           REGRESSED: uncovered NAICS -> pct = 0.3200, band = None (a band is required; the dead estimator returns a bare percent with band=None) [supplied estimate_cogs_percent_from_context from the app's own production wiring]
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * FIXED BUG REGRESSED: fitted-cogs-fallback  (R14)
+         |         uncovered NAICS still yields a fitted band (no dead estimator)
+         |         uncovered NAICS -> pct = 0.3200, band = None (a band is required; the dead estimator returns a bare percent with band=None) [supplied estimate_cogs_percent_from_context from the app's own production wiring]
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] R14 REGRESSION fitted-cogs-fallback
+         |           uncovered NAICS still yields a fitted band (no dead estimator)
+         |           HOLDS: uncovered NAICS -> pct = 0.0900, band = [0.06, 0.12] (a band is required; the dead estimator returns a bare percent with band=None) [no adaptation needed]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I01   forward-move:price               5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] I01 INVARIANT  forward-move:price [CW-026]
+         |           a price correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |           stored unit_price = None (want 610, was 520)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:price [CW-026]  (I01)
+         |         a price correction lands or infers-and-proposes - never dead-ends
+         |         dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |         stored unit_price = None (want 610, was 520)
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I01 INVARIANT  forward-move:price [CW-026]
+         |           a price correction lands or infers-and-proposes - never dead-ends
+         |           LAND: value landed in the stored field
+         |           stored unit_price = 610.0 (want 610, was 520)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I02   forward-move:payroll             c3d83a9   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\c3d83a9 @ c3d83a9
+         | ==============================================================================
+         | [ FAIL ] I02 INVARIANT  forward-move:payroll [CW-025 rank-1]
+         |           a payroll correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           stored current_payroll = 133000.0 (want 120,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:payroll [CW-025 rank-1]  (I02)
+         |         a payroll correction lands or infers-and-proposes - never dead-ends
+         |         no forward move: value did not land and nothing was proposed
+         |         stored current_payroll = 133000.0 (want 120,000)
+         |         fixed at 7bcf307, was live at c3d83a9
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I02 INVARIANT  forward-move:payroll [CW-025 rank-1]
+         |           a payroll correction lands or infers-and-proposes - never dead-ends
+         |           LAND: value landed in the stored field
+         |           stored current_payroll = 120000.0 (want 120,000)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I03   forward-move:cogs                5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] I03 INVARIANT  forward-move:cogs [CW-026]
+         |           a cogs correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |           stored current_cogs = 1.0 (want 30,000)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:cogs [CW-026]  (I03)
+         |         a cogs correction lands or infers-and-proposes - never dead-ends
+         |         dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |         stored current_cogs = 1.0 (want 30,000)
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I03 INVARIANT  forward-move:cogs [CW-026]
+         |           a cogs correction lands or infers-and-proposes - never dead-ends
+         |           LAND: value landed in the stored field
+         |           stored current_cogs = 30000.0; cogs_basis = 'dollars' (want 'dollars')
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I04   forward-move:volume              5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] I04 INVARIANT  forward-move:volume [CW-026]
+         |           a volume correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           stored units_per_period_capacity = None (want 40, was 34)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:volume [CW-026]  (I04)
+         |         a volume correction lands or infers-and-proposes - never dead-ends
+         |         no forward move: value did not land and nothing was proposed
+         |         stored units_per_period_capacity = None (want 40, was 34)
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I04 INVARIANT  forward-move:volume [CW-026]
+         |           a volume correction lands or infers-and-proposes - never dead-ends
+         |           LAND: value landed in the stored field
+         |           stored units_per_period_capacity = 40.0 (want 40, was 34)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I05   forward-move:marketing           5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] I05 INVARIANT  forward-move:marketing [CW-026]
+         |           a marketing correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |           stored marketing_total_year1 = 1200.0 (want 2,400)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:marketing [CW-026]  (I05)
+         |         a marketing correction lands or infers-and-proposes - never dead-ends
+         |         dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |         stored marketing_total_year1 = 1200.0 (want 2,400)
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I05 INVARIANT  forward-move:marketing [CW-026]
+         |           a marketing correction lands or infers-and-proposes - never dead-ends
+         |           LAND: value landed in the stored field
+         |           stored marketing_total_year1 = 2400.0 (want 2,400)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I06   forward-move:AMBIGUOUS/garbage   5b5ffbb   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\5b5ffbb @ 5b5ffbb
+         | ==============================================================================
+         | [ FAIL ] I06 INVARIANT  forward-move:AMBIGUOUS/garbage [CW-026]
+         |           a AMBIGUOUS/garbage correction lands or infers-and-proposes - never dead-ends
+         |           FREEZE: dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |           ambiguous input - no landing expected; a proposal is the pass
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: forward-move:AMBIGUOUS/garbage [CW-026]  (I06)
+         |         a AMBIGUOUS/garbage correction lands or infers-and-proposes - never dead-ends
+         |         dead stop: handed disambiguation back to the client ("couldn't tell where to record it")
+         |         ambiguous input - no landing expected; a proposal is the pass
+         |         fixed at ff1da19, was live at 5b5ffbb
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I06 INVARIANT  forward-move:AMBIGUOUS/garbage [CW-026]
+         |           a AMBIGUOUS/garbage correction lands or infers-and-proposes - never dead-ends
+         |           PROPOSE: inferred landing applied and proposed for confirmation
+         |           ambiguous input - no landing expected; a proposal is the pass
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I07   ack-matches-stored               c3d83a9   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\c3d83a9 @ c3d83a9
+         | ==============================================================================
+         | [ FAIL ] I07 INVARIANT  ack-matches-stored [CW-025 rank-1]
+         |           prose claiming a write cannot ship unless the write landed
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           reply ships a $0 write-claim = True (must be False - nothing landed); client's stated $166,000 disclosed = False; stored initial_lease = None (must not have been silently written)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: ack-matches-stored [CW-025 rank-1]  (I07)
+         |         prose claiming a write cannot ship unless the write landed
+         |         no forward move: value did not land and nothing was proposed
+         |         reply ships a $0 write-claim = True (must be False - nothing landed); client's stated $166,000 disclosed = False; stored initial_lease = None (must not have been silently written)
+         |         fixed at 7bcf307, was live at c3d83a9
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I07 INVARIANT  ack-matches-stored [CW-025 rank-1]
+         |           prose claiming a write cannot ship unless the write landed
+         |           LAND: value landed in the stored field
+         |           reply ships a $0 write-claim = False (must be False - nothing landed); client's stated $166,000 disclosed = True; stored initial_lease = None (must not have been silently written)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I08   owner-appears-once               ff1da19   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\ff1da19 @ ff1da19
+         | ==============================================================================
+         | [ FAIL ] I08 INVARIANT  owner-appears-once [CW-026 #1]
+         |           exactly one owner row survives a live turn and the persistence round-trip
+         |           FREEZE: no forward move: value did not land and nothing was proposed
+         |           2 owner row(s) persisted through a live turn: ['Owner / Crew Lead', 'Owner'] (want exactly 1); rollup = 155999.96 (at ff1da19 both 'Owner / Crew Lead' and the bare 'Owner' survive and the rollup carries 141,999.96)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: owner-appears-once [CW-026 #1]  (I08)
+         |         exactly one owner row survives a live turn and the persistence round-trip
+         |         no forward move: value did not land and nothing was proposed
+         |         2 owner row(s) persisted through a live turn: ['Owner / Crew Lead', 'Owner'] (want exactly 1); rollup = 155999.96 (at ff1da19 both 'Owner / Crew Lead' and the bare 'Owner' survive and the rollup carries 141,999.96)
+         |         fixed at 18f5ca5, was live at ff1da19
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I08 INVARIANT  owner-appears-once [CW-026 #1]
+         |           exactly one owner row survives a live turn and the persistence round-trip
+         |           LAND: value landed in the stored field
+         |           1 owner row(s) persisted through a live turn: ['Owner / Crew Lead'] (want exactly 1); rollup = 122000.0 (at ff1da19 both 'Owner / Crew Lead' and the bare 'Owner' survive and the rollup carries 141,999.96)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I09   no-double-counted-people         7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] I09 INVARIANT  no-double-counted-people [CW-024 #108]
+         |           the payroll rollup never double-counts a person
+         |           VIOLATED: rollup = 332,000.00; naive pre-sync ceiling = 332,000.00 (named 196,000 + rest 136,000); hitting the ceiling means the group row was counted twice
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: no-double-counted-people [CW-024 #108]  (I09)
+         |         the payroll rollup never double-counts a person
+         |         rollup = 332,000.00; naive pre-sync ceiling = 332,000.00 (named 196,000 + rest 136,000); hitting the ceiling means the group row was counted twice
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I09 INVARIANT  no-double-counted-people [CW-024 #108]
+         |           the payroll rollup never double-counts a person
+         |           HOLDS: rollup = 196,000.00; naive pre-sync ceiling = 332,000.00 (named 196,000 + rest 136,000); hitting the ceiling means the group row was counted twice
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I12   owner-row-uniqueness             ff1da19   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\ff1da19 @ ff1da19
+         | ==============================================================================
+         | [ FAIL ] I12 INVARIANT  owner-row-uniqueness [CW-026 #1]
+         |           exactly one owner row; a wage conflict holds instead of picking silently
+         |           VIOLATED: duplicate -> 2 owner row(s), rollup 141,999.96 (want 1 row @ 108,000, was 141,999.96); benchmark vs override -> 2 row(s) @ 63960.0 (want 1 @ 34,000); two overrides -> 2 row(s), hold=None (want 1 row + a hold, never a silent pick)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: owner-row-uniqueness [CW-026 #1]  (I12)
+         |         exactly one owner row; a wage conflict holds instead of picking silently
+         |         duplicate -> 2 owner row(s), rollup 141,999.96 (want 1 row @ 108,000, was 141,999.96); benchmark vs override -> 2 row(s) @ 63960.0 (want 1 @ 34,000); two overrides -> 2 row(s), hold=None (want 1 row + a hold, never a silent pick)
+         |         fixed at 18f5ca5, was live at ff1da19
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I12 INVARIANT  owner-row-uniqueness [CW-026 #1]
+         |           exactly one owner row; a wage conflict holds instead of picking silently
+         |           HOLDS: duplicate -> 1 owner row(s), rollup 108,000.00 (want 1 row @ 108,000, was 141,999.96); benchmark vs override -> 1 row(s) @ 34000.0 (want 1 @ 34,000); two overrides -> 1 row(s), hold={'kept': 34000.0, 'other': 52000.0} (want 1 row + a hold, never a silent pick)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I13   owner-draw-clears                ff1da19   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py). Honest but NOT behavioural - the capability did not exist at this commit. _owner_draw_exit_tail = 0 occurrences under python/ at ff1da19 - the exit-tail builder did not exist, so the ImportError is the absence itself. Promote by driving the wall through the coherence section and asserting the offered draw clears it.
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\ff1da19 @ ff1da19
+         | ==============================================================================
+         | [ FAIL ] I13 INVARIANT  owner-draw-clears [CW-026 #2]
+         |           the offered draw actually clears the wall; an unreachable exit is not offered
+         |           ERROR: leg raised ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: owner-draw-clears [CW-026 #2]  (I13)
+         |         the offered draw actually clears the wall; an unreachable exit is not offered
+         |         leg raised ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py)
+         |         fixed at 18f5ca5, was live at ff1da19
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I13 INVARIANT  owner-draw-clears [CW-026 #2]
+         |           the offered draw actually clears the wall; an unreachable exit is not offered
+         |           HOLDS: owner-dominated wall -> offers the clearing draw: True (want $7,708, not $10,208); staffed already above the ceiling -> no draw exit offered, revenue named: True
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I10   cogs-materials-only-band         7b9f481   GREEN       GREEN    QUARANTINE
+      -> PASSED on its own broken baseline - fixture path, the leg is not reaching the code that broke
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [  ok  ] I10 INVARIANT  cogs-materials-only-band
+         |           COGS proposals are materials-only and carry a band
+         |           HOLDS: pct = 0.0500 within band [0.04, 0.07] (top <= 0.30) = True; cohort cost-of-revenue = 0.8733 and the proposal must sit far below it = True [supplied estimate_cogs_percent_from_context from the app's own production wiring]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I10 INVARIANT  cogs-materials-only-band
+         |           COGS proposals are materials-only and carry a band
+         |           HOLDS: pct = 0.0500 within band [0.04, 0.07] (top <= 0.30) = True; cohort cost-of-revenue = 0.8733 and the proposal must sit far below it = True [no adaptation needed]
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+I11   price-ceiling-no-ratchet         7b9f481   RED         GREEN    PROVEN
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\bpa_gate_baselines\7b9f481 @ 7b9f481
+         | ==============================================================================
+         | [ FAIL ] I11 INVARIANT  price-ceiling-no-ratchet [CW-024]
+         |           the judged price ceiling cannot ratchet on acceptance
+         |           VIOLATED: three accept/re-offer rounds -> [125.64, 125.64, 125.64]; the market fact is 109.25 and no round may exceed it (at 7b9f481 round one walks the client to 125.64 - acceptance raises the ceiling)
+         | ------------------------------------------------------------------------------
+         | 0/1 legs clear
+         | 
+         |   RED - bounce to VS. Regressed or violated:
+         |     * INVARIANT VIOLATED: price-ceiling-no-ratchet [CW-024]  (I11)
+         |         the judged price ceiling cannot ratchet on acceptance
+         |         three accept/re-offer rounds -> [125.64, 125.64, 125.64]; the market fact is 109.25 and no round may exceed it (at 7b9f481 round one walks the client to 125.64 - acceptance raises the ceiling)
+         |         fixed at 582cef7, was live at 7b9f481
+         | 
+         |   Do NOT spend a Cowork run on this build.
+         | ==============================================================================
+         | SURFACE  completed-financials  (active stage = None)
+         | 
+         | ==============================================================================
+         | REPLAY GATE - every known issue
+         |   build under test: C:\dev\business_plann_app @ 9d2c41c
+         | ==============================================================================
+         | [  ok  ] I11 INVARIANT  price-ceiling-no-ratchet [CW-024]
+         |           the judged price ceiling cannot ratchet on acceptance
+         |           HOLDS: three accept/re-offer rounds -> [109.25, 109.25, 109.25]; the market fact is 109.25 and no round may exceed it (at 7b9f481 round one walks the client to 125.64 - acceptance raises the ceiling)
+         | ------------------------------------------------------------------------------
+         | 1/1 legs clear
+         | 
+         |   GREEN - every known issue that ran is clear.
+         |   Safe to spend a Cowork run.
+         | ==============================================================================
+------------------------------------------------------------------------------
+COUNT   38 proven BEHAVIOURALLY (red shows the bug behaving)
+        4 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        0 UNEARNED (crash-red: the property was never evaluated)
+        1 other failures   |   0 baseline incomplete
+        43 legs total
+
+  STRUCTURAL-ABSENCE (4) - honest, declared, NOT behavioural:
+    - R07 ask-then-ignore @ 7b9f481: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'
+    - R12 rest-inclusion-tripwire @ 7bcf307: AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'
+    - R19 retention-consumed @ 18f5ca5: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+    - I13 owner-draw-clears @ ff1da19: ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py)
+    The capability did not exist at these commits, so no behavioural
+    red was available. They guard the CURRENT build (their green side
+    is behavioural); they do not prove the broken side.
+
+  QUARANTINED: I10
+  These legs are NOT trusted and are excluded from the gate
+  verdict until they can go red on their own broken baseline.
+  Pass them to the gate with --quarantine to keep it honest:
+    ... --quarantine I10

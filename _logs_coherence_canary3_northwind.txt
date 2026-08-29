@@ -1,0 +1,139 @@
+﻿Loaded control file: C:\dev\business_plann_app\Test Files\Steerable Intake Scenarios.xlsx (sheet: Software Co (3-LOB Enterprise))
+Controlled positions: 67
+--- compiled client briefing ---
+Test a large, established B2B software company. It has been operating for several years and runs at scale - tens of millions in revenue and hundreds of employees. Three separate lines tracked with different economics - self-serve SaaS subscriptions, enterprise annual contracts, and professional services. The finance lead is precise, sets exact figures rather than accepting rough baselines, asks the consultant to clarify definitions, and expects the plan to reflect enterprise SaaS economics. This test exercises large-dollar figures, a B2B/enterprise market, a real office and equipment lease, venture-debt-plus-equity funding, and a zero-inventory software business.
+
+Business identity (use these exact details when giving business information): the business is named "Northwind Systems, Inc."; located at 500 108th Ave NE, Bellevue, WA 98004, USA.
+
+CONTROLLED POSITIONS. You must work each of the following into the conversation naturally at the appropriate moment. Your wording can be conversational, but the substance - every number, choice, and behavior below - must be delivered exactly as specified and confirmed if the consultant restates it:
+- [Service line structure] Three separate lines of business with different economics: (1) Self-Serve SaaS Subscriptions, (2) Enterprise Annual Contracts, and (3) Professional Services & Implementation. Insist they are tracked separately.
+- [Customer type] b2b - we sell to businesses, from small self-serve customers up to large enterprises.
+- [Legal entity] The business is a C-corp.
+- [SaaS Subscriptions - unit definition] For SaaS Subscriptions, one unit is one active monthly subscription account.
+- [SaaS Subscriptions - cadence] Monthly - capacity is active subscriptions we can serve per month.
+- [SaaS Subscriptions - capacity] The platform can support up to about 60,000 active subscription accounts.
+- [SaaS Subscriptions - utilization] Use 70% utilization for Year 1 - if the consultant proposes a different percentage, decline and insist on 70%.
+- [SaaS Subscriptions - price] Subscriptions average about $85 per account per month.
+- [Enterprise Contracts - unit definition] For Enterprise Contracts, one unit is one active enterprise annual contract.
+- [Enterprise Contracts - cadence] Contract - annual contracts; capacity is how many enterprise accounts we can carry at once.
+- [Enterprise Contracts - capacity] We can carry up to about 900 concurrent enterprise contracts.
+- [Enterprise Contracts - utilization] Use 65% utilization on enterprise for Year 1 - insist on 65% if a different number is proposed.
+- [Enterprise Contracts - price] Enterprise contracts average about $95,000 a year each.
+- [Professional Services - unit definition] For Professional Services, one unit is one implementation or services engagement.
+- [Professional Services - cadence] Monthly - capacity is engagements our services team can deliver per month.
+- [Professional Services - capacity] The services team can deliver about 100 engagements a month.
+- [Professional Services - utilization] Use 60% utilization on services for Year 1 - insist on 60% if a different number is proposed.
+- [Professional Services - price] Services engagements average about $22,000 each.
+- [Turnover / turns per year] Subscriptions renew monthly; enterprise contracts renew annually; services engagements turn over as they're delivered.
+- [Delivery method] Online - the product is cloud-based SaaS delivered over the web, with remote implementation and support.
+- [Sales channel] An enterprise sales team for large accounts, self-serve online signup for smaller customers, and a partner and reseller channel.
+- [Geography] National and international - we sell across North America and Europe.
+- [Growth lever] Growth comes from landing and expanding enterprise accounts and moving up-market to larger customers.
+- [Competitive advantage] Deep product integrations and a platform ecosystem that raise switching costs, plus enterprise-grade security and compliance that win large deals.
+- [12-month goal] Reach about $12 million in monthly revenue within 12 months.
+- [Milestones] Concrete milestones: close our first eight-figure enterprise contract by month 6; launch the public platform API and partner marketplace by month 9.
+- [Confidence] Confidence in these numbers is 8 out of 10.
+- [Gender focus] No gender focus - all genders; our buyers are businesses.
+- [Age range] Decision-makers are roughly 30 to 55 - but no strict age preference.
+- [Income] Not really applicable - we sell to businesses, not consumers.
+- [Education] No education preference.
+- [Demographic segments] Keep the consumer demographic segments broad - the meaningful targeting is the B2B firmographics below.
+- [Employment specifics] Not applicable at the consumer level - our targeting is firmographic.
+- [B2B industries] Target mid-market and enterprise companies in technology, financial services, healthcare, and retail.
+- [B2B size / age] Companies from about 200 to 5,000-plus employees; established organizations.
+- [Positioning summary] When the market summary is presented, ask for one change - emphasize the enterprise security and compliance strength - then approve.
+- [Key person 1] Elena Vasquez, Co-Founder and CEO, 16 years in enterprise software, prior VP of Product at a public SaaS company, earns $650,000 a year in total cash compensation.
+- [Key person 2] Rajan Mehta, Co-Founder and CTO, 15 years in distributed systems - let the consultant estimate his compensation.
+- [Done adding people] After the two co-founders, say the key people list is complete.
+- [Suggested roles - wage] If a VP of Sales or similar executive role is suggested, set its wage to $300,000.
+- [Suggested roles - timing] Any suggested additional executive hire should be planned for about 3 months out.
+- [Revenue baseline] Accept the Year-1 revenue baseline as presented.
+- [COGS] Set COGS at about 24% of revenue - hosting, infrastructure, support, and services delivery.
+- [Payroll] The People-derived baseline will be far too low for our size - set Year-1 payroll to about $52 million; we run around 380 employees. Confirm when it's restated.
+- [Marketing] We spend about $34 million a year on sales and marketing.
+- [Monthly rent] Office rent on our Bellevue headquarters is about $220,000 a month.
+- [Future rent expected] Yes - we'll continue to need office space.
+- [Owner compensation] As CEO I take about $650,000 a year in cash compensation.
+- [Other operating expense] Other operating costs - software tools, travel, professional services, insurance - run about $900,000 a month.
+- [Employee count] We have about 380 employees on payroll.
+- [Capex] We spent about $4,000,000 recently on data-center hardware and office build-out.
+- [Initial assets] Capitalized equipment, servers, and build-out are worth about $18,000,000.
+- [Initial lease] Beyond the office rent, we lease data-center and network equipment at about $60,000 a month.
+- [Initial equity] About $85,000,000 of equity has been raised into the business to date.
+- [Total debt] We carry about $40,000,000 in venture debt and a term loan.
+- [Other monthly debt payments] The debt service runs about $930,000 a month.
+- [Annual interest] Annual interest is about $3,200,000.
+- [Annual principal] We pay down about $8,000,000 of principal a year.
+- [Cash on hand] About $30,000,000 in the bank.
+- [Accounts receivable] Enterprise customers owe us about $14,000,000 on net-30 and net-60 terms.
+- [Accounts payable] We owe about $6,000,000 to vendors and infrastructure providers.
+- [Inventory] None - we're a software business, no inventory.
+- [Cash strategy] Preserve cash - we're reinvesting into growth and extending our runway, no distributions.
+- [Funding preference] Fund it with a mix of both debt and equity.
+- [Funding split] Roughly thirty percent debt and seventy percent equity - mostly venture equity with some venture debt.
+- [Ask a question back] When milestones come up, first ask the consultant what counts as a milestone before giving your answer.
+- [Compound answer] When asked about delivery, answer that and also volunteer the sales channel in the same reply.
+For anything not covered above, answer naturally and stay consistent with these positions.
+--- launching live dual-GPT intake ---
+[runner] generating bootstrap business persona...
+Bootstrapped business: Northwind Systems, Inc.
+Watch live in browser: http://localhost:5173/business-plan-form?watch=016c82b7d90c4451b3413fa60f364f0a
+
+[ops][assistant] To get us started, could you describe in plain language what "Northwind Systems, Inc." does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like "fitness gym", "law firm", "restaurant", etc.)?
+[runner] generating simulated user reply for focus=ops...
+[user] Northwind Systems, Inc. is a B2B software company providing cloud-based SaaS solutions delivered online, including self-serve subscriptions, enterprise annual contracts, and professional services engagements. We get paid through monthly subscription fees, annual enterprise contracts, and fixed-price professional services.
+
+[ops][assistant] Northwind Systems, Inc. is a B2B software company that sells access to its cloud-based SaaS platforms plus optional implementation/consulting services. The core value is delivered as ongoing online access to the software (via self-serve subscriptions and larger enterprise contracts), with revenue generated primarily from recurring subscription/contract fees and secondarily from fixed-price professional services projects. Operationally, we’ll treat the main unit of planning as a contract-style subscription or services engagement (contract cadence), rather than a simple weekly or monthly “slot.” Does this overall description and using a contract-style cadence as the main planning unit sound right?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that's correct. We track three separate lines of business with different economics: self-serve SaaS subscriptions, enterprise annual contracts, and professional services & implementation, each very much tracked separately. For subscriptions, we consider one unit as one active monthly subscription account with a monthly cadence. Enterprise contracts are annual with one unit per active annual contract, and professional services units are individual engagements delivered monthly. So using contract-style cadence per line makes sense.
+
+[ops][assistant] Based on the start date you provided, I'm treating this as operating for planning context. If that's off, tell me and I'll adjust.
+
+Next, to keep things clean: would you describe Northwind Systems, Inc. as primarily selling to individual consumers, to other businesses, or a mix of both?
+[runner] generating simulated user reply for focus=ops...
+[user] Northwind Systems, Inc. is strictly a B2B business - we sell software solutions to businesses, across a range of sizes from small self-serve customers up to large enterprises.
+
+[ops][assistant] Got it, strictly B2B.
+
+Let’s start with the first line of business: self-serve SaaS subscriptions. For planning, what’s a realistic maximum number of active self-serve subscription accounts you can comfortably support at any one time over the next year (assume a typical month when things are running smoothly)?
+[runner] generating simulated user reply for focus=ops...
+[user] The platform can support up to about 60,000 active subscription accounts at a time.
+
+[ops][assistant] Thanks, that helps.
+
+Given that the platform can support around 60,000 active self-serve subscription accounts at a time, a practical planning assumption is that you won’t be running it at 100% all the time. For the next 12 months, what feels like a realistic average load as a percentage of that capacity – for example, closer to 50%, 70%, or 85%?
+[runner] generating simulated user reply for focus=ops...
+[user] We should use 70% utilization for the self-serve SaaS subscriptions in Year 1; I insist on that figure exactly.
+
+[ops][assistant] Just to confirm, what should we record for confidence? A short answer in your own words is fine.
+[runner] generating simulated user reply for focus=ops...
+[user] I'd say our confidence level in these planning numbers is about 8 out of 10.
+
+[ops][assistant] Got it, we’ll plan on 70% utilization for self-serve subscriptions and treat your overall confidence in the planning numbers as about 8/10.
+
+Next for the self-serve SaaS subscriptions: what’s the average price you want to use per active subscription account per month for planning (one single dollar amount, before discounts)?
+[runner] generating simulated user reply for focus=ops...
+[user] Subscriptions average about $85 per account per month.
+
+[ops][assistant] Great, we’ll use $85 as the average monthly price per active self-serve subscription account.
+
+Now, let’s pin down the enterprise annual contracts line. At any given time, what’s a realistic maximum number of active enterprise annual contracts you can comfortably handle concurrently (think “how many active enterprise customers under contract at once” over the next year)?
+[runner] generating simulated user reply for focus=ops...
+[user] We can carry up to about 900 concurrent enterprise contracts at once.
+
+[ops][assistant] Thanks, that’s clear: up to about 900 active enterprise annual contracts at any one time.
+
+For planning, we don’t expect you to be at 100% all the time. Over the next 12 months, what feels like a realistic average load on that 900‑contract capacity – for example, closer to 60%, 70%, or 80%?
+[runner] generating simulated user reply for focus=ops...
+[user] We insist on using 65% utilization for our enterprise annual contracts in Year 1 exactly, no deviation from that figure.
+
+[ops][assistant] Understood, we’ll use exactly 65% utilization for the enterprise annual contracts over the next year.
+
+Next for the enterprise annual contracts: what average price per active enterprise annual contract do you want to use for planning (one all-in annual dollar amount per contract, before discounts and regardless of seat counts)?
+[runner] generating simulated user reply for focus=ops...
+[user] Enterprise contracts average about $95,000 a year each.
+
+[ops][assistant] Got it, we’ll use $95,000 as the average annual price per active enterprise contract.
+
+Now let’s pin down the professional services & implementation line: when you look at your delivery capacity (the people and time available), what’s a realistic maximum volume of professional services you can handle in a typical month over the next year, measured in “engagement-months” (for example, up to 60,000 engagement-months per month, or a different number you’d prefer)?
+[runner] generating simulated user reply for focus=ops...

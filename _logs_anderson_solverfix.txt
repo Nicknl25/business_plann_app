@@ -1,0 +1,16 @@
+Loaded source persisted draft: 25f746500d1d456da638ee216669b78e
+Source Client ID: &@YPBSCIN65757163111
+Business Name: Anderson & Blake Legal Associates
+Source confirmed flags: {'ops': True, 'market': True, 'people': True, 'financials': True}
+Cloned source intake state into new draft: c7df4c15a9d644ce90be304d2f25e6d5
+New Client ID: $#TRPDOEA42922475521
+Starting system run from persisted state...
+System run complete.
+System run duration: 971076 ms
+Final flags: {'ops_confirmed': True, 'market_confirmed': True, 'people_confirmed': True, 'financials_confirmed': True, 'resolution_summary_status': 'missing', 'remaining_issue_count': 1}
+Draft ID: c7df4c15a9d644ce90be304d2f25e6d5
+Saved run report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs\06-13-2026 -- c7df4c15a9d644ce90be304d2f25e6d5.txt
+Saved persisted state report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data\06-13-2026 -- c7df4c15a9d644ce90be304d2f25e6d5.txt
+Saved New Runner report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\06-13-2026 -- c7df4c15a9d644ce90be304d2f25e6d5.txt
+Saved New Runner grid report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\06-13-2026 -- c7df4c15a9d644ce90be304d2f25e6d5 -- quarter-grid.txt
+Expected terminal log file: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs\06-13-2026 -- c7df4c15a9d644ce90be304d2f25e6d5.txt

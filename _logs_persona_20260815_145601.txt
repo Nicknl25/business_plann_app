@@ -1,0 +1,49 @@
+ * Serving Flask app 'api'
+ * Debug mode: off
+2026-08-15 14:56:02.593 INFO api: REQ GET /api/business-types -> 200 156ms draft=-
+2026-08-15 14:56:12.163 INFO api: TURN_BEGIN draft=sdthinf161ac40e2d043c59d27c7e81b turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 14:56:33.100 INFO api: REQ POST /api/intake-consult -> 200 21719ms draft=sdthinf161ac40e2d043c59d27c7e81b
+2026-08-15 14:56:33.498 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 14:57:18.772 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['Bulk mulch and soil delivery fees', 'Event and workshop fees'] dropped=['Holiday greenery and seasonal decor sales', 'Bagged fertilizer and chemical sales', 'Pottery and outdoor decor sales', 'Gift card sales', 'Wholesale plant sales to landscapers and institutions', 'Container planting and maintenance services', 'Snow removal services']
+2026-08-15 14:57:19.029 INFO api: REQ POST /api/intake-consult -> 200 45578ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 14:57:19.126 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=33 starting=False focus=ops msg_chars=68
+2026-08-15 14:57:19.260 INFO api_handlers.intake_consult: STREAM_DISCOVERY answered yes=['Bulk mulch and soil delivery fees'] no=['Event and workshop fees'] unclear=[]
+2026-08-15 14:58:02.368 INFO api: REQ POST /api/intake-consult -> 200 43312ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 14:58:02.462 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=35 starting=False focus=ops msg_chars=70
+2026-08-15 14:58:21.920 INFO api: REQ POST /api/intake-consult -> 200 19516ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 14:58:22.010 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=37 starting=False focus=ops msg_chars=53
+2026-08-15 14:59:08.929 INFO api: REQ POST /api/intake-consult -> 200 46985ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 14:59:09.003 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=39 starting=False focus=ops msg_chars=19
+2026-08-15 15:00:11.783 INFO api: REQ POST /api/intake-consult -> 200 62828ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 15:00:11.871 INFO api: TURN_BEGIN draft=sdrich5b7303094dbb4db7b71a4ccc08 turn=41 starting=False focus=ops msg_chars=111
+2026-08-15 15:01:13.014 INFO api: REQ POST /api/intake-consult -> 200 61188ms draft=sdrich5b7303094dbb4db7b71a4ccc08
+2026-08-15 15:01:46.444 INFO api: TURN_BEGIN draft=sdprobdbf86281816c43d1a530224a3b turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 15:02:07.060 INFO api: REQ POST /api/intake-consult -> 200 20657ms draft=sdprobdbf86281816c43d1a530224a3b
+2026-08-15 15:02:26.158 INFO api: TURN_BEGIN draft=sdprob7d8463e686af4bf393be972d29 turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 15:03:10.843 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['Bulk mulch and soil delivery fees', 'Event and workshop fees'] dropped=['Holiday greenery and seasonal decor sales', 'Bagged fertilizer and chemical sales', 'Pottery and outdoor decor sales', 'Gift card sales', 'Wholesale plant sales to landscapers and institutions', 'Container planting and maintenance services', 'Snow removal services']
+2026-08-15 15:03:11.101 INFO api: REQ POST /api/intake-consult -> 200 45000ms draft=sdprob7d8463e686af4bf393be972d29
+2026-08-15 15:03:11.184 INFO api: TURN_BEGIN draft=sdprob7d8463e686af4bf393be972d29 turn=33 starting=False focus=ops msg_chars=68
+2026-08-15 15:03:11.482 INFO api_handlers.intake_consult: STREAM_DISCOVERY answered yes=['Bulk mulch and soil delivery fees'] no=['Event and workshop fees'] unclear=[]
+2026-08-15 15:03:59.870 INFO api: REQ POST /api/intake-consult -> 200 48734ms draft=sdprob7d8463e686af4bf393be972d29
+2026-08-15 15:03:59.954 INFO api: TURN_BEGIN draft=sdprob7d8463e686af4bf393be972d29 turn=35 starting=False focus=ops msg_chars=70
+2026-08-15 15:04:21.794 INFO api: REQ POST /api/intake-consult -> 200 21891ms draft=sdprob7d8463e686af4bf393be972d29
+2026-08-15 15:04:21.889 INFO api: TURN_BEGIN draft=sdprob7d8463e686af4bf393be972d29 turn=37 starting=False focus=ops msg_chars=53
+2026-08-15 15:04:43.556 INFO api: REQ POST /api/intake-consult -> 200 21735ms draft=sdprob7d8463e686af4bf393be972d29
+2026-08-15 15:05:15.876 INFO api: TURN_BEGIN draft=sdthine23e3aa26914489e9ae286fc73 turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 15:06:04.778 INFO api: REQ POST /api/intake-consult -> 200 48953ms draft=sdthine23e3aa26914489e9ae286fc73
+2026-08-15 15:06:05.189 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=31 starting=False focus=ops msg_chars=320
+2026-08-15 15:06:49.763 INFO api_handlers.intake_consult: STREAM_DISCOVERY asked labels=['Bulk mulch and soil delivery fees', 'Event and workshop fees'] dropped=['Holiday greenery and seasonal decor sales', 'Bagged fertilizer and chemical sales', 'Pottery and outdoor decor sales', 'Gift card sales', 'Wholesale plant sales to landscapers and institutions', 'Container planting and maintenance services', 'Snow removal services']
+2026-08-15 15:06:50.077 INFO api: REQ POST /api/intake-consult -> 200 44953ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:06:50.179 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=33 starting=False focus=ops msg_chars=68
+2026-08-15 15:06:50.383 INFO api_handlers.intake_consult: STREAM_DISCOVERY answered yes=['Bulk mulch and soil delivery fees'] no=['Event and workshop fees'] unclear=[]
+2026-08-15 15:07:39.306 INFO api: REQ POST /api/intake-consult -> 200 49188ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:07:39.385 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=35 starting=False focus=ops msg_chars=70
+2026-08-15 15:07:59.009 INFO api: REQ POST /api/intake-consult -> 200 19672ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:07:59.090 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=37 starting=False focus=ops msg_chars=53
+2026-08-15 15:08:18.623 INFO api: REQ POST /api/intake-consult -> 200 19578ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:08:18.704 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=39 starting=False focus=ops msg_chars=12
+2026-08-15 15:09:10.416 INFO api: REQ POST /api/intake-consult -> 200 51766ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:09:10.515 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=41 starting=False focus=ops msg_chars=19
+2026-08-15 15:10:01.975 INFO api: REQ POST /api/intake-consult -> 200 51532ms draft=sdriche5e2036d58cb41669c6e4d2a99
+2026-08-15 15:10:02.046 INFO api: TURN_BEGIN draft=sdriche5e2036d58cb41669c6e4d2a99 turn=43 starting=False focus=ops msg_chars=111
+2026-08-15 15:10:59.110 INFO api: REQ POST /api/intake-consult -> 200 57110ms draft=sdriche5e2036d58cb41669c6e4d2a99

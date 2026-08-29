@@ -1,0 +1,93 @@
+phase_9_p3_32_draft_02_carefirst_genuine_pass_after_k1_f6
+
+Empirical validation of K1 F6: CareFirst Home Health Services
+(draft 201d0ad18ae243dba933703d19cda4df) now GENUINE PASS.
+
+EMPIRICAL F6 RE-SYNC TRACE
+The F6 re-sync at the start of _run_post_cascade_completion
+detected and corrected the third leak in real time:
+
+  F6 payroll_state_resync trace:
+    status: completed
+    local_q1_payroll_before: 113678
+    canonical_q1_payroll: 107440
+    quarter_totals_mismatch_count: 20  (all 20 live quarters)
+    applied_chain: apply_payroll_schedule_to_state
+
+The orchestrator local variable held a stale schedule (Q1=113678)
+while the SQL canonical column had the convergence runner's
+output (Q1=107440). F6 saw the mismatch on entry, called
+apply_payroll_schedule_to_state to re-apply through the Mirror
+Flavor 1 apply chain, and the downstream stages worked with
+canonical state.
+
+V-1 THROUGH V-4 VERIFICATION POST-F6
+
+  V-1 Acceptance gate:  16/16 PASSED
+                        Handler status: landed_verified_tool_call
+                        Tool calls used: 5
+                        (was: 13/16 acceptance_gate_failed,
+                              landed_best_effort_no_all_pass at
+                              4 tool calls, pre-F6)
+  V-2 Model status:     OK (no fail-fast)
+  V-3 FINMO trajectory: built without error
+  V-4 Reconciliation:   max_abs = 7.42 dollars
+                        max_rel = 0.000036
+                        PASS via Test Files/v4_workbook_verifier.py
+                        (was: 15362.83 dollars Cash Q20 divergence
+                              + 828 dollars Payroll Q20, V-4 FAIL,
+                              pre-F6)
+
+Runtime: 204 seconds (was 460 seconds pre-F6).
+
+ARCHITECTURAL FINDING — K4(b) INFEASIBILITY DOCTRINE
+EMPIRICALLY DISPROVEN
+Pre-F6 CareFirst was classified K4(b) "genuinely infeasible at
+intake" — pre-revenue home health turnaround with -89% Q5 NI
+margin reaching -40% Q11 was assumed structurally impossible to
+bring to positive EBITDA by Q11.
+
+K4(b) elimination in doctrine.md section 10.2 (committed in
+5b667ca) said: "there is no such thing as an infeasible plan from
+this system perspective. If realism checks fail, the system
+hasnt found the path yet — not the path doesnt exist."
+
+This commit empirically validates that doctrine correction.
+WITHOUT touching any handler authority, contract, or lever
+bounds — JUST by closing the Payroll alignment leak so the
+handler mini_finmo probes operate on canonical state — the
+handler found a viable plan in 5 tool calls.
+
+The 4-call best-effort failure pre-F6 was not because the path
+didnt exist. It was because the path exploration was operating
+on inconsistent state: the mini_finmo probe saw one Payroll
+schedule (113678 / Q1), the post-commit FINMO build saw another
+(107440 / Q1). GPT iterated against the wrong target. Once the
+target was canonical, viability emerged in one extra call.
+
+This pattern likely generalizes: many of the other K4 acceptance
+gate failures in the P3.28 sweep (CareFirst, Elegant Threads
+13/16, Harborview 14/16) may resolve the same way — by canonical
+state alignment unlocking handler convergence. The sweep will
+test this.
+
+WORKBOOK ARTIFACTS
+  Saved both for diagnostic comparison:
+    docs/architecture/p3_32_sweep_workbooks/02_201d0ad1_
+      CareFirst_FAIL_13_of_16.xlsx           (pre-F6 baseline)
+    docs/architecture/p3_32_sweep_workbooks/02_201d0ad1_
+      CareFirst_GENUINE_PASS_postF6.xlsx     (post-F6 pass)
+
+CSV
+  docs/architecture/p3_32_sweep_results.csv — added GENUINE_PASS
+  row for CareFirst alongside the prior FAIL row (kept for
+  historical comparison and architectural lesson).
+
+NO CODE CHANGES IN THIS COMMIT. Pure verification + artifact
+preservation. K1 F6 wiring is in 5b667ca.
+
+NEXT
+  Continue sweep with draft 3 (Skyward Express Airlines —
+  previously GENUINE_PASS in P3.28; K1 F6 should not regress).
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

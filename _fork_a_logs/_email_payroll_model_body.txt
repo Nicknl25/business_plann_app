@@ -1,0 +1,27 @@
+CORRECTED PAYROLL MODEL (you corrected me; here it is re-stated, grounded in the authoritative doc), plus how round-1 payroll is produced under it and where the continuity fix lives.
+
+WHERE I WAS WRONG:
+My Stage-2 model said "Python authors payroll." That is the drift, not the design. I reverted my schedule.py edit (it made the PYTHON producer emit a continuous FTE schedule) — wrong layer, deleted.
+
+THE CORRECTED MODEL (authority: docs/architecture/gpt_authors_payroll_anchored_scope.md, line 6-10):
+- GPT AUTHORS the payroll_headcount_schedule contract (which OEWS titles, FTE per title per quarter, the ramp, wage positioning, intensity). This is GPT's authorship and STAYS GPT's.
+- PYTHON GROUNDS it: the existing producer author_round1_payroll_contract (schedule.py:2200) is repurposed as an ANCHOR-CALCULATOR, NOT the author. It computes, per quarter, from the business's OWN revenue: payroll budget (= revenue x labor-band midpoint), minus fixed key-person payroll = supporting budget, / OEWS wages = implied supporting FTE, plus the tot_emp OEWS mix. That anchor is handed to GPT as NON-BINDING reference ("here is the revenue-grounded budget and the FTE it implies; author the grid grounded in it"). GPT staffs toward what the business earns instead of guessing freehand.
+- PYTHON VALIDATES it: validate_payroll_headcount_contract_payload (schedule.py:1843) + builder (schedule.py:2013) enforce the contract shape, the continuity invariant (start(q)=end(q-1), growth booked as hires, start+hires=ending), the title-row rules, and the payroll/revenue feasibility bands. GPT authors; Python is the referee and the grounding, never the author.
+
+HOW ROUND-1 PAYROLL IS PRODUCED UNDER THIS MODEL (the seam, all reuse + one new GPT call):
+1. Compute the anchor: author_round1_payroll_contract emits the anchor object (it already computes these numbers internally; it just stops emitting a final contract and instead emits the reference).
+2. GPT authors: ONE structured-output authoring call against the intact payroll_headcount_schedule schema (post_intake_mapping.py:2048-2160), with the anchor + OEWS catalog + per-quarter revenue + policy bands as context. Output = a payroll_headcount_schedule contract dict.
+3. set_payroll_schedule(contract=<gpt_dict>) (set_payroll_schedule.py:231-409, the EXISTING contract!=None accept path) validates + builds it. No new validate/build substrate.
+4. Round-1 wiring changes from contract=None (producer authors) to: anchor -> GPT authors -> set_payroll_schedule(contract=<gpt>).
+
+THE CONTINUITY FIX, WITHIN THIS MODEL (this is the right layer):
+- The continuity invariant (the thing that killed Luna's M0: "Q5 First-Line Supervisors starting_fte must equal prior quarter ending_fte", schedule.py:1512) is a PYTHON VALIDATOR rule on the AUTHORED contract. Under the corrected model it is GPT's job to author a continuity-valid grid; Python's job is to enforce it.
+- So the fix is NOT "make Python produce continuous rows" (what I wrongly did). It is: when GPT's authored contract trips the continuity (or any contract) check, return the validator's structured guidance to GPT and have it RE-AUTHOR (bounded retries) -- the validator already emits the exact instruction GPT needs (schedule.py:1527-1530: "set starting_fte = prior ending_fte; put the increase in hires so starting+hires=ending; do not make starting jump"). GPT authors continuity-correct rows; Python confirms.
+- The producer-as-anchor never emits FTE rows, so its old per-quarter discontinuity is moot. Luna's M0 wall disappears because the authored grid is GPT's and is validated/re-authored until continuity holds.
+
+HONEST FLAGS:
+- This requires BUILDING the GPT authoring call. None exists today -- the loop was deleted (gpt_authors doc Part 2; estimate_payroll_headcount_schedule_with_gpt is a dead stub returning build_pending_payroll_stub). The lightest correct form is a single structured-output authoring call + a bounded validator-feedback retry, reusing the intact schema/validator/builder/accept-path. That is the payroll milestone.
+- The feasibility repair path (route_payroll_feasibility_to_handler_c) currently calls the dead stub; it must route to the SAME GPT author with a refreshed POST-quarter-grid anchor (gpt_authors doc Part 3.3/3.4) -- because the payroll/revenue feasibility check runs against post-quarter-grid revenue, and a GPT author faces the same gate (the anchor is how it satisfies it, not a bypass).
+- This is a build, not a one-line continuity patch -- I am reporting that honestly before doing it, per your "email the corrected model + the fix before moving on."
+
+NEXT: build the GPT-authors-anchored round-1 payroll path (producer->anchor, structured GPT authoring call, validate/build via the existing accept path, bounded continuity/contract re-author, repair routes to the GPT author with refreshed anchor). Then re-run M0 to prove round-1 passes and the run reaches the cascade with the executive live. Will email M0 result.

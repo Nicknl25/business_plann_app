@@ -1,0 +1,60 @@
+==============================================================================
+V1  the small-percent reading the deleted rule stored as 100%
+  clone r8947ba2d7deab47
+  before rows: [('Plant sale', None), ('Hard goods sale', None), ('Install project', None), ('Design consult', None)]
+  > Across the whole business, our direct costs come to about 1 percent of revenue.
+  < [200] Got it, I’ve updated your current COGS to $15,530 and your total COGS for year 1 to $15,530 per year.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stre
+  ROUTER: action=edit_patch patch={'financials.cogs_per_line_overrides': [], 'financials.cogs_shared_structure_groups': [], 'financials.current_cogs': 15530}
+  after rows : [('Plant sale', None, None), ('Hard goods sale', None, None), ('Install project', None, None), ('Design consult', None, None)]
+  financials : {'cogs_percent_of_revenue': 0.010000000000000005, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'dollars', 'current_cogs': 15530.0, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no transport key stored; blend CORRECT (0.01, basis dollars)
+
+==============================================================================
+V2  a large percent -- the reading the deleted rule got right
+  clone r8b081d272c7aa48
+  before rows: [('Plant sale', None), ('Hard goods sale', None), ('Install project', None), ('Design consult', None)]
+  > Company-wide, direct costs are about 71 percent of revenue.
+  < [200] Got it, I’ve updated your numbers so current COGS are $1,102,620 and COGS for year 1 are $1,102,620 for the year.
+
+Before we wrap up, I put your numbers together the way a lender will read them - your business once it's up and running, a few years in, on the strongest realistic growth path for it. Even there it doesn't quite hold: about $441,166 comes in, and the quarter keeps -$44,820, where a bu
+  ROUTER: action=edit_patch patch={'financials.cogs_per_line_overrides': [], 'financials.cogs_shared_structure_groups': [], 'financials.current_cogs': 1102620.0}
+  after rows : [('Plant sale', None, None), ('Hard goods sale', None, None), ('Install project', None, None), ('Design consult', None, None)]
+  financials : {'cogs_percent_of_revenue': 0.7099935608499682, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'dollars', 'current_cogs': 1102620.0, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no transport key stored; blend CORRECT (0.709994, basis dollars)
+
+==============================================================================
+V3  two units in one message -- the array mini found stored verbatim
+  clone r899eaf950745040
+  before rows: [('Plant sale', None), ('Hard goods sale', None), ('Install project', None), ('Design consult', None)]
+  > For the plant sales the materials are 48 percent of that line, and installation is 0.19.
+  < [200] Got it, you’ve set plant sale COGS at 48.0% of that line’s revenue and install project COGS at 19.0% of that line’s revenue.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One more thing worth knowing: your numbers clear every structural test we can run r
+  ROUTER: action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Plant/nursery sales', 'cogs_percent': 48, 'cogs_percent_unit': 'percent'}, {'line_name': 'Landscaping & installation', 'cogs_percent': 0.19, 'cogs_percent_unit': 'ratio'}]}
+  after rows : [('Plant sale', 0.48, None), ('Hard goods sale', None, None), ('Install project', 0.19, None), ('Design consult', None, None)]
+  financials : {'cogs_percent_of_revenue': 0.47, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 729909.9999999995, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no transport key stored; rows: Plant sale=0.48, Hard goods sale=None, Install project=0.19, Design consult=None
+
+==============================================================================
+V4  a DECLARED all-lines collapse: does it arrive as a group?
+  clone r8591d4f63bdae43
+  before rows: [('Plant sale', None), ('Hard goods sale', None), ('Install project', None), ('Design consult', None)]
+  > Honestly every one of our lines runs at about 55 percent for direct costs - treat them all as one cost structure.
+  < [200] Got it—so you’ve now set Plant sale, Hard goods sale, Install project, and Design consult each to 55.0% COGS, so all four lines share the same 55% direct-cost structure.
+
+You're all set - the intake is complete again and you can submit whenever you're ready. Your unit model now lines up with the $1,553,000 you reported - annual revenue stays as you stated it. One thing worth sitting with together 
+  ROUTER: action=edit_patch patch={'financials.cogs_per_line_overrides': [{'line_name': 'Plant/nursery sales', 'cogs_percent': 55, 'cogs_percent_unit': 'percent'}, {'line_name': 'Hard goods & materials', 'cogs_percent': 55, 'cogs_percent_unit': 'percent'}, {'line_name': 'Landscaping & installation', 'cogs_percent': 55, 'cogs_percent_unit': 'percent'}, {'line_name': 'Garden design consultations', 'cogs_perce
+  after rows : [('Plant sale', 0.55, 'declared'), ('Hard goods sale', 0.55, 'declared'), ('Install project', 0.55, 'declared'), ('Design consult', 0.55, 'declared')]
+  financials : {'cogs_percent_of_revenue': 0.5500000000000004, 'cogs_percent_of_revenue_unit': None, 'cogs_basis': 'ratio', 'current_cogs': 854150.0000000001, 'cogs_per_line_overrides': None, 'cogs_shared_structure_groups': None}
+  VERDICT: no transport key stored; groups={'shared:design consult+hard goods sale+install project+plant sale'} bases={'declared'} rates={0.55}
+
+  (4 clone(s) removed)
+==============================================================================
+  V1: no transport key stored; blend CORRECT (0.01, basis dollars)
+  V2: no transport key stored; blend CORRECT (0.709994, basis dollars)
+  V3: no transport key stored; rows: Plant sale=0.48, Hard goods sale=None, Install project=0.19, Design consult=None
+  V4: no transport key stored; groups={'shared:design consult+hard goods sale+install project+plant sale'} bases={'declared'} rates={0.55}
+==============================================================================
+LIVE RESULT: CLEAN
