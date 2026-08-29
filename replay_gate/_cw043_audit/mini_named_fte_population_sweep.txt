@@ -1,0 +1,1065 @@
+drafts with stored payroll: 1179
+  ..0
+  ..25
+  ..50
+  ..75
+  ..100
+  ..125
+  ..150
+  ..175
+  ..200
+  ..225
+  ..250
+  ..275
+  ..300
+  ..325
+  ..350
+  ..375
+  ..400
+  ..425
+  ..450
+  ..475
+  ..500
+  ..525
+  ..550
+  ..575
+  ..600
+  ..625
+  ..650
+  ..675
+  ..700
+  ..725
+  ..750
+  ..775
+  ..800
+  ..825
+  ..850
+  ..875
+  ..900
+  ..925
+  ..950
+  ..975
+  ..1000
+  ..1025
+  ..1050
+  ..1075
+  ..1100
+  ..1125
+  ..1150
+  ..1175
+rebuilt OK: 1078  errors: 101
+
+=== NAMED-PERSON ROWS WITH FTE != 1.0 (post-fix, real producer path) ===
+   0144eaa6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   0144eaa6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   0144eaa6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   0144eaa6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   0144eaa6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   03910995 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   03910995 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   03910995 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   03910995 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   03910995 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   04b27234 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   04b27234 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   04b27234 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   04b27234 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   04b27234 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   06f9fcd9 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   06f9fcd9 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   06f9fcd9 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   06f9fcd9 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   06f9fcd9 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   0aa9cc31 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   0aa9cc31 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   0aa9cc31 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   0aa9cc31 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   0aa9cc31 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   0b38e013 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   0b38e013 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   0b38e013 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   0b38e013 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   0b38e013 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 1 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 2 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 1 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 2 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 1 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 2 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 1 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 2 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 1 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   0be7d198 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 2 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   0ef7833e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   0ef7833e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   0ef7833e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   0ef7833e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   0ef7833e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   0f571965 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   0f571965 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   0f571965 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   0f571965 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   0f571965 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   10d01d05 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   10d01d05 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   10d01d05 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   10d01d05 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   10d01d05 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   1144483f | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   1144483f | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   1144483f | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   1144483f | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   1144483f | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   130ea0c1 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   130ea0c1 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   130ea0c1 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   130ea0c1 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   130ea0c1 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   16beccc6 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   16beccc6 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   16beccc6 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   16beccc6 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   16beccc6 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   16e0b8db | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   16e0b8db | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   16e0b8db | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   16e0b8db | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   16e0b8db | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   172dbc17 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   172dbc17 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   172dbc17 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   172dbc17 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   172dbc17 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   18d344e9 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   18d344e9 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   18d344e9 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   18d344e9 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   18d344e9 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   1947ba07 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   1947ba07 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   1947ba07 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   1947ba07 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   1947ba07 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   19680ed6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   19680ed6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   19680ed6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   19680ed6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   19680ed6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   1abd2164 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   1abd2164 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   1abd2164 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   1abd2164 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   1abd2164 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   1e86cc7d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   1e86cc7d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   1e86cc7d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   1e86cc7d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   1e86cc7d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   1f71fd7a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   1f71fd7a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   1f71fd7a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   1f71fd7a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   1f71fd7a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   209734b4 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   209734b4 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   209734b4 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   209734b4 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   209734b4 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   20bea117 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   20bea117 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   20bea117 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   20bea117 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   20bea117 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   2108e6ff | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   2108e6ff | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   2108e6ff | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   2108e6ff | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   2108e6ff | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   2167a545 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   2167a545 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   2167a545 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   2167a545 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   2167a545 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   2179101d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   2179101d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   2179101d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   2179101d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   2179101d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   22e59299 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   22e59299 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   22e59299 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   22e59299 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   22e59299 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   22ead505 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   22ead505 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   22ead505 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   22ead505 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   22ead505 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   241bbfa6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   241bbfa6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   241bbfa6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   241bbfa6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   241bbfa6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   242b2aee | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   242b2aee | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   242b2aee | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   242b2aee | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   242b2aee | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   24860d32 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   24860d32 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   24860d32 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   24860d32 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   24860d32 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   249c8fa0 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   249c8fa0 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   249c8fa0 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   249c8fa0 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   249c8fa0 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   24b150bc | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   24b150bc | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   24b150bc | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   24b150bc | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   24b150bc | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 1 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 2 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 1 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 2 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 1 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 2 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 1 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 2 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 1 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   260ac05d | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 2 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   267852ab | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   267852ab | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   267852ab | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   267852ab | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   267852ab | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   270e7b3a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   270e7b3a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   270e7b3a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   270e7b3a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   270e7b3a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   29c4a053 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   29c4a053 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   29c4a053 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   29c4a053 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   29c4a053 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   2a82e2ed | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   2a82e2ed | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   2a82e2ed | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   2a82e2ed | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   2a82e2ed | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   2adf9aaf | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   2adf9aaf | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   2adf9aaf | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   2adf9aaf | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   2adf9aaf | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   2c60f62f | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   2c60f62f | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   2c60f62f | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   2c60f62f | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   2c60f62f | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   2d03c69d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   2d03c69d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   2d03c69d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   2d03c69d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   2d03c69d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   2fdcd936 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   2fdcd936 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   2fdcd936 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   2fdcd936 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   2fdcd936 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   3464962b | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   3464962b | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   3464962b | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   3464962b | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   3464962b | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   35b085b6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   35b085b6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   35b085b6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   35b085b6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   35b085b6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   3894abda | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   3894abda | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   3894abda | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   3894abda | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   3894abda | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   3b2144c7 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   3b2144c7 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   3b2144c7 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   3b2144c7 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   3b2144c7 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   3bb326a3 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   3bb326a3 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   3bb326a3 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   3bb326a3 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   3bb326a3 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   3c56e7c5 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   3c56e7c5 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   3c56e7c5 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   3c56e7c5 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   3c56e7c5 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   3e1c1218 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   3e1c1218 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   3e1c1218 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   3e1c1218 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   3e1c1218 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   411adb55 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   411adb55 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   411adb55 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   411adb55 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   411adb55 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   432d0a41 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   432d0a41 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   432d0a41 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   432d0a41 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   432d0a41 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   4395f97c | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   4395f97c | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   4395f97c | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   4395f97c | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   4395f97c | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   445ba1b3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   445ba1b3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   445ba1b3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   445ba1b3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   445ba1b3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   45569dc6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   45569dc6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   45569dc6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   45569dc6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   45569dc6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   472c488f | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   472c488f | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   472c488f | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   472c488f | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   472c488f | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   481b3a15 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   481b3a15 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   481b3a15 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   481b3a15 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   481b3a15 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   4a9ec395 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   4a9ec395 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   4a9ec395 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   4a9ec395 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   4a9ec395 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   4c73db1f | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   4c73db1f | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   4c73db1f | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   4c73db1f | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   4c73db1f | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   4d2f9469 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   4d2f9469 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   4d2f9469 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   4d2f9469 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   4d2f9469 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   4dcd93a7 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   4dcd93a7 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   4dcd93a7 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   4dcd93a7 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   4dcd93a7 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   4ee6d166 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   4ee6d166 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   4ee6d166 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   4ee6d166 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   4ee6d166 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   4f3ef500 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   4f3ef500 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   4f3ef500 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   4f3ef500 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   4f3ef500 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   50561de3 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   50561de3 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   50561de3 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   50561de3 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   50561de3 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   50d737fd | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   50d737fd | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   50d737fd | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   50d737fd | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   50d737fd | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   51d63abf | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   51d63abf | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   51d63abf | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   51d63abf | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   51d63abf | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   52ec609e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   52ec609e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   52ec609e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   52ec609e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   52ec609e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   537e824e | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   537e824e | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   537e824e | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   537e824e | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   537e824e | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   53abd248 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   53abd248 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   53abd248 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   53abd248 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   53abd248 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   56af637c | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   56af637c | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   56af637c | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   56af637c | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   56af637c | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   58c67f2d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   58c67f2d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   58c67f2d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   58c67f2d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   58c67f2d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   5c11b5dc | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   5c11b5dc | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   5c11b5dc | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   5c11b5dc | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   5c11b5dc | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   5c2edd17 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   5c2edd17 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   5c2edd17 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   5c2edd17 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   5c2edd17 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   5dd5a321 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   5dd5a321 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   5dd5a321 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   5dd5a321 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   5dd5a321 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   5f27be6d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   5f27be6d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   5f27be6d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   5f27be6d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   5f27be6d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   5f8525d9 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   5f8525d9 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   5f8525d9 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   5f8525d9 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   5f8525d9 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   618e7b32 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   618e7b32 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   618e7b32 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   618e7b32 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   618e7b32 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   62ff3e66 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   62ff3e66 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   62ff3e66 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   62ff3e66 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   62ff3e66 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   6326a93e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   6326a93e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   6326a93e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   6326a93e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   6326a93e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   64217fd2 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   64217fd2 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   64217fd2 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   64217fd2 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   64217fd2 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 1 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 2 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 1 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 2 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 1 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 2 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 1 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 2 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 1 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   6641d012 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 2 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   6674464f | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   6674464f | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   6674464f | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   6674464f | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   6674464f | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   6863ab64 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   6863ab64 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   6863ab64 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   6863ab64 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   6863ab64 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   6b46dcc5 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   6b46dcc5 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   6b46dcc5 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   6b46dcc5 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   6b46dcc5 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   6d78601d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   6d78601d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   6d78601d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   6d78601d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   6d78601d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   6f9de220 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   6f9de220 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   6f9de220 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   6f9de220 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   6f9de220 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   6feac758 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   6feac758 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   6feac758 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   6feac758 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   6feac758 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   7042ce1a | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   7042ce1a | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   7042ce1a | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   7042ce1a | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   7042ce1a | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   712a33df | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   712a33df | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   712a33df | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   712a33df | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   712a33df | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   72273d27 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   72273d27 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   72273d27 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   72273d27 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   72273d27 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   73088b2d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   73088b2d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   73088b2d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   73088b2d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   73088b2d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   77560d5b | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   77560d5b | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   77560d5b | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   77560d5b | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   77560d5b | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   77c4757a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   77c4757a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   77c4757a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   77c4757a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   77c4757a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   7ba309a3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   7ba309a3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   7ba309a3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   7ba309a3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   7ba309a3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   7cb3fb6c | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   7cb3fb6c | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   7cb3fb6c | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   7cb3fb6c | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   7cb3fb6c | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   7e759e8b | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   7e759e8b | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   7e759e8b | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   7e759e8b | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   7e759e8b | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   7f9126a9 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   7f9126a9 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   7f9126a9 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   7f9126a9 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   7f9126a9 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   80c20a03 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   80c20a03 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   80c20a03 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   80c20a03 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   80c20a03 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   816afbfe | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   816afbfe | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   816afbfe | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   816afbfe | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   816afbfe | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   83035ae3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   83035ae3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   83035ae3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   83035ae3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   83035ae3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   830e1409 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   830e1409 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   830e1409 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   830e1409 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   830e1409 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 1 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 2 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 1 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 2 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 1 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 2 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 1 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 2 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 1 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   84905f62 | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 2 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   84afd3f2 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   84afd3f2 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   84afd3f2 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   84afd3f2 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   84afd3f2 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   84edc209 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   84edc209 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   84edc209 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   84edc209 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   84edc209 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   85a94aca | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   85a94aca | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   85a94aca | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   85a94aca | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   85a94aca | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   863b4331 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   863b4331 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   863b4331 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   863b4331 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   863b4331 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   8886c523 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   8886c523 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   8886c523 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   8886c523 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   8886c523 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   88c95936 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   88c95936 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   88c95936 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   88c95936 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   88c95936 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   8b6ddc9c | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   8b6ddc9c | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   8b6ddc9c | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   8b6ddc9c | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   8b6ddc9c | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   8bc7c339 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   8bc7c339 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   8bc7c339 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   8bc7c339 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   8bc7c339 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   8bd179a9 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   8bd179a9 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   8bd179a9 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   8bd179a9 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   8bd179a9 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   8cc4cd25 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   8cc4cd25 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   8cc4cd25 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   8cc4cd25 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   8cc4cd25 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   8d6beff7 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   8d6beff7 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   8d6beff7 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   8d6beff7 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   8d6beff7 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   8ee15cc8 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   8ee15cc8 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   8ee15cc8 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   8ee15cc8 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   8ee15cc8 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9069dac3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9069dac3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   9069dac3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   9069dac3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   9069dac3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   92164544 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   92164544 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   92164544 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   92164544 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   92164544 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   930b04fb | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   930b04fb | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   930b04fb | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   930b04fb | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   930b04fb | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   93130f5d | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   93130f5d | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   93130f5d | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   93130f5d | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   93130f5d | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   93299067 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   93299067 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   93299067 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   93299067 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   93299067 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   97ff2c5a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   97ff2c5a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   97ff2c5a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   97ff2c5a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   97ff2c5a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   98533beb | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   98533beb | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   98533beb | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   98533beb | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   98533beb | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9b09a378 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   9b09a378 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   9b09a378 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   9b09a378 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   9b09a378 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9caba812 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   9caba812 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   9caba812 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   9caba812 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   9caba812 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9d9decea | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   9d9decea | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   9d9decea | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   9d9decea | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   9d9decea | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9dda74a9 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   9dda74a9 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   9dda74a9 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   9dda74a9 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   9dda74a9 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   9e73eb3c | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   9e73eb3c | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   9e73eb3c | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   9e73eb3c | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   9e73eb3c | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   9fe26f46 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   9fe26f46 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   9fe26f46 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   9fe26f46 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   9fe26f46 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   a1f6c23b | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   a1f6c23b | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   a1f6c23b | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   a1f6c23b | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   a1f6c23b | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   a2cb7dce | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   a2cb7dce | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   a2cb7dce | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   a2cb7dce | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   a2cb7dce | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 1 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q1  | Part-time Packer 2 | fte= 0.88 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 1 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q5  | Part-time Packer 2 | fte= 0.91 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 1 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q9  | Part-time Packer 2 | fte= 0.93 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 1 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q13 | Part-time Packer 2 | fte= 0.96 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 1 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   a3161a2f | Bridgeburn Coffee Roaste | Q17 | Part-time Packer 2 | fte= 0.99 | wage= 25000 | client_override|part_time_hours_adapted
+   a58d3375 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   a58d3375 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   a58d3375 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   a58d3375 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   a58d3375 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   a7487faa | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   a7487faa | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   a7487faa | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   a7487faa | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   a7487faa | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   a7818c41 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   a7818c41 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   a7818c41 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   a7818c41 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   a7818c41 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   a7ae3c0b | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   a7ae3c0b | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   a7ae3c0b | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   a7ae3c0b | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   a7ae3c0b | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   abd5e50a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   abd5e50a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   abd5e50a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   abd5e50a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   abd5e50a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b16ec231 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b16ec231 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b16ec231 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b16ec231 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b16ec231 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b2500419 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b2500419 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b2500419 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b2500419 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b2500419 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b3f84dcd | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b3f84dcd | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b3f84dcd | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b3f84dcd | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b3f84dcd | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b6b7f759 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b6b7f759 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b6b7f759 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b6b7f759 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b6b7f759 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b6bf6bc6 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   b6bf6bc6 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   b6bf6bc6 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   b6bf6bc6 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   b6bf6bc6 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   b75060bf | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b75060bf | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b75060bf | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b75060bf | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b75060bf | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b90ebc47 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b90ebc47 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b90ebc47 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b90ebc47 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b90ebc47 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   b944961a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   b944961a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   b944961a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   b944961a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   b944961a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ba137b8b | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ba137b8b | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ba137b8b | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ba137b8b | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ba137b8b | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   bf907060 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   bf907060 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   bf907060 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   bf907060 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   bf907060 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   bfc956d8 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   bfc956d8 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   bfc956d8 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   bfc956d8 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   bfc956d8 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   bfd88430 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   bfd88430 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   bfd88430 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   bfd88430 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   bfd88430 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c0c730a3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c0c730a3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c0c730a3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c0c730a3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c0c730a3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c172a53a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c172a53a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c172a53a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c172a53a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c172a53a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c1d6991e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c1d6991e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c1d6991e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c1d6991e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c1d6991e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c540b80f | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c540b80f | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c540b80f | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c540b80f | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c540b80f | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c98d00f9 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c98d00f9 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c98d00f9 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c98d00f9 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c98d00f9 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e4990d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e4990d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e4990d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e4990d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e4990d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e84acc | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e84acc | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e84acc | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e84acc | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   c9e84acc | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   caea995a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   caea995a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   caea995a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   caea995a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   caea995a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   cbbabc89 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   cbbabc89 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   cbbabc89 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   cbbabc89 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   cbbabc89 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   cbc33c7a | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   cbc33c7a | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   cbc33c7a | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   cbc33c7a | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   cbc33c7a | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   cc988d9c | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   cc988d9c | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   cc988d9c | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   cc988d9c | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   cc988d9c | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ccdc54a1 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ccdc54a1 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ccdc54a1 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ccdc54a1 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ccdc54a1 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   cce5b877 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   cce5b877 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   cce5b877 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   cce5b877 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   cce5b877 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ce6b858c | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   ce6b858c | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   ce6b858c | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   ce6b858c | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   ce6b858c | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   d11d231e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   d11d231e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   d11d231e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   d11d231e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   d11d231e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   d3d5aa35 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   d3d5aa35 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   d3d5aa35 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   d3d5aa35 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   d3d5aa35 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   d482e2bf | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   d482e2bf | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   d482e2bf | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   d482e2bf | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   d482e2bf | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   d546ba0d | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   d546ba0d | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   d546ba0d | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   d546ba0d | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   d546ba0d | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   d61d3055 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   d61d3055 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   d61d3055 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   d61d3055 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   d61d3055 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   d696b4e5 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   d696b4e5 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   d696b4e5 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   d696b4e5 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   d696b4e5 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   d7537782 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   d7537782 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   d7537782 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   d7537782 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   d7537782 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   da7061c3 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   da7061c3 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   da7061c3 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   da7061c3 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   da7061c3 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   daf07d1f | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   daf07d1f | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   daf07d1f | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   daf07d1f | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   daf07d1f | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   dbe16846 | Sunny Glaze Donuts | Q1  | Maria Gonzalez | fte= 0.48 | wage= 25000 | client_override|part_time_hours_adapted
+   dbe16846 | Sunny Glaze Donuts | Q5  | Maria Gonzalez | fte= 0.49 | wage= 25000 | client_override|part_time_hours_adapted
+   dbe16846 | Sunny Glaze Donuts | Q9  | Maria Gonzalez | fte= 0.51 | wage= 25000 | client_override|part_time_hours_adapted
+   dbe16846 | Sunny Glaze Donuts | Q13 | Maria Gonzalez | fte= 0.52 | wage= 25000 | client_override|part_time_hours_adapted
+   dbe16846 | Sunny Glaze Donuts | Q17 | Maria Gonzalez | fte= 0.54 | wage= 25000 | client_override|part_time_hours_adapted
+   dc23ae96 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   dc23ae96 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   dc23ae96 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   dc23ae96 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   dc23ae96 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   dde4f4e7 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   dde4f4e7 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.37 | wage= 25000 | client_override|part_time_hours_adapted
+   dde4f4e7 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.38 | wage= 25000 | client_override|part_time_hours_adapted
+   dde4f4e7 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.39 | wage= 25000 | client_override|part_time_hours_adapted
+   dde4f4e7 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.41 | wage= 25000 | client_override|part_time_hours_adapted
+   de8ccc54 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   de8ccc54 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   de8ccc54 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   de8ccc54 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   de8ccc54 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e2543a20 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e2543a20 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e2543a20 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e2543a20 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e2543a20 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e5ae52d5 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e5ae52d5 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e5ae52d5 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e5ae52d5 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e5ae52d5 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e64d1361 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e64d1361 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e64d1361 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e64d1361 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e64d1361 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e662ed20 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e662ed20 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e662ed20 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e662ed20 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e662ed20 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e6fb1335 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e6fb1335 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e6fb1335 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e6fb1335 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e6fb1335 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   e7c1b29d | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   e7c1b29d | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   e7c1b29d | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   e7c1b29d | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   e7c1b29d | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   e7da60e6 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   e7da60e6 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   e7da60e6 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   e7da60e6 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   e7da60e6 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ea30f6dc | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   ea30f6dc | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   ea30f6dc | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   ea30f6dc | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   ea30f6dc | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   ead5f152 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ead5f152 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ead5f152 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ead5f152 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ead5f152 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   eb511772 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   eb511772 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   eb511772 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   eb511772 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   eb511772 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ec3ae1cc | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ec3ae1cc | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ec3ae1cc | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ec3ae1cc | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ec3ae1cc | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ed731185 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ed731185 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ed731185 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ed731185 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ed731185 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ee7cd6b2 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ee7cd6b2 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ee7cd6b2 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ee7cd6b2 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ee7cd6b2 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   ef90aca5 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ef90aca5 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ef90aca5 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ef90aca5 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ef90aca5 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   f4de0f2e | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   f4de0f2e | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   f4de0f2e | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   f4de0f2e | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   f4de0f2e | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   f75fa3fb | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   f75fa3fb | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   f75fa3fb | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   f75fa3fb | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   f75fa3fb | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   f8bc1b50 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   f8bc1b50 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   f8bc1b50 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   f8bc1b50 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   f8bc1b50 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   fad47464 | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   fad47464 | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   fad47464 | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   fad47464 | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   fad47464 | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+   fd448457 | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   fd448457 | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   fd448457 | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   fd448457 | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   fd448457 | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   ff2ee40e | Understory Mushroom Co. | Q1  | Cole Barnes | fte= 0.72 | wage= 25000 | client_override|part_time_hours_adapted
+   ff2ee40e | Understory Mushroom Co. | Q5  | Cole Barnes | fte= 0.74 | wage= 25000 | client_override|part_time_hours_adapted
+   ff2ee40e | Understory Mushroom Co. | Q9  | Cole Barnes | fte= 0.76 | wage= 25000 | client_override|part_time_hours_adapted
+   ff2ee40e | Understory Mushroom Co. | Q13 | Cole Barnes | fte= 0.79 | wage= 25000 | client_override|part_time_hours_adapted
+   ff2ee40e | Understory Mushroom Co. | Q17 | Cole Barnes | fte= 0.81 | wage= 25000 | client_override|part_time_hours_adapted
+   ffea35ae | Sunny Glaze Donuts | Q1  | Alex Rivera | fte= 0.32 | wage= 25000 | client_override|part_time_hours_adapted
+   ffea35ae | Sunny Glaze Donuts | Q5  | Alex Rivera | fte= 0.33 | wage= 25000 | client_override|part_time_hours_adapted
+   ffea35ae | Sunny Glaze Donuts | Q9  | Alex Rivera | fte= 0.34 | wage= 25000 | client_override|part_time_hours_adapted
+   ffea35ae | Sunny Glaze Donuts | Q13 | Alex Rivera | fte= 0.35 | wage= 25000 | client_override|part_time_hours_adapted
+   ffea35ae | Sunny Glaze Donuts | Q17 | Alex Rivera | fte= 0.36 | wage= 25000 | client_override|part_time_hours_adapted
+
+distinct (draft,person,fte) fractional: 995
+distinct drafts with a fractional named person: 194
+of those, drafts VS did NOT use: ['0144eaa6', '03910995', '04b27234', '06f9fcd9', '0aa9cc31', '0b38e013', '0be7d198', '0ef7833e', '0f571965', '10d01d05', '1144483f', '130ea0c1', '16beccc6', '16e0b8db', '172dbc17', '18d344e9', '1947ba07', '19680ed6', '1abd2164', '1e86cc7d', '1f71fd7a', '209734b4', '20bea117', '2108e6ff', '2167a545', '2179101d', '22e59299', '22ead505', '241bbfa6', '242b2aee', '24860d32', '249c8fa0', '24b150bc', '260ac05d', '267852ab', '270e7b3a', '29c4a053', '2a82e2ed', '2adf9aaf', '2c60f62f', '2d03c69d', '2fdcd936', '3464962b', '35b085b6', '3894abda', '3b2144c7', '3bb326a3', '3c56e7c5', '3e1c1218', '411adb55', '432d0a41', '4395f97c', '445ba1b3', '45569dc6', '472c488f', '481b3a15', '4a9ec395', '4c73db1f', '4d2f9469', '4dcd93a7', '4ee6d166', '4f3ef500', '50561de3', '50d737fd', '51d63abf', '52ec609e', '537e824e', '53abd248', '56af637c', '58c67f2d', '5c11b5dc', '5c2edd17', '5dd5a321', '5f27be6d', '5f8525d9', '618e7b32', '62ff3e66', '6326a93e', '64217fd2', '6641d012', '6674464f', '6863ab64', '6b46dcc5', '6d78601d', '6f9de220', '6feac758', '712a33df', '72273d27', '73088b2d', '77560d5b', '77c4757a', '7ba309a3', '7cb3fb6c', '7e759e8b', '7f9126a9', '80c20a03', '816afbfe', '83035ae3', '830e1409', '84905f62', '84afd3f2', '84edc209', '85a94aca', '863b4331', '8886c523', '88c95936', '8b6ddc9c', '8bc7c339', '8bd179a9', '8cc4cd25', '8d6beff7', '8ee15cc8', '9069dac3', '92164544', '930b04fb', '93130f5d', '93299067', '97ff2c5a', '98533beb', '9b09a378', '9caba812', '9d9decea', '9dda74a9', '9e73eb3c', '9fe26f46', 'a1f6c23b', 'a2cb7dce', 'a3161a2f', 'a58d3375', 'a7487faa', 'a7818c41', 'a7ae3c0b', 'abd5e50a', 'b16ec231', 'b2500419', 'b3f84dcd', 'b6b7f759', 'b6bf6bc6', 'b75060bf', 'b90ebc47', 'b944961a', 'ba137b8b', 'bf907060', 'bfc956d8', 'bfd88430', 'c0c730a3', 'c172a53a', 'c1d6991e', 'c540b80f', 'c98d00f9', 'c9e4990d', 'c9e84acc', 'caea995a', 'cbbabc89', 'cbc33c7a', 'cc988d9c', 'ccdc54a1', 'cce5b877', 'ce6b858c', 'd11d231e', 'd3d5aa35', 'd482e2bf', 'd546ba0d', 'd61d3055', 'd696b4e5', 'd7537782', 'da7061c3', 'daf07d1f', 'dbe16846', 'dc23ae96', 'dde4f4e7', 'de8ccc54', 'e2543a20', 'e5ae52d5', 'e64d1361', 'e662ed20', 'e6fb1335', 'e7c1b29d', 'e7da60e6', 'ea30f6dc', 'ead5f152', 'eb511772', 'ec3ae1cc', 'ed731185', 'ee7cd6b2', 'ef90aca5', 'f4de0f2e', 'f75fa3fb', 'f8bc1b50', 'fad47464', 'fd448457', 'ff2ee40e', 'ffea35ae']
+
+ERRORS (first 12):
+   ('012ceb01', 'FailFastError', 'POST_INTAKE:payroll_headcount_oews_title_not_in_catalog@payroll_headcount_wage_resolution: Selected oews_occ_t')
+   ('02e9c154', 'FailFastError', 'POST_INTAKE:payroll_headcount_oews_title_not_in_catalog@payroll_headcount_wage_resolution: Selected oews_occ_t')
+   ('08b3d1d7', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('0b633311', 'FailFastError', 'POST_INTAKE:payroll_headcount_duplicate_oews_title_quarter@payroll_headcount_grid_parse: Duplicate payroll row')
+   ('0d721f85', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('0f477682', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('18b2d219', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('197fe58b', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('1d372cf5', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('1d85542d', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('1db5cadb', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
+   ('22918cce', 'FailFastError', 'POST_INTAKE:payroll_headcount_capacity_assumptions_invalid@payroll_headcount_capacity_assumptions: wage_positi')
