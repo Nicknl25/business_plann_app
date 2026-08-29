@@ -1,4 +1,4 @@
-STATUS: awaiting-Nick
+STATUS: stopped-fault
 
 TURN: 17/16
 

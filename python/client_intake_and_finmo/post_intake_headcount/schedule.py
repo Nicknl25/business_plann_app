@@ -1650,6 +1650,28 @@ def _validate_payroll_title_rows(
           # never floored at all (stated key-person wages are honored via
           # client_override upstream); full-time hires below the floor are
           # still raised to it -- that IS a data error.
+          #
+          # NOTE, NOT A FIX (mini's audit 2026-08-28, Nick ruled leave it):
+          # this is the THIRD site that writes a named person's FTE, after
+          # the budget scaler and the headcount-coherence judgment - and it
+          # is the ONLY one still doing so, by design. Nick ruled the reading
+          # sound: a wage below the floor genuinely implies part-time hours,
+          # and 0.88 of a person is a fair statement of what those dollars
+          # buy. Two things are on the record about it anyway.
+          #   1. The fraction is DERIVED, not stated. MEASURED over 1,078
+          #      drafts: 995 fractional named rows across 194 drafts, every
+          #      one of them carrying wage_source=...|part_time_hours_adapted,
+          #      and every one with a stated wage the client gave. So
+          #      "Part-time Packer 1" reads 0.88 - a number the client never
+          #      said, computed as wage/floor.
+          #   2. THERE IS NO OWNER GUARD HERE. The sentence above says an
+          #      owner is never floored, and that is true today only because
+          #      a stated owner wage arrives as client_override further
+          #      upstream and never reaches this branch. Nothing in this
+          #      block tests _is_owner_row. An owner whose title happens to
+          #      read "part-time" and whose wage lands below the floor would
+          #      be scaled here like anyone else. That has not been observed
+          #      in the population; it is unguarded, not broken.
           _hours_ratio = max(0.05, min(1.0, float(annual_wage) / float(row_floor)))
           try:
             _pt_start = round(float(row.get("starting_fte") or 0.0) * _hours_ratio, 2)

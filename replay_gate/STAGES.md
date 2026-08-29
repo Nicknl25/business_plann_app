@@ -160,3 +160,45 @@ RULES
     to :16794 (Nick ruled) as a separate neighbor-check turn + run #3.
     LIVE re-flipped: backend on HEAD 2f8718f 16:39, ONE :5050 listener.
 
+
+---
+
+## golden-fixture-payroll-blind  (FILED 2026-08-28, NOT STARTED — Nick: "worth its own turn when there's room")
+
+    GATE:   failing   — as COVERAGE, not as a red leg. The prove is clean;
+                        it simply cannot see this class. mini measured it
+                        on 2026-08-28 while auditing the payroll close:
+                          - R31's frozen draft 89e5a622 has
+                            payroll_headcount NULL — there is no payroll
+                            payload in the fixture at all.
+                          - R32/R49's frozen draft 6feac758 (Sunny Glaze)
+                            has headcount_coherence applies=false — the
+                            judgment is inert, so the code path that was
+                            shrinking named people never runs.
+                        So 39d21b1's claim "R31/R32/R49/R50 unchanged" is
+                        TRUE and is NOT EVIDENCE, and that prove's 0 DRIFT
+                        is not coverage of the payroll change. VS said it
+                        as though it were reassurance; it was not.
+                        Worse, the frozen fixture is the PRE-FIX SHAPE and
+                        was re-blessed into the baseline: 6feac758 still
+                        carries a 0.20-FTE phantom supporting role and a
+                        named person at 0.27. The baseline now pins the
+                        behaviour the close removed.
+    LIVE:   n/a       — nothing built.
+    COWORK: blocked   — automatic.
+
+    WHAT IT COSTS TODAY: any future payroll change can be shipped with a
+    clean prove and the goldens will stay silent. Until the fixture is
+    replaced, "goldens unchanged" MEANS NOTHING on a payroll change and
+    must not be offered as evidence for one.
+
+    NEXT STEP (needs a turn, and re-blessing is mini's to flip): pick a
+    frozen draft that actually exercises payroll — named people present,
+    headcount_coherence applies=true, a supporting block that the
+    funded-only rule reshapes — and re-base R31/R32/R49/R50 on it, or add
+    a fifth leg alongside them so the existing four keep their history.
+    Re-blessing updates TWO places (the baseline and the BLESSED_SURFACES
+    digest).
+
+    EVIDENCE: replay_gate/_cw043_audit/mini_payroll_close_findings.md
+    (mini's RESULT, commit aba3ee6, GATE FINDING section).
