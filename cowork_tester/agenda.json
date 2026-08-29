@@ -1,20 +1,30 @@
 {
- "version": 31,
- "updated": "2026-08-24",
- "notes": "CW-043 got there. Third attempt at the Halbrook persona, run under a report-do-not-stop mandate, and it reached a finished 16-sheet workbook with every one of its four long-untested targets verified at the file.\n\nTHE FIND IS A-133 AND ONLY THIS PERSONA COULD HAVE PRODUCED IT. With both a term loan and a capital lease populated for the first time, the Debt Schedule renders as a proper vertical amortization table and the debt half is correct end to end - while the lease half never amortizes at all. Term reads 20 quarters, principal is zero in all 21 periods, closing balance is frozen at 62,000 through Q20, and the right-of-use asset meanwhile depreciates perfectly to zero. A lender reading the plan sees a business that ends five years owning a worthless asset and still owing every dollar. Nothing caught it because a frozen liability still balances: Checks B2 reads OK across 219 rows with zero failures. That is the sharpest illustration yet that tie-outs passing is not the same as numbers being right.\n\nA-134 IS THE PROCESS RESULT AND IT MATTERS AS MUCH. This run reproduced the exact defect that killed CW-042 and watched it heal one turn later. CW-042 was killed one turn before the heal. A-130's rent overwrite likewise now self-corrects on a single client correction and holds all the way into the workbook. Two runs were spent on findings that never reach anything shipped. The proposed rule is written up in A-134: kill only for crashes, permanent hangs and physical impossibility; treat mid-intake values as intermediate; a discrepancy counts as a finding only if it survives into the submitted model or the built workbook. The cost asymmetry is the argument - killing early saves twenty minutes, not reaching the artifact cost three cycles.\n\nA-121 IS NO LONGER THEORETICAL. A second workbook was written alongside the main one, labelled RESTRUCTURE ATTEMPT - viable candidate, 16 sheets, full Cover and Dashboard. The net engages and emits a named artifact. What is still unverified is the failure path - Halbrook passed comfortably - but the next attempt now has something concrete to compare against.",
+ "version": 32,
+ "updated": "2026-08-29",
+ "notes": "CW-044 (Redbrook Coffee Roasters) completed end to end in a single pass and closed two long-standing defects at once. A-133 is fixed - the capital lease amortizes properly now, with Term and Scheduled principal columns added for both instruments. A-132 is fixed - the owner appears once, in the roster and in the narrative. Rent and the lease separated cleanly with no correction needed.\n\nTHE NEW FINDING IS A-136 AND IT IS THE KIND THIS PROGRAMME EXISTS TO CATCH. The workbook now ships with every formula intact and NO CACHED VALUES. Excel recalculates on open, so a client double-clicking the file sees a complete plan and nothing looks wrong - which is exactly why it could ship unnoticed. Anything that reads the file without a spreadsheet engine sees blanks: preview panes, server-side renders, PDF exports, a lender importing it, and every automated check. Checks B2, the single cell this run was asked to report, is empty in the delivered artifact and only reads OK after recalculation. The boundary is sharp and datable - the last three builds are 162 to 173KB against 254 to 295KB for everything before them, so about a third of each file is missing and it is the values.\n\nA-137 answers the whole-people question and the answer is half. Named people are whole and sourced to the client's own stated wage. The rest-of-team bucket is expanded into three BLS-titled roles at fractional FTE - 1.29 food batchmakers, 0.86 laborers, 0.57 packers - summing to 4.72 against a stated headcount of 6. The dollars are right and the sourcing labels are honest, so this is about how it reads to a client rather than a wrong number.\n\nTwo smaller things worth a glance, both recorded rather than filed: the Q1 debt block shows a NEGATIVE extra principal of -1,163.75, which is arithmetically coherent once you see the 40,536 of new borrowing the model takes under the debt funding preference, but reads oddly on a client-facing schedule; and one ordinary sentence about covering four staff as a group produced 'I had trouble applying that change', which cleared on rephrasing.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "A-133",
-   "persona": "any business carrying a capital lease or finance agreement",
-   "business": "any business with leased equipment it keeps at the end of the term",
-   "why": "NEW, major, and the find this persona existed to produce. The Debt Schedule now renders correctly as a vertical amortization table with BOTH a term loan and a capital lease populated - the first time both halves have ever been exercised - and the debt half is right end to end (180,000 opening, 5,625 a quarter of principal, accelerating in Q7-Q8, closing at zero). The LEASE half never amortizes. Lease Term is stated as 20 quarters, but Lease Principal is 0 in every one of the 21 periods, Lease Payment equals Lease Interest exactly at 1,317.50, and Lease Closing Balance sits at 62,000 from the stub all the way through Q20. The right-of-use ASSET meanwhile amortizes perfectly - 62,000 falling 3,100 a quarter to zero over exactly those 20 quarters. FINMO agrees: Capital Lease Obligation reads 62,000 at stub, Q1, Q2 and the Y1 annual column. The consequence a lender would see is that at the end of the five-year plan the business owns an asset worth nothing and still owes every dollar of the original 62,000. Also worth noting: the client stated the payment as about 3,600 a quarter and the schedule uses 1,317.50, which is exactly the interest, so the payment appears to be derived FROM the interest rather than the other way round. WHY NOTHING CAUGHT IT: the liability is frozen, not mis-added, so the balance sheet still balances and Checks B2 still reads OK across 219 rows with zero failures. This is a case where every tie-out passes and the number is still wrong.",
+   "id": "A-136",
+   "persona": "any business - this is the workbook writer, not a persona",
+   "business": "every generated workbook",
+   "why": "NEW, major, and a REGRESSION with a datable boundary. The delivered workbook contains every formula but NO CACHED VALUES. Reading Redbrook's file as shipped returns None for Checks B2 and for all 230 Status cells, and blanks across the P and L; reading it for formulas shows a complete, correct model. Recalculating the identical file in headless LibreOffice fills it in and Checks B2 then reads OK with 212 OK, 6 MATCH, 4 CHANGED and zero FAIL - so the model is sound and only the value-caching step is missing. WHY IT MATTERS EVEN THOUGH EXCEL HIDES IT: Excel recalculates on open, so a client double-clicking the file sees numbers and nothing looks wrong. Anything that reads the file without a spreadsheet engine sees an empty workbook - a preview pane, an emailed attachment rendered server-side, a PDF export, a lender importing it, and every automated check this programme runs. It also means Checks B2, the one cell the run was asked to report, is blank in the artifact as delivered. CONFIRMED NOT ISOLATED, and the boundary is sharp: the three most recent builds in the output folder are 162,870 (Redbrook), 172,818 (Willowbank Animal Hospital) and 170,127 (Northgate Systems) bytes, while every earlier build sits between 254,192 and 295,007. Roughly a third of the file is missing and it is the cached values. THEORY, not asserted and not checked against code: the writer path that computes and caches values was skipped or short-circuited recently - the payroll-close work at HEAD d63d5b4 is the change in flight, so it is the first place to look, but the two other undersized builds should date it precisely.",
    "retests": [
-    "Any persona with a capital lease. Read the Debt Schedule lease block columns I through P: Principal (column O) should be non-zero and Closing (column P) should fall to zero over Term quarters. Cross-check FINMO Capital Lease Obligation actually declines."
+    "Open any freshly built workbook without a spreadsheet engine and read Checks B2. If it is blank, the cache is missing. The file size alone is a reliable first screen - under about 200KB for a 16-sheet workbook means uncomputed."
    ]
   },
   {
    "rank": 2,
+   "id": "A-137",
+   "persona": "any business whose team is given as a group total rather than named people",
+   "business": "any business with more staff than it names individually",
+   "why": "NEW, minor, and the answer to the whole-people question. NAMED people are handled correctly: Head Roaster shows ending FTE 1.00 at the stated 61,000 and Owner 1.00 at 82,000, both labelled 'Your stated wage'. The rest-of-team bucket - one figure of 150,000 covering four staff - is expanded into three BLS-titled roles at FRACTIONAL headcount: Food Batchmakers 1.29 at 36,010, Laborers and Freight/Stock/Material Movers 0.86 at 40,080, and Packers and Packagers Hand 0.57 at 28,970, each labelled 'Market median for this title (BLS)'. Total Ending FTE comes to 4.72 in Q1 against a client-stated headcount of 6. The sourcing labels are honest and the payroll dollars land correctly, so this is a presentation question rather than a wrong number: a client reading the Payroll tab sees 1.29 food batchmakers where they told the app they employ four people. Decide whether the derived block should round to whole heads, or whether the fractional FTE should be presented as an allocation of hours rather than as a count of people.",
+   "retests": [
+    "Any persona that gives a rest-of-team total. Read the Payroll Schedule role blocks and compare summed ending FTE against financials_json.current_num_employees."
+   ]
+  },
+  {
+   "rank": 3,
    "id": "A-134",
    "persona": "n/a - a PROCESS finding, not a persona",
    "business": "the testing programme itself",
@@ -24,7 +34,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 4,
    "id": "A-135",
    "persona": "any business whose stated marketing budget is well below the industry default",
    "business": "any business - the Marketing Schedule is now on every workbook",
@@ -34,22 +44,12 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 5,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
    "why": "PARTIALLY OBSERVED FOR THE FIRST TIME, and no longer purely theoretical. CW-043 produced a second workbook alongside the main one: 'Halbrook Grounds Management RESTRUCTURE ATTEMPT - viable candidate', 151KB, 16 sheets, with a full Cover reading 'Halbrook Grounds Management (RESTRUCTURE...' and a complete Dashboard. So the restructure net does engage and does emit a labelled artifact. What remains unverified is the part this item has always been about: whether a plan that FAILS acceptance is rescued or fails loud, and what the client is shown. Halbrook passed comfortably, so the restructure candidate here appears to be an exploratory alternative rather than a rescue. The persona this needs is still the one described before - intake economics that clear the gate, with the squeeze arriving only from build-time depreciation and debt service. Now that a restructure artifact is known to be produced and named, the next attempt has something concrete to compare against.",
    "retests": []
-  },
-  {
-   "rank": 5,
-   "id": "A-132",
-   "persona": "any business with a named owner who states a wage",
-   "business": "every business - this is on the main path",
-   "why": "NEW BLOCKER and a REGRESSION, and it is why CW-042 was killed. One owner answer - name, role, years, credentials, 95,000 a year - produced TWO rows in payroll_basis_people_roles: one with annual_wage 95000 and an empty role_title, and a second titled Owner with annual_wage 95000.04. payroll_total_year1, baseline_payroll_year1 and current_payroll all read 314,000.04 where the three stated salaries sum to 219,000: payroll overstated by 95,000, or 43 percent, before the rest-of-team figure was even requested. THE 4 CENTS IS THE TELL - 95,000.04 is 7,916.67 x 12, so the second row was reconstructed from the monthly owner-pay derivative rather than read from the source answer. IT IS NOT TRANSIENT. I deliberately advanced one step rather than killing on sight, because CW-041 had a genuinely transient bleed that self-corrected; this one survived the stage's own narrative generation and reached the CLIENT-FACING NARRATIVE as a phantom person, printed between the owner and the first crew lead: 'The Owner (payroll allocation) entry reflects how compensation for the owner of Halbrook Grounds Management is modeled in the financials... Estimated annual wage: 95,000/year.' A bookkeeping artifact has been given a biography and a salary in the delivered plan. REGRESSION EVIDENCE: CW-041 ran the identical owner answer, same words and same order, on de7c8f1 and produced payroll_total_year1 = 219,000.04 with three roster rows and no extra paragraph. THEORY, not asserted and not checked against code: the head commit e4fb9a4, 'Instrument completed-field writes - measurement only, no behaviour', is implicated. The owner answer now writes several completed fields at once - annual wage, months counted, year-one payroll amount, monthly owner pay - and the app's own receipt enumerated exactly that ('plus three more related details noted'). The likeliest reading is that more than one of those writes materialises a roster row. The commit says no behaviour change; on this evidence the behaviour changed.",
-   "retests": [
-    "Any persona with a named owner. Read financials_json.payroll_basis_people_roles and count rows against people actually named, and check payroll_total_year1 against the sum of stated wages. Fastest check available: it is visible one question after the owner answer."
-   ]
   },
   {
    "rank": 6,
@@ -201,9 +201,9 @@
   }
  ],
  "closed_this_cycle": [
-  "A-131 CLOSED - the Halbrook persona reached a finished workbook on its third attempt and all four of its targets are now verified at the file rather than the screen. 16 sheets exactly, Marketing Schedule present with real content, Debt Schedule a true vertical amortization table with BOTH the 180,000 term loan and the 62,000 capital lease populated, and Checks B2 reading OK across 219 rows with zero FAIL rows. Books balance with a difference of 0 at both Q1 and Q20.",
-  "A-130 is HALF CLOSED and moving in the right direction. The leased-equipment question has been rebuilt to ask how much is still OWED and to distinguish a capital lease from rented space, and capital_lease_balance stored correctly at 62,000. The quarterly figure still lands in rent - but the app now ANNOUNCES it and offers to move it, and one correction restored rent to 5,200, which held through submit and into the workbook at 15,600 a quarter. Silent overwrite became a correctable proposal.",
-  "A-132 is NOT closed as a defect, but this run supplies the missing evidence about its severity: it reproduces exactly and then HEALS at the narrative-correction turn, settling at exactly 219,000 and then 599,000. It never reaches the submitted model.",
-  "The CW-041 cross-line capacity bleed still occurs mid-ops but now self-corrects AND is explicitly flagged by the app in its own words."
+  "A-133 CLOSED ON EVIDENCE - the capital lease amortizes. The Debt Schedule now carries Term, Scheduled principal and Extra principal for BOTH instruments, and Redbrook's 21,000 van lease pays down exactly 1,050 a quarter across a 20-quarter term, interest falling 459.4 to 23.0, closing at zero in Q20. FINMO's Capital Lease Obligation steps down in line (21,000 / 19,950 / 18,900 / 17,850 / 16,800). The frozen 62,000 liability from CW-043 is gone.",
+  "A-132 CLOSED ON EVIDENCE - the owner is captured once. After the owner answer the roster held exactly one row at 82,000, with no duplicate, no inflated total and no phantom owner paragraph in the key-people narrative. Confirmed on both the stored roster and the delivered text. The four-cent monthly round-trip drift (81,999.96) survives and is cosmetic.",
+  "A-130 effectively closed for this shape - rent and the capital lease landed in their own fields with no correction required. capital_lease_balance 21,000, monthly_rent_expense 4,400 held throughout, total_debt_outstanding 96,000 separate. Worth noting the owner never named a quarterly payment figure this run, so the old bleed had nothing to latch onto; the mechanism is untested rather than proven absent.",
+  "First THREE-line model carried end to end, including a line accepted from discovery, with three genuinely distinct per-line COGS rates."
  ]
 }

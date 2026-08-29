@@ -1,7 +1,7 @@
 {
- "version": 7,
- "updated": "2026-08-24",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run. CW-042 killed at the people stage on a payroll regression; the CW-041 fix it was meant to confirm was never reached, and the workbook targets are now two runs overdue. CW-043 reached the workbook on the third attempt and proved both earlier kills would have healed; it also surfaced the non-amortizing capital lease, which only a both-instruments persona could reach.",
+ "version": 8,
+ "updated": "2026-08-29",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run. CW-042 killed at the people stage on a payroll regression; the CW-041 fix it was meant to confirm was never reached, and the workbook targets are now two runs overdue. CW-043 reached the workbook on the third attempt and proved both earlier kills would have healed; it also surfaced the non-amortizing capital lease, which only a both-instruments persona could reach. CW-044 confirmed the A-132 and A-133 fixes in a single completed run and surfaced a new caching regression in the workbook writer.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -220,6 +220,17 @@
     "CW-043"
    ],
    "note": "Chosen to put a real loan AND a real lease into the Debt Schedule. Killed twice before the workbook (CW-041 rent overwrite, CW-042 owner payroll duplicate), reached it on the third attempt under a run-to-completion mandate - and immediately surfaced the non-amortizing lease that no other persona could have found."
+  },
+  "coffee_roasting": {
+   "examples": [
+    "wholesale roasting plus retail bags plus contract roasting, loan and capital lease"
+   ],
+   "runs": [
+    "CW-034",
+    "CW-035",
+    "CW-044"
+   ],
+   "note": "Used for the stream-discovery pair (CW-034/035) and again for CW-044, which took a three-line roastery all the way to a workbook and confirmed both the A-132 and A-133 fixes."
   }
  },
  "friction_conditions": {
@@ -871,13 +882,15 @@
     "CW-040",
     "CW-041",
     "CW-042",
-    "CW-043"
+    "CW-043",
+    "CW-044"
    ],
    "note": "PASSING across three business types now - print (CW-037, CW-038) and auto repair (CW-039). 'Parts are already inside the repair order, on the same ticket, not a separate thing we sell' latched merged_into:Auto repair service with no phantom, and the paired tire-sales candidate latched declined in the same turn."
   },
   "proposed_stream_accepted_and_carried_into_built_workbook": {
    "runs": [
-    "CW-040"
+    "CW-040",
+    "CW-044"
    ],
    "note": "NEW and PASSING - completes the discovery matrix. CW-038 proved added-then-removed; this proves added-and-kept all the way into a built multi-line workbook. Four candidates, four correct dispositions in one turn: nail trimming only added (origin discovery_confirmed), bath and tidy plus anal gland expression merged_into:dog groom, cat grooming declined. The accepted line captured its own unit, price, capacity, utilization and COGS rate, and appears as its own driver block, its own break-even units row and its own chart series in the delivered workbook."
   },
@@ -941,7 +954,8 @@
   "discovery_candidate_declined_outright": {
    "runs": [
     "CW-042",
-    "CW-043"
+    "CW-043",
+    "CW-044"
    ],
    "note": "NEW and PASSING. Snow removal was proposed and is genuinely real for a Kansas commercial landscaper, but not for this persona, who explained why (no plows, no salt, refers it out). Latched declined while the other three candidates merged into the maintenance contract. Correct handling of a candidate that is plausible for the industry but false for the business."
   },
@@ -974,6 +988,36 @@
     "CW-043"
    ],
    "note": "NEW - first sighting of the restructure net producing a visible artifact (A-121 territory). A second workbook was written alongside the main one: 'Halbrook Grounds Management RESTRUCTURE ATTEMPT - viable candidate', 16 sheets, full Cover and Dashboard, 151KB. Not yet analysed in depth."
+  },
+  "workbook_shipped_without_cached_formula_values": {
+   "runs": [
+    "CW-044"
+   ],
+   "note": "NEW and FAILING - major regression. The delivered file carries every formula but no cached value: Checks B2 is None, all 230 Status cells empty, P and L blank. Recalculating in headless LibreOffice produces Checks B2 = OK with 212 OK / 6 MATCH / 4 CHANGED / 0 FAIL, so the model is correct and only the caching step is missing. Excel recalcs on open so a client sees numbers, but any non-spreadsheet reader - preview pane, server-side render, PDF export, automated check - sees blanks. Sharp file-size boundary: the three most recent builds are 162,870 / 172,818 / 170,127 bytes against 254,192 to 295,007 for every earlier build."
+  },
+  "capital_lease_amortizes_correctly": {
+   "runs": [
+    "CW-044"
+   ],
+   "note": "NEW and PASSING - the A-133 fix, confirmed. The Debt Schedule now carries Term, Scheduled principal and Extra principal for BOTH instruments. Lease: 21,000 opening, exactly 1,050 principal every quarter, 20-quarter term, interest declining 459.4 to 23.0, closing 0 at Q20. FINMO Capital Lease Obligation steps down in line. The frozen 62,000 liability seen in CW-043 is gone."
+  },
+  "owner_duplicate_absent": {
+   "runs": [
+    "CW-044"
+   ],
+   "note": "NEW and PASSING - the A-132 fix, confirmed on both faces. After the owner answer the roster held exactly one row at 82,000, with no second row, no inflated total, and no phantom owner paragraph in the key-people narrative. The four-cent monthly round-trip drift (81,999.96) remains."
+  },
+  "three_lines_with_distinct_per_line_cogs": {
+   "runs": [
+    "CW-044"
+   ],
+   "note": "NEW and PASSING - first three-line model in the campaign. Wholesale (weekly account order, 260, cap 55, util 0.76, COGS 46 pct), retail (pound, 18, cap 340, util 0.75, COGS 30 pct) and contract roasting (session, 450, cap 3, util 0.33, COGS 8 pct), all with genuinely separate cost structures. The third line came from discovery and was accepted, then carried through to the built workbook."
+  },
+  "payroll_named_people_whole_derived_roles_fractional": {
+   "runs": [
+    "CW-044"
+   ],
+   "note": "NEW and MIXED. Named people are whole: Head Roaster ending FTE 1.00 at the stated 61,000 and Owner 1.00 at 82,000, both sourced 'Your stated wage'. The rest-of-team bucket expands into three BLS-titled roles at fractional FTE - Food Batchmakers 1.29, Laborers/Freight/Stock 0.86, Packers and Packagers 0.57, all sourced 'Market median for this title (BLS)'. Total Ending FTE 4.72 in Q1 against a client-stated headcount of 6."
   }
  },
  "verdict_classes_reached": {
@@ -1807,6 +1851,26 @@
    "headline": "Third time reached the workbook, and it vindicated the run-to-completion mandate: the A-132 owner duplicate reproduced exactly (payroll 190,000 then 314,000, phantom owner paragraph and all) then HEALED at the narrative-correction turn to exactly 219,000, then 599,000. Both prior kills would have shipped correct numbers. TARGETS: 16 sheets incl Marketing Schedule with real content; Debt Schedule IS a vertical amortization table with BOTH the 180,000 loan and the 62,000 lease populated - first time ever; Checks B2 = OK with 219 OK rows and zero FAILs; books balance with difference 0 at Q1 and Q20. THE FIND: the lease half never amortizes - Term 20 quarters, Principal 0 in all 21 periods, Closing frozen at 62,000, while the right-of-use asset correctly depreciates to zero. Only a persona carrying both instruments could surface it.",
    "issues_filed": 2,
    "blockers": 0
+  },
+  "CW-044": {
+   "persona": "Tomas Reyes - coffee roastery, three lines (one accepted from discovery), loan plus capital lease",
+   "business": "Redbrook Coffee Roasters",
+   "city": "Saint Paul MN",
+   "type": "coffee_roasting",
+   "draft_id": "c9095a3181d04579a6f2072d76f746da",
+   "stack": "d63d5b4 on intake-stable",
+   "outcome": "COMPLETE - 16-sheet workbook generated end to end in a single pass. Reference ASNBDDO88251712862, submission #87.",
+   "verdict_correct": true,
+   "conditions_hit": [
+    "workbook_shipped_without_cached_formula_values",
+    "capital_lease_amortizes_correctly",
+    "owner_duplicate_absent",
+    "three_lines_with_distinct_per_line_cogs",
+    "payroll_named_people_whole_derived_roles_fractional"
+   ],
+   "headline": "Two long-standing defects confirmed FIXED in one run: A-132 (owner duplicated in the payroll roster and narrative) is gone - one row, 82,000, no phantom paragraph - and A-133 (capital lease frozen) is gone - the lease amortizes 1,050 a quarter over a 20-quarter term to zero, with FINMO agreeing. Lease-versus-rent separated cleanly with no correction needed. ONE NEW REGRESSION: the workbook ships with NO CACHED FORMULA VALUES - Checks B2 and all 230 status cells read empty until something recalculates; after recalculation B2 = OK with zero FAILs. Confirmed across the output folder - the three most recent builds are 162-173KB against 254-295KB for every earlier one.",
+   "issues_filed": 1,
+   "blockers": 0
   }
  },
  "verdict_classes": {
@@ -1834,7 +1898,8 @@
     "CW-038",
     "CW-039",
     "CW-040",
-    "CW-043"
+    "CW-043",
+    "CW-044"
    ]
   },
   "parked": {
