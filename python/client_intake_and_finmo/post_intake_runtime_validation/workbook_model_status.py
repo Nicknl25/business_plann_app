@@ -50,10 +50,30 @@ def _recalc_workbook_via_excel_com(workbook_path: str) -> Optional[str]:
   """
   try:
     import win32com.client as _w32  # type: ignore
+    import pythoncom as _com  # type: ignore
   except Exception as exc:
     return f"pywin32_unavailable: {type(exc).__name__}: {str(exc)[:200]}"
   excel = None
   wb = None
+  # COM IS PER-THREAD (2026-08-29). This runs on a Flask request-handler
+  # thread, and CoInitialize is per-thread state: without it EnsureDispatch
+  # raises -2147221008 "CoInitialize has not been called", this function
+  # returns an error, and the caller treats the workbook as unable-to-
+  # evaluate. Two things then went wrong quietly for every delivered file:
+  # the Save() below never ran, so the workbook shipped with formulas and NO
+  # CACHED VALUES (Excel recalculates on open so a client still sees numbers,
+  # but anything without a spreadsheet engine reads an empty file), and the
+  # Checks!B2 model-status assertion was skipped on every run. A script's
+  # MAIN thread is initialised by pythoncom on import, which is why the same
+  # recalc always worked from the command line and never from the server.
+  _com_ready = False
+  try:
+    _com.CoInitialize()
+    _com_ready = True
+  except Exception:
+    # Already initialised on this thread, or an apartment-mode clash: either
+    # way EnsureDispatch below is the real test, so carry on and let it speak.
+    pass
   try:
     excel = _w32.gencache.EnsureDispatch("Excel.Application")
     excel.Visible = False
@@ -77,6 +97,11 @@ def _recalc_workbook_via_excel_com(workbook_path: str) -> Optional[str]:
         excel.Quit()
     except Exception:
       pass
+    if _com_ready:
+      try:
+        _com.CoUninitialize()
+      except Exception:
+        pass
 
 
 def _read_model_status(workbook_path: str) -> Any:
