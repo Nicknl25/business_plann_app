@@ -1,0 +1,102 @@
+Proving 64 legs, one at a time, against their own broken baselines.
+(4 live-tier legs not proved in this tier: R28, R13, R14, I10)
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R01   completed-financials-freeze      5b5ffbb   RED         GREEN    PROVEN
+R02   payroll-correction-lands         c3d83a9   RED         GREEN    PROVEN
+R03   sumac-revert                     5b5ffbb   RED         GREEN    PROVEN
+R04   crew-double-count                7b9f481   RED         GREEN    PROVEN
+R05   capex-zero                       7b9f481   RED         GREEN    PROVEN
+R06   price-ratchet                    7b9f481   RED         GREEN    PROVEN
+R07   ask-then-ignore                  7b9f481   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'. Honest but NOT behavioural - the capability did not exist at this commit. _acceptance_mismatch_hold = 0 occurrences anywhere under python/ at 7b9f481 - the guard did not exist, so no behavioural red was available through it. Its green side IS behavioural. Promote to BEHAVIOURAL by driving the contradictory acceptance through the turn chain and asserting the value recorded, the way R01/I01-I06 do.
+R08   cogs-basis-ratio-stamp           eb7529b   RED         GREEN    PROVEN
+R09   owner-comp-one-door              66cc26b   RED         GREEN    PROVEN
+R10   role-wage-rollup-recompute       000edda   RED         GREEN    PROVEN
+R11   cedar-double-correction          582cef7   RED         GREEN    PROVEN
+R12   rest-inclusion-tripwire          7bcf307   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'. Honest but NOT behavioural - the capability did not exist at this commit. _rest_inclusion_check = 0 occurrences under python/ at 7bcf307 - the tripwire did not exist. Promote by driving the rest-of-team figure through the turn and asserting it recorded silently.
+R15   completed-financials-no-routing  c3d83a9   RED         GREEN    PROVEN
+R16   inclusion-resolver-references    ff1da19   RED         GREEN    PROVEN
+R17   cogs-echo-guard                  ff1da19   RED         GREEN    PROVEN
+R18   rejected-figure-reference        18f5ca5   RED         GREEN    PROVEN
+R19   retention-consumed               18f5ca5   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'. Honest but NOT behavioural - the capability did not exist at this commit. SETTLED ON SOURCE, not on the grep alone. At 18f5ca5 the frame DOES exist (retention_pending is written at section.py:2082 with prices + retained_used) and a consumer DOES exist - but only INLINE inside the coherence round-resolution path, keyed on a router patch 'coherence.retention_answer' (section.py:1115-1160). What is entirely absent is the link from the client's PROSE to that value: _parse_retention_answer = 0 occurrences, and apply_retention_answer = 0 (af791ec extracted the inline consumer into a callable AND added the parser AND wired it at any surface). So there is no behavioural red available: a leg aimed at the consumer would go GREEN on 18f5ca5 (the consumer worked - that was never the bug), and the bug's actual behaviour - a retention answer arriving at the done-focus surface and moving nothing - is only exercised inside post_intake_consult_handler, which the gate does not drive (its surface is _run_financials_turn_and_sync). PROMOTION PATH: if the deterministic resolve is ever lifted out of the HTTP handler into the turn chain, re-fixture to drive MSG_97 through ctx.turn with the frame stamped and assert stored utilization 0.78 -> 0.702.
+R20   capacity-twin-invariant          af791ec   RED         GREEN    PROVEN
+R21   reconciliation-hold-consumes     af791ec   RED         GREEN    PROVEN
+R22   sibling-attribution              af791ec   RED         GREEN    PROVEN
+R23   compound-word-numbers            af791ec   RED         GREEN    PROVEN
+R24   owner-not-enumerated             af791ec   RED         GREEN    PROVEN
+U01   capacity-derivation-invariant    909f66f   RED         GREEN    PROVEN
+U02   fernhill-round-trip              909f66f   RED         GREEN    PROVEN
+U03   product-pattern-total            909f66f   RED         GREEN    PROVEN
+U04   no-op-never-receipts             13fae7c   RED         GREEN    PROVEN
+U05   pin-escalation                   909f66f   RED         GREEN    PROVEN
+R25   goal-anchor-roadmap              539fb17   RED         GREEN    PROVEN
+R26   per-line-cogs-sigma              9d2c41c   RED         GREEN    PROVEN
+R50   no-stub-anchored-references      35df1d2   RED         GREEN    PROVEN
+R32   workbook-formula-grid            4f06f6d   SAME        GREEN    GOLDEN
+      -> 2 surface(s) identical on both commits: single_line_input=72dfcb81f6f3, workbook_formulas=a7d2ebcd7f89 (negative control - green on both sides is the pass)
+R49   workbook-text-surface            231b0b1   SAME        GREEN    GOLDEN
+      -> 2 surface(s) identical on both commits: single_line_input=72dfcb81f6f3, workbook_text=4a9d789dcc3a (negative control - green on both sides is the pass)
+R31   single-line-unchanged            ef62181   SAME        GREEN    GOLDEN
+      -> 3 surface(s) identical on both commits: finmo=bcd8fce31066, model_input=1d50e46ab8e6, single_line_input=72dfcb81f6f3 (negative control - green on both sides is the pass)
+R30   price-change-stamps-retention    9d2c41c   RED         GREEN    PROVEN
+R27   per-line-cogs-lockstep           9d2c41c   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: AttributeError: module 'client_intake_and_finmo.finmo_bridge' has no attribute '_reconcile_per_line_cogs_rows'. Honest but NOT behavioural - the capability did not exist at this commit. _reconcile_per_line_cogs_rows = 0 occurrences and lockstep_scale_per_line_cogs = 0 at 9d2c41c - both the write path and the scaler are new in c77094a, so there is no baseline seam to observe. A leg aimed at the existing blend write would go GREEN on 9d2c41c (writing the blend worked fine; it just had no lines to scale) - the fixture-path trap. Promote when lockstep becomes observable through a driven turn.
+R29   line-split-confidence-gate       9d2c41c   RED         GREEN    PROVEN
+R33   confirmed-needs-a-read-artifact  2f5940b   RED         GREEN    PROVEN
+R34   metadata-probe-never-ticks       2f5940b   RED         GREEN    PROVEN
+R35   cogs-unit-declared-not-inferred  a38a584   RED         GREEN    PROVEN
+R36   transport-figure-never-speaks    a38a584   RED         GREEN    PROVEN
+R37   transport-keys-never-persist     53daa0b   RED         GREEN    PROVEN
+R38   inference-never-stored-as-struct 858987b   RED         GREEN    PROVEN
+R39   separation-clears-the-group      858987b   RED         GREEN    PROVEN
+R40   membership-is-data               5dcbca4   RED         GREEN    PROVEN
+R41   match-never-lies                 55f0ae0   RED         GREEN    PROVEN
+R42   identity-is-the-member-set       55f0ae0   RED         GREEN    PROVEN
+R43   legacy-tier-is-a-law             b0607e0   RED         GREEN    PROVEN
+R44   reply-never-acks-unlanded-ops-fi 6d38c54   RED         GREEN    PROVEN
+R45   midinterview-ops-landing-impossi 6d38c54   RED         GREEN    PROVEN
+R46   stated-cadence-never-rebased     6d38c54   RED         GREEN    PROVEN
+R47   carveout-figure-survives-the-no  6d38c54   RED         GREEN    PROVEN
+R48   discovery-removed-never-resurrec b8f2697   RED         GREEN    PROVEN
+I01   forward-move:price               5b5ffbb   RED         GREEN    PROVEN
+I02   forward-move:payroll             c3d83a9   RED         GREEN    PROVEN
+I03   forward-move:cogs                5b5ffbb   RED         GREEN    PROVEN
+I04   forward-move:volume              5b5ffbb   RED         GREEN    PROVEN
+I05   forward-move:marketing           5b5ffbb   RED         GREEN    PROVEN
+I06   forward-move:AMBIGUOUS/garbage   5b5ffbb   RED         GREEN    PROVEN
+I07   ack-matches-stored               c3d83a9   RED         GREEN    PROVEN
+I08   owner-appears-once               ff1da19   RED         GREEN    PROVEN
+I09   no-double-counted-people         7b9f481   RED         GREEN    PROVEN
+I12   owner-row-uniqueness             ff1da19   RED         GREEN    PROVEN
+I13   owner-draw-clears                ff1da19   CRASH-RED   GREEN    STRUCT-ABSENCE
+      -> declared STRUCTURAL-ABSENCE: ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py). Honest but NOT behavioural - the capability did not exist at this commit. _owner_draw_exit_tail = 0 occurrences under python/ at ff1da19 - the exit-tail builder did not exist, so the ImportError is the absence itself. Promote by driving the wall through the coherence section and asserting the offered draw clears it.
+I11   price-ceiling-no-ratchet         7b9f481   RED         GREEN    PROVEN
+------------------------------------------------------------------------------
+COUNT   56 proven BEHAVIOURALLY (red shows the bug behaving)
+        5 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        3 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        64 legs total
+
+  STRUCTURAL-ABSENCE (5) - honest, declared, NOT behavioural:
+    - R07 ask-then-ignore @ 7b9f481: AttributeError: module 'api_handlers.intake_consult' has no attribute '_acceptance_mismatch_hold'
+    - R12 rest-inclusion-tripwire @ 7bcf307: AttributeError: module 'api_handlers.intake_consult' has no attribute '_rest_inclusion_check'
+    - R19 retention-consumed @ 18f5ca5: AttributeError: module 'api_handlers.intake_consult' has no attribute '_parse_retention_answer'
+    - R27 per-line-cogs-lockstep @ 9d2c41c: AttributeError: module 'client_intake_and_finmo.finmo_bridge' has no attribute '_reconcile_per_line_cogs_rows'
+    - I13 owner-draw-clears @ ff1da19: ImportError: cannot import name '_owner_draw_exit_tail' from 'client_intake_and_finmo.intake_coherence.section' (C:\dev\bpa_gate_baselines\ff1da19\python\client_intake_and_finmo\intake_coherence\section.py)
+    The capability did not exist at these commits, so no behavioural
+    red was available. They guard the CURRENT build (their green side
+    is behavioural); they do not prove the broken side.
+
+  CLEAN - 56 legs go red BEHAVIOURALLY on the commit where
+  their bug was live and green on the fix; 5 are declared
+  STRUCTURAL-ABSENCE. No unearned proofs. The gate is on the real chain.
