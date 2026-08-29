@@ -1,5 +1,0 @@
- * Serving Flask app 'api'
- * Debug mode: off
-2026-08-13 17:15:49.502 INFO api: REQ GET /api/business-types -> 200 109ms draft=-
-2026-08-13 17:16:39.018 INFO api: REQ GET /api/shared-context -> 200 172ms draft=1070c6a560a04f3d971019a3787180bf
-2026-08-13 17:17:38.948 INFO api: REQ GET /api/shared-context -> 200 109ms draft=1070c6a560a04f3d971019a3787180bf

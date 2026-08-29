@@ -1,6 +1,0 @@
- * Serving Flask app 'api'
- * Debug mode: off
-2026-08-17 11:07:05.106 INFO api: REQ GET /api/business-types -> 200 172ms draft=-
-2026-08-17 11:07:17.600 INFO api: TURN_BEGIN draft=sdcorva41bbe390623b458ca3b9e5530 turn=23 starting=False focus=ops msg_chars=320
-2026-08-17 11:07:17.713 INFO api_handlers.intake_consult: STREAM_DISCOVERY window open labels=['Digital printing services', 'Copying and duplicating services', 'Graphic design and prepress services', 'Bindery and finishing services'] round=ask reader=consultant_chat_turn
-2026-08-17 11:07:36.297 INFO api: REQ POST /api/intake-consult -> 200 19344ms draft=sdcorva41bbe390623b458ca3b9e5530

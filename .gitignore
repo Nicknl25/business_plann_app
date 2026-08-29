@@ -57,3 +57,25 @@ tmp_workbook_viewfix*/
 *.swo
 nohup.out
 _handoff/
+
+# Machine-regenerated runtime logs. On 2026-08-28 an agent's `git add -A`
+# swept 435 untracked scratch files into the repo; this guards against that
+# mistake, NOT against the handoff loop - the watcher only ever commits
+# TRACKED files (it filters "??" lines), so untracked scratch was never at
+# risk from it.
+#
+# DELIBERATELY NARROW. Only the families that are rewritten every session and
+# are never cited as proof are listed. The _canary_* / _live_* / _prove* /
+# _redproof_* / _mini_* families are EVIDENCE - STAGES.md names those files
+# one by one - so they stay committable, and a future proof log will never be
+# silently swallowed by this block.
+/_logs_persona_*
+/_logs_frontend_*
+/_logs_server_*
+/_logs_vite_*
+/_logs_5050*
+/_logs_5051*
+/_logs_5058*
+/_logs_stack_button.txt
+/_sweep_p3_*/
+/tmp_*.json
