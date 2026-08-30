@@ -134,5 +134,106 @@ class SentencesShapeTests(unittest.TestCase):
     self.assertGreaterEqual(len(S.CANNOT_YET), 5)
 
 
+class GeographyTravelsWithTheFactTests(unittest.TestCase):
+  """Nick, 2026-08-30: 'Three coffee manufacturers operate in Ramsey County'
+  and 'Minnesota has 26' are different claims. A count whose geography can
+  silently change is a false sentence waiting to happen, so every sentence
+  using a geography-scoped market key MUST also require the label fact, and
+  the label may only be put by the same code path that puts the counts."""
+
+  GEO_SCOPED_KEYS = (
+    "market.establishments",
+    "market.residents_per_establishment",
+    "market.client_share_of_establishments",
+    "market.emp_per_establishment",
+    "market.payroll_per_establishment",
+    "market.households_per_establishment",
+  )
+
+  def test_every_scoped_sentence_requires_the_geography_label(self):
+    for s in S.SENTENCES:
+      needs = set(s["needs"])
+      if needs & set(self.GEO_SCOPED_KEYS):
+        self.assertIn("market.competition_geo_label", needs,
+                      "%s uses a geography-scoped count without the label" % s["id"])
+
+  def test_no_sentence_uses_the_old_unlabelled_state_keys(self):
+    dead = {"market.state_establishments", "market.residents_per_establishment_state",
+            "market.client_share_of_state_establishments", "market.emp_per_establishment_state",
+            "market.payroll_per_establishment_state", "market.households_per_establishment_state"}
+    for s in S.SENTENCES:
+      self.assertFalse(set(s["needs"]) & dead,
+                       "%s still uses an unlabelled state-scoped key" % s["id"])
+
+  def test_the_label_is_put_by_exactly_one_code_path(self):
+    """One put site for the label, in the same block as the counts - read from
+    the source rather than trusted."""
+    import io as _io, os as _os
+    src = _io.open(_os.path.join(ROOT, "python", "writing_phase", "facts", "build.py"),
+                   encoding="utf-8").read()
+    self.assertEqual(src.count('cat.put("market.competition_geo_label"'), 1,
+                     "exactly ONE labelled put site for the geography label")
+    self.assertEqual(src.count('cat.put("market.establishments"'), 1,
+                     "exactly ONE labelled put site for the count")
+    # and the ABSENT path retires label and counts TOGETHER, in one tuple
+    absent_block = src[src.index('for k in ("market.competition_geo_label"'):]
+    absent_block = absent_block[:absent_block.index(")")]
+    self.assertIn('"market.establishments"', absent_block,
+                  "the ABSENT path must cover the counts alongside the label")
+
+
+class BriefAssemblerTests(unittest.TestCase):
+  """The brief is the sentence map and nothing else (Nick, 2026-08-30)."""
+
+  def _cat_with(self, keys):
+    cat = FactCatalog("d1")
+    for k in keys:
+      fmt = "text" if any(x in k for x in ("name", "label", "title", "direction", "band", "vs", "scope", "window")) else "count"
+      cat.put(k, "x" if fmt == "text" else 1.0, fmt, C.prov_model("t"))
+    return cat
+
+  def test_a_section_gets_only_the_keys_its_sentences_need(self):
+    from writing_phase.facts import assembler as A
+    from writing_phase.facts import sentences as SS
+    all_keys = SS.all_required_keys()
+    cat = self._cat_with(all_keys)
+    asm = A.assemble(cat)
+    ops = asm.sections["operations_and_organisation"]
+    allowed = set(A.IDENTITY_KEYS)
+    for s in SS.sentences_for_section("operations_and_organisation"):
+      allowed.update(s["needs"])
+    self.assertTrue(set(ops.facts) <= allowed,
+                    "ops brief carries keys outside its sentence map: %s"
+                    % sorted(set(ops.facts) - allowed))
+    self.assertNotIn("quarterly.cash_trough_amount", ops.facts,
+                     "a financial-plan key leaked into the ops brief")
+
+  def test_thinness_is_loud_when_a_core_sentence_cannot_fill(self):
+    from writing_phase.facts import assembler as A
+    from writing_phase.facts import sentences as SS
+    core_ids = {s["id"] for s in SS.SENTENCES if s.get("core")}
+    self.assertTrue(core_ids, "no core sentences marked")
+    keys = set(SS.all_required_keys())
+    # remove one key that S36 (ops core) needs
+    keys.discard("annual.headcount_y5")
+    asm = A.assemble(self._cat_with(sorted(keys)))
+    self.assertIn("operations_and_organisation", asm.thin_sections)
+    ops = asm.sections["operations_and_organisation"]
+    self.assertIn("S36", ops.core_unfilled)
+    self.assertIn("annual.headcount_y5", ops.sentences_unfilled["S36"])
+
+  def test_every_section_with_sentences_has_at_least_one_core(self):
+    """A section with no core sentence can never be flagged thin - that is a
+    hole in the loudness guarantee, so it is not allowed to happen silently."""
+    from writing_phase.facts import sentences as SS
+    sections_with = {s["section"] for s in SS.SENTENCES}
+    cores = {s["section"] for s in SS.SENTENCES if s.get("core")}
+    missing = sections_with - cores
+    self.assertEqual(missing, {"funding_request"},
+                     "sections without a core anchor: %s (only funding_request "
+                     "is allowed - it is conditional and its sentences depend "
+                     "on a request existing)" % sorted(missing))
+
+
 if __name__ == "__main__":
   unittest.main()

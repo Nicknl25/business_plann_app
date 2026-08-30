@@ -409,18 +409,30 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
       gap = c.value - b.value
       cat.put("annual.%s_margin_gap_pts_y1" % m, abs(gap), "points", prov_model("Year-1 %s margin less the industry benchmark" % m), "%s margin gap" % m)
       cat.put("annual.%s_margin_gap_direction_y1" % m, "above" if gap >= 0 else "below", "text", prov_model("sign of that gap"), "gap direction")
-  # --- payroll-per-establishment national (CBP US row)
-  cur.execute("SELECT SUM(pay_ann), SUM(estab) FROM cbp_2022_raw WHERE naics=%s", (n6,))
-  r = cur.fetchone()
-  if r and r[0] and r[1]:
-    cat.put("industry.payroll_per_establishment_national", float(r[0]) * 1000.0 / float(r[1]), "money",
-            prov_raw("County Business Patterns", "2022", "annual payroll over establishments, all states, NAICS %s" % n6), "Payroll/estab national")
-  else:
-    cat.put("industry.payroll_per_establishment_national", ABSENT, "money", prov_model("x"), absent_reason="CBP has no rows for NAICS %s" % n6)
-  # --- BDS by NAICS-4, latest year
-  n4 = n6[:4]
+  # --- payroll-per-establishment national (CBP US row). CBP and BDS both
+  #     file under NAICS2017, so the concordance candidates apply here exactly
+  #     as they do in the market block - without this, a 2022-only code
+  #     (Northgate's 513210) recovers its market facts and keeps an empty
+  #     industry block.
+  cbp_code = None
+  for code in _cbp_naics_candidates(cur, n6):
+    cur.execute("SELECT SUM(pay_ann), SUM(estab) FROM cbp_2022_raw WHERE naics=%s", (code,))
+    r = cur.fetchone()
+    if r and r[0] and r[1]:
+      cbp_code = code
+      cat.put("industry.payroll_per_establishment_national", float(r[0]) * 1000.0 / float(r[1]), "money",
+              prov_raw("County Business Patterns", "2022", "annual payroll over establishments, all states, NAICS %s" % code), "Payroll/estab national")
+      break
+  if cbp_code is None:
+    cat.put("industry.payroll_per_establishment_national", ABSENT, "money", prov_model("x"), absent_reason="CBP has no rows for NAICS %s or its 2017 translation" % n6)
+  # --- BDS by NAICS-4, latest year (translated code first when it differs)
+  n4 = (cbp_code or n6)[:4]
   cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4=%s", (n4,))
   yr = cur.fetchone()[0]
+  if not yr and n4 != n6[:4]:
+    n4 = n6[:4]
+    cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4=%s", (n4,))
+    yr = cur.fetchone()[0]
   if yr:
     cur.execute("SELECT firm_age_bucket, firms, estabs, emp, estabs_entry_rate, estabs_exit_rate, net_job_creation_rate, firmdeath_firms "
                 "FROM bds_firm_age WHERE vcnaics4=%s AND year=%s", (n4, yr))
@@ -505,6 +517,20 @@ def _ordinal(n: float) -> str:
 # ---------------------------------------------------------------------------
 # MARKET - CBP state, ACS trade area, OEWS
 # ---------------------------------------------------------------------------
+def _cbp_naics_candidates(cur, n6):
+  """The client's code, then its NAICS-2017 translation(s) when the code does
+  not exist in CBP at all. CBP 2022 files under NAICS2017: Northgate's 513210
+  (a 2022 code) is 511210 there - same business, different number. The
+  concordance table may not be loaded yet; candidates degrade gracefully."""
+  out = [n6]
+  try:
+    cur.execute("SELECT DISTINCT naics_2017 FROM naics_2022_to_2017_concordance WHERE naics_2022=%s", (n6,))
+    out.extend(str(r[0]) for r in cur.fetchall() if r[0] and str(r[0]) != n6)
+  except Exception:
+    pass
+  return out
+
+
 def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, Any]) -> None:
   geo = ctx.get("geo") or {}; n6 = ctx.get("naics6") or ""
   sf, cf = geo.get("state_fips"), geo.get("county_fips")
@@ -514,23 +540,64 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
   cur.execute("SELECT SUM(a.B01001_001E), SUM(a.B11001_001E), SUM(a.B19013_001E*a.B11001_001E)/NULLIF(SUM(a.B11001_001E),0) "
               "FROM acs_zip_2022_part1 a JOIN (SELECT DISTINCT zcta FROM zip_county_crosswalk WHERE state_fips=%s) x ON x.zcta=a.zcta", (sf,))
   sp, sh, s_inc = [(_f(v)) for v in cur.fetchone()]
-  # --- CBP state row for the NAICS
-  cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw WHERE state_fips=%s AND naics=%s LIMIT 1", (sf, n6))
-  r = cur.fetchone()
-  if r and _f(r[0]):
-    est, emp, pay = _f(r[0]), _f(r[1]), _f(r[2])
-    C = lambda what: prov_raw("County Business Patterns", "2022", what + ", %s, NAICS %s" % (geo.get("state_name"), n6))
-    cat.put("market.state_establishments", est, "count", C("establishments"), "State establishments")
-    cat.put("market.residents_per_establishment_state", (sp / est if sp else ABSENT), "count", C("state residents over establishments"), "Residents per establishment")
-    cat.put("market.client_share_of_state_establishments", 1.0 / est, "percent", C("one establishment over the state count"), "Client share")
-    cat.put("market.emp_per_establishment_state", (emp / est if emp else ABSENT), "ratio", C("employment over establishments"), "Emp per estab")
-    cat.put("market.payroll_per_establishment_state", (pay * 1000.0 / est if pay else ABSENT), "money", C("annual payroll over establishments"), "Payroll per estab")
-    cat.put("market.households_per_establishment_state", (sh / est if sh else ABSENT), "count", C("state households over establishments"), "Households per estab")
+
+  # --- trade area (county of the business ZIP), computed FIRST because the
+  #     competition block needs the county denominators and the area label
+  pop = hh = med = None
+  rows = []
+  rows2 = []
+  def wsum(rs, col):
+    return sum((_f(r.get(col)) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rs)
+  if cf:
+    cur.execute("SELECT a.*, x.zpop_pct FROM acs_zip_2022_part1 a JOIN zip_county_crosswalk x ON x.zcta=a.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
+    cols = [d[0] for d in cur.description]; rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    cur.execute("SELECT b.*, x.zpop_pct FROM acs_zip_2022_part2 b JOIN zip_county_crosswalk x ON x.zcta=b.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
+    cols2 = [d[0] for d in cur.description]; rows2 = [dict(zip(cols2, r)) for r in cur.fetchall()]
+    pop, hh = wsum(rows, "B01001_001E"), wsum(rows, "B11001_001E")
+    inc_num = sum((_f(r.get("B19013_001E")) or 0) * (_f(r.get("B11001_001E")) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rows)
+    med = inc_num / hh if hh else None
+  area_label = ("the %s area" % geo["pref_city"]) if geo.get("pref_city") else None
+
+  # --- COMPETITION BLOCK: county first, state fallback. THE GEOGRAPHY
+  #     TRAVELS WITH THE FACT (Nick, 2026-08-30): every count below is scoped
+  #     by market.competition_geo_label, put by THIS code path and no other,
+  #     and the sentences that use these keys REQUIRE the label - a bare
+  #     count with no idea what it counts cannot render.
+  #     "Three coffee manufacturers operate in the Saint Paul area" and
+  #     "Minnesota has 26" are different claims; a silent fallback would make
+  #     the plan say something false about the trade area.
+  hit = None  # (est, emp, pay, label, scope_text, denom_pop, denom_hh)
+  for code in _cbp_naics_candidates(cur, n6):
+    if cf and area_label and pop:
+      cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw_county WHERE state_fips=%s AND county_fips=%s AND naics=%s LIMIT 1", (sf, cf, code))
+      r = cur.fetchone()
+      if r and _f(r[0]):
+        hit = (_f(r[0]), _f(r[1]), _f(r[2]), area_label,
+               "the county containing ZIP %s, NAICS %s" % (geo.get("zip"), code), pop, hh)
+        break
+    cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw WHERE state_fips=%s AND naics=%s LIMIT 1", (sf, code))
+    r = cur.fetchone()
+    if r and _f(r[0]):
+      hit = (_f(r[0]), _f(r[1]), _f(r[2]), str(geo.get("state_name")),
+             "%s statewide, NAICS %s" % (geo.get("state_name"), code), sp, sh)
+      break
+  if hit:
+    est, emp, pay, label, scope, d_pop, d_hh = hit
+    C = lambda what: prov_raw("County Business Patterns", "2022", what + " (%s)" % scope)
+    cat.put("market.competition_geo_label", label, "text", C("the geography every establishment count in this plan is scoped to"), "Competition geography")
+    cat.put("market.establishments", est, "count", C("establishments"), "Establishments")
+    cat.put("market.residents_per_establishment", (d_pop / est if d_pop else ABSENT), "count", C("residents over establishments, same geography"), "Residents per establishment")
+    cat.put("market.client_share_of_establishments", 1.0 / est, "percent", C("one establishment over the count"), "Client share")
+    cat.put("market.emp_per_establishment", (emp / est if emp else ABSENT), "ratio", C("employment over establishments"), "Emp per estab")
+    cat.put("market.payroll_per_establishment", (pay * 1000.0 / est if pay else ABSENT), "money", C("annual payroll over establishments"), "Payroll per estab")
+    cat.put("market.households_per_establishment", (d_hh / est if d_hh else ABSENT), "count", C("households over establishments, same geography"), "Households per estab")
   else:
-    for k in ("market.state_establishments", "market.residents_per_establishment_state", "market.client_share_of_state_establishments",
-              "market.emp_per_establishment_state", "market.payroll_per_establishment_state", "market.households_per_establishment_state"):
-      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="CBP has no state row for NAICS %s" % n6)
-  # --- B2B target establishments statewide
+    for k in ("market.competition_geo_label", "market.establishments", "market.residents_per_establishment",
+              "market.client_share_of_establishments", "market.emp_per_establishment",
+              "market.payroll_per_establishment", "market.households_per_establishment"):
+      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="no CBP row for NAICS %s (or its 2017 translation) at county or state" % n6)
+
+  # --- B2B target establishments statewide (the sentence names the scope)
   b2b = ctx.get("b2b_naics") or []
   if b2b:
     cur.execute("SELECT SUM(estab) FROM cbp_2022_raw WHERE state_fips=%s AND naics IN (%s)" % ("%s", ",".join(["%s"] * len(b2b))), [sf] + b2b)
@@ -539,44 +606,34 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
             absent_reason="CBP has no rows for the target NAICS codes")
   else:
     cat.put("market.b2b_target_establishments_state", ABSENT, "count", prov_model("x"), absent_reason="not a B2B business")
-  # --- trade area = county of the business ZIP, ZCTA pop-share weighted
-  if cf:
-    cur.execute("SELECT a.*, x.zpop_pct FROM acs_zip_2022_part1 a JOIN zip_county_crosswalk x ON x.zcta=a.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
-    cols = [d[0] for d in cur.description]; rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    cur.execute("SELECT b.*, x.zpop_pct FROM acs_zip_2022_part2 b JOIN zip_county_crosswalk x ON x.zcta=b.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
-    cols2 = [d[0] for d in cur.description]; rows2 = [dict(zip(cols2, r)) for r in cur.fetchall()]
-    def wsum(rs, col):
-      return sum((_f(r.get(col)) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rs)
-    pop, hh = wsum(rows, "B01001_001E"), wsum(rows, "B11001_001E")
-    inc_num = sum((_f(r.get("B19013_001E")) or 0) * (_f(r.get("B11001_001E")) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rows)
+
+  # --- trade-area facts (ACS)
+  if cf and rows:
     A = lambda what: prov_raw("American Community Survey 5-year", "2022", what + " for the county containing ZIP %s, ZCTA population-weighted" % geo.get("zip"))
-    cat.put("market.trade_area_name", ("the %s area" % geo["pref_city"]) if geo.get("pref_city") else ABSENT, "text", A("trade area label"), "Trade area")
+    cat.put("market.trade_area_name", area_label or ABSENT, "text", A("trade area label"), "Trade area")
     cat.put("market.trade_area_population", (pop if pop else ABSENT), "count", A("population"), "Trade-area population")
     cat.put("market.trade_area_households", (hh if hh else ABSENT), "count", A("households"), "Trade-area households")
-    med = inc_num / hh if hh else None
     cat.put("market.trade_area_median_hh_income", (med if med else ABSENT), "money", A("household-weighted median household income"), "Trade-area median income")
     if med and s_inc:
       cat.put("market.trade_area_income_vs_state", "above" if med >= s_inc else "below", "text", A("trade-area median against the state median"), "Income vs state")
     adults = wsum(rows, "B15003_017E") + wsum(rows, "B15003_022E") + wsum(rows, "B15003_023E") + wsum(rows, "B15003_025E")
     bach = wsum(rows, "B15003_022E") + wsum(rows, "B15003_023E") + wsum(rows, "B15003_025E")
-    # B15003_017E is high-school; _022/_023/_025 bachelor's/master's/doctorate. Denominator = the four we hold (not all adults).
     cat.put("market.trade_area_bachelors_or_higher_share", (bach / adults if adults else ABSENT), "percent",
             A("bachelor's, master's and doctoral holders over the education attainment counts held"), "Bachelor's or higher")
     hv_num = sum((_f(r.get("B25077_001E")) or 0) * (_f(r.get("B25001_001E")) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rows)
     hu = wsum(rows, "B25001_001E")
     cat.put("market.trade_area_median_home_value", (hv_num / hu if hu else ABSENT), "money", A("housing-unit-weighted median home value"), "Median home value")
-    # income band
     floor = ctx.get("income_floor")
     if floor and hh:
       share = 0.0; lo = 0.0
       for col, edge in zip(_INC_COLS, _INC_EDGES):
-        hi = edge * 1000.0; n = wsum(rows, col)
+        hi = edge * 1000.0; nn = wsum(rows, col)
         if hi <= floor:
           pass
         elif lo >= floor:
-          share += n
+          share += nn
         else:
-          share += n * ((hi - floor) / (hi - lo)) if hi < 10 ** 11 else n
+          share += nn * ((hi - floor) / (hi - lo)) if hi < 10 ** 11 else nn
         lo = hi
       cat.put("market.share_households_in_target_income_band", share / hh, "percent", A("households with income at or above the stated target floor, partial brackets prorated"), "Share in target income band")
     else:
@@ -585,13 +642,14 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
     if band and pop and rows2:
       amin, amax = band; inb = 0.0
       for (lo_a, hi_a), (mc, fc) in zip(_AGE_BANDS, _AGE_COLS):
-        n = wsum(rows2, mc) + wsum(rows2, fc)
+        nn = wsum(rows2, mc) + wsum(rows2, fc)
         ov = max(0.0, min(hi_a, amax) - max(lo_a, amin) + 1)
         width = hi_a - lo_a + 1
-        inb += n * min(1.0, ov / width) if ov > 0 else 0.0
+        inb += nn * min(1.0, ov / width) if ov > 0 else 0.0
       cat.put("market.share_population_in_target_age_band", inb / pop, "percent", A("population within the stated target age range, partial bands prorated"), "Share in target age band")
     else:
       cat.put("market.share_population_in_target_age_band", ABSENT, "percent", prov_model("x"), absent_reason="no consumer age target stated")
+
   # --- OEWS: metro by title match, else state cross-industry
   ph = _j(draft.get("payroll_headcount"))
   rows_q1 = [r for r in (ph.get("rows") or []) if isinstance(r, dict) and int(_f(r.get("quarter_index")) or 0) == 1]
@@ -605,22 +663,22 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
     cat.put("market.top_occupation_title", ABSENT, "text", prov_model("x"), absent_reason="no OEWS-titled roles on the payroll schedule")
     return
   titles.sort(key=lambda x: -x[3])
-  area_label, area_rows = None, {}
+  area_lbl, area_rows = None, {}
   city, st = geo.get("pref_city"), geo.get("state_abbr")
   if city and st:
     cur.execute("SELECT occ_title, a_median, loc_quotient, area_title FROM oews_state_wages WHERE area_type='4' AND i_group='cross-industry' "
                 "AND area_title LIKE %s AND (area_title LIKE %s OR area_title LIKE %s)", ("%" + city + "%", "%, " + st + "%", "%-" + st + "%"))
     for t, m, lq, at in cur.fetchall():
-      area_rows[str(t)] = (_f(m), _f(lq)); area_label = "%s metro" % str(at).split(",")[0].split("-")[0]
+      area_rows[str(t)] = (_f(m), _f(lq)); area_lbl = "%s metro" % str(at).split(",")[0].split("-")[0]
   if not area_rows and st:
     cur.execute("SELECT occ_title, a_median, loc_quotient FROM oews_state_wages WHERE area_type='2' AND prim_state=%s AND naics='000000' AND i_group='cross-industry'", (st,))
     for t, m, lq in cur.fetchall():
       area_rows[str(t)] = (_f(m), _f(lq))
-    area_label = "%s statewide" % geo.get("state_name")
+    area_lbl = "%s statewide" % geo.get("state_name")
   if not area_rows:
     cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no OEWS area rows for this geography")
     return
-  O = lambda what: prov_raw("BLS Occupational Employment and Wage Statistics", "latest loaded release", what + " (%s)" % area_label)
+  O = lambda what: prov_raw("BLS Occupational Employment and Wage Statistics", "latest loaded release", what + " (%s)" % area_lbl)
   done = False
   for t, wage, pos, fte in titles:
     m, lq = area_rows.get(t, (None, None))
@@ -629,15 +687,15 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
       cat.put("market.wage_check_client_wage", wage, "money", prov_model("the annual wage carried for that role"), "Client wage")
       cat.put("market.wage_check_area_median", m, "money", O("median annual wage for %s" % t), "Area median")
       cat.put("market.wage_check_direction", "above" if wage >= m else "below", "text", O("client wage against the area median"), "Direction")
-      cat.put("market.wage_check_area_label", area_label, "text", O("area"), "Area label")
+      cat.put("market.wage_check_area_label", area_lbl, "text", O("area"), "Area label")
       done = True
     if lq and not cat.has("market.top_occupation_loc_quotient"):
       cat.put("market.top_occupation_title", t, "text", O("the largest occupation on the schedule"), "Top occupation")
       cat.put("market.top_occupation_loc_quotient", lq, "multiple", O("location quotient - local employment concentration relative to national, for %s" % t), "Location quotient")
   if not done:
-    cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no payroll title matched an OEWS row in %s" % area_label)
+    cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no payroll title matched an OEWS row in %s" % area_lbl)
   if not cat.has("market.top_occupation_loc_quotient"):
-    cat.put("market.top_occupation_loc_quotient", ABSENT, "multiple", prov_model("x"), absent_reason="no location quotient for any schedule title in %s" % area_label)
+    cat.put("market.top_occupation_loc_quotient", ABSENT, "multiple", prov_model("x"), absent_reason="no location quotient for any schedule title in %s" % area_lbl)
 
 
 # ---------------------------------------------------------------------------
