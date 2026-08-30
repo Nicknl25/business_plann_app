@@ -72,6 +72,28 @@ def create_app() -> Flask:
     # Enable CORS for all routes to support the separate frontend dev server.
     CORS(app)
 
+  # STARTUP ENSURE-PATH (Nick, 2026-08-30). Every lookup table is created AND
+  # seeded here, once, when the app comes up - not on first use. On 2026-08-28
+  # the payroll contract's DB row disagreed with its code for four live reruns
+  # because the ensure ran only inside a snapshot helper nobody called. A
+  # failure here is logged at ERROR and the app still starts; the writing
+  # phase verifies its own table live before running and refuses on mismatch.
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      _ensure_all_post_intake_lookup_tables, get_mysql_connection,
+    )
+    _conn = get_mysql_connection()
+    try:
+      _ensure_all_post_intake_lookup_tables(_conn)
+    finally:
+      try:
+        _conn.close()
+      except Exception:
+        pass
+    app.logger.info("STARTUP lookup tables ensured and seeded")
+  except Exception as _exc:  # noqa: BLE001
+    app.logger.error("STARTUP lookup ensure FAILED: %s: %s", type(_exc).__name__, str(_exc)[:300])
+
   @app.before_request
   def _stamp_request_start():
     g._bplan_req_start = time.monotonic()

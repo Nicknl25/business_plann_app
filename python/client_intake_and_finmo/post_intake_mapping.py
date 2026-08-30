@@ -5278,6 +5278,26 @@ def _ensure_all_post_intake_lookup_tables(conn) -> None:
   _ensure_process_sequence_lookup_table(conn)
   _ensure_process_context_lookup_table(conn)
   _ensure_lookup_snapshot_table(conn)
+  _ensure_writing_phase_tables(conn)
+
+
+def _ensure_writing_phase_tables(conn) -> None:
+  """The writing-phase rule table rides the same ensure-path as every other
+  lookup (Nick, 2026-08-30). It is SEEDED here, not just created: on
+  2026-08-28 the payroll contract row sat inert through four live reruns
+  because its table existed but its seeder had not run. The seed is an upsert
+  keyed on (rule_set_version, rule_id), so repeating it is free."""
+  try:
+    from writing_phase import rule_lookup as _wp_rules  # type: ignore
+  except Exception:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _root = str(_Path(__file__).resolve().parents[1])
+    if _root not in _sys.path:
+      _sys.path.insert(0, _root)
+    from writing_phase import rule_lookup as _wp_rules  # type: ignore
+  _wp_rules.seed_rule_lookup(conn)
+  _wp_rules.ensure_fact_miss_table(conn)
 
 
 def _json_safe_snapshot_value(value: Any) -> Any:

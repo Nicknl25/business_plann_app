@@ -136,7 +136,8 @@ BODY_ALLOWED_NAMESPACES = (NS_ANNUAL, NS_ENTITY, NS_INDUSTRY, NS_MARKET)
 # of their own: the cash trough and break-even. These are the only quarterly
 # keys a body sentence may reference.
 BODY_QUARTERLY_EXCEPTIONS = (
-  "quarterly.cash_trough",
+  "quarterly.cash_trough",          # the quarter
+  "quarterly.cash_trough_amount",   # the cash at that quarter - same exception, same sentence
   "quarterly.break_even",
 )
 

@@ -1,0 +1,663 @@
+"""THE BUILDERS - one per namespace, computed against a REAL draft (2026-08-30).
+
+Python computes; GPT never does (rule 17). Everything here reads the stored
+payloads and the warehouse, and puts Facts into a FactCatalog. Anything that
+cannot be computed for this business is put as ABSENT with a reason, and the
+catalogue drops it.
+
+Geography is resolved from the business ZIP through zip_county_crosswalk
+(state_fips, county_fips) rather than from address_state, which arrives as
+"NC" on one draft and "Minnesota" on the next.
+
+Every computation is guarded: a builder that raises records the failure as an
+ABSENT reason on every key it owns and moves on. A missing fact is a shorter
+section, never a crashed plan.
+"""
+from __future__ import annotations
+
+import json
+import math
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from .catalog import (ABSENT, FactCatalog, prov_baseline, prov_intake, prov_model, prov_raw)
+
+# ---------------------------------------------------------------------------
+# table-level vintages (raw tables carry no per-row provenance - ruling E)
+# ---------------------------------------------------------------------------
+V_ACS = "U.S. Census Bureau, American Community Survey 5-year, 2022, by ZCTA"
+V_CBP = "U.S. Census Bureau, County Business Patterns 2022, state by NAICS"
+V_BDS = "U.S. Census Bureau, Business Dynamics Statistics 1978-2023, national by NAICS-4"
+V_SBA = "U.S. Small Business Administration, 7(a) loan data FY2020-FY2025"
+V_OEWS = "U.S. Bureau of Labor Statistics, Occupational Employment and Wage Statistics"
+
+FIPS_TO_ABBR = {
+  "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA", "08": "CO", "09": "CT", "10": "DE",
+  "11": "DC", "12": "FL", "13": "GA", "15": "HI", "16": "ID", "17": "IL", "18": "IN", "19": "IA",
+  "20": "KS", "21": "KY", "22": "LA", "23": "ME", "24": "MD", "25": "MA", "26": "MI", "27": "MN",
+  "28": "MS", "29": "MO", "30": "MT", "31": "NE", "32": "NV", "33": "NH", "34": "NJ", "35": "NM",
+  "36": "NY", "37": "NC", "38": "ND", "39": "OH", "40": "OK", "41": "OR", "42": "PA", "44": "RI",
+  "45": "SC", "46": "SD", "47": "TN", "48": "TX", "49": "UT", "50": "VT", "51": "VA", "53": "WA",
+  "54": "WV", "55": "WI", "56": "WY", "72": "PR",
+}
+
+# ACS B01001 age bands: sex-by-age columns 003..025 (male) and 027..049 (female)
+_AGE_BANDS = [(0, 4), (5, 9), (10, 14), (15, 17), (18, 19), (20, 20), (21, 21), (22, 24), (25, 29),
+              (30, 34), (35, 39), (40, 44), (45, 49), (50, 54), (55, 59), (60, 61), (62, 64),
+              (65, 66), (67, 69), (70, 74), (75, 79), (80, 84), (85, 120)]
+_AGE_COLS = [("B01001_%03dE" % (3 + i), "B01001_%03dE" % (27 + i)) for i in range(23)]
+# ACS B19001 household income brackets 002..017 (upper edges, thousands)
+_INC_EDGES = [10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 100, 125, 150, 200, 10 ** 9]
+_INC_COLS = ["B19001_%03dE" % (2 + i) for i in range(16)]
+
+
+def _f(v: Any) -> Optional[float]:
+  try:
+    x = float(v)
+    return x if math.isfinite(x) else None
+  except (TypeError, ValueError):
+    return None
+
+
+def _j(v: Any) -> Any:
+  if v is None:
+    return {}
+  if isinstance(v, (dict, list)):
+    return v
+  try:
+    return json.loads(v)
+  except Exception:
+    return {}
+
+
+def _median(xs: Sequence[float]) -> Optional[float]:
+  s = sorted(x for x in xs if x is not None)
+  if not s:
+    return None
+  n = len(s)
+  return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _percentile_rank(xs: Sequence[float], v: float) -> Optional[float]:
+  s = sorted(xs)
+  if not s:
+    return None
+  below = sum(1 for x in s if x < v)
+  return round(100.0 * below / len(s))
+
+
+def _quarters(finmo: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+  out: Dict[int, Dict[str, Any]] = {}
+  for r in finmo.get("quarter_rows") or []:
+    qi = _f(r.get("quarter_index"))
+    if qi is not None:
+      out[int(qi)] = r
+  return out
+
+
+def _ysum(q: Dict[int, Dict[str, Any]], key: str, year: int) -> Optional[float]:
+  vals = [_f(q.get(i, {}).get(key)) for i in range(4 * year - 3, 4 * year + 1)]
+  if any(v is None for v in vals) or len(vals) != 4:
+    return None
+  return float(sum(vals))
+
+
+def _yend(q: Dict[int, Dict[str, Any]], key: str, year: int) -> Optional[float]:
+  return _f(q.get(4 * year, {}).get(key))
+
+
+def _opcost_q(row: Dict[str, Any]) -> Optional[float]:
+  parts = [_f(row.get(k)) for k in ("cogs", "marketing", "lease_rent", "payroll", "g_and_a")]
+  if any(p is None for p in parts):
+    return None
+  return float(sum(parts))
+
+
+# ---------------------------------------------------------------------------
+# GEOGRAPHY
+# ---------------------------------------------------------------------------
+def resolve_geography(cur, zip5: str) -> Dict[str, Any]:
+  cur.execute("SELECT state_fips, county_fips, zpop_pct FROM zip_county_crosswalk "
+              "WHERE zcta=%s ORDER BY zpop_pct DESC LIMIT 1", (zip5,))
+  r = cur.fetchone()
+  if not r:
+    return {}
+  state_fips, county_fips = str(r[0]).zfill(2), str(r[1]).zfill(3)
+  cur.execute("SELECT DISTINCT state_name FROM cbp_2022_raw WHERE state_fips=%s LIMIT 1", (state_fips,))
+  s = cur.fetchone()
+  cur.execute("SELECT cbsa, usps_zip_pref_city FROM hud_zip_cbsa_092025 WHERE zip=%s "
+              "ORDER BY res_ratio DESC LIMIT 1", (zip5,))
+  h = cur.fetchone()
+  return {
+    "zip": zip5, "state_fips": state_fips, "county_fips": county_fips,
+    "state_abbr": FIPS_TO_ABBR.get(state_fips), "state_name": s[0] if s else None,
+    "cbsa": str(int(float(h[0]))) if h and h[0] is not None else None,
+    "pref_city": (str(h[1]).strip().title() if h and h[1] else None),
+  }
+
+
+# ---------------------------------------------------------------------------
+# ENTITY
+# ---------------------------------------------------------------------------
+def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, Any]) -> Dict[str, Any]:
+  om, fin, tm = _j(draft.get("operating_model_json")), _j(draft.get("financials_json")), _j(draft.get("target_market_json"))
+  finmo = _j(draft.get("finmo_json"))
+  name = str(draft.get("business_name") or "").strip()
+  cat.put("entity.business_name", name or ABSENT, "text", prov_intake("business name"), "Business name")
+  naics6 = str(om.get("business_naics_6") or "").strip()
+  ctx: Dict[str, Any] = {"naics6": naics6, "geo": geo}
+  if naics6:
+    cur.execute("SELECT naics_title FROM naics_master WHERE naics_code=%s LIMIT 1", (naics6,))
+    r = cur.fetchone()
+    cat.put("entity.naics_title", (r[0] if r else ABSENT), "text",
+            prov_intake("industry classification NAICS %s" % naics6), "Industry title")
+  else:
+    cat.put("entity.naics_title", ABSENT, "text", prov_intake("x"), absent_reason="no NAICS on draft")
+  cat.put("entity.state_name", geo.get("state_name") or ABSENT, "text",
+          prov_intake("business address"), "State", absent_reason="ZIP not in crosswalk")
+  # years operating
+  sd = str(draft.get("business_start_date") or om.get("business_start_date") or "")
+  yrs = ABSENT
+  try:
+    import datetime as _dt
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+      try:
+        d0 = _dt.datetime.strptime(sd[:10], fmt)
+        yrs = max(1, int((_dt.datetime.now() - d0).days // 365) + 1)
+        break
+      except ValueError:
+        continue
+  except Exception:
+    pass
+  cat.put("entity.years_operating", yrs, "count", prov_intake("business start date"), "Years operating",
+          absent_reason="no parseable start date")
+  cat.put("entity.stated_current_revenue", _f(fin.get("current_revenue")) or ABSENT, "money",
+          prov_intake("current annual revenue"), "Stated revenue", absent_reason="not stated")
+  # funding request = new borrowing in the projections' first year
+  q = _quarters(finmo)
+  ask = _ysum(q, "debt_issuance", 1)
+  cat.put("entity.funding_request", (ask if ask and ask > 0 else ABSENT), "money",
+          prov_model("new borrowing in Year 1"), "Funding request",
+          absent_reason="no new borrowing in the projections")
+  ctx["funding_request"] = ask if ask and ask > 0 else None
+  # target-market intents (consumer)
+  ii = (tm.get("income_intent") or [{}])[0] if isinstance(tm.get("income_intent"), list) else {}
+  floor = _f((ii or {}).get("income_min"))
+  cat.put("entity.target_income_floor", (floor if floor and floor > 0 else ABSENT), "money",
+          prov_intake("target customer income"), "Target income floor",
+          absent_reason="no consumer income target stated")
+  ctx["income_floor"] = floor if floor and floor > 0 else None
+  ga = (tm.get("gender_age_intent") or [{}])[0] if isinstance(tm.get("gender_age_intent"), list) else {}
+  amin, amax = _f((ga or {}).get("age_min")), _f((ga or {}).get("age_max"))
+  if amin is not None and amax is not None and amax >= amin:
+    cat.put("entity.target_age_band", "%d to %d" % (amin, amax), "text",
+            prov_intake("target customer age range"), "Target age band")
+    ctx["age_band"] = (amin, amax)
+  else:
+    cat.put("entity.target_age_band", ABSENT, "text", prov_intake("x"), absent_reason="no consumer age target stated")
+  ctx["b2b_naics"] = [str(x) for x in (tm.get("b2b_naics_6") or []) if x]
+  return ctx
+
+
+# ---------------------------------------------------------------------------
+# ANNUAL (finmo) + QUARTERLY exceptions
+# ---------------------------------------------------------------------------
+def build_annual(cat: FactCatalog, draft: Dict[str, Any], ctx: Dict[str, Any]) -> None:
+  finmo, mi, fin = _j(draft.get("finmo_json")), _j(draft.get("model_input_json")), _j(draft.get("financials_json"))
+  ph = _j(draft.get("payroll_headcount"))
+  q = _quarters(finmo)
+  if len([i for i in q if 1 <= i <= 20]) < 20:
+    for k in ("annual.revenue_y1",):
+      cat.put(k, ABSENT, "money", prov_model("x"), absent_reason="finmo_json lacks 20 quarters")
+    return
+  P = prov_model
+  rev = {y: _ysum(q, "revenue", y) for y in range(1, 6)}
+  cogs = {y: _ysum(q, "cogs", y) for y in range(1, 6)}
+  ni = {y: _ysum(q, "net_income", y) for y in range(1, 6)}
+  ebitda = {y: _ysum(q, "ebitda", y) for y in range(1, 6)}
+  dep = {y: _ysum(q, "depreciation", y) for y in range(1, 6)}
+  intr = {y: _ysum(q, "interest", y) for y in range(1, 6)}
+  pay = {y: _ysum(q, "payroll", y) for y in range(1, 6)}
+  rent = {y: _ysum(q, "lease_rent", y) for y in range(1, 6)}
+  capex = {y: _ysum(q, "capital_expenditures", y) for y in range(1, 6)}
+  for y in range(1, 6):
+    cat.put("annual.revenue_y%d" % y, rev[y] or ABSENT, "money", P("Year %d revenue" % y), "Revenue Y%d" % y)
+    cat.put("annual.net_income_y%d" % y, (ni[y] if ni[y] is not None else ABSENT), "money", P("Year %d net income" % y), "Net income Y%d" % y)
+    cat.put("annual.payroll_y%d" % y, pay[y] or ABSENT, "money", P("Year %d payroll" % y), "Payroll Y%d" % y)
+    cat.put("annual.capex_y%d" % y, (capex[y] if capex[y] is not None else ABSENT), "money", P("Year %d capital expenditure" % y), "CapEx Y%d" % y)
+    if rev[y] and rev[y] > 0:
+      gm = (rev[y] - (cogs[y] or 0)) / rev[y]
+      om = ((ebitda[y] or 0) - (dep[y] or 0)) / rev[y]
+      nm = (ni[y] or 0) / rev[y]
+      cat.put("annual.gross_margin_y%d" % y, gm, "percent", P("Year %d gross profit over revenue" % y), "Gross margin Y%d" % y)
+      cat.put("annual.operating_margin_y%d" % y, om, "percent", P("Year %d EBITDA less depreciation, over revenue" % y), "Operating margin Y%d" % y)
+      cat.put("annual.net_margin_y%d" % y, nm, "percent", P("Year %d net income over revenue" % y), "Net margin Y%d" % y)
+      cat.put("annual.payroll_pct_revenue_y%d" % y, (pay[y] or 0) / rev[y], "percent", P("Year %d payroll over revenue" % y), "Payroll %% of revenue Y%d" % y)
+      cat.put("annual.rent_pct_revenue_y%d" % y, (rent[y] or 0) / rev[y], "percent", P("Year %d rent over revenue" % y), "Rent %% of revenue Y%d" % y)
+    # DSCR: cash available for debt service over debt service
+    ds = sum(x or 0 for x in (_ysum(q, "debt_repayment", y), intr[y], _ysum(q, "lease_principal_repayments", y), _ysum(q, "lease_interest_expense", y)))
+    cads = (ni[y] or 0) + (dep[y] or 0) + (intr[y] or 0) + (_ysum(q, "lease_interest_expense", y) or 0)
+    cat.put("annual.dscr_y%d" % y, (cads / ds if ds > 0 else ABSENT), "multiple",
+            P("Year %d net income plus depreciation and interest, over debt and lease service" % y),
+            "DSCR Y%d" % y, absent_reason="no debt service in Year %d" % y)
+  if rev[1] and rev[5] and rev[1] > 0 and rev[5] > 0:
+    cat.put("annual.revenue_cagr_y1_y5", (rev[5] / rev[1]) ** 0.25 - 1.0, "percent", P("compound annual growth, Year 1 to Year 5"), "Revenue CAGR")
+  cat.put("annual.capex_total_y1_y5", (sum(capex[y] or 0 for y in range(1, 6)) if any(capex[y] for y in range(1, 6)) else ABSENT),
+          "money", P("capital expenditure summed over five years"), "Total CapEx", absent_reason="no capital expenditure in the plan")
+  # gap vs stated
+  stated = _f(fin.get("current_revenue"))
+  if stated and stated > 0 and rev[1]:
+    d = rev[1] / stated - 1.0
+    cat.put("annual.revenue_y1_vs_stated", ("%s above" % _fmt_pct_word(d)) if d >= 0 else ("%s below" % _fmt_pct_word(-d)),
+            "text", P("Year-1 revenue against the revenue stated at intake"), "Y1 vs stated")
+  # first profitable year, debt retired year
+  fp = next((y for y in range(1, 6) if ni[y] is not None and ni[y] > 0), None)
+  cat.put("annual.first_profitable_year", fp or ABSENT, "year", P("first year with positive net income"), "First profitable year",
+          absent_reason="no profitable year in the plan")
+  ob = _f(q.get(1, {}).get("debt_opening_balance"))
+  ret = next((y for y in range(1, 6) if (_yend(q, "debt_closing_balance", y) or 0) <= 0.5), None)
+  cat.put("annual.debt_retired_year", (ret if (ob and ob > 0 and ret) else ABSENT), "year", P("first year-end with no debt outstanding"),
+          "Debt retired", absent_reason="no opening debt, or not retired within the plan")
+  # cash Y5 and months of costs
+  cash5 = _yend(q, "ending_cash", 5)
+  oc5 = _opcost_q(q.get(20, {}))
+  cat.put("annual.cash_y5", (cash5 if cash5 is not None else ABSENT), "money", P("Year-5 ending cash"), "Cash Y5")
+  cat.put("annual.cash_months_of_costs_y5", (cash5 / (oc5 / 3.0) if (cash5 is not None and oc5 and oc5 > 0) else ABSENT),
+          "months", P("Year-5 ending cash over one month of Year-5 operating costs"), "Cash cover Y5",
+          absent_reason="no operating costs in Q20")
+  # owner's capital vs assets
+  oc = _yend(q, "owners_capital", 1); ta = _yend(q, "total_assets", 1)
+  cat.put("annual.owners_capital_y1", (oc if oc else ABSENT), "money", P("owner's capital at Year-1 end"), "Owner's capital Y1", absent_reason="no owner's capital")
+  cat.put("annual.owners_capital_pct_assets_y1", (oc / ta if (oc and ta and ta > 0) else ABSENT), "percent", P("owner's capital over total assets, Year-1 end"), "Owner's capital % assets")
+  # headcount
+  qt = {int(_f(t.get("quarter_index")) or 0): t for t in (ph.get("quarter_totals") or []) if isinstance(t, dict)}
+  for y in (1, 5):
+    hc = _f(qt.get(4 * y, {}).get("ending_fte"))
+    cat.put("annual.headcount_y%d" % y, (hc if hc is not None else ABSENT), "count", P("full-time-equivalent headcount at Year-%d end" % y), "Headcount Y%d" % y,
+            absent_reason="no payroll schedule")
+  hc1 = _f(qt.get(4, {}).get("ending_fte"))
+  cat.put("annual.revenue_per_fte_y1", (rev[1] / hc1 if (rev[1] and hc1 and hc1 > 0) else ABSENT), "money", P("Year-1 revenue over Year-1 headcount"), "Revenue per FTE Y1",
+          absent_reason="no headcount")
+  # cash trough (quarterly exceptions)
+  trough_q = min((i for i in range(1, 21) if _f(q[i].get("ending_cash")) is not None), key=lambda i: _f(q[i]["ending_cash"]), default=None)
+  if trough_q is not None:
+    tc = _f(q[trough_q]["ending_cash"]); oc_t = _opcost_q(q[trough_q])
+    cat.put("quarterly.cash_trough", trough_q, "quarter_label", P("the quarter in which projected cash is lowest"), "Cash trough quarter")
+    cat.put("quarterly.cash_trough_amount", tc, "money", P("projected cash at its lowest quarter"), "Cash trough amount")
+    cat.put("annual.cash_trough_months_of_costs", (tc / (oc_t / 3.0) if (oc_t and oc_t > 0 and tc is not None) else ABSENT), "months",
+            P("cash at the trough over one month of that quarter's operating costs"), "Months of cover at trough")
+  # break-even
+  be = (finmo.get("break_even") or {}).get("summary") or {}
+  beq = _f(be.get("first_ebitda_positive_quarter"))
+  cat.put("quarterly.break_even", (int(beq) if beq and 1 <= beq <= 20 else ABSENT), "quarter_label",
+          P("the first quarter in which operating earnings cover fixed costs"), "Break-even quarter",
+          absent_reason="no break-even quarter within the plan")
+  # per-line contribution (from the revenue drivers, scaled per line's cadence)
+  _build_lob_contribution(cat, mi, _j(draft.get("operating_model_json")), rev[1], cogs[1])
+  # utilisation on the top line: filled inside _build_lob_contribution
+
+
+def _fmt_pct_word(d: float) -> str:
+  p = d * 100.0
+  return ("%d%%" % round(p)) if abs(p - round(p)) < 0.05 else ("%.1f%%" % p)
+
+
+def _build_lob_contribution(cat: FactCatalog, mi: Dict[str, Any], om: Dict[str, Any],
+                            rev_y1: Optional[float], cogs_y1: Optional[float]) -> None:
+  rows = ((mi.get("sections") or {}).get("revenue") or [])
+  periods = {}
+  for lm in om.get("lob_models") or []:
+    for p in lm.get("products") or []:
+      ppy = _f(p.get("operating_periods_per_year"))
+      if ppy:
+        periods[str(lm.get("lob_name"))] = ppy
+  # Keyed by PRODUCT (the lever_id prefix "revenue::<lob>::<product>"), not by
+  # lob: a line with two products carries two Capacity rows under one lob
+  # label, and keying by lob silently kept only the last - which is exactly
+  # what the 5% gate caught on Bluestem, Understory and Harrow Lane.
+  by_prod: Dict[str, Dict[str, List[float]]] = {}
+  prod_lob: Dict[str, str] = {}
+  for r in rows:
+    lob, drv = str(r.get("lob") or ""), str(r.get("driver") or "")
+    lever = str(r.get("lever_id") or "")
+    prod = lever.rsplit("::", 1)[0] if "::" in lever else lob
+    vals = [(_f(v) or 0.0) for v in (r.get("values") or [])]
+    if lob and drv:
+      by_prod.setdefault(prod, {})[drv] = vals
+      prod_lob[prod] = lob
+  by_lob: Dict[str, Dict[str, List[float]]] = {}
+  for prod, d in by_prod.items():
+    lob = prod_lob[prod]
+    cap, price, util, cg = d.get("Capacity"), d.get("Unit Price"), d.get("Utilization"), d.get("COGS %")
+    if not (cap and price and util):
+      continue
+    n = min(len(cap), len(price), len(util))
+    rev = [cap[i] * price[i] * util[i] for i in range(n)]
+    gp = [rev[i] * (1.0 - (cg[i] if cg and i < len(cg) else 0.0)) for i in range(n)]
+    acc = by_lob.setdefault(lob, {"_rev": [0.0] * n, "_gp": [0.0] * n, "_util_w": [0.0] * n})
+    for i in range(min(n, len(acc["_rev"]))):
+      acc["_rev"][i] += rev[i]; acc["_gp"][i] += gp[i]; acc["_util_w"][i] += util[i] * rev[i]
+  if not by_lob or not rev_y1:
+    cat.put("annual.top_lob_name", ABSENT, "text", prov_model("x"), absent_reason="no revenue drivers")
+    return
+  # Capacity in the revenue section is PER QUARTER already (measured: the
+  # product sums reproduce finmo Q1 revenue to the cent on 7 of 10 drafts and
+  # the other 3 were the keying bug above), so no cadence scaling is applied.
+  lob_rev: Dict[str, float] = {}; lob_gp: Dict[str, float] = {}; lob_util: Dict[str, Tuple[float, float]] = {}
+  for lob, acc in by_lob.items():
+    q_rev, q_gp, uw = acc["_rev"], acc["_gp"], acc["_util_w"]
+    lob_rev[lob] = sum(q_rev[1:5]); lob_gp[lob] = sum(q_gp[1:5])
+    if len(q_rev) >= 21:
+      r1, r5 = sum(q_rev[1:5]), sum(q_rev[17:21])
+      if r1 > 0 and r5 > 0:
+        lob_util[lob] = (sum(uw[1:5]) / r1, sum(uw[17:21]) / r5)   # revenue-weighted utilisation
+  tot = sum(lob_rev.values()); tgp = sum(lob_gp.values())
+  # honesty gate: the driver arithmetic must reproduce the model's Year-1 revenue
+  if not tot or abs(tot - rev_y1) / rev_y1 > 0.05:
+    cat.put("annual.top_lob_name", ABSENT, "text", prov_model("x"),
+            absent_reason="driver arithmetic does not reproduce Year-1 revenue (%.0f vs %.0f)" % (tot or 0, rev_y1))
+    return
+  top = max(lob_rev, key=lob_rev.get)
+  cat.put("annual.top_lob_name", top, "text", prov_model("the line with the largest Year-1 revenue"), "Top line")
+  cat.put("annual.top_lob_revenue_share_y1", lob_rev[top] / tot, "percent", prov_model("that line's share of Year-1 revenue"), "Top line revenue share")
+  cat.put("annual.top_lob_gross_profit_share_y1", (lob_gp[top] / tgp if tgp > 0 else ABSENT), "percent", prov_model("that line's share of Year-1 gross profit"), "Top line GP share")
+  cat.put("annual.lob_count", len(lob_rev), "count", prov_model("number of revenue lines"), "Lines of business")
+  if top in lob_util:
+    cat.put("annual.top_lob_utilization_y1", lob_util[top][0], "percent", prov_model("Year-1 average utilisation on the top line"), "Top line util Y1")
+    cat.put("annual.top_lob_utilization_y5", lob_util[top][1], "percent", prov_model("Year-5 average utilisation on the top line"), "Top line util Y5")
+
+
+# ---------------------------------------------------------------------------
+# INDUSTRY - baseline lookup (SOURCE), BDS, SBA
+# ---------------------------------------------------------------------------
+_BENCH = {
+  "industry.gross_margin_benchmark": ("gross_margin_percent", "percent"),
+  "industry.operating_margin_benchmark": ("operating_margin_percent", "percent"),
+  "industry.net_margin_benchmark": ("net_income_margin", "percent"),
+  "industry.revenue_per_fte_benchmark": ("revenue_per_fte", "money"),
+  "industry.payroll_pct_benchmark": ("payroll_percent_of_revenue", "percent"),
+  "industry.rent_pct_benchmark": ("rent_percent_of_revenue", "percent"),
+  "industry.emp_per_establishment_national": ("employees_per_establishment", "count"),
+}
+
+
+def _baseline(cur, naics6: str, metric_key: str) -> Optional[Dict[str, Any]]:
+  for code in (naics6, naics6[:5], naics6[:4], naics6[:3], naics6[:2]):
+    cur.execute("SELECT benchmark_target, data_source, source_year, metric_label, naics_level, sample_size, confidence_tier "
+                "FROM post_intake_industry_baseline_lookup WHERE active=1 AND naics_code=%s AND metric_key=%s "
+                "ORDER BY FIELD(confidence_tier,'high','medium','low','generic_default') LIMIT 1", (code, metric_key))
+    r = cur.fetchone()
+    if r and r[0] is not None:
+      return {"value": _f(r[0]), "source": r[1], "year": r[2], "label": r[3], "level": r[4], "n": r[5], "tier": r[6]}
+  return None
+
+
+def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
+  n6 = ctx.get("naics6") or ""
+  if not n6:
+    return
+  # --- baseline lookup: the only SOURCE path
+  for key, (mk, fmt) in _BENCH.items():
+    b = _baseline(cur, n6, mk)
+    if b and b["value"] is not None and str(b.get("tier")) != "generic_default":
+      cat.put(key, b["value"], fmt, prov_baseline(str(b["source"]), b["year"], str(b["label"] or mk), b["level"], b["n"]), b["label"] or mk)
+    else:
+      cat.put(key, ABSENT, fmt, prov_model("x"), absent_reason="no non-generic benchmark for %s at any NAICS level" % mk)
+  # --- gaps in points (client vs benchmark) for the margins present
+  for m in ("gross", "operating", "net"):
+    c = cat.get_quiet("annual.%s_margin_y1" % m); b = cat.get_quiet("industry.%s_margin_benchmark" % m)
+    if c is not None and b is not None:
+      gap = c.value - b.value
+      cat.put("annual.%s_margin_gap_pts_y1" % m, abs(gap), "points", prov_model("Year-1 %s margin less the industry benchmark" % m), "%s margin gap" % m)
+      cat.put("annual.%s_margin_gap_direction_y1" % m, "above" if gap >= 0 else "below", "text", prov_model("sign of that gap"), "gap direction")
+  # --- payroll-per-establishment national (CBP US row)
+  cur.execute("SELECT SUM(pay_ann), SUM(estab) FROM cbp_2022_raw WHERE naics=%s", (n6,))
+  r = cur.fetchone()
+  if r and r[0] and r[1]:
+    cat.put("industry.payroll_per_establishment_national", float(r[0]) * 1000.0 / float(r[1]), "money",
+            prov_raw("County Business Patterns", "2022", "annual payroll over establishments, all states, NAICS %s" % n6), "Payroll/estab national")
+  else:
+    cat.put("industry.payroll_per_establishment_national", ABSENT, "money", prov_model("x"), absent_reason="CBP has no rows for NAICS %s" % n6)
+  # --- BDS by NAICS-4, latest year
+  n4 = n6[:4]
+  cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4=%s", (n4,))
+  yr = cur.fetchone()[0]
+  if yr:
+    cur.execute("SELECT firm_age_bucket, firms, estabs, emp, estabs_entry_rate, estabs_exit_rate, net_job_creation_rate, firmdeath_firms "
+                "FROM bds_firm_age WHERE vcnaics4=%s AND year=%s", (n4, yr))
+    rows = {str(x[0]): x for x in cur.fetchall()}
+    tot_emp = sum(_f(x[3]) or 0 for x in rows.values())
+    tot_est = sum(_f(x[2]) or 0 for x in rows.values())
+    def wavg(idx):
+      num = sum((_f(x[idx]) or 0) * (_f(x[2]) or 0) for x in rows.values()); return num / tot_est if tot_est else None
+    entry, exit_, njc = wavg(4), wavg(5), None
+    num = sum((_f(x[6]) or 0) * (_f(x[3]) or 0) for x in rows.values()); njc = num / tot_emp if tot_emp else None
+    V = "%s, %d" % ("Business Dynamics Statistics", int(yr))
+    cat.put("industry.bds_year", int(yr), "text", prov_raw("Business Dynamics Statistics", str(yr), "reference year"), "BDS year")
+    cat.put("industry.establishment_entry_rate", (entry / 100.0 if entry is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment entry rate, NAICS %s" % n4), "Entry rate")
+    cat.put("industry.establishment_exit_rate", (exit_ / 100.0 if exit_ is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment exit rate, NAICS %s" % n4), "Exit rate")
+    cat.put("industry.net_job_creation_rate", (njc / 100.0 if njc is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "net job creation rate, NAICS %s" % n4), "Net job creation")
+    cat.put("industry.employment_direction", ("growing" if njc is not None and njc >= 0 else ("contracting" if njc is not None else ABSENT)), "text", prov_raw("Business Dynamics Statistics", str(yr), "sign of net job creation"), "Direction")
+    y1 = rows.get("b) 1")
+    cat.put("industry.first_year_exit_rate", (_f(y1[5]) / 100.0 if y1 and _f(y1[5]) is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "exit rate of one-year-old establishments, NAICS %s" % n4), "First-year exit rate")
+    young = sum(_f(rows[k][3]) or 0 for k in ("a) 0", "b) 1", "c) 2", "d) 3", "e) 4") if k in rows)
+    cat.put("industry.young_firm_employment_share", (young / tot_emp if tot_emp else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "employment at firms under five years old over sector employment, NAICS %s" % n4), "Young-firm employment share")
+    # five-year survival: firms aged 5 in year Y over firms aged 0 in year Y-5
+    cur.execute("SELECT firms FROM bds_firm_age WHERE vcnaics4=%s AND year=%s AND firm_age_bucket='a) 0'", (n4, int(yr) - 5))
+    born = cur.fetchone(); five = rows.get("f) 5")
+    if born and _f(born[0]) and five and _f(five[1]) is not None:
+      cat.put("industry.five_year_survival_rate", _f(five[1]) / _f(born[0]), "percent", prov_raw("Business Dynamics Statistics", "%d-%d" % (int(yr) - 5, int(yr)), "firms aged five in %d over firms born in %d, NAICS %s" % (int(yr), int(yr) - 5, n4)), "Five-year survival")
+    else:
+      cat.put("industry.five_year_survival_rate", ABSENT, "percent", prov_model("x"), absent_reason="BDS cohort %d missing for NAICS %s" % (int(yr) - 5, n4))
+  else:
+    for k in ("industry.establishment_entry_rate", "industry.five_year_survival_rate", "industry.net_job_creation_rate"):
+      cat.put(k, ABSENT, "percent", prov_model("x"), absent_reason="BDS has no rows for NAICS-4 %s" % n4)
+  # firm size share under 10 (national, BDS firm_size latest year)
+  cur.execute("SELECT MAX(year) FROM bds_firm_size WHERE vcnaics4=%s", (n4,))
+  ys = cur.fetchone()[0]
+  if ys:
+    cur.execute("SELECT firm_size_bucket, firms FROM bds_firm_size WHERE vcnaics4=%s AND year=%s", (n4, ys))
+    fs = {str(a): (_f(b) or 0) for a, b in cur.fetchall()}
+    tot = sum(fs.values())
+    under10 = fs.get("a) 1 to 4", 0) + fs.get("b) 5 to 9", 0)
+    cat.put("industry.share_firms_under_10_employees", (under10 / tot if tot else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(ys), "firms with 1-9 employees over all firms, NAICS %s, national" % n4), "Share of firms under 10 employees")
+  # --- SBA 7(a) comparables
+  st = (ctx.get("geo") or {}).get("state_abbr")
+  scope, rows = None, []
+  for label, sql, params in (
+    ("%s businesses in %s" % (n6, st), "NAICSCode=%s AND BorrState=%s", (n6, st)),
+    ("%s businesses nationally" % n6, "NAICSCode=%s", (n6,)),
+    ("NAICS-%s businesses nationally" % n4, "LEFT(NAICSCode,4)=%s", (n4,)),
+  ):
+    if params and any(p is None for p in params):
+      continue
+    cur.execute("SELECT GrossApproval, InitialInterestRate, TermInMonths, LoanStatus FROM sba_loan_7a_raw WHERE %s AND LoanStatus<>'CANCLD'" % sql, params)
+    rows = cur.fetchall()
+    if len(rows) >= 10:
+      scope = label; break
+  if scope and rows:
+    amts = [_f(r[0]) for r in rows if _f(r[0])]
+    rates = [_f(r[1]) for r in rows if _f(r[1]) and _f(r[1]) > 0]
+    terms = [_f(r[2]) for r in rows if _f(r[2]) and _f(r[2]) > 0]
+    cho = sum(1 for r in rows if str(r[3]) == "CHGOFF")
+    B = lambda what: prov_raw("SBA 7(a) loan data", "FY2020-FY2025", what + " (%s)" % scope)
+    cat.put("industry.sba_scope_label", scope.replace(n6 + " businesses", (cat.get_quiet("entity.naics_title").value if cat.get_quiet("entity.naics_title") else "comparable") + " businesses"), "text", B("comparable-loan scope"), "SBA scope")
+    cat.put("industry.sba_loan_count", len(rows), "count", B("approved loans, cancellations excluded"), "SBA loan count")
+    # even the window start is a fact, not a template literal (rule 17 at the template level)
+    cat.put("industry.sba_window_start", "fiscal 2020", "text", B("first fiscal year in the loaded 7(a) data"), "SBA window start")
+    cat.put("industry.sba_median_amount", _median(amts) or ABSENT, "money", B("median gross approval"), "SBA median amount")
+    cat.put("industry.sba_median_rate", (_median(rates) / 100.0 if rates else ABSENT), "percent", B("median initial interest rate"), "SBA median rate")
+    cat.put("industry.sba_median_term_months", (_median(terms) if terms else ABSENT), "months", B("median term"), "SBA median term")
+    cat.put("industry.sba_chargeoff_rate", cho / len(rows), "percent", B("charged-off loans over approved loans"), "SBA charge-off rate")
+    ask = ctx.get("funding_request")
+    pr = _percentile_rank(amts, ask) if ask else None
+    cat.put("industry.sba_ask_percentile", (_ordinal(pr) if pr is not None else ABSENT), "text", B("percentile of the request among comparable gross approvals"), "Ask percentile",
+            absent_reason="no funding request in the projections")
+  else:
+    for k in ("industry.sba_loan_count", "industry.sba_median_amount", "industry.sba_chargeoff_rate", "industry.sba_ask_percentile"):
+      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="fewer than 10 SBA loans at any scope for NAICS %s" % n6)
+
+
+def _ordinal(n: float) -> str:
+  n = int(n)
+  return "%d%s" % (n, "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+
+
+# ---------------------------------------------------------------------------
+# MARKET - CBP state, ACS trade area, OEWS
+# ---------------------------------------------------------------------------
+def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, Any]) -> None:
+  geo = ctx.get("geo") or {}; n6 = ctx.get("naics6") or ""
+  sf, cf = geo.get("state_fips"), geo.get("county_fips")
+  if not sf:
+    return
+  # --- state population & households (ACS summed over the state's ZCTAs)
+  cur.execute("SELECT SUM(a.B01001_001E), SUM(a.B11001_001E), SUM(a.B19013_001E*a.B11001_001E)/NULLIF(SUM(a.B11001_001E),0) "
+              "FROM acs_zip_2022_part1 a JOIN (SELECT DISTINCT zcta FROM zip_county_crosswalk WHERE state_fips=%s) x ON x.zcta=a.zcta", (sf,))
+  sp, sh, s_inc = [(_f(v)) for v in cur.fetchone()]
+  # --- CBP state row for the NAICS
+  cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw WHERE state_fips=%s AND naics=%s LIMIT 1", (sf, n6))
+  r = cur.fetchone()
+  if r and _f(r[0]):
+    est, emp, pay = _f(r[0]), _f(r[1]), _f(r[2])
+    C = lambda what: prov_raw("County Business Patterns", "2022", what + ", %s, NAICS %s" % (geo.get("state_name"), n6))
+    cat.put("market.state_establishments", est, "count", C("establishments"), "State establishments")
+    cat.put("market.residents_per_establishment_state", (sp / est if sp else ABSENT), "count", C("state residents over establishments"), "Residents per establishment")
+    cat.put("market.client_share_of_state_establishments", 1.0 / est, "percent", C("one establishment over the state count"), "Client share")
+    cat.put("market.emp_per_establishment_state", (emp / est if emp else ABSENT), "ratio", C("employment over establishments"), "Emp per estab")
+    cat.put("market.payroll_per_establishment_state", (pay * 1000.0 / est if pay else ABSENT), "money", C("annual payroll over establishments"), "Payroll per estab")
+    cat.put("market.households_per_establishment_state", (sh / est if sh else ABSENT), "count", C("state households over establishments"), "Households per estab")
+  else:
+    for k in ("market.state_establishments", "market.residents_per_establishment_state", "market.client_share_of_state_establishments",
+              "market.emp_per_establishment_state", "market.payroll_per_establishment_state", "market.households_per_establishment_state"):
+      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="CBP has no state row for NAICS %s" % n6)
+  # --- B2B target establishments statewide
+  b2b = ctx.get("b2b_naics") or []
+  if b2b:
+    cur.execute("SELECT SUM(estab) FROM cbp_2022_raw WHERE state_fips=%s AND naics IN (%s)" % ("%s", ",".join(["%s"] * len(b2b))), [sf] + b2b)
+    v = _f(cur.fetchone()[0])
+    cat.put("market.b2b_target_establishments_state", (v if v else ABSENT), "count", prov_raw("County Business Patterns", "2022", "establishments in the client's target industries, statewide"), "B2B target estabs",
+            absent_reason="CBP has no rows for the target NAICS codes")
+  else:
+    cat.put("market.b2b_target_establishments_state", ABSENT, "count", prov_model("x"), absent_reason="not a B2B business")
+  # --- trade area = county of the business ZIP, ZCTA pop-share weighted
+  if cf:
+    cur.execute("SELECT a.*, x.zpop_pct FROM acs_zip_2022_part1 a JOIN zip_county_crosswalk x ON x.zcta=a.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
+    cols = [d[0] for d in cur.description]; rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    cur.execute("SELECT b.*, x.zpop_pct FROM acs_zip_2022_part2 b JOIN zip_county_crosswalk x ON x.zcta=b.zcta WHERE x.state_fips=%s AND x.county_fips=%s", (sf, cf))
+    cols2 = [d[0] for d in cur.description]; rows2 = [dict(zip(cols2, r)) for r in cur.fetchall()]
+    def wsum(rs, col):
+      return sum((_f(r.get(col)) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rs)
+    pop, hh = wsum(rows, "B01001_001E"), wsum(rows, "B11001_001E")
+    inc_num = sum((_f(r.get("B19013_001E")) or 0) * (_f(r.get("B11001_001E")) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rows)
+    A = lambda what: prov_raw("American Community Survey 5-year", "2022", what + " for the county containing ZIP %s, ZCTA population-weighted" % geo.get("zip"))
+    cat.put("market.trade_area_name", ("the %s area" % geo["pref_city"]) if geo.get("pref_city") else ABSENT, "text", A("trade area label"), "Trade area")
+    cat.put("market.trade_area_population", (pop if pop else ABSENT), "count", A("population"), "Trade-area population")
+    cat.put("market.trade_area_households", (hh if hh else ABSENT), "count", A("households"), "Trade-area households")
+    med = inc_num / hh if hh else None
+    cat.put("market.trade_area_median_hh_income", (med if med else ABSENT), "money", A("household-weighted median household income"), "Trade-area median income")
+    if med and s_inc:
+      cat.put("market.trade_area_income_vs_state", "above" if med >= s_inc else "below", "text", A("trade-area median against the state median"), "Income vs state")
+    adults = wsum(rows, "B15003_017E") + wsum(rows, "B15003_022E") + wsum(rows, "B15003_023E") + wsum(rows, "B15003_025E")
+    bach = wsum(rows, "B15003_022E") + wsum(rows, "B15003_023E") + wsum(rows, "B15003_025E")
+    # B15003_017E is high-school; _022/_023/_025 bachelor's/master's/doctorate. Denominator = the four we hold (not all adults).
+    cat.put("market.trade_area_bachelors_or_higher_share", (bach / adults if adults else ABSENT), "percent",
+            A("bachelor's, master's and doctoral holders over the education attainment counts held"), "Bachelor's or higher")
+    hv_num = sum((_f(r.get("B25077_001E")) or 0) * (_f(r.get("B25001_001E")) or 0) * ((_f(r.get("zpop_pct")) or 0) / 100.0) for r in rows)
+    hu = wsum(rows, "B25001_001E")
+    cat.put("market.trade_area_median_home_value", (hv_num / hu if hu else ABSENT), "money", A("housing-unit-weighted median home value"), "Median home value")
+    # income band
+    floor = ctx.get("income_floor")
+    if floor and hh:
+      share = 0.0; lo = 0.0
+      for col, edge in zip(_INC_COLS, _INC_EDGES):
+        hi = edge * 1000.0; n = wsum(rows, col)
+        if hi <= floor:
+          pass
+        elif lo >= floor:
+          share += n
+        else:
+          share += n * ((hi - floor) / (hi - lo)) if hi < 10 ** 11 else n
+        lo = hi
+      cat.put("market.share_households_in_target_income_band", share / hh, "percent", A("households with income at or above the stated target floor, partial brackets prorated"), "Share in target income band")
+    else:
+      cat.put("market.share_households_in_target_income_band", ABSENT, "percent", prov_model("x"), absent_reason="no consumer income target stated")
+    band = ctx.get("age_band")
+    if band and pop and rows2:
+      amin, amax = band; inb = 0.0
+      for (lo_a, hi_a), (mc, fc) in zip(_AGE_BANDS, _AGE_COLS):
+        n = wsum(rows2, mc) + wsum(rows2, fc)
+        ov = max(0.0, min(hi_a, amax) - max(lo_a, amin) + 1)
+        width = hi_a - lo_a + 1
+        inb += n * min(1.0, ov / width) if ov > 0 else 0.0
+      cat.put("market.share_population_in_target_age_band", inb / pop, "percent", A("population within the stated target age range, partial bands prorated"), "Share in target age band")
+    else:
+      cat.put("market.share_population_in_target_age_band", ABSENT, "percent", prov_model("x"), absent_reason="no consumer age target stated")
+  # --- OEWS: metro by title match, else state cross-industry
+  ph = _j(draft.get("payroll_headcount"))
+  rows_q1 = [r for r in (ph.get("rows") or []) if isinstance(r, dict) and int(_f(r.get("quarter_index")) or 0) == 1]
+  titles = []
+  for r in rows_q1:
+    t = str(r.get("oews_occ_title") or r.get("oews_matched_title") or "").strip()
+    if t and _f(r.get("annual_wage")):
+      titles.append((t, _f(r.get("annual_wage")), str(r.get("position_title") or t), _f(r.get("ending_fte")) or 0))
+  if not titles:
+    cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no OEWS-titled roles on the payroll schedule")
+    cat.put("market.top_occupation_title", ABSENT, "text", prov_model("x"), absent_reason="no OEWS-titled roles on the payroll schedule")
+    return
+  titles.sort(key=lambda x: -x[3])
+  area_label, area_rows = None, {}
+  city, st = geo.get("pref_city"), geo.get("state_abbr")
+  if city and st:
+    cur.execute("SELECT occ_title, a_median, loc_quotient, area_title FROM oews_state_wages WHERE area_type='4' AND i_group='cross-industry' "
+                "AND area_title LIKE %s AND (area_title LIKE %s OR area_title LIKE %s)", ("%" + city + "%", "%, " + st + "%", "%-" + st + "%"))
+    for t, m, lq, at in cur.fetchall():
+      area_rows[str(t)] = (_f(m), _f(lq)); area_label = "%s metro" % str(at).split(",")[0].split("-")[0]
+  if not area_rows and st:
+    cur.execute("SELECT occ_title, a_median, loc_quotient FROM oews_state_wages WHERE area_type='2' AND prim_state=%s AND naics='000000' AND i_group='cross-industry'", (st,))
+    for t, m, lq in cur.fetchall():
+      area_rows[str(t)] = (_f(m), _f(lq))
+    area_label = "%s statewide" % geo.get("state_name")
+  if not area_rows:
+    cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no OEWS area rows for this geography")
+    return
+  O = lambda what: prov_raw("BLS Occupational Employment and Wage Statistics", "latest loaded release", what + " (%s)" % area_label)
+  done = False
+  for t, wage, pos, fte in titles:
+    m, lq = area_rows.get(t, (None, None))
+    if m and not done:
+      cat.put("market.wage_check_title", pos, "text", O("role compared"), "Wage check role")
+      cat.put("market.wage_check_client_wage", wage, "money", prov_model("the annual wage carried for that role"), "Client wage")
+      cat.put("market.wage_check_area_median", m, "money", O("median annual wage for %s" % t), "Area median")
+      cat.put("market.wage_check_direction", "above" if wage >= m else "below", "text", O("client wage against the area median"), "Direction")
+      cat.put("market.wage_check_area_label", area_label, "text", O("area"), "Area label")
+      done = True
+    if lq and not cat.has("market.top_occupation_loc_quotient"):
+      cat.put("market.top_occupation_title", t, "text", O("the largest occupation on the schedule"), "Top occupation")
+      cat.put("market.top_occupation_loc_quotient", lq, "multiple", O("location quotient - local employment concentration relative to national, for %s" % t), "Location quotient")
+  if not done:
+    cat.put("market.wage_check_title", ABSENT, "text", prov_model("x"), absent_reason="no payroll title matched an OEWS row in %s" % area_label)
+  if not cat.has("market.top_occupation_loc_quotient"):
+    cat.put("market.top_occupation_loc_quotient", ABSENT, "multiple", prov_model("x"), absent_reason="no location quotient for any schedule title in %s" % area_label)
+
+
+# ---------------------------------------------------------------------------
+# THE DOOR
+# ---------------------------------------------------------------------------
+def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
+  """One call. Every builder is isolated; a failure in one becomes ABSENT
+  reasons, never a crash, and the failure text is kept so it can be read."""
+  cat = FactCatalog(str(draft.get("draft_id") or ""), miss_sink=miss_sink)
+  zip5 = str(draft.get("address_zip") or "").strip()[:5]
+  geo = resolve_geography(cur, zip5) if zip5 else {}
+  ctx: Dict[str, Any] = {"geo": geo, "naics6": ""}
+  for name, fn in (("entity", lambda: build_entity(cat, cur, draft, geo)),
+                   ("annual", lambda: build_annual(cat, draft, ctx)),
+                   ("industry", lambda: build_industry(cat, cur, ctx)),
+                   ("market", lambda: build_market(cat, cur, draft, ctx))):
+    try:
+      out = fn()
+      if name == "entity" and isinstance(out, dict):
+        ctx.update(out)
+    except Exception as exc:  # noqa: BLE001
+      cat.note_builder_failure(name, "%s: %s" % (type(exc).__name__, str(exc)[:160]))
+  return cat

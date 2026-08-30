@@ -159,3 +159,64 @@ def verify_rule_lookup_live(conn) -> Tuple[bool, List[str]]:
   for extra in sorted(set(rows) - {r["id"] for r in R.WRITING_RULES}):
     problems.append("%s present in the table but not in rules.py" % extra)
   return (not problems), problems
+
+
+# ---------------------------------------------------------------------------
+# THE FACT-MISS LOG (Nick, 2026-08-30): "Log every fact key that gets requested
+# and doesn't resolve. I want the gaps coming from real demand after ten plans,
+# not from guesswork now." Every unresolved request lands here with the reason.
+# ---------------------------------------------------------------------------
+MISS_TABLE_NAME = "writing_phase_fact_misses"
+_MISS_READY = False
+
+
+def ensure_fact_miss_table(conn) -> None:
+  global _MISS_READY
+  if _MISS_READY:
+    return
+  with _LOCK:
+    if _MISS_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {MISS_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          draft_id VARCHAR(64) NOT NULL,
+          planning_run_id VARCHAR(64) NULL,
+          section_key VARCHAR(64) NULL,
+          fact_key VARCHAR(160) NOT NULL,
+          reason VARCHAR(255) NOT NULL,
+          requested_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          KEY ix_fact_key (fact_key),
+          KEY ix_draft (draft_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """
+      )
+      conn.commit()
+      _MISS_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
+def log_fact_miss(conn, *, draft_id: str, fact_key: str, reason: str,
+                  planning_run_id: Optional[str] = None,
+                  section_key: Optional[str] = None) -> None:
+  ensure_fact_miss_table(conn)
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"INSERT INTO {MISS_TABLE_NAME} (draft_id, planning_run_id, section_key, fact_key, reason) "
+      "VALUES (%s,%s,%s,%s,%s)",
+      (draft_id, planning_run_id, section_key, fact_key[:160], reason[:255]),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
