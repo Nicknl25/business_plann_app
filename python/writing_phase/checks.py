@@ -545,10 +545,14 @@ def check_editable(document_probe: Optional[Dict[str, Any]] = None,
   offenders: List[str] = []
   if document_probe.get("text_boxes"):
     offenders.append("%d text boxes" % document_probe["text_boxes"])
-  if document_probe.get("floating_shapes"):
-    offenders.append("%d floating/anchored shapes" % document_probe["floating_shapes"])
-  if document_probe.get("non_inline_images"):
-    offenders.append("%d images not inline" % document_probe["non_inline_images"])
+  # Rule 23 as narrowed (2026-08-30): anchored images with square/tight wrap
+  # are PERMITTED - they flow with their paragraph. Absolute positioning
+  # (no wrap, behind-text, through) is what fights an editor and is banned.
+  ap = document_probe.get("absolutely_positioned")
+  if ap is None:
+    return CheckResult.could_not_run(rid, "probe lacks anchor classification")
+  if ap:
+    offenders.append("%d absolutely positioned shapes" % ap)
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "document would fight an editor" if offenders else "", offenders)

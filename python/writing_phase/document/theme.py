@@ -132,3 +132,26 @@ def fig_cash_position(quarter_labels: Sequence[str], cash: Sequence[float],
   ax.set_xticklabels([quarter_labels[i] for i in x[::2]], fontsize=7)
   _style_axes(ax)
   return _finish(fig)
+
+
+def fig_margin_structure(gross: Sequence[float], operating: Sequence[float],
+                         net: Sequence[float]) -> bytes:
+  """Chart 4 - margin lines, Y1-Y5, sized for WRAP placement (sits beside
+  prose at ~3.1in), so fonts run slightly larger relative to the frame."""
+  fig, ax = plt.subplots(figsize=(3.2, 2.6))
+  for vals, color, label in ((gross, SERIES[0], "Gross"),
+                             (operating, SERIES[2], "Operating"),
+                             (net, SERIES[6], "Net")):
+    ax.plot(YEARS, [v * 100 for v in vals[:5]], color=color, linewidth=1.8,
+            marker="o", markersize=3, label=label)
+  ax.spines["top"].set_visible(False)
+  ax.spines["right"].set_visible(False)
+  ax.spines["left"].set_color(RULE)
+  ax.spines["bottom"].set_color(RULE)
+  ax.tick_params(colors=INK_MUTED, labelsize=7)
+  ax.set_xticklabels(["Y1", "Y2", "Y3", "Y4", "Y5"])
+  ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+  ax.set_axisbelow(True)
+  ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: "%.0f%%" % v))
+  ax.legend(loc="best", frameon=False, fontsize=7, labelcolor=INK)
+  return _finish(fig)

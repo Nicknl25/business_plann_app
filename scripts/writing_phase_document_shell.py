@@ -74,10 +74,24 @@ def main() -> int:
 
   cash = [float(qr[i].get("ending_cash") or 0) for i in range(1, 21)]
   trough = min(range(20), key=lambda i: cash[i])
+  rev = ysum("revenue"); cg = ysum("cogs"); ni = ysum("net_income")
+  eb = ysum("ebitda"); dep = ysum("depreciation")
+  gross = [(rev[i] - cg[i]) / rev[i] if rev[i] else 0 for i in range(5)]
+  oper = [(eb[i] - dep[i]) / rev[i] if rev[i] else 0 for i in range(5)]
+  netm = [ni[i] / rev[i] if rev[i] else 0 for i in range(5)]
+
+  def placement(key):
+    return next(c["placement"] for c in R.CHART_REGISTRY if c["key"] == key)
+
   charts = [
-    ("Revenue by Line of Business", T.fig_revenue_by_lob(lob_annual), "market_and_industry"),
-    ("Revenue and Net Income", T.fig_revenue_net_income(ysum("revenue"), ysum("net_income")), "financial_plan"),
-    ("Cash Position", T.fig_cash_position(["Q%d" % i for i in range(1, 21)], cash, trough), "financial_plan"),
+    ("Revenue by Line of Business", T.fig_revenue_by_lob(lob_annual),
+     "market_and_industry", placement("revenue_by_lob")),
+    ("Revenue and Net Income", T.fig_revenue_net_income(rev, ni),
+     "financial_plan", placement("revenue_and_net_income")),
+    ("Margin Structure", T.fig_margin_structure(gross, oper, netm),
+     "financial_plan", placement("margin_structure")),   # WRAP - the proof
+    ("Cash Position", T.fig_cash_position(["Q%d" % i for i in range(1, 21)], cash, trough),
+     "financial_plan", placement("cash_position")),
   ]
 
   stamp = dt.datetime.now().strftime(R.PLAN_FILENAME_STAMP_FORMAT)

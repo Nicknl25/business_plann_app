@@ -379,10 +379,14 @@ DOCUMENT_CRAFT = {
   "table_heavy_gridlines": False,
   "charts_embedded_as_images": True,
   "appendix_landscape": True,
-  # rule 23 - Nick edits these. Nothing that fights him.
+  # rule 23 NARROWED (Nick, 2026-08-30): ban text boxes and ABSOLUTELY
+  # POSITIONED shapes; PERMIT anchored images with square or tight wrap -
+  # those flow with their paragraph and don't fight an editor, which is what
+  # the rule was protecting. Wrapping stays a PER-CHART decision in the chart
+  # registry (placement: wrap | full_width), never a global one.
   "forbid_text_boxes": True,
-  "forbid_floating_shapes": True,
-  "images_inline_only": True,
+  "forbid_absolutely_positioned": True,
+  "allow_anchored_wrapped_images": True,
 }
 
 FOOTER_FORMAT = "Confidential · Page {page} of {pages} · Prepared {month_year} · v{version}"

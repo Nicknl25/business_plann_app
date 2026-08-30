@@ -174,14 +174,54 @@ def _header(section, business_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# wrapped placement (rule 23 as narrowed, 2026-08-30): the picture stays an
+# ordinary drawing that FLOWS with its paragraph - wp:anchor with wrapSquare,
+# never absolute positioning, never a text box. Wrapping is a per-chart
+# registry decision (placement: "wrap"), not a global one.
+# ---------------------------------------------------------------------------
+def _inline_to_wrapped(run, *, align: str = "right") -> None:
+  """Convert the run's wp:inline drawing to a wp:anchor with square wrap,
+  positioned relative to the COLUMN horizontally and its own PARAGRAPH
+  vertically - so it moves when the paragraph moves."""
+  drawing = run._r.find(qn("w:drawing"))
+  inline = drawing.find(qn("wp:inline"))
+  extent = inline.find(qn("wp:extent"))
+  doc_pr = inline.find(qn("wp:docPr"))
+  graphic = inline.find(qn("a:graphic"))
+  anchor = OxmlElement("wp:anchor")
+  for k, v in (("distT", "91440"), ("distB", "91440"), ("distL", "114300"),
+               ("distR", "114300"), ("simplePos", "0"), ("relativeHeight", "2"),
+               ("behindDoc", "0"), ("locked", "0"), ("layoutInCell", "1"),
+               ("allowOverlap", "0")):
+    anchor.set(k, v)
+  simple = OxmlElement("wp:simplePos"); simple.set("x", "0"); simple.set("y", "0")
+  anchor.append(simple)
+  posH = OxmlElement("wp:positionH"); posH.set("relativeFrom", "column")
+  alignEl = OxmlElement("wp:align"); alignEl.text = align
+  posH.append(alignEl); anchor.append(posH)
+  posV = OxmlElement("wp:positionV"); posV.set("relativeFrom", "paragraph")
+  off = OxmlElement("wp:posOffset"); off.text = "0"
+  posV.append(off); anchor.append(posV)
+  anchor.append(extent)
+  wrap = OxmlElement("wp:wrapSquare"); wrap.set("wrapText", "bothSides")
+  anchor.append(wrap)
+  anchor.append(doc_pr)
+  anchor.append(graphic)
+  drawing.remove(inline)
+  drawing.append(anchor)
+
+
+# ---------------------------------------------------------------------------
 # the shell
 # ---------------------------------------------------------------------------
 def build_shell(out_path: str, *, business_name: str, run_id: str,
-                charts: Sequence[Tuple[str, bytes, str]] = (),
+                charts: Sequence[Tuple[str, bytes, str, str]] = (),
                 month_year: Optional[str] = None) -> str:
-  """charts: (title, png_bytes, section_key). Figure numbers are COMPUTED from
+  """charts: (title, png_bytes, section_key, placement) where placement is the
+  chart registry's "full_width" or "wrap". Figure numbers are COMPUTED from
   emission order - never authored - and each figure is cross-referenced in the
-  placeholder text before it (rules 8/22)."""
+  placeholder text (rules 8/22). Adding a chart is a registry entry plus a
+  theme function, never a renderer change."""
   month_year = month_year or _dt.datetime.now().strftime("%B %Y")
   doc = Document()
   _styles(doc)
@@ -202,9 +242,9 @@ def build_shell(out_path: str, *, business_name: str, run_id: str,
   _field(toc_par, ' TOC \\o "1-2" \\h \\z \\u ',
          "Table of contents - right-click and choose Update Field.")
 
-  by_section: Dict[str, List[Tuple[str, bytes]]] = {}
-  for title, png, sec in charts:
-    by_section.setdefault(sec, []).append((title, png))
+  by_section: Dict[str, List[Tuple[str, bytes, str]]] = {}
+  for title, png, sec, placement in charts:
+    by_section.setdefault(sec, []).append((title, png, placement))
 
   fig_no = 0
   body_keys = [k for k in R.body_section_keys()]
@@ -234,11 +274,21 @@ def build_shell(out_path: str, *, business_name: str, run_id: str,
           cell.paragraphs[0].add_run(txt)
           if ci > 0:
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    for title, png in by_section.get(key, []):
+    for title, png, placement in by_section.get(key, []):
       fig_no += 1
-      doc.add_paragraph("As Figure %d shows, the placeholder discussion would "
-                        "reference the chart by number here." % fig_no)
-      doc.add_picture(io.BytesIO(png), width=Inches(6.5))
+      if placement == R.PLACEMENT_WRAP:
+        # the anchored picture lives INSIDE the prose paragraph and the text
+        # wraps around it - this is the placement four of the eight call for
+        p = doc.add_paragraph()
+        r = p.add_run()
+        r.add_picture(io.BytesIO(png), width=Inches(3.1))
+        _inline_to_wrapped(r, align="right")
+        p.add_run("As Figure %d shows, the placeholder discussion runs beside "
+                  "the chart. " % fig_no + PLACEHOLDER + " " + PLACEHOLDER)
+      else:
+        doc.add_paragraph("As Figure %d shows, the placeholder discussion would "
+                          "reference the chart by number here." % fig_no)
+        doc.add_picture(io.BytesIO(png), width=Inches(6.5))
       doc.add_paragraph(R.CHART_CAPTION_FORMAT.format(number=fig_no, title=title),
                         style="Plan Caption")
 

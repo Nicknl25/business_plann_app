@@ -235,5 +235,109 @@ class BriefAssemblerTests(unittest.TestCase):
                      "on a request existing)" % sorted(missing))
 
 
+class NarrativeIntoBriefsTests(unittest.TestCase):
+  """Nick, 2026-08-30: a section gets the narrative its substance depends on
+  and not the rest. A financial narrative must not leak into the ops brief."""
+
+  FAKE_DRAFT = {
+    "operating_model_json": {
+      "business_description_summary": "A roastery that roasts.",
+      "competitive_advantage": "Weekly supply route.",
+      "milestones": [{"description": "Reach 50 accounts", "timing": "12 months"}],
+      "lob_models": [{"lob_name": "Wholesale", "products": [{"product_name": "Beans"}]}],
+    },
+    "target_market_json": {"marketing_plan_summary": "Local cafes and grocers."},
+    "people_json": {"people": [{"full_name": "Tomas Reyes", "role_title": "Head Roaster",
+                                "paragraph": "Tomas has roasted for a decade.",
+                                "annual_wage": 61000}]},
+    "fulfillment_json": {"delivery": "own van"},
+    "financials_json": {"current_revenue": 890000, "cash_on_hand": 48000},
+  }
+
+  def _assemble(self):
+    from writing_phase.facts import assembler as A
+    cat = FactCatalog("d1")
+    cat.put("entity.business_name", "X", "text", C.prov_intake("n"))
+    return A.assemble(cat, draft=self.FAKE_DRAFT), A
+
+  def test_sections_get_exactly_their_mapped_narratives(self):
+    asm, A = self._assemble()
+    self.assertEqual(sorted(asm.sections["operations_and_organisation"].narratives),
+                     ["fulfillment", "people"])
+    self.assertEqual(sorted(asm.sections["products_and_services"].narratives),
+                     ["lob_products"])
+    self.assertEqual(sorted(asm.sections["marketing_and_sales"].narratives),
+                     ["marketing_plan_summary"])
+    self.assertEqual(sorted(asm.sections["the_business"].narratives),
+                     ["business_description_summary", "competitive_advantage", "milestones"])
+
+  def test_financial_narrative_cannot_leak_into_the_ops_brief(self):
+    import json as _json
+    asm, A = self._assemble()
+    for key, b in asm.sections.items():
+      blob = _json.dumps(b.narratives)
+      self.assertNotIn("current_revenue", blob,
+                       "%s narrative carries financials_json content" % key)
+      self.assertNotIn("cash_on_hand", blob)
+    ops = asm.sections["operations_and_organisation"]
+    self.assertNotIn("marketing_plan_summary", ops.narratives)
+
+  def test_wages_stay_out_of_the_people_narrative(self):
+    """Numbers travel as facts (rule 17); the narrative carries who people are."""
+    import json as _json
+    asm, _ = self._assemble()
+    ops = asm.sections["operations_and_organisation"]
+    self.assertNotIn("61000", _json.dumps(ops.narratives))
+
+  def test_sections_without_a_grant_get_nothing(self):
+    asm, _ = self._assemble()
+    self.assertEqual(asm.sections["financial_plan"].narratives, {})
+    self.assertEqual(asm.sections["market_and_industry"].narratives, {})
+
+
+class WriterPayloadTests(unittest.TestCase):
+  """Nick's ruling, 2026-08-30: machinery never reaches the writer, finmo goes
+  to the body annual, shared block first for caching."""
+
+  DRAFT = {
+    "operating_model_json": {"business_naics_6": "311920"},
+    "target_market_json": {}, "financials_json": {}, "people_json": {},
+    "fulfillment_json": {}, "marketing_schedule_json": {}, "payroll_headcount": {},
+    "realism_memo_json": {"MEMO_MARKER_XYZ": 1},
+    "model_input_json": {"MODEL_INPUT_MARKER_XYZ": 1},
+    "finmo_json": {"contract_version": "v1", "break_even": {"summary": {}},
+                   "quarter_rows": [
+                     {"quarter_index": q, "revenue": 100.0, "cash": 50.0}
+                     for q in range(0, 21)]},
+  }
+
+  def test_excluded_payloads_never_reach_the_shared_block(self):
+    from writing_phase import payload as PL
+    shared = PL.build_shared_block(self.DRAFT)
+    self.assertNotIn("MEMO_MARKER_XYZ", shared)
+    self.assertNotIn("MODEL_INPUT_MARKER_XYZ", shared)
+    self.assertEqual(PL.EXCLUDED_PAYLOADS, ("realism_memo_json", "model_input_json"))
+
+  def test_finmo_body_is_annual_five_plus_break_even(self):
+    from writing_phase import payload as PL
+    body = PL.finmo_annual_body(self.DRAFT["finmo_json"])
+    self.assertEqual(len(body["annual_rows"]), 5)
+    self.assertIn("break_even", body)
+    self.assertNotIn("quarter_rows", body)
+    self.assertEqual(body["annual_rows"][0]["revenue"], 400.0)   # flow: summed
+    self.assertEqual(body["annual_rows"][0]["cash"], 50.0)       # balance: year-end
+    import json as _json
+    self.assertNotIn("quarter_rows", _json.dumps(body))
+
+  def test_shared_block_is_the_identical_prefix_of_every_call(self):
+    from writing_phase import payload as PL
+    from writing_phase.facts.assembler import SectionBrief
+    shared = PL.build_shared_block(self.DRAFT)
+    a = PL.build_prompt(shared, PL.build_section_block(SectionBrief("the_business")))
+    b = PL.build_prompt(shared, PL.build_section_block(SectionBrief("financial_plan")))
+    self.assertTrue(a.startswith(shared) and b.startswith(shared))
+    self.assertNotEqual(a, b)
+
+
 if __name__ == "__main__":
   unittest.main()

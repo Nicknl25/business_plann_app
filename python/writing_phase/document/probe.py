@@ -27,9 +27,20 @@ def probe_docx(path: str, *, run_id: str) -> Dict[str, Any]:
       z.read(n).decode("utf-8") for n in z.namelist()
       if n.startswith("word/header") or n.startswith("word/footer"))
 
-  # ---- rule 23: nothing that fights an editor
+  # ---- rule 23 (narrowed 2026-08-30): text boxes banned; anchors CLASSIFIED.
+  # An anchor carrying wrapSquare/wrapTight flows with its paragraph and is
+  # permitted; anything else (wrapNone, through, behind-text) is absolute
+  # positioning and fights an editor.
   text_boxes = body_xml.count("w:txbxContent")
-  floating = body_xml.count("<wp:anchor")
+  anchored_wrapped = 0
+  absolutely_positioned = 0
+  for m in re.finditer(r"<wp:anchor\b(?:(?!</wp:anchor>).)*?</wp:anchor>", body_xml, re.S):
+    blk = m.group(0)
+    if "<wp:wrapSquare" in blk or "<wp:wrapTight" in blk:
+      anchored_wrapped += 1
+    else:
+      absolutely_positioned += 1
+  floating = anchored_wrapped + absolutely_positioned
   inline_images = body_xml.count("<wp:inline")
 
   # ---- rule 22: no direct-formatted runs in the BODY (styles own everything).
@@ -79,7 +90,9 @@ def probe_docx(path: str, *, run_id: str) -> Dict[str, Any]:
   return {
     "text_boxes": text_boxes,
     "floating_shapes": floating,
-    "non_inline_images": floating,
+    "anchored_wrapped": anchored_wrapped,
+    "absolutely_positioned": absolutely_positioned,
+    "non_inline_images": absolutely_positioned,
     "inline_images": inline_images,
     "direct_formatted_runs": direct,
     "uses_real_styles": uses_real_styles,
