@@ -8,3 +8,12 @@ scipy
 tzdata
 openpyxl
 
+
+# WRITING PHASE (approved by Nick 2026-08-30; pinned by his instruction).
+# matplotlib, NOT plotly: plotly needs kaleido which needs Chromium, and a
+# browser dependency to render a static chart was refused. pillow is
+# matplotlib's raster backend and is pinned rather than floated so a rebuild
+# cannot silently change how a chart rasterises.
+python-docx==1.1.2
+matplotlib==3.9.2
+pillow==10.4.0
