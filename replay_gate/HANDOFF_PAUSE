@@ -1,0 +1,7 @@
+PAUSED by Nick, 2026-08-29 — shutdown for the night, continuing tomorrow.
+
+Nothing is owed. STATUS is awaiting-Nick, no child running, tree clean and
+level with origin. The watcher must not launch overnight.
+
+Nick's next words in HANDOFF_INBOX.md lift this automatically (the watcher
+unlinks the sentinel when it seeds from the inbox).

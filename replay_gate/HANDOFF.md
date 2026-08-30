@@ -1,4 +1,4 @@
-STATUS: awaiting-Nick
+STATUS: paused
 
 TURN: 17/16
 
