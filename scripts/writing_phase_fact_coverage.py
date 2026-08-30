@@ -44,7 +44,7 @@ def main() -> int:
   cur = conn.cursor(dictionary=True)
   cur.execute("""SELECT draft_id, business_name, business_start_date, address_zip, address_state,
                         operating_model_json, financials_json, target_market_json, people_json,
-                        finmo_json, model_input_json, payroll_headcount, planning_run_id
+                        finmo_json, model_input_json, payroll_headcount, marketing_schedule_json, planning_run_id
                  FROM intake_consult_drafts
                  WHERE finmo_json IS NOT NULL AND payroll_headcount IS NOT NULL
                  ORDER BY updated_at DESC LIMIT %s""", (a.n,))

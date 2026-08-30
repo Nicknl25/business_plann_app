@@ -152,6 +152,28 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S41", "section": "financial_plan", "class": "GROUNDED",
    "text": "Year-1 revenue of {annual.revenue_y1} is {annual.revenue_y1_vs_stated} the {entity.stated_current_revenue} the business reported at intake.",
    "needs": ["annual.revenue_y1", "annual.revenue_y1_vs_stated", "entity.stated_current_revenue"]},
+  # ---- MARKETING & SALES (Part 1, 2026-08-30) -----------------------------
+  {"id": "S43", "core": True, "section": "marketing_and_sales", "class": "GROUNDED",
+   "text": "The plan spends {annual.marketing_y1} on marketing in Year 1 - {annual.marketing_pct_revenue_y1} of revenue - to win {annual.new_customers_y1} new customers at {annual.cac_y1} each.",
+   "needs": ["annual.marketing_y1", "annual.marketing_pct_revenue_y1", "annual.new_customers_y1", "annual.cac_y1"]},
+  {"id": "S44", "section": "marketing_and_sales", "class": "GROUNDED",
+   "text": "{annual.retention_rate} of customers are expected to return each quarter, and repeat relationships supply {annual.repeat_share_y1} of Year-1 demand.",
+   "needs": ["annual.retention_rate", "annual.repeat_share_y1"]},
+  {"id": "S45", "section": "marketing_and_sales", "class": "GROUNDED",
+   "text": "Marketing runs {annual.marketing_pct_revenue_y1} of revenue, against {industry.marketing_pct_benchmark} typical for the industry.",
+   "needs": ["annual.marketing_pct_revenue_y1", "industry.marketing_pct_benchmark"]},
+  {"id": "S46", "section": "marketing_and_sales", "class": "GROUNDED",
+   "text": "The customer base grows from {annual.customers_y1} at the end of Year 1 to {annual.customers_y5} by Year 5.",
+   "needs": ["annual.customers_y1", "annual.customers_y5"]},
+
+  # ---- THE BUSINESS, two more legs (Part 1) --------------------------------
+  {"id": "S47", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} is a {entity.legal_entity} in its {entity.years_operating} year, operating {annual.lob_count} lines of business from {entity.city_state}.",
+   "needs": ["entity.business_name", "entity.legal_entity", "entity.years_operating", "annual.lob_count", "entity.city_state"]},
+  {"id": "S48", "section": "the_business", "class": "GROUNDED",
+   "text": "The business enters the plan period with {entity.stated_current_revenue} in trailing annual revenue and a stated team of {entity.stated_employees}.",
+   "needs": ["entity.stated_current_revenue", "entity.stated_employees"]},
+
   {"id": "S42", "section": "products_and_services", "class": "GROUNDED",
    "text": "Capacity utilisation on {annual.top_lob_name} starts at {annual.top_lob_utilization_y1} and reaches {annual.top_lob_utilization_y5} by Year 5.",
    "needs": ["annual.top_lob_name", "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5"]},

@@ -1,0 +1,173 @@
+
+DRAFTS (last 10 through current code)
+  c9095a31 Redbrook Coffee Roasters       facts=135 sentences=42/48 
+  04c198ab Willowbank Animal Hospital     facts=133 sentences=41/48 
+  c4efb5f9 Northgate Systems Inc.         facts=134 sentences=41/48 
+  59259486 Cedarhill Animal Hospital      facts=133 sentences=41/48 
+  1b9b4e45 Ironwood Precision Machining,  facts=132 sentences=41/48 
+  52cf5792 Bluestem Grounds P6 Retest     facts=127 sentences=39/48 
+  ecd0e148 Halbrook Grounds Management    facts=133 sentences=41/48 
+  7042ce1a Understory Mushroom Co.        facts=113 sentences=27/48 
+  cc8b7081 Sunny Glaze Donuts             facts=128 sentences=38/48 
+  85f5825d Harrow Lane Grooming           facts=126 sentences=39/48 
+
+FACT COVERAGE (10 drafts)
+  key                                                   hits   top reason when absent
+  annual.cac_y1                                         0/10  the schedule carries no customer counts for this business  <-- WEAK
+  annual.capex_total_y1_y5                             10/10  
+  annual.capex_y1                                      10/10  
+  annual.cash_months_of_costs_y5                       10/10  
+  annual.cash_trough_months_of_costs                   10/10  
+  annual.cash_y5                                       10/10  
+  annual.customers_y1                                   0/10  the schedule carries no customer counts for this business  <-- WEAK
+  annual.customers_y5                                   0/10  the schedule carries no customer counts for this business  <-- WEAK
+  annual.debt_retired_year                              6/10  no opening debt, or not retired within the plan  <-- PARTIAL
+  annual.dscr_y1                                       10/10  
+  annual.dscr_y3                                        7/10  no debt service in Year 3  <-- PARTIAL
+  annual.first_profitable_year                          8/10  no profitable year in the plan  <-- PARTIAL
+  annual.gross_margin_gap_direction_y1                 10/10  
+  annual.gross_margin_gap_pts_y1                       10/10  
+  annual.gross_margin_y1                               10/10  
+  annual.headcount_y1                                  10/10  
+  annual.headcount_y5                                  10/10  
+  annual.lob_count                                     10/10  
+  annual.marketing_pct_revenue_y1                       0/10  not computable for this business  <-- WEAK
+  annual.marketing_y1                                   0/10  no marketing spend in the schedule  <-- WEAK
+  annual.net_margin_gap_direction_y1                   10/10  
+  annual.net_margin_gap_pts_y1                         10/10  
+  annual.net_margin_y1                                 10/10  
+  annual.new_customers_y1                               0/10  the schedule carries no customer counts for this business  <-- WEAK
+  annual.operating_margin_y5                           10/10  
+  annual.owners_capital_pct_assets_y1                  10/10  
+  annual.owners_capital_y1                             10/10  
+  annual.payroll_pct_revenue_y1                        10/10  
+  annual.payroll_y1                                    10/10  
+  annual.payroll_y5                                    10/10  
+  annual.rent_pct_revenue_y1                           10/10  
+  annual.repeat_share_y1                                0/10  the schedule carries no customer counts for this business  <-- WEAK
+  annual.retention_rate                                 0/10  no retention assumption in the schedule  <-- WEAK
+  annual.revenue_cagr_y1_y5                            10/10  
+  annual.revenue_per_fte_y1                            10/10  
+  annual.revenue_y1                                    10/10  
+  annual.revenue_y1_vs_stated                          10/10  
+  annual.revenue_y5                                    10/10  
+  annual.top_lob_gross_profit_share_y1                 10/10  
+  annual.top_lob_name                                  10/10  
+  annual.top_lob_revenue_share_y1                      10/10  
+  annual.top_lob_utilization_y1                        10/10  
+  annual.top_lob_utilization_y5                        10/10  
+  entity.business_name                                 10/10  
+  entity.city_state                                    10/10  
+  entity.funding_request                                5/10  no new borrowing in the projections  <-- PARTIAL
+  entity.legal_entity                                  10/10  
+  entity.naics_title                                   10/10  
+  entity.stated_current_revenue                        10/10  
+  entity.stated_employees                              10/10  
+  entity.target_age_band                                4/10  no consumer age target stated  <-- WEAK
+  entity.target_income_floor                            4/10  no consumer income target stated  <-- WEAK
+  entity.years_operating                               10/10  
+  industry.bds_year                                     9/10  never computed  <-- PARTIAL
+  industry.emp_per_establishment_national              10/10  
+  industry.employment_direction                         9/10  never computed  <-- PARTIAL
+  industry.establishment_entry_rate                     9/10  BDS has no rows for NAICS-4 1114  <-- PARTIAL
+  industry.establishment_exit_rate                      9/10  never computed  <-- PARTIAL
+  industry.first_year_exit_rate                         9/10  never computed  <-- PARTIAL
+  industry.five_year_survival_rate                      9/10  BDS has no rows for NAICS-4 1114  <-- PARTIAL
+  industry.gross_margin_benchmark                      10/10  
+  industry.marketing_pct_benchmark                     10/10  
+  industry.net_job_creation_rate                        9/10  BDS has no rows for NAICS-4 1114  <-- PARTIAL
+  industry.net_margin_benchmark                        10/10  
+  industry.operating_margin_benchmark                  10/10  
+  industry.payroll_pct_benchmark                       10/10  
+  industry.payroll_per_establishment_national           9/10  CBP has no rows for NAICS 111411 or its 2017 translation  <-- PARTIAL
+  industry.rent_pct_benchmark                          10/10  
+  industry.revenue_per_fte_benchmark                   10/10  
+  industry.sba_ask_percentile                           5/10  no funding request in the projections  <-- PARTIAL
+  industry.sba_chargeoff_rate                          10/10  
+  industry.sba_loan_count                              10/10  
+  industry.sba_median_amount                           10/10  
+  industry.sba_median_rate                             10/10  
+  industry.sba_median_term_months                      10/10  
+  industry.sba_scope_label                             10/10  
+  industry.sba_window_start                            10/10  
+  industry.share_firms_under_10_employees               9/10  never computed  <-- PARTIAL
+  industry.young_firm_employment_share                  9/10  never computed  <-- PARTIAL
+  market.b2b_target_establishments_state                4/10  not a B2B business  <-- WEAK
+  market.client_share_of_establishments                 9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.competition_geo_label                          9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.emp_per_establishment                          9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.establishments                                 9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.households_per_establishment                   9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.payroll_per_establishment                      9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.residents_per_establishment                    9/10  no CBP row for NAICS 111411 (or its 2017 translation) at county or sta  <-- PARTIAL
+  market.share_households_in_target_income_band         4/10  no consumer income target stated  <-- WEAK
+  market.share_population_in_target_age_band            4/10  no consumer age target stated  <-- WEAK
+  market.top_occupation_loc_quotient                    7/10  never computed  <-- PARTIAL
+  market.top_occupation_title                           7/10  no OEWS-titled roles on the payroll schedule  <-- PARTIAL
+  market.trade_area_bachelors_or_higher_share          10/10  
+  market.trade_area_households                         10/10  
+  market.trade_area_income_vs_state                    10/10  
+  market.trade_area_median_hh_income                   10/10  
+  market.trade_area_median_home_value                  10/10  
+  market.trade_area_name                               10/10  
+  market.trade_area_population                         10/10  
+  market.wage_check_area_label                          7/10  never computed  <-- PARTIAL
+  market.wage_check_area_median                         7/10  never computed  <-- PARTIAL
+  market.wage_check_client_wage                         7/10  never computed  <-- PARTIAL
+  market.wage_check_direction                           7/10  never computed  <-- PARTIAL
+  market.wage_check_title                               7/10  no OEWS-titled roles on the payroll schedule  <-- PARTIAL
+  quarterly.break_even                                  9/10  no break-even quarter within the plan  <-- PARTIAL
+  quarterly.cash_trough                                10/10  
+  quarterly.cash_trough_amount                         10/10  
+
+SENTENCE COVERAGE (all keys resolve)
+  S01  9/10 market_and_industry            {market.competition_geo_label} has {market.establishments} establishme
+  S02  9/10 market_and_industry            {entity.business_name} is one of {market.establishments} operators in 
+  S03  9/10 market_and_industry            The typical establishment in this trade employs {market.emp_per_establ
+  S04  9/10 market_and_industry            Annual payroll per establishment runs {market.payroll_per_establishmen
+  S05  9/10 market_and_industry            {industry.share_firms_under_10_employees} of firms in the industry emp
+  S06  7/10 operations_and_organisation    The metro's concentration of {market.top_occupation_title} is {market.
+  S07  4/10 market_and_industry            Statewide, {market.b2b_target_establishments_state} establishments ope
+  S08  9/10 market_and_industry            Of establishments that open in this industry, {industry.five_year_surv
+  S09  9/10 market_and_industry            The industry adds establishments at {industry.establishment_entry_rate
+  S10  9/10 market_and_industry            Net job creation across the sector ran {industry.net_job_creation_rate
+  S11  9/10 the_business                   First-year establishments in this industry close at a rate of {industr
+  S12  9/10 market_and_industry            Firms under five years old account for {industry.young_firm_employment
+  S13 10/10 market_and_industry            The trade area - {market.trade_area_name} - is home to {market.trade_a
+  S14 10/10 market_and_industry            Median household income in the trade area is {market.trade_area_median
+  S15  4/10 market_and_industry            {market.share_households_in_target_income_band} of trade-area househol
+  S16  4/10 market_and_industry            {market.share_population_in_target_age_band} of the trade-area populat
+  S17  9/10 market_and_industry            In {market.competition_geo_label} there are {market.households_per_est
+  S18 10/10 market_and_industry            {market.trade_area_bachelors_or_higher_share} of trade-area adults hol
+  S19 10/10 market_and_industry            The median home in the trade area is valued at {market.trade_area_medi
+  S20 10/10 financial_plan                 {entity.business_name} projects a gross margin of {annual.gross_margin
+  S21 10/10 financial_plan                 Operating margin reaches {annual.operating_margin_y5} by Year 5, again
+  S22 10/10 financial_plan                 Net margin in Year 1 is {annual.net_margin_y1}, {annual.net_margin_gap
+  S23 10/10 operations_and_organisation    Revenue per employee is projected at {annual.revenue_per_fte_y1}, agai
+  S24 10/10 operations_and_organisation    Payroll absorbs {annual.payroll_pct_revenue_y1} of revenue in Year 1, 
+  S25  7/10 operations_and_organisation    The {market.wage_check_title} role is paid {market.wage_check_client_w
+  S26 10/10 financial_plan                 Rent runs {annual.rent_pct_revenue_y1} of revenue against an industry 
+  S27 10/10 funding_request                Lenders approved {industry.sba_loan_count} SBA 7(a) loans to {industry
+  S28 10/10 funding_request                {industry.sba_chargeoff_rate} of those loans have been charged off.
+  S29  5/10 funding_request                The request of {entity.funding_request} sits at the {industry.sba_ask_
+  S30  7/10 financial_plan                 Projected debt-service coverage is {annual.dscr_y1} in Year 1, rising 
+  S31  6/10 financial_plan                 Existing debt is fully retired in {annual.debt_retired_year}.
+  S32 10/10 financial_plan                 Revenue grows from {annual.revenue_y1} in Year 1 to {annual.revenue_y5
+  S33  9/10 financial_plan                 {entity.business_name} covers its fixed costs from {quarterly.break_ev
+  S34 10/10 financial_plan                 Cash bottoms at {quarterly.cash_trough_amount} in {quarterly.cash_trou
+  S35 10/10 products_and_services          {annual.top_lob_name} contributes {annual.top_lob_revenue_share_y1} of
+  S36 10/10 operations_and_organisation    Headcount grows from {annual.headcount_y1} to {annual.headcount_y5} ov
+  S37 10/10 financial_plan                 Capital deployed totals {annual.capex_total_y1_y5} across the five yea
+  S38  8/10 financial_plan                 The business is profitable from {annual.first_profitable_year}.
+  S39 10/10 financial_plan                 Year-5 ending cash of {annual.cash_y5} represents {annual.cash_months_
+  S40 10/10 financial_plan                 Owner's capital of {annual.owners_capital_y1} funds {annual.owners_cap
+  S41 10/10 financial_plan                 Year-1 revenue of {annual.revenue_y1} is {annual.revenue_y1_vs_stated}
+  S43  0/10 marketing_and_sales            The plan spends {annual.marketing_y1} on marketing in Year 1 - {annual
+  S44  0/10 marketing_and_sales            {annual.retention_rate} of customers are expected to return each quart
+  S45  0/10 marketing_and_sales            Marketing runs {annual.marketing_pct_revenue_y1} of revenue, against {
+  S46  0/10 marketing_and_sales            The customer base grows from {annual.customers_y1} at the end of Year 
+  S47 10/10 the_business                   {entity.business_name} is a {entity.legal_entity} in its {entity.years
+  S48 10/10 the_business                   The business enters the plan period with {entity.stated_current_revenu
+  S42 10/10 products_and_services          Capacity utilisation on {annual.top_lob_name} starts at {annual.top_lo
+
+  sentences resolving on ALL 10 drafts: 23 of 48

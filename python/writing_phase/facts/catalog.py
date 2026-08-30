@@ -114,6 +114,12 @@ def fmt_quarter_label(v: int) -> str:
   return "the %s quarter of Year %d" % (("first", "second", "third", "fourth")[n - 1], y)
 
 
+def fmt_ordinal(v: int) -> str:
+  n = int(v)
+  suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+  return "%d%s" % (n, suf)
+
+
 def fmt_text(v: Any) -> str:
   return str(v)
 
@@ -127,6 +133,7 @@ FORMATTERS: Dict[str, Callable[[Any], str]] = {
   "points": fmt_points, "count": fmt_count, "multiple": fmt_multiple,
   "ratio": fmt_ratio, "months": fmt_months, "year": fmt_year,
   "quarter_label": fmt_quarter_label, "text": fmt_text, "list": fmt_list_text,
+  "ordinal": fmt_ordinal,
 }
 
 

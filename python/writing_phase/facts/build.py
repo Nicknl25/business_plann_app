@@ -168,8 +168,17 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
         continue
   except Exception:
     pass
-  cat.put("entity.years_operating", yrs, "count", prov_intake("business start date"), "Years operating",
+  cat.put("entity.years_operating", yrs, "ordinal", prov_intake("business start date"), "Years operating",
           absent_reason="no parseable start date")
+  # identity legs for The Business (Part 1, 2026-08-30)
+  _legal = str(om.get("legal_entity") or "").strip()
+  cat.put("entity.legal_entity", (_legal if _legal else ABSENT), "text",
+          prov_intake("legal entity"), "Legal entity", absent_reason="no legal entity stated")
+  cat.put("entity.stated_employees", _f(fin.get("current_num_employees")) or ABSENT, "count",
+          prov_intake("current employee count"), "Stated employees", absent_reason="not stated")
+  _city = geo.get("pref_city"); _st = geo.get("state_name")
+  cat.put("entity.city_state", ("%s, %s" % (_city, _st) if _city and _st else ABSENT), "text",
+          prov_intake("business address"), "City and state", absent_reason="ZIP did not resolve to a city")
   cat.put("entity.stated_current_revenue", _f(fin.get("current_revenue")) or ABSENT, "money",
           prov_intake("current annual revenue"), "Stated revenue", absent_reason="not stated")
   # funding request = new borrowing in the projections' first year
@@ -291,6 +300,44 @@ def build_annual(cat: FactCatalog, draft: Dict[str, Any], ctx: Dict[str, Any]) -
   cat.put("quarterly.break_even", (int(beq) if beq and 1 <= beq <= 20 else ABSENT), "quarter_label",
           P("the first quarter in which operating earnings cover fixed costs"), "Break-even quarter",
           absent_reason="no break-even quarter within the plan")
+  # marketing economics from the marketing schedule (Part 1, 2026-08-30).
+  # The schedule is engine output (fd3d1ed): spend, customers, CAC and the
+  # retention assumption all live there; the retention basis is an expert
+  # estimate and its provenance says so rather than dressing it as a source.
+  ms = _j(draft.get("marketing_schedule_json"))
+  per = {int(_f(p.get("period_index")) or -1): p for p in (ms.get("periods") or []) if isinstance(p, dict)}
+  mk1 = sum(_f(per.get(i, {}).get("marketing_dollars")) or 0.0 for i in range(1, 5))
+  new1 = sum(_f(per.get(i, {}).get("new_customers")) or 0.0 for i in range(1, 5))
+  cust = {i: _f(per.get(i, {}).get("customers")) for i in range(1, 21)}
+  ret_block = ((ms.get("assumptions") or {}).get("retention") or {})
+  P_ = prov_model
+  cat.put("annual.marketing_y1", (mk1 if mk1 > 0 else ABSENT), "money",
+          P_("Year-1 marketing spend from the marketing schedule"), "Marketing Y1",
+          absent_reason="no marketing spend in the schedule")
+  cat.put("annual.marketing_pct_revenue_y1", (mk1 / rev[1] if (mk1 > 0 and rev[1]) else ABSENT), "percent",
+          P_("Year-1 marketing spend over Year-1 revenue"), "Marketing % of revenue")
+  cat.put("annual.new_customers_y1", (new1 if new1 > 0 else ABSENT), "count",
+          P_("new customers won across Year 1, from the marketing schedule"), "New customers Y1",
+          absent_reason="the schedule carries no customer counts for this business")
+  cat.put("annual.cac_y1", (mk1 / new1 if (mk1 > 0 and new1 > 0) else ABSENT), "money",
+          P_("Year-1 marketing spend over Year-1 new customers"), "CAC Y1",
+          absent_reason="the schedule carries no customer counts for this business")
+  cat.put("annual.customers_y1", (cust.get(4) if cust.get(4) else ABSENT), "count",
+          P_("active customers at the end of Year 1"), "Customers Y1",
+          absent_reason="the schedule carries no customer counts for this business")
+  cat.put("annual.customers_y5", (cust.get(20) if cust.get(20) else ABSENT), "count",
+          P_("active customers at the end of Year 5"), "Customers Y5",
+          absent_reason="the schedule carries no customer counts for this business")
+  _rr = _f(ret_block.get("retention_rate"))
+  cat.put("annual.retention_rate", (_rr if _rr is not None and _rr > 0 else ABSENT), "percent",
+          Provenance := prov_model("the retention assumption in the marketing schedule (an expert estimate, not a sourced figure)"),
+          "Retention rate", absent_reason="no retention assumption in the schedule")
+  ret1 = sum(_f(per.get(i, {}).get("retained_customers")) or 0.0 for i in range(1, 5))
+  tot1 = sum(cust.get(i) or 0.0 for i in range(1, 5))
+  cat.put("annual.repeat_share_y1", (ret1 / tot1 if (ret1 > 0 and tot1 > 0) else ABSENT), "percent",
+          P_("retained customers over active customers across Year 1"), "Repeat share Y1",
+          absent_reason="the schedule carries no customer counts for this business")
+
   # per-line contribution (from the revenue drivers, scaled per line's cadence)
   _build_lob_contribution(cat, mi, _j(draft.get("operating_model_json")), rev[1], cogs[1])
   # utilisation on the top line: filled inside _build_lob_contribution
@@ -370,6 +417,7 @@ def _build_lob_contribution(cat: FactCatalog, mi: Dict[str, Any], om: Dict[str, 
 # INDUSTRY - baseline lookup (SOURCE), BDS, SBA
 # ---------------------------------------------------------------------------
 _BENCH = {
+  "industry.marketing_pct_benchmark": ("marketing_percent_of_revenue", "percent"),
   "industry.gross_margin_benchmark": ("gross_margin_percent", "percent"),
   "industry.operating_margin_benchmark": ("operating_margin_percent", "percent"),
   "industry.net_margin_benchmark": ("net_income_margin", "percent"),
