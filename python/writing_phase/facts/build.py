@@ -827,14 +827,65 @@ def build_economy(cat: FactCatalog, cur) -> None:
     r = cur.fetchone()
   except Exception:
     r = None
-  if r and _f(r[0]) is not None:
+  # THE RATE SERIES (fred_series_quarterly, loaded 2026-08-31). Nick's ruling
+  # on the constant-vs-live pair: the PROSE cites the LIVE series - these
+  # sentences describe today's market, and the loader keeps them current -
+  # while the constants table stays the DCF's as-of-build assumption. The
+  # treasury guard (scripts/writing_phase_treasury_guard.py) caps the gap so
+  # the two can never materially disagree in one document.
+  latest: Dict[str, tuple] = {}
+  ppi_yoy = None
+  try:
+    cur.execute("SELECT series_id, date, value FROM fred_series_quarterly "
+                "WHERE (series_id, date) IN (SELECT series_id, MAX(date) FROM "
+                "fred_series_quarterly GROUP BY series_id)")
+    for sid, d2, v in cur.fetchall():
+      latest[str(sid)] = (d2, _f(v))
+    if "PPIACO" in latest:
+      cur.execute("SELECT value FROM fred_series_quarterly WHERE series_id='PPIACO' "
+                  "AND date=DATE_SUB(%s, INTERVAL 1 YEAR)", (latest["PPIACO"][0],))
+      p = cur.fetchone()
+      prior = _f(p[0]) if p else None
+      now = latest["PPIACO"][1]
+      if prior and now:
+        ppi_yoy = now / prior - 1.0
+  except Exception:
+    latest = {}
+
+  def _rate(sid: str):
+    d2, v = latest.get(sid, (None, None))
+    return (d2, v / 100.0) if v is not None else (None, None)
+
+  d10, ten_live = _rate("DGS10")
+  if ten_live is not None:
+    lbl = "the %s quarter of %d" % (("first", "second", "third", "fourth")[(d10.month - 1) // 3], d10.year)
+    RP = lambda what: prov_raw("FRED rate series", "quarterly average, through %s" % d10.isoformat(), what)
+    cat.put("economy.ten_year_treasury", ten_live, "percent", RP("ten-year Treasury constant maturity"), "Ten-year Treasury")
+    cat.put("economy.treasury_as_of", lbl, "text", RP("latest quarter held"), "Treasury as-of")
+    cat.put("economy.rates_period_label", lbl, "text", RP("latest quarter held"), "Rates period")
+    _, two = _rate("DGS2")
+    if two is not None:
+      cat.put("economy.two_year_treasury", two, "percent", RP("two-year Treasury constant maturity"), "Two-year Treasury")
+      spread = ten_live - two
+      shape = "positively sloped" if spread > 0.001 else ("inverted" if spread < -0.001 else "essentially flat")
+      cat.put("economy.yield_curve_shape", shape, "text", RP("ten-year minus two-year Treasury"), "Yield curve")
+    _, ff = _rate("FEDFUNDS")
+    if ff is not None:
+      cat.put("economy.fed_funds_rate", ff, "percent", RP("effective federal funds rate"), "Policy rate")
+    _, un = _rate("UNRATE")
+    if un is not None:
+      cat.put("economy.unemployment_rate", un, "percent", RP("civilian unemployment rate"), "Unemployment")
+    if ppi_yoy is not None:
+      cat.put("economy.ppi_change_yoy", ppi_yoy, "percent", RP("producer price index, all commodities, year over year"), "Producer prices")
+  elif r and _f(r[0]) is not None:
+    # series table empty: fall back to the DCF constant rather than silence
     prov = Provenance(RR.CLASS_GROUNDED, RR.NOTE_KIND_SOURCE,
                       "%s, as of %s." % (str(r[1] or "FRED DGS10"), str(r[2] or "")),
                       source_name=str(r[1] or "FRED DGS10")[:120], source_vintage=str(r[2] or "undated"))
     cat.put("economy.ten_year_treasury", float(r[0]), "percent", prov, "Ten-year Treasury")
     cat.put("economy.treasury_as_of", str(r[2] or ABSENT), "text", prov, "Treasury as-of")
   else:
-    cat.put("economy.ten_year_treasury", ABSENT, "percent", prov_model("x"), absent_reason="no risk-free constant loaded")
+    cat.put("economy.ten_year_treasury", ABSENT, "percent", prov_model("x"), absent_reason="no rate series and no risk-free constant loaded")
 
 
 # ---------------------------------------------------------------------------

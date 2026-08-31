@@ -192,6 +192,20 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
    "text": "Debt service runs until {annual.debt_retired_year}; with the ten-year Treasury at {economy.ten_year_treasury}, any refinancing or new borrowing would price off today's rate environment.",
    "needs": ["annual.debt_retired_year", "economy.ten_year_treasury"]},
 
+  # ---- THE RATE SERIES WIRED (Nick's directive, 2026-08-31 evening) -------
+  # Prose cites the LIVE series; the DCF constant stays the model's own
+  # assumption, and the treasury guard caps the gap between the two.
+  {"id": "S57", "section": "financial_plan", "class": "INFERRED",
+   "text": "Short-term rates frame the borrowing side of that environment: the federal funds rate averaged {economy.fed_funds_rate} over {economy.rates_period_label} and two-year money {economy.two_year_treasury}, leaving the yield curve {economy.yield_curve_shape}.",
+   "needs": ["economy.fed_funds_rate", "economy.rates_period_label",
+             "economy.two_year_treasury", "economy.yield_curve_shape"]},
+  {"id": "S58", "section": "staffing_and_human_capital", "class": "INFERRED",
+   "text": "The hiring this plan assumes takes place in a labour market running {economy.unemployment_rate} unemployment as of {economy.rates_period_label} - the wage levels used here are set against that market, not against a loose one.",
+   "needs": ["economy.unemployment_rate", "economy.rates_period_label"]},
+  {"id": "S59", "section": "risks_and_mitigations", "class": "INFERRED",
+   "text": "Input costs are a live exposure: producer prices moved {economy.ppi_change_yoy} over the past year, and the cost assumptions in this plan inherit that pressure rather than assuming it away.",
+   "needs": ["economy.ppi_change_yoy"]},
+
   # ---- THE VALUATION, PROMOTED (ruling 2) ---------------------------------
   {"id": "S52", "section": "financial_plan", "class": "GROUNDED",
    "text": "On the assumptions recorded in the accompanying financial model, the business supports an estimated equity value of {entity.equity_value_dcf}; small businesses in this trade change hands at around {entity.exit_multiple_sde} seller's discretionary earnings, implying {entity.value_at_exit_multiple} on the plan's mature earnings.",
