@@ -509,3 +509,78 @@ class ChartSeriesTests(unittest.TestCase):
     for c in R.CHART_REGISTRY:
       for k in c["requires_facts"]:
         self.assertIn(k, built, "chart %s requires %s, which nothing builds" % (c["key"], k))
+
+
+class RendererAndTableTests(unittest.TestCase):
+  """Smoke: every renderer draws real PNG bytes on plausible data; the body
+  tables build honestly off the fake model."""
+
+  def test_every_chart_kind_renders_png(self):
+    from writing_phase.document import theme as T
+    pngs = [
+      T.fig_industry_history(list(range(1978, 2024)), [2000 + i * 10 for i in range(46)], entry_year=2021),
+      T.fig_local_market_composition([{"label": "A", "establishments": 5, "is_client_line": True},
+                                      {"label": "B", "establishments": 3, "is_client_line": False}]),
+      T.fig_revenue_by_lob([{"lob": "One", "annual": [10, 11, 12, 13, 14]},
+                            {"lob": "Two", "annual": [5, 6, 7, 8, 9]}]),
+      T.fig_headcount_by_role([{"group": "Baker", "annual": [2, 2, 3, 3, 4]}]),
+      T.fig_wage_positioning([{"role": "Baker", "planned_wage": 30000, "p10": 25000,
+                               "p25": 27000, "median": 31000, "p75": 36000, "p90": 42000}]),
+      T.fig_revenue_net_income([100, 120, 140, 160, 180], [-5, 2, 8, 12, 15], cagr=0.16),
+      T.fig_margin_structure([{"year": y, "gross": 0.6, "operating": 0.1 + y / 100, "net": 0.05}
+                              for y in range(1, 6)]),
+      T.fig_cash_position([50 - i if i < 6 else 40 + i for i in range(20)], 6, months_cover=2.1),
+      T.fig_break_even_cvp([100 + i * 5 for i in range(20)], [110 + i * 3 for i in range(20)],
+                           break_even_quarter=6, margin_of_safety=0.17),
+      T.fig_sensitivity_band([100, 120, 140, 160, 180], 0.75, 0.90),
+      T.fig_sba_ask_distribution([{"pct": p, "amount": a} for p, a in
+                                  ((10, 15000), (25, 50000), (50, 360000), (75, 600000), (90, 1100000))],
+                                 180000, "38th", 1140),
+    ]
+    self.assertEqual(len(pngs), 11)
+    for png in pngs:
+      self.assertTrue(png.startswith(b"\x89PNG"), "renderer must emit PNG bytes")
+      self.assertGreater(len(png), 4000)
+
+  def test_sources_and_uses_balances_by_construction(self):
+    from writing_phase.document import tables as TB
+    rows = []
+    for i in range(0, 21):
+      rows.append({"quarter_index": i, "cash": 50000.0, "revenue": 100000.0,
+                   "cogs": 40000.0, "payroll": 20000.0, "marketing": 2000.0,
+                   "lease_rent": 3000.0, "g_and_a": 5000.0, "ebitda": 30000.0,
+                   "depreciation": 2000.0, "interest": 1000.0, "taxes": 4000.0,
+                   "net_income": 23000.0, "operating_cash_flow": 10000.0,
+                   "capital_expenditures": 2000.0, "debt_issuance": 5000.0,
+                   "debt_repayment": 3000.0, "lease_principal_repayments": 0.0,
+                   "distributions": 0.0, "equity": 0.0, "other_equity": 0.0,
+                   "debt_opening_balance": 50000.0, "debt_closing_balance": 52000.0,
+                   "debt_interest_expense_only": 900.0})
+    # make the cash identity hold: closing Q4 = opening + Y1 net flows
+    rows[0]["cash"] = 30000.0
+    net = 30000.0 + 4 * (10000.0 + 5000.0 - 2000.0 - 3000.0)
+    rows[4]["cash"] = net
+    draft = {"finmo_json": {"quarter_rows": rows}}
+    spec = TB.build_sources_and_uses(draft)
+    self.assertIsNotNone(spec, "a balanced model must yield the table")
+    self.assertIn("Total sources", [r[0] for r in spec["rows"]])
+
+  def test_debt_table_refused_when_no_debt(self):
+    from writing_phase.document import tables as TB
+    rows = [{"quarter_index": i, "debt_opening_balance": 0.0, "debt_closing_balance": 0.0,
+             "debt_issuance": 0.0, "debt_repayment": 0.0, "debt_interest_expense_only": 0.0}
+            for i in range(0, 21)]
+    self.assertIsNone(TB.build_debt_amortization({"finmo_json": {"quarter_rows": rows}}),
+                      "no debt anywhere in the plan means no amortization table")
+
+  def test_condensed_statements_has_the_twelve_lines(self):
+    from writing_phase.document import tables as TB
+    rows = [{"quarter_index": i, "revenue": 100.0, "cogs": 40.0, "payroll": 20.0,
+             "marketing": 2.0, "lease_rent": 3.0, "g_and_a": 5.0, "ebitda": 30.0,
+             "depreciation": 2.0, "interest": 1.0, "taxes": 4.0, "net_income": 23.0}
+            for i in range(0, 21)]
+    spec = TB.build_condensed_statements({"finmo_json": {"quarter_rows": rows}})
+    self.assertIsNotNone(spec)
+    self.assertEqual(len(spec["rows"]), 12)
+    self.assertEqual(spec["rows"][2][0], "Gross profit")
+    self.assertEqual(spec["rows"][1][1], "(160)", "costs render in parentheses")
