@@ -413,6 +413,22 @@ def _build_lob_contribution(cat: FactCatalog, mi: Dict[str, Any], om: Dict[str, 
   if top in lob_util:
     cat.put("annual.top_lob_utilization_y1", lob_util[top][0], "percent", prov_model("Year-1 average utilisation on the top line"), "Top line util Y1")
     cat.put("annual.top_lob_utilization_y5", lob_util[top][1], "percent", prov_model("Year-5 average utilisation on the top line"), "Top line util Y5")
+  # THE SERIES behind the revenue-by-LOB chart (Nick 2026-08-31): annual
+  # revenue per line, only where the mix question exists (>=2 lines) and the
+  # same honesty gate above has already passed.
+  if len(lob_rev) >= 2:
+    series = []
+    for lob, acc in sorted(by_lob.items(), key=lambda kv: -sum(kv[1]["_rev"][1:5])):
+      qrv = acc["_rev"]
+      if len(qrv) >= 21:
+        series.append({"lob": lob, "annual": [round(sum(qrv[4 * y - 3:4 * y + 1]), 2) for y in range(1, 6)]})
+    if series:
+      cat.put("annual.revenue_by_lob", series, "list",
+              prov_model("annual revenue per line of business from the model's revenue drivers"),
+              "Revenue by line of business")
+  else:
+    cat.put("annual.revenue_by_lob", ABSENT, "list", prov_model("x"),
+            absent_reason="single line of business - no mix to chart")
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +564,14 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
     cat.put("industry.sba_window_start", "fiscal 2020", "text", B("first fiscal year in the loaded 7(a) data"), "SBA window start")
     cat.put("industry.sba_window_label", "fiscal 2020 through fiscal 2025", "text", B("the fiscal-year window of the loaded 7(a) data"), "SBA window")
     cat.put("industry.sba_median_amount", _median(amts) or ABSENT, "money", B("median gross approval"), "SBA median amount")
+    # THE DISTRIBUTION behind the percentile strip (Nick 2026-08-31): deciles
+    # of the same in-scope gross approvals the median came from.
+    if len(amts) >= 10:
+      xs = sorted(amts)
+      dec = [{"pct": p, "amount": round(xs[min(len(xs) - 1, int(len(xs) * p / 100.0))], 2)}
+             for p in (10, 25, 50, 75, 90)]
+      cat.put("industry.sba_amount_distribution", dec, "list",
+              B("decile spread of comparable gross approvals"), "SBA amount distribution")
     cat.put("industry.sba_median_rate", (_median(rates) / 100.0 if rates else ABSENT), "percent", B("median initial interest rate"), "SBA median rate")
     cat.put("industry.sba_median_term_months", (_median(terms) if terms else ABSENT), "months", B("median term"), "SBA median term")
     cat.put("industry.sba_chargeoff_rate", cho / len(rows), "percent", B("charged-off loans over approved loans"), "SBA charge-off rate")
@@ -946,6 +970,177 @@ def build_industry_history(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# THE CHART SERIES (Nick's ruling, 2026-08-31 evening). Same discipline as
+# the scalar facts: a series that cannot be built is ABSENT with its reason,
+# its chart is silently omitted, and the figures renumber. Every series
+# carries provenance.
+# ---------------------------------------------------------------------------
+def build_chart_series(cat: FactCatalog, draft: Dict[str, Any]) -> None:
+  finmo = _j(draft.get("finmo_json"))
+  q = _quarters(finmo)
+  P = prov_model
+  if len([i for i in q if 1 <= i <= 20]) < 20:
+    for k, u in (("annual.revenue_series", "list"), ("annual.net_income_series", "list"),
+                 ("annual.margin_structure_series", "list"),
+                 ("quarterly.cash_balance_series", "list"),
+                 ("quarterly.revenue_series", "list"), ("quarterly.total_cost_series", "list")):
+      cat.put(k, ABSENT, u, P("x"), absent_reason="finmo_json lacks 20 quarters")
+  else:
+    rev = [_ysum(q, "revenue", y) for y in range(1, 6)]
+    ni = [_ysum(q, "net_income", y) for y in range(1, 6)]
+    if all(v is not None for v in rev):
+      cat.put("annual.revenue_series", [round(v, 2) for v in rev], "list",
+              P("annual revenue, Years 1-5"), "Revenue series")
+    if all(v is not None for v in ni):
+      cat.put("annual.net_income_series", [round(v, 2) for v in ni], "list",
+              P("annual net income, Years 1-5"), "Net income series")
+    # margins mirror build_annual's arithmetic EXACTLY - gross profit over
+    # revenue, EBITDA less depreciation over revenue, net income over revenue
+    margins = []
+    for y in range(1, 6):
+      r, c, e, d, n = (_ysum(q, k, y) for k in ("revenue", "cogs", "ebitda", "depreciation", "net_income"))
+      if r and r > 0:
+        margins.append({"year": y, "gross": round((r - (c or 0)) / r, 4),
+                        "operating": round(((e or 0) - (d or 0)) / r, 4),
+                        "net": round((n or 0) / r, 4)})
+    if len(margins) == 5:
+      cat.put("annual.margin_structure_series", margins, "list",
+              P("gross, operating and net margin per year"), "Margin structure")
+    cash = [_f(q[i].get("cash")) for i in range(1, 21)]
+    if all(v is not None for v in cash):
+      cat.put("quarterly.cash_balance_series", [round(v, 2) for v in cash], "list",
+              P("quarter-end cash balance, Q1-Q20"), "Cash balance series")
+    else:
+      cat.put("quarterly.cash_balance_series", ABSENT, "list", P("x"),
+              absent_reason="cash missing on one or more quarters")
+    qrev = [_f(q[i].get("revenue")) for i in range(1, 21)]
+    qni = [_f(q[i].get("net_income")) for i in range(1, 21)]
+    if all(v is not None for v in qrev) and all(v is not None for v in qni):
+      cat.put("quarterly.revenue_series", [round(v, 2) for v in qrev], "list",
+              P("quarterly revenue, Q1-Q20"), "Quarterly revenue")
+      # total cost = revenue - net income: everything the model charges against
+      # the quarter, so the CVP crossing IS the model's own break-even
+      cat.put("quarterly.total_cost_series", [round(qrev[i] - qni[i], 2) for i in range(20)],
+              "list", P("revenue less net income per quarter - the all-in cost line"),
+              "Quarterly total cost")
+
+  # headcount by role group for the stacked area: ending FTE at each year end,
+  # grouped by position title when few enough to read, else by staffing class
+  ph = _j(draft.get("payroll_headcount"))
+  rows = [r for r in (ph.get("rows") or []) if isinstance(r, dict)]
+  if not rows:
+    cat.put("annual.headcount_by_role_group", ABSENT, "list", P("x"),
+            absent_reason="no payroll schedule rows")
+  else:
+    titles = {str(r.get("position_title") or "").strip() for r in rows if r.get("position_title")}
+    key = "position_title" if 0 < len(titles) <= 6 else "staffing_class"
+    groups: Dict[str, List[float]] = {}
+    for r in rows:
+      qi = _f(r.get("quarter_index"))
+      if qi is None or int(qi) not in (4, 8, 12, 16, 20):
+        continue
+      g = str(r.get(key) or "other").strip() or "other"
+      arr = groups.setdefault(g, [0.0] * 5)
+      arr[int(qi) // 4 - 1] += _f(r.get("ending_fte")) or 0.0
+    series = [{"group": g, "annual": [round(v, 2) for v in arr]}
+              for g, arr in sorted(groups.items(), key=lambda kv: -kv[1][-1])]
+    if series and any(any(v > 0 for v in s["annual"]) for s in series):
+      cat.put("annual.headcount_by_role_group", series, "list",
+              P("ending FTE at each year end, grouped by %s" % ("role" if key == "position_title" else "staffing class")),
+              "Headcount by role group")
+    else:
+      cat.put("annual.headcount_by_role_group", ABSENT, "list", P("x"),
+              absent_reason="payroll rows carry no year-end FTE")
+
+
+def build_market_composition(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
+  """Sibling NAICS-6 lines in the client's COUNTY from CBP: fragmentation at
+  a glance, the client's own line among its neighbours."""
+  geo = ctx.get("geo") or {}
+  n6 = str(ctx.get("naics6") or "")
+  sf, cf = geo.get("state_fips"), geo.get("county_fips")
+  if not (sf and cf and len(n6) == 6):
+    cat.put("market.composition", ABSENT, "list", prov_model("x"),
+            absent_reason="no county geography or no NAICS-6")
+    return
+  cands = _cbp_naics_candidates(cur, n6)
+  prefixes = sorted({c[:4] for c in cands})
+  rows: List[Tuple[str, str, float]] = []
+  for p4 in prefixes:
+    cur.execute("SELECT naics, naics_label, SUM(estab) FROM cbp_2022_raw_county "
+                "WHERE state_fips=%s AND county_fips=%s AND naics LIKE %s "
+                "AND LENGTH(naics)=6 GROUP BY naics, naics_label", (sf, cf, p4 + "%"))
+    rows.extend((str(a), str(b or a), float(v or 0)) for a, b, v in cur.fetchall())
+  rows = [r for r in rows if r[2] > 0]
+  if len(rows) < 2:
+    cat.put("market.composition", ABSENT, "list", prov_model("x"),
+            absent_reason="fewer than two sibling lines in county CBP for NAICS-4 %s" % (prefixes[0] if prefixes else ""))
+    return
+  own = set(cands)
+  comp = [{"naics": a, "label": b, "establishments": v, "is_client_line": a in own}
+          for a, b, v in sorted(rows, key=lambda r: -r[2])[:8]]
+  cat.put("market.composition", comp,
+          "list", prov_raw("County Business Patterns 2022 (county)", "2022",
+                           "establishments by sibling NAICS-6 line in the client's county"),
+          "Local market composition")
+
+
+def build_wage_positioning(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, Any]) -> None:
+  """Each OEWS-matched role's planned wage as a dot on the occupation's state
+  decile bar. The role-to-SOC mapping already exists upstream: the payroll
+  author stamps oews_occ_code per row, so this builder joins rather than
+  guesses. Client-override roles without an SOC are omitted from the chart -
+  a wage nobody benchmarked is not drawn as if someone had."""
+  ph = _j(draft.get("payroll_headcount"))
+  rows = [r for r in (ph.get("rows") or [])
+          if isinstance(r, dict) and int(_f(r.get("quarter_index")) or -1) == 1]
+  if not rows:
+    cat.put("entity.wage_positioning", ABSENT, "list", prov_model("x"),
+            absent_reason="no payroll schedule rows")
+    return
+  geo = ctx.get("geo") or {}
+  state = str(geo.get("state_name") or "").strip()
+  seen: Dict[str, Dict[str, Any]] = {}
+  for r in rows:
+    occ = str(r.get("oews_occ_code") or "").strip()
+    wage = _f(r.get("annual_wage"))
+    if not occ or not wage:
+      continue
+    title = str(r.get("position_title") or r.get("oews_occ_title") or occ)
+    if occ not in seen or wage > seen[occ]["planned_wage"]:
+      seen[occ] = {"role": title, "occ_code": occ, "planned_wage": wage,
+                   "wage_source": str(r.get("wage_source") or "")}
+  if not seen:
+    cat.put("entity.wage_positioning", ABSENT, "list", prov_model("x"),
+            absent_reason="no OEWS-matched roles in the payroll schedule")
+    return
+  out = []
+  for occ, item in seen.items():
+    band = None
+    for area in ((state,) if state else ()) + ("U.S.",):
+      cur.execute("SELECT a_pct10, a_pct25, a_median, a_pct75, a_pct90 FROM oews_state_wages "
+                  "WHERE area_title=%s AND occ_code=%s AND naics='000000' "
+                  "AND a_median IS NOT NULL LIMIT 1", (area, occ))
+      b = cur.fetchone()
+      if b and b[2] is not None:
+        band = {"scope": "state" if area == state else "national",
+                "p10": _f(b[0]), "p25": _f(b[1]), "median": _f(b[2]),
+                "p75": _f(b[3]), "p90": _f(b[4])}
+        break
+    if band:
+      out.append({**item, **band})
+  if out:
+    scope = "state" if all(o["scope"] == "state" for o in out) else "state and national"
+    cat.put("entity.wage_positioning", sorted(out, key=lambda o: -o["planned_wage"]), "list",
+            prov_raw("OEWS state wages", "latest loaded OEWS cross-industry table",
+                     "planned wage per role against the occupation's %s decile spread" % scope),
+            "Wage positioning")
+  else:
+    cat.put("entity.wage_positioning", ABSENT, "list", prov_model("x"),
+            absent_reason="no OEWS decile rows for the schedule's occupation codes")
+
+
+# ---------------------------------------------------------------------------
 # THE DOOR
 # ---------------------------------------------------------------------------
 def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
@@ -961,6 +1156,9 @@ def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
                    ("industry_history", lambda: build_industry_history(cat, cur, ctx)),
                    ("market", lambda: build_market(cat, cur, draft, ctx)),
                    ("sensitivity", lambda: build_sensitivity(cat, draft)),
+                   ("chart_series", lambda: build_chart_series(cat, draft)),
+                   ("market_composition", lambda: build_market_composition(cat, cur, ctx)),
+                   ("wage_positioning", lambda: build_wage_positioning(cat, cur, draft, ctx)),
                    ("economy", lambda: build_economy(cat, cur)),
                    ("valuation", lambda: build_valuation_facts(cat, cur, draft))):
     try:

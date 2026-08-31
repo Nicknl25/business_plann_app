@@ -417,3 +417,95 @@ class WorkbookManifestTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class ChartSeriesTests(unittest.TestCase):
+  """The series builders behind the approved charts (Nick 2026-08-31): same
+  ABSENT discipline as the scalars, provenance on every series."""
+
+  @staticmethod
+  def _fake_draft(quarters=20):
+    rows = []
+    for i in range(1, quarters + 1):
+      rows.append({"quarter_index": i, "revenue": 1000.0 + i, "cogs": 400.0,
+                   "ebitda": 200.0, "depreciation": 50.0, "net_income": 100.0,
+                   "cash": 5000.0 + i})
+    ph = {"rows": [
+      {"quarter_index": q, "position_title": "Baker", "staffing_class": "supporting_staff",
+       "ending_fte": 2.0, "annual_wage": 30000, "oews_occ_code": "51-3011"}
+      for q in (4, 8, 12, 16, 20)
+    ] + [
+      {"quarter_index": q, "position_title": "Owner", "staffing_class": "key_person",
+       "ending_fte": 1.0, "annual_wage": 60000}
+      for q in (4, 8, 12, 16, 20)
+    ]}
+    # raw dicts: the builder's _j accepts them, no serialisation needed
+    return {"finmo_json": {"quarter_rows": rows}, "payroll_headcount": ph}
+
+  def test_series_built_with_provenance(self):
+    from writing_phase.facts.build import build_chart_series
+    cat = FactCatalog("d1")
+    build_chart_series(cat, self._fake_draft())
+    for k in ("annual.revenue_series", "annual.net_income_series",
+              "annual.margin_structure_series", "quarterly.cash_balance_series",
+              "quarterly.revenue_series", "quarterly.total_cost_series",
+              "annual.headcount_by_role_group"):
+      f = cat.get(k)
+      self.assertIsNotNone(f, "%s must build" % k)
+      self.assertTrue(f.provenance.basis, "%s must carry provenance" % k)
+    self.assertEqual(len(cat.get("annual.revenue_series").value), 5)
+    self.assertEqual(len(cat.get("quarterly.cash_balance_series").value), 20)
+
+  def test_total_cost_is_revenue_less_net_income(self):
+    from writing_phase.facts.build import build_chart_series
+    cat = FactCatalog("d1")
+    build_chart_series(cat, self._fake_draft())
+    rev = cat.get("quarterly.revenue_series").value
+    cost = cat.get("quarterly.total_cost_series").value
+    self.assertAlmostEqual(rev[0] - cost[0], 100.0 * 1, places=2)
+
+  def test_margins_mirror_the_annual_arithmetic(self):
+    from writing_phase.facts.build import build_chart_series
+    cat = FactCatalog("d1")
+    build_chart_series(cat, self._fake_draft())
+    m = cat.get("annual.margin_structure_series").value[0]
+    rev_y1 = sum(1000.0 + i for i in range(1, 5))
+    self.assertAlmostEqual(m["gross"], (rev_y1 - 1600.0) / rev_y1, places=4)
+    self.assertAlmostEqual(m["operating"], (800.0 - 200.0) / rev_y1, places=4)
+
+  def test_headcount_grouped_by_title_when_few(self):
+    from writing_phase.facts.build import build_chart_series
+    cat = FactCatalog("d1")
+    build_chart_series(cat, self._fake_draft())
+    groups = {g["group"]: g["annual"] for g in cat.get("annual.headcount_by_role_group").value}
+    self.assertEqual(set(groups), {"Baker", "Owner"})
+    self.assertEqual(groups["Baker"], [2.0] * 5)
+
+  def test_missing_quarters_is_absent_with_reason_never_a_crash(self):
+    from writing_phase.facts.build import build_chart_series
+    misses = []
+    cat = FactCatalog("d1", miss_sink=lambda **kw: misses.append(kw))
+    build_chart_series(cat, self._fake_draft(quarters=8))
+    self.assertIsNone(cat.get("annual.revenue_series"))
+    self.assertTrue(any("20 quarters" in str(m) for m in misses),
+                    "the miss log must carry the reason")
+
+  def test_registry_series_requirements_have_a_builder_home(self):
+    """Every requires_facts key on every chart is either a known scalar or one
+    of the series this turn built - no chart may point at a fact nothing
+    produces (the sketch-registry defect, closed 2026-08-31)."""
+    built = {"annual.revenue_series", "annual.net_income_series",
+             "annual.margin_structure_series", "quarterly.cash_balance_series",
+             "quarterly.revenue_series", "quarterly.total_cost_series",
+             "annual.headcount_by_role_group", "annual.revenue_by_lob",
+             "market.composition", "entity.wage_positioning",
+             "industry.sba_amount_distribution", "industry.establishments_history",
+             "industry.establishments_history_span",
+             # scalars proven in coverage
+             "quarterly.cash_trough", "quarterly.cash_trough_amount",
+             "quarterly.break_even", "annual.marketing_demand_low",
+             "annual.marketing_demand_high", "entity.funding_request",
+             "industry.sba_ask_percentile"}
+    for c in R.CHART_REGISTRY:
+      for k in c["requires_facts"]:
+        self.assertIn(k, built, "chart %s requires %s, which nothing builds" % (c["key"], k))

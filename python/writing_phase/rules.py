@@ -350,58 +350,108 @@ PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
 PLACEMENT_FULL_WIDTH = "full_width"
 PLACEMENT_WRAP = "wrap"     # chart sits beside prose, text wraps
 
+# THE APPROVED DESIGNS (Nick's rulings, 2026-08-31 evening). Eleven designs;
+# a typical draft renders 8-10, a thin one ~7. A chart whose series cannot be
+# built is silently omitted and the figures renumber - the ABSENT discipline
+# at chart scale. `annotation` records what the figure must carry ON it; the
+# annotation IS what separates a consultant's chart from a template's.
 CHART_REGISTRY: Tuple[Dict[str, Any], ...] = (
-  {"key": "revenue_by_lob", "order": 10,
-   "title": "Revenue by Line of Business",
-   "section": "market_and_industry", "kind": "stacked_column",
-   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
-   "requires_facts": ("annual.revenue_by_lob",)},
-  {"key": "local_market_composition", "order": 20,
-   "title": "Local Market Composition",
-   "section": "market_and_industry", "kind": "horizontal_bar",
-   "namespace": NS_MARKET, "placement": PLACEMENT_WRAP,
-   "requires_facts": ("market.composition",)},
-  {"key": "revenue_and_net_income", "order": 30,
-   "title": "Revenue and Net Income",
-   "section": "financial_plan", "kind": "column_line_combo",
-   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
-   "requires_facts": ("annual.revenue", "annual.net_income")},
-  {"key": "margin_structure", "order": 40,
-   "title": "Margin Structure",
-   "section": "financial_plan", "kind": "line",
-   "namespace": NS_ANNUAL, "placement": PLACEMENT_WRAP,
-   "requires_facts": ("annual.gross_margin", "annual.operating_margin",
-                      "annual.net_margin")},
-  {"key": "cash_position", "order": 50,
-   "title": "Cash Position",
-   "section": "financial_plan", "kind": "area_with_annotation",
-   # QUARTERLY by Nick's ruling - the trough is a quarterly event and a chart
-   # that cannot show it is pointless.
-   "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
-   "requires_facts": ("quarterly.cash_balance", "quarterly.cash_trough")},
-  {"key": "break_even", "order": 60,
-   "title": "Break-Even Analysis",
-   "section": "financial_plan", "kind": "cvp",
-   "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
-   "requires_facts": ("quarterly.revenue", "quarterly.total_cost",
-                      "quarterly.break_even")},
-  {"key": "sources_and_uses", "order": 70,
-   "title": "Sources and Uses of Capital",
-   "section": "funding_request", "kind": "waterfall",
-   "namespace": NS_ENTITY, "placement": PLACEMENT_WRAP,
-   "requires_facts": ("entity.sources_and_uses",)},
-  {"key": "industry_establishments_history", "order": 25,
+  # ---- MARKET & INDUSTRY --------------------------------------------------
+  {"key": "industry_establishments_history", "order": 10,
    "title": "Establishments in the Industry Since NAME_YEAR",
    "section": "market_and_industry", "kind": "line",
    "namespace": NS_INDUSTRY, "placement": PLACEMENT_FULL_WIDTH,
    # 46 years of BDS nobody has touched (depth item 4). Omitted silently
    # where BDS lacks the NAICS - the mushroom farm never sees a gap.
-   "requires_facts": ("industry.establishments_history_span",)},
-  {"key": "headcount_by_role", "order": 80,
+   "requires_facts": ("industry.establishments_history",
+                      "industry.establishments_history_span"),
+   "annotation": "final point labelled with count and year; marker at the client's entry year"},
+  {"key": "local_market_composition", "order": 20,
+   "title": "Local Market Composition",
+   "section": "market_and_industry", "kind": "horizontal_bar",
+   "namespace": NS_MARKET, "placement": PLACEMENT_WRAP,
+   # sibling NAICS-6 lines in the client's COUNTY from CBP - fragmentation at
+   # a glance, the client's own line highlighted.
+   "requires_facts": ("market.composition",),
+   "annotation": "the client's line highlighted and labelled"},
+
+  # ---- PRODUCTS & SERVICES (moved from Market - it answers this section's
+  # question, not the market's; conditional on >=2 lines of business) --------
+  {"key": "revenue_by_lob", "order": 30,
+   "title": "Revenue by Line of Business",
+   "section": "products_and_services", "kind": "stacked_column",
+   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("annual.revenue_by_lob",),
+   "annotation": "fastest-growing line labelled with its CAGR at the final column"},
+
+  # ---- STAFFING & HUMAN CAPITAL -------------------------------------------
+  {"key": "headcount_by_role", "order": 40,
    "title": "Headcount by Role Group",
    "section": "staffing_and_human_capital", "kind": "stacked_area",
    "namespace": NS_ANNUAL, "placement": PLACEMENT_WRAP,
-   "requires_facts": ("annual.headcount_by_role_group",)},
+   "requires_facts": ("annual.headcount_by_role_group",),
+   "annotation": "total headcount labelled at both ends; bands labelled directly, no legend"},
+  {"key": "oews_wage_positioning", "order": 50,
+   "title": "Planned Wages Against the Local Labour Market",
+   "section": "staffing_and_human_capital", "kind": "dot_on_range",
+   "namespace": NS_ENTITY, "placement": PLACEMENT_FULL_WIDTH,
+   # each OEWS-matched role: the planned wage as a dot on the occupation's
+   # state decile bar (p10-p90). Backs payroll the way the SBA strip backs
+   # the ask. Client-override roles without an SOC match are omitted.
+   "requires_facts": ("entity.wage_positioning",),
+   "annotation": "each dot labelled with the planned wage; median tick on every bar"},
+
+  # ---- FINANCIAL PLAN -----------------------------------------------------
+  {"key": "revenue_and_net_income", "order": 60,
+   "title": "Revenue and Net Income",
+   "section": "financial_plan", "kind": "column_line_combo",
+   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("annual.revenue_series", "annual.net_income_series"),
+   "annotation": "net-income zero crossing labelled; revenue CAGR bracketed over the columns"},
+  {"key": "margin_structure", "order": 70,
+   "title": "Margin Structure",
+   "section": "financial_plan", "kind": "line",
+   "namespace": NS_ANNUAL, "placement": PLACEMENT_WRAP,
+   "requires_facts": ("annual.margin_structure_series",),
+   "annotation": "each line labelled at its right end with name and Year-5 value"},
+  {"key": "cash_position", "order": 80,
+   "title": "Cash Position",
+   "section": "financial_plan", "kind": "area_with_annotation",
+   # QUARTERLY by Nick's ruling - the trough is a quarterly event and a chart
+   # that cannot show it is pointless.
+   "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("quarterly.cash_balance_series", "quarterly.cash_trough",
+                      "quarterly.cash_trough_amount"),
+   "annotation": "trough marked with value, quarter, and months of operating cover"},
+  {"key": "break_even", "order": 90,
+   "title": "Break-Even Analysis",
+   "section": "financial_plan", "kind": "cvp",
+   "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("quarterly.revenue_series", "quarterly.total_cost_series",
+                      "quarterly.break_even"),
+   "annotation": "crossing labelled with revenue and quarter; margin-of-safety written into the gap"},
+  {"key": "sensitivity_band", "order": 100,
+   "title": "Revenue Under the Judged Scenarios",
+   "section": "financial_plan", "kind": "bounded_scenario_band",
+   # NOT a fan. Flat single-tone shade between NAMED scenario lines - a
+   # gradient is a probability claim and these are judged scenarios. Caption
+   # states it: bounds, not confidence intervals. The price-retention band is
+   # a VOLUME judgment with no captured price uplift, so it stays prose (S53)
+   # rather than being fabricated into a revenue line.
+   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("annual.revenue_series", "annual.marketing_demand_low",
+                      "annual.marketing_demand_high"),
+   "annotation": "each boundary labelled with its scenario name and Year-5 revenue; caption 'judged scenarios, bounds not confidence intervals'"},
+
+  # ---- FUNDING REQUEST (the waterfall is out - sources & uses is a body
+  # TABLE; the percentile strip says what no table can) ----------------------
+  {"key": "sba_ask_distribution", "order": 110,
+   "title": "The Request Against Approved SBA 7(a) Loans",
+   "section": "funding_request", "kind": "percentile_strip",
+   "namespace": NS_INDUSTRY, "placement": PLACEMENT_WRAP,
+   "requires_facts": ("industry.sba_amount_distribution", "entity.funding_request",
+                      "industry.sba_ask_percentile"),
+   "annotation": "the ask marked at its percentile with amount and rank among the loan count"},
 )
 
 CHART_CAPTION_FORMAT = "Figure {number} — {title}"

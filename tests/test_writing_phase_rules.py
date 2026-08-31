@@ -243,8 +243,10 @@ class RegistryShapeTests(unittest.TestCase):
   def test_charts_owned_by_a_conditional_section_vanish_with_it(self):
     conditional = {s["key"] for s in R.SECTION_REGISTRY if not s["core"]}
     owned = [c["key"] for c in R.CHART_REGISTRY if c["section"] in conditional]
-    self.assertIn("sources_and_uses", owned,
+    self.assertIn("sba_ask_distribution", owned,
                   "the funding chart must belong to the funding section")
+    self.assertNotIn("sources_and_uses", [c["key"] for c in R.CHART_REGISTRY],
+                     "the waterfall is OUT (Nick 2026-08-31) - sources & uses is a body TABLE")
 
   def test_only_the_two_financial_charts_use_quarterly_series(self):
     """Nick's ruling: prose stays annual, charts show the moment."""
