@@ -41,9 +41,18 @@ IDENTITY_KEYS = ("entity.business_name", "entity.naics_title", "entity.state_nam
 # leak test reads this map and the assembled briefs both.
 NARRATIVE_MAP = {
   "the_business": ("business_description_summary", "competitive_advantage", "milestones"),
-  "products_and_services": ("lob_products",),
-  "operations_and_organisation": ("people", "fulfillment"),
-  "marketing_and_sales": ("marketing_plan_summary",),
+  "market_and_industry": ("target_market", "marketing_model"),
+  "competitive_landscape": ("competitive_advantage", "substitute_pressure"),
+  "products_and_services": ("lob_products", "financials_year1_lobs"),
+  "marketing_and_sales": ("marketing_plan_summary", "marketing_model", "retention_rationale"),
+  "operations_and_organisation": ("fulfillment", "operating_profile"),
+  "management_team": ("people",),
+  "staffing_and_human_capital": ("inferred_roles", "rest_of_team_payroll"),
+  "risks_and_mitigations": ("risk_analysis",),
+  "funding_request": ("debt_schedule", "funding_posture"),
+  "financial_plan": ("coherence_analysis", "assumptions_ledger", "debt_schedule", "stage_ramp"),
+  "disclosures": ("acceptance_verdict", "intake_policy", "estimation_flags"),
+  "executive_summary": ("planning_context",),
 }
 
 # Person fields carried into the ops narrative. Wages stay OUT - the brief's
@@ -64,7 +73,7 @@ def _jload(v):
     return {}
 
 
-def extract_narratives(draft: Dict[str, Any]) -> Dict[str, Any]:
+def extract_narratives(draft: Dict[str, Any], extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
   """The narrative pool, keyed by the names NARRATIVE_MAP uses. Empty values
   are dropped, so a missing narrative is simply absent from the brief - the
   section writes shorter, never explains why (rule 3)."""
@@ -90,6 +99,93 @@ def extract_narratives(draft: Dict[str, Any]) -> Dict[str, Any]:
         people.append(row)
   if people:
     out["people"] = people
+
+  # ---- map v2 (2026-08-31): the wider grants ------------------------------
+  fin = _jload(draft.get("financials_json"))
+  coh = fin.get("_coherence") or {}
+  mm = _jload(draft.get("marketing_model_json"))
+  fy = _jload(draft.get("financials_year1_json"))
+  mi = _jload(draft.get("model_input_json"))
+  ms = _jload(draft.get("marketing_schedule_json"))
+  pcs = _jload(draft.get("planning_context_summary_json"))
+  si = (mi.get("solver_input") or {}) if isinstance(mi, dict) else {}
+
+  tm_full = {k: v for k, v in tm.items()
+             if k != "marketing_plan_summary" and v not in (None, "", [], {})}
+  if tm_full:
+    out["target_market"] = tm_full
+  mm_slice = {k: mm.get(k) for k in ("marketing_basis_summary", "geography_basis",
+                                     "b2b_basis_counts", "b2c_basis_counts",
+                                     "expected_customers_or_clients_year1",
+                                     "expected_units_year1", "capture_rate_year1",
+                                     "marketing_intensity", "market_basis_type")
+              if mm.get(k) not in (None, "", [], {})}
+  if mm_slice:
+    out["marketing_model"] = mm_slice
+  sub = ((coh.get("demand_response") or {}).get("price_response") or {}).get("basis")
+  if sub:
+    out["substitute_pressure"] = sub
+  if fy.get("lobs"):
+    out["financials_year1_lobs"] = fy["lobs"]
+  ret = ((ms.get("assumptions") or {}).get("retention") or {})
+  if ret.get("rationale"):
+    out["retention_rationale"] = {"rationale": ret.get("rationale"), "basis": ret.get("basis")}
+  op = {k: om.get(k) for k in ("shipping_method", "sales_modality", "capacity_driver",
+                               "geographic_coverage", "business_stage")
+        if om.get(k) not in (None, "")}
+  op.update({k: v for k, v in ((pcs.get("operating_profile") or {}) if isinstance(pcs, dict) else {}).items()
+             if k in ("shipping_method", "sales_modality") and v})
+  if op:
+    out["operating_profile"] = op
+  inf = {k: pj.get(k) for k in ("inferred_roles", "inferred_roles_summary")
+         if pj.get(k) not in (None, "", [])}
+  if inf:
+    out["inferred_roles"] = inf
+  if pj.get("rest_of_team_payroll_year1") not in (None, "", 0):
+    out["rest_of_team_payroll"] = pj.get("rest_of_team_payroll_year1")
+  risk = {k: coh.get(k) for k in ("demand_response", "walls") if coh.get(k)}
+  if risk:
+    out["risk_analysis"] = risk
+  coh_full = {k: coh.get(k) for k in ("margin_band_judgment", "demand_response",
+                                      "essentials_response", "judged_growth",
+                                      "walls", "converged_suffix", "status")
+              if coh.get(k) not in (None, "", [], {})}
+  if coh_full:
+    out["coherence_analysis"] = coh_full
+  ledger = {k: si.get(k) for k in ("judgment_ledger", "wc_judgment", "cash_judgment",
+                                   "margin_band_judgment")
+            if si.get(k) not in (None, "", [], {})}
+  if fin.get("_cogs_baseline_resolution"):
+    ledger["cogs_baseline_resolution"] = fin.get("_cogs_baseline_resolution")
+  if fin.get("cogs_basis"):
+    ledger["cogs_basis"] = fin.get("cogs_basis")
+  if ledger:
+    out["assumptions_ledger"] = ledger
+  if isinstance(pcs, dict) and pcs.get("stage_ramp_contract"):
+    out["stage_ramp"] = pcs.get("stage_ramp_contract")
+  sched = ((mi.get("sections") or {}).get("schedules") or {}) if isinstance(mi, dict) else {}
+  rows_ = [{"label": r.get("label"), "values": r.get("values")}
+           for r in (sched.get("rows") or []) if isinstance(r, dict)]
+  seeds = {k: v for k, v in sched.items() if k != "rows" and v not in (None, "")}
+  if rows_ or seeds:
+    out["debt_schedule"] = {"seeds": seeds, "rows": rows_}
+  posture = {k: fin.get(k) for k in ("funding_preference", "cash_strategy") if fin.get(k)}
+  if posture:
+    out["funding_posture"] = posture
+  flags = {}
+  if mm.get("estimation_method"):
+    flags["marketing_estimation"] = {k: mm.get(k) for k in ("estimation_method", "estimation_status")}
+  if ret.get("basis"):
+    flags["retention_basis"] = ret.get("basis")
+  if flags:
+    out["estimation_flags"] = flags
+  if isinstance(pcs, dict) and pcs.get("intake_non_binding_policy"):
+    out["intake_policy"] = pcs.get("intake_non_binding_policy")
+  if isinstance(pcs, dict) and pcs:
+    out["planning_context"] = pcs
+  for k, v in (extras or {}).items():
+    if v not in (None, "", [], {}):
+      out[k] = v
   return out
 
 BRIEF_LOG_TABLE = "writing_phase_brief_log"
@@ -127,13 +223,14 @@ class BriefAssembly:
 
 
 def assemble(cat: FactCatalog, *, sections: Optional[List[str]] = None,
-             draft: Optional[Dict[str, Any]] = None) -> BriefAssembly:
+             draft: Optional[Dict[str, Any]] = None,
+             extras: Optional[Dict[str, Any]] = None) -> BriefAssembly:
   """Build every section's brief from the catalogue. Uses cat.get(), so every
   key a brief wanted and could not have lands in the miss log with its reason.
   When the draft row is supplied, each section also receives EXACTLY the
   narrative slice NARRATIVE_MAP grants it - nothing else."""
   asm = BriefAssembly(draft_id=cat.draft_id)
-  pool = extract_narratives(draft) if draft else {}
+  pool = extract_narratives(draft, extras) if draft else {}
   wanted = sections or [s["key"] for s in R.SECTION_REGISTRY
                         if s["key"] not in ("appendix", "sources_and_notes")]
   for section_key in wanted:

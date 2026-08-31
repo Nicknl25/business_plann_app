@@ -38,6 +38,7 @@ CORE_PAYLOADS = (
   "operating_model_json",
   "target_market_json",
   "financials_json",
+  "financials_year1_json",
   "people_json",
   "fulfillment_json",
   "marketing_schedule_json",
@@ -95,10 +96,23 @@ def finmo_annual_body(finmo: Any) -> Dict[str, Any]:
   }
 
 
-def build_shared_block(draft: Dict[str, Any]) -> str:
+def client_transcript(draft: Dict[str, Any]) -> List[str]:
+  """The client's verbatim turns - the only place their voice exists. Shared
+  block (cached once) rather than a per-section narrative grant, because
+  three sections draw on it. Absent on replay-built drafts; degrades to []."""
+  msgs = _jload(draft.get("messages_json"))
+  if not isinstance(msgs, list):
+    return []
+  return [str(m.get("content") or "") for m in msgs
+          if isinstance(m, dict) and m.get("role") == "user" and str(m.get("content") or "").strip()]
+
+
+def build_shared_block(draft: Dict[str, Any], *, workbook_stamp: Optional[Dict[str, Any]] = None) -> str:
   """The block every section call shares, deterministic and ordered:
-  rules first, then the core payloads, then annual FINMO. Identical bytes
-  across calls IS the caching mechanism - do not reorder per section."""
+  rules, the workbook manifest, the business record, the client's verbatim
+  transcript, then annual FINMO. Identical bytes across a draft's nine calls
+  IS the caching mechanism - do not reorder per section. The stamp (filename,
+  run id) is per-draft and therefore safely inside the shared block."""
   for k in EXCLUDED_PAYLOADS:
     # the exclusion is structural: the shared block never reads these keys
     pass
@@ -107,9 +121,19 @@ def build_shared_block(draft: Dict[str, Any]) -> str:
   parts.append(json.dumps(
     [{"rule": r["id"], "instruction": r["prompt_instruction"]} for r in R.WRITING_RULES],
     separators=(",", ":"), ensure_ascii=False))
+  parts.append("== THE ACCOMPANYING WORKBOOK ==")
+  parts.append(R.WORKBOOK_REFERENCE_INSTRUCTION)
+  manifest: Dict[str, Any] = {"sheets": list(R.WORKBOOK_MANIFEST)}
+  if workbook_stamp:
+    manifest["delivered"] = workbook_stamp
+  parts.append(json.dumps(manifest, separators=(",", ":"), ensure_ascii=False, default=str))
   parts.append("== BUSINESS RECORD ==")
   record = {k: _jload(draft.get(k)) for k in CORE_PAYLOADS}
   parts.append(json.dumps(record, separators=(",", ":"), ensure_ascii=False, default=str))
+  voice = client_transcript(draft)
+  if voice:
+    parts.append("== THE CLIENT'S OWN WORDS (verbatim intake transcript) ==")
+    parts.append(json.dumps(voice, separators=(",", ":"), ensure_ascii=False))
   parts.append("== FINANCIAL PROJECTIONS (ANNUAL) ==")
   parts.append(json.dumps(finmo_annual_body(draft.get("finmo_json")),
                           separators=(",", ":"), ensure_ascii=False, default=str))

@@ -128,9 +128,15 @@ NS_QUARTERLY = "quarterly"
 NS_ENTITY = "entity"
 NS_INDUSTRY = "industry"
 NS_MARKET = "market"
-FACT_NAMESPACES = (NS_ANNUAL, NS_QUARTERLY, NS_ENTITY, NS_INDUSTRY, NS_MARKET)
+# economy.* (Nick, 2026-08-31): rule 7 says no plan ignores its economic
+# context, and one inferred clause was the whole appearance. FRED macro and
+# the valuation constants' Treasury rate live here - woven into the Basis of
+# Projections, the funding comparables and the rate-risk clause, never a
+# macro lecture.
+NS_ECONOMY = "economy"
+FACT_NAMESPACES = (NS_ANNUAL, NS_QUARTERLY, NS_ENTITY, NS_INDUSTRY, NS_MARKET, NS_ECONOMY)
 
-BODY_ALLOWED_NAMESPACES = (NS_ANNUAL, NS_ENTITY, NS_INDUSTRY, NS_MARKET)
+BODY_ALLOWED_NAMESPACES = (NS_ANNUAL, NS_ENTITY, NS_INDUSTRY, NS_MARKET, NS_ECONOMY)
 
 # The two exceptions Nick named, written as SENTENCES and never as body charts
 # of their own: the cash trough and break-even. These are the only quarterly
@@ -247,49 +253,85 @@ NOTES_SECTION_FOLLOWS = "appendix"
 # TOC are COMPUTED from what is emitted, never authored, so a plan can never
 # read 1,2,3,4,5,6,8,9.
 SECTION_REGISTRY: Tuple[Dict[str, Any], ...] = (
+  # `core`: appears unless the CLIENT switches it off. `trigger`: a data
+  # condition for conditional sections. `omissible`: whether an explicit
+  # client choice may exclude it - Disclosures is locked under every
+  # configuration (Nick, 2026-08-31). Emission =
+  #   (core or trigger fired) and not explicitly OFF, locked ignores OFF.
+  # An explicit ON cannot conjure a conditional section whose data condition
+  # does not hold - there would be nothing true to write in it.
   {"key": "executive_summary", "title": "Executive Summary",
-   "core": True, "trigger": None, "order": 10,
-   "pages_min": 1, "pages_max": 2, "generated_last": True},
+   "core": True, "trigger": None, "order": 10, "omissible": True,
+   "pages_min": 1, "pages_max": 2, "generated_last": True,
+   # written FROM WHATEVER SECTIONS ARE PRESENT, never assuming all of them
+   "built_from_present_sections": True},
   {"key": "the_business", "title": "The Business",
-   "core": True, "trigger": None, "order": 20,
+   "core": True, "trigger": None, "order": 20, "omissible": True,
    "pages_min": 1, "pages_max": 2},
   {"key": "market_and_industry", "title": "Market & Industry",
-   "core": True, "trigger": None, "order": 30,
+   "core": True, "trigger": None, "order": 30, "omissible": True,
    "pages_min": 3, "pages_max": 4},
-  {"key": "products_and_services", "title": "Products & Services",
-   "core": True, "trigger": None, "order": 40,
-   "pages_min": 2, "pages_max": 3,
-   # per-line subsections for multi-line businesses (rule 13)
-   "per_line_subsections": True},
-  {"key": "operations_and_organisation", "title": "Operations & Organisation",
-   "core": True, "trigger": None, "order": 50,
-   "pages_min": 2, "pages_max": 3},
-  {"key": "marketing_and_sales", "title": "Marketing & Sales",
-   "core": True, "trigger": None, "order": 60,
+  {"key": "competitive_landscape", "title": "Competitive Landscape",
+   "core": True, "trigger": None, "order": 40, "omissible": True,
    "pages_min": 1, "pages_max": 2},
-  {"key": "funding_request", "title": "Funding Request",
-   "core": False, "trigger": "funding_is_sought", "order": 70,
+  {"key": "products_and_services", "title": "Products & Services",
+   "core": True, "trigger": None, "order": 50, "omissible": True,
+   "pages_min": 2, "pages_max": 3,
+   "per_line_subsections": True},
+  {"key": "marketing_and_sales", "title": "Marketing & Sales",
+   "core": True, "trigger": None, "order": 60, "omissible": True,
+   "pages_min": 1, "pages_max": 2},
+  {"key": "operations_and_organisation", "title": "Operations",
+   "core": True, "trigger": None, "order": 70, "omissible": True,
+   "pages_min": 1, "pages_max": 2},
+  # Management Team stays its own section (Nick, 2026-08-31): a lender reads
+  # the team page on its own; a decade of experience is not buried under a
+  # hiring ramp.
+  {"key": "management_team", "title": "Management Team",
+   "core": True, "trigger": None, "order": 80, "omissible": True,
+   "pages_min": 1, "pages_max": 2},
+  {"key": "staffing_and_human_capital", "title": "Staffing & Human Capital",
+   "core": True, "trigger": None, "order": 90, "omissible": True,
+   "pages_min": 1, "pages_max": 2},
+  {"key": "risks_and_mitigations", "title": "Risks & Mitigations",
+   "core": True, "trigger": None, "order": 100, "omissible": True,
+   "pages_min": 1, "pages_max": 2},
+  {"key": "funding_request", "title": "Funding Request & Use of Funds",
+   "core": False, "trigger": "funding_is_sought", "order": 110, "omissible": True,
    "pages_min": 1, "pages_max": 2},
   {"key": "financial_plan", "title": "Financial Plan",
-   "core": True, "trigger": None, "order": 80,
+   "core": True, "trigger": None, "order": 120, "omissible": True,
    "pages_min": 4, "pages_max": 6,
-   "opens_with_span": "basis_of_projections"},
+   "opens_with_span": "basis_of_projections",
+   # the four fixed subsections (map v2): basis / assumptions / forecast /
+   # sensitivity, closing with the valuation reference paragraph
+   "fixed_subsections": ("basis_of_projections", "assumptions", "forecast", "sensitivity")},
   {"key": "disclosures", "title": "Disclosures",
-   "core": True, "trigger": None, "order": 90,
+   "core": True, "trigger": None, "order": 130, "omissible": False,   # LOCKED
    "pages_min": 1, "pages_max": 1},
   {"key": "appendix", "title": "Appendix",
-   "core": True, "trigger": None, "order": 100,
-   "pages_min": None, "pages_max": None,   # as long as it needs
+   "core": True, "trigger": None, "order": 140, "omissible": False,
+   "pages_min": None, "pages_max": None,
    "landscape": True},
   {"key": "sources_and_notes", "title": NOTES_SECTION_TITLE,
-   "core": True, "trigger": None, "order": 110,
+   "core": True, "trigger": None, "order": 150, "omissible": False,
    "pages_min": None, "pages_max": None},
+)
+
+# The six PART headings (presentational grouping, adopted 2026-08-31):
+PART_HEADINGS = (
+  ("The Business", ("executive_summary", "the_business")),
+  ("The Market", ("market_and_industry", "competitive_landscape")),
+  ("Strategy", ("products_and_services", "marketing_and_sales")),
+  ("Operations", ("operations_and_organisation", "management_team", "staffing_and_human_capital")),
+  ("The Financials", ("risks_and_mitigations", "funding_request", "financial_plan", "disclosures")),
+  ("Record", ("appendix", "sources_and_notes")),
 )
 
 # RULE 20 - PROPORTION. Targets, not truncation: out-of-band FLAGS a section
 # for review, it never cuts it.
 BODY_PAGES_MIN = 16
-BODY_PAGES_MAX = 25
+BODY_PAGES_MAX = 28
 PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
 
 
@@ -348,9 +390,16 @@ CHART_REGISTRY: Tuple[Dict[str, Any], ...] = (
    "section": "funding_request", "kind": "waterfall",
    "namespace": NS_ENTITY, "placement": PLACEMENT_WRAP,
    "requires_facts": ("entity.sources_and_uses",)},
+  {"key": "industry_establishments_history", "order": 25,
+   "title": "Establishments in the Industry Since NAME_YEAR",
+   "section": "market_and_industry", "kind": "line",
+   "namespace": NS_INDUSTRY, "placement": PLACEMENT_FULL_WIDTH,
+   # 46 years of BDS nobody has touched (depth item 4). Omitted silently
+   # where BDS lacks the NAICS - the mushroom farm never sees a gap.
+   "requires_facts": ("industry.establishments_history_span",)},
   {"key": "headcount_by_role", "order": 80,
    "title": "Headcount by Role Group",
-   "section": "operations_and_organisation", "kind": "stacked_area",
+   "section": "staffing_and_human_capital", "kind": "stacked_area",
    "namespace": NS_ANNUAL, "placement": PLACEMENT_WRAP,
    "requires_facts": ("annual.headcount_by_role_group",)},
 )
@@ -394,6 +443,48 @@ FOOTER_VERSION = "1.0"
 # No UUID on a client-facing page. The run identifier goes in the appendix.
 RUN_ID_LOCATION = "appendix"
 RUN_ID_FORBIDDEN_IN = ("footer", "header", "body")
+
+
+# ---------------------------------------------------------------------------
+# THE WORKBOOK MANIFEST (2026-08-31). The client receives both artifacts, side
+# by side. This is everything the writer knows about the model: what each
+# sheet is, what a client can change on it, and what lives only there. STATIC
+# by design - part of the byte-identical cached shared block - with a tiny
+# per-draft stamp added at generation time (filename + run id).
+# tests/test_writing_phase_rules.py pins this against the builder's *_SHEET
+# constants so a new sheet breaks a test instead of silently missing here.
+# ---------------------------------------------------------------------------
+WORKBOOK_MANIFEST: Tuple[Dict[str, str], ...] = (
+  {"sheet": "Cover", "purpose": "identity page", "editable": "", "only_there": ""},
+  {"sheet": "Dashboard", "purpose": "KPIs and headline charts", "editable": "", "only_there": "the at-a-glance view"},
+  {"sheet": "FINMO", "purpose": "full quarterly three-statement model with ratios", "editable": "",
+   "only_there": "quarterly detail beyond the appendix; the ratio suite"},
+  {"sheet": "Valuation", "purpose": "discounted-cash-flow the reader can audit; every input labeled grounded or assumption with its source", "editable": "the assumption block",
+   "only_there": "the full valuation walk and its sensitivity grid"},
+  {"sheet": "Revenue Drivers", "purpose": "capacity x price x utilization per line", "editable": "", "only_there": ""},
+  {"sheet": "Model Inputs", "purpose": "every lever feeding the model", "editable": "the highlighted input cells", "only_there": "the what-if capability"},
+  {"sheet": "Payroll Schedule", "purpose": "per-role, per-quarter staffing", "editable": "starting FTE, hires, wages, benefits percent", "only_there": "per-quarter staffing detail"},
+  {"sheet": "Debt Schedule", "purpose": "debt and lease amortization", "editable": "new borrowing, rate, term, extra principal", "only_there": "per-quarter amortization"},
+  {"sheet": "CapEx Depreciation", "purpose": "PPE chain", "editable": "capital expenditure", "only_there": ""},
+  {"sheet": "Working Capital", "purpose": "receivable, payable and inventory drivers", "editable": "the driver rows", "only_there": ""},
+  {"sheet": "Cash Equity Schedule", "purpose": "owner capital and distributions", "editable": "all three rows", "only_there": ""},
+  {"sheet": "Marketing Schedule", "purpose": "customers, acquisition cost and retention", "editable": "retention, purchases per customer, acquisition cost", "only_there": ""},
+  {"sheet": "Model Inputs", "purpose": "", "editable": "", "only_there": ""},
+  {"sheet": "Checks", "purpose": "the model's own consistency checks", "editable": "", "only_there": "the audit trail"},
+  {"sheet": "Audit Source", "purpose": "provenance", "editable": "", "only_there": ""},
+  {"sheet": "Calc", "purpose": "supporting calculation", "editable": "", "only_there": ""},
+  {"sheet": "Diagnostics", "purpose": "build diagnostics", "editable": "", "only_there": ""},
+)
+
+WORKBOOK_REFERENCE_INSTRUCTION = (
+  "The client receives a financial model workbook alongside this document. "
+  "Refer to it as 'the accompanying financial model'. Direct the reader to it "
+  "for quarterly detail, the valuation walk, and what-if changes - for "
+  "example, assumptions can be adjusted on its Model Inputs sheet. Sheet "
+  "NAMES are client-facing vocabulary; cell mechanics are machinery and stay "
+  "out of the prose. Never quote a figure from the workbook that is not in "
+  "your brief. The two artifacts are built from the same model run and must "
+  "never be described as differing.")
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +637,7 @@ WRITING_RULES: Tuple[Dict[str, Any], ...] = (
 
   {"id": "R13", "title": "Sections that come and go", "enforcement": "hard",
    "check": "check_section_emission", "failure_code": "writing_section_emission_invalid",
-   "mechanism": "Core always emitted; conditional on trigger; numbering and TOC computed; charts owned by sections.",
+   "mechanism": "Emission = (core or trigger) and not explicitly OFF; Disclosures locked; explicit ON cannot override a missing data condition; numbering/TOC computed; charts owned by sections; the executive summary builds from whatever is present.",
    "cannot_enforce": None,
    "prompt_instruction": (
      "Thin data makes a shorter section, never a missing one. Never refer to a "

@@ -155,3 +155,20 @@ def fig_margin_structure(gross: Sequence[float], operating: Sequence[float],
   ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: "%.0f%%" % v))
   ax.legend(loc="best", frameon=False, fontsize=7, labelcolor=INK)
   return _finish(fig)
+
+
+def fig_industry_history(years: Sequence[int], establishments: Sequence[float],
+                         highlight_label: str = "") -> bytes:
+  """The 46-year BDS series (depth item 4): establishments in the industry,
+  one line, full width. One chart and two sentences - never a lecture."""
+  fig, ax = _new_fig(2.8)
+  ax.plot(list(years), list(establishments), color=REVENUE, linewidth=1.8)
+  ax.fill_between(list(years), list(establishments), color=_hx(D.BAND_PROFIT), alpha=1.0)
+  if highlight_label:
+    ax.annotate(highlight_label, (years[-1], establishments[-1]),
+                textcoords="offset points", xytext=(-8, 8), ha="right",
+                fontsize=8, color=INK)
+  ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: "{:,.0f}".format(v)))
+  _style_axes(ax, money_axis=False)
+  ax.yaxis.grid(True, color=GRID, linewidth=0.8)
+  return _finish(fig)

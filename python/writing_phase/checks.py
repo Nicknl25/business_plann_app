@@ -356,18 +356,32 @@ def check_chart_registry(emitted_charts: Optional[Sequence[Dict[str, Any]]] = No
 
 def check_section_emission(emitted_sections: Optional[Sequence[str]] = None,
                            triggers: Optional[Dict[str, bool]] = None,
+                           overrides: Optional[Dict[str, bool]] = None,
                            **_: Any) -> CheckResult:
+  """Omission by CHOICE alongside the data condition (Nick, 2026-08-31).
+  `overrides` is the client's explicit map: False excludes an omissible
+  section, True is only honoured where the data condition already holds.
+  Disclosures (omissible=False) is present under EVERY configuration."""
   rid = "R13"
   if emitted_sections is None or triggers is None:
     return CheckResult.could_not_run(rid, "no emitted-section list or trigger map supplied")
+  ov = overrides or {}
   offenders: List[str] = []
   emitted = list(emitted_sections)
   for spec in R.SECTION_REGISTRY:
     key, is_core, trig = spec["key"], spec["core"], spec.get("trigger")
-    if is_core and key not in emitted:
-      offenders.append("core section missing: %s" % key)
-    if not is_core and key in emitted and not triggers.get(trig, False):
-      offenders.append("conditional section %s emitted without trigger %s" % (key, trig))
+    omissible = spec.get("omissible", True)
+    data_ok = is_core or triggers.get(trig, False)
+    chosen_off = ov.get(key) is False and omissible
+    expected = data_ok and not chosen_off
+    if not omissible and key not in emitted:
+      offenders.append("locked section missing: %s (not omissible under any configuration)" % key)
+    elif expected and key not in emitted:
+      offenders.append("section missing without an explicit exclusion: %s" % key)
+    elif not data_ok and key in emitted:
+      offenders.append("section %s emitted without its data condition (%s) - an explicit ON cannot conjure it" % (key, trig))
+    elif chosen_off and key in emitted:
+      offenders.append("section %s emitted despite an explicit exclusion" % key)
   order = [s["key"] for s in sorted(R.SECTION_REGISTRY, key=lambda s: s["order"])]
   if emitted != [k for k in order if k in emitted]:
     offenders.append("sections emitted out of registry order")

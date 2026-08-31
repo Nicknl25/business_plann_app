@@ -22,7 +22,7 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S01", "section": "market_and_industry", "class": "INFERRED",
    "text": "{market.competition_geo_label} has {market.establishments} establishments in {entity.naics_title} - one for every {market.residents_per_establishment} residents.",
    "needs": ["market.competition_geo_label", "market.establishments", "entity.naics_title", "market.residents_per_establishment"]},
-  {"id": "S02", "section": "market_and_industry", "class": "INFERRED",
+  {"id": "S02", "core": True, "section": "competitive_landscape", "class": "INFERRED",
    "text": "{entity.business_name} is one of {market.establishments} operators in its trade in {market.competition_geo_label}, a {market.client_share_of_establishments} share of the field.",
    "needs": ["entity.business_name", "market.establishments", "market.competition_geo_label", "market.client_share_of_establishments"]},
   {"id": "S03", "section": "market_and_industry", "class": "INFERRED",
@@ -31,10 +31,10 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S04", "section": "market_and_industry", "class": "INFERRED",
    "text": "Annual payroll per establishment runs {market.payroll_per_establishment} in {market.competition_geo_label} versus {industry.payroll_per_establishment_national} across the country.",
    "needs": ["market.payroll_per_establishment", "market.competition_geo_label", "industry.payroll_per_establishment_national"]},
-  {"id": "S05", "section": "market_and_industry", "class": "INFERRED",
+  {"id": "S05", "section": "competitive_landscape", "class": "INFERRED",
    "text": "{industry.share_firms_under_10_employees} of firms in the industry employ fewer than ten people - this is a trade of small operators.",
    "needs": ["industry.share_firms_under_10_employees"]},
-  {"id": "S06", "section": "operations_and_organisation", "class": "INFERRED",
+  {"id": "S06", "core": True, "section": "operations_and_organisation", "class": "INFERRED",
    "text": "The metro's concentration of {market.top_occupation_title} is {market.top_occupation_loc_quotient} the national average, so the labour {entity.business_name} depends on is available locally.",
    "needs": ["market.top_occupation_title", "market.top_occupation_loc_quotient", "entity.business_name"]},
   {"id": "S07", "section": "market_and_industry", "class": "INFERRED",
@@ -91,13 +91,13 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S22", "section": "financial_plan", "class": "GROUNDED",
    "text": "Net margin in Year 1 is {annual.net_margin_y1}, {annual.net_margin_gap_pts_y1} {annual.net_margin_gap_direction_y1} the {industry.net_margin_benchmark} typical of the industry.",
    "needs": ["annual.net_margin_y1", "annual.net_margin_gap_pts_y1", "annual.net_margin_gap_direction_y1", "industry.net_margin_benchmark"]},
-  {"id": "S23", "section": "operations_and_organisation", "class": "GROUNDED",
+  {"id": "S23", "section": "staffing_and_human_capital", "class": "GROUNDED",
    "text": "Revenue per employee is projected at {annual.revenue_per_fte_y1}, against {industry.revenue_per_fte_benchmark} for the industry.",
    "needs": ["annual.revenue_per_fte_y1", "industry.revenue_per_fte_benchmark"]},
-  {"id": "S24", "section": "operations_and_organisation", "class": "GROUNDED",
+  {"id": "S24", "section": "staffing_and_human_capital", "class": "GROUNDED",
    "text": "Payroll absorbs {annual.payroll_pct_revenue_y1} of revenue in Year 1, versus {industry.payroll_pct_benchmark} typical of the trade.",
    "needs": ["annual.payroll_pct_revenue_y1", "industry.payroll_pct_benchmark"]},
-  {"id": "S25", "section": "operations_and_organisation", "class": "INFERRED",
+  {"id": "S25", "section": "staffing_and_human_capital", "class": "INFERRED",
    "text": "The {market.wage_check_title} role is paid {market.wage_check_client_wage}, {market.wage_check_direction} the {market.wage_check_area_label} median of {market.wage_check_area_median}.",
    "needs": ["market.wage_check_title", "market.wage_check_client_wage", "market.wage_check_direction", "market.wage_check_area_label", "market.wage_check_area_median"]},
   {"id": "S26", "section": "financial_plan", "class": "GROUNDED",
@@ -134,7 +134,7 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S35", "core": True, "section": "products_and_services", "class": "GROUNDED",
    "text": "{annual.top_lob_name} contributes {annual.top_lob_revenue_share_y1} of Year-1 revenue and {annual.top_lob_gross_profit_share_y1} of gross profit.",
    "needs": ["annual.top_lob_name", "annual.top_lob_revenue_share_y1", "annual.top_lob_gross_profit_share_y1"]},
-  {"id": "S36", "core": True, "section": "operations_and_organisation", "class": "GROUNDED",
+  {"id": "S36", "core": True, "section": "staffing_and_human_capital", "class": "GROUNDED",
    "text": "Headcount grows from {annual.headcount_y1} to {annual.headcount_y5} over the plan; payroll from {annual.payroll_y1} to {annual.payroll_y5}.",
    "needs": ["annual.headcount_y1", "annual.headcount_y5", "annual.payroll_y1", "annual.payroll_y5"]},
   {"id": "S37", "section": "financial_plan", "class": "GROUNDED",
@@ -178,6 +178,42 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
    "text": "Capacity utilisation on {annual.top_lob_name} starts at {annual.top_lob_utilization_y1} and reaches {annual.top_lob_utilization_y5} by Year 5.",
    "needs": ["annual.top_lob_name", "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5"]},
 )
+
+
+EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
+  # ---- ECONOMY WOVEN IN (Nick's ruling 1, 2026-08-31) ---------------------
+  {"id": "S49", "section": "financial_plan", "class": "INFERRED",
+   "text": "The projections assume the economic environment prevailing in {economy.period_label}: inflation running at {economy.inflation_rate} and a ten-year Treasury yield of {economy.ten_year_treasury}.",
+   "needs": ["economy.period_label", "economy.inflation_rate", "economy.ten_year_treasury"]},
+  {"id": "S50", "section": "funding_request", "class": "INFERRED",
+   "text": "Those comparable loans were written across {industry.sba_window_label}; the ten-year Treasury stands at {economy.ten_year_treasury} as of {economy.treasury_as_of}, which is the environment a new facility would price in.",
+   "needs": ["industry.sba_window_label", "economy.ten_year_treasury", "economy.treasury_as_of"]},
+  {"id": "S51", "section": "risks_and_mitigations", "class": "INFERRED",
+   "text": "Debt service runs until {annual.debt_retired_year}; with the ten-year Treasury at {economy.ten_year_treasury}, any refinancing or new borrowing would price off today's rate environment.",
+   "needs": ["annual.debt_retired_year", "economy.ten_year_treasury"]},
+
+  # ---- THE VALUATION, PROMOTED (ruling 2) ---------------------------------
+  {"id": "S52", "section": "financial_plan", "class": "GROUNDED",
+   "text": "On the assumptions recorded in the accompanying financial model, the business supports an estimated equity value of {entity.equity_value_dcf}; small businesses in this trade change hands at around {entity.exit_multiple_sde} seller's discretionary earnings, implying {entity.value_at_exit_multiple} on the plan's mature earnings.",
+   "needs": ["entity.equity_value_dcf", "entity.exit_multiple_sde", "entity.value_at_exit_multiple"]},
+
+  # ---- SENSITIVITY (depth item 1 - the quantified demand_response) --------
+  {"id": "S53", "core": True, "section": "risks_and_mitigations", "class": "GROUNDED",
+   "text": "If pricing were pushed to the top of the achievable range, the plan expects the business to retain between {annual.price_retained_low} and {annual.price_retained_high} of its unit volume.",
+   "needs": ["annual.price_retained_low", "annual.price_retained_high"]},
+  {"id": "S54", "section": "financial_plan", "class": "GROUNDED",
+   "text": "Break-even holds under each of its variants: {annual.break_even_revenue_y1} of Year-1 revenue on an accounting basis and {annual.cash_break_even_revenue_y1} on a cash basis, leaving a margin of safety of {annual.margin_of_safety}.",
+   "needs": ["annual.break_even_revenue_y1", "annual.cash_break_even_revenue_y1", "annual.margin_of_safety"]},
+  {"id": "S55", "section": "financial_plan", "class": "GROUNDED",
+   "text": "Were marketing spend cut back sharply, demand is expected to hold between {annual.marketing_demand_low} and {annual.marketing_demand_high} of plan, and modelled capacity supports up to {annual.volume_headroom_units} units against the volumes projected.",
+   "needs": ["annual.marketing_demand_low", "annual.marketing_demand_high", "annual.volume_headroom_units"]},
+
+  # ---- the BDS history sentence beside the new chart (depth item 4) -------
+  {"id": "S56", "section": "market_and_industry", "class": "INFERRED",
+   "text": "The industry's establishment count has been tracked since {industry.establishments_history_span}, giving the trend behind the entry and exit rates above.",
+   "needs": ["industry.establishments_history_span"]},
+)
+SENTENCES = SENTENCES + EXTRA_SENTENCES
 
 
 # Observations a consultant would make that we CANNOT make, and why. These are

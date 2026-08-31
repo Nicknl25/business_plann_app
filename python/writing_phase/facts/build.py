@@ -19,7 +19,9 @@ import json
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .catalog import (ABSENT, FactCatalog, prov_baseline, prov_intake, prov_model, prov_raw)
+from .catalog import (ABSENT, FactCatalog, Provenance, prov_baseline, prov_intake, prov_model, prov_raw)
+from .. import rules as RR
+from . import valuation as V
 
 # ---------------------------------------------------------------------------
 # table-level vintages (raw tables carry no per-row provenance - ruling E)
@@ -544,6 +546,7 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
     cat.put("industry.sba_loan_count", len(rows), "count", B("approved loans, cancellations excluded"), "SBA loan count")
     # even the window start is a fact, not a template literal (rule 17 at the template level)
     cat.put("industry.sba_window_start", "fiscal 2020", "text", B("first fiscal year in the loaded 7(a) data"), "SBA window start")
+    cat.put("industry.sba_window_label", "fiscal 2020 through fiscal 2025", "text", B("the fiscal-year window of the loaded 7(a) data"), "SBA window")
     cat.put("industry.sba_median_amount", _median(amts) or ABSENT, "money", B("median gross approval"), "SBA median amount")
     cat.put("industry.sba_median_rate", (_median(rates) / 100.0 if rates else ABSENT), "percent", B("median initial interest rate"), "SBA median rate")
     cat.put("industry.sba_median_term_months", (_median(terms) if terms else ABSENT), "months", B("median term"), "SBA median term")
@@ -747,6 +750,151 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# SENSITIVITY (depth item 1): the quantified demand_response + the break-even
+# variants. These are OUR OWN judged analysis - grounded to the model.
+# ---------------------------------------------------------------------------
+def build_sensitivity(cat: FactCatalog, draft: Dict[str, Any]) -> None:
+  fin = _j(draft.get("financials_json"))
+  coh = (fin.get("_coherence") or {})
+  P_ = prov_model
+  pr = (coh.get("demand_response") or {}).get("price_response") or {}
+  band = pr.get("retained_fraction_band") or []
+  if len(band) == 2 and _f(band[0]) is not None:
+    cat.put("annual.price_retained_low", float(band[0]), "percent",
+            P_("the demand judgment's retained-volume band under top-of-range pricing"), "Price band low")
+    cat.put("annual.price_retained_high", float(band[1]), "percent",
+            P_("the demand judgment's retained-volume band under top-of-range pricing"), "Price band high")
+  else:
+    for k in ("annual.price_retained_low", "annual.price_retained_high"):
+      cat.put(k, ABSENT, "percent", P_("x"), absent_reason="no quantified price response in the coherence record")
+  mr = (coh.get("demand_response") or {}).get("marketing_response") or {}
+  mband = mr.get("demand_at_reduced_spend_band") or []
+  if len(mband) == 2 and _f(mband[0]) is not None:
+    cat.put("annual.marketing_demand_low", float(mband[0]), "percent",
+            P_("the demand judgment's demand-at-reduced-spend band"), "Marketing band low")
+    cat.put("annual.marketing_demand_high", float(mband[1]), "percent",
+            P_("the demand judgment's demand-at-reduced-spend band"), "Marketing band high")
+  vh = _f(((coh.get("demand_response") or {}).get("volume_headroom") or {}).get("supported_units_max"))
+  cat.put("annual.volume_headroom_units", (vh if vh else ABSENT), "count",
+          P_("maximum units the modelled reachable market supports"), "Volume headroom",
+          absent_reason="no volume headroom in the coherence record")
+  be = ((_j(draft.get("finmo_json")) or {}).get("break_even") or {}).get("summary") or {}
+  y1 = be.get("y1_annualized") or {}
+  cat.put("annual.break_even_revenue_y1", _f(y1.get("be_revenue")) or ABSENT, "money",
+          P_("annualised Year-1 break-even revenue, accounting basis"), "BE revenue Y1",
+          absent_reason="no annualised break-even in the model")
+  cbe = _f(y1.get("cash_be_revenue")) or (_f((be.get("q1") or {}).get("cash_be_revenue")) or None)
+  if cbe:
+    cbe = cbe * (4.0 if cbe and y1.get("be_revenue") and cbe < _f(y1.get("be_revenue")) / 2 else 1.0)
+  cat.put("annual.cash_break_even_revenue_y1", (cbe if cbe else ABSENT), "money",
+          P_("Year-1 break-even revenue on a cash basis"), "Cash BE Y1",
+          absent_reason="no cash break-even in the model")
+  mos = _f((be.get("q1") or {}).get("margin_of_safety"))
+  cat.put("annual.margin_of_safety", (mos if mos is not None else ABSENT), "percent",
+          P_("planned revenue over break-even revenue, less one"), "Margin of safety",
+          absent_reason="no margin of safety in the model")
+
+
+# ---------------------------------------------------------------------------
+# ECONOMY (Nick's ruling 1): FRED macro + the sourced Treasury rate. FRED rows
+# are a raw table -> INFERRED per ruling E; the Treasury constant carries a
+# full citation and, like the promoted valuation, is GROUNDED with a SOURCE -
+# the one deliberate widening of ruling E, made under ruling 2's authority.
+# ---------------------------------------------------------------------------
+def build_economy(cat: FactCatalog, cur) -> None:
+  try:
+    cur.execute("SELECT date, inflation_rate, gdp, consumer_spending FROM fred_macro_quarterly ORDER BY date DESC LIMIT 5")
+    rows = cur.fetchall()
+  except Exception:
+    rows = []
+  if rows:
+    latest = rows[0]
+    d = latest[0]
+    label = "the %s quarter of %d" % (("first", "second", "third", "fourth")[(d.month - 1) // 3], d.year)
+    F = lambda what: prov_raw("FRED macroeconomic series", "quarterly, through %s" % d.isoformat(), what)
+    cat.put("economy.period_label", label, "text", F("latest quarter held"), "Data period")
+    cat.put("economy.inflation_rate", (_f(latest[1]) or 0) / 100.0, "percent", F("CPI year-over-year inflation"), "Inflation")
+    if len(rows) == 5 and _f(rows[4][2]):
+      cat.put("economy.gdp_growth_yoy", float(latest[2]) / float(rows[4][2]) - 1.0, "percent",
+              F("nominal GDP, year over year"), "GDP growth")
+      cat.put("economy.consumer_spending_growth_yoy", float(latest[3]) / float(rows[4][3]) - 1.0, "percent",
+              F("personal consumption, year over year"), "Consumer spending growth")
+  else:
+    cat.put("economy.period_label", ABSENT, "text", prov_model("x"), absent_reason="fred_macro_quarterly empty")
+  try:
+    cur.execute("SELECT value_default, source_citation, source_as_of FROM valuation_reference_constants "
+                "WHERE constant_key='risk_free_rate' AND active=1 LIMIT 1")
+    r = cur.fetchone()
+  except Exception:
+    r = None
+  if r and _f(r[0]) is not None:
+    prov = Provenance(RR.CLASS_GROUNDED, RR.NOTE_KIND_SOURCE,
+                      "%s, as of %s." % (str(r[1] or "FRED DGS10"), str(r[2] or "")),
+                      source_name=str(r[1] or "FRED DGS10")[:120], source_vintage=str(r[2] or "undated"))
+    cat.put("economy.ten_year_treasury", float(r[0]), "percent", prov, "Ten-year Treasury")
+    cat.put("economy.treasury_as_of", str(r[2] or ABSENT), "text", prov, "Treasury as-of")
+  else:
+    cat.put("economy.ten_year_treasury", ABSENT, "percent", prov_model("x"), absent_reason="no risk-free constant loaded")
+
+
+# ---------------------------------------------------------------------------
+# VALUATION PROMOTED (Nick's ruling 2): the Python twin of the Valuation
+# sheet. The divergence guard (scripts/writing_phase_valuation_guard.py) holds
+# fact and workbook to the same number on the same run.
+# ---------------------------------------------------------------------------
+def build_valuation_facts(cat: FactCatalog, cur, draft: Dict[str, Any]) -> None:
+  try:
+    val = V.compute_valuation(cur, draft)
+  except Exception as exc:  # noqa: BLE001
+    cat.put("entity.equity_value_dcf", ABSENT, "money", prov_model("x"),
+            absent_reason="valuation computation failed: %s" % str(exc)[:120])
+    return
+  eq = _f(val.get("equity_value"))
+  if eq is not None and eq > 0:
+    cat.put("entity.equity_value_dcf", eq, "money",
+            prov_model("the discounted-cash-flow prepared in the accompanying financial model's Valuation sheet, same run, same assumptions"),
+            "Equity value (DCF)")
+  else:
+    reason = ("terminal spread below the structural floor - the model itself declines to price the perpetuity"
+              if val and not val.get("spread_ok") else "model lacks the quarters the valuation needs")
+    cat.put("entity.equity_value_dcf", ABSENT, "money", prov_model("x"), absent_reason=reason)
+  xm = val.get("exit_multiple") or {}
+  if _f(xm.get("value")):
+    prov = Provenance(RR.CLASS_GROUNDED, RR.NOTE_KIND_SOURCE,
+                      "%s, as of %s%s." % (str(xm.get("citation") or xm.get("source") or "industry transaction data"),
+                                           str(xm.get("as_of") or "undated"),
+                                           (", NAICS %s" % xm["scope"]) if xm.get("scope") else ""),
+                      source_name=str(xm.get("citation") or xm.get("source") or "industry transaction data")[:120],
+                      source_vintage=str(xm.get("as_of") or "undated"))
+    cat.put("entity.exit_multiple_sde", float(xm["value"]), "multiple", prov, "Exit multiple (SDE)")
+    v_mult = _f(val.get("value_at_exit_multiple"))
+    cat.put("entity.value_at_exit_multiple", (v_mult if v_mult and v_mult > 0 else ABSENT), "money",
+            prov_model("mature-year seller's discretionary earnings at the industry exit multiple"),
+            "Value at exit multiple", absent_reason="no positive mature-year SDE")
+  else:
+    cat.put("entity.exit_multiple_sde", ABSENT, "multiple", prov_model("x"), absent_reason="no exit multiple constant")
+
+
+# ---------------------------------------------------------------------------
+# THE BDS HISTORY (depth item 4): the 46-year series behind the new chart.
+# ---------------------------------------------------------------------------
+def build_industry_history(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
+  n4 = (str(ctx.get("naics6") or ""))[:4]
+  if not n4:
+    return
+  cur.execute("SELECT year, SUM(estabs) FROM bds_firm_age WHERE vcnaics4=%s GROUP BY year ORDER BY year", (n4,))
+  rows = [(int(a), float(b)) for a, b in cur.fetchall() if b is not None]
+  if len(rows) >= 10:
+    span = "%d through %d" % (rows[0][0], rows[-1][0])
+    prov = prov_raw("Business Dynamics Statistics", span, "establishments per year, NAICS %s" % n4)
+    cat.put("industry.establishments_history_span", span, "text", prov, "History span")
+    cat.put("industry.establishments_history", rows, "list", prov, "Establishments by year")
+  else:
+    cat.put("industry.establishments_history_span", ABSENT, "text", prov_model("x"),
+            absent_reason="BDS has no year series for NAICS-4 %s" % n4)
+
+
+# ---------------------------------------------------------------------------
 # THE DOOR
 # ---------------------------------------------------------------------------
 def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
@@ -759,7 +907,11 @@ def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
   for name, fn in (("entity", lambda: build_entity(cat, cur, draft, geo)),
                    ("annual", lambda: build_annual(cat, draft, ctx)),
                    ("industry", lambda: build_industry(cat, cur, ctx)),
-                   ("market", lambda: build_market(cat, cur, draft, ctx))):
+                   ("industry_history", lambda: build_industry_history(cat, cur, ctx)),
+                   ("market", lambda: build_market(cat, cur, draft, ctx)),
+                   ("sensitivity", lambda: build_sensitivity(cat, draft)),
+                   ("economy", lambda: build_economy(cat, cur)),
+                   ("valuation", lambda: build_valuation_facts(cat, cur, draft))):
     try:
       out = fn()
       if name == "entity" and isinstance(out, dict):

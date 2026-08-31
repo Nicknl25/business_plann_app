@@ -217,10 +217,10 @@ class BriefAssemblerTests(unittest.TestCase):
     # remove one key that S36 (ops core) needs
     keys.discard("annual.headcount_y5")
     asm = A.assemble(self._cat_with(sorted(keys)))
-    self.assertIn("operations_and_organisation", asm.thin_sections)
-    ops = asm.sections["operations_and_organisation"]
-    self.assertIn("S36", ops.core_unfilled)
-    self.assertIn("annual.headcount_y5", ops.sentences_unfilled["S36"])
+    self.assertIn("staffing_and_human_capital", asm.thin_sections)
+    st = asm.sections["staffing_and_human_capital"]
+    self.assertIn("S36", st.core_unfilled)
+    self.assertIn("annual.headcount_y5", st.sentences_unfilled["S36"])
 
   def test_every_section_with_sentences_has_at_least_one_core(self):
     """A section with no core sentence can never be flagged thin - that is a
@@ -245,6 +245,7 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
       "competitive_advantage": "Weekly supply route.",
       "milestones": [{"description": "Reach 50 accounts", "timing": "12 months"}],
       "lob_models": [{"lob_name": "Wholesale", "products": [{"product_name": "Beans"}]}],
+      "capacity_driver": "labor", "business_stage": "operating",
     },
     "target_market_json": {"marketing_plan_summary": "Local cafes and grocers."},
     "people_json": {"people": [{"full_name": "Tomas Reyes", "role_title": "Head Roaster",
@@ -263,31 +264,42 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
   def test_sections_get_exactly_their_mapped_narratives(self):
     asm, A = self._assemble()
     self.assertEqual(sorted(asm.sections["operations_and_organisation"].narratives),
-                     ["fulfillment", "people"])
+                     ["fulfillment", "operating_profile"])
+    self.assertEqual(sorted(asm.sections["management_team"].narratives), ["people"])
     self.assertEqual(sorted(asm.sections["products_and_services"].narratives),
                      ["lob_products"])
-    self.assertEqual(sorted(asm.sections["marketing_and_sales"].narratives),
-                     ["marketing_plan_summary"])
+    self.assertIn("marketing_plan_summary", asm.sections["marketing_and_sales"].narratives)
     self.assertEqual(sorted(asm.sections["the_business"].narratives),
                      ["business_description_summary", "competitive_advantage", "milestones"])
+    for key, b in asm.sections.items():
+      for nk in b.narratives:
+        self.assertIn(nk, A.NARRATIVE_MAP.get(key, ()),
+                      "%s carries unmapped narrative %s" % (key, nk))
 
   def test_financial_narrative_cannot_leak_into_the_ops_brief(self):
     import json as _json
     asm, A = self._assemble()
+    # planning_context (exec summary) legitimately spans the profiles; every
+    # OTHER section's narrative must stay free of raw financial fields.
     for key, b in asm.sections.items():
+      if key == "executive_summary":
+        continue
       blob = _json.dumps(b.narratives)
       self.assertNotIn("current_revenue", blob,
                        "%s narrative carries financials_json content" % key)
       self.assertNotIn("cash_on_hand", blob)
     ops = asm.sections["operations_and_organisation"]
     self.assertNotIn("marketing_plan_summary", ops.narratives)
+    self.assertNotIn("people", ops.narratives,
+                     "people paragraphs moved to management_team in map v2")
 
   def test_wages_stay_out_of_the_people_narrative(self):
     """Numbers travel as facts (rule 17); the narrative carries who people are."""
     import json as _json
     asm, _ = self._assemble()
-    ops = asm.sections["operations_and_organisation"]
-    self.assertNotIn("61000", _json.dumps(ops.narratives))
+    mgmt = asm.sections["management_team"]
+    self.assertIn("people", mgmt.narratives)
+    self.assertNotIn("61000", _json.dumps(mgmt.narratives))
 
   def test_sections_without_a_grant_get_nothing(self):
     asm, _ = self._assemble()
@@ -337,6 +349,70 @@ class WriterPayloadTests(unittest.TestCase):
     b = PL.build_prompt(shared, PL.build_section_block(SectionBrief("financial_plan")))
     self.assertTrue(a.startswith(shared) and b.startswith(shared))
     self.assertNotEqual(a, b)
+
+
+class OmissionByChoiceTests(unittest.TestCase):
+  """Nick, 2026-08-31: a client may include or exclude sections - same
+  mechanism as the data trigger, different input. Disclosures is locked."""
+
+  def _core(self):
+    return [s["key"] for s in R.SECTION_REGISTRY if s["core"]]
+
+  def test_explicit_off_drops_an_omissible_core_section(self):
+    from writing_phase import checks as C2
+    emitted = [k for k in self._core() if k != "market_and_industry"]
+    res = C2.check_section_emission(emitted_sections=emitted, triggers={},
+                                    overrides={"market_and_industry": False})
+    self.assertTrue(res.passed, res.offenders)
+
+  def test_a_core_section_cannot_vanish_without_an_explicit_choice(self):
+    from writing_phase import checks as C2
+    emitted = [k for k in self._core() if k != "market_and_industry"]
+    res = C2.check_section_emission(emitted_sections=emitted, triggers={}, overrides={})
+    self.assertFalse(res.passed)
+
+  def test_disclosures_is_locked_under_every_configuration(self):
+    from writing_phase import checks as C2
+    self.assertFalse(next(s for s in R.SECTION_REGISTRY if s["key"] == "disclosures")["omissible"])
+    emitted = [k for k in self._core() if k != "disclosures"]
+    res = C2.check_section_emission(emitted_sections=emitted, triggers={},
+                                    overrides={"disclosures": False})
+    self.assertFalse(res.passed, "an explicit exclusion must not drop disclosures")
+
+  def test_explicit_on_cannot_conjure_a_conditional_without_its_data(self):
+    from writing_phase import checks as C2
+    emitted = sorted(self._core() + ["funding_request"],
+                     key=lambda k: R.section(k)["order"])
+    res = C2.check_section_emission(emitted_sections=emitted,
+                                    triggers={"funding_is_sought": False},
+                                    overrides={"funding_request": True})
+    self.assertFalse(res.passed)
+
+  def test_the_executive_summary_builds_from_present_sections(self):
+    spec = R.section("executive_summary")
+    self.assertTrue(spec.get("generated_last"))
+    self.assertTrue(spec.get("built_from_present_sections"))
+
+
+class WorkbookManifestTests(unittest.TestCase):
+  def test_manifest_covers_every_builder_sheet(self):
+    """A new sheet must break this test, never silently miss the manifest."""
+    import re as _re, io as _io, glob as _glob
+    names = set()
+    for f in _glob.glob(os.path.join(ROOT, "client_statements_output_excel", "*.py")):
+      names |= set(_re.findall(r'^[A-Z_]+_SHEET = "([^"]+)"',
+                               _io.open(f, encoding="utf-8").read(), _re.M))
+    manifest = {m["sheet"] for m in R.WORKBOOK_MANIFEST}
+    self.assertEqual(sorted(names - manifest), [],
+                     "builder sheets missing from WORKBOOK_MANIFEST")
+
+  def test_the_shared_block_carries_manifest_and_instruction(self):
+    from writing_phase import payload as PL
+    shared = PL.build_shared_block({"finmo_json": {"quarter_rows": []}},
+                                   workbook_stamp={"filename": "X.xlsx", "run_id": "r1"})
+    self.assertIn("ACCOMPANYING WORKBOOK", shared)
+    self.assertIn("accompanying financial model", shared)
+    self.assertIn("X.xlsx", shared)
 
 
 if __name__ == "__main__":
