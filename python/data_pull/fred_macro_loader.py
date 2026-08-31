@@ -15,11 +15,14 @@ from dotenv import load_dotenv
 # --------------------------------------------------------
 
 def get_project_root() -> Path:
-    """Find the project root folder named 'Business Plan Generator'."""
+    """Find the repo root by its .env. The old check demanded a parent named
+    'Business Plan Generator'; the repo is business_plann_app, so the loader
+    has FileNotFoundError'd on this machine since the rename - which is why
+    fred_macro_quarterly sat a year stale (found 2026-08-31)."""
     for parent in Path(__file__).resolve().parents:
-        if parent.name == "Business Plan Generator":
+        if parent.name == "Business Plan Generator" or (parent / ".env").exists():
             return parent
-    raise FileNotFoundError("Could not locate project root 'Business Plan Generator'")
+    raise FileNotFoundError("Could not locate a project root containing .env")
 
 
 project_root = get_project_root()
@@ -303,6 +306,85 @@ finally:
         pass
 
 # --------------------------------------------------------
+# PHASE 2 - THE WIDER SERIES (2026-08-31)
+# --------------------------------------------------------
+# New series land in fred_series_quarterly, LONG (keyed by series), never in
+# fred_macro_quarterly: a column per series would force an ALTER on the wired
+# table for every future series, and long-keyed scales to industry PPIs
+# without touching any reader. Daily/monthly series are averaged per quarter.
+#
+#   DGS10    10-year Treasury  - the rate environment a plan borrows into
+#   DGS2     2-year Treasury   - with DGS10, the curve
+#   FEDFUNDS policy rate
+#   UNRATE   unemployment      - labour-market context beside OEWS wages
+#   PPIACO   producer prices   - input-cost pressure for COGS context
+WIDE_SERIES = {
+    "DGS10": "10-Year Treasury Constant Maturity",
+    "DGS2": "2-Year Treasury Constant Maturity",
+    "FEDFUNDS": "Effective Federal Funds Rate",
+    "UNRATE": "Unemployment Rate",
+    "PPIACO": "Producer Price Index, All Commodities",
+}
+
+wide_summary = []
+if success:
+    try:
+        conn2 = mysql.connector.connect(
+            host=MYSQL_HOST, user=MYSQL_USER, password=MYSQL_PASSWORD, database=MYSQL_DATABASE,
+        )
+        cur2 = conn2.cursor()
+        cur2.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fred_series_quarterly (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+              series_id VARCHAR(32) NOT NULL,
+              series_label VARCHAR(128) NOT NULL,
+              date DATE NOT NULL,
+              year INT NOT NULL,
+              quarter INT NOT NULL,
+              value DOUBLE NOT NULL,
+              obs_count INT NOT NULL,
+              UNIQUE KEY uq_series_q (series_id, date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+        )
+        for sid, label in WIDE_SERIES.items():
+            print(f"Fetching {sid}...")
+            obs = fetch_fred_series(sid, start_initial, end_initial)
+            buckets = {}
+            for item in obs:
+                val = item.get("value")
+                if val in ("", ".", None):
+                    continue
+                d = datetime.strptime(item["date"], "%Y-%m-%d")
+                qstart = datetime(d.year, 3 * (get_quarter(d) - 1) + 1, 1)
+                b = buckets.setdefault(qstart, [0.0, 0])
+                b[0] += float(val)
+                b[1] += 1
+            for qstart, (total, n) in sorted(buckets.items()):
+                cur2.execute(
+                    """
+                    INSERT INTO fred_series_quarterly
+                      (series_id, series_label, date, year, quarter, value, obs_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE value=VALUES(value), obs_count=VALUES(obs_count),
+                                            series_label=VALUES(series_label)
+                    """,
+                    (sid, label, qstart.strftime("%Y-%m-%d"), qstart.year,
+                     get_quarter(qstart), total / n, n),
+                )
+            conn2.commit()
+            cur2.execute("SELECT MAX(date), COUNT(*) FROM fred_series_quarterly WHERE series_id=%s", (sid,))
+            mx, n_rows = cur2.fetchone()
+            wide_summary.append(f"{sid}: {n_rows} quarters, latest {mx}")
+            print(f"  {sid}: {n_rows} quarters, latest {mx}")
+        cur2.close(); conn2.close()
+    except Exception as exc:
+        wide_summary.append(f"PHASE 2 FAILED: {exc}")
+        print(f"Phase 2 (wide series) failed: {exc}")
+
+
+# --------------------------------------------------------
 # EMAIL ALERTS
 # --------------------------------------------------------
 timestamp = datetime.utcnow().isoformat()
@@ -313,7 +395,8 @@ if success:
         f"Latest GDP date in SQL: {latest_sql_date}\n"
         f"inflation_rate for that date: {latest_sql_inflation}\n"
         f"Timestamp (UTC): {timestamp}\n\n"
-        "Reminder: update any manual macro sources if needed."
+        + ("Wide series (fred_series_quarterly):\n  " + "\n  ".join(wide_summary) + "\n\n" if wide_summary else "")
+        + "Reminder: update any manual macro sources if needed."
     )
 else:
     subject = "FRED Macro Loader: FAILURE"
