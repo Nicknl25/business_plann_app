@@ -37,6 +37,8 @@ from writing_phase import author as AU          # noqa: E402
 from writing_phase import checks as CK          # noqa: E402
 from writing_phase import payload as PL         # noqa: E402
 from writing_phase import rules as R            # noqa: E402
+from writing_phase.document import assemble as ASM  # noqa: E402
+from writing_phase.document import probe as PRB     # noqa: E402
 from writing_phase.facts import build as B      # noqa: E402
 from writing_phase.facts.assembler import assemble  # noqa: E402
 
@@ -112,6 +114,24 @@ def main() -> int:
         f.write(text)
       with io.open(base + ".json", "w", encoding="utf-8") as f:
         json.dump(res["payload"], f, ensure_ascii=False, indent=1)
+      if res["ok"]:
+        # ---- land it where Nick reads (his order, 2026-09-01): the docx
+        # shell into C:\dev\Client Written Plans, then PROBE the saved file
+        # and hold it to R21/R22/R23 - open the artifact, never trust the
+        # writer.
+        rid = str(d.get("planning_run_id") or d["draft_id"])
+        path = ASM.build_section_draft_docx(
+          business_name=name, run_id=rid, section_key="the_business",
+          payload=res["payload"], cat=cat)
+        pr = PRB.probe_docx(path, run_id=rid)
+        craft = [CK.check_footer_and_run_id(document_probe=pr),
+                 CK.check_document_craft(document_probe=pr),
+                 CK.check_editable(document_probe=pr)]
+        ok = all(c.executed and c.passed for c in craft)
+        print("    docx %s -> %s" % ("R21/R22/R23 OK" if ok else "CRAFT FAIL", path))
+        for c in craft:
+          if not (c.executed and c.passed):
+            print("      %s %s %s" % (c.rule_id, c.failure_code, "; ".join(c.offenders[:4])))
 
   # ---- THE CALIBRATION (Nick 2026-09-01) ----------------------------------
   def naics(d):

@@ -243,8 +243,11 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S62", "section": "the_business", "class": "GROUNDED",
    "text": "{entity.business_name} works to the {entity.stated_certifications} standard, part of how the business competes for its accounts.",
    "needs": ["entity.business_name", "entity.stated_certifications"]},
+  # phrased without "around" - a spatial idiom the R16 hedge scan cannot
+  # tell from a hedge when it lands beside the token (my own template bug,
+  # caught live 2026-09-01)
   {"id": "S63", "section": "the_business", "class": "GROUNDED",
-   "text": "{entity.business_name} serves customers in and around the {entity.coverage_zip} area of {entity.city_state}.",
+   "text": "{entity.business_name} serves customers in the {entity.coverage_zip} area of {entity.city_state} and the communities surrounding it.",
    "needs": ["entity.business_name", "entity.coverage_zip", "entity.city_state"]},
 )
 SENTENCES = SENTENCES + EXTRA_SENTENCES

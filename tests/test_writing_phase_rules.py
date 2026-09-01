@@ -336,6 +336,29 @@ class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
       business_name="Bluestem Grounds P6 Retest")
     self.assertFalse(bad.passed, "other digits must still fail")
 
+  def test_trade_vocabulary_digits_and_hyphenated_pronouns_are_not_violations(self):
+    """Found live 2026-09-01: 'B2B' failed R17 on its own 2, and the product
+    name 'grow-your-own kits' failed R15 as second person."""
+    r17 = C.check_no_computation({"sentences": [
+      {"text": "A scaled B2B SaaS operator with D2C retail lines."}]})
+    self.assertTrue(r17.passed, "B2B/D2C are words, not computations")
+    r15 = C.check_voice({"sentences": [
+      {"text": "It sells grow-your-own kits at farmers markets."}]})
+    self.assertTrue(r15.passed, "a hyphenated product name is not second person")
+    r15b = C.check_voice({"sentences": [{"text": "Your business will thrive."}]})
+    self.assertFalse(r15b.passed, "real second person must still fail")
+
+  def test_machinery_terms_match_words_not_substrings(self):
+    """'llm' fired on 'fulfillment' live, 2026-09-01. Ordinary business prose
+    must pass; the real term must still fail."""
+    ok = C.check_no_machinery({"sentences": [
+      {"text": "Implementation and order fulfillment are handled remotely."}]})
+    self.assertTrue(ok.passed, "'fulfillment' is not machinery")
+    bad = C.check_no_machinery({"sentences": [{"text": "An LLM drafted this."}]})
+    self.assertFalse(bad.passed, "a real machinery term must still fail")
+
+
+
 
 
 

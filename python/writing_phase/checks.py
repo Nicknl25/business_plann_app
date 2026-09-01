@@ -36,7 +36,9 @@ FACT_TOKEN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 # we cannot trace. Ordinals written as words are fine; "Year 1" and "Q3" are
 # structural labels, not quantities, and are allowed by name.
 _ALLOWED_BARE_NUMERIC = re.compile(
-  r"\b(?:year\s*[1-5]|y[1-5]|q[1-4]|quarter\s*(?:one|two|three|four))\b",
+  # B2B/B2C/D2C are trade vocabulary, not computations - found live
+  # 2026-09-01 when "a scaled B2B SaaS operator" failed R17 on its own 2.
+  r"\b(?:year\s*[1-5]|y[1-5]|q[1-4]|quarter\s*(?:one|two|three|four)|[bcdp]2[bcp])\b",
   re.IGNORECASE,
 )
 _ANY_DIGIT = re.compile(r"\d")
@@ -137,7 +139,12 @@ def check_no_machinery(section_payload: Dict[str, Any], **_: Any) -> CheckResult
   for s in sentences:
     if str(s.get("span") or "") in R.MACHINERY_EXCEPTION_SPANS:
       continue   # forecast-as-forecast is legal ONLY inside the basis paragraph
-    offenders.extend(_contains_any(s.get("text"), R.FORBIDDEN_MACHINERY_TERMS))
+    # word-boundary matching, not substring: "llm" must never fire on
+    # "fulfiLLMent" (failed live 2026-09-01 on ordinary SaaS prose)
+    low = str(s.get("text") or "").lower()
+    for term in R.FORBIDDEN_MACHINERY_TERMS:
+      if re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(term), low):
+        offenders.append(term)
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "exposed the machinery" if offenders else "",
@@ -355,7 +362,10 @@ def check_voice(section_payload: Dict[str, Any],
     return CheckResult.could_not_run(rid, str(exc)[:120])
   offenders: List[str] = []
   for pron in R.FORBIDDEN_PRONOUNS:
-    if re.search(r"\b%s\b" % re.escape(pron), blob, re.IGNORECASE):
+    # hyphen-aware boundaries: "grow-your-own kits" is a product name, not
+    # second person (failed R15 live, 2026-09-01)
+    if re.search(r"(?<![A-Za-z0-9-])%s(?![A-Za-z0-9-])" % re.escape(pron),
+                 blob, re.IGNORECASE):
       offenders.append(pron)
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
