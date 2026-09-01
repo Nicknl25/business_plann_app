@@ -579,12 +579,30 @@ BOILERPLATE_SPANS = (
   "toc",
 )
 
+# CALIBRATED 2026-09-01 on the Willowbank/Cedarhill same-persona pair: the
+# n-gram guard did NOT fire (3.0% share, vs 4.3% for two genuinely different
+# landscapers - the DIFFERENT pair overlapped more at every n in 3..8).
+# Paraphrase erases the signal; what n-grams measure is shared trade
+# vocabulary. This guard therefore catches LITERAL COPY AND TEMPLATE SMELL
+# ONLY and is not the tailoring/same-business check (Nick's ruling). The
+# same-business detector is IDENTITY_GUARD below.
 SIMILARITY_GUARD = {
   "ngram_size": 8,
   "max_overlap_share": 0.15,      # vs prior plans in the same NAICS
   "compare_within": "naics_6",
   "exempt_spans": BOILERPLATE_SPANS,
   "provisional": True,            # tune with the density guard
+}
+
+# THE IDENTITY GUARD (Nick 2026-09-01): deterministic same-business detection
+# across drafts - what the n-gram guard cannot see. Owner names, start date
+# and ZIP are the identity; NAICS is recorded but NEVER fires alone (two
+# landscapers are two landscapers). checks.identity_match implements this.
+IDENTITY_GUARD = {
+  "fields": ("owner_names", "start_date", "zip", "naics"),
+  # fires when: an owner-name match plus either the start date or the ZIP,
+  # or the start date and the ZIP both matching without a shared owner.
+  "naics_alone_never_fires": True,
 }
 
 
@@ -606,7 +624,11 @@ WRITING_RULES: Tuple[Dict[str, Any], ...] = (
 
   {"id": "R02", "title": "Tailored", "enforcement": "hard",
    "check": "check_cross_plan_similarity", "failure_code": "writing_plan_not_tailored",
-   "mechanism": "8-gram overlap against prior plans in the same NAICS, boilerplate spans exempt.",
+   "mechanism": ("Two instruments: 8-gram overlap vs prior same-NAICS plans "
+                 "(literal copy and template smell ONLY - paraphrase defeats "
+                 "it, proven 2026-09-01) + identity_match, the deterministic "
+                 "same-business detector over owner names, start date, ZIP "
+                 "and NAICS (IDENTITY_GUARD)."),
    "cannot_enforce": "Whether the depth is real depth.",
    "prompt_instruction": (
      "Write to THIS business. Two businesses in one industry must not produce "

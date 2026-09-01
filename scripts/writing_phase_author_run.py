@@ -59,6 +59,8 @@ def main() -> int:
   ap.add_argument("--n", type=int, default=10)
   ap.add_argument("--out", default=os.path.join(ROOT, "_writing_business"))
   ap.add_argument("--only", default="", help="author only drafts whose id starts with this")
+  ap.add_argument("--identity-only", action="store_true", dest="identity_only",
+                  help="run just the identity-guard matrix, no authoring")
   a = ap.parse_args()
   os.makedirs(a.out, exist_ok=True)
 
@@ -71,6 +73,19 @@ def main() -> int:
                   ORDER BY updated_at DESC LIMIT %s""", (a.n,))
   drafts = cur.fetchall()
   plain = conn.cursor()
+
+  # ---- THE IDENTITY GUARD, proven on every pair (Nick 2026-09-01) ---------
+  print("IDENTITY GUARD (deterministic; NAICS alone never fires):")
+  for i, d1 in enumerate(drafts):
+    for d2 in drafts[i + 1:]:
+      v = CK.identity_match(d1, d2)
+      if v["fired"] or set(v["matched"]) - {"naics"}:
+        print("  %-30s vs %-30s -> %s matched=%s%s" % (
+          d1["business_name"][:30], d2["business_name"][:30],
+          "FIRED" if v["fired"] else "silent", ",".join(v["matched"]),
+          " owners=%s" % ",".join(v["shared_owners"]) if v["shared_owners"] else ""))
+  if a.identity_only:
+    return 0
 
   payloads = {}
   for d in drafts:

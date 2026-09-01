@@ -774,3 +774,82 @@ class TheBusinessSectionTests(unittest.TestCase):
     # no draft supplied = no narrative check; facts-only assemblies stay clean
     asm3 = A.assemble(cat)
     self.assertEqual(asm3.sections["the_business"].narrative_unfilled, [])
+
+
+class IdentityGuardAndIdentifierTests(unittest.TestCase):
+  """Nick 2026-09-01: the n-gram guard cannot see a same-business pair, so
+  identity is matched deterministically; and digit-bearing identifiers the
+  client stated become facts so the writer never steers around them."""
+
+  A = {"business_name": "Willowbank Animal Hospital", "address_zip": "27615",
+       "business_start_date": "11/08/2019",
+       "operating_model_json": {"business_naics_6": "541940"},
+       "people_json": {"people": [{"full_name": "Dr. Alan Whitfield"}]}}
+  B = {"business_name": "Cedarhill Animal Hospital", "address_zip": "27615",
+       "business_start_date": "2019-11-08",
+       "operating_model_json": {"business_naics_6": "541940"},
+       "people_json": {"people": [{"full_name": "Alan Whitfield"}]}}
+  D = {"business_name": "Halbrook Grounds Management", "address_zip": "66212",
+       "business_start_date": "2020-03-16",
+       "operating_model_json": {"business_naics_6": "561730"},
+       "people_json": {"people": [{"full_name": "Rafael Ostrowski"}]}}
+  E = {"business_name": "Bluestem Grounds P6 Retest", "address_zip": "27601",
+       "business_start_date": "04/01/2019",
+       "operating_model_json": {"business_naics_6": "561730"},
+       "people_json": {"people": [{"full_name": "John Parker"}]}}
+
+  def test_fires_on_the_same_business_across_date_formats_and_titles(self):
+    from writing_phase import checks as CK
+    v = CK.identity_match(self.A, self.B)
+    self.assertTrue(v["fired"], "same owner+date+zip must fire")
+    self.assertIn("owner_names", v["matched"])
+    self.assertIn("start_date", v["matched"])
+    self.assertIn("zip", v["matched"])
+
+  def test_silent_on_two_real_businesses_sharing_only_naics(self):
+    from writing_phase import checks as CK
+    v = CK.identity_match(self.D, self.E)
+    self.assertFalse(v["fired"], "NAICS alone must never fire")
+    self.assertEqual(set(v["matched"]) - {"naics"}, set())
+
+  def test_owner_alone_does_not_fire(self):
+    from writing_phase import checks as CK
+    a = dict(self.A); b = dict(self.B)
+    b = {**self.B, "address_zip": "99999", "business_start_date": "01/01/2010"}
+    v = CK.identity_match(a, b)
+    self.assertFalse(v["fired"], "a serial owner with a new business is not a duplicate")
+
+  def test_stated_certifications_and_coverage_zip_become_facts(self):
+    from writing_phase.facts import build as B
+    class _Cur:
+      def execute(self, *a, **k):
+        pass
+      def fetchone(self):
+        return None
+    cat = FactCatalog("d1")
+    B.build_entity(cat, _Cur(), {
+      "business_name": "Bluestem Grounds P6 Retest",
+      "business_start_date": "06/01/2021",
+      "operating_model_json": {
+        "competitive_advantage": "Tight-tolerance work with AS9100-track quality and ISO 9001 discipline.",
+        "geographic_coverage": "Raleigh NC 27615 and nearby communities"}}, {})
+    certs = cat.get_quiet("entity.stated_certifications")
+    self.assertIsNotNone(certs)
+    self.assertEqual(certs.render(), "AS9100, ISO 9001")
+    self.assertEqual(cat.get_quiet("entity.coverage_zip").render(), "27615")
+
+  def test_a_token_from_the_business_name_is_never_a_certification(self):
+    from writing_phase.facts import build as B
+    class _Cur:
+      def execute(self, *a, **k):
+        pass
+      def fetchone(self):
+        return None
+    cat = FactCatalog("d1")
+    B.build_entity(cat, _Cur(), {
+      "business_name": "Apex AB1234 Logistics",
+      "operating_model_json": {
+        "competitive_advantage": "AB1234 Logistics runs its own fleet."}}, {})
+    self.assertIsNone(cat.get_quiet("entity.stated_certifications"),
+                      "the business's own name must not extract as a certification")
+

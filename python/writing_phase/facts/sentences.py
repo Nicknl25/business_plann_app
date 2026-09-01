@@ -236,6 +236,16 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S61", "section": "the_business", "class": "INFERRED",
    "text": "Of establishments that open in {industry.bds_scope_label}, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
    "needs": ["industry.five_year_survival_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
+
+  # ---- digit-bearing identifiers as facts (Nick 2026-09-01): a stated
+  # certification or ZIP is the client's own specificity - it rides in a
+  # token, never gets steered around.
+  {"id": "S62", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} works to the {entity.stated_certifications} standard, part of how the business competes for its accounts.",
+   "needs": ["entity.business_name", "entity.stated_certifications"]},
+  {"id": "S63", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} serves customers in and around the {entity.coverage_zip} area of {entity.city_state}.",
+   "needs": ["entity.business_name", "entity.coverage_zip", "entity.city_state"]},
 )
 SENTENCES = SENTENCES + EXTRA_SENTENCES
 

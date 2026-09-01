@@ -561,6 +561,77 @@ def check_cross_plan_similarity(section_payload: Dict[str, Any],
                      [])
 
 
+# ---------------------------------------------------------------------------
+# R02's SECOND instrument - THE IDENTITY GUARD (Nick 2026-09-01). The n-gram
+# guard cannot see the same business paraphrased (calibrated live: the
+# same-persona pair shared FEWER 8-grams than two genuinely different
+# landscapers). Identity is deterministic: owner names, start date, ZIP.
+# NAICS is recorded but never fires alone - two landscapers are two
+# landscapers. Not in CHECK_REGISTRY: it compares DRAFTS, not prose, and runs
+# at corpus-selection time under R02.
+# ---------------------------------------------------------------------------
+_TITLE_PREFIX = re.compile(r"^(?:dr|mr|mrs|ms|prof)\.?\s+", re.IGNORECASE)
+
+
+def draft_identity_fields(draft: Dict[str, Any]) -> Dict[str, Any]:
+  import json as _json
+
+  def _j(v):
+    if isinstance(v, (dict, list)):
+      return v
+    try:
+      return _json.loads(v) if v else {}
+    except Exception:
+      return {}
+
+  d = draft or {}
+  owners: Set[str] = set()
+  for p in (_j(d.get("people_json")).get("people") or []):
+    if isinstance(p, dict):
+      full = _TITLE_PREFIX.sub("", str(p.get("full_name") or "").strip())
+      full = re.sub(r"[.\s]+", " ", full).strip().lower()
+      if len(full.split()) >= 2:
+        owners.add(full)
+  sd = str(d.get("business_start_date") or "").strip()
+  start = None
+  for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+    try:
+      import datetime as _dt
+      start = _dt.datetime.strptime(sd[:10], fmt).date().isoformat()
+      break
+    except ValueError:
+      continue
+  om = _j(d.get("operating_model_json"))
+  return {
+    "owner_names": owners,
+    "start_date": start,
+    "zip": str(d.get("address_zip") or "").strip()[:5] or None,
+    "naics": str(om.get("business_naics_6") or "").strip() or None,
+  }
+
+
+def identity_match(draft_a: Dict[str, Any], draft_b: Dict[str, Any]) -> Dict[str, Any]:
+  """Deterministic same-business verdict between two drafts. Fires when an
+  owner-name match is joined by the start date or the ZIP, or when start date
+  and ZIP both match without a shared owner. NAICS alone never fires."""
+  fa, fb = draft_identity_fields(draft_a), draft_identity_fields(draft_b)
+  matched: List[str] = []
+  owner = bool(fa["owner_names"] & fb["owner_names"])
+  if owner:
+    matched.append("owner_names")
+  date = fa["start_date"] is not None and fa["start_date"] == fb["start_date"]
+  if date:
+    matched.append("start_date")
+  zp = fa["zip"] is not None and fa["zip"] == fb["zip"]
+  if zp:
+    matched.append("zip")
+  if fa["naics"] is not None and fa["naics"] == fb["naics"]:
+    matched.append("naics")
+  fired = (owner and (date or zp)) or (date and zp)
+  return {"fired": fired, "matched": matched,
+          "shared_owners": sorted(fa["owner_names"] & fb["owner_names"])}
+
+
 def check_readability(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
   rid = "R01"
   sents = _sentences(_strip_note_markers(_strip_fact_tokens(_all_prose(section_payload))))

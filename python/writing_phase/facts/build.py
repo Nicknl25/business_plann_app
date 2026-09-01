@@ -178,6 +178,28 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
   # description should carry; without this fact the digits fail rule 17.
   cat.put("entity.founded_year", founded, "text", prov_intake("business start date"), "Founded",
           absent_reason="no parseable start date")
+  # digit-bearing identifiers the client stated (Nick 2026-09-01): a
+  # certification a business holds is exactly the specificity that makes a
+  # plan theirs, and rule 17 means its digits can only ride inside a token -
+  # so stated identifiers become facts. Extraction is deliberately
+  # conservative: 2-5 capitals + 3-5 digits (AS9100, ISO 9001), never a token
+  # that is part of the business's own name.
+  import re as _re
+  # description + advantage ONLY: coverage text carries "NC 27615"-style
+  # state+ZIP pairs that satisfy the letters+digits pattern and are not
+  # certifications (caught red by the first test run).
+  _prof = " ".join(str(om.get(k) or "") for k in
+                   ("business_description_summary", "competitive_advantage"))
+  _name_flat = _re.sub(r"[^A-Z0-9]", "", name.upper())
+  certs = sorted({m.group(0) for m in _re.finditer(r"\b[A-Z]{2,5}[ -]?\d{3,5}\b", _prof)
+                  if _re.sub(r"[^A-Z0-9]", "", m.group(0).upper()) not in _name_flat})
+  cat.put("entity.stated_certifications", (certs if certs else ABSENT), "list",
+          prov_intake("standards and certifications stated by the client"),
+          "Stated certifications", absent_reason="no certification identifiers stated")
+  _zips = _re.findall(r"\b\d{5}\b", str(om.get("geographic_coverage") or ""))
+  cat.put("entity.coverage_zip", (_zips[0] if _zips else ABSENT), "text",
+          prov_intake("stated service area"), "Coverage ZIP",
+          absent_reason="no ZIP stated in coverage")
   # identity legs for The Business (Part 1, 2026-08-30)
   _legal = str(om.get("legal_entity") or "").strip()
   cat.put("entity.legal_entity", (_legal if _legal else ABSENT), "text",
