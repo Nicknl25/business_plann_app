@@ -140,9 +140,13 @@ def build_shared_block(draft: Dict[str, Any], *, workbook_stamp: Optional[Dict[s
   return "\n".join(parts)
 
 
-def build_section_block(brief: SectionBrief) -> str:
+def build_section_block(brief: SectionBrief,
+                        exclude_sentence_ids: Tuple[str, ...] = ()) -> str:
   """The per-section suffix: the section's facts, its narrative slice, and its
-  sentence templates. This is the only part that differs between calls."""
+  sentence templates. This is the only part that differs between calls.
+  `exclude_sentence_ids` drops observations the AUTHOR rules out structurally
+  (the tenure age-pick, Nick 2026-09-01) - a writer that never sees the wrong
+  tenure line cannot use it, the same shape as rule 18's payload enforcement."""
   spec = R.section(brief.section_key)
   parts: List[str] = []
   parts.append("== SECTION: %s ==" % spec["title"])
@@ -151,7 +155,8 @@ def build_section_block(brief: SectionBrief) -> str:
   if brief.narratives:
     parts.append("== SECTION NARRATIVE (the client's own account; rework, never restate) ==")
     parts.append(json.dumps(brief.narratives, separators=(",", ":"), ensure_ascii=False, default=str))
-  sents = S.sentences_for_section(brief.section_key)
+  sents = [x for x in S.sentences_for_section(brief.section_key)
+           if x["id"] not in set(exclude_sentence_ids)]
   if sents:
     parts.append("== OBSERVATIONS AVAILABLE TO THIS SECTION ==")
     parts.append(json.dumps(

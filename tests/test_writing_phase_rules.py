@@ -277,5 +277,68 @@ class RegistryShapeTests(unittest.TestCase):
     self.assertIn("QUALITATIVE", R.rule("R14")["cannot_enforce"].upper())
 
 
+class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
+  """Three defects found LIVE on the first authored section (2026-09-01):
+  [^n] is R11's own sanctioned notation and must not fail R17 as a typed
+  digit nor glue sentences together for R01's length scan; and ruling E holds
+  at the note level - a SOURCE note over a BASIS fact is an invented vintage
+  waiting to happen (GPT produced exactly that on the first live call)."""
+
+  def test_a_note_marker_is_not_a_typed_number(self):
+    res = C.check_no_computation({"sentences": [
+      {"text": "{{fact:industry.five_year_survival_rate}} survive five years.[^1]"}]})
+    self.assertTrue(res.executed and res.passed,
+                    "R17 failed a sentence on its own citation marker")
+    res2 = C.check_no_computation({"sentences": [{"text": "It sold 41 units.[^1]"}]})
+    self.assertFalse(res2.passed, "a real typed digit must still fail")
+
+  def test_markers_do_not_merge_sentences_for_readability(self):
+    body = ("Short claim here.[^1] " + "word " * 30).strip() + "."
+    res = C.check_readability({"sentences": [{"text": body}]})
+    self.assertTrue(res.passed,
+                    "two legal sentences merged across a marker and failed R01")
+
+  def test_a_source_note_needs_a_source_fact_behind_it(self):
+    payload = {
+      "sentences": [{"class": "INFERRED",
+                     "text": "{{fact:industry.five_year_survival_rate}} survive.[^1]"}],
+      "notes": [{"id": "1", "kind": "SOURCE", "text": "U.S. Census Bureau, BDS",
+                 "source_name": "BDS", "source_vintage": "latest available release"}],
+    }
+    brief_facts = {"industry.five_year_survival_rate":
+                   {"rendered": "56.2%", "note_kind": "BASIS", "grounding": "INFERRED"}}
+    res = C.check_notes(payload, brief_facts=brief_facts)
+    self.assertFalse(res.passed, "a SOURCE note over a BASIS fact must fail R11")
+    payload["notes"][0]["kind"] = "BASIS"
+    self.assertTrue(C.check_notes(payload, brief_facts=brief_facts).passed)
+    # without a brief the structural checks still run exactly as before
+    self.assertTrue(C.check_notes(payload).executed)
+
+  def test_a_hedge_offends_only_on_the_number_not_near_it(self):
+    """'built around a weekly route' is idiom; 'around {{fact:x}}' is a hedge
+    on a grounded figure. Found live 2026-09-01."""
+    ok = C.check_number_style({"sentences": [
+      {"text": "Built around dependable weekly supply of {{fact:annual.revenue_y1}}."}]})
+    self.assertTrue(ok.passed, "an idiomatic 'around' away from the token must pass")
+    bad = C.check_number_style({"sentences": [
+      {"text": "Revenue of around {{fact:annual.revenue_y1}} in Year 1."}]})
+    self.assertFalse(bad.passed, "a hedge on the token itself must still fail")
+
+  def test_a_digit_inside_the_business_name_is_not_a_computation(self):
+    """R15 requires the name; a client called 'Studio 54' must not fail R17
+    for complying. Found live 2026-09-01 on 'Bluestem Grounds P6 Retest'."""
+    ok = C.check_no_computation(
+      {"sentences": [{"text": "Bluestem Grounds P6 Retest maintains its routes."}]},
+      business_name="Bluestem Grounds P6 Retest")
+    self.assertTrue(ok.passed, "the literal business name must be exempt")
+    bad = C.check_no_computation(
+      {"sentences": [{"text": "Bluestem Grounds P6 Retest maintains 40 properties."}]},
+      business_name="Bluestem Grounds P6 Retest")
+    self.assertFalse(bad.passed, "other digits must still fail")
+
+
+
+
+
 if __name__ == "__main__":
   unittest.main()

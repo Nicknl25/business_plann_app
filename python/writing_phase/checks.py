@@ -85,6 +85,14 @@ def _strip_fact_tokens(text: str) -> str:
   return FACT_TOKEN.sub(" ", str(text or ""))
 
 
+def _strip_note_markers(text: str) -> str:
+  """[^n] is the SANCTIONED notation R11 requires - it is not a typed number
+  (R17) and must not glue sentences together for the length scan (R01). Found
+  live on the first authored section, 2026-09-01: the S61 sentence failed R17
+  on its own citation marker."""
+  return _SUPERSCRIPT_MARKER.sub(" ", str(text or ""))
+
+
 def _contains_any(text: str, needles: Iterable[str]) -> List[str]:
   low = str(text or "").lower()
   return [n for n in needles if n in low]
@@ -139,16 +147,28 @@ def check_no_machinery(section_payload: Dict[str, Any], **_: Any) -> CheckResult
 # ---------------------------------------------------------------------------
 # R17 - GPT MAY NOT COMPUTE  /  R06 - facts resolve  /  R18 - namespace scope
 # ---------------------------------------------------------------------------
-def check_no_computation(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
-  """Any bare numeral outside a fact token is a computation we cannot trace."""
+def check_no_computation(section_payload: Dict[str, Any],
+                         business_name: Optional[str] = None,
+                         **_: Any) -> CheckResult:
+  """Any bare numeral outside a fact token is a computation we cannot trace.
+  The literal business name is exempt: R15 REQUIRES the name, and a client
+  whose name carries a digit ('Studio 54') must not fail R17 for complying -
+  found live 2026-09-01 on 'Bluestem Grounds P6 Retest', where GPT dodging
+  the name then tripped R05 instead."""
   rid = "R17"
   try:
     sentences = section_payload.get("sentences") or []
   except Exception as exc:
     return CheckResult.could_not_run(rid, str(exc)[:120])
+  name_pat = None
+  if business_name and _ANY_DIGIT.search(str(business_name)):
+    name_pat = re.compile(re.escape(str(business_name)), re.IGNORECASE)
   offenders: List[str] = []
   for s in sentences:
-    residue = _ALLOWED_BARE_NUMERIC.sub(" ", _strip_fact_tokens(s.get("text")))
+    text = _strip_note_markers(_strip_fact_tokens(s.get("text")))
+    if name_pat is not None:
+      text = name_pat.sub(" ", text)
+    residue = _ALLOWED_BARE_NUMERIC.sub(" ", text)
     if _ANY_DIGIT.search(residue):
       offenders.append(str(s.get("text"))[:90])
   return CheckResult(rid, True, not offenders,
@@ -215,7 +235,10 @@ def check_sentence_classes(section_payload: Dict[str, Any], **_: Any) -> CheckRe
       continue
     counts[cls] += 1
     spec = R.CLASS_RULES[cls]
-    if spec.get("forbids_digits") and _ANY_DIGIT.search(_strip_fact_tokens(text)):
+    # markers stripped for the digit scan; a marker in FRAMING still fails
+    # below as a citation, which is the honest name for the offence
+    if spec.get("forbids_digits") and _ANY_DIGIT.search(
+        _strip_note_markers(_strip_fact_tokens(text))):
       offenders.append("FRAMING carries a digit: %s" % text[:70])
     if spec.get("forbids_digits") and FACT_TOKEN.search(text):
       offenders.append("FRAMING carries a fact token: %s" % text[:70])
@@ -343,14 +366,22 @@ def check_voice(section_payload: Dict[str, Any],
 def check_number_style(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
   """Rule 16 is enforced by construction - one formatter renders every figure.
   What remains checkable in the GPT output is the hedging ban: no
-  'approximately' on a figure that exists."""
+  'approximately' ON a figure that exists. ON, not NEAR: 'built around a
+  weekly route' is idiom, not a hedge, and failed this check live on
+  2026-09-01 - so only a hedge word immediately preceding a fact token
+  offends."""
   rid = "R16"
+  hedge_before_token = re.compile(
+    r"\b(?:%s)\s+(?:the\s+|its\s+|a\s+|an\s+)?\{\{fact:" %
+    "|".join(re.escape(h) for h in R.HEDGE_WORDS), re.IGNORECASE)
   offenders: List[str] = []
   for s in section_payload.get("sentences") or []:
     text = str(s.get("text") or "")
     if not FACT_TOKEN.search(text):
       continue
-    offenders.extend("%s -> %s" % (h, text[:60]) for h in _contains_any(text, R.HEDGE_WORDS))
+    m = hedge_before_token.search(text)
+    if m:
+      offenders.append("%s -> %s" % (m.group(0)[:30], text[:60]))
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "hedged a grounded figure" if offenders else "",
@@ -360,7 +391,9 @@ def check_number_style(section_payload: Dict[str, Any], **_: Any) -> CheckResult
 # ---------------------------------------------------------------------------
 # R11 - sources & notes
 # ---------------------------------------------------------------------------
-def check_notes(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
+def check_notes(section_payload: Dict[str, Any],
+                brief_facts: Optional[Dict[str, Any]] = None,
+                **_: Any) -> CheckResult:
   rid = "R11"
   notes = section_payload.get("notes")
   if notes is None:
@@ -368,8 +401,25 @@ def check_notes(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
   offenders: List[str] = []
   declared = {str(n.get("id")) for n in notes}
   referenced: Set[str] = set()
+  marker_kinds: Dict[str, Set[str]] = {}
   for s in section_payload.get("sentences") or []:
-    referenced.update(_SUPERSCRIPT_MARKER.findall(str(s.get("text") or "")))
+    text = str(s.get("text") or "")
+    referenced.update(_SUPERSCRIPT_MARKER.findall(text))
+    if brief_facts is not None:
+      kinds = {str((brief_facts.get(k) or {}).get("note_kind") or "")
+               for k in FACT_TOKEN.findall(text)}
+      for mid in _SUPERSCRIPT_MARKER.findall(text):
+        marker_kinds.setdefault(mid, set()).update(kinds)
+  if brief_facts is not None:
+    # Ruling E holds at the note level too: a SOURCE note is legal only where
+    # a referenced fact actually carries SOURCE provenance. Found live
+    # 2026-09-01 - GPT dressed a BDS (BASIS) fact as a Census SOURCE with an
+    # invented vintage, and the structural checks alone let it through.
+    for n in notes:
+      if str(n.get("kind") or "").upper() == R.NOTE_KIND_SOURCE:
+        if R.NOTE_KIND_SOURCE not in marker_kinds.get(str(n.get("id")), set()):
+          offenders.append("note %s claims SOURCE but no referenced fact "
+                           "carries SOURCE provenance" % n.get("id"))
   for missing in sorted(referenced - declared):
     offenders.append("marker %s has no note" % missing)
   for orphan in sorted(declared - referenced):
@@ -513,7 +563,7 @@ def check_cross_plan_similarity(section_payload: Dict[str, Any],
 
 def check_readability(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
   rid = "R01"
-  sents = _sentences(_strip_fact_tokens(_all_prose(section_payload)))
+  sents = _sentences(_strip_note_markers(_strip_fact_tokens(_all_prose(section_payload))))
   if not sents:
     return CheckResult.could_not_run(rid, "no prose to measure")
   long_ones = [s[:80] for s in sents if len(s.split()) > 45]
