@@ -245,6 +245,8 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
       "competitive_advantage": "Weekly supply route.",
       "milestones": [{"description": "Reach 50 accounts", "timing": "12 months"}],
       "lob_models": [{"lob_name": "Wholesale", "products": [{"product_name": "Beans"}]}],
+      "geographic_coverage": "Saint Paul and nearby communities in Ramsey County",
+      "primary_growth_lever": "add more wholesale accounts",
       "capacity_driver": "labor", "business_stage": "operating",
     },
     "target_market_json": {"marketing_plan_summary": "Local cafes and grocers."},
@@ -269,8 +271,12 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
     self.assertEqual(sorted(asm.sections["products_and_services"].narratives),
                      ["lob_products"])
     self.assertIn("marketing_plan_summary", asm.sections["marketing_and_sales"].narratives)
+    # milestones dropped from The Business (Nick 2026-09-01): an unmodelled
+    # intake aspiration must not dress as the plan's objective. Coverage and
+    # the growth lever granted the same day.
     self.assertEqual(sorted(asm.sections["the_business"].narratives),
-                     ["business_description_summary", "competitive_advantage", "milestones"])
+                     ["business_description_summary", "competitive_advantage",
+                      "geographic_coverage", "primary_growth_lever"])
     for key, b in asm.sections.items():
       for nk in b.narratives:
         self.assertIn(nk, A.NARRATIVE_MAP.get(key, ()),
@@ -681,3 +687,90 @@ class WideningRuleTests(unittest.TestCase):
     from writing_phase.document import theme as T
     png = T.fig_break_even_cvp([100 + i for i in range(20)], [120 + i for i in range(20)], None, margin_of_safety=-0.2)
     self.assertTrue(png.startswith(b"\x89PNG"))
+
+
+class TheBusinessSectionTests(unittest.TestCase):
+  """Nick's rulings of 2026-09-01 for The Business: tenure sentences scoped
+  and paired by age, milestones out entirely, a founded-year fact, and a
+  producer for R05's client tokens."""
+
+  def test_both_tenure_sentences_exist_and_carry_the_scope_label(self):
+    by_id = {s["id"]: s for s in S.SENTENCES}
+    for sid, rate_key in (("S11", "industry.first_year_exit_rate"),
+                          ("S61", "industry.five_year_survival_rate")):
+      s = by_id[sid]
+      self.assertEqual(s["section"], "the_business")
+      self.assertIn(rate_key, s["needs"])
+      self.assertIn("industry.bds_scope_label", s["needs"],
+                    "%s states a BDS rate without saying at what scope" % sid)
+      self.assertIn("entity.years_operating", s["needs"])
+
+  def test_milestones_are_granted_nowhere(self):
+    from writing_phase.facts import assembler as A
+    for key, grants in A.NARRATIVE_MAP.items():
+      self.assertNotIn("milestones", grants,
+                       "%s still grants milestones (dropped 2026-09-01)" % key)
+    pool = A.extract_narratives({"operating_model_json": {
+      "milestones": [{"description": "Reach 50 accounts", "timing": "12 months"}]}})
+    self.assertNotIn("milestones", pool, "milestones still reach the narrative pool")
+
+  def test_founded_year_is_built_from_the_start_date(self):
+    from writing_phase.facts import build as B
+    class _Cur:
+      def execute(self, *a, **k):
+        pass
+      def fetchone(self):
+        return None
+    cat = FactCatalog("d1")
+    B.build_entity(cat, _Cur(), {"business_name": "Harrow Lane Grooming",
+                                 "business_start_date": "2016-05-17"}, {})
+    f = cat.get_quiet("entity.founded_year")
+    self.assertIsNotNone(f, "founded_year not built")
+    self.assertEqual(f.render(), "2016")
+    self.assertIsNone(cat.get_quiet("entity.milestone_statement"),
+                      "milestone fact must NOT exist (Nick 2026-09-01)")
+
+  def test_client_tokens_producer_feeds_r05(self):
+    from writing_phase import checks as CK
+    draft = {
+      "business_name": "Halbrook Grounds Management LLC",
+      "people_json": {"people": [{"full_name": "Rafael Ostrowski"}]},
+      "operating_model_json": {"geographic_coverage":
+        "Overland Park, Lenexa and Olathe (Johnson County, Kansas); United States"},
+    }
+    toks = CK.client_tokens_for_draft(draft, extra=["Overland Park, Kansas"])
+    for expected in ("Halbrook Grounds Management LLC", "Halbrook Grounds Management",
+                     "Halbrook", "Rafael Ostrowski", "Ostrowski", "Lenexa", "Olathe"):
+      self.assertIn(expected, toks)
+    self.assertNotIn("United States", toks, "a generic place is not a client token")
+    # and the check actually runs green with it - no more fails-closed day one
+    payload = {"sentences": [{"class": "INFERRED",
+                              "text": "Halbrook holds its routes inside Johnson County."}]}
+    res = CK.check_specificity(payload, client_tokens=toks)
+    self.assertTrue(res.executed and res.passed)
+    res2 = CK.check_specificity(
+      {"sentences": [{"class": "INFERRED", "text": "The company serves its customers well."}]},
+      client_tokens=toks)
+    self.assertTrue(res2.executed)
+    self.assertFalse(res2.passed, "a swappable sentence must fail R05")
+
+  def test_narrative_thinness_is_loud_at_assembly(self):
+    from writing_phase.facts import assembler as A
+    cat = FactCatalog("d1")
+    cat.put("entity.business_name", "X", "text", C.prov_intake("n"))
+    # a draft with NO description and NO transcript - the replay-built shape
+    asm = A.assemble(cat, draft={"operating_model_json": {"competitive_advantage": "Tight routes."}})
+    self.assertIn("the_business", asm.thin_sections)
+    self.assertIn("business_description_summary",
+                  asm.sections["the_business"].narrative_unfilled)
+    self.assertTrue(asm.transcript_absent)
+    # with the description present the narrative side goes quiet again
+    asm2 = A.assemble(cat, draft={
+      "operating_model_json": {"business_description_summary": "A shop that grooms."},
+      "messages_json": [{"role": "user", "content": "We groom dogs."}]})
+    self.assertNotIn("business_description_summary",
+                     asm2.sections["the_business"].narrative_unfilled)
+    self.assertFalse(asm2.transcript_absent)
+    # no draft supplied = no narrative check; facts-only assemblies stay clean
+    asm3 = A.assemble(cat)
+    self.assertEqual(asm3.sections["the_business"].narrative_unfilled, [])

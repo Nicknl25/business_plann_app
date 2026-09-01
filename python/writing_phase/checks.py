@@ -240,6 +240,63 @@ def check_sentence_classes(section_payload: Dict[str, Any], **_: Any) -> CheckRe
 # ---------------------------------------------------------------------------
 # R05 - no fluff (specificity proxy; FRAMING exempt by Nick's ruling A)
 # ---------------------------------------------------------------------------
+# Place names too generic to identify a client - a token both roasters share
+# catches nothing.
+_GENERIC_PLACE_TOKENS = {"united states", "usa", "america", "north america"}
+_LEGAL_SUFFIX = re.compile(
+  r"[,.]?\s*(llc|l\.l\.c\.|inc\.?|incorporated|corp\.?|corporation|co\.?|ltd\.?|llp|pllc|p\.c\.)\s*$",
+  re.IGNORECASE)
+_PLACE_NAME = re.compile(r"\b([A-Z][a-z]{3,}(?: [A-Z][a-z]{3,})*)\b")
+
+
+def client_tokens_for_draft(draft: Dict[str, Any],
+                            extra: Optional[Iterable[str]] = None) -> Set[str]:
+  """THE PRODUCER FOR R05 (Nick 2026-09-01). check_specificity fails closed
+  without a token set, and until today nothing built one - the section would
+  have failed R05 on day one. Tokens are the things only THIS client's plan
+  can say: the business name (with and without its legal suffix, plus its
+  distinctive first word), the named people, and the place names in the stated
+  coverage. Deliberately NOT the NAICS title or LOB nouns - two businesses in
+  one trade share those, and a shared token catches nothing."""
+  import json as _json
+
+  def _j(v):
+    if isinstance(v, (dict, list)):
+      return v
+    try:
+      return _json.loads(v) if v else {}
+    except Exception:
+      return {}
+
+  toks: Set[str] = set()
+  d = draft or {}
+  name = str(d.get("business_name") or "").strip()
+  if name:
+    toks.add(name)
+    stripped = _LEGAL_SUFFIX.sub("", name).strip()
+    if stripped:
+      toks.add(stripped)
+      first = stripped.split()[0]
+      if len(first) >= 4 and first.lower() != "the":
+        toks.add(first)
+  for p in (_j(d.get("people_json")).get("people") or []):
+    if isinstance(p, dict):
+      full = str(p.get("full_name") or "").strip()
+      if full:
+        toks.add(full)
+        last = full.split()[-1]
+        if len(last) >= 4:
+          toks.add(last)
+  cov = str(_j(d.get("operating_model_json")).get("geographic_coverage") or "")
+  for m in _PLACE_NAME.finditer(cov):
+    if m.group(1).lower() not in _GENERIC_PLACE_TOKENS:
+      toks.add(m.group(1))
+  for t in (extra or ()):
+    if t and str(t).strip():
+      toks.add(str(t).strip())
+  return {t for t in toks if len(t) >= 4}
+
+
 def check_specificity(section_payload: Dict[str, Any],
                       client_tokens: Optional[Set[str]] = None,
                       **_: Any) -> CheckResult:

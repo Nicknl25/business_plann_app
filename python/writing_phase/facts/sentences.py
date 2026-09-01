@@ -51,9 +51,11 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S10", "section": "market_and_industry", "class": "INFERRED",
    "text": "Net job creation across the sector ran {industry.net_job_creation_rate} in {industry.bds_year} - employment in the trade is {industry.employment_direction}.",
    "needs": ["industry.net_job_creation_rate", "industry.bds_year", "industry.employment_direction"]},
+  # S11 carries the BDS scope label (Nick 2026-09-01): Understory's rate is the
+  # agriculture SECTOR's, and the sentence must not claim it for mushroom farms.
   {"id": "S11", "core": True, "section": "the_business", "class": "INFERRED",
-   "text": "First-year establishments in this industry close at a rate of {industry.first_year_exit_rate}; {entity.business_name} is in its {entity.years_operating} year of operation.",
-   "needs": ["industry.first_year_exit_rate", "entity.business_name", "entity.years_operating"]},
+   "text": "First-year establishments in {industry.bds_scope_label} close at a rate of {industry.first_year_exit_rate}; {entity.business_name} is in its {entity.years_operating} year of operation.",
+   "needs": ["industry.first_year_exit_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
   {"id": "S12", "section": "market_and_industry", "class": "INFERRED",
    "text": "Firms under five years old account for {industry.young_firm_employment_share} of the sector's employment.",
    "needs": ["industry.young_firm_employment_share"]},
@@ -226,6 +228,14 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S56", "section": "market_and_industry", "class": "INFERRED",
    "text": "The industry's establishment count has been tracked since {industry.establishments_history_span}, giving the trend behind the entry and exit rates above.",
    "needs": ["industry.establishments_history_span"]},
+
+  # ---- the tenure line for ESTABLISHED businesses (Nick 2026-09-01) -------
+  # First-year exit is a shrug for a business in its sixth year. The writer
+  # picks by age: S11 for years 1-3, S61 from year 5 on (the author's section
+  # instructions carry the rule; both ride in the brief).
+  {"id": "S61", "section": "the_business", "class": "INFERRED",
+   "text": "Of establishments that open in {industry.bds_scope_label}, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
+   "needs": ["industry.five_year_survival_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
 )
 SENTENCES = SENTENCES + EXTRA_SENTENCES
 

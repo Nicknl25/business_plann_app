@@ -159,18 +159,24 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
   # years operating
   sd = str(draft.get("business_start_date") or om.get("business_start_date") or "")
   yrs = ABSENT
+  founded = ABSENT
   try:
     import datetime as _dt
     for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
       try:
         d0 = _dt.datetime.strptime(sd[:10], fmt)
         yrs = max(1, int((_dt.datetime.now() - d0).days // 365) + 1)
+        founded = str(d0.year)
         break
       except ValueError:
         continue
   except Exception:
     pass
   cat.put("entity.years_operating", yrs, "ordinal", prov_intake("business start date"), "Years operating",
+          absent_reason="no parseable start date")
+  # founded year (Nick 2026-09-01): "open since 2016" is the one date a company
+  # description should carry; without this fact the digits fail rule 17.
+  cat.put("entity.founded_year", founded, "text", prov_intake("business start date"), "Founded",
           absent_reason="no parseable start date")
   # identity legs for The Business (Part 1, 2026-08-30)
   _legal = str(om.get("legal_entity") or "").strip()
@@ -521,7 +527,10 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
     cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4 LIKE %s", (pattern,))
     y = cur.fetchone()[0]
     if y:
-      yr, bds_like, bds_scope = y, pattern, ("NAICS %s" % prefixes[0][:4] if level == 4 else lvl_label)
+      # the widened label as naics_scopes phrases it ("the NAICS 3119 industry
+      # group", "the ... sector") - the same standard the market labels carry,
+      # so S11/S61 read as prose rather than as a bare code (Nick 2026-09-01)
+      yr, bds_like, bds_scope = y, pattern, lvl_label
       break
   n4 = bds_scope or ("NAICS %s" % n6[:4])
   if yr:

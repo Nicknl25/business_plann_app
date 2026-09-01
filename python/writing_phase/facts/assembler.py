@@ -40,7 +40,13 @@ IDENTITY_KEYS = ("entity.business_name", "entity.naics_title", "entity.state_nam
 # for a brief, so a financial narrative cannot leak into the ops brief; the
 # leak test reads this map and the assembled briefs both.
 NARRATIVE_MAP = {
-  "the_business": ("business_description_summary", "competitive_advantage", "milestones"),
+  # milestones dropped (Nick 2026-09-01): a milestone is an intake aspiration
+  # nothing models and nothing validates - it must not dress as the objective
+  # the projections were built toward. Coverage and the growth lever added the
+  # same day: coverage is the most specific thing in the profile, and "where
+  # it's going" exists only where the lever can carry it (empty values drop).
+  "the_business": ("business_description_summary", "competitive_advantage",
+                   "geographic_coverage", "primary_growth_lever"),
   "market_and_industry": ("target_market", "marketing_model"),
   "competitive_landscape": ("competitive_advantage", "substitute_pressure"),
   "products_and_services": ("lob_products", "financials_year1_lobs"),
@@ -81,10 +87,13 @@ def extract_narratives(draft: Dict[str, Any], extras: Optional[Dict[str, Any]] =
   tm = _jload(draft.get("target_market_json"))
   pj = _jload(draft.get("people_json"))
   out: Dict[str, Any] = {}
+  # milestones are deliberately NOT pooled (Nick 2026-09-01): an unmodelled
+  # intake aspiration has no place in any section's narrative grant.
   for key, val in (
     ("business_description_summary", str(om.get("business_description_summary") or "").strip()),
     ("competitive_advantage", str(om.get("competitive_advantage") or "").strip()),
-    ("milestones", om.get("milestones") or []),
+    ("geographic_coverage", str(om.get("geographic_coverage") or "").strip()),
+    ("primary_growth_lever", str(om.get("primary_growth_lever") or "").strip()),
     ("lob_products", om.get("lob_models") or []),
     ("fulfillment", _jload(draft.get("fulfillment_json"))),
     ("marketing_plan_summary", str(tm.get("marketing_plan_summary") or "").strip()),
@@ -190,6 +199,19 @@ def extract_narratives(draft: Dict[str, Any], extras: Optional[Dict[str, Any]] =
 
 BRIEF_LOG_TABLE = "writing_phase_brief_log"
 
+# CORE NARRATIVES (Nick 2026-09-01): the THIN flag watched only core FACTS, so
+# a missing description or transcript was quiet at assembly - the one thing the
+# assembler exists to make loud. These are the narrative grants whose absence
+# makes the section thin for a reason that has nothing to do with the writing.
+# Checked only when a draft row is supplied (no draft = no narratives at all,
+# and flagging that would be noise, not signal).
+CORE_NARRATIVES = {
+  "the_business": ("business_description_summary",),
+  "products_and_services": ("lob_products",),
+  "operations_and_organisation": ("fulfillment",),
+  "management_team": ("people",),
+}
+
 
 @dataclass
 class SectionBrief:
@@ -199,6 +221,7 @@ class SectionBrief:
   sentences_resolved: List[str] = field(default_factory=list)      # sentence ids fully filled
   sentences_unfilled: Dict[str, List[str]] = field(default_factory=dict)  # id -> missing keys
   core_unfilled: List[str] = field(default_factory=list)           # core sentence ids not filled
+  narrative_unfilled: List[str] = field(default_factory=list)      # core narrative keys absent from the pool
   thin: bool = False
 
   @property
@@ -211,11 +234,15 @@ class BriefAssembly:
   draft_id: str
   sections: Dict[str, SectionBrief] = field(default_factory=dict)
   thin_sections: List[str] = field(default_factory=list)
+  transcript_absent: bool = False   # replay-built drafts have no client voice
 
   def summary_lines(self) -> List[str]:
     out = []
+    if self.transcript_absent:
+      out.append("TRANSCRIPT ABSENT - no client voice anywhere in this draft")
     for key, b in self.sections.items():
-      flag = "  <-- THIN (core unfilled: %s)" % ",".join(b.core_unfilled) if b.thin else ""
+      why = ",".join(b.core_unfilled + ["narrative:%s" % k for k in b.narrative_unfilled])
+      flag = "  <-- THIN (%s)" % why if b.thin else ""
       out.append("%-30s facts=%-3d sentences %d/%d%s"
                  % (key, b.fact_count, len(b.sentences_resolved),
                     len(b.sentences_resolved) + len(b.sentences_unfilled), flag))
@@ -231,6 +258,11 @@ def assemble(cat: FactCatalog, *, sections: Optional[List[str]] = None,
   narrative slice NARRATIVE_MAP grants it - nothing else."""
   asm = BriefAssembly(draft_id=cat.draft_id)
   pool = extract_narratives(draft, extras) if draft else {}
+  if draft is not None:
+    msgs = _jload(draft.get("messages_json"))
+    asm.transcript_absent = not any(
+      isinstance(m, dict) and m.get("role") == "user" and str(m.get("content") or "").strip()
+      for m in (msgs if isinstance(msgs, list) else []))
   wanted = sections or [s["key"] for s in R.SECTION_REGISTRY
                         if s["key"] not in ("appendix", "sources_and_notes")]
   for section_key in wanted:
@@ -258,7 +290,10 @@ def assemble(cat: FactCatalog, *, sections: Optional[List[str]] = None,
           brief.core_unfilled.append(str(sent["id"]))
       else:
         brief.sentences_resolved.append(str(sent["id"]))
-    brief.thin = bool(brief.core_unfilled)
+    if draft is not None:
+      brief.narrative_unfilled = [nk for nk in CORE_NARRATIVES.get(section_key, ())
+                                  if nk not in brief.narratives]
+    brief.thin = bool(brief.core_unfilled or brief.narrative_unfilled)
     if brief.thin:
       asm.thin_sections.append(section_key)
     asm.sections[section_key] = brief
@@ -310,6 +345,11 @@ def ensure_brief_log_table(conn) -> None:
       conn.commit()
     except Exception:
       pass   # already present
+    try:
+      cur.execute(f"ALTER TABLE {BRIEF_LOG_TABLE} ADD COLUMN narrative_unfilled_json JSON NULL AFTER narrative_keys_json")
+      conn.commit()
+    except Exception:
+      pass   # already present
     _LOG_READY = True
   finally:
     try:
@@ -327,10 +367,11 @@ def log_assembly(conn, asm: BriefAssembly) -> int:
       cur.execute(
         f"""INSERT INTO {BRIEF_LOG_TABLE}
             (draft_id, section_key, fact_count, fact_keys_json, narrative_keys_json,
-             sentences_resolved_json, sentences_unfilled_json, thin, core_unfilled_json)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             narrative_unfilled_json, sentences_resolved_json, sentences_unfilled_json,
+             thin, core_unfilled_json)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (asm.draft_id, key, b.fact_count, json.dumps(sorted(b.facts)),
-         json.dumps(sorted(b.narratives)),
+         json.dumps(sorted(b.narratives)), json.dumps(b.narrative_unfilled),
          json.dumps(b.sentences_resolved), json.dumps(b.sentences_unfilled),
          1 if b.thin else 0, json.dumps(b.core_unfilled)),
       )
