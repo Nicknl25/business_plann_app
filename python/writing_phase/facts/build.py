@@ -798,6 +798,12 @@ def build_sensitivity(cat: FactCatalog, draft: Dict[str, Any]) -> None:
             P_("the demand judgment's demand-at-reduced-spend band"), "Marketing band low")
     cat.put("annual.marketing_demand_high", float(mband[1]), "percent",
             P_("the demand judgment's demand-at-reduced-spend band"), "Marketing band high")
+  else:
+    why = ("demand judgment withheld - thin evidence" if (coh.get("demand_response") or {}).get("withheld")
+           else ("no coherence record on this draft" if not coh
+                 else "no quantified marketing response in the coherence record"))
+    for k in ("annual.marketing_demand_low", "annual.marketing_demand_high"):
+      cat.put(k, ABSENT, "percent", P_("x"), absent_reason=why)
   vh = _f(((coh.get("demand_response") or {}).get("volume_headroom") or {}).get("supported_units_max"))
   cat.put("annual.volume_headroom_units", (vh if vh else ABSENT), "count",
           P_("maximum units the modelled reachable market supports"), "Volume headroom",
@@ -954,19 +960,30 @@ def build_valuation_facts(cat: FactCatalog, cur, draft: Dict[str, Any]) -> None:
 # THE BDS HISTORY (depth item 4): the 46-year series behind the new chart.
 # ---------------------------------------------------------------------------
 def build_industry_history(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
-  n4 = (str(ctx.get("naics6") or ""))[:4]
-  if not n4:
+  n6 = str(ctx.get("naics6") or "")
+  if len(n6) < 4:
     return
-  cur.execute("SELECT year, SUM(estabs) FROM bds_firm_age WHERE vcnaics4=%s GROUP BY year ORDER BY year", (n4,))
-  rows = [(int(a), float(b)) for a, b in cur.fetchall() if b is not None]
+  # BDS files under NAICS 2017: Northgate's 513210 (a 2022 code) is 511210
+  # there. Same translation the CBP path uses - caught 2026-09-01 when the
+  # audit showed BDS "missing" for a software publisher with 552 rows.
+  rows = []
+  n4 = n6[:4]
+  for cand in _cbp_naics_candidates(cur, n6):
+    n4 = str(cand)[:4]
+    cur.execute("SELECT year, SUM(estabs) FROM bds_firm_age WHERE vcnaics4=%s GROUP BY year ORDER BY year", (n4,))
+    rows = [(int(a), float(b)) for a, b in cur.fetchall() if b is not None]
+    if len(rows) >= 10:
+      break
   if len(rows) >= 10:
     span = "%d through %d" % (rows[0][0], rows[-1][0])
     prov = prov_raw("Business Dynamics Statistics", span, "establishments per year, NAICS %s" % n4)
     cat.put("industry.establishments_history_span", span, "text", prov, "History span")
     cat.put("industry.establishments_history", rows, "list", prov, "Establishments by year")
   else:
-    cat.put("industry.establishments_history_span", ABSENT, "text", prov_model("x"),
-            absent_reason="BDS has no year series for NAICS-4 %s" % n4)
+    for k in ("industry.establishments_history_span", "industry.establishments_history"):
+      cat.put(k, ABSENT, "text", prov_model("x"),
+              absent_reason="BDS has no year series for NAICS-4 %s (BDS excludes agriculture)" % n4
+              if n4.startswith("11") else "BDS has no year series for NAICS-4 %s" % n4)
 
 
 # ---------------------------------------------------------------------------
@@ -1064,18 +1081,34 @@ def build_market_composition(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None
             absent_reason="no county geography or no NAICS-6")
     return
   cands = _cbp_naics_candidates(cur, n6)
-  prefixes = sorted({c[:4] for c in cands})
+  # WIDEN until the composition has something to say: siblings under the
+  # NAICS-4, then the NAICS-3, then the sector. A NAICS-4 with one child
+  # (software publishers, 5112) has no siblings at all - the audit of
+  # 2026-09-01 found three "missing" compositions that were only this.
   rows: List[Tuple[str, str, float]] = []
-  for p4 in prefixes:
-    cur.execute("SELECT naics, naics_label, SUM(estab) FROM cbp_2022_raw_county "
-                "WHERE state_fips=%s AND county_fips=%s AND naics LIKE %s "
-                "AND LENGTH(naics)=6 GROUP BY naics, naics_label", (sf, cf, p4 + "%"))
-    rows.extend((str(a), str(b or a), float(v or 0)) for a, b, v in cur.fetchall())
-  rows = [r for r in rows if r[2] > 0]
+  used_level = None
+  for level in (4, 3, 2):
+    prefixes = sorted({c[:level] for c in cands})
+    rows = []
+    for pfx in prefixes:
+      cur.execute("SELECT naics, naics_label, SUM(estab) FROM cbp_2022_raw_county "
+                  "WHERE state_fips=%s AND county_fips=%s AND naics LIKE %s "
+                  "AND LENGTH(naics)=6 GROUP BY naics, naics_label", (sf, cf, pfx + "%"))
+      rows.extend((str(a), str(b or a), float(v or 0)) for a, b, v in cur.fetchall())
+    rows = [r for r in rows if r[2] > 0]
+    if len(rows) >= 2:
+      used_level = level
+      break
   if len(rows) < 2:
     cat.put("market.composition", ABSENT, "list", prov_model("x"),
-            absent_reason="fewer than two sibling lines in county CBP for NAICS-4 %s" % (prefixes[0] if prefixes else ""))
+            absent_reason="fewer than two lines in county CBP at any scope for NAICS %s%s"
+            % (n6, " (CBP excludes agriculture)" if n6.startswith("11") else ""))
     return
+  scope_label = {4: "lines within NAICS %s" % cands[0][:4], 3: "lines within NAICS %s" % cands[0][:3],
+                 2: "lines within the sector"}[used_level]
+  cat.put("market.composition_scope", scope_label, "text",
+          prov_raw("County Business Patterns 2022 (county)", "2022", "the scope the composition was drawn at"),
+          "Composition scope")
   own = set(cands)
   comp = [{"naics": a, "label": b, "establishments": v, "is_client_line": a in own}
           for a, b, v in sorted(rows, key=lambda r: -r[2])[:8]]
@@ -1140,6 +1173,49 @@ def build_wage_positioning(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Di
             absent_reason="no OEWS decile rows for the schedule's occupation codes")
 
 
+def build_cvp_facts(cat: FactCatalog, draft: Dict[str, Any]) -> None:
+  """The TRUE CVP (Nick 2026-09-01): volume on the axis. Fixed cost, the
+  contribution-margin ratio and planned revenue come straight off the model's
+  own Year-1 annualised break-even block, so the chart's crossing IS the
+  model's break-even by construction. Units and a unit price are added only
+  when the model has exactly one product line - a multi-product business is
+  charted in sales dollars, the textbook form for a mixed volume."""
+  P_ = prov_model
+  be = ((_j(draft.get("finmo_json")) or {}).get("break_even") or {}).get("summary") or {}
+  y1 = be.get("y1_annualized") or {}
+  fc, cm, pl = _f(y1.get("fixed_costs")), _f(y1.get("cm_ratio")), _f(y1.get("planned_revenue"))
+  if not (fc and cm and pl and 0 < cm < 1):
+    for k in ("annual.cvp_fixed_costs_y1", "annual.cvp_cm_ratio_y1", "annual.cvp_planned_revenue_y1"):
+      cat.put(k, ABSENT, "money", P_("x"), absent_reason="no annualised Year-1 break-even block in the model")
+    return
+  cat.put("annual.cvp_fixed_costs_y1", fc, "money", P_("Year-1 fixed costs from the model's break-even block"), "Fixed costs Y1")
+  cat.put("annual.cvp_cm_ratio_y1", cm, "percent", P_("Year-1 contribution-margin ratio"), "Contribution margin ratio")
+  cat.put("annual.cvp_planned_revenue_y1", pl, "money", P_("Year-1 planned revenue on the break-even basis"), "Planned revenue Y1")
+  mi = _j(draft.get("model_input_json"))
+  levers: Dict[str, Dict[str, List[float]]] = {}
+  for r in ((mi.get("sections") or {}).get("revenue") or []):
+    lever = str(r.get("lever_id") or "")
+    if not lever.startswith("revenue::"):
+      continue
+    prod = "::".join(lever.split("::")[:3])
+    drv = str(r.get("driver") or "")
+    if drv in ("Capacity", "Utilization"):
+      vals = [(_f(v) or 0.0) for v in (r.get("values") or [])]
+      levers.setdefault(prod, {})[drv] = vals
+  products = [p for p, d in levers.items() if "Capacity" in d]
+  if len(products) == 1 and len(levers[products[0]]["Capacity"]) >= 5:
+    cap = levers[products[0]]["Capacity"]
+    util = levers[products[0]].get("Utilization") or [1.0] * len(cap)
+    units = sum(cap[i] * (util[i] if i < len(util) else 1.0) for i in range(1, 5))
+    if units > 0:
+      cat.put("annual.cvp_units_y1", units, "count", P_("Year-1 planned unit volume from the revenue drivers"), "Units Y1")
+      cat.put("annual.cvp_unit_price_y1", pl / units, "money_exact", P_("Year-1 revenue per unit"), "Unit price Y1")
+      return
+  for k in ("annual.cvp_units_y1", "annual.cvp_unit_price_y1"):
+    cat.put(k, ABSENT, "count", P_("x"),
+            absent_reason="%d product lines - the volume axis is sales dollars" % len(products))
+
+
 # ---------------------------------------------------------------------------
 # THE DOOR
 # ---------------------------------------------------------------------------
@@ -1157,6 +1233,7 @@ def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
                    ("market", lambda: build_market(cat, cur, draft, ctx)),
                    ("sensitivity", lambda: build_sensitivity(cat, draft)),
                    ("chart_series", lambda: build_chart_series(cat, draft)),
+                   ("cvp", lambda: build_cvp_facts(cat, draft)),
                    ("market_composition", lambda: build_market_composition(cat, cur, ctx)),
                    ("wage_positioning", lambda: build_wage_positioning(cat, cur, draft, ctx)),
                    ("economy", lambda: build_economy(cat, cur)),

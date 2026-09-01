@@ -65,7 +65,8 @@ def main() -> int:
     jobs["industry_establishments_history"] = lambda: T.fig_industry_history(
       [r[0] for r in hist], [r[1] for r in hist], entry_year=entry)
   if V("market.composition") is not None:
-    jobs["local_market_composition"] = lambda: T.fig_local_market_composition(V("market.composition"))
+    jobs["local_market_composition"] = lambda: T.fig_local_market_composition(
+      V("market.composition"), scope_label=str(V("market.composition_scope") or ""))
   if V("annual.revenue_by_lob") is not None:
     jobs["revenue_by_lob"] = lambda: T.fig_revenue_by_lob(V("annual.revenue_by_lob"))
   if V("annual.headcount_by_role_group") is not None:
@@ -94,6 +95,11 @@ def main() -> int:
     jobs["break_even"] = lambda: T.fig_break_even_cvp(
       revq, costq, _qnum(V("quarterly.break_even")),
       margin_of_safety=V("annual.margin_of_safety"))
+  fc, cm, pl, ber = (V("annual.cvp_fixed_costs_y1"), V("annual.cvp_cm_ratio_y1"),
+                     V("annual.cvp_planned_revenue_y1"), V("annual.break_even_revenue_y1"))
+  if None not in (fc, cm, pl, ber):
+    jobs["break_even_volume"] = lambda: T.fig_break_even_volume(
+      fc, cm, pl, ber, units=V("annual.cvp_units_y1"), unit_price=V("annual.cvp_unit_price_y1"))
   lo, hi = V("annual.marketing_demand_low"), V("annual.marketing_demand_high")
   if rev5 is not None and lo is not None and hi is not None:
     jobs["sensitivity_band"] = lambda: T.fig_sensitivity_band(rev5, float(lo), float(hi))

@@ -143,7 +143,7 @@ def fig_industry_history(years: Sequence[int], establishments: Sequence[float],
   return _finish(fig)
 
 
-def fig_local_market_composition(rows: Sequence[Dict[str, Any]]) -> bytes:
+def fig_local_market_composition(rows: Sequence[Dict[str, Any]], scope_label: str = "") -> bytes:
   """County sibling lines as horizontal bars, WRAP width. The client's own
   line is the only coloured bar - annotation by colour and label."""
   rows = list(rows)
@@ -164,6 +164,9 @@ def fig_local_market_composition(rows: Sequence[Dict[str, Any]]) -> bytes:
   _style_axes(ax, money_axis=False, small=True)
   ax.spines["bottom"].set_visible(False)
   ax.margins(x=0.18)
+  if scope_label:
+    fig.text(0.99, 0.01, "establishments in the county, %s" % scope_label, ha="right",
+             fontsize=6, color=INK_MUTED)
   return _finish(fig)
 
 
@@ -340,7 +343,7 @@ def fig_break_even_cvp(revenue_q: Sequence[float], total_cost_q: Sequence[float]
   safety written into the gap."""
   rev = [float(v) for v in revenue_q[:20]]
   cost = [float(v) for v in total_cost_q[:20]]
-  fig, ax = _new_fig()
+  fig, ax = _new_fig(2.7)
   x = list(range(1, len(rev) + 1))
   ax.plot(x, rev, color=REVENUE, linewidth=1.9)
   ax.plot(x, cost, color=COST, linewidth=1.9)
@@ -351,17 +354,92 @@ def fig_break_even_cvp(revenue_q: Sequence[float], total_cost_q: Sequence[float]
   if break_even_quarter is not None and 1 <= int(break_even_quarter) <= len(rev):
     b = int(break_even_quarter)
     ax.plot([b], [rev[b - 1]], marker="o", markersize=7, color=ATTENTION, zorder=5)
+    # below the cost line: the frame runs from zero, so the space under the
+    # lines is clear and the label never crosses them
     ax.annotate("break-even: %s in Q%d" % (_money(rev[b - 1]), b),
-                (b, rev[b - 1]), textcoords="offset points", xytext=(10, 10),
+                (b, cost[b - 1]), textcoords="offset points", xytext=(6, -22),
                 fontsize=8.5, color=INK, fontweight="bold")
   if margin_of_safety is not None:
-    gi = max(1, int(len(rev) * 0.7))
+    gi = max(1, int(len(rev) * 0.55))
     ax.annotate("margin of safety %.0f%%" % (margin_of_safety * 100),
-                (gi, (rev[gi - 1] + cost[gi - 1]) / 2.0), fontsize=7.5,
-                color=INK_MUTED, ha="center", va="center")
+                (gi, cost[gi - 1]), textcoords="offset points", xytext=(0, -14),
+                fontsize=7.5, color=INK_MUTED, ha="center", va="top")
+  gap = rev[-1] - cost[-1]
+  if gap > 0:
+    ax.annotate("%s a quarter above cost by Q%d" % (_money(gap), len(rev)),
+                (len(rev), (rev[-1] + cost[-1]) / 2.0), textcoords="offset points",
+                xytext=(-6, -26), fontsize=7.5, color=INK, ha="right")
   ax.set_xticks(x[::2])
   ax.set_xticklabels(["Q%d" % i for i in x[::2]], fontsize=7)
   ax.margins(x=0.02)
+  # from ZERO (Nick 2026-09-01): an axis that starts at the first value runs
+  # the two lines parallel and hides the wedge in a corner; from zero the gap
+  # reads in proportion to the business.
+  ax.set_ylim(0, max(max(rev), max(cost)) * 1.12)
+  _style_axes(ax)
+  return _finish(fig)
+
+
+def fig_break_even_volume(fixed_costs: float, cm_ratio: float, planned_revenue: float,
+                          break_even_revenue: float, units: Optional[float] = None,
+                          unit_price: Optional[float] = None) -> bytes:
+  """THE TRUE CVP: volume on the x-axis. Fixed cost flat, total cost sloping
+  up from it at the variable-cost ratio, revenue from the origin; the loss
+  wedge before break-even and the contribution wedge after it. Units where
+  the model has one product, sales dollars where it has several."""
+  fc, cm, plan, be = float(fixed_costs), float(cm_ratio), float(planned_revenue), float(break_even_revenue)
+  in_units = bool(units and unit_price)
+  scale = float(unit_price) if in_units else 1.0            # dollars per x-unit
+  x_plan = plan / scale
+  x_be = be / scale
+  x_max = max(x_plan, x_be) * 1.25
+  xs = [x_max * i / 60.0 for i in range(61)]
+  revenue = [x * scale for x in xs]
+  total = [fc + (1.0 - cm) * x * scale for x in xs]
+  fig, ax = _new_fig(3.6)
+  ax.fill_between(xs, total, revenue, where=[r < t for r, t in zip(revenue, total)],
+                  color=_hx(D.BAND_LOSS), alpha=1.0, interpolate=True, linewidth=0)
+  ax.fill_between(xs, total, revenue, where=[r >= t for r, t in zip(revenue, total)],
+                  color=WASH, alpha=1.0, interpolate=True, linewidth=0)
+  ax.plot([0, x_max], [fc, fc], color=NEUTRAL, linewidth=1.3, linestyle=(0, (4, 3)))
+  ax.plot(xs, total, color=COST, linewidth=1.9)
+  ax.plot(xs, revenue, color=REVENUE, linewidth=1.9)
+  _end_label(ax, x_max, fc, "Fixed cost %s" % _money(fc), NEUTRAL, dx=6, size=7.5)
+  _end_label(ax, x_max, total[-1], "Total cost", COST, dx=6, size=8, weight="bold")
+  _end_label(ax, x_max, revenue[-1], "Revenue", REVENUE, dx=6, size=8, weight="bold")
+  # break-even
+  y_top = max(revenue[-1], total[-1]) * 1.08
+  floor = y_top * 0.11          # a clear band above the axis for the volume labels
+  ax.plot([x_be], [be], marker="o", markersize=8, color=ATTENTION, zorder=6)
+  ax.plot([x_be, x_be], [floor, be], color=ATTENTION, linewidth=0.9, linestyle=(0, (2, 3)))
+  be_note = "break-even: %s" % _money(be)
+  if in_units:
+    be_note += "  ({:,.0f} units at {})".format(x_be, _money(scale) if scale >= 1000 else "$%.2f" % scale)
+  ax.annotate(be_note, (x_be, be), textcoords="offset points", xytext=(-8, 14),
+              ha="right", fontsize=8.5, color=INK, fontweight="bold")
+  # the plan's volume
+  ax.plot([x_plan, x_plan], [floor, plan], color=INK_MUTED, linewidth=0.9, linestyle=(0, (2, 3)))
+  plan_note = ("plan: {:,.0f} units".format(x_plan) if in_units else "plan: %s" % _money(plan))
+  ax.annotate(plan_note, (x_plan, floor * 0.55), fontsize=7.5, color=INK_MUTED, ha="center", va="center")
+  ax.annotate("break-even", (x_be, floor * 0.55), fontsize=7.5, color=ATTENTION, ha="center", va="center")
+  # contribution wedge labelled inside its widest part, right-aligned so the
+  # text never crosses the lines converging at break-even
+  xm = x_max * 0.985
+  ym = ((xm * scale) + (fc + (1.0 - cm) * xm * scale)) / 2.0
+  ax.annotate("%.0f%% of every sale\nis contribution" % (cm * 100), (xm, ym), fontsize=7.5,
+              color=INK, ha="right", va="center")
+  mos = 1.0 - be / plan if plan > 0 else None
+  if mos is not None and x_plan > x_be:
+    ax.annotate("margin of safety %.0f%%" % (mos * 100), ((x_be + x_plan) / 2.0, floor * 1.35),
+                fontsize=7.5, color=INK_MUTED, ha="center", va="bottom")
+  ax.set_xlim(0, x_max)
+  ax.set_ylim(0, y_top)
+  if in_units:
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: "{:,.0f}".format(v)))
+    ax.set_xlabel("units sold in Year 1", fontsize=7.5, color=INK_MUTED)
+  else:
+    ax.xaxis.set_major_formatter(FuncFormatter(_money_tick))
+    ax.set_xlabel("Year-1 sales volume (dollars - several product lines)", fontsize=7.5, color=INK_MUTED)
   _style_axes(ax)
   return _finish(fig)
 

@@ -350,8 +350,8 @@ PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
 PLACEMENT_FULL_WIDTH = "full_width"
 PLACEMENT_WRAP = "wrap"     # chart sits beside prose, text wraps
 
-# THE APPROVED DESIGNS (Nick's rulings, 2026-08-31 evening). Eleven designs;
-# a typical draft renders 8-10, a thin one ~7. A chart whose series cannot be
+# THE APPROVED DESIGNS (Nick's rulings, 2026-08-31 evening; the true CVP
+# added 2026-09-01). Twelve designs; a typical draft renders 9-11, a thin one ~8. A chart whose series cannot be
 # built is silently omitted and the figures renumber - the ABSENT discipline
 # at chart scale. `annotation` records what the figure must carry ON it; the
 # annotation IS what separates a consultant's chart from a template's.
@@ -424,12 +424,24 @@ CHART_REGISTRY: Tuple[Dict[str, Any], ...] = (
                       "quarterly.cash_trough_amount"),
    "annotation": "trough marked with value, quarter, and months of operating cover"},
   {"key": "break_even", "order": 90,
-   "title": "Break-Even Analysis",
+   "title": "Break-Even Over the Plan Period",
    "section": "financial_plan", "kind": "cvp",
    "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
    "requires_facts": ("quarterly.revenue_series", "quarterly.total_cost_series",
                       "quarterly.break_even"),
    "annotation": "crossing labelled with revenue and quarter; margin-of-safety written into the gap"},
+  {"key": "break_even_volume", "order": 95,
+   "title": "Break-Even by Volume",
+   "section": "financial_plan", "kind": "cvp_volume",
+   # THE TRUE CVP (Nick 2026-09-01, the twelfth design): volume on the axis -
+   # fixed cost flat, total cost sloping from it, revenue from the origin,
+   # the crossing at break-even with the contribution wedge visible. Answers
+   # "how many"; Figure 9 answers "when". Units where one product, dollars
+   # where several.
+   "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
+   "requires_facts": ("annual.cvp_fixed_costs_y1", "annual.cvp_cm_ratio_y1",
+                      "annual.break_even_revenue_y1", "annual.cvp_planned_revenue_y1"),
+   "annotation": "break-even marked with revenue (and units where one product); plan volume marked; contribution wedge shaded and labelled"},
   {"key": "sensitivity_band", "order": 100,
    "title": "Revenue Under the Judged Scenarios",
    "section": "financial_plan", "kind": "bounded_scenario_band",

@@ -27,6 +27,7 @@ from dotenv import load_dotenv  # noqa: E402
 from writing_phase import rules as R  # noqa: E402
 from writing_phase.facts import build as B  # noqa: E402
 from writing_phase import rule_lookup as RL  # noqa: E402
+from writing_phase.document import tables as TB  # noqa: E402
 
 load_dotenv(os.path.join(ROOT, ".env"))
 
@@ -61,7 +62,14 @@ def main() -> int:
   print("%-34s %s" % ("", "  ".join(d["draft_id"][:6] for d in drafts)))
   matrix = {c["key"]: [] for c in charts}
   totals = []
+  tmatrix = {fn.__name__.replace("build_", ""): [] for fn in TB.BODY_TABLE_BUILDERS}
   for d in drafts:
+    for fn in TB.BODY_TABLE_BUILDERS:
+      try:
+        ok = fn(d) is not None
+      except Exception:
+        ok = False
+      tmatrix[fn.__name__.replace("build_", "")].append("Y" if ok else ".")
     cat = B.build_catalog(plain, d, miss_sink=sink)
     n_ok = 0
     for c in charts:
@@ -79,6 +87,9 @@ def main() -> int:
     print("%-34s %s   %d/%d" % (c["key"], "  ".join("%-6s" % v for v in matrix[c["key"]]),
                                 per_chart[c["key"]], len(drafts)))
   print("%-34s %s" % ("CHARTS RENDERING", "  ".join("%-6d" % t for t in totals)))
+  print("\nBODY TABLES")
+  for k, v in tmatrix.items():
+    print("%-34s %s   %d/%d" % (k, "  ".join("%-6s" % x for x in v), v.count("Y"), len(drafts)))
   print("\nblocking requirements (chart <- fact, drafts blocked):")
   for ck, m in blockers.items():
     for k, n in sorted(m.items(), key=lambda kv: -kv[1]):

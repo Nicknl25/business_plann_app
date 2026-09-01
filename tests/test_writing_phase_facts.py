@@ -505,7 +505,10 @@ class ChartSeriesTests(unittest.TestCase):
              "quarterly.cash_trough", "quarterly.cash_trough_amount",
              "quarterly.break_even", "annual.marketing_demand_low",
              "annual.marketing_demand_high", "entity.funding_request",
-             "industry.sba_ask_percentile"}
+             "industry.sba_ask_percentile",
+             # the true CVP (2026-09-01)
+             "annual.cvp_fixed_costs_y1", "annual.cvp_cm_ratio_y1",
+             "annual.cvp_planned_revenue_y1", "annual.break_even_revenue_y1"}
     for c in R.CHART_REGISTRY:
       for k in c["requires_facts"]:
         self.assertIn(k, built, "chart %s requires %s, which nothing builds" % (c["key"], k))
@@ -533,11 +536,13 @@ class RendererAndTableTests(unittest.TestCase):
       T.fig_break_even_cvp([100 + i * 5 for i in range(20)], [110 + i * 3 for i in range(20)],
                            break_even_quarter=6, margin_of_safety=0.17),
       T.fig_sensitivity_band([100, 120, 140, 160, 180], 0.75, 0.90),
+      T.fig_break_even_volume(400000, 0.54, 930000, 760000),
+      T.fig_break_even_volume(400000, 0.54, 930000, 760000, units=60000, unit_price=15.5),
       T.fig_sba_ask_distribution([{"pct": p, "amount": a} for p, a in
                                   ((10, 15000), (25, 50000), (50, 360000), (75, 600000), (90, 1100000))],
                                  180000, "38th", 1140),
     ]
-    self.assertEqual(len(pngs), 11)
+    self.assertEqual(len(pngs), 13)   # twelve designs, the CVP in both axes
     for png in pngs:
       self.assertTrue(png.startswith(b"\x89PNG"), "renderer must emit PNG bytes")
       self.assertGreater(len(png), 4000)
@@ -553,7 +558,7 @@ class RendererAndTableTests(unittest.TestCase):
                    "net_income": 23000.0, "operating_cash_flow": 10000.0,
                    "capital_expenditures": 2000.0, "debt_issuance": 5000.0,
                    "debt_repayment": 3000.0, "lease_principal_repayments": 0.0,
-                   "distributions": 0.0, "equity": 0.0, "other_equity": 0.0,
+                   "distributions": 0.0, "equity": 0.0, "other_equity": 0.0, "financing_cash_flow": 2000.0,
                    "debt_opening_balance": 50000.0, "debt_closing_balance": 52000.0,
                    "debt_interest_expense_only": 900.0})
     # make the cash identity hold: closing Q4 = opening + Y1 net flows
@@ -584,3 +589,59 @@ class RendererAndTableTests(unittest.TestCase):
     self.assertEqual(len(spec["rows"]), 12)
     self.assertEqual(spec["rows"][2][0], "Gross profit")
     self.assertEqual(spec["rows"][1][1], "(160)", "costs render in parentheses")
+
+
+class ThreeStatementTableTests(unittest.TestCase):
+
+  @staticmethod
+  def _rows():
+    rows = []
+    cash = 30000.0
+    for i in range(0, 21):
+      r = {"quarter_index": i, "cash": cash, "accounts_receivable": 5000.0, "inventory": 2000.0,
+           "prepaid_expenses": 0.0, "ppe": 40000.0, "right_of_use_asset": 0.0,
+           "accounts_payable": 3000.0, "deferred_revenue": 0.0, "short_term_debt": 1000.0,
+           "long_term_debt": 20000.0, "capital_lease_obligation": 0.0,
+           "owners_capital": 10000.0, "retained_earnings": 0.0,
+           "net_income": 4000.0, "depreciation": 500.0, "changes_in_current_assets": -100.0,
+           "changes_in_current_liabilities": 50.0, "operating_cash_flow": 4450.0,
+           "capital_expenditures": 200.0, "investing_cash_flow": -200.0,
+           "debt_issuance": 0.0, "debt_repayment": 250.0, "lease_principal_repayments": 0.0,
+           "distributions": 0.0, "financing_cash_flow": -250.0}
+      if i >= 1:
+        cash += 4450.0 - 200.0 - 250.0
+        r["cash"] = cash
+      r["current_assets"] = r["cash"] + 5000.0 + 2000.0
+      r["total_assets"] = r["current_assets"] + 40000.0
+      r["current_liabilities"] = 3000.0 + 1000.0
+      r["total_liabilities"] = r["current_liabilities"] + 20000.0
+      r["total_equity"] = r["total_assets"] - r["total_liabilities"]
+      r["retained_earnings"] = r["total_equity"] - 10000.0
+      r["total_liabilities_and_equity"] = r["total_liabilities"] + r["total_equity"]
+      rows.append(r)
+    return rows
+
+  def test_balance_sheet_builds_and_all_zero_lines_drop(self):
+    from writing_phase.document import tables as TB
+    spec = TB.build_balance_sheet({"finmo_json": {"quarter_rows": self._rows()}})
+    self.assertIsNotNone(spec)
+    labels = [r[0] for r in spec["rows"]]
+    self.assertIn("Total assets", labels)
+    self.assertNotIn("Deferred revenue", labels, "an all-zero detail line says nothing")
+    self.assertIn("Total liabilities & equity", labels)
+
+  def test_balance_sheet_refused_when_it_does_not_balance(self):
+    from writing_phase.document import tables as TB
+    rows = self._rows()
+    rows[8]["total_liabilities_and_equity"] += 5000.0
+    self.assertIsNone(TB.build_balance_sheet({"finmo_json": {"quarter_rows": rows}}))
+
+  def test_cash_flow_reconciles_to_year_end_cash(self):
+    from writing_phase.document import tables as TB
+    spec = TB.build_cash_flow({"finmo_json": {"quarter_rows": self._rows()}})
+    self.assertIsNotNone(spec)
+    labels = [r[0] for r in spec["rows"]]
+    self.assertEqual(labels[-1], "Cash at year end")
+    self.assertIn("Debt repaid", labels)
+    self.assertNotIn("Debt drawn", labels)
+    self.assertEqual(len(TB.BODY_TABLE_BUILDERS), 6)
