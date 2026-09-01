@@ -416,19 +416,36 @@ def _build_lob_contribution(cat: FactCatalog, mi: Dict[str, Any], om: Dict[str, 
   # THE SERIES behind the revenue-by-LOB chart (Nick 2026-08-31): annual
   # revenue per line, only where the mix question exists (>=2 lines) and the
   # same honesty gate above has already passed.
+  # THE REVENUE BUILD-UP (Nick 2026-09-01): a single line still has a
+  # revenue story. Several lines -> by line; one line with several products
+  # -> by product; one product -> one series. Never omitted for "no mix".
+  def _annual(qrv):
+    return [round(sum(qrv[4 * y - 3:4 * y + 1]), 2) for y in range(1, 6)]
+  series, basis = [], None
   if len(lob_rev) >= 2:
-    series = []
-    for lob, acc in sorted(by_lob.items(), key=lambda kv: -sum(kv[1]["_rev"][1:5])):
-      qrv = acc["_rev"]
-      if len(qrv) >= 21:
-        series.append({"lob": lob, "annual": [round(sum(qrv[4 * y - 3:4 * y + 1]), 2) for y in range(1, 6)]})
-    if series:
-      cat.put("annual.revenue_by_lob", series, "list",
-              prov_model("annual revenue per line of business from the model's revenue drivers"),
-              "Revenue by line of business")
+    series = [{"lob": lob, "annual": _annual(acc["_rev"])}
+              for lob, acc in sorted(by_lob.items(), key=lambda kv: -sum(kv[1]["_rev"][1:5])) if len(acc["_rev"]) >= 21]
+    basis = "line of business"
   else:
-    cat.put("annual.revenue_by_lob", ABSENT, "list", prov_model("x"),
-            absent_reason="single line of business - no mix to chart")
+    prods = []
+    for prod, d in by_prod.items():
+      cap, price, util = d.get("Capacity"), d.get("Unit Price"), d.get("Utilization")
+      if cap and price and util:
+        n_ = min(len(cap), len(price), len(util))
+        if n_ >= 21:
+          prods.append((prod.split("::")[-1] or prod, [cap[i] * price[i] * util[i] for i in range(n_)]))
+    if len(prods) >= 2:
+      series = [{"lob": name, "annual": _annual(q_)} for name, q_ in sorted(prods, key=lambda p: -sum(p[1][1:5]))]
+      basis = "product"
+    elif by_lob:
+      lob, acc = next(iter(by_lob.items()))
+      if len(acc["_rev"]) >= 21:
+        series = [{"lob": lob, "annual": _annual(acc["_rev"])}]
+        basis = "single line"
+  if series:
+    cat.put("annual.revenue_by_lob", series, "list",
+            prov_model("annual revenue by %s from the model's revenue drivers" % basis), "Revenue build-up")
+    cat.put("annual.revenue_by_lob_basis", basis, "text", prov_model("what the revenue build-up is split by"), "Build-up basis")
 
 
 # ---------------------------------------------------------------------------
@@ -481,27 +498,38 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
   #     (Northgate's 513210) recovers its market facts and keeps an empty
   #     industry block.
   cbp_code = None
-  for code in _cbp_naics_candidates(cur, n6):
-    cur.execute("SELECT SUM(pay_ann), SUM(estab) FROM cbp_2022_raw WHERE naics=%s", (code,))
+  scopes = naics_scopes(cur, n6)
+  for level, prefixes, lvl_label in scopes:
+    clause, params = _like_clause("naics", level, prefixes)
+    cur.execute("SELECT SUM(pay_ann), SUM(estab) FROM cbp_2022_raw WHERE LENGTH(naics)=6 AND " + clause, params)
     r = cur.fetchone()
     if r and r[0] and r[1]:
-      cbp_code = code
+      cbp_code = prefixes[0]
       cat.put("industry.payroll_per_establishment_national", float(r[0]) * 1000.0 / float(r[1]), "money",
-              prov_raw("County Business Patterns", "2022", "annual payroll over establishments, all states, NAICS %s" % code), "Payroll/estab national")
+              prov_raw("County Business Patterns", "2022", "annual payroll over establishments, all states, %s" % lvl_label), "Payroll/estab national")
       break
   if cbp_code is None:
-    cat.put("industry.payroll_per_establishment_national", ABSENT, "money", prov_model("x"), absent_reason="CBP has no rows for NAICS %s or its 2017 translation" % n6)
-  # --- BDS by NAICS-4, latest year (translated code first when it differs)
-  n4 = (cbp_code or n6)[:4]
-  cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4=%s", (n4,))
-  yr = cur.fetchone()[0]
-  if not yr and n4 != n6[:4]:
-    n4 = n6[:4]
-    cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4=%s", (n4,))
-    yr = cur.fetchone()[0]
+    cat.put("industry.payroll_per_establishment_national", ABSENT, "money", prov_model("x"), absent_reason="CBP has no rows for NAICS %s at any scope" % n6)
+  # --- BDS latest year, widened 4 -> 3 -> sector (BDS files at NAICS-4 under
+  #     NAICS 2017; the prefixes carry the translation). Rates aggregate
+  #     estab-weighted across the codes a wider scope gathers.
+  yr, bds_like, bds_scope = None, None, None
+  for level, prefixes, lvl_label in scopes:
+    if level == 6:
+      continue
+    pattern = prefixes[0][:level] + "%"
+    cur.execute("SELECT MAX(year) FROM bds_firm_age WHERE vcnaics4 LIKE %s", (pattern,))
+    y = cur.fetchone()[0]
+    if y:
+      yr, bds_like, bds_scope = y, pattern, ("NAICS %s" % prefixes[0][:4] if level == 4 else lvl_label)
+      break
+  n4 = bds_scope or ("NAICS %s" % n6[:4])
   if yr:
-    cur.execute("SELECT firm_age_bucket, firms, estabs, emp, estabs_entry_rate, estabs_exit_rate, net_job_creation_rate, firmdeath_firms "
-                "FROM bds_firm_age WHERE vcnaics4=%s AND year=%s", (n4, yr))
+    cat.put("industry.bds_scope_label", bds_scope, "text", prov_raw("Business Dynamics Statistics", str(yr), "the scope the dynamics are drawn at"), "BDS scope")
+    cur.execute("SELECT firm_age_bucket, SUM(firms), SUM(estabs), SUM(emp), "
+                "SUM(estabs_entry_rate*estabs)/NULLIF(SUM(estabs),0), SUM(estabs_exit_rate*estabs)/NULLIF(SUM(estabs),0), "
+                "SUM(net_job_creation_rate*emp)/NULLIF(SUM(emp),0), SUM(firmdeath_firms) "
+                "FROM bds_firm_age WHERE vcnaics4 LIKE %s AND year=%s GROUP BY firm_age_bucket", (bds_like, yr))
     rows = {str(x[0]): x for x in cur.fetchall()}
     tot_emp = sum(_f(x[3]) or 0 for x in rows.values())
     tot_est = sum(_f(x[2]) or 0 for x in rows.values())
@@ -511,16 +539,16 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
     num = sum((_f(x[6]) or 0) * (_f(x[3]) or 0) for x in rows.values()); njc = num / tot_emp if tot_emp else None
     V = "%s, %d" % ("Business Dynamics Statistics", int(yr))
     cat.put("industry.bds_year", int(yr), "text", prov_raw("Business Dynamics Statistics", str(yr), "reference year"), "BDS year")
-    cat.put("industry.establishment_entry_rate", (entry / 100.0 if entry is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment entry rate, NAICS %s" % n4), "Entry rate")
-    cat.put("industry.establishment_exit_rate", (exit_ / 100.0 if exit_ is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment exit rate, NAICS %s" % n4), "Exit rate")
-    cat.put("industry.net_job_creation_rate", (njc / 100.0 if njc is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "net job creation rate, NAICS %s" % n4), "Net job creation")
+    cat.put("industry.establishment_entry_rate", (entry / 100.0 if entry is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment entry rate, %s" % n4), "Entry rate")
+    cat.put("industry.establishment_exit_rate", (exit_ / 100.0 if exit_ is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "establishment exit rate, %s" % n4), "Exit rate")
+    cat.put("industry.net_job_creation_rate", (njc / 100.0 if njc is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "net job creation rate, %s" % n4), "Net job creation")
     cat.put("industry.employment_direction", ("growing" if njc is not None and njc >= 0 else ("contracting" if njc is not None else ABSENT)), "text", prov_raw("Business Dynamics Statistics", str(yr), "sign of net job creation"), "Direction")
     y1 = rows.get("b) 1")
-    cat.put("industry.first_year_exit_rate", (_f(y1[5]) / 100.0 if y1 and _f(y1[5]) is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "exit rate of one-year-old establishments, NAICS %s" % n4), "First-year exit rate")
+    cat.put("industry.first_year_exit_rate", (_f(y1[5]) / 100.0 if y1 and _f(y1[5]) is not None else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "exit rate of one-year-old establishments, %s" % n4), "First-year exit rate")
     young = sum(_f(rows[k][3]) or 0 for k in ("a) 0", "b) 1", "c) 2", "d) 3", "e) 4") if k in rows)
-    cat.put("industry.young_firm_employment_share", (young / tot_emp if tot_emp else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "employment at firms under five years old over sector employment, NAICS %s" % n4), "Young-firm employment share")
+    cat.put("industry.young_firm_employment_share", (young / tot_emp if tot_emp else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(yr), "employment at firms under five years old over sector employment, %s" % n4), "Young-firm employment share")
     # five-year survival: firms aged 5 in year Y over firms aged 0 in year Y-5
-    cur.execute("SELECT firms FROM bds_firm_age WHERE vcnaics4=%s AND year=%s AND firm_age_bucket='a) 0'", (n4, int(yr) - 5))
+    cur.execute("SELECT SUM(firms) FROM bds_firm_age WHERE vcnaics4 LIKE %s AND year=%s AND firm_age_bucket='a) 0'", (bds_like, int(yr) - 5))
     born = cur.fetchone(); five = rows.get("f) 5")
     if born and _f(born[0]) and five and _f(five[1]) is not None:
       cat.put("industry.five_year_survival_rate", _f(five[1]) / _f(born[0]), "percent", prov_raw("Business Dynamics Statistics", "%d-%d" % (int(yr) - 5, int(yr)), "firms aged five in %d over firms born in %d, NAICS %s" % (int(yr), int(yr) - 5, n4)), "Five-year survival")
@@ -528,23 +556,27 @@ def build_industry(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
       cat.put("industry.five_year_survival_rate", ABSENT, "percent", prov_model("x"), absent_reason="BDS cohort %d missing for NAICS %s" % (int(yr) - 5, n4))
   else:
     for k in ("industry.establishment_entry_rate", "industry.five_year_survival_rate", "industry.net_job_creation_rate"):
-      cat.put(k, ABSENT, "percent", prov_model("x"), absent_reason="BDS has no rows for NAICS-4 %s" % n4)
+      cat.put(k, ABSENT, "percent", prov_model("x"), absent_reason="BDS has no rows for NAICS %s at any scope" % n6)
   # firm size share under 10 (national, BDS firm_size latest year)
-  cur.execute("SELECT MAX(year) FROM bds_firm_size WHERE vcnaics4=%s", (n4,))
-  ys = cur.fetchone()[0]
+  ys = None
+  if bds_like:
+    cur.execute("SELECT MAX(year) FROM bds_firm_size WHERE vcnaics4 LIKE %s", (bds_like,))
+    ys = cur.fetchone()[0]
   if ys:
-    cur.execute("SELECT firm_size_bucket, firms FROM bds_firm_size WHERE vcnaics4=%s AND year=%s", (n4, ys))
+    cur.execute("SELECT firm_size_bucket, SUM(firms) FROM bds_firm_size WHERE vcnaics4 LIKE %s AND year=%s GROUP BY firm_size_bucket", (bds_like, ys))
     fs = {str(a): (_f(b) or 0) for a, b in cur.fetchall()}
     tot = sum(fs.values())
     under10 = fs.get("a) 1 to 4", 0) + fs.get("b) 5 to 9", 0)
-    cat.put("industry.share_firms_under_10_employees", (under10 / tot if tot else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(ys), "firms with 1-9 employees over all firms, NAICS %s, national" % n4), "Share of firms under 10 employees")
+    cat.put("industry.share_firms_under_10_employees", (under10 / tot if tot else ABSENT), "percent", prov_raw("Business Dynamics Statistics", str(ys), "firms with 1-9 employees over all firms, %s, national" % n4), "Share of firms under 10 employees")
   # --- SBA 7(a) comparables
   st = (ctx.get("geo") or {}).get("state_abbr")
   scope, rows = None, []
   for label, sql, params in (
     ("%s businesses in %s" % (n6, st), "NAICSCode=%s AND BorrState=%s", (n6, st)),
     ("%s businesses nationally" % n6, "NAICSCode=%s", (n6,)),
-    ("NAICS-%s businesses nationally" % n4, "LEFT(NAICSCode,4)=%s", (n4,)),
+    ("NAICS-%s businesses nationally" % n6[:4], "LEFT(NAICSCode,4)=%s", (n6[:4],)),
+    ("NAICS-%s businesses nationally" % n6[:3], "LEFT(NAICSCode,3)=%s", (n6[:3],)),
+    ("NAICS-%s businesses nationally" % n6[:2], "LEFT(NAICSCode,2)=%s", (n6[:2],)),
   ):
     if params and any(p is None for p in params):
       continue
@@ -606,6 +638,43 @@ def _cbp_naics_candidates(cur, n6):
   return out
 
 
+SECTOR_NAMES = {
+  "11": "agriculture, forestry, fishing and hunting", "21": "mining, quarrying, and oil and gas extraction",
+  "22": "utilities", "23": "construction", "31": "manufacturing", "32": "manufacturing", "33": "manufacturing",
+  "42": "wholesale trade", "44": "retail trade", "45": "retail trade", "48": "transportation and warehousing",
+  "49": "transportation and warehousing", "51": "information", "52": "finance and insurance",
+  "53": "real estate and rental and leasing", "54": "professional, scientific and technical services",
+  "55": "management of companies", "56": "administrative, support and waste management services",
+  "61": "educational services", "62": "health care and social assistance",
+  "71": "arts, entertainment and recreation", "72": "accommodation and food services",
+  "81": "other services", "92": "public administration",
+}
+
+
+def naics_scopes(cur, n6: str, title: Optional[str] = None) -> List[Tuple[int, List[str], str]]:
+  """THE WIDENING RULE (Nick, 2026-09-01): every builder that touches CBP, BDS
+  or the baseline walks 6 -> 4 -> 3 -> sector until the data answers, and the
+  SCOPE LABEL TRAVELS WITH THE FACT so the prose says what it is describing -
+  the same law as county-vs-state geography. Returns (level, prefixes, label)
+  in widening order; prefixes carry the 2022->2017 translations."""
+  n6 = str(n6 or "")
+  cands = _cbp_naics_candidates(cur, n6) if len(n6) >= 2 else [n6]
+  sector = SECTOR_NAMES.get(n6[:2])
+  return [
+    (6, list(cands), title or ("NAICS %s" % n6)),
+    (4, sorted({c[:4] for c in cands}), "the NAICS %s industry group" % n6[:4]),
+    (3, sorted({c[:3] for c in cands}), "the NAICS %s subsector" % n6[:3]),
+    (2, sorted({c[:2] for c in cands}),
+     ("the %s sector" % sector) if sector else "the NAICS %s sector" % n6[:2]),
+  ]
+
+
+def _like_clause(col: str, level: int, prefixes: List[str]) -> Tuple[str, List[str]]:
+  if level == 6:
+    return "(" + " OR ".join(["%s=%%s" % col] * len(prefixes)) + ")", list(prefixes)
+  return "(" + " OR ".join(["%s LIKE %%s" % col] * len(prefixes)) + ")", [p + "%" for p in prefixes]
+
+
 def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, Any]) -> None:
   geo = ctx.get("geo") or {}; n6 = ctx.get("naics6") or ""
   sf, cf = geo.get("state_fips"), geo.get("county_fips")
@@ -641,25 +710,33 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
   #     "Three coffee manufacturers operate in the Saint Paul area" and
   #     "Minnesota has 26" are different claims; a silent fallback would make
   #     the plan say something false about the trade area.
-  hit = None  # (est, emp, pay, label, scope_text, denom_pop, denom_hh)
-  for code in _cbp_naics_candidates(cur, n6):
+  hit = None  # (est, emp, pay, geo_label, scope_text, denom_pop, denom_hh, industry_label)
+  # THE WIDENING RULE: NAICS-6 at the county, then the state; then the
+  # industry group, subsector and sector the same way. Industry specificity
+  # outranks geography; both labels travel with every count.
+  nt = cat.get_quiet("entity.naics_title")
+  for level, prefixes, lvl_label in naics_scopes(cur, n6, nt.value if nt else None):
+    clause, params = _like_clause("naics", level, prefixes)
     if cf and area_label and pop:
-      cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw_county WHERE state_fips=%s AND county_fips=%s AND naics=%s LIMIT 1", (sf, cf, code))
+      cur.execute("SELECT SUM(estab), SUM(emp), SUM(pay_ann) FROM cbp_2022_raw_county "
+                  "WHERE state_fips=%s AND county_fips=%s AND LENGTH(naics)=6 AND " + clause, [sf, cf] + params)
       r = cur.fetchone()
       if r and _f(r[0]):
         hit = (_f(r[0]), _f(r[1]), _f(r[2]), area_label,
-               "the county containing ZIP %s, NAICS %s" % (geo.get("zip"), code), pop, hh)
+               "the county containing ZIP %s, %s" % (geo.get("zip"), lvl_label), pop, hh, lvl_label)
         break
-    cur.execute("SELECT estab, emp, pay_ann FROM cbp_2022_raw WHERE state_fips=%s AND naics=%s LIMIT 1", (sf, code))
+    cur.execute("SELECT SUM(estab), SUM(emp), SUM(pay_ann) FROM cbp_2022_raw "
+                "WHERE state_fips=%s AND LENGTH(naics)=6 AND " + clause, [sf] + params)
     r = cur.fetchone()
     if r and _f(r[0]):
       hit = (_f(r[0]), _f(r[1]), _f(r[2]), str(geo.get("state_name")),
-             "%s statewide, NAICS %s" % (geo.get("state_name"), code), sp, sh)
+             "%s statewide, %s" % (geo.get("state_name"), lvl_label), sp, sh, lvl_label)
       break
   if hit:
-    est, emp, pay, label, scope, d_pop, d_hh = hit
+    est, emp, pay, label, scope, d_pop, d_hh, ind_label = hit
     C = lambda what: prov_raw("County Business Patterns", "2022", what + " (%s)" % scope)
     cat.put("market.competition_geo_label", label, "text", C("the geography every establishment count in this plan is scoped to"), "Competition geography")
+    cat.put("market.industry_scope_label", ind_label, "text", C("the industry scope every establishment count in this plan is drawn at"), "Industry scope")
     cat.put("market.establishments", est, "count", C("establishments"), "Establishments")
     cat.put("market.residents_per_establishment", (d_pop / est if d_pop else ABSENT), "count", C("residents over establishments, same geography"), "Residents per establishment")
     cat.put("market.client_share_of_establishments", 1.0 / est, "percent", C("one establishment over the count"), "Client share")
@@ -667,10 +744,10 @@ def build_market(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Dict[str, An
     cat.put("market.payroll_per_establishment", (pay * 1000.0 / est if pay else ABSENT), "money", C("annual payroll over establishments"), "Payroll per estab")
     cat.put("market.households_per_establishment", (d_hh / est if d_hh else ABSENT), "count", C("households over establishments, same geography"), "Households per estab")
   else:
-    for k in ("market.competition_geo_label", "market.establishments", "market.residents_per_establishment",
-              "market.client_share_of_establishments", "market.emp_per_establishment",
-              "market.payroll_per_establishment", "market.households_per_establishment"):
-      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="no CBP row for NAICS %s (or its 2017 translation) at county or state" % n6)
+    for k in ("market.competition_geo_label", "market.industry_scope_label", "market.establishments",
+              "market.residents_per_establishment", "market.client_share_of_establishments",
+              "market.emp_per_establishment", "market.payroll_per_establishment", "market.households_per_establishment"):
+      cat.put(k, ABSENT, "count", prov_model("x"), absent_reason="no CBP rows for NAICS %s at any scope, county or state" % n6)
 
   # --- B2B target establishments statewide (the sentence names the scope)
   b2b = ctx.get("b2b_naics") or []
@@ -966,18 +1043,22 @@ def build_industry_history(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
   # BDS files under NAICS 2017: Northgate's 513210 (a 2022 code) is 511210
   # there. Same translation the CBP path uses - caught 2026-09-01 when the
   # audit showed BDS "missing" for a software publisher with 552 rows.
-  rows = []
-  n4 = n6[:4]
-  for cand in _cbp_naics_candidates(cur, n6):
-    n4 = str(cand)[:4]
-    cur.execute("SELECT year, SUM(estabs) FROM bds_firm_age WHERE vcnaics4=%s GROUP BY year ORDER BY year", (n4,))
+  rows, scope_label = [], None
+  for level, prefixes, lvl_label in naics_scopes(cur, n6):
+    if level == 6:
+      continue
+    cur.execute("SELECT year, SUM(estabs) FROM bds_firm_age WHERE vcnaics4 LIKE %s GROUP BY year ORDER BY year",
+                (prefixes[0][:level] + "%",))
     rows = [(int(a), float(b)) for a, b in cur.fetchall() if b is not None]
     if len(rows) >= 10:
+      scope_label = ("NAICS %s" % prefixes[0][:4]) if level == 4 else lvl_label
       break
+  n4 = n6[:4]
   if len(rows) >= 10:
     span = "%d through %d" % (rows[0][0], rows[-1][0])
-    prov = prov_raw("Business Dynamics Statistics", span, "establishments per year, NAICS %s" % n4)
+    prov = prov_raw("Business Dynamics Statistics", span, "establishments per year, %s" % scope_label)
     cat.put("industry.establishments_history_span", span, "text", prov, "History span")
+    cat.put("industry.establishments_history_scope", scope_label, "text", prov, "History scope")
     cat.put("industry.establishments_history", rows, "list", prov, "Establishments by year")
   else:
     for k in ("industry.establishments_history_span", "industry.establishments_history"):
@@ -1070,6 +1151,22 @@ def build_chart_series(cat: FactCatalog, draft: Dict[str, Any]) -> None:
               absent_reason="payroll rows carry no year-end FTE")
 
 
+def build_revenue_buildup_fallback(cat: FactCatalog, draft: Dict[str, Any]) -> None:
+  """When the driver arithmetic could not be trusted (the 5% gate) or there
+  were no drivers, the revenue figure still appears - one series, the
+  model's own annual revenue. The standard: a figure appears unless its
+  section is absent, never because the data is thin."""
+  if cat.has("annual.revenue_by_lob"):
+    return
+  s = cat.get_quiet("annual.revenue_series")
+  if s is None:
+    cat.put("annual.revenue_by_lob", ABSENT, "list", prov_model("x"), absent_reason="finmo_json lacks 20 quarters")
+    return
+  cat.put("annual.revenue_by_lob", [{"lob": "Revenue", "annual": list(s.value)}], "list",
+          prov_model("annual revenue from the model - drivers unavailable or unreconciled"), "Revenue build-up")
+  cat.put("annual.revenue_by_lob_basis", "total revenue", "text", prov_model("what the revenue build-up is split by"), "Build-up basis")
+
+
 def build_market_composition(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None:
   """Sibling NAICS-6 lines in the client's COUNTY from CBP: fragmentation at
   a glance, the client's own line among its neighbours."""
@@ -1086,35 +1183,37 @@ def build_market_composition(cat: FactCatalog, cur, ctx: Dict[str, Any]) -> None
   # (software publishers, 5112) has no siblings at all - the audit of
   # 2026-09-01 found three "missing" compositions that were only this.
   rows: List[Tuple[str, str, float]] = []
-  used_level = None
-  for level in (4, 3, 2):
-    prefixes = sorted({c[:level] for c in cands})
-    rows = []
-    for pfx in prefixes:
-      cur.execute("SELECT naics, naics_label, SUM(estab) FROM cbp_2022_raw_county "
-                  "WHERE state_fips=%s AND county_fips=%s AND naics LIKE %s "
-                  "AND LENGTH(naics)=6 GROUP BY naics, naics_label", (sf, cf, pfx + "%"))
-      rows.extend((str(a), str(b or a), float(v or 0)) for a, b, v in cur.fetchall())
-    rows = [r for r in rows if r[2] > 0]
-    if len(rows) >= 2:
-      used_level = level
+  used = None
+  for geo_name, table, where, base in (("county", "cbp_2022_raw_county", "state_fips=%s AND county_fips=%s", [sf, cf]),
+                                       ("state", "cbp_2022_raw", "state_fips=%s", [sf])):
+    for level, prefixes, lvl_label in naics_scopes(cur, n6):
+      if level == 6:
+        continue
+      clause, params = _like_clause("naics", level, prefixes)
+      cur.execute("SELECT naics, naics_label, SUM(estab) FROM %s WHERE %s AND LENGTH(naics)=6 AND %s "
+                  "GROUP BY naics, naics_label" % (table, where, clause), base + params)
+      rows = [(str(a), str(b or a), float(v or 0)) for a, b, v in cur.fetchall()]
+      rows = [r for r in rows if r[2] > 0]
+      if len(rows) >= 2:
+        used = (geo_name, lvl_label)
+        break
+    if used:
       break
-  if len(rows) < 2:
+  if not used:
     cat.put("market.composition", ABSENT, "list", prov_model("x"),
-            absent_reason="fewer than two lines in county CBP at any scope for NAICS %s%s"
-            % (n6, " (CBP excludes agriculture)" if n6.startswith("11") else ""))
+            absent_reason="fewer than two lines in CBP at any scope, county or state, for NAICS %s" % n6)
     return
-  scope_label = {4: "lines within NAICS %s" % cands[0][:4], 3: "lines within NAICS %s" % cands[0][:3],
-                 2: "lines within the sector"}[used_level]
+  geo_txt = ("the county containing ZIP %s" % geo.get("zip")) if used[0] == "county" else "%s statewide" % geo.get("state_name")
+  scope_label = "%s, %s" % (used[1], geo_txt)
   cat.put("market.composition_scope", scope_label, "text",
-          prov_raw("County Business Patterns 2022 (county)", "2022", "the scope the composition was drawn at"),
+          prov_raw("County Business Patterns 2022", "2022", "the scope the composition was drawn at"),
           "Composition scope")
   own = set(cands)
   comp = [{"naics": a, "label": b, "establishments": v, "is_client_line": a in own}
           for a, b, v in sorted(rows, key=lambda r: -r[2])[:8]]
   cat.put("market.composition", comp,
-          "list", prov_raw("County Business Patterns 2022 (county)", "2022",
-                           "establishments by sibling NAICS-6 line in the client's county"),
+          "list", prov_raw("County Business Patterns 2022", "2022",
+                           "establishments by NAICS-6 line, %s" % scope_label),
           "Local market composition")
 
 
@@ -1137,12 +1236,26 @@ def build_wage_positioning(cat: FactCatalog, cur, draft: Dict[str, Any], ctx: Di
   for r in rows:
     occ = str(r.get("oews_occ_code") or "").strip()
     wage = _f(r.get("annual_wage"))
-    if not occ or not wage:
-      continue
     title = str(r.get("position_title") or r.get("oews_occ_title") or occ)
+    if not wage:
+      continue
+    if not occ:
+      # the title catalogue's own exact match, applied at build time to roles
+      # the payroll author left unstamped (client-override wages)
+      for t in (r.get("oews_matched_title"), r.get("oews_occ_title"), r.get("position_title")):
+        if not t:
+          continue
+        cur.execute("SELECT occ_code FROM oews_state_wages WHERE LOWER(occ_title)=%s AND naics='000000' "
+                    "AND o_group='detailed' LIMIT 1", (str(t).strip().lower(),))
+        m = cur.fetchone()
+        if m and m[0]:
+          occ = str(m[0]); break
+    if not occ:
+      continue
+    negotiated = str(r.get("wage_source") or "").startswith("client")
     if occ not in seen or wage > seen[occ]["planned_wage"]:
       seen[occ] = {"role": title, "occ_code": occ, "planned_wage": wage,
-                   "wage_source": str(r.get("wage_source") or "")}
+                   "wage_source": str(r.get("wage_source") or ""), "negotiated": negotiated}
   if not seen:
     cat.put("entity.wage_positioning", ABSENT, "list", prov_model("x"),
             absent_reason="no OEWS-matched roles in the payroll schedule")
@@ -1234,6 +1347,7 @@ def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
                    ("sensitivity", lambda: build_sensitivity(cat, draft)),
                    ("chart_series", lambda: build_chart_series(cat, draft)),
                    ("cvp", lambda: build_cvp_facts(cat, draft)),
+                   ("revenue_buildup", lambda: build_revenue_buildup_fallback(cat, draft)),
                    ("market_composition", lambda: build_market_composition(cat, cur, ctx)),
                    ("wage_positioning", lambda: build_wage_positioning(cat, cur, draft, ctx)),
                    ("economy", lambda: build_economy(cat, cur)),

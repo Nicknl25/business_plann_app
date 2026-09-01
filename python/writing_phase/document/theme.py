@@ -122,7 +122,7 @@ def _end_label(ax, x, y, text, color, *, dx=6, dy=0, size=8, weight="normal"):
 # MARKET & INDUSTRY
 # ---------------------------------------------------------------------------
 def fig_industry_history(years: Sequence[int], establishments: Sequence[float],
-                         entry_year: Optional[int] = None) -> bytes:
+                         entry_year: Optional[int] = None, scope_label: str = "") -> bytes:
   """The 46-year BDS series: one line, full width. Annotation: final point
   labelled with count and year; a marker at the client's entry year."""
   years, est = list(years), list(establishments)
@@ -140,6 +140,9 @@ def fig_industry_history(years: Sequence[int], establishments: Sequence[float],
   ax.margins(x=0.02)
   ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: "{:,.0f}".format(v)))
   _style_axes(ax, money_axis=False)
+  if scope_label:
+    fig.text(0.99, 0.01, "establishments, %s (Business Dynamics Statistics)" % scope_label,
+             ha="right", fontsize=6.5, color=INK_MUTED)
   return _finish(fig)
 
 
@@ -165,7 +168,7 @@ def fig_local_market_composition(rows: Sequence[Dict[str, Any]], scope_label: st
   ax.spines["bottom"].set_visible(False)
   ax.margins(x=0.18)
   if scope_label:
-    fig.text(0.99, 0.01, "establishments in the county, %s" % scope_label, ha="right",
+    fig.text(0.99, 0.01, "establishments, %s" % scope_label, ha="right",
              fontsize=6, color=INK_MUTED)
   return _finish(fig)
 
@@ -173,11 +176,27 @@ def fig_local_market_composition(rows: Sequence[Dict[str, Any]], scope_label: st
 # ---------------------------------------------------------------------------
 # PRODUCTS & SERVICES
 # ---------------------------------------------------------------------------
-def fig_revenue_by_lob(series: Sequence[Dict[str, Any]]) -> bytes:
+def fig_revenue_by_lob(series: Sequence[Dict[str, Any]], basis: str = "") -> bytes:
   """Stacked columns Y1-Y5, one colour per line, labelled at the final
-  column - no legend. Annotation: the fastest-growing line's CAGR."""
+  column - no legend. Annotation: the fastest-growing line's CAGR. A single
+  series is the same figure with one colour and its growth rate."""
   series = list(series)
   fig, ax = _new_fig()
+  if len(series) == 1:
+    vals = [float(v) for v in series[0]["annual"][:5]]
+    ax.bar(YEARS, vals, color=REVENUE, width=0.62)
+    for i, v in enumerate(vals):
+      ax.annotate(_money(v), (i, v), textcoords="offset points", xytext=(0, 4), ha="center",
+                  fontsize=7.5, color=INK)
+    if vals[0] > 0 and vals[4] > 0:
+      cagr = (vals[4] / vals[0]) ** 0.25 - 1.0
+      ax.annotate("%s grows %.0f%% a year" % (_trunc(series[0]["lob"], 28), cagr * 100), (0.02, 0.96),
+                  xycoords="axes fraction", fontsize=8, color=INK, va="top")
+    ax.set_ylim(0, max(vals) * 1.15)
+    _style_axes(ax)
+    if basis:
+      fig.text(0.99, 0.01, "revenue build-up by %s" % basis, ha="right", fontsize=6.5, color=INK_MUTED)
+    return _finish(fig)
   bottom = [0.0] * 5
   tops: List[float] = []
   fastest, fastest_cagr = None, None
@@ -203,6 +222,8 @@ def fig_revenue_by_lob(series: Sequence[Dict[str, Any]]) -> bytes:
   ax.margins(x=0.02)
   ax.set_xlim(-0.6, 5.6)   # room for the direct labels on the right
   _style_axes(ax)
+  if basis:
+    fig.text(0.99, 0.01, "revenue build-up by %s" % basis, ha="right", fontsize=6.5, color=INK_MUTED)
   return _finish(fig)
 
 
@@ -250,16 +271,21 @@ def fig_wage_positioning(rows: Sequence[Dict[str, Any]]) -> bytes:
             solid_capstyle="round")
     ax.plot([med, med], [i - 0.16, i + 0.16], color=INK_MUTED, linewidth=1.2)
     inside = p10 <= wage <= p90
-    ax.plot([wage], [i], marker="o", markersize=7,
-            color=REVENUE if inside else ATTENTION, zorder=5)
-    _end_label(ax, wage, i, _money(wage), INK, dx=0, dy=10, size=7, weight="bold")
+    col = REVENUE if inside else ATTENTION
+    if r.get("negotiated"):
+      ax.plot([wage], [i], marker="o", markersize=7, markerfacecolor="white",
+              markeredgecolor=col, markeredgewidth=1.8, zorder=5)
+      _end_label(ax, wage, i, "%s (negotiated)" % _money(wage), INK, dx=0, dy=10, size=7, weight="bold")
+    else:
+      ax.plot([wage], [i], marker="o", markersize=7, color=col, zorder=5)
+      _end_label(ax, wage, i, _money(wage), INK, dx=0, dy=10, size=7, weight="bold")
   ax.set_yticks(range(len(rows)))
   ax.set_yticklabels([_trunc(r["role"], 34) for r in reversed(rows)], fontsize=7.5,
                      color=INK)
   ax.xaxis.set_major_formatter(FuncFormatter(_money_tick))
   _style_axes(ax, money_axis=False)
   ax.margins(y=0.2)
-  fig.text(0.99, 0.01, "bar: state 10th-90th percentile for the occupation · tick: median · dot: this plan's wage",
+  fig.text(0.99, 0.01, "bar: state 10th-90th percentile for the occupation · tick: median · dot: this plan's wage (hollow = negotiated)",
            ha="right", fontsize=6.5, color=INK_MUTED)
   return _finish(fig)
 
@@ -351,6 +377,12 @@ def fig_break_even_cvp(revenue_q: Sequence[float], total_cost_q: Sequence[float]
                   color=WASH, alpha=1.0, interpolate=True)
   _end_label(ax, x[-1], rev[-1], "Revenue", REVENUE, dx=8, size=8, weight="bold")
   _end_label(ax, x[-1], cost[-1], "Total cost", COST, dx=8, size=8, weight="bold")
+  if break_even_quarter is None or not (1 <= int(break_even_quarter) <= len(rev)):
+    ax.annotate("does not reach break-even within the plan period", (len(rev), cost[-1]),
+                textcoords="offset points", xytext=(-6, 12), ha="right", fontsize=8.5,
+                color=INK, fontweight="bold")
+    ax.fill_between(x, rev, cost, where=[r < c for r, c in zip(rev, cost)],
+                    color=_hx(D.BAND_LOSS), alpha=1.0, interpolate=True)
   if break_even_quarter is not None and 1 <= int(break_even_quarter) <= len(rev):
     b = int(break_even_quarter)
     ax.plot([b], [rev[b - 1]], marker="o", markersize=7, color=ATTENTION, zorder=5)
@@ -359,7 +391,7 @@ def fig_break_even_cvp(revenue_q: Sequence[float], total_cost_q: Sequence[float]
     ax.annotate("break-even: %s in Q%d" % (_money(rev[b - 1]), b),
                 (b, cost[b - 1]), textcoords="offset points", xytext=(6, -22),
                 fontsize=8.5, color=INK, fontweight="bold")
-  if margin_of_safety is not None:
+  if margin_of_safety is not None and margin_of_safety > 0:
     gi = max(1, int(len(rev) * 0.55))
     ax.annotate("margin of safety %.0f%%" % (margin_of_safety * 100),
                 (gi, cost[gi - 1]), textcoords="offset points", xytext=(0, -14),

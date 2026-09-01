@@ -645,3 +645,39 @@ class ThreeStatementTableTests(unittest.TestCase):
     self.assertIn("Debt repaid", labels)
     self.assertNotIn("Debt drawn", labels)
     self.assertEqual(len(TB.BODY_TABLE_BUILDERS), 6)
+
+
+class WideningRuleTests(unittest.TestCase):
+  """Nick 2026-09-01: NAICS coverage is never a data gap. Every builder that
+  touches CBP, BDS or the baseline walks 6 -> 4 -> 3 -> sector and the scope
+  label travels with the fact into the prose."""
+
+  def test_scopes_widen_in_order_with_labels(self):
+    from writing_phase.facts.build import naics_scopes
+    class _Cur:
+      def execute(self, *a, **k): pass
+      def fetchall(self): return []
+    scopes = naics_scopes(_Cur(), "111411", "Mushroom Production")
+    self.assertEqual([s[0] for s in scopes], [6, 4, 3, 2])
+    self.assertEqual(scopes[0][2], "Mushroom Production")
+    self.assertIn("1114", scopes[1][2])
+    self.assertIn("agriculture", scopes[3][2])
+
+  def test_every_scoped_market_sentence_requires_the_industry_scope_label(self):
+    scoped = {"market.establishments", "market.residents_per_establishment",
+              "market.client_share_of_establishments", "market.emp_per_establishment",
+              "market.payroll_per_establishment", "market.households_per_establishment"}
+    for s in S.SENTENCES:
+      if set(s["needs"]) & scoped:
+        self.assertIn("market.industry_scope_label", s["needs"],
+                      "%s counts establishments without saying at what industry scope" % s["id"])
+
+  def test_single_series_revenue_buildup_renders(self):
+    from writing_phase.document import theme as T
+    png = T.fig_revenue_by_lob([{"lob": "Revenue", "annual": [100, 110, 120, 130, 140]}], basis="total revenue")
+    self.assertTrue(png.startswith(b"\x89PNG"))
+
+  def test_time_break_even_renders_without_a_crossing(self):
+    from writing_phase.document import theme as T
+    png = T.fig_break_even_cvp([100 + i for i in range(20)], [120 + i for i in range(20)], None, margin_of_safety=-0.2)
+    self.assertTrue(png.startswith(b"\x89PNG"))

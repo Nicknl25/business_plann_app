@@ -378,7 +378,7 @@ CHART_REGISTRY: Tuple[Dict[str, Any], ...] = (
   # ---- PRODUCTS & SERVICES (moved from Market - it answers this section's
   # question, not the market's; conditional on >=2 lines of business) --------
   {"key": "revenue_by_lob", "order": 30,
-   "title": "Revenue by Line of Business",
+   "title": "Revenue Build-Up",
    "section": "products_and_services", "kind": "stacked_column",
    "namespace": NS_ANNUAL, "placement": PLACEMENT_FULL_WIDTH,
    "requires_facts": ("annual.revenue_by_lob",),
@@ -427,9 +427,10 @@ CHART_REGISTRY: Tuple[Dict[str, Any], ...] = (
    "title": "Break-Even Over the Plan Period",
    "section": "financial_plan", "kind": "cvp",
    "namespace": NS_QUARTERLY, "placement": PLACEMENT_FULL_WIDTH,
-   "requires_facts": ("quarterly.revenue_series", "quarterly.total_cost_series",
-                      "quarterly.break_even"),
-   "annotation": "crossing labelled with revenue and quarter; margin-of-safety written into the gap"},
+   # a plan that never crosses still gets the figure - the annotation then
+   # says so (Nick 2026-09-01: appears unless the section is absent)
+   "requires_facts": ("quarterly.revenue_series", "quarterly.total_cost_series"),
+   "annotation": "crossing labelled with revenue and quarter, or 'does not reach break-even within the plan'; margin-of-safety written into the gap"},
   {"key": "break_even_volume", "order": 95,
    "title": "Break-Even by Volume",
    "section": "financial_plan", "kind": "cvp_volume",

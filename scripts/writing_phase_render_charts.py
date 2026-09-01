@@ -63,12 +63,14 @@ def main() -> int:
     except (TypeError, ValueError):
       pass
     jobs["industry_establishments_history"] = lambda: T.fig_industry_history(
-      [r[0] for r in hist], [r[1] for r in hist], entry_year=entry)
+      [r[0] for r in hist], [r[1] for r in hist], entry_year=entry,
+      scope_label=str(V("industry.establishments_history_scope") or ""))
   if V("market.composition") is not None:
     jobs["local_market_composition"] = lambda: T.fig_local_market_composition(
       V("market.composition"), scope_label=str(V("market.composition_scope") or ""))
   if V("annual.revenue_by_lob") is not None:
-    jobs["revenue_by_lob"] = lambda: T.fig_revenue_by_lob(V("annual.revenue_by_lob"))
+    jobs["revenue_by_lob"] = lambda: T.fig_revenue_by_lob(V("annual.revenue_by_lob"),
+                                                          basis=str(V("annual.revenue_by_lob_basis") or ""))
   if V("annual.headcount_by_role_group") is not None:
     jobs["headcount_by_role"] = lambda: T.fig_headcount_by_role(V("annual.headcount_by_role_group"))
   if V("entity.wage_positioning") is not None:
@@ -91,9 +93,10 @@ def main() -> int:
     jobs["cash_position"] = lambda: T.fig_cash_position(
       cashq, _qnum(V("quarterly.cash_trough")), months_cover=months)
   revq = V("quarterly.revenue_series")
-  if revq is not None and costq is not None and V("quarterly.break_even") is not None:
+  if revq is not None and costq is not None:
+    beq = V("quarterly.break_even")
     jobs["break_even"] = lambda: T.fig_break_even_cvp(
-      revq, costq, _qnum(V("quarterly.break_even")),
+      revq, costq, _qnum(beq) if beq is not None else None,
       margin_of_safety=V("annual.margin_of_safety"))
   fc, cm, pl, ber = (V("annual.cvp_fixed_costs_y1"), V("annual.cvp_cm_ratio_y1"),
                      V("annual.cvp_planned_revenue_y1"), V("annual.break_even_revenue_y1"))
