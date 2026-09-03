@@ -84,8 +84,17 @@ def fmt_points(v: float) -> str:
   return "%s point%s" % (s, "" if s == "1" else "s")
 
 
+_COUNT_WORDS = ("zero", "one", "two", "three", "four", "five", "six",
+                "seven", "eight", "nine")
+
+
 def fmt_count(v: float) -> str:
-  return "{:,.0f}".format(float(v))
+  """Small counts render as words - '2 complementary lines of business' is a
+  form, 'two complementary lines of business' is prose (Nick 2026-09-02)."""
+  x = float(v)
+  if x.is_integer() and 0 <= x <= 9:
+    return _COUNT_WORDS[int(x)]
+  return "{:,.0f}".format(x)
 
 
 def fmt_multiple(v: float) -> str:

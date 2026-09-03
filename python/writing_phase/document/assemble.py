@@ -110,7 +110,9 @@ def build_section_draft_docx(*, business_name: str, run_id: str,
         lambda m: (cat.get_quiet(m.group(1)).render()
                    if cat.get_quiet(m.group(1)) is not None else m.group(0)),
         str(n.get("text") or ""))
-      p.add_run(" %s — %s" % (str(n.get("kind") or ""), body))
+      # the kind stays in the payload for the checks; the reader gets the
+      # note text alone (Nick 2026-09-02)
+      p.add_run(" %s" % body)
 
   # ---- minimal appendix: the run identifier's ONLY legal home (rule 21)
   doc.add_paragraph("Appendix", style="Heading 1")

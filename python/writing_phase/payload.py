@@ -141,7 +141,8 @@ def build_shared_block(draft: Dict[str, Any], *, workbook_stamp: Optional[Dict[s
 
 
 def build_section_block(brief: SectionBrief,
-                        exclude_sentence_ids: Tuple[str, ...] = ()) -> str:
+                        exclude_sentence_ids: Tuple[str, ...] = (),
+                        exclude_fact_keys: Tuple[str, ...] = ()) -> str:
   """The per-section suffix: the section's facts, its narrative slice, and its
   sentence templates. This is the only part that differs between calls.
   `exclude_sentence_ids` drops observations the AUTHOR rules out structurally
@@ -151,17 +152,31 @@ def build_section_block(brief: SectionBrief,
   parts: List[str] = []
   parts.append("== SECTION: %s ==" % spec["title"])
   parts.append("== SECTION FACTS (reference as {{fact:key}}; never type a number) ==")
-  parts.append(json.dumps(brief.facts, separators=(",", ":"), ensure_ascii=False))
+  # exclude_fact_keys prunes facts the author ruled out (the wrong-age tenure
+  # rate, 2026-09-02) - filtering the observation alone left the FACT in the
+  # brief, and the writer quoted a first-year exit rate on a 7th-year business
+  facts = {k: v for k, v in brief.facts.items() if k not in set(exclude_fact_keys)}
+  parts.append(json.dumps(facts, separators=(",", ":"), ensure_ascii=False))
   if brief.narratives:
     parts.append("== SECTION NARRATIVE (the client's own account; rework, never restate) ==")
     parts.append(json.dumps(brief.narratives, separators=(",", ":"), ensure_ascii=False, default=str))
+  # NO SENTENCE TEMPLATES (Nick 2026-09-02): "a writer given templates fills
+  # them." The writer gets the facts each observation must put on the page;
+  # the sentences are its job. Templates stay in sentences.py as the
+  # catalogue's derivation record only.
+  from .facts.assembler import IDENTITY_KEYS
   sents = [x for x in S.sentences_for_section(brief.section_key)
            if x["id"] not in set(exclude_sentence_ids)]
-  if sents:
-    parts.append("== OBSERVATIONS AVAILABLE TO THIS SECTION ==")
-    parts.append(json.dumps(
-      [{"id": x["id"], "template": x["text"], "class": x["class"]} for x in sents],
-      separators=(",", ":"), ensure_ascii=False))
+  cover = []
+  for x in sents:
+    keys = [k for k in x["needs"] if k not in IDENTITY_KEYS and k in facts]
+    if keys:
+      cover.append({"id": x["id"],
+                    "facts": x.get("floor_required") or keys})
+  if cover:
+    parts.append("== MUST COVER (each entry's facts must appear on the page; "
+                 "how is yours) ==")
+    parts.append(json.dumps(cover, separators=(",", ":"), ensure_ascii=False))
   return "\n".join(parts)
 
 

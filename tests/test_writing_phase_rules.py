@@ -357,10 +357,98 @@ class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
     bad = C.check_no_machinery({"sentences": [{"text": "An LLM drafted this."}]})
     self.assertFalse(bad.passed, "a real machinery term must still fail")
 
+  def test_demonstrative_anaphora_and_word_rendered_hedges_are_legal(self):
+    """2026-09-02 batch findings: 'That combination of...' is anchored
+    cross-record reasoning, and 'built around two lines' hedges nothing when
+    the token renders as a word."""
+    r05 = C.check_specificity(
+      {"sentences": [{"class": "INFERRED",
+                      "text": "That combination of liquidity and leverage supports growth."}]},
+      client_tokens={"Halbrook"})
+    self.assertTrue(r05.passed, "a demonstrative back-reference is an anchor")
+    bf = {"annual.lob_count": {"rendered": "two"},
+          "entity.stated_revenue_per_employee": {"rendered": "$117,000"}}
+    ok = C.check_number_style({"sentences": [
+      {"text": "Work is built around {{fact:annual.lob_count}} complementary lines."}]},
+      brief_facts=bf)
+    self.assertTrue(ok.passed, "a word-rendered token cannot be hedged")
+    bad = C.check_number_style({"sentences": [
+      {"text": "It generates approximately {{fact:entity.stated_revenue_per_employee}} per person."}]},
+      brief_facts=bf)
+    self.assertFalse(bad.passed, "a hedge on a digit-rendered figure must still fail")
+
+
+  def test_r15_requires_the_business_named_somewhere_in_the_section(self):
+    """The anchor that makes anaphora legal (Nick 2026-09-02): the section
+    must NAME the business at least once; after that 'the company' is fine."""
+    ok = C.check_voice(
+      {"sentences": [{"text": "Halbrook keeps the same crews on the same routes."},
+                     {"text": "The company rarely loses a property manager."}]},
+      business_name="Halbrook Grounds Management")
+    self.assertTrue(ok.passed)
+    bad = C.check_voice(
+      {"sentences": [{"text": "The company keeps crews on fixed routes."}]},
+      business_name="Halbrook Grounds Management")
+    self.assertFalse(bad.passed, "a section that never names the business fails R15")
 
 
 
 
+
+
+
+
+class ProseQualityChecksTests(unittest.TestCase):
+  """Nick 2026-09-02: instructions became checks - Halbrook obeyed the
+  summary ban and Bluestem ignored it on identical prompt text."""
+
+  def test_summary_closer_fails_and_a_substantive_closer_passes(self):
+    base = [{"text": "Halbrook keeps stable crews on fixed routes across Johnson County.", "paragraph": 1},
+            {"text": "Revenue reached {{fact:entity.stated_current_revenue}} with steady contracts.", "paragraph": 2}]
+    summary = base + [{"text": "Taken together, stable crews, fixed routes and steady contracts across Johnson County define the business.", "paragraph": 3}]
+    res = C.check_summary_closer({"sentences": summary}, business_name="Halbrook")
+    self.assertFalse(res.passed, "a no-new-fact restatement closer must fail")
+    fresh = base + [{"text": "The next hire adds a third route carrying {{fact:entity.stated_cash_on_hand}} of reserve.", "paragraph": 3}]
+    self.assertTrue(C.check_summary_closer({"sentences": fresh}, business_name="Halbrook").passed)
+
+  def test_repeated_argument_fails(self):
+    twice = [{"text": "Routes stay compact inside Johnson County to protect crew time and drive efficiency.", "paragraph": 1},
+             {"text": "Revenue is steady at {{fact:entity.stated_current_revenue}}.", "paragraph": 2},
+             {"text": "Compact routes inside Johnson County protect crew time and drive efficiency.", "paragraph": 3}]
+    res = C.check_repeated_argument({"sentences": twice}, business_name="Halbrook")
+    self.assertFalse(res.passed, "the same argument twice must fail")
+
+  def test_unearned_intensifier_fails_without_a_token(self):
+    bad = C.check_unearned_intensifiers({"sentences": [
+      {"text": "That unusually low crew turnover anchors the model."}]})
+    self.assertFalse(bad.passed)
+    ok = C.check_unearned_intensifiers({"sentences": [
+      {"text": "Turnover is notably below the {{fact:industry.turnover_benchmark}} benchmark."}]})
+    self.assertTrue(ok.passed)
+
+  def test_section_bleed_catches_other_sections_vocabulary(self):
+    bad = C.check_section_bleed({"section_key": "the_business", "sentences": [
+      {"text": "Properties are billed monthly under contract."}]})
+    self.assertFalse(bad.passed)
+    ok = C.check_section_bleed({"section_key": "the_business", "sentences": [
+      {"text": "Crews stay on the same properties year after year."}]})
+    self.assertTrue(ok.passed)
+
+  def test_length_band_fails_outside(self):
+    short = {"sentences": [{"text": "Too short."}]}
+    self.assertFalse(C.check_length_band(short).passed)
+    body = {"sentences": [{"text": ("word " * 25).strip() + "."} for _ in range(16)]}
+    self.assertTrue(C.check_length_band(body).passed)
+
+  def test_r05_typicality_without_anchor_fails(self):
+    res = C.check_specificity({"sentences": [{"class": "INFERRED",
+      "text": "Commercial buyers in Overland Park typically want a single grounds partner."}]},
+      client_tokens={"Halbrook"})
+    self.assertFalse(res.passed, "a truism wearing the client's city must fail")
+    res2 = C.check_specificity({"sentences": [{"class": "INFERRED",
+      "text": "Halbrook typically renews its contracts each spring."}]},
+      client_tokens={"Halbrook"})
+    self.assertTrue(res2.passed, "a typicality claim about the named client is legal")
 
 
 if __name__ == "__main__":

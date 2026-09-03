@@ -53,7 +53,10 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
    "needs": ["industry.net_job_creation_rate", "industry.bds_year", "industry.employment_direction"]},
   # S11 carries the BDS scope label (Nick 2026-09-01): Understory's rate is the
   # agriculture SECTOR's, and the sentence must not claim it for mushroom farms.
+  # floor_required (Nick 2026-09-02): the RATE is the point - the observation
+  # only counts as covered when the rate itself is on the page.
   {"id": "S11", "core": True, "section": "the_business", "class": "INFERRED",
+   "floor_required": ["industry.first_year_exit_rate"],
    "text": "First-year establishments in {industry.bds_scope_label} close at a rate of {industry.first_year_exit_rate}; {entity.business_name} is in its {entity.years_operating} year of operation.",
    "needs": ["industry.first_year_exit_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
   {"id": "S12", "section": "market_and_industry", "class": "INFERRED",
@@ -234,8 +237,22 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
   # picks by age: S11 for years 1-3, S61 from year 5 on (the author's section
   # instructions carry the rule; both ride in the brief).
   {"id": "S61", "section": "the_business", "class": "INFERRED",
+   "floor_required": ["industry.five_year_survival_rate"],
    "text": "Of establishments that open in {industry.bds_scope_label}, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
    "needs": ["industry.five_year_survival_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
+
+  # ---- THE DEPTH FACTS (Nick 2026-09-02): the stated today-position a
+  # consultant would put in a company description. Templates are the
+  # catalogue's derivation record - they no longer ship to the writer.
+  {"id": "S64", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} generates {entity.stated_revenue_per_employee} of revenue for each member of its stated team of {entity.stated_employees}.",
+   "needs": ["entity.business_name", "entity.stated_revenue_per_employee", "entity.stated_employees"]},
+  {"id": "S65", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} has operated since {entity.founded_month_year}.",
+   "needs": ["entity.business_name", "entity.founded_month_year"]},
+  {"id": "S66", "section": "the_business", "class": "GROUNDED",
+   "text": "{entity.business_name} holds {entity.stated_cash_on_hand} in cash and carries {entity.stated_debt_outstanding} of debt.",
+   "needs": ["entity.business_name", "entity.stated_cash_on_hand", "entity.stated_debt_outstanding"]},
 
   # ---- digit-bearing identifiers as facts (Nick 2026-09-01): a stated
   # certification or ZIP is the client's own specificity - it rides in a

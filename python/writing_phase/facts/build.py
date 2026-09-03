@@ -160,6 +160,7 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
   sd = str(draft.get("business_start_date") or om.get("business_start_date") or "")
   yrs = ABSENT
   founded = ABSENT
+  founded_my = ABSENT
   try:
     import datetime as _dt
     for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
@@ -167,6 +168,7 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
         d0 = _dt.datetime.strptime(sd[:10], fmt)
         yrs = max(1, int((_dt.datetime.now() - d0).days // 365) + 1)
         founded = str(d0.year)
+        founded_my = d0.strftime("%B %Y")
         break
       except ValueError:
         continue
@@ -178,6 +180,8 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
   # description should carry; without this fact the digits fail rule 17.
   cat.put("entity.founded_year", founded, "text", prov_intake("business start date"), "Founded",
           absent_reason="no parseable start date")
+  cat.put("entity.founded_month_year", founded_my, "text", prov_intake("business start date"),
+          "Founded (month and year)", absent_reason="no parseable start date")
   # digit-bearing identifiers the client stated (Nick 2026-09-01): a
   # certification a business holds is exactly the specificity that makes a
   # plan theirs, and rule 17 means its digits can only ride inside a token -
@@ -211,6 +215,23 @@ def build_entity(cat: FactCatalog, cur, draft: Dict[str, Any], geo: Dict[str, An
           prov_intake("business address"), "City and state", absent_reason="ZIP did not resolve to a city")
   cat.put("entity.stated_current_revenue", _f(fin.get("current_revenue")) or ABSENT, "money",
           prov_intake("current annual revenue"), "Stated revenue", absent_reason="not stated")
+  # THE DEPTH FACTS (Nick 2026-09-02): "ten facts in, four numbers out" - the
+  # stated TODAY position a consultant would put in a company description.
+  # Computed by Python from intake statements; rule 17 keeps GPT out of the
+  # arithmetic.
+  _rev, _emp = _f(fin.get("current_revenue")), _f(fin.get("current_num_employees"))
+  cat.put("entity.stated_revenue_per_employee",
+          (_rev / _emp if _rev and _emp and _emp >= 1 else ABSENT), "money",
+          prov_intake("stated annual revenue over stated headcount"),
+          "Revenue per person today", absent_reason="revenue or headcount not stated")
+  _cash = _f(fin.get("cash_on_hand"))
+  cat.put("entity.stated_cash_on_hand", (_cash if _cash and _cash > 0 else ABSENT), "money",
+          prov_intake("stated cash on hand"), "Cash on hand today",
+          absent_reason="no cash position stated")
+  _debt = _f(fin.get("total_debt_outstanding"))
+  cat.put("entity.stated_debt_outstanding", (_debt if _debt and _debt > 0 else ABSENT), "money",
+          prov_intake("stated debt outstanding"), "Debt outstanding today",
+          absent_reason="no debt stated (a debt-free position is words, not a figure)")
   # funding request = new borrowing in the projections' first year
   q = _quarters(finmo)
   ask = _ysum(q, "debt_issuance", 1)
@@ -691,10 +712,32 @@ def naics_scopes(cur, n6: str, title: Optional[str] = None) -> List[Tuple[int, L
   n6 = str(n6 or "")
   cands = _cbp_naics_candidates(cur, n6) if len(n6) >= 2 else [n6]
   sector = SECTOR_NAMES.get(n6[:2])
+
+  # NEVER PRINT A NAICS CODE (Nick 2026-09-02): the scope label is the
+  # industry named in WORDS at the level the data was actually drawn at -
+  # naics_master carries titles at every level. The coded fallback survives
+  # only for a code the master does not know.
+  def _level_title(code: str) -> str:
+    try:
+      cur.execute("SELECT naics_title FROM naics_master WHERE naics_code=%s LIMIT 1", (code,))
+      r = cur.fetchone()
+      return str(r[0]).strip().lower() if r and r[0] else ""
+    except Exception:
+      return ""
+
+  # Nick 2026-09-02, second ruling on this label: the NAICS-4 TITLE is a code
+  # wearing words ("services to buildings and dwellings" - no consultant
+  # writes it). The label anchors on the client's own recognizable trade and
+  # says honestly that the data is drawn wider.
+  base = str(title or "").strip().lower() or _level_title(n6)
   return [
     (6, list(cands), title or ("NAICS %s" % n6)),
-    (4, sorted({c[:4] for c in cands}), "the NAICS %s industry group" % n6[:4]),
-    (3, sorted({c[:3] for c in cands}), "the NAICS %s subsector" % n6[:3]),
+    (4, sorted({c[:4] for c in cands}),
+     ("the trade group that includes %s" % base) if base
+     else "the NAICS %s industry group" % n6[:4]),
+    (3, sorted({c[:3] for c in cands}),
+     ("the broader trade group that includes %s" % base) if base
+     else "the NAICS %s subsector" % n6[:3]),
     (2, sorted({c[:2] for c in cands}),
      ("the %s sector" % sector) if sector else "the NAICS %s sector" % n6[:2]),
   ]

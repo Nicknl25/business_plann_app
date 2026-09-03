@@ -78,14 +78,19 @@ _SYSTEM_PROMPT = (
   "You write one section of a client's business plan. The rules in the brief "
   "are binding; the ones that matter mechanically: tag every sentence "
   "GROUNDED, INFERRED or FRAMING; never type a digit - every figure is a "
-  "{{fact:key}} token from the SECTION FACTS block, exactly as keyed; third "
+  "{{fact:key}} token from the SECTION FACTS block, exactly as keyed - a key "
+  "that is not in SECTION FACTS does not exist, never invent or vary one; third "
   "person by business name, never we/our/you; never say anything was "
   "unavailable; never mention models, systems or data pipelines. "
   "CLASSING RUBRIC: a sentence that restates what the client stated or what "
   "the record holds - the description, the advantage, coverage, the team, a "
   "referenced figure - is GROUNDED; grounded does not require a number. "
   "INFERRED is only for reasoning BEYOND the record, such as industry "
-  "context. FRAMING is rare connective tissue. Most sentences are GROUNDED. "
+  "context. FRAMING is rare, contentless connective tissue - a closing "
+  "synthesis that names the business, references facts or draws the record "
+  "together is INFERRED, never FRAMING. Most sentences are GROUNDED. "
+  "Say 'the business model' or 'the operating model', never bare 'the "
+  "model'. "
   "Digit-bearing identifiers the client stated - a certification, a ZIP "
   "code - are FACTS where extracted (entity.stated_certifications, "
   "entity.coverage_zip): reference them as tokens like any other figure. "
@@ -94,22 +99,43 @@ _SYSTEM_PROMPT = (
   "is the fact industry.bds_scope_label, referenced as a token. Never place "
   "approximately, around, roughly or about before a fact token - rendered "
   "figures are exact ('in and near' for places, not 'around'). "
-  "SPECIFICITY: every GROUNDED or INFERRED sentence must be visibly about "
-  "THIS business - carry the business name, a named person, or a place it "
-  "operates, unless it carries a fact token. Never write 'the company', "
-  "'the business' or 'the firm' as a sentence's only subject - use the name. "
-  "Keep INFERRED to at most one sentence in four; when in doubt whether a "
+  "NAMING: name the business in full at first mention and again only where "
+  "it genuinely helps; after that write normally - the company, the "
+  "business, the firm, it. No one repeats a full legal name in every "
+  "sentence. Keep the section visibly about THIS business through its "
+  "specifics: named people, real places, fact tokens, the client's own "
+  "detail. A sentence with no name, no back-reference, no person, no place "
+  "and no token reads as anyone's - give it one. "
+  "STYLE: avoid stock plan-writing constructions - 'enters the plan period "
+  "with', 'Looking ahead', 'is driven primarily by', 'is built on', 'is "
+  "built around'. Write the way a person describing this particular company "
+  "would; the rhythm comes from the material, not from a template. Make "
+  "each argument ONCE - a point established early is referenced later, "
+  "never argued again. Do not end with a summary paragraph: sections do "
+  "not need summaries; when the material is covered, stop. No intensifiers "
+  "the record cannot back - 'exceptionally', 'unusually', 'rare' need a "
+  "comparison we hold; where the intensity is the client's own claim, "
+  "report it as their framing, never assert it as measured fact. A "
+  "sentence that would be true of any competitor does not become about "
+  "this business by naming its city - anchor claims in the client's "
+  "specifics or cut them. "
+  "When in doubt whether a "
   "client-stated claim is GROUNDED or INFERRED, it is GROUNDED. "
-  "NOTES: a note only exists through its marker IN a sentence. Worked "
-  "example - sentence text: \"{{fact:entity.business_name}} is in its "
-  "{{fact:entity.years_operating}} year of operation.[^1]\" paired with "
-  "notes: [{\"id\": \"1\", \"kind\": \"BASIS\", \"text\": \"Based on the "
-  "business start date stated at intake.\"}]. Every declared note must be "
-  "marked that way in at least one sentence; an empty notes array is fine. "
-  "Mark a claim only where a note genuinely helps, and take each note's kind "
-  "from the fact's own note_kind in the brief - a fact whose note_kind is "
-  "BASIS gets a BASIS note; never invent a SOURCE or a vintage. Keep "
-  "sentences under 40 words. Use correct articles before rendered values: "
+  "NOTES: most sentences carry NO note. Add one only where a reader would "
+  "ask 'says who' - an industry statistic, a benchmark - never on the "
+  "business's own identity or the client's own statements about themselves. "
+  "The marker sits on the ONE sentence carrying the sourced claim, never on "
+  "the sentences around it. "
+  "A note only exists through its marker in a sentence: \"...are still "
+  "operating five years later.[^1]\" paired with notes: [{\"id\": \"1\", "
+  "\"kind\": \"BASIS\", \"text\": \"U.S. Census Bureau Business Dynamics "
+  "Statistics, establishment survival by industry.\"}]. The text names the "
+  "source plainly in one sentence - no lead-in labels. Every declared note "
+  "must be marked in at least one sentence; an empty notes array is fine. "
+  "Take each note's kind from the fact's own note_kind in the brief; never "
+  "invent a SOURCE or a vintage. Keep "
+  "sentences under 40 words - a closing synthesis especially: two short "
+  "sentences beat one long one. Use correct articles before rendered values: "
   "'an LLC', never 'a LLC'. Submit via the submit_section tool only.")
 
 # Authoring craft per section - what it covers and in what order. Craft, not
@@ -117,33 +143,39 @@ _SYSTEM_PROMPT = (
 SECTION_GUIDANCE: Dict[str, str] = {
   "the_business": (
     "Write The Business - the reader's first real look at the company. The "
-    "reader asks: what is this, how long has it stood, where does it stand "
-    "today, what is it built on? Four short paragraphs, a fifth only when "
-    "earned:\n"
-    "1. WHAT IT IS AND DOES. Name, legal form, founded year "
-    "({{fact:entity.founded_year}}), city, and the shape of the trade in two "
-    "or three sentences. State where it operates using the client's own "
-    "coverage. Strip the description to the what - no prices, capacities or "
-    "unit economics (those belong to Products & Services), and no licensing "
-    "boilerplate.\n"
-    "2. TENURE AGAINST THE INDUSTRY. The brief carries at most one tenure "
-    "observation (exit or survival rate) - it is already the right one for "
-    "this business's age, so INCLUDE it as its own short paragraph; if the "
-    "brief carries none, skip this paragraph entirely. It is typically the "
-    "ONLY INFERRED sentence this section needs - everything restating the "
-    "client's record is GROUNDED.\n"
-    "3. WHERE IT STANDS TODAY. Trailing revenue and stated team, as stated. "
-    "Do NOT compare these to any projection - the Financial Plan owns that.\n"
-    "4. WHAT IT'S BUILT ON. The advantage as a mechanism of THIS business - "
-    "how it actually works, in the client's own framing where their words "
-    "are available. Do not argue against competitors; the Competitive "
-    "Landscape owns versus-whom.\n"
-    "5. ONLY IF the stated growth lever carries real content: one or two "
-    "sentences on where the business is going, reworked into plain words. "
-    "If the lever is absent or an empty label, end at paragraph 4.\n"
+    "section runs one to two pages: stop when it has said what it has to "
+    "say - a section that ends early is better than one that fills the "
+    "space. The reader wants to know what "
+    "this company is, how long it has stood and what that means, where it "
+    "stands today, and what it is actually built on.\n"
+    "The section must cover the company's identity - name, legal form, when "
+    "it was founded, where it sits and where it operates, in the client's "
+    "own coverage. It must cover the tenure observation the brief carries, "
+    "and the rate itself is the point: state the number with its horizon and "
+    "draw the conclusion it earns - past year five, the business has already "
+    "outlasted the cut that removes a large share of its cohort; give that "
+    "argument the room it needs. It must cover the current position as "
+    "stated: the trailing revenue, the team, and what the record shows the "
+    "business holds today - never compared to a projection, because the "
+    "Financial Plan owns that comparison. And it must cover what the "
+    "business is built on: the advantage as the mechanism of THIS company, "
+    "in the client's own framing where their words exist, without arguing "
+    "against competitors - the Competitive Landscape owns versus-whom. "
+    "Where the stated growth lever carries real content, say where the "
+    "business is going in plain words; where it is absent, end at what "
+    "it's built on.\n"
+    "Every observation in the brief whose facts resolve must arrive on the "
+    "page - none may be dropped as uninteresting. But what to lead with, "
+    "how the pieces connect, and anything you reason out across the whole "
+    "record that no observation names is your job.\n"
     "Never: mission statements, market sizes, competitor claims, projected "
-    "figures, anyone's years of experience (Management Team owns those), "
-    "invented history, or references to figures or section numbers.")
+    "figures, prices or unit economics (Products & Services owns those), "
+    "how work is fulfilled day to day - lead times, scheduling, crew "
+    "logistics (Operations owns those), anyone's years of experience "
+    "(Management Team owns those), the client's stated milestones - an "
+    "intake aspiration nothing models, never presented as the plan's "
+    "objective - invented history, or references to figure or section "
+    "numbers.")
 }
 
 
@@ -235,12 +267,69 @@ def run_section_checks(section_payload: Dict[str, Any], brief: SectionBrief,
     CK.check_fact_tokens_resolve(section_payload, brief_facts=brief.facts),
     CK.check_notes(section_payload, brief_facts=brief.facts),
     CK.check_sentence_classes(section_payload),
-    CK.check_voice(section_payload),
-    CK.check_number_style(section_payload),
+    CK.check_voice(section_payload,
+                   business_name=str(draft.get("business_name") or "")),
+    CK.check_number_style(section_payload, brief_facts=brief.facts),
     CK.check_no_computation(section_payload,
                             business_name=str(draft.get("business_name") or "")),
     CK.check_namespace_scope(section_payload),
+    # the prose-quality battery (Nick 2026-09-02): instructions became checks
+    CK.check_summary_closer(section_payload,
+                            business_name=str(draft.get("business_name") or "")),
+    CK.check_repeated_argument(section_payload,
+                               business_name=str(draft.get("business_name") or "")),
+    CK.check_unearned_intensifiers(section_payload),
+    CK.check_section_bleed(section_payload),
+    CK.check_length_band(section_payload),
   ]
+
+
+# the distinctive fact behind each tenure observation - pruned from the brief
+# alongside the observation, or the writer quotes the wrong-age rate anyway
+# (it did, live, 2026-09-02)
+_TENURE_FACTS = {"S11": ("industry.first_year_exit_rate",),
+                 "S61": ("industry.five_year_survival_rate",)}
+
+
+def observation_floor_check(payload: Dict[str, Any], brief: SectionBrief,
+                            exclude_sentence_ids=()) -> CK.CheckResult:
+  """THE FLOOR (Nick 2026-09-02): the observations were built as the things a
+  section must be able to say - a floor, never a ceiling. Every observation
+  whose facts RESOLVE in this brief must arrive in the section's substance
+  (at least one of its distinctive facts referenced somewhere, notes
+  included); an unresolved observation is never demanded (rule 3). What to
+  lead with, how to connect them, and what the writer reasons out across the
+  whole record is its job - this gate controls coverage, not arrangement.
+  Reported under R09 (holistic): author-side, like identity_match."""
+  from .facts import sentences as S
+  from .facts.assembler import IDENTITY_KEYS
+  toks: set = set()
+  for s in payload.get("sentences") or []:
+    toks.update(CK.FACT_TOKEN.findall(str(s.get("text") or "")))
+  for n in payload.get("notes") or []:
+    toks.update(CK.FACT_TOKEN.findall(str(n.get("text") or "")))
+  missing = []
+  for sent in S.sentences_for_section(str(payload.get("section_key") or "")):
+    if str(sent["id"]) in set(exclude_sentence_ids):
+      continue
+    if not all(k in brief.facts for k in sent["needs"]):
+      continue
+    required = sent.get("floor_required")
+    if required:
+      # e.g. the tenure RATE itself (Nick 2026-09-02): the number is the
+      # point, and year-of-operation alone does not cover the observation
+      absent = [k for k in required if k not in toks]
+      if absent:
+        missing.append("%s requires: %s" % (sent["id"], ", ".join(absent)))
+      continue
+    distinctive = [k for k in sent["needs"] if k not in IDENTITY_KEYS]
+    if distinctive and not any(k in toks for k in distinctive):
+      missing.append("%s needs one of: %s" % (sent["id"], ", ".join(distinctive[:4])))
+  return CK.CheckResult(
+    "R09", True, not missing,
+    "writing_observation_floor_unmet" if missing else None,
+    "a resolved observation never arrived in the section" if missing else "",
+    missing)
 
 
 def _tenure_exclusions(section_key: str, cat: FactCatalog) -> tuple:
@@ -274,8 +363,10 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
   passed."""
   section_key = brief.section_key
   shared = shared_block if shared_block is not None else PL.build_shared_block(draft)
+  ex_ids = _tenure_exclusions(section_key, cat)
+  ex_facts = tuple(f for i in ex_ids for f in _TENURE_FACTS.get(i, ()))
   section_block = PL.build_section_block(
-    brief, exclude_sentence_ids=_tenure_exclusions(section_key, cat))
+    brief, exclude_sentence_ids=ex_ids, exclude_fact_keys=ex_facts)
   guidance = SECTION_GUIDANCE.get(section_key, "Write the section from its brief.")
   feedback = ""
   last: Dict[str, Any] = {"ok": False, "payload": None, "error": "not_attempted"}
@@ -289,6 +380,7 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
     payload["section_key"] = section_key
     _drop_orphan_notes(payload)
     results = run_section_checks(payload, brief, draft)
+    results.append(observation_floor_check(payload, brief, ex_ids))
     if CK.section_passes(results):
       return {"ok": True, "payload": payload, "results": results,
               "attempts": attempt, "error": None}
@@ -318,8 +410,9 @@ def render_section_text(section_payload: Dict[str, Any], cat: FactCatalog) -> st
   out = "\n\n".join(" ".join(paras[p]) for p in sorted(paras))
   notes = section_payload.get("notes") or []
   if notes:
+    # the kind (SOURCE/BASIS) is machinery for the checks - the reader gets
+    # the note text alone (Nick 2026-09-02: "BASIS" reads like a form field)
     out += "\n\n" + "\n".join(
-      "[%s] %s: %s" % (n.get("id"), n.get("kind"),
-                       CK.FACT_TOKEN.sub(_sub, str(n.get("text") or "")))
+      "[%s] %s" % (n.get("id"), CK.FACT_TOKEN.sub(_sub, str(n.get("text") or "")))
       for n in notes)
   return out

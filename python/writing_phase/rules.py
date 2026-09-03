@@ -70,9 +70,18 @@ SENTENCE_CLASSES = (CLASS_GROUNDED, CLASS_INFERRED, CLASS_FRAMING)
 # density guard of 2026-08-18 (Lane-A >=70% / Lane-B <=30%). These numbers are
 # PROVISIONAL by his instruction - tune on the first ten real plans and report
 # what the real distribution looks like before treating them as settled.
+# Tuned 2026-09-02 (first real tuning datum, per ruling F): with the INFERRED
+# cap removed from the PROMPT (Nick: the guard catches a section that
+# drifted, it does not stop the writer reasoning), a genuinely analytical
+# section ran 0.39 INFERRED - good analysis, not drift. Widened to 45/45;
+# FRAMING's cap is untouched. Still provisional until ten full plans.
+# Second tuning datum, same day: across the freed-writer runs INFERRED ran
+# 0.39-0.52 on outputs whose analysis was the QUALITY, not drift. 55/40: an
+# analytical section breathes; a drifted one (waffle over a thin grounded
+# core) still trips the GROUNDED floor.
 DENSITY_GUARD = {
-  CLASS_GROUNDED: {"min_share": 0.55, "max_share": None},
-  CLASS_INFERRED: {"min_share": None, "max_share": 0.30},
+  CLASS_GROUNDED: {"min_share": 0.40, "max_share": None},
+  CLASS_INFERRED: {"min_share": None, "max_share": 0.55},
   CLASS_FRAMING: {"min_share": None, "max_share": 0.15},
 }
 DENSITY_GUARD_PROVISIONAL = True
@@ -333,6 +342,56 @@ PART_HEADINGS = (
 BODY_PAGES_MIN = 16
 BODY_PAGES_MAX = 28
 PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
+
+# ---------------------------------------------------------------------------
+# PROSE-QUALITY CHECKS (Nick 2026-09-02): "an instruction holds on some
+# businesses and not others and I never know which until I read it" - the
+# workbook law applied to prose. Each config below backs a mechanical check
+# in checks.py, run per section at authoring time. Out-of-band FAILS the
+# section into a regeneration - never a truncation, so R20's law holds.
+# ---------------------------------------------------------------------------
+# Word band per authored section (tokens count as one word). ~1-2 pages.
+SECTION_WORD_BAND = {"min_words": 300, "max_words": 950}
+
+# Intensifiers that assert a comparison. Without a fact token in the same
+# sentence there is no comparison behind them - "unusually low crew turnover"
+# survived three passes because nothing caught it. ("rare"/"rarely" excluded:
+# too common as plain adjectives - a declared gap.)
+UNEARNED_INTENSIFIERS = (
+  "unusually", "exceptionally", "remarkably", "notably", "significantly",
+  "extraordinarily", "uniquely", "industry-leading", "best-in-class",
+)
+
+# Typicality markers: a GROUNDED/INFERRED sentence carrying one of these with
+# no fact token and no client token is an industry truism wearing the
+# client's city - the R05 name-drop gaming Nick called out.
+TYPICALITY_MARKERS = (
+  "typically", "usually", "often", "commonly", "generally", "tend to",
+  "tends to",
+)
+
+# SECTION BLEED - the ownership boundary as vocabulary. A section must not
+# talk in another section's terms; matched with word boundaries.
+SECTION_BLEED_VOCAB = {
+  "the_business": {
+    "products_and_services owns billing and pricing": (
+      "billed", "billing", "invoice", "invoicing", "pricing", "unit price",
+      "per completed job", "rate card"),
+    "competitive_landscape owns versus-whom": (
+      "competitor", "competitors", "competing", "rival", "lowest bid",
+      "cheaper than"),
+    "operations owns delivery mechanics": (
+      "load trucks", "loads trucks", "loading trucks", "lead time",
+      "lead times", "dispatch", "service windows", "route days",
+      "each morning"),
+  },
+}
+
+# The closer/repetition thresholds (content-word overlap after stopwords and
+# the business's own name are stripped). PROXIES: a summary rebuilt from
+# synonyms slips through - declared, not hidden.
+SUMMARY_CLOSER_OVERLAP = 0.65
+REPEATED_ARGUMENT_OVERLAP = 0.45
 
 
 # ---------------------------------------------------------------------------
@@ -657,9 +716,16 @@ WRITING_RULES: Tuple[Dict[str, Any], ...] = (
    "check": "check_specificity", "failure_code": "writing_generic_sentence",
    "mechanism": "Every GROUNDED/INFERRED sentence carries >=1 client-specific token. FRAMING exempt, capped.",
    "cannot_enforce": "Whether a specific sentence is a compelling one.",
+   # Reworded 2026-09-02 (Nick): the old text read the rule at SENTENCE level
+   # ("every factual sentence must be about THIS business") and produced the
+   # full legal name six times in five paragraphs. The swap test is the
+   # protection; naming is a section-level anchor with normal anaphora.
    "prompt_instruction": (
-     "If a sentence would still read true with a competitor's name swapped in, "
-     "cut it. Every factual sentence must be about THIS business.")},
+     "Write to THIS business. The section names the business; after that, "
+     "back-references - the company, the business, it - are normal prose. "
+     "The test is the passage: if a passage would still read true with a "
+     "competitor swapped in, it is not about this client - cut or sharpen "
+     "it with their specifics.")},
 
   {"id": "R06", "title": "Grounded in our data", "enforcement": "hard",
    "check": "check_fact_tokens_resolve", "failure_code": "writing_unresolved_fact",

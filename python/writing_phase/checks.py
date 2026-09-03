@@ -277,6 +277,39 @@ _LEGAL_SUFFIX = re.compile(
   r"[,.]?\s*(llc|l\.l\.c\.|inc\.?|incorporated|corp\.?|corporation|co\.?|ltd\.?|llp|pllc|p\.c\.)\s*$",
   re.IGNORECASE)
 _PLACE_NAME = re.compile(r"\b([A-Z][a-z]{3,}(?: [A-Z][a-z]{3,})*)\b")
+# Definite back-references to the subject - legal anaphora under rule 15 as
+# Nick clarified it (2026-09-02). Widened the same day to demonstratives:
+# "That combination of liquidity and leverage..." is cross-record reasoning
+# anchored by back-reference, exactly the analysis the section is for. The
+# swap test therefore catches only fully unanchored sentences; the
+# passage-level judgment is R05's declared blind spot, held by review.
+_ANAPHOR = re.compile(
+  r"\b(?:the (?:company|business|firm|operation|owner|practice|shop|clinic)"
+  r"|the (?:operating|business) model|it|its|th(?:is|at|ese|ose))\b",
+  re.IGNORECASE)
+
+_STOPWORDS = frozenset(
+  "the a an and or of to in on for with is are was were has have had that "
+  "this these those as by at from it their than not but be been into "
+  "across over under also so which who while where when its both same "
+  "more most less".split())
+
+
+def _content_words(text: str, business_name: str = "") -> Set[str]:
+  """Lowercased content words: fact tokens and note markers stripped, the
+  business's own name words removed (they appear everywhere and would
+  inflate every overlap)."""
+  raw = _strip_note_markers(_strip_fact_tokens(text))
+  name_words = {w.lower() for w in re.findall(r"[A-Za-z]+", business_name or "")}
+  return {w for w in re.findall(r"[a-z']+", raw.lower())
+          if w not in _STOPWORDS and w not in name_words and len(w) > 2}
+
+
+def _paragraph_texts(section_payload: Dict[str, Any]) -> List[str]:
+  paras: Dict[int, List[str]] = {}
+  for s in section_payload.get("sentences") or []:
+    paras.setdefault(int(s.get("paragraph") or 1), []).append(str(s.get("text") or ""))
+  return [" ".join(paras[p]) for p in sorted(paras)]
 
 
 def client_tokens_for_draft(draft: Dict[str, Any],
@@ -342,8 +375,36 @@ def check_specificity(section_payload: Dict[str, Any],
     if FACT_TOKEN.search(text):
       continue     # a referenced figure is client-specific by construction
     low = text.lower()
-    if not any(tok.lower() in low for tok in client_tokens if tok):
-      offenders.append(text[:90])
+    if any(tok.lower() in low for tok in client_tokens if tok):
+      continue
+    if _ANAPHOR.search(text):
+      # Nick 2026-09-02: rule 15 was being read at SENTENCE level when it was
+      # meant at SECTION level - "the company", "the business", "it" are all
+      # legal back-references, and forcing the full legal name into every
+      # sentence is what produced the six-mentions-in-five-paragraphs prose.
+      # The section-level anchor (the business must be NAMED somewhere) is
+      # held by check_voice's name-presence leg, not here.
+      continue
+    offenders.append(text[:90])
+  # THE NAME-DROP LEG (Nick 2026-09-02): a typicality claim with no fact
+  # token and no client token is an industry truism wearing the client's
+  # city - "buyers in Overland Park typically want a single grounds partner"
+  # is true of every landscaper in America. Partial enforcement: the marker
+  # heuristic catches the observed pattern; full genericity stays R05's
+  # declared blind spot.
+  for s in section_payload.get("sentences") or []:
+    cls = str(s.get("class") or "").upper()
+    if R.CLASS_RULES.get(cls, {}).get("exempt_from_swap_test"):
+      continue
+    text = str(s.get("text") or "")
+    if FACT_TOKEN.search(text):
+      continue
+    low = text.lower()
+    if not any(m in low for m in R.TYPICALITY_MARKERS):
+      continue
+    if any(tok.lower() in low for tok in client_tokens if tok):
+      continue
+    offenders.append("typicality without an anchor: %s" % text[:70])
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "sentence survives the competitor swap" if offenders else "",
@@ -367,22 +428,35 @@ def check_voice(section_payload: Dict[str, Any],
     if re.search(r"(?<![A-Za-z0-9-])%s(?![A-Za-z0-9-])" % re.escape(pron),
                  blob, re.IGNORECASE):
       offenders.append(pron)
+  # THE SECTION-LEVEL HALF of rule 15 (Nick 2026-09-02): the business must be
+  # NAMED somewhere in the section - that anchor is what makes anaphora legal
+  # everywhere else. The distinctive first word of the name counts.
+  if business_name:
+    nm = str(business_name).strip()
+    first = nm.split()[0] if nm.split() else ""
+    low = blob.lower()
+    named = (nm and nm.lower() in low) or (len(first) >= 4 and first.lower() in low)
+    if not named:
+      offenders.append("business never named in the section")
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "first or second person in the narrative" if offenders else "",
                      offenders)
 
 
-def check_number_style(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
+def check_number_style(section_payload: Dict[str, Any],
+                       brief_facts: Optional[Dict[str, Any]] = None,
+                       **_: Any) -> CheckResult:
   """Rule 16 is enforced by construction - one formatter renders every figure.
   What remains checkable in the GPT output is the hedging ban: no
   'approximately' ON a figure that exists. ON, not NEAR: 'built around a
-  weekly route' is idiom, not a hedge, and failed this check live on
-  2026-09-01 - so only a hedge word immediately preceding a fact token
-  offends."""
+  weekly route' is idiom, not a hedge (live, 2026-09-01) - so only a hedge
+  word immediately preceding a fact token offends. And only a token whose
+  RENDERED value carries a digit (live, 2026-09-02): small counts render as
+  words now, and 'built around two lines' hedges nothing."""
   rid = "R16"
   hedge_before_token = re.compile(
-    r"\b(?:%s)\s+(?:the\s+|its\s+|a\s+|an\s+)?\{\{fact:" %
+    r"\b(?:%s)\s+(?:the\s+|its\s+|a\s+|an\s+)?\{\{fact:([A-Za-z0-9_.-]+)\}\}" %
     "|".join(re.escape(h) for h in R.HEDGE_WORDS), re.IGNORECASE)
   offenders: List[str] = []
   for s in section_payload.get("sentences") or []:
@@ -391,6 +465,10 @@ def check_number_style(section_payload: Dict[str, Any], **_: Any) -> CheckResult
       continue
     m = hedge_before_token.search(text)
     if m:
+      if brief_facts is not None:
+        rendered = str((brief_facts.get(m.group(1)) or {}).get("rendered") or "")
+        if rendered and not _ANY_DIGIT.search(rendered):
+          continue   # a word-rendered value cannot be hedged
       offenders.append("%s -> %s" % (m.group(0)[:30], text[:60]))
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
@@ -694,6 +772,116 @@ def check_structure_and_repetition(**kwargs: Any) -> CheckResult:
   return CheckResult(rid, True, ok,
                      R.rule(rid)["failure_code"] if not ok else None,
                      "" if ok else "structure or repetition violation")
+
+
+# ---------------------------------------------------------------------------
+# PROSE-QUALITY CHECKS (Nick 2026-09-02): instructions turned into checks.
+# "An instruction holds on some businesses and not others" - Halbrook dropped
+# the summary closer, Bluestem kept it, identical prompt. Each is a declared
+# PROXY where it is one. Reported under the rule each serves; run by the
+# author's battery, and out-of-band fails into regeneration, never truncation.
+# ---------------------------------------------------------------------------
+def check_summary_closer(section_payload: Dict[str, Any],
+                         business_name: str = "", **_: Any) -> CheckResult:
+  """R12 family. A final paragraph with no NEW fact token whose vocabulary
+  substantially repeats the section above is a summary - cut it. PROXY: a
+  closer rebuilt from fresh synonyms slips through."""
+  rid = "R12"
+  paras = _paragraph_texts(section_payload)
+  if len(paras) < 3:
+    return CheckResult(rid, True, True, None, "too short to have a closer")
+  last, earlier = paras[-1], " ".join(paras[:-1])
+  new_tokens = set(FACT_TOKEN.findall(last)) - set(FACT_TOKEN.findall(earlier))
+  if new_tokens:
+    return CheckResult(rid, True, True, None, "closer carries new facts")
+  lw = _content_words(last, business_name)
+  if not lw:
+    return CheckResult(rid, True, True, None, "")
+  overlap = len(lw & _content_words(earlier, business_name)) / len(lw)
+  ok = overlap < R.SUMMARY_CLOSER_OVERLAP
+  return CheckResult(rid, True, ok,
+                     "writing_summary_closer" if not ok else None,
+                     "final paragraph restates the section (%.0f%% repeated "
+                     "vocabulary, no new fact)" % (overlap * 100) if not ok else "",
+                     [last[:90]] if not ok else [])
+
+
+def check_repeated_argument(section_payload: Dict[str, Any],
+                            business_name: str = "", **_: Any) -> CheckResult:
+  """R12 family. Two paragraphs sharing most of their content vocabulary are
+  one argument made twice (geography argued in P1 and again in P4). PROXY:
+  paraphrase with fresh synonyms slips through - the weakest of the six."""
+  rid = "R12"
+  paras = _paragraph_texts(section_payload)
+  words = [_content_words(p, business_name) for p in paras]
+  offenders: List[str] = []
+  for i in range(len(paras)):
+    for j in range(i + 1, len(paras)):
+      if not words[i] or not words[j]:
+        continue
+      overlap = len(words[i] & words[j]) / min(len(words[i]), len(words[j]))
+      if overlap >= R.REPEATED_ARGUMENT_OVERLAP:
+        offenders.append("paragraphs %d and %d share %.0f%% of their "
+                         "content words" % (i + 1, j + 1, overlap * 100))
+  return CheckResult(rid, True, not offenders,
+                     "writing_repeated_argument" if offenders else None,
+                     "the same argument is made twice" if offenders else "",
+                     offenders)
+
+
+def check_unearned_intensifiers(section_payload: Dict[str, Any],
+                                **_: Any) -> CheckResult:
+  """R05 family. An intensifier asserts a comparison; without a fact token in
+  the same sentence there is nothing behind it. PROXY: a token in the
+  sentence does not PROVE the comparison - it only shows one was in reach."""
+  rid = "R05"
+  offenders: List[str] = []
+  for s in section_payload.get("sentences") or []:
+    text = str(s.get("text") or "")
+    if FACT_TOKEN.search(text):
+      continue
+    low = text.lower()
+    for w in R.UNEARNED_INTENSIFIERS:
+      if re.search(r"(?<![a-z-])%s(?![a-z-])" % re.escape(w), low):
+        offenders.append("%s -> %s" % (w, text[:70]))
+  return CheckResult(rid, True, not offenders,
+                     "writing_unearned_intensifier" if offenders else None,
+                     "intensifier with no comparison behind it" if offenders else "",
+                     offenders)
+
+
+def check_section_bleed(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
+  """R13 family - the ownership boundary as vocabulary. The Business does not
+  talk in billing, competitor or delivery-mechanics terms; those sections
+  exist so this one does not have to. PROXY: a blocklist, so vocabulary
+  drift outside it slips through until added."""
+  rid = "R13"
+  vocab = R.SECTION_BLEED_VOCAB.get(str(section_payload.get("section_key") or ""), {})
+  offenders: List[str] = []
+  for s in section_payload.get("sentences") or []:
+    low = str(s.get("text") or "").lower()
+    for owner, terms in vocab.items():
+      for t in terms:
+        if re.search(r"(?<![a-z])%s(?![a-z])" % re.escape(t), low):
+          offenders.append("'%s' (%s): %s" % (t, owner, str(s.get("text"))[:60]))
+  return CheckResult(rid, True, not offenders,
+                     "writing_section_bleed" if offenders else None,
+                     "another section's vocabulary" if offenders else "", offenders)
+
+
+def check_length_band(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
+  """R20 family, made a generation gate: a word band, failed outside it.
+  Regeneration, never truncation - R20's document-level law holds."""
+  rid = "R20"
+  words = 0
+  for s in section_payload.get("sentences") or []:
+    words += len(FACT_TOKEN.sub("X", str(s.get("text") or "")).split())
+  lo, hi = R.SECTION_WORD_BAND["min_words"], R.SECTION_WORD_BAND["max_words"]
+  ok = lo <= words <= hi
+  return CheckResult(rid, True, ok,
+                     "writing_length_out_of_band" if not ok else None,
+                     "%d words (band %d-%d)" % (words, lo, hi) if not ok else
+                     "%d words" % words, [])
 
 
 # ---- document-level checks: these run on the RENDERED docx, not on prose ----

@@ -99,6 +99,12 @@ class FormatterTests(unittest.TestCase):
     self.assertEqual(C.fmt_percent(0.12), "12%")
     self.assertEqual(C.fmt_percent(0.124), "12.4%")
 
+  def test_small_counts_render_as_words(self):
+    self.assertEqual(C.fmt_count(2), "two")
+    self.assertEqual(C.fmt_count(9), "nine")
+    self.assertEqual(C.fmt_count(12), "12")
+    self.assertEqual(C.fmt_count(1697), "1,697")
+
   def test_quarter_label_and_months(self):
     self.assertEqual(C.fmt_quarter_label(6), "the second quarter of Year 2")
     self.assertEqual(C.fmt_months(1), "1 month")
@@ -666,7 +672,7 @@ class WideningRuleTests(unittest.TestCase):
     scopes = naics_scopes(_Cur(), "111411", "Mushroom Production")
     self.assertEqual([s[0] for s in scopes], [6, 4, 3, 2])
     self.assertEqual(scopes[0][2], "Mushroom Production")
-    self.assertIn("1114", scopes[1][2])
+    self.assertIn("mushroom production", scopes[1][2])
     self.assertIn("agriculture", scopes[3][2])
 
   def test_every_scoped_market_sentence_requires_the_industry_scope_label(self):
@@ -727,6 +733,7 @@ class TheBusinessSectionTests(unittest.TestCase):
     f = cat.get_quiet("entity.founded_year")
     self.assertIsNotNone(f, "founded_year not built")
     self.assertEqual(f.render(), "2016")
+    self.assertEqual(cat.get_quiet("entity.founded_month_year").render(), "May 2016")
     self.assertIsNone(cat.get_quiet("entity.milestone_statement"),
                       "milestone fact must NOT exist (Nick 2026-09-01)")
 
@@ -749,10 +756,18 @@ class TheBusinessSectionTests(unittest.TestCase):
     res = CK.check_specificity(payload, client_tokens=toks)
     self.assertTrue(res.executed and res.passed)
     res2 = CK.check_specificity(
-      {"sentences": [{"class": "INFERRED", "text": "The company serves its customers well."}]},
+      {"sentences": [{"class": "INFERRED",
+                      "text": "The company keeps the same crews on the same routes."}]},
       client_tokens=toks)
-    self.assertTrue(res2.executed)
-    self.assertFalse(res2.passed, "a swappable sentence must fail R05")
+    self.assertTrue(res2.executed and res2.passed,
+                    "a back-reference is legal - rule 15 is a section-level "
+                    "rule (Nick 2026-09-02)")
+    res3 = CK.check_specificity(
+      {"sentences": [{"class": "INFERRED",
+                      "text": "Customers value dependable, high-quality service."}]},
+      client_tokens=toks)
+    self.assertTrue(res3.executed)
+    self.assertFalse(res3.passed, "a truly swappable sentence must still fail R05")
 
   def test_narrative_thinness_is_loud_at_assembly(self):
     from writing_phase.facts import assembler as A
@@ -852,4 +867,101 @@ class IdentityGuardAndIdentifierTests(unittest.TestCase):
         "competitive_advantage": "AB1234 Logistics runs its own fleet."}}, {})
     self.assertIsNone(cat.get_quiet("entity.stated_certifications"),
                       "the business's own name must not extract as a certification")
+
+  def test_the_depth_facts_of_the_stated_today_position(self):
+    """Nick 2026-09-02: ten facts in, four numbers out was the depth gap.
+    Revenue per person, cash and debt today are computed by Python."""
+    from writing_phase.facts import build as B
+    class _Cur:
+      def execute(self, *a, **k):
+        pass
+      def fetchone(self):
+        return None
+    cat = FactCatalog("d1")
+    B.build_entity(cat, _Cur(), {
+      "business_name": "Halbrook Grounds Management",
+      "business_start_date": "2020-03-16",
+      "financials_json": {"current_revenue": 1400000.0, "current_num_employees": 12,
+                          "cash_on_hand": 145000.0, "total_debt_outstanding": 180000.0}}, {})
+    self.assertEqual(cat.get_quiet("entity.stated_revenue_per_employee").render(), "$117,000")
+    self.assertEqual(cat.get_quiet("entity.stated_cash_on_hand").render(), "$145,000")
+    self.assertEqual(cat.get_quiet("entity.stated_debt_outstanding").render(), "$180,000")
+    self.assertEqual(cat.get_quiet("entity.founded_month_year").render(), "March 2020")
+    # zero debt is words, not a figure - the fact stays absent
+    cat2 = FactCatalog("d2")
+    B.build_entity(cat2, _Cur(), {"business_name": "X",
+      "financials_json": {"current_revenue": 100000, "current_num_employees": 0,
+                          "total_debt_outstanding": 0}}, {})
+    self.assertIsNone(cat2.get_quiet("entity.stated_debt_outstanding"))
+    self.assertIsNone(cat2.get_quiet("entity.stated_revenue_per_employee"))
+
+
+  def test_observation_floor_and_tenure_fact_pruning(self):
+    """Nick 2026-09-02: observations are a FLOOR - every one that resolves
+    must arrive - and the wrong-age tenure FACT leaves the brief entirely."""
+    from writing_phase import author as AU
+    from writing_phase import payload as PL
+    from writing_phase.facts.assembler import SectionBrief
+    brief = SectionBrief("the_business", facts={
+      "entity.business_name": {"rendered": "X"},
+      "entity.stated_current_revenue": {"rendered": "$1.4 million"},
+      "entity.stated_employees": {"rendered": "12"},
+      "industry.five_year_survival_rate": {"rendered": "52.3%"},
+      "industry.bds_scope_label": {"rendered": "the services industry"},
+      "entity.years_operating": {"rendered": "7th"},
+    })
+    covered = {"section_key": "the_business", "sentences": [
+      {"text": "It holds {{fact:entity.stated_current_revenue}} in trailing revenue "
+               "with {{fact:entity.stated_employees}} people."},
+      {"text": "In {{fact:industry.bds_scope_label}}, "
+               "{{fact:industry.five_year_survival_rate}} survive five years; it is in "
+               "its {{fact:entity.years_operating}} year."}], "notes": []}
+    res = AU.observation_floor_check(covered, brief, exclude_sentence_ids=("S11",))
+    self.assertTrue(res.passed, "covered observations must pass: %s" % res.offenders)
+    dropped = {"section_key": "the_business", "sentences": [
+      {"text": "In {{fact:industry.bds_scope_label}}, "
+               "{{fact:industry.five_year_survival_rate}} survive five years; it is in "
+               "its {{fact:entity.years_operating}} year."}], "notes": []}
+    res2 = AU.observation_floor_check(dropped, brief, exclude_sentence_ids=("S11",))
+    self.assertFalse(res2.passed, "dropping the resolved S48 must fail the floor")
+    self.assertTrue(any("S48" in o for o in res2.offenders))
+    block = PL.build_section_block(brief, exclude_sentence_ids=("S11",),
+                                   exclude_fact_keys=("industry.first_year_exit_rate",))
+    self.assertNotIn("first_year_exit_rate", block,
+                     "the wrong-age tenure fact must leave the brief entirely")
+    self.assertIn("MUST COVER", block)
+    self.assertNotIn('"template"', block,
+                     "sentence templates must not ship to the writer (Nick 2026-09-02)")
+    # the tenure floor now demands the RATE itself, not any-of
+    res4 = AU.observation_floor_check(
+      {"section_key": "the_business", "sentences": [
+        {"text": "It is in its {{fact:entity.years_operating}} year."},
+        {"text": "It holds {{fact:entity.stated_current_revenue}} with "
+                 "{{fact:entity.stated_employees}} people."}], "notes": []},
+      brief, exclude_sentence_ids=("S11",))
+    self.assertFalse(res4.passed, "tenure without the rate must fail the floor")
+    self.assertTrue(any("five_year_survival_rate" in o for o in res4.offenders))
+
+
+  def test_scope_label_is_words_when_the_master_has_a_title(self):
+    """Nick 2026-09-02: never print a NAICS code - the label is the industry
+    in words at the level the data was drawn at."""
+    from writing_phase.facts.build import naics_scopes
+    class _Cur:
+      def execute(self, sql, params=None):
+        self._p = (params or [""])[0]
+      def fetchall(self):
+        return []
+      def fetchone(self):
+        return {"5617": ("Services to Buildings and Dwellings",),
+                "561": ("Administrative and Support Services",)}.get(self._p)
+    scopes = naics_scopes(_Cur(), "561730", "Landscaping Services")
+    # Nick 2026-09-02: the NAICS-4 title is a code wearing words - anchor on
+    # the client's own trade and say the data is drawn wider
+    self.assertEqual(scopes[1][2], "the trade group that includes landscaping services")
+    self.assertEqual(scopes[2][2], "the broader trade group that includes landscaping services")
+    for lvl, _, label in scopes:
+      if lvl != 6:
+        self.assertNotIn("NAICS", label)
+
 
