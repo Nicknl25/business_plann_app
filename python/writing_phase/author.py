@@ -273,13 +273,11 @@ def run_section_checks(section_payload: Dict[str, Any], brief: SectionBrief,
     CK.check_no_computation(section_payload,
                             business_name=str(draft.get("business_name") or "")),
     CK.check_namespace_scope(section_payload),
-    # the prose-quality battery (Nick 2026-09-02): instructions became checks
-    CK.check_summary_closer(section_payload,
-                            business_name=str(draft.get("business_name") or "")),
-    CK.check_repeated_argument(section_payload,
-                               business_name=str(draft.get("business_name") or "")),
-    CK.check_unearned_intensifiers(section_payload),
-    CK.check_section_bleed(section_payload),
+    # prose quality, STRUCTURAL ONLY (Nick 2026-09-02): the closer's
+    # fact-reference structure and the word band. Repeated arguments,
+    # intensified comparisons, genericity and narrative bleed are DECLARED
+    # review-caught - see the honest ledger in rules.py.
+    CK.check_summary_closer(section_payload),
     CK.check_length_band(section_payload),
   ]
 
@@ -370,7 +368,10 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
   guidance = SECTION_GUIDANCE.get(section_key, "Write the section from its brief.")
   feedback = ""
   last: Dict[str, Any] = {"ok": False, "payload": None, "error": "not_attempted"}
-  for attempt in (1, 2):
+  # two repair rounds (2026-09-02): the structural battery legitimately
+  # catches more, and a third attempt with named failures beats a
+  # deterministic FAIL under the GPT lock
+  for attempt in (1, 2, 3):
     got = author_once(shared, section_block, guidance, model=model,
                       seed=_SEED + attempt - 1, repair_feedback=feedback, _http=_http)
     if not got["ok"]:

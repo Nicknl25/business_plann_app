@@ -350,48 +350,24 @@ PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
 # in checks.py, run per section at authoring time. Out-of-band FAILS the
 # section into a regeneration - never a truncation, so R20's law holds.
 # ---------------------------------------------------------------------------
-# Word band per authored section (tokens count as one word). ~1-2 pages.
+# Word band per authored section (tokens count as one word). ~1-2 pages. A
+# band is a limit, not a heuristic - it stays.
 SECTION_WORD_BAND = {"min_words": 300, "max_words": 950}
 
-# Intensifiers that assert a comparison. Without a fact token in the same
-# sentence there is no comparison behind them - "unusually low crew turnover"
-# survived three passes because nothing caught it. ("rare"/"rarely" excluded:
-# too common as plain adjectives - a declared gap.)
-UNEARNED_INTENSIFIERS = (
-  "unusually", "exceptionally", "remarkably", "notably", "significantly",
-  "extraordinarily", "uniquely", "industry-leading", "best-in-class",
-)
-
-# Typicality markers: a GROUNDED/INFERRED sentence carrying one of these with
-# no fact token and no client token is an industry truism wearing the
-# client's city - the R05 name-drop gaming Nick called out.
-TYPICALITY_MARKERS = (
-  "typically", "usually", "often", "commonly", "generally", "tend to",
-  "tends to",
-)
-
-# SECTION BLEED - the ownership boundary as vocabulary. A section must not
-# talk in another section's terms; matched with word boundaries.
-SECTION_BLEED_VOCAB = {
-  "the_business": {
-    "products_and_services owns billing and pricing": (
-      "billed", "billing", "invoice", "invoicing", "pricing", "unit price",
-      "per completed job", "rate card"),
-    "competitive_landscape owns versus-whom": (
-      "competitor", "competitors", "competing", "rival", "lowest bid",
-      "cheaper than"),
-    "operations owns delivery mechanics": (
-      "load trucks", "loads trucks", "loading trucks", "lead time",
-      "lead times", "dispatch", "service windows", "route days",
-      "each morning"),
-  },
-}
-
-# The closer/repetition thresholds (content-word overlap after stopwords and
-# the business's own name are stripped). PROXIES: a summary rebuilt from
-# synonyms slips through - declared, not hidden.
-SUMMARY_CLOSER_OVERLAP = 0.65
-REPEATED_ARGUMENT_OVERLAP = 0.45
+# THE HONEST LEDGER OF WHAT PROSE QUALITY IS HELD BY (Nick 2026-09-02,
+# second ruling: "do these structurally or don't do them" - the workbook's
+# annual-mode lesson, declare the structure so the words stop mattering):
+#   STRUCTURAL (checked): summary closer (fact-reference structure - a final
+#     paragraph citing only already-used tokens introduces no fact); word
+#     band; the observation floor; token resolution; namespaces.
+#   NOT CHECKABLE, caught in review (said plainly, no pretend thresholds):
+#     a repeated argument made in fresh words; an intensified comparison
+#     ("unusually low") - detecting comparative claims without a lexicon is
+#     not mechanical, and these are the R14 qualitative escape hatch;
+#     R05 genericity beyond the anchor test; narrative-level section bleed -
+#     its structural check is WITHIN-PLAN cross-section duplication, which
+#     becomes buildable when the second section exists (fact-level bleed is
+#     already structural via brief-scoped tokens and rule 18 namespaces).
 
 
 # ---------------------------------------------------------------------------

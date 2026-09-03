@@ -399,40 +399,35 @@ class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
 
 
 class ProseQualityChecksTests(unittest.TestCase):
-  """Nick 2026-09-02: instructions became checks - Halbrook obeyed the
-  summary ban and Bluestem ignored it on identical prompt text."""
+  """Nick's second 2026-09-02 ruling: structural or not at all. The summary
+  closer is fact-reference structure; the word band is a limit. Repeated
+  arguments, intensifiers, genericity and narrative bleed are DECLARED
+  review-caught (the ledger in rules.py) - no pretend thresholds."""
 
-  def test_summary_closer_fails_and_a_substantive_closer_passes(self):
-    base = [{"text": "Halbrook keeps stable crews on fixed routes across Johnson County.", "paragraph": 1},
-            {"text": "Revenue reached {{fact:entity.stated_current_revenue}} with steady contracts.", "paragraph": 2}]
-    summary = base + [{"text": "Taken together, stable crews, fixed routes and steady contracts across Johnson County define the business.", "paragraph": 3}]
-    res = C.check_summary_closer({"sentences": summary}, business_name="Halbrook")
-    self.assertFalse(res.passed, "a no-new-fact restatement closer must fail")
-    fresh = base + [{"text": "The next hire adds a third route carrying {{fact:entity.stated_cash_on_hand}} of reserve.", "paragraph": 3}]
-    self.assertTrue(C.check_summary_closer({"sentences": fresh}, business_name="Halbrook").passed)
+  def test_summary_closer_is_fact_reference_structure(self):
+    base = [{"text": "Crews stay on {{fact:entity.coverage_zip}} routes.", "paragraph": 1},
+            {"text": "Revenue is {{fact:entity.stated_current_revenue}}.", "paragraph": 2}]
+    # re-cites a fact, introduces none -> a summary, structurally
+    recap = base + [{"text": "That tenure and {{fact:entity.stated_current_revenue}} define the company.", "paragraph": 3}]
+    self.assertFalse(C.check_summary_closer({"sentences": recap}).passed)
+    # introduces a first-use fact -> not a summary
+    fresh = base + [{"text": "The next route adds {{fact:entity.stated_cash_on_hand}} of reserve.", "paragraph": 3}]
+    self.assertTrue(C.check_summary_closer({"sentences": fresh}).passed)
+    # fully qualitative closer -> exempt; its new-claim half is review's
+    qual = base + [{"text": "The crews' continuity is what property managers remember.", "paragraph": 3}]
+    self.assertTrue(C.check_summary_closer({"sentences": qual}).passed)
 
-  def test_repeated_argument_fails(self):
-    twice = [{"text": "Routes stay compact inside Johnson County to protect crew time and drive efficiency.", "paragraph": 1},
-             {"text": "Revenue is steady at {{fact:entity.stated_current_revenue}}.", "paragraph": 2},
-             {"text": "Compact routes inside Johnson County protect crew time and drive efficiency.", "paragraph": 3}]
-    res = C.check_repeated_argument({"sentences": twice}, business_name="Halbrook")
-    self.assertFalse(res.passed, "the same argument twice must fail")
 
-  def test_unearned_intensifier_fails_without_a_token(self):
-    bad = C.check_unearned_intensifiers({"sentences": [
-      {"text": "That unusually low crew turnover anchors the model."}]})
-    self.assertFalse(bad.passed)
-    ok = C.check_unearned_intensifiers({"sentences": [
-      {"text": "Turnover is notably below the {{fact:industry.turnover_benchmark}} benchmark."}]})
-    self.assertTrue(ok.passed)
-
-  def test_section_bleed_catches_other_sections_vocabulary(self):
-    bad = C.check_section_bleed({"section_key": "the_business", "sentences": [
-      {"text": "Properties are billed monthly under contract."}]})
-    self.assertFalse(bad.passed)
-    ok = C.check_section_bleed({"section_key": "the_business", "sentences": [
-      {"text": "Crews stay on the same properties year after year."}]})
-    self.assertTrue(ok.passed)
+  def test_readability_measures_segments_not_colon_sentences(self):
+    """A well-formed colon-list sentence reads as its parts (live,
+    2026-09-02); a true run-on still fails."""
+    listy = ("In a trade where turnover is common, continuity is an advantage: "
+             + "properties stay maintained with less oversight, "
+             + "issues are spotted early, and managers entrust bigger work "
+             + "to crews that proved themselves on routine visits.")
+    self.assertTrue(C.check_readability({"sentences": [{"text": listy}]}).passed)
+    runon = ("word " * 50).strip() + "."
+    self.assertFalse(C.check_readability({"sentences": [{"text": runon}]}).passed)
 
   def test_length_band_fails_outside(self):
     short = {"sentences": [{"text": "Too short."}]}
@@ -440,15 +435,15 @@ class ProseQualityChecksTests(unittest.TestCase):
     body = {"sentences": [{"text": ("word " * 25).strip() + "."} for _ in range(16)]}
     self.assertTrue(C.check_length_band(body).passed)
 
-  def test_r05_typicality_without_anchor_fails(self):
-    res = C.check_specificity({"sentences": [{"class": "INFERRED",
-      "text": "Commercial buyers in Overland Park typically want a single grounds partner."}]},
-      client_tokens={"Halbrook"})
-    self.assertFalse(res.passed, "a truism wearing the client's city must fail")
-    res2 = C.check_specificity({"sentences": [{"class": "INFERRED",
-      "text": "Halbrook typically renews its contracts each spring."}]},
-      client_tokens={"Halbrook"})
-    self.assertTrue(res2.passed, "a typicality claim about the named client is legal")
+  def test_the_removed_heuristics_stay_removed(self):
+    """A word-list check quietly reintroduced would betray the ledger."""
+    for gone in ("check_repeated_argument", "check_unearned_intensifiers",
+                 "check_section_bleed"):
+      self.assertFalse(hasattr(C, gone), "%s must stay removed - the ledger "
+                       "declares it review-caught" % gone)
+    self.assertFalse(hasattr(R, "SECTION_BLEED_VOCAB"))
+    self.assertFalse(hasattr(R, "UNEARNED_INTENSIFIERS"))
+    self.assertFalse(hasattr(R, "TYPICALITY_MARKERS"))
 
 
 if __name__ == "__main__":
