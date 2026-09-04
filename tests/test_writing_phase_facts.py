@@ -880,6 +880,66 @@ class IdentityGuardAndIdentifierTests(unittest.TestCase):
                       "the business's own name must not extract as a certification")
 
 
+class LeafControlTests(unittest.TestCase):
+  """Nick 2026-09-03: field-level control. The unit is the leaf; a leaf
+  assigned to nothing is invisible but KNOWN; an actual path matching no row
+  is an orphan and must never happen on the golden inventory."""
+
+  def test_zero_orphans_on_the_golden_inventory(self):
+    import io as _io, json as _json, os as _os
+    from writing_phase import leaves as LV
+    golden = _json.load(_io.open(_os.path.join(ROOT, "tests",
+                                               "golden_leaf_patterns.json"),
+                                 encoding="utf-8"))
+    misses = []
+    for src, pats in golden.items():
+      if src == "_grids":
+        continue
+      for pat in pats:
+        if LV.match(src, pat) is None:
+          misses.append("%s %s" % (src, pat))
+    self.assertFalse(misses, "orphans on the golden draft inventory: %s"
+                     % misses[:10])
+
+  def test_the_business_projection_is_field_level(self):
+    from writing_phase import leaves as LV
+    draft = {"operating_model_json": {
+      "business_description_summary": "An online pet supply reseller.",
+      "competitive_advantage": "Curated premium brands.",
+      "geographic_coverage": "Nationwide from Grand Rapids.",
+      "primary_growth_lever": "wholesale accounts",
+      "business_naics_6": "517121",
+      "lob_models": [{"lob_name": "Direct", "products": [
+        {"product_name": "Order", "unit_price": 68.0, "unit_cadence": "weekly"}]}],
+      "capacity_driver": "labor"},
+      "financials_json": {"current_revenue": 1300000.0, "monthly_rent_expense": 3800.0}}
+    view = LV.project("the_business", draft)
+    # current_revenue is via_facts: owned, but served by the catalog's
+    # formatter - never a raw narrative leaf (no double door)
+    self.assertEqual(sorted(view),
+                     ["business_description_summary", "competitive_advantage",
+                      "geographic_coverage"])
+    self.assertNotIn("current_revenue", view)
+    blob = str(view)
+    self.assertNotIn("unit_price", blob, "Products' leaf leaked into The Business")
+    self.assertNotIn("68.0", blob)
+    self.assertNotIn("517121", blob, "the NAICS is assigned to nothing")
+    self.assertNotIn("wholesale accounts", blob, "a PENDING leaf projects nowhere")
+    self.assertNotIn("3800", blob, "a pending today-scalar projects nowhere")
+    prods = LV.project("products_and_services", draft)
+    self.assertIn("lob_models", prods)
+    self.assertIn("unit_price", str(prods), "Products owns its unit economics")
+
+  def test_pending_and_invisible_are_known_not_orphans(self):
+    from writing_phase import leaves as LV
+    self.assertIsNotNone(LV.match("operating_model_json", "/primary_growth_lever"))
+    self.assertEqual(LV.match("operating_model_json", "/primary_growth_lever")[3], "pending")
+    self.assertEqual(LV.match("operating_model_json", "/business_naics_6")[3], "invisible")
+    self.assertIsNone(LV.match("operating_model_json", "/a_brand_new_intake_field"),
+                      "a truly new field must be an orphan")
+
+
+
 class AssignmentIsTheDoorTests(unittest.TestCase):
   """Nick 2026-09-03: the assignment table IS what a section can say. A fact
   assigned to nothing is invisible; a brief may carry nothing the table

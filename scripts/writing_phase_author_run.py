@@ -131,10 +131,18 @@ def main() -> int:
   # ---- THE ASSIGNMENT VERIFIES OR THE PHASE REFUSES (Nick 2026-09-03, the
   # payroll-contract lesson): seed from code, read back field by field.
   from writing_phase import assignment as ASG
+  from writing_phase import leaves as LV
   ASG.seed_assignment_lookup(conn)
   ok, problems = ASG.verify_assignment_live(conn)
   if not ok:
     print("ASSIGNMENT TABLE DISAGREES WITH assignment.py - refusing to author:")
+    for p in problems[:20]:
+      print("  " + p)
+    return 2
+  LV.seed_leaf_lookup(conn)
+  ok, problems = LV.verify_leaf_lookup_live(conn)
+  if not ok:
+    print("LEAF TABLE DISAGREES WITH leaves.py - refusing to author:")
     for p in problems[:20]:
       print("  " + p)
     return 2
@@ -172,6 +180,12 @@ def main() -> int:
     corpus = set()
     for (pj,) in ccur.fetchall():
       corpus |= _grams(json.loads(pj), R.SIMILARITY_GUARD["ngram_size"])
+    # THE ORPHAN WALK - global from day one: a new intake field surfaces on
+    # this receipt line instead of silently vanishing (Nick 2026-09-03).
+    new_leaves = LV.record_orphans(conn, d, d["draft_id"])
+    if new_leaves:
+      print("    NEW-LEAVES=%d unassigned paths recorded to %s"
+            % (new_leaves, LV.ORPHANS_TABLE))
     res = AU.author_section(d, cat, brief, corpus_ngrams=corpus)
     tag = "PASS" if res["ok"] else ("FAIL:" + str(res.get("error")))
     print("%-36s %-14s attempts=%s sentences=%s" % (

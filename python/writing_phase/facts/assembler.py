@@ -30,6 +30,7 @@ from . import sentences as S
 from .catalog import FactCatalog
 
 from .. import assignment as ASG
+from .. import leaves as LV
 
 # THE ASSIGNMENT IS THE ONLY DOOR (Nick 2026-09-03): what a brief carries is
 # exactly what assignment.py assigns - facts and narratives both. This module
@@ -252,9 +253,15 @@ def assemble(cat: FactCatalog, *, sections: Optional[List[str]] = None,
                         if s["key"] not in ("appendix", "sources_and_notes")]
   for section_key in wanted:
     brief = SectionBrief(section_key=section_key)
-    for nk in NARRATIVE_MAP.get(section_key, ()):  # the map is the whole grant
-      if nk in pool:
-        brief.narratives[nk] = pool[nk]
+    if section_key in LV.PROJECTED_SECTIONS and draft is not None:
+      # LEAF-PROJECTED (Nick 2026-09-03): the section's narrative view is
+      # rebuilt from its assigned leaves - field-level, not payload-level.
+      # Other sections keep their grants until each is converted.
+      brief.narratives = LV.project(section_key, draft)
+    else:
+      for nk in NARRATIVE_MAP.get(section_key, ()):  # the map is the whole grant
+        if nk in pool:
+          brief.narratives[nk] = pool[nk]
     sents = S.sentences_for_section(section_key)
     # THE ASSIGNMENT IS THE DEMAND (Nick 2026-09-03): the brief carries
     # exactly what the table assigns - no sentence-derived widening, no
