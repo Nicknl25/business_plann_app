@@ -51,14 +51,15 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S10", "section": "market_and_industry", "class": "INFERRED",
    "text": "Net job creation across the sector ran {industry.net_job_creation_rate} in {industry.bds_year} - employment in the trade is {industry.employment_direction}.",
    "needs": ["industry.net_job_creation_rate", "industry.bds_year", "industry.employment_direction"]},
-  # S11 carries the BDS scope label (Nick 2026-09-01): Understory's rate is the
-  # agriculture SECTOR's, and the sentence must not claim it for mushroom farms.
-  # floor_required (Nick 2026-09-02): the RATE is the point - the observation
-  # only counts as covered when the rate itself is on the page.
+  # THE SCOPE MOVED TO THE NOTE (Nick 2026-09-03): the sentence names the
+  # business's own trade from the client's account; the statistical population
+  # lives in the rate's note basis, one superscript away. "The trade group
+  # that includes X" was a lookup key wearing prose - rule 4. floor_required
+  # (Nick 2026-09-02): the RATE is the point.
   {"id": "S11", "core": True, "section": "the_business", "class": "INFERRED",
    "floor_required": ["industry.first_year_exit_rate"],
-   "text": "First-year establishments in {industry.bds_scope_label} close at a rate of {industry.first_year_exit_rate}; {entity.business_name} is in its {entity.years_operating} year of operation.",
-   "needs": ["industry.first_year_exit_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
+   "text": "First-year establishments in this trade close at a rate of {industry.first_year_exit_rate}; {entity.business_name} is in its {entity.years_operating} year of operation.",
+   "needs": ["industry.first_year_exit_rate", "entity.business_name", "entity.years_operating"]},
   {"id": "S12", "section": "market_and_industry", "class": "INFERRED",
    "text": "Firms under five years old account for {industry.young_firm_employment_share} of the sector's employment.",
    "needs": ["industry.young_firm_employment_share"]},
@@ -238,8 +239,8 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
   # instructions carry the rule; both ride in the brief).
   {"id": "S61", "section": "the_business", "class": "INFERRED",
    "floor_required": ["industry.five_year_survival_rate"],
-   "text": "Of establishments that open in {industry.bds_scope_label}, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
-   "needs": ["industry.five_year_survival_rate", "industry.bds_scope_label", "entity.business_name", "entity.years_operating"]},
+   "text": "Of establishments that open in this trade, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
+   "needs": ["industry.five_year_survival_rate", "entity.business_name", "entity.years_operating"]},
 
   # ---- THE DEPTH FACTS (Nick 2026-09-02): the stated today-position a
   # consultant would put in a company description. Templates are the

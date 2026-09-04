@@ -284,7 +284,7 @@ _PLACE_NAME = re.compile(r"\b([A-Z][a-z]{3,}(?: [A-Z][a-z]{3,})*)\b")
 # swap test therefore catches only fully unanchored sentences; the
 # passage-level judgment is R05's declared blind spot, held by review.
 _ANAPHOR = re.compile(
-  r"\b(?:the (?:company|business|firm|operation|owner|practice|shop|clinic)"
+  r"\b(?:the (?:company|business|firm|operation|owner|practice|shop|clinic|brand|team)"
   r"|the (?:operating|business) model|it|its|th(?:is|at|ese|ose))\b",
   re.IGNORECASE)
 

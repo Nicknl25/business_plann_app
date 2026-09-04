@@ -700,16 +700,22 @@ class TheBusinessSectionTests(unittest.TestCase):
   and paired by age, milestones out entirely, a founded-year fact, and a
   producer for R05's client tokens."""
 
-  def test_both_tenure_sentences_exist_and_carry_the_scope_label(self):
+  def test_both_tenure_sentences_exist_and_the_scope_lives_in_the_note(self):
+    """Nick 2026-09-03: the sentence names the client's trade; the statistical
+    population lives in the rate's NOTE basis - a lookup key wearing prose is
+    rule-4 machinery. The label must NOT ride in the sentence needs."""
     by_id = {s["id"]: s for s in S.SENTENCES}
     for sid, rate_key in (("S11", "industry.first_year_exit_rate"),
                           ("S61", "industry.five_year_survival_rate")):
       s = by_id[sid]
       self.assertEqual(s["section"], "the_business")
       self.assertIn(rate_key, s["needs"])
-      self.assertIn("industry.bds_scope_label", s["needs"],
-                    "%s states a BDS rate without saying at what scope" % sid)
+      self.assertNotIn("industry.bds_scope_label", s["needs"],
+                       "%s puts the lookup scope back on the page" % sid)
       self.assertIn("entity.years_operating", s["needs"])
+    from writing_phase.facts.assembler import IDENTITY_KEYS
+    self.assertNotIn("entity.naics_title", IDENTITY_KEYS,
+                     "the classification is machinery, not an identity key")
 
   def test_milestones_are_granted_nowhere(self):
     from writing_phase.facts import assembler as A

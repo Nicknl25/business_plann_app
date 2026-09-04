@@ -30,8 +30,11 @@ from . import sentences as S
 from .catalog import FactCatalog
 
 # Identity keys every section's brief carries - a section must be able to name
-# the business and its trade without borrowing another section's sentences.
-IDENTITY_KEYS = ("entity.business_name", "entity.naics_title", "entity.state_name")
+# the business without borrowing another section's sentences. naics_title
+# DROPPED (Nick 2026-09-03): the classification is machinery - the client's
+# own account names the trade, and the code was riding into every brief
+# dressed as a client-stated fact.
+IDENTITY_KEYS = ("entity.business_name", "entity.state_name")
 
 # THE NARRATIVE MAP (Nick, 2026-08-30): a section gets the stored narrative its
 # substance depends on and not the rest. Operations and Products are

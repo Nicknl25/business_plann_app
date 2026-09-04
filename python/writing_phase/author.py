@@ -75,7 +75,11 @@ SUBMIT_TOOL = {
 }
 
 _SYSTEM_PROMPT = (
-  "You write one section of a client's business plan. The rules in the brief "
+  "You write one section of a client's business plan. Understand the "
+  "business from the client's own account and the record; use the system's "
+  "numbers as evidence inside that understanding - never derive what the "
+  "business is from a classification or a lookup. "
+  "The rules in the brief "
   "are binding; the ones that matter mechanically: tag every sentence "
   "GROUNDED, INFERRED or FRAMING; never type a digit - every figure is a "
   "{{fact:key}} token from the SECTION FACTS block, exactly as keyed - a key "

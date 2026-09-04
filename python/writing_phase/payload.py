@@ -151,15 +151,21 @@ def build_section_block(brief: SectionBrief,
   spec = R.section(brief.section_key)
   parts: List[str] = []
   parts.append("== SECTION: %s ==" % spec["title"])
-  parts.append("== SECTION FACTS (reference as {{fact:key}}; never type a number) ==")
+  # AUTHORITY ORDER (Nick 2026-09-03): the client's account is the
+  # UNDERSTANDING and comes first; the numbers are evidence inside it. The
+  # old order and headers framed the facts as authority and the narrative as
+  # colour - and the writer obeyed, deriving the industry from a lookup key.
+  if brief.narratives:
+    parts.append("== WHAT THIS BUSINESS IS (the client's own account - the "
+                 "section's understanding comes from HERE; rework, never restate) ==")
+    parts.append(json.dumps(brief.narratives, separators=(",", ":"), ensure_ascii=False, default=str))
   # exclude_fact_keys prunes facts the author ruled out (the wrong-age tenure
   # rate, 2026-09-02) - filtering the observation alone left the FACT in the
   # brief, and the writer quoted a first-year exit rate on a 7th-year business
   facts = {k: v for k, v in brief.facts.items() if k not in set(exclude_fact_keys)}
+  parts.append("== THE SYSTEM'S NUMBERS (evidence inside that understanding; "
+               "reference as {{fact:key}}; never type a number) ==")
   parts.append(json.dumps(facts, separators=(",", ":"), ensure_ascii=False))
-  if brief.narratives:
-    parts.append("== SECTION NARRATIVE (the client's own account; rework, never restate) ==")
-    parts.append(json.dumps(brief.narratives, separators=(",", ":"), ensure_ascii=False, default=str))
   # NO SENTENCE TEMPLATES (Nick 2026-09-02): "a writer given templates fills
   # them." The writer gets the facts each observation must put on the page;
   # the sentences are its job. Templates stay in sentences.py as the

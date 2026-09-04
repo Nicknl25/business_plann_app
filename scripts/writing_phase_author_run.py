@@ -49,6 +49,45 @@ DRAFT_COLS = ("draft_id, business_name, business_start_date, address_zip, addres
               "financials_year1_json, marketing_model_json, planning_run_id")
 
 
+def print_receipt(name, res, payload):
+  """THE QUALITY RECEIPT (Nick 2026-09-03): verdict, the six metrics, and
+  which checks bit versus slept - so Nick reads receipts, and prose only on
+  an anomalous receipt or as the one random sample per batch."""
+  sents = payload.get("sentences") or []
+  n = len(sents) or 1
+  paras = {}
+  for s in sents:
+    paras.setdefault(int(s.get("paragraph") or 1), []).append(str(s.get("text") or ""))
+  ptexts = [" ".join(paras[k]) for k in sorted(paras)]
+  words = sum(len(CK.FACT_TOKEN.sub("X", str(s.get("text") or "")).split()) for s in sents)
+  full = " ".join(str(s.get("text") or "") for s in sents)
+  classes = {}
+  for s in sents:
+    classes[str(s.get("class") or "?")] = classes.get(str(s.get("class") or "?"), 0) + 1
+  first = name.split()[0].lower() if name.split() else ""
+  anaphora = sum(1 for s in sents
+                 if not CK.FACT_TOKEN.search(str(s.get("text") or ""))
+                 and first not in str(s.get("text") or "").lower()
+                 and CK._ANAPHOR.search(str(s.get("text") or "")))
+  machinery = (full.count("trade group that includes")
+               + full.count("{{fact:industry.bds_scope_label}}")
+               + full.count("NAICS"))
+  last_toks = CK.FACT_TOKEN.findall(ptexts[-1]) if ptexts else []
+  closer = "EXERCISED" if last_toks else "SLEPT(qualitative)"
+  verdict = "PASS" if res.get("ok") else "FAIL"
+  print("    RECEIPT %s | words=%d paras=%d sentences=%d | %s | name=%d notes=%d "
+        "machinery=%d anaphora-only=%d | closer-check=%s" % (
+          verdict, words, len(ptexts), len(sents),
+          " ".join("%s=%d%%" % (k[:4], round(100 * v / n)) for k, v in sorted(classes.items())),
+          len(re.findall(re.escape(name), full)), len(payload.get("notes") or []),
+          machinery, anaphora, closer))
+  bit = [r for r in (res.get("results") or []) if r.offenders or not (r.executed and r.passed)]
+  print("    CHECKS %d ran | bit: %s | failed: %s" % (
+    len(res.get("results") or []),
+    ",".join(sorted({r.rule_id for r in bit})) or "none",
+    ",".join(r.rule_id for r in (res.get("results") or []) if not (r.executed and r.passed)) or "none"))
+
+
 def _grams(payload, n):
   words = []
   for s in payload.get("sentences") or []:
@@ -104,6 +143,8 @@ def main() -> int:
       len((res.get("payload") or {}).get("sentences") or [])))
     for r in CK.failures(res.get("results") or []):
       print("    %s %s %s" % (r.rule_id, r.failure_code, "; ".join(r.offenders[:3])))
+    if res.get("payload"):
+      print_receipt(name, res, res["payload"])
     if res.get("payload"):
       payloads[d["draft_id"]] = (d, res["payload"])
       text = AU.render_section_text(res["payload"], cat)
